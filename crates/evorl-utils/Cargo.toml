@@ -1,0 +1,16 @@
+[package]
+name = "evorl-utils"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }

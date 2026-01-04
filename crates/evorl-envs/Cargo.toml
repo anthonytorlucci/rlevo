@@ -1,0 +1,23 @@
+[package]
+name = 'evorl-envs'
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+evorl-core = { path = '../evorl-core' }
+evorl-rl = { path = '../evorl-rl' }
+rand = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+
+[[example]]
+name = 'cartpole_training'
+path = 'examples/cartpole_training.rs'
