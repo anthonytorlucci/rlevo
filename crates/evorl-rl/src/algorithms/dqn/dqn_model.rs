@@ -1,10 +1,11 @@
 use std::fmt;
 
-use crate::base::burnrl_model::RLModel;
-use crate::base::ElemType;
 use burn::module::AutodiffModule;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::backend::AutodiffBackend;
+use evorl_core::model::DrlModel;
 
-pub trait DQNModel<B: AutodiffBackend>: RLModel<B> + fmt::Debug + AutodiffModule<B> {
-    fn soft_update(this: Self, that: &Self, tau: ElemType) -> Self;
+pub trait DQNModel<B: AutodiffBackend, const R: usize>:
+    DrlModel<B, R> + fmt::Debug + AutodiffModule<B>
+{
+    fn soft_update(this: Self, that: &Self, tau: f64) -> Self;
 }

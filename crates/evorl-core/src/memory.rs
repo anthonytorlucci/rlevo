@@ -2,6 +2,7 @@ use crate::environment::Environment;
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use burn::tensor::TensorData;
+use rand::seq::IteratorRandom;
 use rand::Rng;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 // use std::marker::PhantomData;
@@ -79,11 +80,11 @@ where
     }
 
     pub fn push(&mut self, experience: Experience<E, S, A>) {
-        self.states.push(experience.state);
-        self.actions.push(experience.action);
-        self.rewards.push(experience.reward);
-        self.next_states.push(experience.next_state);
-        self.dones.push(experience.done);
+        self.states.enqueue(experience.state);
+        self.actions.enqueue(experience.action);
+        self.rewards.enqueue(experience.reward);
+        self.next_states.enqueue(experience.next_state);
+        self.dones.enqueue(experience.done);
     }
 
     pub fn sample_batch<B: Backend>(
@@ -92,132 +93,129 @@ where
         device: &B::Device,
         rng: &mut impl Rng,
     ) -> Result<TrainingBatch<B, S, A>, ReplayBufferError> {
-        if batch_size > self.len() {
-            return Err(ReplayBufferError::InsufficientData {
-                requested: batch_size,
-                available: self.len(),
-            });
-        }
+        todo!("Implement the batching method for training/learning.")
+        //     if batch_size > self.len() {
+        //         return Err(ReplayBufferError::InsufficientData {
+        //             requested: batch_size,
+        //             available: self.len(),
+        //         });
+        //     }
 
-        // Sample random indices without replacement
-        let indices: Vec<usize> = (0..self.len())
-            .choose_multiple(rng, batch_size)
-            .into_iter()
-            .collect();
+        //     // Sample random indices without replacement
+        //     let indices: Vec<usize> = (0..self.len())
+        //         .choose_multiple(rng, batch_size) // requires use rand::seq::IteratorRandom;
+        //         .into_iter()
+        //         .collect();
 
-        // Collect data from ring buffers
-        let mut states_vec = Vec::with_capacity(batch_size);
-        let mut actions_vec = Vec::with_capacity(batch_size);
-        let mut rewards_vec = Vec::with_capacity(batch_size);
-        let mut next_states_vec = Vec::with_capacity(batch_size);
-        let mut dones_vec = Vec::with_capacity(batch_size);
+        //     // Collect data from ring buffers
+        //     let mut states_vec = Vec::with_capacity(batch_size);
+        //     let mut actions_vec = Vec::with_capacity(batch_size);
+        //     let mut rewards_vec = Vec::with_capacity(batch_size);
+        //     let mut next_states_vec = Vec::with_capacity(batch_size);
+        //     let mut dones_vec = Vec::with_capacity(batch_size);
 
-        for &idx in &indices {
-            // Convert RewardType to f32
-            let reward_f32: f32 = (*self.rewards.get(idx).unwrap()).into();
+        //     for &idx in &indices {
+        //         // Convert RewardType to f32
+        //         let reward_f32: f32 = (*self.rewards.get(idx).unwrap()).into();
 
-            states_vec.push(self.states.get(idx).unwrap().clone());
-            actions_vec.push(self.actions.get(idx).unwrap().clone());
-            rewards_vec.push(reward_f32);
-            next_states_vec.push(self.next_states.get(idx).unwrap().clone());
-            dones_vec.push(*self.dones.get(idx).unwrap());
-        }
+        //         states_vec.push(self.states.get(idx).unwrap().clone());
+        //         actions_vec.push(self.actions.get(idx).unwrap().clone());
+        //         rewards_vec.push(reward_f32);
+        //         next_states_vec.push(self.next_states.get(idx).unwrap().clone());
+        //         dones_vec.push(*self.dones.get(idx).unwrap());
+        //     }
 
-        // Convert a Vec<E::StateType> into a batch tensor. Implement this based on your state representation.
-        // Note that StateType implements BurnRLState which implements to_tensor(), so concatenate the tensors for the batch.
-        let states_tensor = self.states_to_tensor::<E::StateType::R1>(states_vec, device)?;
-        let actions_tensor = self.actions_to_tensor::<E::ActionType::R1>(actions_vec, device)?;
-        let rewards_tensor =
-            Tensor::from_floats(TensorData::new(rewards_vec, [batch_size].into()), device);
-        let next_states_tensor =
-            self.states_to_tensor::<E::StateType::R1>(next_states_vec, device)?;
-        let dones_tensor = Tensor::from_floats(
-            TensorData::new(
-                dones_vec
-                    .iter()
-                    .map(|&d| if d { 1.0f32 } else { 0.0f32 })
-                    .collect(),
-                [batch_size].into(),
-            ),
-            device,
-        );
+        //     // Convert a Vec<E::StateType> into a batch tensor. Implement this based on your state representation.
+        //     // Note that StateType implements evorl_core::State which implements to_tensor(), so concatenate the tensors for the batch.
+        //     let states_tensor = Self::states_to_tensor::<B>(states_vec, device)?;
+        //     let actions_tensor = Self::actions_to_tensor::<B>(actions_vec, device)?;
+        //     let rewards_tensor =
+        //         Tensor::from_floats(TensorData::new(rewards_vec, [batch_size].into()), device);
+        //     let next_states_tensor = Self::states_to_tensor::<B>(next_states_vec, device)?;
+        //     let dones_f32: Vec<f32> = dones_vec
+        //         .iter()
+        //         .map(|&d| if d { 1.0f32 } else { 0.0f32 })
+        //         .collect();
 
-        Ok(TrainingBatch {
-            states: states_tensor,
-            actions: actions_tensor,
-            rewards: rewards_tensor,
-            next_states: next_states_tensor,
-            dones: dones_tensor,
-        })
+        //     let dones_tensor: Tensor<B, 1> =
+        //         Tensor::from_floats(TensorData::new(dones_f32, [batch_size].into()), device);
+
+        //     Ok(TrainingBatch {
+        //         states: states_tensor,
+        //         actions: actions_tensor,
+        //         rewards: rewards_tensor,
+        //         next_states: next_states_tensor,
+        //         dones: dones_tensor,
+        //     })
     }
 
-    fn states_to_tensor<B: Backend>(
-        states: Vec<E::StateType>,
-        device: &B::Device,
-    ) -> Result<Tensor<B, S>, ReplayBufferError> {
-        if states.is_empty() {
-            return Err(ReplayBufferError::TensorConversionError(
-                "Cannot convert empty state vector to tensor".to_string(),
-            ));
-        }
+    // fn states_to_tensor<B: Backend>(
+    //     states: Vec<E::StateType>,
+    //     device: &B::Device,
+    // ) -> Result<Tensor<B, S>, ReplayBufferError> {
+    //     if states.is_empty() {
+    //         return Err(ReplayBufferError::TensorConversionError(
+    //             "Cannot convert empty state vector to tensor".to_string(),
+    //         ));
+    //     }
 
-        // Convert each state to a tensor of rank STATE_RANK
-        let tensors: Vec<Tensor<B, S>> = states
-            .into_iter()
-            .map(|state| state.to_tensor(device))
-            .collect();
+    //     // Convert each state to a tensor of rank STATE_RANK
+    //     let tensors: Vec<Tensor<B, S>> = states
+    //         .into_iter()
+    //         .map(|state| state.to_tensor(device))
+    //         .collect();
 
-        // Validate shape at runtime to ensure all states have identical representations
-        let first_shape = tensors[0].shape();
-        for (i, tensor) in tensors.iter().enumerate().skip(1) {
-            if tensor.shape() != first_shape {
-                return Err(ReplayBufferError::TensorConversionError(format!(
-                    "State {} has shape {:?}, expected {:?}",
-                    i,
-                    tensor.shape(),
-                    first_shape
-                )));
-            }
-        }
+    //     // Validate shape at runtime to ensure all states have identical representations
+    //     let first_shape = tensors[0].shape();
+    //     for (i, tensor) in tensors.iter().enumerate().skip(1) {
+    //         if tensor.shape() != first_shape {
+    //             return Err(ReplayBufferError::TensorConversionError(format!(
+    //                 "State {} has shape {:?}, expected {:?}",
+    //                 i,
+    //                 tensor.shape(),
+    //                 first_shape
+    //             )));
+    //         }
+    //     }
 
-        // Stack along a new batch dimension (dimension 0) to create rank BATCH_RANK
-        Tensor::stack(tensors, 0)
-            .map_err(|e| ReplayBufferError::TensorConversionError(e.to_string()))
-    }
+    //     // Stack along a new batch dimension (dimension 0) to create rank BATCH_RANK
+    //     Tensor::stack(tensors, 0)
+    //         .map_err(|e| ReplayBufferError::TensorConversionError(e.to_string()))
+    // }
 
-    fn actions_to_tensor<B: Backend>(
-        actions: Vec<E::ActionType>,
-        device: &B::Device,
-    ) -> Result<Tensor<B, A>, ReplayBufferError> {
-        if actions.is_empty() {
-            return Err(ReplayBufferError::TensorConversionError(
-                "Cannot convert empty action vector to tensor".to_string(),
-            ));
-        }
+    // fn actions_to_tensor<B: Backend>(
+    //     actions: Vec<E::ActionType>,
+    //     device: &B::Device,
+    // ) -> Result<Tensor<B, A>, ReplayBufferError> {
+    //     if actions.is_empty() {
+    //         return Err(ReplayBufferError::TensorConversionError(
+    //             "Cannot convert empty action vector to tensor".to_string(),
+    //         ));
+    //     }
 
-        // Convert each state to a tensor of rank ACTION_RANK
-        let tensors: Vec<Tensor<B, A>> = actions
-            .into_iter()
-            .map(|action| action.to_tensor(device))
-            .collect();
+    //     // Convert each state to a tensor of rank ACTION_RANK
+    //     let tensors: Vec<Tensor<B, A>> = actions
+    //         .into_iter()
+    //         .map(|action| action.to_tensor(device))
+    //         .collect();
 
-        // Validate shape at runtime to ensure all states have identical representations
-        let first_shape = tensors[0].shape();
-        for (i, tensor) in tensors.iter().enumerate().skip(1) {
-            if tensor.shape() != first_shape {
-                return Err(ReplayBufferError::TensorConversionError(format!(
-                    "State {} has shape {:?}, expected {:?}",
-                    i,
-                    tensor.shape(),
-                    first_shape
-                )));
-            }
-        }
+    //     // Validate shape at runtime to ensure all states have identical representations
+    //     let first_shape = tensors[0].shape();
+    //     for (i, tensor) in tensors.iter().enumerate().skip(1) {
+    //         if tensor.shape() != first_shape {
+    //             return Err(ReplayBufferError::TensorConversionError(format!(
+    //                 "State {} has shape {:?}, expected {:?}",
+    //                 i,
+    //                 tensor.shape(),
+    //                 first_shape
+    //             )));
+    //         }
+    //     }
 
-        // Stack along a new batch dimension (dimension 0) to create rank BATCH_RANK
-        Tensor::stack(tensors, 0)
-            .map_err(|e| ReplayBufferError::TensorConversionError(e.to_string()))
-    }
+    //     // Stack along a new batch dimension (dimension 0) to create rank BATCH_RANK
+    //     Tensor::stack(tensors, 0)
+    //         .map_err(|e| ReplayBufferError::TensorConversionError(e.to_string()))
+    // }
 
     pub fn len(&self) -> usize {
         self.states.len()

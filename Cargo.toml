@@ -21,7 +21,7 @@ repository = "https://github.com/anthonytorlucci/burn-evorl"
 
 [workspace.dependencies]
 # Core ML and tensor computation
-burn = { version = "0.19.0", features = ["wgpu", "train", "tui", "metrics"] }
+burn = { version = "0.19.0", features = ["wgpu", "train", "tui", "metrics", "ndarray"] }
 
 # Utilities
 rand = "0.9.2"

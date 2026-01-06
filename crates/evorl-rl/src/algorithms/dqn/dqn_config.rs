@@ -1,11 +1,10 @@
-use crate::base::ElemType;
 use burn::grad_clipping::GradientClippingConfig;
 
 pub struct DQNTrainingConfig {
     pub batch_size: usize,
-    pub gamma: ElemType, // discount factor; a hyperparameter that balances the importance of immediate rewards versus future rewards. It is a value between 0 and 1
-    pub tau: ElemType, // target network update rate (or soft update parameter); used for updating the weights of the target Q-network in a process called a "soft update". The target network provides stable targets for the main network's training, preventing oscillations. The formula is $Q_{\text{target}} = (1-\tau ) Q_{\text{target} } + \tau Q_{\text{main} }$
-    pub learning_rate: ElemType,
+    pub gamma: f64, // discount factor; a hyperparameter that balances the importance of immediate rewards versus future rewards. It is a value between 0 and 1
+    pub tau: f64, // target network update rate (or soft update parameter); used for updating the weights of the target Q-network in a process called a "soft update". The target network provides stable targets for the main network's training, preventing oscillations. The formula is $Q_{\text{target}} = (1-\tau ) Q_{\text{target} } + \tau Q_{\text{main} }$
+    pub learning_rate: f64,
     pub epsilon_start: f64,
     pub epsilon_end: f64,
     pub epsilon_decay: f64,

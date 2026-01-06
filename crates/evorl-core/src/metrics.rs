@@ -53,6 +53,8 @@ pub struct AgentStats {
     pub current_exploration_rate: f64,
     /// Recent episode stats for rolling averages (sliding window)
     pub recent_episodes: Vec<EpisodeStats>,
+    /// Fixed history size for the sliding window (private to enforce invariants)
+    history_size: usize,
 }
 
 impl AgentStats {
@@ -64,7 +66,13 @@ impl AgentStats {
             best_episode_reward: None,
             current_exploration_rate,
             recent_episodes: Vec::with_capacity(history_size),
+            history_size,
         }
+    }
+
+    /// Get the fixed history size
+    pub fn history_size(&self) -> usize {
+        self.history_size
     }
 
     /// Record a completed episode

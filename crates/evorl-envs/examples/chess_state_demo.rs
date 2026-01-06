@@ -6,7 +6,8 @@
 
 use burn::backend::NdArray;
 use evorl_core::state::{State, StateTensorConvertible};
-use evorl_envs::games::chess::state::{ChessState, Color};
+use evorl_envs::games::chess::board::Color;
+use evorl_envs::games::chess::observations::ChessState;
 
 type Backend = NdArray;
 

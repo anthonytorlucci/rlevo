@@ -36,12 +36,12 @@
 //! Expected output shows training progress with episode rewards improving over time.
 //! After ~300 episodes, the agent should consistently achieve rewards > 400.
 
-use evorl_core::memory::{Experience, ReplayMemory, ReplayMemoryError};
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleState};
-use evorl_rl::algorithms::dqn::dqn_agent::{DQNAgent, DQNAgentError};
-use evorl_rl::algorithms::dqn::dqn_config::DQNTrainingConfig;
-use evorl_rl::algorithms::dqn::dqn_model::DQNModel;
-use std::collections::VecDeque;
+// use evorl_core::memory::{Experience, ReplayBuffer, ReplayBufferError};
+// use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleState};
+// use evorl_rl::algorithms::dqn::dqn_agent::{DQNAgent, DQNAgentError};
+// use evorl_rl::algorithms::dqn::dqn_config::DQNTrainingConfig;
+// use evorl_rl::algorithms::dqn::dqn_model::DQNModel;
+// use std::collections::VecDeque;
 
 // /// Simplified CartPole environment.
 // struct CartPoleEnv {
@@ -255,252 +255,255 @@ use std::collections::VecDeque;
 //     }
 // }
 
-/// Trains the DQN agent on CartPole and returns the rewards per episode.
-fn train_agent(config: &DqnConfig) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
-    let mut env = CartPoleEnv::new(config.max_steps);
-    let mut agent = DqnAgent::new(config);
-    let mut episode_rewards = Vec::with_capacity(config.num_episodes);
+// /// Trains the DQN agent on CartPole and returns the rewards per episode.
+// fn train_agent(config: &DqnConfig) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+//     let mut env = CartPoleEnv::new(config.max_steps);
+//     let mut agent = DqnAgent::new(config);
+//     let mut episode_rewards = Vec::with_capacity(config.num_episodes);
 
-    println!("Training DQN Agent on CartPole");
-    println!("==============================");
-    println!("Episodes: {}", config.num_episodes);
-    println!("Max Steps: {}", config.max_steps);
-    println!("Learning Rate: {}", config.learning_rate);
-    println!("Discount Factor: {}", config.discount_factor);
-    println!("Initial Epsilon: {}", config.initial_epsilon);
-    println!();
+//     println!("Training DQN Agent on CartPole");
+//     println!("==============================");
+//     println!("Episodes: {}", config.num_episodes);
+//     println!("Max Steps: {}", config.max_steps);
+//     println!("Learning Rate: {}", config.learning_rate);
+//     println!("Discount Factor: {}", config.discount_factor);
+//     println!("Initial Epsilon: {}", config.initial_epsilon);
+//     println!();
 
-    for episode in 0..config.num_episodes {
-        let mut state = env.reset();
-        let mut episode_reward = 0.0;
+//     for episode in 0..config.num_episodes {
+//         let mut state = env.reset();
+//         let mut episode_reward = 0.0;
 
-        for _step in 0..config.max_steps {
-            // Agent selects and executes action.
-            let action = agent.select_action(&state);
-            let (next_state, reward, done) = env.step(action);
+//         for _step in 0..config.max_steps {
+//             // Agent selects and executes action.
+//             let action = agent.select_action(&state);
+//             let (next_state, reward, done) = env.step(action);
 
-            // Store experience in replay buffer.
-            agent.remember(&state, action, reward, &next_state, done);
+//             // Store experience in replay buffer.
+//             agent.remember(&state, action, reward, &next_state, done);
 
-            // Train agent periodically.
-            if agent.step_count % config.update_frequency == 0 {
-                agent.train(config);
-            }
+//             // Train agent periodically.
+//             if agent.step_count % config.update_frequency == 0 {
+//                 agent.train(config);
+//             }
 
-            episode_reward += reward;
-            agent.step_count += 1;
-            state = next_state;
+//             episode_reward += reward;
+//             agent.step_count += 1;
+//             state = next_state;
 
-            if done {
-                break;
-            }
-        }
+//             if done {
+//                 break;
+//             }
+//         }
 
-        agent.decay_epsilon();
-        episode_rewards.push(episode_reward);
+//         agent.decay_epsilon();
+//         episode_rewards.push(episode_reward);
 
-        // Print progress.
-        if (episode + 1) % config.print_frequency == 0 {
-            let avg_reward: f32 = episode_rewards
-                .iter()
-                .rev()
-                .take(config.print_frequency)
-                .sum::<f32>()
-                / config.print_frequency as f32;
+//         // Print progress.
+//         if (episode + 1) % config.print_frequency == 0 {
+//             let avg_reward: f32 = episode_rewards
+//                 .iter()
+//                 .rev()
+//                 .take(config.print_frequency)
+//                 .sum::<f32>()
+//                 / config.print_frequency as f32;
 
-            println!(
-                "Episode {}/{}: Reward = {:.1}, Avg = {:.1}, Epsilon = {:.4}",
-                episode + 1,
-                config.num_episodes,
-                episode_reward,
-                avg_reward,
-                agent.get_epsilon()
-            );
-        }
-    }
+//             println!(
+//                 "Episode {}/{}: Reward = {:.1}, Avg = {:.1}, Epsilon = {:.4}",
+//                 episode + 1,
+//                 config.num_episodes,
+//                 episode_reward,
+//                 avg_reward,
+//                 agent.get_epsilon()
+//             );
+//         }
+//     }
 
-    println!();
-    println!("Training Complete!");
-    println!(
-        "Final 10 Episode Average: {:.1}",
-        episode_rewards.iter().rev().take(10).sum::<f32>() / 10.0
-    );
+//     println!();
+//     println!("Training Complete!");
+//     println!(
+//         "Final 10 Episode Average: {:.1}",
+//         episode_rewards.iter().rev().take(10).sum::<f32>() / 10.0
+//     );
 
-    Ok(episode_rewards)
-}
+//     Ok(episode_rewards)
+// }
 
-/// Evaluates the trained agent over several episodes without exploration.
-fn evaluate_agent(agent_epsilon: f32) -> Result<f32, Box<dyn std::error::Error>> {
-    let mut env = CartPoleEnv::new(500);
-    let mut total_reward = 0.0;
-    const EVAL_EPISODES: usize = 10;
+// /// Evaluates the trained agent over several episodes without exploration.
+// fn evaluate_agent(agent_epsilon: f32) -> Result<f32, Box<dyn std::error::Error>> {
+//     let mut env = CartPoleEnv::new(500);
+//     let mut total_reward = 0.0;
+//     const EVAL_EPISODES: usize = 10;
 
-    println!("\nEvaluating Agent (10 episodes, no exploration)");
-    println!("==============================================");
+//     println!("\nEvaluating Agent (10 episodes, no exploration)");
+//     println!("==============================================");
 
-    for _ in 0..EVAL_EPISODES {
-        let mut state = env.reset();
-        let mut episode_reward = 0.0;
+//     for _ in 0..EVAL_EPISODES {
+//         let mut state = env.reset();
+//         let mut episode_reward = 0.0;
 
-        loop {
-            // Use greedy policy (no exploration).
-            let _action = 0; // Placeholder: would select best action.
-            let (_next_state, reward, done) = env.step(0);
+//         loop {
+//             // Use greedy policy (no exploration).
+//             let _action = 0; // Placeholder: would select best action.
+//             let (_next_state, reward, done) = env.step(0);
 
-            episode_reward += reward;
-            state = _next_state;
+//             episode_reward += reward;
+//             state = _next_state;
 
-            if done {
-                break;
-            }
-        }
+//             if done {
+//                 break;
+//             }
+//         }
 
-        total_reward += episode_reward;
-        println!("  Evaluation Episode Reward: {:.1}", episode_reward);
-    }
+//         total_reward += episode_reward;
+//         println!("  Evaluation Episode Reward: {:.1}", episode_reward);
+//     }
 
-    let avg_reward = total_reward / EVAL_EPISODES as f32;
-    println!("\nAverage Evaluation Reward: {:.1}", avg_reward);
+//     let avg_reward = total_reward / EVAL_EPISODES as f32;
+//     println!("\nAverage Evaluation Reward: {:.1}", avg_reward);
 
-    Ok(avg_reward)
-}
+//     Ok(avg_reward)
+// }
 
-/// Main entry point: trains agent and evaluates performance.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = DqnConfig::default();
-
-    // Train the agent.
-    let episode_rewards = train_agent(&config)?;
-
-    // Evaluate the trained agent.
-    evaluate_agent(config.initial_epsilon)?;
-
-    // Summary statistics.
-    let max_reward = episode_rewards
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max);
-    let min_reward = episode_rewards
-        .iter()
-        .copied()
-        .fold(f32::INFINITY, f32::min);
-    let avg_reward = episode_rewards.iter().sum::<f32>() / episode_rewards.len() as f32;
-
-    println!("\n==============================");
-    println!("Training Summary");
-    println!("==============================");
-    println!("Maximum Episode Reward: {:.1}", max_reward);
-    println!("Minimum Episode Reward: {:.1}", min_reward);
-    println!("Average Episode Reward: {:.1}", avg_reward);
-    println!(
-        "Final Epsilon: {:.4}",
-        config.initial_epsilon * config.epsilon_decay.powi(config.num_episodes as i32)
-    );
-
-    Ok(())
+    todo!()
 }
+// /// Main entry point: trains agent and evaluates performance.
+// fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     let config = DqnConfig::default();
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+//     // Train the agent.
+//     let episode_rewards = train_agent(&config)?;
 
-    #[test]
-    fn test_cartpole_reset() {
-        let mut env = CartPoleEnv::new(500);
-        let state = env.reset();
+//     // Evaluate the trained agent.
+//     evaluate_agent(config.initial_epsilon)?;
 
-        assert_eq!(state.len(), 4);
-        assert!(
-            state[0].abs() <= 0.04,
-            "Position should be initialized in [-0.04, 0.04]"
-        );
-    }
+//     // Summary statistics.
+//     let max_reward = episode_rewards
+//         .iter()
+//         .copied()
+//         .fold(f32::NEG_INFINITY, f32::max);
+//     let min_reward = episode_rewards
+//         .iter()
+//         .copied()
+//         .fold(f32::INFINITY, f32::min);
+//     let avg_reward = episode_rewards.iter().sum::<f32>() / episode_rewards.len() as f32;
 
-    #[test]
-    fn test_cartpole_step() {
-        let mut env = CartPoleEnv::new(500);
-        env.reset();
+//     println!("\n==============================");
+//     println!("Training Summary");
+//     println!("==============================");
+//     println!("Maximum Episode Reward: {:.1}", max_reward);
+//     println!("Minimum Episode Reward: {:.1}", min_reward);
+//     println!("Average Episode Reward: {:.1}", avg_reward);
+//     println!(
+//         "Final Epsilon: {:.4}",
+//         config.initial_epsilon * config.epsilon_decay.powi(config.num_episodes as i32)
+//     );
 
-        let (next_state, reward, done) = env.step(0);
+//     Ok(())
+// }
 
-        assert_eq!(next_state.len(), 4);
-        assert_eq!(reward, 1.0, "Reward should be 1.0 for each step");
-        assert!(!done, "Episode should not end after first step");
-    }
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_replay_buffer_capacity() {
-        let mut buffer = ReplayBuffer::new(5);
+//     #[test]
+//     fn test_cartpole_reset() {
+//         let mut env = CartPoleEnv::new(500);
+//         let state = env.reset();
 
-        for i in 0..10 {
-            buffer.push(Experience {
-                state: [i as f32; 4],
-                action: 0,
-                reward: 1.0,
-                next_state: [0.0; 4],
-                done: false,
-            });
-        }
+//         assert_eq!(state.len(), 4);
+//         assert!(
+//             state[0].abs() <= 0.04,
+//             "Position should be initialized in [-0.04, 0.04]"
+//         );
+//     }
 
-        assert_eq!(buffer.len(), 5, "Buffer should not exceed capacity");
-    }
+//     #[test]
+//     fn test_cartpole_step() {
+//         let mut env = CartPoleEnv::new(500);
+//         env.reset();
 
-    #[test]
-    fn test_dqn_agent_creation() {
-        let config = DqnConfig::default();
-        let agent = DqnAgent::new(&config);
+//         let (next_state, reward, done) = env.step(0);
 
-        assert_eq!(agent.epsilon, config.initial_epsilon);
-        assert_eq!(agent.replay_buffer.len(), 0);
-    }
+//         assert_eq!(next_state.len(), 4);
+//         assert_eq!(reward, 1.0, "Reward should be 1.0 for each step");
+//         assert!(!done, "Episode should not end after first step");
+//     }
 
-    #[test]
-    fn test_dqn_agent_action_selection() {
-        let config = DqnConfig::default();
-        let agent = DqnAgent::new(&config);
-        let state = [0.0; 4];
+//     #[test]
+//     fn test_replay_buffer_capacity() {
+//         let mut buffer = ReplayBuffer::new(5);
 
-        let action = agent.select_action(&state);
-        assert!(action == 0 || action == 1, "Action should be 0 or 1");
-    }
+//         for i in 0..10 {
+//             buffer.push(Experience {
+//                 state: [i as f32; 4],
+//                 action: 0,
+//                 reward: 1.0,
+//                 next_state: [0.0; 4],
+//                 done: false,
+//             });
+//         }
 
-    #[test]
-    fn test_dqn_agent_epsilon_decay() {
-        let config = DqnConfig::default();
-        let mut agent = DqnAgent::new(&config);
+//         assert_eq!(buffer.len(), 5, "Buffer should not exceed capacity");
+//     }
 
-        let initial_epsilon = agent.epsilon;
-        agent.decay_epsilon();
+//     #[test]
+//     fn test_dqn_agent_creation() {
+//         let config = DqnConfig::default();
+//         let agent = DqnAgent::new(&config);
 
-        assert!(
-            agent.epsilon < initial_epsilon,
-            "Epsilon should decrease after decay"
-        );
-        assert!(
-            agent.epsilon >= config.min_epsilon,
-            "Epsilon should not go below minimum"
-        );
-    }
+//         assert_eq!(agent.epsilon, config.initial_epsilon);
+//         assert_eq!(agent.replay_buffer.len(), 0);
+//     }
 
-    #[test]
-    fn test_training_completes() {
-        let mut config = DqnConfig::default();
-        config.num_episodes = 5; // Short training for testing.
+//     #[test]
+//     fn test_dqn_agent_action_selection() {
+//         let config = DqnConfig::default();
+//         let agent = DqnAgent::new(&config);
+//         let state = [0.0; 4];
 
-        let result = train_agent(&config);
-        assert!(result.is_ok(), "Training should complete without error");
+//         let action = agent.select_action(&state);
+//         assert!(action == 0 || action == 1, "Action should be 0 or 1");
+//     }
 
-        let rewards = result.unwrap();
-        assert_eq!(
-            rewards.len(),
-            config.num_episodes,
-            "Should have rewards for each episode"
-        );
-    }
+//     #[test]
+//     fn test_dqn_agent_epsilon_decay() {
+//         let config = DqnConfig::default();
+//         let mut agent = DqnAgent::new(&config);
 
-    #[test]
-    fn test_evaluation_completes() {
-        let result = evaluate_agent(0.01);
-        assert!(result.is_ok(), "Evaluation should complete without error");
-    }
-}
+//         let initial_epsilon = agent.epsilon;
+//         agent.decay_epsilon();
+
+//         assert!(
+//             agent.epsilon < initial_epsilon,
+//             "Epsilon should decrease after decay"
+//         );
+//         assert!(
+//             agent.epsilon >= config.min_epsilon,
+//             "Epsilon should not go below minimum"
+//         );
+//     }
+
+//     #[test]
+//     fn test_training_completes() {
+//         let mut config = DqnConfig::default();
+//         config.num_episodes = 5; // Short training for testing.
+
+//         let result = train_agent(&config);
+//         assert!(result.is_ok(), "Training should complete without error");
+
+//         let rewards = result.unwrap();
+//         assert_eq!(
+//             rewards.len(),
+//             config.num_episodes,
+//             "Should have rewards for each episode"
+//         );
+//     }
+
+//     #[test]
+//     fn test_evaluation_completes() {
+//         let result = evaluate_agent(0.01);
+//         assert!(result.is_ok(), "Evaluation should complete without error");
+//     }
+// }

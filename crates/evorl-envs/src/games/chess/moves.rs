@@ -157,25 +157,25 @@ impl ChessMove {
     /// Returns the source rank (0-7).
     #[inline]
     pub fn from_rank(&self) -> u8 {
-        self.from / 8
+        self.from.rank()
     }
 
     /// Returns the source file (0-7).
     #[inline]
     pub fn from_file(&self) -> u8 {
-        self.from % 8
+        self.from.file()
     }
 
     /// Returns the destination rank (0-7).
     #[inline]
     pub fn to_rank(&self) -> u8 {
-        self.to / 8
+        self.to.rank()
     }
 
     /// Returns the destination file (0-7).
     #[inline]
     pub fn to_file(&self) -> u8 {
-        self.to % 8
+        self.to.file()
     }
 
     /// Computes the move plane (0-72) for the AlphaZero action space.
@@ -278,8 +278,8 @@ impl ChessMove {
 
     /// Decodes a move plane (0-72) and source square to a destination square and promotion.
     fn decode_move_plane(from: Square, plane: usize) -> (Square, Option<PromotionPiece>) {
-        let from_rank = (from / 8) as i8;
-        let from_file = (from % 8) as i8;
+        let from_rank = (from.rank()) as i8;
+        let from_file = (from.file()) as i8;
 
         let (delta_rank, delta_file, promotion) = if plane < 56 {
             // Queen-like moves (planes 0-55)
@@ -342,18 +342,18 @@ impl ChessMove {
         let to_file = to_file.clamp(0, 7) as u8;
         let to = to_rank * 8 + to_file;
 
-        (to, promotion)
+        (Square(to), promotion)
     }
 }
 
 impl Action for ChessMove {
     fn is_valid(&self) -> bool {
         // Basic validity: both squares must be on the board (0-63)
-        self.from <= 63 && self.to <= 63 && self.from != self.to
+        self.from.0 <= 63 && self.to.0 <= 63 && self.from != self.to
     }
 }
 
-impl MultiDiscreteAction for ChessMove {
+impl MultiDiscreteAction<3> for ChessMove {
     /// Returns the shape of the multi-dimensional action space for chess moves.
     ///
     /// The action space is represented as a 3-dimensional tensor with dimensions `[8, 8, 73]`,
@@ -451,16 +451,16 @@ impl MultiDiscreteAction for ChessMove {
     ///
     /// - [`to_indices()`] - Converts a move back to tensor indices
     /// - [`decode_move_plane()`] - Decodes the move plane encoding
-    fn from_indices(indices: [usize; Self::D]) -> Self {
+    fn from_indices(indices: [usize; 3]) -> Self {
         let from_rank = indices[0] as u8;
         let from_file = indices[1] as u8;
         let plane = indices[2];
 
         let from = from_rank * 8 + from_file;
-        let (to, promotion) = Self::decode_move_plane(from, plane);
+        let (to, promotion) = Self::decode_move_plane(Square(from), plane);
 
         Self {
-            from,
+            from: Square(from),
             to,
             promotion,
         }
@@ -510,7 +510,7 @@ impl MultiDiscreteAction for ChessMove {
     ///
     /// - [`from_indices()`] - Constructs a move from tensor indices
     /// - [`compute_move_plane()`] - Computes the move plane encoding
-    fn to_indices(&self) -> [usize; Self::D] {
+    fn to_indices(&self) -> [usize; 3] {
         let plane = self.compute_move_plane();
         [self.from_rank() as usize, self.from_file() as usize, plane]
     }
@@ -523,17 +523,17 @@ mod tests {
     #[test]
     fn test_square_indices() {
         // Test a1 (square 0)
-        let mv = ChessMove::new(0, 16); // a1 to a3
+        let mv = ChessMove::new(Square(0), Square(16)); // a1 to a3
         assert_eq!(mv.from_rank(), 0);
         assert_eq!(mv.from_file(), 0);
 
         // Test h8 (square 63)
-        let mv = ChessMove::new(63, 47); // h8 to h6
+        let mv = ChessMove::new(Square(63), Square(47)); // h8 to h6
         assert_eq!(mv.from_rank(), 7);
         assert_eq!(mv.from_file(), 7);
 
         // Test e2 (square 12)
-        let mv = ChessMove::new(12, 28); // e2 to e4
+        let mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
         assert_eq!(mv.from_rank(), 1);
         assert_eq!(mv.from_file(), 4);
     }
@@ -541,7 +541,7 @@ mod tests {
     #[test]
     fn test_knight_move_encoding() {
         // Knight move from e4 (28) to f6 (45): +2 rank, +1 file
-        let mv = ChessMove::new(28, 45);
+        let mv = ChessMove::new(Square(28), Square(45));
         let indices = mv.to_indices();
         assert_eq!(indices[0], 3); // rank 3 (e4)
         assert_eq!(indices[1], 4); // file 4 (e-file)
@@ -556,7 +556,7 @@ mod tests {
     #[test]
     fn test_queen_move_encoding() {
         // North move: e2 to e4 (2 squares north)
-        let mv = ChessMove::new(12, 28); // e2 to e4
+        let mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
         let indices = mv.to_indices();
         assert_eq!(indices[0], 1); // rank 1
         assert_eq!(indices[1], 4); // file 4
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn test_promotion_encoding() {
         // Pawn promotion: e7 to e8 with knight promotion
-        let mv = ChessMove::new_with_promotion(52, 60, PromotionPiece::Knight);
+        let mv = ChessMove::new_with_promotion(Square(52), Square(60), PromotionPiece::Knight);
         let indices = mv.to_indices();
         assert_eq!(indices[0], 6); // rank 6
         assert_eq!(indices[1], 4); // file 4
@@ -591,10 +591,10 @@ mod tests {
 
     #[test]
     fn test_is_valid() {
-        let valid_move = ChessMove::new(12, 28);
+        let valid_move = ChessMove::new(Square(12), Square(28));
         assert!(valid_move.is_valid());
 
-        let invalid_same_square = ChessMove::new(12, 12);
+        let invalid_same_square = ChessMove::new(Square(12), Square(12));
         assert!(!invalid_same_square.is_valid());
     }
 }

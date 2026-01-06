@@ -121,6 +121,7 @@ use crate::games::chess::board::{CastlingRights, Color, PieceType, Square};
 use burn::prelude::*;
 use evorl_core::state::{State, StateError, StateTensorConvertible};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 /// Number of historical board positions to maintain (8 most recent half-moves).
 const HISTORY_SIZE: usize = 8;
@@ -177,7 +178,7 @@ impl BoardSnapshot {
 /// - Historical board positions (last 8 half-moves)
 /// - Current game metadata (castling, en passant, move counters)
 /// - Position repetition tracking for draw detection
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChessState {
     /// Historical board positions (newest first, size = HISTORY_SIZE).
     /// history[0] is the current position, history[1] is one move ago, etc.
@@ -201,6 +202,23 @@ pub struct ChessState {
     /// Position repetition counts for draw detection.
     /// Maps position hash to number of occurrences.
     repetition_history: HashMap<u64, u8>,
+}
+
+impl std::hash::Hash for ChessState {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash only the fields that implement Hash
+        self.history.hash(state);
+        self.to_move.hash(state);
+        self.castling_rights.hash(state);
+        self.en_passant.hash(state);
+        self.halfmove_clock.hash(state);
+        self.fullmove_number.hash(state);
+
+        // For repetition_history, hash a derived value instead of the HashMap itself
+        // For draw detection, we care if any position repeated 3+ times (threefold repetition)
+        let has_threefold = self.repetition_history.values().any(|&count| count >= 3);
+        has_threefold.hash(state);
+    }
 }
 
 impl ChessState {
@@ -280,6 +298,8 @@ impl ChessState {
     }
 
     /// Checks how many times the current position has occurred (for repetition draws).
+    /// Returns the number of times the current position has appeared in the game.
+    /// Used for detecting threefold repetition draws.
     pub fn repetition_count(&self) -> u8 {
         let hash = self.position_hash();
         *self.repetition_history.get(&hash).unwrap_or(&0)
@@ -609,7 +629,7 @@ impl StateTensorConvertible<3> for ChessState {
         let opp_ks = values[cr_base + 128] > 0.5;
         let opp_qs = values[cr_base + 192] > 0.5;
 
-        state.to_move = if is_white { Color::White } else { Color::Black };
+        // ??? state.to_move = if is_white { Color::White } else { Color::Black };
 
         state.castling_rights = match state.to_move {
             Color::White => CastlingRights {

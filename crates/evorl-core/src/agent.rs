@@ -48,10 +48,10 @@ where
     type Model: AutodiffModule<B> + Debug;
 
     /// Get a reference to the underlying model
-    fn model(&self) -> &Self::Model;
+    fn model(&self) -> Option<&Self::Model>;
 
     /// Get a mutable reference to the underlying model
-    fn model_mut(&mut self) -> &mut Self::Model;
+    fn model_mut(&mut self) -> Option<&mut Self::Model>;
 }
 
 /// Trait for agents that support training with optimizers

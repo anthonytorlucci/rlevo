@@ -1,24 +1,20 @@
-use crate::agent::dqn::dqn_config::DQNTrainingConfig;
-use crate::agent::dqn::dqn_model::DQNModel;
-use crate::base::burnrl_action::{Action, ActionTensorConvertible};
-use crate::base::burnrl_agent::{Agent, NeuralAgent, TrainableAgent};
-use crate::base::burnrl_environment::Environment;
-use crate::base::burnrl_memory::{Experience, ReplayMemory, TrainingBatch};
-use crate::base::burnrl_state::{State, StateTensorConvertible};
-// use crate::utils::{
-//     convert_tensor_to_action, ref_to_action_tensor, ref_to_not_done_tensor, ref_to_reward_tensor,
-//     ref_to_state_tensor, to_state_tensor, update_parameters,
-// };
-use crate::base::burnrl_metrics::{AgentStats, CoreMetrics, EpisodeStats};
+use crate::algorithms::dqn::dqn_config::DQNTrainingConfig;
+use crate::algorithms::dqn::dqn_model::DQNModel;
 use burn::module::AutodiffModule;
-use burn::nn::loss::{MseLoss, Reduction};
+// use burn::nn::loss::{MseLoss, Reduction};
 use burn::optim::Optimizer;
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use rand::random;
+use burn::tensor::backend::AutodiffBackend;
+use evorl_core::action::{Action, ActionTensorConvertible};
+use evorl_core::agent::{Agent, NeuralAgent, TrainableAgent};
+use evorl_core::environment::Environment;
+use evorl_core::memory::{Experience, ReplayBuffer, TrainingBatch};
+use evorl_core::metrics::{AgentStats, CoreMetrics, EpisodeStats};
+use evorl_core::state::{State, StateTensorConvertible};
 use std::marker::PhantomData;
 
 // Define error type for DQNAgent
-#[derive(Debug, Clone)]
+// todo! implement From
+#[derive(Debug)]
 pub enum DQNAgentError {
     ModelNotInitialized,
     TensorConversionFailed(String),
@@ -98,7 +94,7 @@ impl TrainingHistory {
 }
 
 /// Deep Q-Network (DQN) agent
-pub struct DQNAgent<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B>>
+pub struct DQNAgent<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B, S>>
 where
     E: Environment<S, A>,
     E::StateType: StateTensorConvertible<S> + State,
@@ -107,6 +103,8 @@ where
     policy_net: Option<M>,
     target_net: Option<M>,
     epsilon: f64,
+    epsilon_min: f64,
+    epsilon_decay: f64,
     state: PhantomData<E::StateType>,
     action: PhantomData<E::ActionType>,
     backend: PhantomData<B>,
@@ -114,8 +112,215 @@ where
     stats: AgentStats,
 }
 
+/// Builder for constructing a `DQNAgent` with configurable parameters.
+///
+/// Provides sensible defaults aligned with the DQN reinforcement learning community standards:
+/// - `epsilon`: 1.0 (full exploration at start)
+/// - `epsilon_min`: 0.01 (minimum exploration rate)
+/// - `epsilon_decay`: 0.995 (per-step decay factor)
+/// - `history_size`: 10000 (replay buffer capacity)
+/// - `exploration_rate`: 0.0 (initial stat tracking rate)
+///
+/// Key parameters and their significance:
+///
+/// # Epsilon (ε): Exploration-Exploitation Trade-off
+/// - Controls the probability of taking a random action vs. greedy action
+/// - `epsilon=1.0`: 100% random (pure exploration)
+/// - `epsilon=0.0`: 0% random (pure exploitation/greedy)
+/// - Typical starting values: 0.1–1.0 depending on environment
+/// - Higher epsilon encourages discovering new state-action pairs
+///
+/// # Epsilon-Min (ε_min): Exploration Floor
+/// - The lowest epsilon can decay to (prevents zero exploration)
+/// - Typical value: 0.01–0.05 (1–5% minimum exploration)
+/// - Ensures the agent occasionally tries unexpected actions
+/// - Helps escape local optima and discover better policies
+/// - Prevents the policy from becoming permanently suboptimal
+///
+/// # Epsilon-Decay (decay_factor): Exploration Decay Rate
+/// - Multiplicative factor: new_epsilon = epsilon × decay_factor, each step
+/// - Value closer to 1.0 = slower decay (more gradual)
+/// - Value closer to 0.9 = faster decay (quick switch to exploitation)
+/// - Typical range: 0.99–0.9999
+/// - After N steps, epsilon ≈ ε_initial × (decay_factor)^N
+///
+/// # History Size (Replay Buffer Capacity)
+/// - Number of (state, action, reward, next_state, done) experiences stored
+/// - Larger buffers provide more diverse training data
+/// - Memory requirement: ~1KB–10KB per experience (depending on state size)
+/// - Typical values:
+///   - Simple control: 1,000–10,000
+///   - Atari: 1,000,000 (requires ~40GB RAM)
+///   - Real-world robotics: 100,000–1,000,000
+/// - Larger buffers reduce correlation between training samples (improves learning)
+///
+/// # Example
+/// ```ignore
+/// let agent = DQNAgent::builder(policy_net, target_net, device)
+///     .epsilon(0.5)
+///     .epsilon_min(0.05)
+///     .history_size(5000)
+///     .exploration_rate(0.1)
+///     .build();
+/// ```
+#[derive(Debug)]
+pub struct DQNAgentBuilder<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B, S>>
+where
+    E: Environment<S, A>,
+    E::StateType: StateTensorConvertible<S> + State,
+    E::ActionType: ActionTensorConvertible<A> + Action,
+{
+    policy_net: M,
+    target_net: M,
+    epsilon: f64,
+    epsilon_min: f64,
+    epsilon_decay: f64,
+    device: B::Device,
+    exploration_rate: f64,
+    history_size: usize,
+    state: PhantomData<E::StateType>,
+    action: PhantomData<E::ActionType>,
+    backend: PhantomData<B>,
+}
+
+impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B, S>>
+    DQNAgentBuilder<E, S, A, B, M>
+where
+    E: Environment<S, A>,
+    E::StateType: StateTensorConvertible<S> + State,
+    E::ActionType: ActionTensorConvertible<A> + Action,
+{
+    /// Create a new builder with community-standard defaults.
+    ///
+    /// Community-standard defaults from the DQN literature:
+    /// - `epsilon`: 1.0 (start with 100% exploration)
+    /// - `epsilon_min`: 0.01 (explore at least 1% of the time)
+    /// - `epsilon_decay`: 0.995 (per-step multiplicative decay)
+    /// - `history_size`: 10000 (typical replay buffer capacity for Atari)
+    /// - `exploration_rate`: 0.0 (no initial stat tracking)
+    ///
+    /// # Arguments
+    /// * `policy_net` - The main Q-network for estimating action-values.
+    /// * `target_net` - The target Q-network for stable temporal-difference updates.
+    /// * `device` - Compute device (CPU/GPU) for tensor operations.
+    fn new(policy_net: M, target_net: M, device: B::Device) -> Self {
+        Self {
+            policy_net,
+            target_net,
+            // Community-standard defaults from Nature DQN paper and subsequent works
+            epsilon: 1.0,         // Full exploration at initialization
+            epsilon_min: 0.01,    // Minimum exploration (1%)
+            epsilon_decay: 0.995, // Multiplicative decay per step
+            device,
+            exploration_rate: 0.0, // Default stat tracking disabled
+            history_size: 10000,   // Typical replay buffer size (Atari games)
+            state: PhantomData,
+            action: PhantomData,
+            backend: PhantomData,
+        }
+    }
+
+    /// Set the initial exploration rate (epsilon).
+    ///
+    /// # Arguments
+    /// * `epsilon` - Exploration probability in the range (0.0, 1.0]. Typical values: 0.1–1.0.
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder.epsilon(0.05) // 5% exploration
+    /// ```
+    pub fn epsilon(mut self, epsilon: f64) -> Self {
+        self.epsilon = epsilon;
+        self
+    }
+
+    /// Set the minimum exploration rate (epsilon_min).
+    ///
+    /// The agent will never explore less than this rate.
+    ///
+    /// # Arguments
+    /// * `epsilon_min` - Minimum exploration probability. Community standard: 0.01 (1%).
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder.epsilon_min(0.05) // Never explore less than 5%
+    /// ```
+    pub fn epsilon_min(mut self, epsilon_min: f64) -> Self {
+        self.epsilon_min = epsilon_min;
+        self
+    }
+
+    /// Set the exploration decay factor (per-step multiplicative decay).
+    ///
+    /// # Arguments
+    /// * `epsilon_decay` - Multiplicative factor ∈ (0.99, 1.0). After each step, epsilon *= decay.
+    ///   Common values: 0.995 (gradual), 0.99 (slower), 0.9999 (very gradual).
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder.epsilon_decay(0.999) // Very gradual exploration decay
+    /// ```
+    pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
+        self.epsilon_decay = epsilon_decay;
+        self
+    }
+
+    /// Set the replay buffer capacity (history_size).
+    ///
+    /// # Arguments
+    /// * `history_size` - Maximum experiences stored before oldest are discarded (cyclic buffer).
+    ///   Typical values: 5000–1000000 depending on environment/memory constraints.
+    ///
+    /// # Example
+    /// ```ignore
+    /// builder.history_size(50000) // Store up to 50k experiences
+    /// ```
+    pub fn history_size(mut self, history_size: usize) -> Self {
+        self.history_size = history_size;
+        self
+    }
+
+    /// Set the initial exploration rate for statistics tracking.
+    ///
+    /// This controls how stats module tracks initial behavior, typically left at 0.0.
+    ///
+    /// # Arguments
+    /// * `exploration_rate` - Initial rate for stat tracking. Default: 0.0.
+    pub fn exploration_rate(mut self, exploration_rate: f64) -> Self {
+        self.exploration_rate = exploration_rate;
+        self
+    }
+
+    /// Build the final `DQNAgent` with the configured parameters.
+    ///
+    /// # Returns
+    /// A fully initialized `DQNAgent` ready for interaction and training.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let agent = DQNAgent::builder(policy_net, target_net, device)
+    ///     .epsilon(0.1)
+    ///     .history_size(5000)
+    ///     .build();
+    /// ```
+    pub fn build(self) -> DQNAgent<E, S, A, B, M> {
+        DQNAgent {
+            policy_net: Some(self.policy_net),
+            target_net: Some(self.target_net),
+            epsilon: self.epsilon,
+            epsilon_min: self.epsilon_min,
+            epsilon_decay: self.epsilon_decay,
+            state: PhantomData,
+            action: PhantomData,
+            backend: PhantomData,
+            device: self.device,
+            stats: AgentStats::new(self.exploration_rate, self.history_size),
+        }
+    }
+}
+
 // Implement Agent trait for DQNAgent
-impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B>> Agent<E, S, A, B>
+impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B, S>> Agent<E, S, A, B>
     for DQNAgent<E, S, A, B, M>
 where
     E: Environment<S, A>,
@@ -126,28 +331,29 @@ where
 
     /// Choose an action using epsilon-greedy strategy
     fn act(&mut self, state: &E::StateType) -> Result<E::ActionType, Self::Error> {
-        // Check if policy network is initialized
-        let policy_net = self
-            .policy_net
-            .as_ref()
-            .ok_or(DQNAgentError::ModelNotInitialized)?;
+        todo!()
+        // // Check if policy network is initialized
+        // let policy_net = self
+        //     .policy_net
+        //     .as_ref()
+        //     .ok_or(DQNAgentError::ModelNotInitialized)?;
 
-        // Exploration vs exploitation
-        if random::<f64>() < self.epsilon {
-            // Exploration: choose random action
-            Ok(E::ActionType::random())
-        } else {
-            // Exploitation: choose greedy action
-            let state_tensor = state.to_tensor(&B::Device::default());
-            let q_values = policy_net.forward(state_tensor.unsqueeze::<E::StateType::R1>());
+        // // Exploration vs exploitation
+        // if random::<f64>() < self.epsilon {
+        //     // Exploration: choose random action
+        //     Ok(E::ActionType::random())
+        // } else {
+        //     // Exploitation: choose greedy action
+        //     let state_tensor = state.to_tensor(&B::Device::default());
+        //     let q_values = policy_net.forward(state_tensor.unsqueeze::<S>());
 
-            // Find the action with maximum Q-value
-            // For simplicity, assuming scalar output per action
-            let max_index = q_values.argmax(-1).into_scalar() as usize;
+        //     // Find the action with maximum Q-value
+        //     // For simplicity, assuming scalar output per action
+        //     let max_index = q_values.argmax(-1).into_scalar() as usize;
 
-            // Convert index to action
-            Ok(E::ActionType::from_index(max_index))
-        }
+        //     // Convert index to action
+        //     Ok(E::ActionType::from_index(max_index))
+        // }
     }
 
     fn learn(&mut self, batch: &TrainingBatch<B, S, A>) -> Result<f32, Self::Error> {
@@ -183,42 +389,31 @@ where
     }
 
     fn reset(&mut self) {
-        // Reset statistics, keep network weights
-        self.stats.episode_rewards.clear();
-        self.stats.episode_losses.clear();
+        todo!("Clear the AgentStats")
+        // // Reset statistics, keep network weights
+        // self.stats.episode_rewards.clear();
+        // self.stats.episode_losses.clear();
     }
 
     fn stats(&self) -> AgentStats {
-        self.stats
+        self.stats.clone() // todo! would it better to return a reference? Would this pass the ownership to the caller?
     }
-
-    // fn stats(&self) -> AgentStats {
-    //     AgentStats {
-    //         total_steps: self.stats.total_steps,
-    //         total_episodes: self.stats.total_episodes,
-    //         avg_reward: self.stats.episode_rewards.iter().sum::<f32>()
-    //             / self.stats.episode_rewards.len().max(1) as f32,
-    //         avg_loss: self.stats.episode_losses.iter().sum::<f32>()
-    //             / self.stats.episode_losses.len().max(1) as f32,
-    //         exploration_rate: self.epsilon,
-    //     }
-    // }
 }
 
 impl<E, const S: usize, const A: usize, B: AutodiffBackend, M> NeuralAgent<E, S, A, B>
     for DQNAgent<E, S, A, B, M>
 where
     E: Environment<S, A>,
-    M: DQNModel<B>,
+    M: DQNModel<B, S>,
 {
     type Model = M;
 
-    fn model(&self) -> &Self::Model {
-        &self.policy_net
+    fn model(&self) -> Option<&Self::Model> {
+        self.policy_net.as_ref()
     }
 
-    fn model_mut(&mut self) -> &mut Self::Model {
-        &mut self.policy_net
+    fn model_mut(&mut self) -> Option<&mut Self::Model> {
+        self.policy_net.as_mut()
     }
 }
 
@@ -226,7 +421,7 @@ impl<E, const S: usize, const A: usize, B: AutodiffBackend, M, O> TrainableAgent
     for DQNAgent<E, S, A, B, M>
 where
     E: Environment<S, A>,
-    M: DQNModel<B>,
+    M: DQNModel<B, S>,
     O: Optimizer<M, B>,
 {
     fn train_step(
@@ -238,22 +433,34 @@ where
     }
 }
 
-impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B>> DQNAgent<E, S, A, B, M>
+impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B, S>>
+    DQNAgent<E, S, A, B, M>
 where
     E: Environment<S, A>,
     E::StateType: StateTensorConvertible<S> + State,
     E::ActionType: ActionTensorConvertible<A> + Action,
 {
-    pub fn new(policy_net: M, target_net: M, epsilon: f64, device: B::Device) -> Self {
+    pub fn new(
+        policy_net: M,
+        target_net: M,
+        epsilon: f64,
+        epsilon_min: f64,
+        epsilon_decay: f64,
+        device: B::Device,
+        exploration_rate: f64,
+        history_size: usize,
+    ) -> Self {
         Self {
             policy_net: Some(policy_net),
             target_net: Some(target_net),
             epsilon,
+            epsilon_min,
+            epsilon_decay,
             state: PhantomData,
             action: PhantomData,
             backend: PhantomData,
             device,
-            stats: PhantomData,
+            stats: AgentStats::new(exploration_rate, history_size),
         }
     }
 
@@ -289,62 +496,64 @@ where
         state: &E::StateType,
         eps_threshold: f64,
     ) -> Result<E::ActionType, DQNAgentError> {
-        if random::<f64>() < eps_threshold {
-            // Exploration
-            Ok(E::ActionType::random())
-        } else {
-            // Exploitation - use policy network
-            let policy_net = self
-                .policy_net
-                .as_ref()
-                .ok_or(DQNAgentError::ModelNotInitialized)?;
+        todo!()
+        // if random::<f64>() < eps_threshold {
+        //     // Exploration
+        //     Ok(E::ActionType::random())
+        // } else {
+        //     // Exploitation - use policy network
+        //     let policy_net = self
+        //         .policy_net
+        //         .as_ref()
+        //         .ok_or(DQNAgentError::ModelNotInitialized)?;
 
-            let state_tensor = state.to_tensor(&B::Device::default());
-            let q_values = policy_net.forward(state_tensor.unsqueeze::<E::StateType::R1>());
-            let max_index = q_values.argmax(-1).into_scalar() as usize;
+        //     let state_tensor = state.to_tensor(&B::Device::default());
+        //     let q_values = policy_net.forward(state_tensor.unsqueeze::<E::StateType::R1>());
+        //     let max_index = q_values.argmax(-1).into_scalar() as usize;
 
-            Ok(E::ActionType::from_index(max_index))
-        }
+        //     Ok(E::ActionType::from_index(max_index))
+        // }
     }
 
     /// Collect experience by interacting with the environment
     pub fn collect_experience<const CAP: usize>(
         &mut self,
         env: &mut E,
-        memory: &mut ReplayMemory<E, S, A, CAP>,
+        memory: &mut ReplayBuffer<E, S, A, CAP>,
         num_steps: usize,
     ) -> Result<Vec<f32>, DQNAgentError> {
-        let mut rewards = Vec::new();
+        todo!()
+        // let mut rewards = Vec::new();
 
-        for _ in 0..num_steps {
-            // Get current state
-            let snapshot = env.reset()?;
-            let state = snapshot.state;
+        // for _ in 0..num_steps {
+        //     // Get current state
+        //     let snapshot = env.reset();
+        //     let state = snapshot.state;
 
-            // Select action using epsilon-greedy
-            let action = self.select_action_with_exploration(&state, self.epsilon)?;
+        //     // Select action using epsilon-greedy
+        //     let action = self.select_action_with_exploration(&state, self.epsilon)?;
 
-            // Take step in environment
-            let next_snapshot = env.step(action.clone())?;
+        //     // Take step in environment
+        //     let next_snapshot = env.step(action.clone())?;
 
-            // Store experience in replay memory
-            let experience = Experience {
-                state,
-                action,
-                reward: next_snapshot.reward,
-                next_state: next_snapshot.state.clone(),
-                done: next_snapshot.done,
-            };
+        //     // Store experience in replay memory
+        //     let experience = Experience {
+        //         state,
+        //         action,
+        //         reward: next_snapshot.reward,
+        //         next_state: next_snapshot.state.clone(),
+        //         done: next_snapshot.done,
+        //     };
 
-            memory.push(experience);
-            rewards.push(next_snapshot.reward.into());
+        //     memory.push(experience);
+        //     rewards.push(next_snapshot.reward.into());
 
-            if next_snapshot.done {
-                break;
-            }
-        }
+        //     if next_snapshot.done {
+        //         break;
+        //     }
+        // }
 
-        Ok(rewards)
+        // Ok(rewards)
     }
 
     /// Agent-Environment Interaction
@@ -358,53 +567,58 @@ where
     /// - Decides an action ($a$) using the current policy (e.g., epsilon-greedy with the Q-netowrk).
     /// - Executes $a$ in the environment to get the next state ($s'$), reward ($r$), and whether the episode is done.
     /// - Stores the experience in the replay memory buffer.
-
     pub fn learn_step<const CAP: usize, O: Optimizer<M, B>>(
         &mut self,
         env: &mut E,
-        memory: &mut ReplayMemory<E, S, A, CAP>,
+        memory: &mut ReplayBuffer<E, S, A, CAP>,
         optimizer: &mut O,
         config: &DQNTrainingConfig,
         step_count: usize,
     ) -> Result<LearningStats, DQNAgentError> {
-        // 1. Collect new experiences
-        let collected_rewards = self.collect_experience(env, memory, config.steps_per_episode)?;
+        unimplemented!()
+        // // 1. Collect new experiences
+        // let collected_rewards = self.collect_experience(env, memory, config.steps_per_episode)?;
 
-        // 2. Check if we have enough samples to train
-        if memory.len() < config.batch_size {
-            return Ok(LearningStats {
-                loss: 0.0,
-                avg_reward: collected_rewards.iter().sum::<f32>() / collected_rewards.len() as f32,
-                epsilon: self.epsilon,
-            });
-        }
+        // // 2. Check if we have enough samples to train
+        // if memory.len() < config.batch_size {
+        //     return Ok(LearningStats {
+        //         loss: 0.0,
+        //         avg_reward: collected_rewards.iter().sum::<f32>() / collected_rewards.len() as f32,
+        //         epsilon: self.epsilon,
+        //     });
+        // }
 
-        // 3. Sample batch from replay memory
-        let mut rng = rand::rng();
-        let batch = memory.sample_batch(config.batch_size, &B::Device::default(), &mut rng)?;
+        // // 3. Sample batch from replay memory
+        // let mut rng = rand::rng();
+        // let batch = memory.sample_batch(config.batch_size, &B::Device::default(), &mut rng)?;
 
-        // 4. Perform training step
-        let loss = self.learn(&batch)?;
+        // // 4. Perform training step
+        // let loss = self.learn(&batch)?;
 
-        // 5. Update target network periodically
-        if step_count % config.target_update_frequency == 0 {
-            self.update_target_network(config.tau)?;
-        }
+        // // 5. Update target network periodically
+        // if step_count % config.target_update_frequency == 0 {
+        //     self.update_target_network(config.tau)?;
+        // }
 
-        // 6. Decay epsilon
-        self.decay_epsilon();
+        // // 6. Decay epsilon
+        // self.decay_epsilon();
 
-        Ok(LearningStats {
-            loss,
-            avg_reward: collected_rewards.iter().sum::<f32>() / collected_rewards.len() as f32,
-            epsilon: self.epsilon,
-        })
+        // Ok(LearningStats {
+        //     loss,
+        //     avg_reward: collected_rewards.iter().sum::<f32>() / collected_rewards.len() as f32,
+        //     epsilon: self.epsilon,
+        // })
     }
 }
 
 // ---
-impl<E, const S: usize, const A: usize, B: AutodiffBackend, M: DQNModel<B> + AutodiffModule<B>>
-    DQNAgent<E, S, A, B, M>
+impl<
+        E,
+        const S: usize,
+        const A: usize,
+        B: AutodiffBackend,
+        M: DQNModel<B, S> + AutodiffModule<B>,
+    > DQNAgent<E, S, A, B, M>
 where
     E: Environment<S, A>,
 {
@@ -420,22 +634,25 @@ where
     pub fn train<const CAP: usize>(
         &mut self,
         mut policy_net: M,
-        memory: &ReplayMemory<E, S, A, CAP>,
+        memory: &ReplayBuffer<E, S, A, CAP>,
         optimizer: &mut (impl Optimizer<M, B> + Sized),
         config: &DQNTrainingConfig,
     ) -> M {
         unimplemented!()
     }
 
-    pub fn valid(mut self) -> DQNAgent<E, S, A, B::InnerBackend, M::InnerModule>
-    where
-        <M as AutodiffModule<B>>::InnerModule: DQNModel<<B as AutodiffBackend>::InnerBackend>,
-    {
-        DQNAgent::<E, B::InnerBackend, M::InnerModule>::new(
-            self.policy_net.take().unwrap().valid(),
-            self.target_net.take().unwrap().valid(),
-            self.epsilon,
-            self.device,
-        )
-    }
+    // todo!
+    // pub fn valid(mut self) -> DQNAgent<E, S, A, B::InnerBackend, M::InnerModule>
+    // where
+    //     <M as AutodiffModule<B>>::InnerModule: DQNModel<<B as AutodiffBackend>::InnerBackend>,
+    // {
+    //     DQNAgent::<E, B::InnerBackend, M::InnerModule>::new(
+    //         self.policy_net.take().unwrap().valid(),
+    //         self.target_net.take().unwrap().valid(),
+    //         self.epsilon,
+    //         self.device,
+    //         self.epsilon,
+    //         self.stats.history_size(),
+    //     )
+    // }
 }

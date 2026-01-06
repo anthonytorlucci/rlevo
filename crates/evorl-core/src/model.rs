@@ -2,12 +2,12 @@ use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use std::fmt::Debug;
 
-pub trait DrlModel<B: Backend> {
+pub trait DrlModel<B: Backend, const R: usize> {
     /// Input type (e.g., state tensor).
-    type Input: Into<Tensor<B>> + Debug + Clone;
+    type Input: Into<Tensor<B, R>> + Debug + Clone;
 
     /// Output type (e.g., Q-values, policy logits).
-    type Output: From<Tensor<B>> + Debug + Clone;
+    type Output: From<Tensor<B, R>> + Debug + Clone;
 
     /// Forward pass: compute output from input.
     fn forward(&self, input: Self::Input) -> Self::Output;
