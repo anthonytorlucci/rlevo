@@ -247,7 +247,10 @@ impl RobotPose {
     }
 }
 
-fn main() {
+// --------------------------------------------------------------------------
+// Example usage
+// --------------------------------------------------------------------------
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║   RobotPose State Constraint Example for Burn-EvoRL        ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
@@ -482,4 +485,10 @@ fn main() {
     println!("✓ Builder pattern: RobotPose::new() with validation");
     println!("✓ Utility methods: distance_to(), normalize_orientation()");
     println!("✓ Ready for RL agent training with guaranteed constraint satisfaction\n");
+
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║                   Example Complete                         ║");
+    println!("╚════════════════════════════════════════════════════════════╝");
+
+    Ok(())
 }

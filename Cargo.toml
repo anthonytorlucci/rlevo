@@ -25,6 +25,7 @@ burn = { version = "0.19.0", features = ["wgpu", "train", "tui", "metrics", "nda
 
 # Utilities
 rand = "0.9.2"
+rand_distr = "0.5.1"
 ringbuffer = "0.16.0"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 

@@ -50,6 +50,7 @@
 // todo! pub mod benchmarks;
 pub mod classic {
     pub mod cartpole;
+    pub mod ten_armed_bandit;
     // todo! pub mod mountain_car;
 }
 pub mod games {

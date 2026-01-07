@@ -28,131 +28,9 @@
 //!        └─ StateIntTensorConvertible (discrete state tensors)
 //! ```
 //!
-//! # Examples
-//!
-//! ## Basic State Implementation
-//!
-//! ```rust,ignore
-//! use evorl_core::state::{State, FlattenedState, StateError};
-//!
-//! #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//! struct GridPosition {
-//!     x: i32,
-//!     y: i32,
-//! }
-//!
-//! impl State for GridPosition {
-//!     fn is_valid(&self) -> bool {
-//!         self.x >= 0 && self.y >= 0 && self.x < 10 && self.y < 10
-//!     }
-//!
-//!     fn numel(&self) -> usize {
-//!         2 // x and y coordinates
-//!     }
-//!
-//!     fn shape(&self) -> Vec<usize> {
-//!         vec![2] // flat 1D representation
-//!     }
-//! }
-//!
-//! impl FlattenedState for GridPosition {
-//!     fn flatten(&self) -> Vec<f32> {
-//!         vec![self.x as f32, self.y as f32]
-//!     }
-//!
-//!     fn from_flattened(data: Vec<f32>) -> Result<Self, StateError> {
-//!         if data.len() != 2 {
-//!             return Err(StateError::InvalidSize {
-//!                 expected: 2,
-//!                 got: data.len(),
-//!             });
-//!         }
-//!         Ok(GridPosition {
-//!             x: data[0] as i32,
-//!             y: data[1] as i32,
-//!         })
-//!     }
-//! }
-//! ```
-//!
-//! ## Temporal State Implementation
-//!
-//! ```rust,ignore
-//! use evorl_core::state::{State, FlattenedState, TemporalState, StateError};
-//!
-//! #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//! struct PriceHistory {
-//!     prices: Vec<u32>, // Last N price observations
-//! }
-//!
-//! impl State for PriceHistory {
-//!     fn numel(&self) -> usize {
-//!         self.prices.len()
-//!     }
-//!
-//!     fn shape(&self) -> Vec<usize> {
-//!         vec![self.prices.len()]
-//!     }
-//! }
-//!
-//! impl FlattenedState for PriceHistory {
-//!     fn flatten(&self) -> Vec<f32> {
-//!         self.prices.iter().map(|&p| p as f32).collect()
-//!     }
-//!
-//!     fn from_flattened(data: Vec<f32>) -> Result<Self, StateError> {
-//!         Ok(PriceHistory {
-//!             prices: data.iter().map(|&p| p as u32).collect(),
-//!         })
-//!     }
-//! }
-//!
-//! impl TemporalState for PriceHistory {
-//!     fn sequence_length(&self) -> usize {
-//!         self.prices.len()
-//!     }
-//!
-//!     fn latest(&self) -> &[f32] {
-//!         // Return the most recent price as a slice
-//!         // (In practice, you'd maintain a separate f32 buffer)
-//!         &[]
-//!     }
-//!
-//!     fn push_pop(&self, new_observation: &[f32]) -> Result<Self, StateError> {
-//!         if new_observation.len() != 1 {
-//!             return Err(StateError::InvalidSize {
-//!                 expected: 1,
-//!                 got: new_observation.len(),
-//!             });
-//!         }
-//!         let mut new_prices = self.prices.clone();
-//!         new_prices.remove(0); // Remove oldest
-//!         new_prices.push(new_observation[0] as u32); // Add newest
-//!         Ok(PriceHistory { prices: new_prices })
-//!     }
-//! }
-//! ```
-//!
 //! # Framework Integration
 //!
-//! States can be converted to Burn tensors for neural network processing:
-//!
-//! ```rust,ignore
-//! use burn::tensor::backend::Backend;
-//! use evorl_core::state::StateTensorConvertible;
-//!
-//! impl<const R: usize> StateTensorConvertible<R> for GridPosition {
-//!     fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, R> {
-//!         let data = self.flatten();
-//!         Tensor::from_floats(data.as_slice(), device)
-//!     }
-//!
-//!     fn from_tensor<B: Backend>(tensor: &Tensor<B, R>) -> Result<Self, StateError> {
-//!         let data = tensor.to_data().to_vec::<f32>().unwrap();
-//!         Self::from_flattened(data)
-//!     }
-//! }
-//! ```
+//! States can be converted to Burn tensors for neural network processing.
 //!
 //! # Error Handling
 //!
@@ -427,19 +305,6 @@ pub trait State: Debug + Clone + PartialEq + Eq + Hash {
     ///
     ///     fn shape(&self) -> Vec<usize> {
     ///         vec![3] // Simple 1D vector
-    ///     }
-    /// }
-    ///
-    /// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    /// struct ChessBoard {
-    ///     squares: [[u8; 8]; 8], // 8x8 board, piece encoding
-    /// }
-    ///
-    /// impl State for ChessBoard {
-    ///     fn numel(&self) -> usize { 64 }
-    ///
-    ///     fn shape(&self) -> Vec<usize> {
-    ///         vec![8, 8] // 2D board representation
     ///     }
     /// }
     /// ```
@@ -1738,4 +1603,304 @@ pub trait StateIntTensorConvertible<const R: usize> {
     ///
     /// - [`StateTensorConvertible::to_tensor()`]: For floating-point tensor conversion
     fn to_int_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, R, Int>;
+
+    fn from_int_tensor<B: Backend>(&self, device: &B::Device) -> Result<Self, StateError>
+    where
+        Self: Sized;
+}
+
+// `cargo test -p evorl-core -- state`
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ========================================================================
+    /// GameState example to test the State trait implementation
+    /// ========================================================================
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum GameState {
+        Menu,
+        Playing { level: u8 },
+        GameOver { score: u32 },
+    }
+
+    impl State for GameState {
+        fn is_valid(&self) -> bool {
+            match self {
+                GameState::Playing { level } => *level > 0 && *level <= 10,
+                _ => true,
+            }
+        }
+
+        fn numel(&self) -> usize {
+            // Encode as 3 features: [state_id, level, score]
+            3
+        }
+
+        fn shape(&self) -> Vec<usize> {
+            vec![3]
+        }
+    }
+
+    /// Test state validation for each state variant
+    #[test]
+    fn test_game_state_validation() {
+        // Menu state should always be valid
+        let menu_state = GameState::Menu;
+        assert!(menu_state.is_valid(), "Menu state should always be valid");
+
+        // GameOver state should always be valid
+        let game_over_state = GameState::GameOver { score: 1000 };
+        assert!(
+            game_over_state.is_valid(),
+            "GameOver state should always be valid"
+        );
+
+        // Playing state with valid levels should be valid
+        for level in 1..=10 {
+            let playing_state = GameState::Playing { level };
+            assert!(
+                playing_state.is_valid(),
+                "Playing state with level {} should be valid",
+                level
+            );
+        }
+
+        // Playing state with invalid levels should be invalid
+        let invalid_levels = [0, 11, 255];
+        for level in invalid_levels {
+            let invalid_state = GameState::Playing { level };
+            assert!(
+                !invalid_state.is_valid(),
+                "Playing state with level {} should be invalid",
+                level
+            );
+        }
+    }
+
+    /// Test that numel returns 3 for all state variants
+    #[test]
+    fn test_game_state_numel() {
+        let test_states = [
+            GameState::Menu,
+            GameState::Playing { level: 5 },
+            GameState::GameOver { score: 1000 },
+        ];
+
+        for state in test_states {
+            assert_eq!(
+                state.numel(),
+                3,
+                "Number of elements should be 3 for all states"
+            );
+        }
+    }
+
+    /// Test that shape returns [3] for all state variants
+    #[test]
+    fn test_game_state_shape() {
+        let test_states = [
+            GameState::Menu,
+            GameState::Playing { level: 5 },
+            GameState::GameOver { score: 1000 },
+        ];
+
+        for state in test_states {
+            assert_eq!(state.shape(), vec![3], "Shape should be [3] for all states");
+        }
+    }
+
+    /// Test the invariant: numel() should equal product of shape()
+    #[test]
+    fn test_game_state_consistency() {
+        let test_states = [
+            GameState::Menu,
+            GameState::Playing { level: 5 },
+            GameState::GameOver { score: 1000 },
+        ];
+
+        for state in test_states {
+            let numel = state.numel();
+            let shape_product: usize = state.shape().iter().product();
+            assert_eq!(
+                numel, shape_product,
+                "numel({}) should equal shape product({})",
+                numel, shape_product
+            );
+        }
+    }
+
+    /// Test that filtering states by validity works correctly
+    #[test]
+    fn test_game_state_filtering() {
+        let states = vec![
+            GameState::Menu,
+            GameState::Playing { level: 5 },
+            GameState::Playing { level: 0 }, // Invalid
+            GameState::GameOver { score: 1000 },
+        ];
+
+        let valid_states: Vec<_> = states.into_iter().filter(|s| s.is_valid()).collect();
+
+        assert_eq!(
+            valid_states.len(),
+            3,
+            "Should have 3 valid states out of 4 total"
+        );
+        assert!(
+            valid_states.iter().all(|s| s.is_valid()),
+            "All filtered states should be valid"
+        );
+
+        // Verify the invalid state was filtered out
+        assert!(
+            !valid_states.contains(&GameState::Playing { level: 0 }),
+            "Invalid playing state should be filtered out"
+        );
+    }
+
+    /// Test edge cases for Playing state level bounds
+    #[test]
+    fn test_playing_state_edge_cases() {
+        // Test boundary values
+        let min_valid_level = GameState::Playing { level: 1 };
+        assert!(
+            min_valid_level.is_valid(),
+            "Level 1 should be valid (minimum valid)"
+        );
+
+        let max_valid_level = GameState::Playing { level: 10 };
+        assert!(
+            max_valid_level.is_valid(),
+            "Level 10 should be valid (maximum valid)"
+        );
+
+        let below_min = GameState::Playing { level: 0 };
+        assert!(
+            !below_min.is_valid(),
+            "Level 0 should be invalid (below minimum)"
+        );
+
+        let above_max = GameState::Playing { level: 11 };
+        assert!(
+            !above_max.is_valid(),
+            "Level 11 should be invalid (above maximum)"
+        );
+    }
+
+    /// ========================================================================
+    /// GridPosition example to test the State trait implementation
+    /// ========================================================================
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    struct GridPosition {
+        x: i32,
+        y: i32,
+        max_x: i32,
+        max_y: i32,
+    }
+
+    impl State for GridPosition {
+        fn is_valid(&self) -> bool {
+            self.x >= 0 && self.y >= 0 && self.x < self.max_x && self.y < self.max_y
+        }
+
+        fn numel(&self) -> usize {
+            2 // x and y coordinates
+        }
+
+        fn shape(&self) -> Vec<usize> {
+            vec![2] // flat 1D representation
+        }
+    }
+
+    impl FlattenedState for GridPosition {
+        fn flatten(&self) -> Vec<f32> {
+            vec![
+                self.x as f32,
+                self.y as f32,
+                self.max_x as f32,
+                self.max_y as f32,
+            ]
+        }
+
+        fn from_flattened(data: Vec<f32>) -> Result<Self, StateError> {
+            if data.len() != 4 {
+                return Err(StateError::InvalidSize {
+                    expected: 4,
+                    got: data.len(),
+                });
+            }
+            Ok(GridPosition {
+                x: data[0] as i32,
+                y: data[1] as i32,
+                max_x: data[2] as i32,
+                max_y: data[3] as i32,
+            })
+        }
+    }
+
+    impl<const R: usize> StateTensorConvertible<R> for GridPosition {
+        fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, R> {
+            let data = self.flatten();
+            Tensor::from_floats(data.as_slice(), device)
+        }
+
+        fn from_tensor<B: Backend>(tensor: &Tensor<B, R>) -> Result<Self, StateError> {
+            let data = tensor.to_data().to_vec::<f32>().unwrap();
+            Self::from_flattened(data)
+        }
+    }
+
+    /// Test GridPosition validation
+    #[test]
+    fn test_grid_position_validation() {
+        let valid = GridPosition {
+            x: 5,
+            y: 3,
+            max_x: 10,
+            max_y: 10,
+        };
+        assert!(valid.is_valid(), "x, y should be valid.");
+        //
+        let invalid = GridPosition {
+            x: 15,
+            y: 3,
+            max_x: 10,
+            max_y: 10,
+        };
+        assert!(
+            !invalid.is_valid(),
+            "x is larger than max_x and therefore invalid."
+        );
+    }
+
+    // Test GridPosition flatten
+    #[test]
+    fn test_grid_position_flattening() {
+        let pos1 = GridPosition {
+            x: 3,
+            y: 7,
+            max_x: 10,
+            max_y: 10,
+        };
+        let pos2 = GridPosition {
+            x: 0,
+            y: 0,
+            max_x: 10,
+            max_y: 10,
+        };
+        let pos3 = GridPosition {
+            x: 9,
+            y: 9,
+            max_x: 10,
+            max_y: 10,
+        };
+        let flat1 = pos1.flatten();
+        let flat2 = pos2.flatten();
+        let flat3 = pos3.flatten();
+
+        assert_eq!(flat1, vec![3.0, 7.0, 10.0, 10.0]);
+        assert_eq!(flat2, vec![0.0, 0.0, 10.0, 10.0]);
+        assert_eq!(flat3, vec![9.0, 9.0, 10.0, 10.0]);
+    }
 }

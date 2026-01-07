@@ -13,6 +13,7 @@ Simulataneously, while building out the first reinforcement learning prototype, 
 ## Road Map
 
 - [ ] Examples, e.g. AlphaZeroChess, Cartpole, connect4, etc.
+  - Be sure examples follow a consistent structure and writing style. See `evorl-core/examples/position_history_state.rs` and `evorl-core/examples/continuous_state_with_constraints.rs`
 - [ ] Environments
 - [ ] Complete test coverage
 - [ ] Benchmarking and profiling

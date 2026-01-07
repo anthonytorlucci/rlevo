@@ -2126,6 +2126,7 @@ dependencies = [
  "evorl-core",
  "evorl-rl",
  "rand 0.9.2",
+ "rand_distr",
  "serde",
 ]
 

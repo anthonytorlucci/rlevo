@@ -14,6 +14,7 @@ evorl-core = { path = '../evorl-core' }
 evorl-rl = { path = '../evorl-rl' }
 rand = { workspace = true }
 serde = { workspace = true }
+rand_distr = {workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }

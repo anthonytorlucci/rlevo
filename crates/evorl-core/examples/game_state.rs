@@ -6,7 +6,7 @@ enum GameState {
     Playing { level: u8 },
     GameOver { score: u32 },
 }
-///
+
 impl State for GameState {
     fn is_valid(&self) -> bool {
         match self {
@@ -14,17 +14,20 @@ impl State for GameState {
             _ => true,
         }
     }
-    ///
+
     fn numel(&self) -> usize {
         // Encode as 3 features: [state_id, level, score]
         3
     }
-    ///
+
     fn shape(&self) -> Vec<usize> {
         vec![3]
     }
 }
 
+// --------------------------------------------------------------------------
+// Example Usage
+// --------------------------------------------------------------------------
 // Key Demonstrations:**
 //
 // 1. **State Validation (`is_valid()`)** — Shows how the trait validates domain constraints
@@ -47,7 +50,7 @@ impl State for GameState {
 // 5. **Practical Usage** — Real-world filtering based on validity
 //    - Demonstrates filtering 4 states down to 3 valid ones
 //    - Shows how invalid states are rejected for training
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Construct different GameState variants
     let menu_state = GameState::Menu;
     let playing_level_5 = GameState::Playing { level: 5 };
@@ -118,4 +121,10 @@ fn main() {
     println!("   Total states: 4");
     println!("   Valid states: {}", valid_states.len());
     println!("   (Only valid states can be used for transitions/training)");
+
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║                   Example Complete                         ║");
+    println!("╚════════════════════════════════════════════════════════════╝");
+
+    Ok(())
 }

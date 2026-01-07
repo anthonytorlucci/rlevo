@@ -198,7 +198,10 @@ impl TemporalState for PositionHistory {
     }
 }
 
-fn main() {
+// --------------------------------------------------------------------------
+// Example usage
+// --------------------------------------------------------------------------
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║        PositionHistory State Traits Example                ║");
     println!("║   Demonstrating State, FlattenedState, TemporalState       ║");
@@ -427,4 +430,6 @@ fn main() {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║                   Example Complete                         ║");
     println!("╚════════════════════════════════════════════════════════════╝");
+
+    Ok(())
 }

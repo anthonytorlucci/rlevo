@@ -7,21 +7,7 @@ use std::fmt::Debug;
 /// A snapshot captures the state of the environment at a single point in time,
 /// including the observed state, reward received, and episode termination flag.
 /// This trait allows for custom snapshot implementations while providing sensible defaults.
-///
-/// # Examples
-///
-/// ```no_run
-/// use evorl_core::environment::Snapshot;
-///
-/// // Using the default SnapshotBase implementation
-/// let snapshot: Box<dyn Snapshot<StateType = MyState, RewardType = f32>> =
-///     Box::new(SnapshotBase::new(state, 1.0, false));
-///
-/// println!("State: {:?}", snapshot.state());
-/// println!("Reward: {}", snapshot.reward());
-/// println!("Done: {}", snapshot.is_done());
-/// ```
-pub trait Snapshot: Debug + Clone {
+pub trait Snapshot: Debug {
     /// The type of state contained in this snapshot.
     type StateType: State + Debug + Clone;
 

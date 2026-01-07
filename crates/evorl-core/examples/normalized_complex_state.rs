@@ -46,6 +46,9 @@ impl FlattenedState for PlayerState {
     }
 }
 
+// --------------------------------------------------------------------------
+// Example usage
+// --------------------------------------------------------------------------
 // Key Features Demonstrated:**
 //
 // 1. **Construction** - Creating `PlayerState` instances with various configurations
@@ -70,7 +73,7 @@ impl FlattenedState for PlayerState {
 // - Testing boundary conditions (min/max values)
 // - Error handling for invalid data
 // - Round-trip conversions showing data preservation
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Create a PlayerState and demonstrate State trait
     println!("=== PlayerState Example ===\n");
 
@@ -180,4 +183,10 @@ fn main() {
         }
         Err(e) => println!("Error: {:?}", e),
     }
+
+    println!("╔════════════════════════════════════════════════════════════╗");
+    println!("║                   Example Complete                         ║");
+    println!("╚════════════════════════════════════════════════════════════╝");
+
+    Ok(())
 }
