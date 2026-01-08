@@ -1,12 +1,9 @@
 use crate::environment::Environment;
 use crate::memory::TrainingBatch;
-use crate::metrics::AgentStats;
 use burn::module::AutodiffModule;
 use burn::optim::Optimizer;
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use std::fmt::Debug;
-
-// Define a precise `Agent` trait tied to an environment, with methods for action selection and learning.
 
 pub trait Agent<E, const S: usize, const A: usize, B: Backend>
 where
@@ -34,9 +31,6 @@ where
 
     /// Reset agent state between episodes
     fn reset(&mut self);
-
-    /// Collect statistics about the agent's performance
-    fn stats(&self) -> AgentStats;
 }
 
 /// Trait for agents that use neural network policies

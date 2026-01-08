@@ -19,6 +19,11 @@ rand_distr = {workspace = true }
 [dev-dependencies]
 approx = { workspace = true }
 
+[features]
+# Bandit algorithm selection (default is epsilon-greedy)
+ucb = []        # Upper Confidence Bound algorithm
+thompson = []   # Thompson Sampling algorithm
+
 [[example]]
-name = 'cartpole_training'
-path = 'examples/cartpole_training.rs'
+name = 'ten_armed_bandit_training'
+path = 'examples/ten-armed-bandit/ten_armed_bandit_training.rs'

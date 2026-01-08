@@ -1,14 +1,14 @@
 use crate::algorithms::dqn::dqn_config::DQNTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DQNModel;
 use burn::module::AutodiffModule;
-// use burn::nn::loss::{MseLoss, Reduction};
+
 use burn::optim::Optimizer;
 use burn::tensor::backend::AutodiffBackend;
 use evorl_core::action::{Action, ActionTensorConvertible};
 use evorl_core::agent::{Agent, NeuralAgent, TrainableAgent};
 use evorl_core::environment::Environment;
-use evorl_core::memory::{Experience, ReplayBuffer, TrainingBatch};
-use evorl_core::metrics::{AgentStats, CoreMetrics, EpisodeStats};
+use evorl_core::memory::{ReplayBuffer, TrainingBatch};
+use evorl_core::metrics::{AgentStats, PerformanceRecord};
 use evorl_core::state::{State, StateTensorConvertible};
 use std::marker::PhantomData;
 
@@ -54,42 +54,22 @@ impl From<std::io::Error> for DQNAgentError {
     }
 }
 
+/// Deep Q-Network (DQN) agent training statistics
 #[derive(Debug, Clone)]
-pub struct LearningStats {
-    pub loss: f32,
-    pub avg_reward: f32,
-    pub epsilon: f64,
+struct DqnMetrics {
+    reward: f32,
+    steps: usize,
+    policy_loss: f32,
+    value_loss: f32,
 }
 
-/// Lightweight metrics for a single learning step (just an alias for clarity)
-pub type StepMetrics = CoreMetrics;
-
-#[derive(Debug, Clone)]
-pub struct TrainingHistory {
-    pub episodes: Vec<EpisodeStats>,
-}
-
-impl TrainingHistory {
-    pub fn new() -> Self {
-        Self {
-            episodes: Vec::new(),
-        }
+impl PerformanceRecord for DqnMetrics {
+    fn score(&self) -> f32 {
+        self.reward
     }
 
-    pub fn add_episode(&mut self, stats: EpisodeStats) {
-        self.episodes.push(stats);
-    }
-
-    pub fn best_reward(&self) -> Option<f32> {
-        self.episodes
-            .iter()
-            .map(|e| e.total_reward)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-    }
-
-    /// Iterator over episodes
-    pub fn iter(&self) -> impl Iterator<Item = &EpisodeStats> {
-        self.episodes.iter()
+    fn duration(&self) -> usize {
+        self.steps
     }
 }
 
@@ -109,7 +89,7 @@ where
     action: PhantomData<E::ActionType>,
     backend: PhantomData<B>,
     device: B::Device,
-    stats: AgentStats,
+    stats: AgentStats<DqnMetrics>,
 }
 
 /// Builder for constructing a `DQNAgent` with configurable parameters.
@@ -118,7 +98,7 @@ where
 /// - `epsilon`: 1.0 (full exploration at start)
 /// - `epsilon_min`: 0.01 (minimum exploration rate)
 /// - `epsilon_decay`: 0.995 (per-step decay factor)
-/// - `history_size`: 10000 (replay buffer capacity)
+/// - `window_size`: 10000 (replay buffer capacity)
 /// - `exploration_rate`: 0.0 (initial stat tracking rate)
 ///
 /// Key parameters and their significance:
@@ -144,7 +124,7 @@ where
 /// - Typical range: 0.99–0.9999
 /// - After N steps, epsilon ≈ ε_initial × (decay_factor)^N
 ///
-/// # History Size (Replay Buffer Capacity)
+/// # Window Size (Replay Buffer Capacity)
 /// - Number of (state, action, reward, next_state, done) experiences stored
 /// - Larger buffers provide more diverse training data
 /// - Memory requirement: ~1KB–10KB per experience (depending on state size)
@@ -177,7 +157,7 @@ where
     epsilon_decay: f64,
     device: B::Device,
     exploration_rate: f64,
-    history_size: usize,
+    window_size: usize,
     state: PhantomData<E::StateType>,
     action: PhantomData<E::ActionType>,
     backend: PhantomData<B>,
@@ -200,9 +180,9 @@ where
     /// - `exploration_rate`: 0.0 (no initial stat tracking)
     ///
     /// # Arguments
-    /// * `policy_net` - The main Q-network for estimating action-values.
-    /// * `target_net` - The target Q-network for stable temporal-difference updates.
-    /// * `device` - Compute device (CPU/GPU) for tensor operations.
+    /// - `policy_net` - The main Q-network for estimating action-values.
+    /// - `target_net` - The target Q-network for stable temporal-difference updates.
+    /// - `device` - Compute device (CPU/GPU) for tensor operations.
     fn new(policy_net: M, target_net: M, device: B::Device) -> Self {
         Self {
             policy_net,
@@ -213,7 +193,7 @@ where
             epsilon_decay: 0.995, // Multiplicative decay per step
             device,
             exploration_rate: 0.0, // Default stat tracking disabled
-            history_size: 10000,   // Typical replay buffer size (Atari games)
+            window_size: 10000,    // Typical replay buffer size (Atari games)
             state: PhantomData,
             action: PhantomData,
             backend: PhantomData,
@@ -265,18 +245,18 @@ where
         self
     }
 
-    /// Set the replay buffer capacity (history_size).
+    /// Set the replay buffer capacity (window_size).
     ///
     /// # Arguments
-    /// * `history_size` - Maximum experiences stored before oldest are discarded (cyclic buffer).
+    /// * `window_size` - Maximum experiences stored before oldest are discarded (cyclic buffer).
     ///   Typical values: 5000–1000000 depending on environment/memory constraints.
     ///
     /// # Example
     /// ```ignore
-    /// builder.history_size(50000) // Store up to 50k experiences
+    /// builder.window_size(50000) // Store up to 50k experiences
     /// ```
-    pub fn history_size(mut self, history_size: usize) -> Self {
-        self.history_size = history_size;
+    pub fn window_size(mut self, window_size: usize) -> Self {
+        self.window_size = window_size;
         self
     }
 
@@ -304,6 +284,7 @@ where
     ///     .build();
     /// ```
     pub fn build(self) -> DQNAgent<E, S, A, B, M> {
+        let stats: AgentStats<DqnMetrics> = AgentStats::new(self.window_size);
         DQNAgent {
             policy_net: Some(self.policy_net),
             target_net: Some(self.target_net),
@@ -314,7 +295,7 @@ where
             action: PhantomData,
             backend: PhantomData,
             device: self.device,
-            stats: AgentStats::new(self.exploration_rate, self.history_size),
+            stats,
         }
     }
 }
@@ -394,10 +375,6 @@ where
         // self.stats.episode_rewards.clear();
         // self.stats.episode_losses.clear();
     }
-
-    fn stats(&self) -> AgentStats {
-        self.stats.clone() // todo! would it better to return a reference? Would this pass the ownership to the caller?
-    }
 }
 
 impl<E, const S: usize, const A: usize, B: AutodiffBackend, M> NeuralAgent<E, S, A, B>
@@ -440,6 +417,7 @@ where
     E::StateType: StateTensorConvertible<S> + State,
     E::ActionType: ActionTensorConvertible<A> + Action,
 {
+    // todo! remove here and suggest using the builder?
     pub fn new(
         policy_net: M,
         target_net: M,
@@ -448,8 +426,9 @@ where
         epsilon_decay: f64,
         device: B::Device,
         exploration_rate: f64,
-        history_size: usize,
+        window_size: usize,
     ) -> Self {
+        let stats: AgentStats<DqnMetrics> = AgentStats::new(window_size);
         Self {
             policy_net: Some(policy_net),
             target_net: Some(target_net),
@@ -460,7 +439,7 @@ where
             action: PhantomData,
             backend: PhantomData,
             device,
-            stats: AgentStats::new(exploration_rate, history_size),
+            stats,
         }
     }
 
@@ -574,7 +553,7 @@ where
         optimizer: &mut O,
         config: &DQNTrainingConfig,
         step_count: usize,
-    ) -> Result<LearningStats, DQNAgentError> {
+    ) -> Result<DqnMetrics, DQNAgentError> {
         unimplemented!()
         // // 1. Collect new experiences
         // let collected_rewards = self.collect_experience(env, memory, config.steps_per_episode)?;
@@ -608,6 +587,10 @@ where
         //     avg_reward: collected_rewards.iter().sum::<f32>() / collected_rewards.len() as f32,
         //     epsilon: self.epsilon,
         // })
+    }
+
+    fn stats(&self) -> AgentStats<DqnMetrics> {
+        self.stats.clone() // todo! would it better to return a reference? Would this pass the ownership to the caller?
     }
 }
 

@@ -38,126 +38,50 @@ Ensure you have Rust installed (1.70+) and are in the project root:
 cd burn-evorl
 ```
 
-### Running All Examples
-
-```bash
-# Run with default settings (uses NdArray CPU backend)
-cargo run --example cartpole_training
-
-# Run with optimizations (recommended for training)
-cargo run --example cartpole_training --release
-
-# Run specific example with output
-cargo run --example cartpole_training --release 2>&1 | tee output.log
-```
-
-### Running Example Tests
-
-```bash
-# Run all tests in examples
-cargo test --examples
-
-# Run tests with output
-cargo test --examples -- --nocapture
-
-# Run a specific example's tests
-cargo test --examples cartpole_training
-```
-
-### Benchmarking Examples
-
-```bash
-# Profile with release optimizations
-cargo run --example cartpole_training --release
-
-# Generate flamegraph for performance analysis
-cargo install flamegraph
-cargo flamegraph --example cartpole_training
-```
-
 ## Available Examples
 
-### 1. CartPole Training (`cartpole_training.rs`)
+### 1. 10-Armed Bandit Training (`ten_armed_bandit_training.rs`)
 
-**Purpose**: Train a Deep Q-Network (DQN) agent to balance a pole on a moving cart.
+**Purpose**: Demonstrate three classical approaches to the exploration-exploitation trade-off in reinforcement learning.
 
 **What It Demonstrates**:
-- Environment implementation with physics simulation
-- Agent creation and action selection using epsilon-greedy exploration
-- Experience replay buffer for storing and sampling transitions
-- Q-learning updates and neural network training
-- Evaluation metrics and performance tracking
+- Multi-armed bandit problem formulation
+- Three distinct algorithms selectable via feature flags:
+  - **Epsilon-Greedy** (default): Random exploration with probability ε
+  - **UCB** (feature="ucb"): Upper Confidence Bound algorithm
+  - **Thompson Sampling** (feature="thompson"): Bayesian posterior sampling
+- Incremental action-value estimation
+- Performance metrics and evaluation
 
 **Key Concepts**:
-- **State Space**: `[position, velocity, angle, angular_velocity]` (4D)
-- **Action Space**: `[0: push left, 1: push right]` (discrete)
-- **Reward**: +1 for each timestep the pole remains balanced
-- **Goal**: Maximize episode length (max 500 steps)
-- **Success**: Agent should achieve reward > 400 after ~300 episodes
+- **State Space**: Stateless (bandit problem)
+- **Action Space**: 10 discrete actions (arms 0-9)
+- **Reward Distribution**: Each arm returns N(q*(a), 1) where q*(a) ~ N(0, 1)
+- **Goal**: Maximize total reward over 1000 steps by learning optimal arm
+- **Success Metrics**: 
+  - Average reward per step
+  - Percentage of optimal actions taken
 
-**Algorithm**: Deep Q-Networks (DQN)
+**Running**:
+```bash
+# Default epsilon-greedy (ε=0.1)
+cargo run --example ten_armed_bandit_training
 
-The Bellman equation for Q-learning:
+# UCB algorithm (c=2.0) - best performance
+cargo run --example ten_armed_bandit_training --features ucb
 
-```
-Q(s,a) ← Q(s,a) + α[r + γ max Q(s',·) - Q(s,a)]
-```
-
-Where:
-- `α` = learning rate (controls how much new information overrides old)
-- `r` = immediate reward
-- `γ` = discount factor (future reward weight)
-- `max Q(s',·)` = best Q-value in next state
-
-**Expected Output**:
-
-```
-Training DQN Agent on CartPole
-==============================
-Episodes: 500
-Max Steps: 500
-Learning Rate: 0.001
-Discount Factor: 0.99
-Initial Epsilon: 1.0
-
-Episode 50: Reward = 45.0, Avg = 32.5, Epsilon = 0.7788
-Episode 100: Reward = 98.0, Avg = 67.3, Epsilon = 0.6065
-Episode 150: Reward = 185.0, Avg = 145.2, Epsilon = 0.4724
-...
-Episode 500: Reward = 495.0, Avg = 475.3, Epsilon = 0.0100
-
-Training Complete!
-Final 10 Episode Average: 485.5
-
-Evaluating Agent (10 episodes, no exploration)
-==============================================
-  Evaluation Episode Reward: 500.0
-  Evaluation Episode Reward: 500.0
-  ...
-
-Average Evaluation Reward: 498.5
-
-==============================
-Training Summary
-==============================
-Maximum Episode Reward: 500.0
-Minimum Episode Reward: 12.0
-Average Episode Reward: 285.4
-Final Epsilon: 0.0100
+# Thompson Sampling - Bayesian approach
+cargo run --example ten_armed_bandit_training --features thompson
 ```
 
-**Modifying the Example**:
+**Expected Performance** (after 1000 steps):
+- Epsilon-Greedy: ~1.15 avg reward, ~80% optimal actions
+- UCB: ~1.33 avg reward, ~91% optimal actions
+- Thompson Sampling: ~1.22 avg reward, ~84% optimal actions
 
-Adjust hyperparameters in `main()`:
+**Reference**: Sutton & Barto (2018), Chapter 2
 
-```rust
-let mut config = DqnConfig::default();
-config.num_episodes = 1000;           // More training
-config.learning_rate = 0.01;          // Faster learning
-config.discount_factor = 0.95;        // Less future discount
-config.epsilon_decay = 0.99;          // Slower exploration decay
-config.batch_size = 64;               // Larger training batches
-```
+**Detailed Documentation**: See [README_ten_armed_bandit.md](README_ten_armed_bandit.md)
 
 ## Example Structure
 
@@ -200,7 +124,7 @@ Every example includes:
 ### Step 1: Create the File
 
 ```bash
-touch crates/evorl-envs/examples/my_example.rs
+touch crates/evorl-envs/examples/my-example/my_example.rs
 ```
 
 ### Step 2: Add Module Documentation
@@ -288,7 +212,7 @@ mod tests {
 ```toml
 [[example]]
 name = "my_example"
-path = "examples/my_example.rs"
+path = "examples//my-example/my_example.rs"
 ```
 
 ## Testing Examples
@@ -473,11 +397,8 @@ When submitting new examples:
 ## References
 
 - [Rust API Guidelines - Examples](https://rust-lang.github.io/api-guidelines/documentation.html#examples-are-provided-c-example)
-- [Deep Q-Networks (DQN) Paper](https://www.nature.com/articles/nature14236)
-- [CartPole Gym Environment](https://www.gymlibrary.dev/environments/classic_control/cart_pole/)
-- [burn Documentation](https://docs.rs/burn/)
 
 ---
 
-**Last Updated**: 2024
+**Last Updated**: 2026
 **Maintainer**: burn-evorl Team
