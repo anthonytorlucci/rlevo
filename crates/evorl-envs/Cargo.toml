@@ -1,0 +1,29 @@
+[package]
+name = 'evorl-envs'
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+evorl-core = { path = '../evorl-core' }
+evorl-rl = { path = '../evorl-rl' }
+rand = { workspace = true }
+serde = { workspace = true }
+rand_distr = {workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+
+[features]
+# Bandit algorithm selection (default is epsilon-greedy)
+ucb = []        # Upper Confidence Bound algorithm
+thompson = []   # Thompson Sampling algorithm
+
+[[example]]
+name = 'ten_armed_bandit_training'
+path = 'examples/ten-armed-bandit/ten_armed_bandit_training.rs'
