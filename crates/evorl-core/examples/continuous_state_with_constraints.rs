@@ -136,38 +136,38 @@ struct RobotPose {
     theta_mdeg: i32, // Orientation in millidegrees (-180,000 to 180,000 mdeg)
 }
 
-impl State for RobotPose {
-    /// Validates that the robot pose satisfies workspace constraints.
-    ///
-    /// The robot must remain within:
-    /// - X bounds: [0, 1000] mm
-    /// - Y bounds: [0, 1000] mm
-    /// - Orientation: [-180°, 180°] or [-180,000, 180,000] millidegrees
-    fn is_valid(&self) -> bool {
-        // Workspace bounds: 0-1000mm
-        self.x_mm >= 0
-            && self.x_mm <= 1000
-            && self.y_mm >= 0
-            && self.y_mm <= 1000
-            && // Orientation: -180 to 180 degrees (-180,000 to 180,000 millidegrees)
-            self.theta_mdeg >= -180_000
-            && self.theta_mdeg <= 180_000
-    }
+// impl State for RobotPose {
+//     /// Validates that the robot pose satisfies workspace constraints.
+//     ///
+//     /// The robot must remain within:
+//     /// - X bounds: [0, 1000] mm
+//     /// - Y bounds: [0, 1000] mm
+//     /// - Orientation: [-180°, 180°] or [-180,000, 180,000] millidegrees
+//     fn is_valid(&self) -> bool {
+//         // Workspace bounds: 0-1000mm
+//         self.x_mm >= 0
+//             && self.x_mm <= 1000
+//             && self.y_mm >= 0
+//             && self.y_mm <= 1000
+//             && // Orientation: -180 to 180 degrees (-180,000 to 180,000 millidegrees)
+//             self.theta_mdeg >= -180_000
+//             && self.theta_mdeg <= 180_000
+//     }
 
-    /// Returns the number of scalar elements in the pose representation.
-    ///
-    /// A robot pose has 3 elements: x, y, and theta.
-    fn numel(&self) -> usize {
-        3
-    }
+//     /// Returns the number of scalar elements in the pose representation.
+//     ///
+//     /// A robot pose has 3 elements: x, y, and theta.
+//     fn numel(&self) -> usize {
+//         3
+//     }
 
-    /// Returns the logical shape of this state's tensor representation.
-    ///
-    /// The pose is represented as a flat 1D vector of 3 elements.
-    fn shape(&self) -> Vec<usize> {
-        vec![3] // Single flat vector [x, y, theta]
-    }
-}
+//     /// Returns the logical shape of this state's tensor representation.
+//     ///
+//     /// The pose is represented as a flat 1D vector of 3 elements.
+//     fn shape(&self) -> Vec<usize> {
+//         vec![3] // Single flat vector [x, y, theta]
+//     }
+// }
 
 impl RobotPose {
     /// Creates a new robot pose with validation.
@@ -193,11 +193,12 @@ impl RobotPose {
             theta_mdeg,
         };
 
-        if pose.is_valid() {
-            Some(pose)
-        } else {
-            None
-        }
+        // if pose.is_valid() {
+        //     Some(pose)
+        // } else {
+        //     None
+        // }
+        todo!()
     }
 
     /// Creates a pose without validation (use with caution).
@@ -263,36 +264,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("└──────────────────────────────────────────────────────────────┘\n");
 
     // Home position (center of workspace)
-    if let Some(home) = RobotPose::new(500, 500, 0) {
-        println!("✓ Home Pose (center, facing east):");
-        println!("  Position: ({}, {}) mm", home.x_mm, home.y_mm);
-        println!("  Orientation: {}°", home.orientation_degrees());
-        println!(
-            "  Valid: {} | Elements: {} | Shape: {:?}",
-            home.is_valid(),
-            home.numel(),
-            home.shape()
-        );
-        println!();
-    }
+    // if let Some(home) = RobotPose::new(500, 500, 0) {
+    //     println!("✓ Home Pose (center, facing east):");
+    //     println!("  Position: ({}, {}) mm", home.x_mm, home.y_mm);
+    //     println!("  Orientation: {}°", home.orientation_degrees());
+    //     println!(
+    //         "  Valid: {} | Elements: {} | Shape: {:?}",
+    //         home.is_valid(),
+    //         home.numel(),
+    //         home.shape()
+    //     );
+    //     println!();
+    // }
 
     // Corner position (facing northeast)
-    if let Some(corner) = RobotPose::new(1000, 1000, 45_000) {
-        println!("✓ Corner Pose (max position, facing northeast):");
-        println!("  Position: ({}, {}) mm", corner.x_mm, corner.y_mm);
-        println!("  Orientation: {}°", corner.orientation_degrees());
-        println!("  Valid: {}", corner.is_valid());
-        println!();
-    }
+    // if let Some(corner) = RobotPose::new(1000, 1000, 45_000) {
+    //     println!("✓ Corner Pose (max position, facing northeast):");
+    //     println!("  Position: ({}, {}) mm", corner.x_mm, corner.y_mm);
+    //     println!("  Orientation: {}°", corner.orientation_degrees());
+    //     println!("  Valid: {}", corner.is_valid());
+    //     println!();
+    // }
 
     // Negative angle (facing southwest)
-    if let Some(southwest) = RobotPose::new(0, 0, -90_000) {
-        println!("✓ Southwest Pose (origin, facing south):");
-        println!("  Position: ({}, {}) mm", southwest.x_mm, southwest.y_mm);
-        println!("  Orientation: {}°", southwest.orientation_degrees());
-        println!("  Valid: {}", southwest.is_valid());
-        println!();
-    }
+    // if let Some(southwest) = RobotPose::new(0, 0, -90_000) {
+    //     println!("✓ Southwest Pose (origin, facing south):");
+    //     println!("  Position: ({}, {}) mm", southwest.x_mm, southwest.y_mm);
+    //     println!("  Orientation: {}°", southwest.orientation_degrees());
+    //     println!("  Valid: {}", southwest.is_valid());
+    //     println!();
+    // }
 
     // ========================================================================
     // 2. ATTEMPTING INVALID POSES
@@ -310,13 +311,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("Orientation < -180°", 500, 500, -200_000),
     ];
 
-    for (reason, x, y, theta) in invalid_cases {
-        match RobotPose::new(x, y, theta) {
-            Some(_) => println!("  ✓ {} → Created successfully", reason),
-            None => println!("  ✗ {} → Rejected (constraint violation)", reason),
-        }
-    }
-    println!();
+    // for (reason, x, y, theta) in invalid_cases {
+    //     match RobotPose::new(x, y, theta) {
+    //         Some(_) => println!("  ✓ {} → Created successfully", reason),
+    //         None => println!("  ✗ {} → Rejected (constraint violation)", reason),
+    //     }
+    // }
+    // println!();
 
     // ========================================================================
     // 3. DISTANCE CALCULATIONS
@@ -371,17 +372,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RobotPose::new_unchecked(500, 500, 540_000), // 540° → should normalize to 180°
     ];
 
-    for pose in poses_to_normalize {
-        let normalized = pose.normalize_orientation();
-        println!(
-            "  {:.0}° → {:.0}° | Valid before: {}, after: {}",
-            pose.orientation_degrees(),
-            normalized.orientation_degrees(),
-            pose.is_valid(),
-            normalized.is_valid()
-        );
-    }
-    println!();
+    // for pose in poses_to_normalize {
+    //     let normalized = pose.normalize_orientation();
+    //     println!(
+    //         "  {:.0}° → {:.0}° | Valid before: {}, after: {}",
+    //         pose.orientation_degrees(),
+    //         normalized.orientation_degrees(),
+    //         pose.is_valid(),
+    //         normalized.is_valid()
+    //     );
+    // }
+    // println!();
 
     // ========================================================================
     // 5. ROBOT TRAJECTORY / STATE SEQUENCE

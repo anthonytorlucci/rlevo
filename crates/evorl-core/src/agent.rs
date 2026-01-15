@@ -1,64 +1,61 @@
-use crate::environment::Environment;
-use crate::memory::TrainingBatch;
 use burn::module::AutodiffModule;
 use burn::optim::Optimizer;
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use std::fmt::Debug;
 
-pub trait Agent<E, const S: usize, const A: usize, B: Backend>
-where
-    E: Environment<S, A>,
-{
-    type Error: std::error::Error + Debug + Send + Sync + 'static;
+// todo! distinguish between RL agents and EA agents
 
-    /// Choose an action given the current state
-    fn act(&mut self, state: &E::StateType) -> Result<E::ActionType, Self::Error>;
+// pub trait Agent<E, const S: usize, const A: usize, B: Backend>
+// where
+//     E: Environment<S, A>,
+// {
+//     type Error: std::error::Error + Debug + Send + Sync + 'static;
 
-    /// Learn from a batch of experiences
-    fn learn(&mut self, batch: &TrainingBatch<B, S, A>) -> Result<f32, Self::Error>;
+//     /// Choose an action given the current state
+//     fn act(
+//         &mut self,
+//         state: &E::StateType,
+//         device: &B::Device,
+//     ) -> Result<E::ActionType, Self::Error>;
 
-    /// Update exploration parameters (e.g., decay epsilon)
-    fn update_exploration(&mut self, step: usize) -> Result<(), Self::Error>;
+//     /// Learn from a batch of experiences
+//     fn learn(&mut self, batch: &TrainingBatch<S, A, B>) -> Result<f32, Self::Error>;
 
-    /// Get current exploration rate (for logging/monitoring)
-    fn exploration_rate(&self) -> f64;
+//     /// Update exploration parameters (e.g., decay epsilon)
+//     fn update_exploration(&mut self, step: usize) -> Result<(), Self::Error>;
 
-    /// Save the agent's state to a file
-    fn save(&self, path: &str) -> Result<(), Self::Error>;
+//     /// Get current exploration rate (for logging/monitoring)
+//     fn exploration_rate(&self) -> f64;
 
-    /// Load the agent's state from a file
-    fn load(&mut self, path: &str) -> Result<(), Self::Error>;
+//     /// Save the agent's state to a file
+//     fn save(&self, path: &str) -> Result<(), Self::Error>;
 
-    /// Reset agent state between episodes
-    fn reset(&mut self);
-}
+//     /// Load the agent's state from a file
+//     fn load(&mut self, path: &str) -> Result<(), Self::Error>;
 
-/// Trait for agents that use neural network policies
-pub trait NeuralAgent<E, const S: usize, const A: usize, B: AutodiffBackend>:
-    Agent<E, S, A, B>
-where
-    E: Environment<S, A>,
-{
-    type Model: AutodiffModule<B> + Debug;
+//     /// Reset agent state between episodes
+//     fn reset(&mut self);
+// }
 
-    /// Get a reference to the underlying model
-    fn model(&self) -> Option<&Self::Model>;
+// /// Trait for agents that use neural network policies
+// pub trait NeuralAgent<E, const S: usize, const A: usize, B: AutodiffBackend, O>:
+//     Agent<E, S, A, B>
+// where
+//     E: Environment<S, A>,
+//     O: Optimizer<Self::Model, B>,
+// {
+//     type Model: AutodiffModule<B> + Debug;
 
-    /// Get a mutable reference to the underlying model
-    fn model_mut(&mut self) -> Option<&mut Self::Model>;
-}
+//     /// Get a reference to the underlying model
+//     fn model(&self) -> Option<&Self::Model>;
 
-/// Trait for agents that support training with optimizers
-pub trait TrainableAgent<E, const S: usize, const A: usize, B: AutodiffBackend, O>:
-    NeuralAgent<E, S, A, B>
-where
-    O: Optimizer<Self::Model, B>,
-    E: Environment<S, A>,
-{
-    /// Perform a training step with the given optimizer
-    fn train_step(
-        &mut self,
-        batch: &TrainingBatch<B, S, A>,
-        optimizer: &mut O,
-    ) -> Result<f32, Self::Error>;
-}
+//     /// Get a mutable reference to the underlying model
+//     fn model_mut(&mut self) -> Option<&mut Self::Model>;
+
+//     /// Perform a training step with the given optimizer
+//     fn train_step(
+//         &mut self,
+//         batch: &TrainingBatch<S, A, B>,
+//         optimizer: &mut O,
+//     ) -> Result<f32, Self::Error>;
+// }

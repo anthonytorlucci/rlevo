@@ -1,8 +1,9 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
-use evorl_core::action::{Action, ActionTensorConvertible, DiscreteAction};
-use evorl_core::environment::{Environment, EnvironmentError, SnapshotBase};
-use evorl_core::state::{FlattenedState, State, StateError, StateTensorConvertible};
+use evorl_core::action::{Action, DiscreteAction};
+//use evorl_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use evorl_core::base::TensorConvertible;
+use evorl_core::state::{State, StateError};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal};
@@ -23,19 +24,19 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TenArmedBanditState {}
 
-impl State for TenArmedBanditState {
-    fn is_valid(&self) -> bool {
-        true
-    }
+// impl State for TenArmedBanditState {
+//     fn is_valid(&self) -> bool {
+//         true
+//     }
 
-    fn numel(&self) -> usize {
-        1
-    }
+//     fn numel(&self) -> usize {
+//         1
+//     }
 
-    fn shape(&self) -> Vec<usize> {
-        vec![1]
-    }
-}
+//     fn shape(&self) -> Vec<usize> {
+//         vec![1]
+//     }
+// }
 
 impl Display for TenArmedBanditState {
     /// Formats the state for human-readable output.
@@ -44,52 +45,26 @@ impl Display for TenArmedBanditState {
     }
 }
 
-impl FlattenedState for TenArmedBanditState {
-    /// Converts this state into a flattened vector representation.
-    ///
-    /// Since the multi-armed bandit state is inherently stateless,
-    /// this returns a single neutral value indicating the initial state.
-    /// This maintains consistency with `numel()` which returns 1.
-    fn flatten(&self) -> Vec<f32> {
-        vec![0.0]
-    }
-
-    /// Reconstructs state from a flattened vector representation.
-    ///
-    /// # Errors
-    ///
-    /// Returns `StateError::InvalidSize` if the input vector has incorrect length.
-    fn from_flattened(data: Vec<f32>) -> Result<Self, StateError> {
-        if data.len() != 1 {
-            return Err(StateError::InvalidSize {
-                expected: 1,
-                got: data.len(),
-            });
-        }
-        Ok(Self {})
-    }
-}
-
-impl StateTensorConvertible<1> for TenArmedBanditState {
+impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditState {
     /// Converts the stateless bandit state to a rank-1 tensor.
     ///
     /// Since the bandit is stateless, this simply returns a tensor with a single
     /// neutral value [0.0].
-    fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
         let data = vec![0.0];
         Tensor::from_floats(data.as_slice(), device)
     }
 
-    /// Reconstructs state from a rank-1 tensor.
-    ///
-    /// Since the state is stateless, this ignores the tensor contents and
-    /// returns a new `TenArmedBanditState`.
-    fn from_tensor<B: Backend>(_tensor: &Tensor<B, 1>) -> Result<Self, StateError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {})
-    }
+    // /// Reconstructs state from a rank-1 tensor.
+    // ///
+    // /// Since the state is stateless, this ignores the tensor contents and
+    // /// returns a new `TenArmedBanditState`.
+    // fn from_tensor<B: Backend>(_tensor: &Tensor<B, 1>) -> Result<Self, StateError>
+    // where
+    //     Self: Sized,
+    // {
+    //     Ok(Self {})
+    // }
 }
 
 // SAFETY: TenArmedBanditState is an empty struct with no fields,
@@ -158,77 +133,77 @@ impl TenArmedBanditAction {
     }
 }
 
-impl Action for TenArmedBanditAction {
-    fn is_valid(&self) -> bool {
-        // Action is valid if the arm index is within the valid range.
-        self.selected_arm < Self::ACTION_COUNT
-    }
-}
+// impl Action for TenArmedBanditAction {
+//     fn is_valid(&self) -> bool {
+//         // Action is valid if the arm index is within the valid range.
+//         self.selected_arm < Self::ACTION_COUNT
+//     }
+// }
 
-impl DiscreteAction for TenArmedBanditAction {
-    /// Standard 10-armed bandit from Sutton & Barto (2018).
-    ///
-    /// This is the classic configuration for multi-armed bandit problems,
-    /// commonly used in reinforcement learning literature and benchmarks.
-    const ACTION_COUNT: usize = 10;
+// impl DiscreteAction for TenArmedBanditAction {
+//     /// Standard 10-armed bandit from Sutton & Barto (2018).
+//     ///
+//     /// This is the classic configuration for multi-armed bandit problems,
+//     /// commonly used in reinforcement learning literature and benchmarks.
+//     const ACTION_COUNT: usize = 10;
 
-    fn from_index(index: usize) -> Self {
-        assert!(
-            index < Self::ACTION_COUNT,
-            "Action index {} out of bounds [0, {})",
-            index,
-            Self::ACTION_COUNT
-        );
-        Self {
-            selected_arm: index,
-        }
-    }
+//     fn from_index(index: usize) -> Self {
+//         assert!(
+//             index < Self::ACTION_COUNT,
+//             "Action index {} out of bounds [0, {})",
+//             index,
+//             Self::ACTION_COUNT
+//         );
+//         Self {
+//             selected_arm: index,
+//         }
+//     }
 
-    fn to_index(&self) -> usize {
-        self.selected_arm
-    }
+//     fn to_index(&self) -> usize {
+//         self.selected_arm
+//     }
 
-    fn enumerate() -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        (0..Self::ACTION_COUNT)
-            .map(|selected_arm| Self { selected_arm })
-            .collect()
-    }
-}
+//     fn enumerate() -> Vec<Self>
+//     where
+//         Self: Sized,
+//     {
+//         (0..Self::ACTION_COUNT)
+//             .map(|selected_arm| Self { selected_arm })
+//             .collect()
+//     }
+// }
 
 // SAFETY: TenArmedBanditAction contains only a usize, which is Copy and thread-safe.
 // No synchronization primitives or heap allocations are involved.
 unsafe impl Send for TenArmedBanditAction {}
 unsafe impl Sync for TenArmedBanditAction {}
 
-impl ActionTensorConvertible<1> for TenArmedBanditAction {
-    /// Converts this discrete action to a one-hot encoded tensor.
-    ///
-    /// For a 10-armed bandit, this creates a 1D tensor of length 10 where
-    /// the selected arm's position is 1.0 and all others are 0.0.
-    ///
-    /// This conversion enables integration with Burn neural networks for deep
-    /// reinforcement learning applications. The one-hot encoding provides a
-    /// dense representation suitable for network input layers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use burn::backend::NdArray;
-    /// let action = TenArmedBanditAction::from_index(3);
-    /// let device = NdArray::device();
-    /// let tensor = action.to_tensor::<NdArray>(&device);
-    /// // tensor contains [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
-    /// ```
-    fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
-        // Create one-hot encoding: [0, 0, ..., 1, ..., 0] where 1 is at position self.selected_arm
-        let mut one_hot = vec![0.0_f32; Self::ACTION_COUNT];
-        one_hot[self.selected_arm] = 1.0;
-        Tensor::from_floats(one_hot.as_slice(), device)
-    }
-}
+// impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditAction {
+//     /// Converts this discrete action to a one-hot encoded tensor.
+//     ///
+//     /// For a 10-armed bandit, this creates a 1D tensor of length 10 where
+//     /// the selected arm's position is 1.0 and all others are 0.0.
+//     ///
+//     /// This conversion enables integration with Burn neural networks for deep
+//     /// reinforcement learning applications. The one-hot encoding provides a
+//     /// dense representation suitable for network input layers.
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```rust,ignore
+//     /// use burn::backend::NdArray;
+//     /// let action = TenArmedBanditAction::from_index(3);
+//     /// let device = NdArray::device();
+//     /// let tensor = action.to_tensor::<NdArray>(&device);
+//     /// // tensor contains [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
+//     /// ```
+//     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+//         // Create one-hot encoding: [0, 0, ..., 1, ..., 0] where 1 is at position self.selected_arm
+//         let mut one_hot = vec![0.0_f32; Self::ACTION_COUNT];
+//         one_hot[self.selected_arm] = 1.0;
+//         Tensor::from_floats(one_hot.as_slice(), device)
+//     }
+// }
 
 /// 10-armed bandit environment
 #[derive(Debug, Clone)]
@@ -318,67 +293,68 @@ impl FromStr for TenArmedBanditConfig {
     }
 }
 
-impl Environment<1, 1> for TenArmedBandit {
-    type StateType = TenArmedBanditState;
-    type ActionType = TenArmedBanditAction;
-    type RewardType = f32;
-    type SnapshotType = SnapshotBase<TenArmedBanditState, f32>;
+// impl Environment<1, 1> for TenArmedBandit {
+//     type StateType = TenArmedBanditState;
+//     type ActionType = TenArmedBanditAction;
+//     type RewardType = f32;
+//     type SnapshotType = SnapshotBase<TenArmedBanditState, f32>;
 
-    fn new(_render: bool) -> Self {
-        // Fixed seed for reproducibility - matches Sutton & Barto convention
-        let seed = 42;
-        let mut rng = StdRng::seed_from_u64(seed);
+//     fn new(_render: bool) -> Self {
+//         // Fixed seed for reproducibility - matches Sutton & Barto convention
+//         let seed = 42;
+//         let mut rng = StdRng::seed_from_u64(seed);
 
-        // Sample q*(a) from normal distribution N(0, 1) for each arm
-        // Each arm's true value is a sample from a normal distribution
-        let normal = Normal::new(0.0, 1.0).unwrap();
-        let mut arm_means = [0.0; 10];
-        for mean in &mut arm_means {
-            *mean = normal.sample(&mut rng);
-        }
+//         // Sample q*(a) from normal distribution N(0, 1) for each arm
+//         // Each arm's true value is a sample from a normal distribution
+//         let normal = Normal::new(0.0, 1.0).unwrap();
+//         let mut arm_means = [0.0; 10];
+//         for mean in &mut arm_means {
+//             *mean = normal.sample(&mut rng);
+//         }
 
-        Self {
-            state: TenArmedBanditState {},
-            steps: 0,
-            done: false,
-            config: TenArmedBanditConfig::default(),
-            rng,
-            arm_means,
-        }
-    }
+//         Self {
+//             state: TenArmedBanditState {},
+//             steps: 0,
+//             done: false,
+//             config: TenArmedBanditConfig::default(),
+//             rng,
+//             arm_means,
+//         }
+//     }
 
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = TenArmedBanditState {};
-        self.steps = 0;
-        self.done = false;
+//     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+//         self.state = TenArmedBanditState {};
+//         self.steps = 0;
+//         self.done = false;
 
-        Ok(SnapshotBase::new(self.state, 0.0, false))
-    }
+//         Ok(SnapshotBase::new(self.state, 0.0, false))
+//     }
 
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
-        // Validate the action
-        if !action.is_valid() {
-            return Err(EnvironmentError::InvalidAction(format!(
-                "Invalid arm index: {}",
-                action.to_index()
-            )));
-        }
+//     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+//         // Validate the action
+//         if !action.is_valid() {
+//             return Err(EnvironmentError::InvalidAction(format!(
+//                 "Invalid arm index: {}",
+//                 action.to_index()
+//             )));
+//         }
 
-        // Increment step counter
-        self.steps += 1;
+//         // Increment step counter
+//         self.steps += 1;
 
-        // In a real bandit environment, we would sample a reward based on the
-        // arm's probability distribution. For now, we return a deterministic
-        // or random reward based on the arm index.
-        let reward = self.compute_reward(action.to_index());
+//         // In a real bandit environment, we would sample a reward based on the
+//         // arm's probability distribution. For now, we return a deterministic
+//         // or random reward based on the arm index.
+//         let reward = self.compute_reward(action.to_index());
 
-        // Check if episode is done
-        self.done = self.steps >= self.config.max_steps;
+//         // Check if episode is done
+//         self.done = self.steps >= self.config.max_steps;
 
-        Ok(SnapshotBase::new(self.state, reward, self.done))
-    }
-}
+//         Ok(SnapshotBase::new(self.state, reward, self.done))
+//     }
+// }
 
+// todo! use evorl_core::dynamics::Reward
 impl TenArmedBandit {
     /// Computes a reward for the given arm index.
     fn compute_reward(&mut self, arm_index: usize) -> f32 {

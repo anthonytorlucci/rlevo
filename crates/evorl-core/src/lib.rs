@@ -18,33 +18,12 @@
 //! │ (Learner)   │     │ (Problem)    │     │ (Policy) │
 //! └─────────────┘     └──────────────┘     └──────────┘
 //! ```
-//!
-//! # Example
-//!
-//! ```no_run
-//! use evorl_core::agent::Agent;
-//! use evorl_core::environment::Environment;
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create environment
-//! let mut env = your_env::MyEnvironment::new()?;
-//!
-//! // Create agent
-//! let mut agent = your_agent::MyAgent::new()?;
-//!
-//! // Training loop
-//! for episode in 0..1000 {
-//!     let state = env.reset()?;
-//!     // ... interact with environment
-//! }
-//! # Ok(())
-//! # }
-//! ```
 
 pub mod action;
 pub mod agent;
+pub mod base;
+pub mod dynamics;
 pub mod environment;
 pub mod memory;
 pub mod metrics;
-pub mod model;
 pub mod state;

@@ -6,39 +6,39 @@ struct VehicleControl {
     throttle: f32, // 0.0 (idle) to 1.0 (full)
 }
 
-impl Action for VehicleControl {
-    fn is_valid(&self) -> bool {
-        self.steering.is_finite()
-            && self.throttle.is_finite()
-            && self.steering >= -1.0
-            && self.steering <= 1.0
-            && self.throttle >= 0.0
-            && self.throttle <= 1.0
-    }
-}
+// impl Action for VehicleControl {
+//     fn is_valid(&self) -> bool {
+//         self.steering.is_finite()
+//             && self.throttle.is_finite()
+//             && self.steering >= -1.0
+//             && self.steering <= 1.0
+//             && self.throttle >= 0.0
+//             && self.throttle <= 1.0
+//     }
+// }
 
-impl ContinuousAction for VehicleControl {
-    const DIM: usize = 2;
+// impl ContinuousAction for VehicleControl {
+//     const DIM: usize = 2;
 
-    fn as_slice(&self) -> &[f32] {
-        // Use unsafe to reinterpret struct as slice
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const f32, 2) }
-    }
+//     fn as_slice(&self) -> &[f32] {
+//         // Use unsafe to reinterpret struct as slice
+//         unsafe { std::slice::from_raw_parts(self as *const _ as *const f32, 2) }
+//     }
 
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self {
-            steering: self.steering.clamp(min, max),
-            throttle: self.throttle.clamp(min, max),
-        }
-    }
+//     fn clip(&self, min: f32, max: f32) -> Self {
+//         Self {
+//             steering: self.steering.clamp(min, max),
+//             throttle: self.throttle.clamp(min, max),
+//         }
+//     }
 
-    fn from_slice(values: &[f32]) -> Self {
-        Self {
-            steering: values[0],
-            throttle: values[1],
-        }
-    }
-}
+//     fn from_slice(values: &[f32]) -> Self {
+//         Self {
+//             steering: values[0],
+//             throttle: values[1],
+//         }
+//     }
+// }
 
 // --------------------------------------------------------------------------
 // Example Usage
@@ -78,8 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         steering: 0.0, // straight
         throttle: 0.5, // 50% throttle
     };
-    println!("  Action: {:?}", forward_action);
-    println!("  Valid: {}\n", forward_action.is_valid());
+    // println!("  Action: {:?}", forward_action);
+    // println!("  Valid: {}\n", forward_action.is_valid());
 
     // Example 2: Create a left turn with full throttle
     println!("Example 2: Left Turn with Full Throttle");
@@ -87,8 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         steering: -0.75, // hard left
         throttle: 1.0,   // full throttle
     };
-    println!("  Action: {:?}", left_turn);
-    println!("  Valid: {}\n", left_turn.is_valid());
+    // println!("  Action: {:?}", left_turn);
+    // println!("  Valid: {}\n", left_turn.is_valid());
 
     // Example 3: Create an idle action (no steering, no throttle)
     println!("Example 3: Idle Action");
@@ -96,8 +96,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         steering: 0.0,
         throttle: 0.0,
     };
-    println!("  Action: {:?}", idle);
-    println!("  Valid: {}\n", idle.is_valid());
+    // println!("  Action: {:?}", idle);
+    // println!("  Valid: {}\n", idle.is_valid());
 
     // Example 4: Demonstrate conversion to slice
     println!("Example 4: Conversion to Slice");
@@ -105,18 +105,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         steering: 0.25,
         throttle: 0.75,
     };
-    let slice = action.as_slice();
-    println!("  Action: {:?}", action);
-    println!("  As slice: {:?}", slice);
-    println!("  Dimension: {}\n", VehicleControl::DIM);
+    // let slice = action.as_slice();
+    // println!("  Action: {:?}", action);
+    // println!("  As slice: {:?}", slice);
+    // println!("  Dimension: {}\n", VehicleControl::DIM);
 
     // Example 5: Demonstrate conversion from slice
     println!("Example 5: Conversion from Slice");
     let values = [0.5, 0.3];
-    let reconstructed = VehicleControl::from_slice(&values);
-    println!("  Input slice: {:?}", values);
-    println!("  Reconstructed action: {:?}", reconstructed);
-    println!("  Valid: {}\n", reconstructed.is_valid());
+    // let reconstructed = VehicleControl::from_slice(&values);
+    // println!("  Input slice: {:?}", values);
+    // println!("  Reconstructed action: {:?}", reconstructed);
+    // println!("  Valid: {}\n", reconstructed.is_valid());
 
     // Example 6: Demonstrate clipping to valid range
     println!("Example 6: Clipping Actions");
@@ -124,12 +124,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         steering: 1.5, // exceeds max
         throttle: 1.2, // exceeds max
     };
-    println!("  Original action: {:?}", overconstrained);
-    println!("  Valid: {}", overconstrained.is_valid());
+    // println!("  Original action: {:?}", overconstrained);
+    // println!("  Valid: {}", overconstrained.is_valid());
 
-    let clipped = overconstrained.clip(-1.0, 1.0);
-    println!("  Clipped action: {:?}", clipped);
-    println!("  Valid: {}\n", clipped.is_valid());
+    // let clipped = overconstrained.clip(-1.0, 1.0);
+    // println!("  Clipped action: {:?}", clipped);
+    // println!("  Valid: {}\n", clipped.is_valid());
 
     // Example 7: Demonstrate invalid actions
     println!("Example 7: Invalid Actions");
@@ -138,14 +138,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         throttle: 0.5,
     };
     println!("  Action with NaN: {:?}", invalid_steering);
-    println!("  Valid: {}", invalid_steering.is_valid());
+    // println!("  Valid: {}", invalid_steering.is_valid());
 
     let invalid_range = VehicleControl {
         steering: 0.5,
         throttle: -0.5, // below minimum
     };
     println!("  Action with negative throttle: {:?}", invalid_range);
-    println!("  Valid: {}\n", invalid_range.is_valid());
+    // println!("  Valid: {}\n", invalid_range.is_valid());
 
     // Example 8: Practical scenario - lane change sequence
     println!("Example 8: Practical Scenario - Lane Change Sequence");
@@ -168,15 +168,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }, // straighten out
     ];
 
-    for (idx, action) in lane_change_sequence.iter().enumerate() {
-        println!(
-            "  Step {}: {:?} | Valid: {}",
-            idx + 1,
-            action,
-            action.is_valid()
-        );
-    }
-    println!();
+    // for (idx, action) in lane_change_sequence.iter().enumerate() {
+    //     println!(
+    //         "  Step {}: {:?} | Valid: {}",
+    //         idx + 1,
+    //         action,
+    //         action.is_valid()
+    //     );
+    // }
+    // println!();
 
     // Example 9: Demonstrate round-trip conversion
     println!("Example 9: Round-Trip Conversion (Struct -> Slice -> Struct)");
@@ -186,16 +186,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("  Original: {:?}", original);
 
-    let as_slice = original.as_slice();
-    println!("  As slice: {:?}", as_slice);
+    // let as_slice = original.as_slice();
+    // println!("  As slice: {:?}", as_slice);
 
-    let reconstructed = VehicleControl::from_slice(as_slice);
-    println!("  Reconstructed: {:?}", reconstructed);
-    println!(
-        "  Match: {}\n",
-        (original.steering - reconstructed.steering).abs() < 1e-5
-            && (original.throttle - reconstructed.throttle).abs() < 1e-5
-    );
+    // let reconstructed = VehicleControl::from_slice(as_slice);
+    // println!("  Reconstructed: {:?}", reconstructed);
+    // println!(
+    //     "  Match: {}\n",
+    //     (original.steering - reconstructed.steering).abs() < 1e-5
+    //         && (original.throttle - reconstructed.throttle).abs() < 1e-5
+    // );
 
     // Example 10: Batch validation
     println!("Example 10: Batch Validation");
@@ -222,15 +222,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }, // invalid
     ];
 
-    let valid_count = actions.iter().filter(|a| a.is_valid()).count();
-    println!("  Total actions: {}", actions.len());
-    println!("  Valid actions: {}", valid_count);
-    println!("  Invalid actions: {}", actions.len() - valid_count);
+    // let valid_count = actions.iter().filter(|a| a.is_valid()).count();
+    // println!("  Total actions: {}", actions.len());
+    // println!("  Valid actions: {}", valid_count);
+    // println!("  Invalid actions: {}", actions.len() - valid_count);
 
-    for (idx, action) in actions.iter().enumerate() {
-        let status = if action.is_valid() { "✓" } else { "✗" };
-        println!("    {} Action {}: {:?}", status, idx + 1, action);
-    }
+    // for (idx, action) in actions.iter().enumerate() {
+    //     let status = if action.is_valid() { "✓" } else { "✗" };
+    //     println!("    {} Action {}: {:?}", status, idx + 1, action);
+    // }
 
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║                   Example Complete                         ║");

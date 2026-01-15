@@ -7,23 +7,23 @@ enum GameState {
     GameOver { score: u32 },
 }
 
-impl State for GameState {
-    fn is_valid(&self) -> bool {
-        match self {
-            GameState::Playing { level } => *level > 0 && *level <= 10,
-            _ => true,
-        }
-    }
+// impl State for GameState {
+//     fn is_valid(&self) -> bool {
+//         match self {
+//             GameState::Playing { level } => *level > 0 && *level <= 10,
+//             _ => true,
+//         }
+//     }
 
-    fn numel(&self) -> usize {
-        // Encode as 3 features: [state_id, level, score]
-        3
-    }
+//     fn numel(&self) -> usize {
+//         // Encode as 3 features: [state_id, level, score]
+//         3
+//     }
 
-    fn shape(&self) -> Vec<usize> {
-        vec![3]
-    }
-}
+//     fn shape(&self) -> Vec<usize> {
+//         vec![3]
+//     }
+// }
 
 // --------------------------------------------------------------------------
 // Example Usage
@@ -61,53 +61,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate is_valid() - validates state constraints
     println!("1. State Validation (is_valid):");
-    println!("   Menu is valid:               {}", menu_state.is_valid());
-    println!(
-        "   Playing(level=5) is valid:   {}",
-        playing_level_5.is_valid()
-    );
-    println!(
-        "   Playing(level=0) is valid:   {} (invalid: level must be 1-10)",
-        playing_invalid.is_valid()
-    );
-    println!(
-        "   GameOver(score=2500) is valid: {}",
-        game_over_state.is_valid()
-    );
-    println!();
+    // println!("   Menu is valid:               {}", menu_state.is_valid());
+    // println!(
+    //     "   Playing(level=5) is valid:   {}",
+    //     playing_level_5.is_valid()
+    // );
+    // println!(
+    //     "   Playing(level=0) is valid:   {} (invalid: level must be 1-10)",
+    //     playing_invalid.is_valid()
+    // );
+    // println!(
+    //     "   GameOver(score=2500) is valid: {}",
+    //     game_over_state.is_valid()
+    // );
+    // println!();
 
     // Demonstrate numel() - total number of scalar elements in state
     println!("2. Number of Elements (numel):");
-    println!("   Menu:                {}", menu_state.numel());
-    println!("   Playing(level=5):    {}", playing_level_5.numel());
-    println!("   GameOver(score=2500):{}", game_over_state.numel());
-    println!("   (All states encode as 3 features: [state_id, level, score])");
-    println!();
+    // println!("   Menu:                {}", menu_state.numel());
+    // println!("   Playing(level=5):    {}", playing_level_5.numel());
+    // println!("   GameOver(score=2500):{}", game_over_state.numel());
+    // println!("   (All states encode as 3 features: [state_id, level, score])");
+    // println!();
 
     // Demonstrate shape() - logical shape of state tensor representation
     println!("3. State Shape (shape):");
-    println!("   Menu:                {:?}", menu_state.shape());
-    println!("   Playing(level=5):    {:?}", playing_level_5.shape());
-    println!("   GameOver(score=2500):{:?}", game_over_state.shape());
-    println!("   (All states have shape [3]: a 1D vector of 3 elements)");
-    println!();
+    // println!("   Menu:                {:?}", menu_state.shape());
+    // println!("   Playing(level=5):    {:?}", playing_level_5.shape());
+    // println!("   GameOver(score=2500):{:?}", game_over_state.shape());
+    // println!("   (All states have shape [3]: a 1D vector of 3 elements)");
+    // println!();
 
     // Verify consistency: numel() should equal product of shape()
     println!("4. Consistency Check (numel == shape product):");
-    for (name, state) in [
-        ("Menu", menu_state.clone()),
-        ("Playing(level=5)", playing_level_5.clone()),
-        ("GameOver(score=2500)", game_over_state.clone()),
-    ] {
-        let numel = state.numel();
-        let shape_product: usize = state.shape().iter().product();
-        let is_consistent = numel == shape_product;
-        println!(
-            "   {:<25} numel={}, shape_product={}, valid={}",
-            name, numel, shape_product, is_consistent
-        );
-    }
-    println!();
+    // for (name, state) in [
+    //     ("Menu", menu_state.clone()),
+    //     ("Playing(level=5)", playing_level_5.clone()),
+    //     ("GameOver(score=2500)", game_over_state.clone()),
+    // ] {
+    //     let numel = state.numel();
+    //     let shape_product: usize = state.shape().iter().product();
+    //     let is_consistent = numel == shape_product;
+    //     println!(
+    //         "   {:<25} numel={}, shape_product={}, valid={}",
+    //         name, numel, shape_product, is_consistent
+    //     );
+    // }
+    // println!();
 
     // Demonstrate practical use: determining if a state can be processed
     println!("5. Practical Usage Example:");
@@ -117,10 +117,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         playing_invalid,
         game_over_state,
     ];
-    let valid_states: Vec<_> = states.into_iter().filter(|s| s.is_valid()).collect();
-    println!("   Total states: 4");
-    println!("   Valid states: {}", valid_states.len());
-    println!("   (Only valid states can be used for transitions/training)");
+    // let valid_states: Vec<_> = states.into_iter().filter(|s| s.is_valid()).collect();
+    // println!("   Total states: 4");
+    // println!("   Valid states: {}", valid_states.len());
+    // println!("   (Only valid states can be used for transitions/training)");
 
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║                   Example Complete                         ║");
