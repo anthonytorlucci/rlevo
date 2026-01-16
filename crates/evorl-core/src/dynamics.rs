@@ -1,8 +1,10 @@
 use crate::action::Action;
 use crate::state::{MarkovState, Observation, State};
+use std::collections::VecDeque;
+use std::fmt::Debug;
 
 /// Represents a reward signal
-pub trait Reward: Clone + std::ops::Add<Output = Self> {
+pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
     fn zero() -> Self;
 }
 
@@ -17,33 +19,44 @@ pub trait TransitionDynamics<const SD: usize, const AD: usize, S: State<SD>, A: 
     fn transition(&self, state: &S, action: &A) -> S;
 }
 
+#[derive(Clone)]
+pub struct ExperienceTuple<
+    const D: usize,
+    const AD: usize,
+    O: Observation<D>,
+    A: Action<AD>,
+    R: Reward,
+> {
+    pub observation: O,
+    pub action: A,
+    pub reward: R,
+}
+
 /// A history of interactions: sequence of observations, actions, rewards
 #[derive(Clone)]
 pub struct History<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> {
-    pub observations: Vec<O>,
-    pub actions: Vec<A>,
-    pub rewards: Vec<R>,
+    trace: VecDeque<ExperienceTuple<D, AD, O, A, R>>,
 }
 
 impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward>
     History<D, AD, O, A, R>
 {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            observations: Vec::new(),
-            actions: Vec::new(),
-            rewards: Vec::new(),
+            trace: VecDeque::with_capacity(capacity),
         }
     }
 
     pub fn add(&mut self, obs: O, action: A, reward: R) {
-        self.observations.push(obs);
-        self.actions.push(action);
-        self.rewards.push(reward);
+        self.trace.push_back(ExperienceTuple {
+            observation: obs,
+            action,
+            reward,
+        });
     }
 
     pub fn len(&self) -> usize {
-        self.observations.len()
+        self.trace.len()
     }
 }
 

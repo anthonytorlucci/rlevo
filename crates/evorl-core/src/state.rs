@@ -1,5 +1,3 @@
-//! State representation abstractions for reinforcement learning environments.
-
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -59,44 +57,26 @@ pub trait State<const D: usize>: Debug + Clone + Send + Sync {
     /// This is automatically set to match the const generic parameter `D`.
     const DIM: usize = D;
 
+    type Observation: Observation<D>;
+
     /// Returns the cardinality of each dimension in this state space.
     ///
     /// The returned array has length `D`, where each element specifies the number
     /// of possible values for that dimension. All values must be greater than zero.
     fn shape() -> [usize; D];
 
-    type Observation: Observation<D>;
-
     /// Generate an observation from this state (may be partial)
     fn observe(&self) -> Self::Observation;
 
-    /// Validates that this state satisfies all environment constraints.
+    /// Validates whether this state satisfies all constraints.
     ///
-    /// The default implementation returns `true`, assuming all representable states are valid.
-    /// Override this method if your state has domain-specific constraints (e.g., bounds checks,
-    /// probability normalization, structural invariants).
-    ///
-    /// # Validation Use Cases
-    ///
-    /// - **Bounds Checking**: Grid positions within map boundaries
-    /// - **Physical Constraints**: Robot joints within angle limits
-    /// - **Probability Distributions**: Action probabilities sum to 1.0
-    /// - **Structural Invariants**: Game states follow legal transition rules
-    ///
-    /// # Performance Considerations
-    ///
-    /// This method may be called frequently during environment stepping. Keep validation
-    /// logic lightweight. For expensive checks, consider:
-    /// - Caching validation results
-    /// - Using debug assertions (`debug_assert!`) for development
-    /// - Validating only on state construction
+    /// This method checks if the state is legal according to its type's invariants.
+    /// It does **not** check environment-specific legality - that's the environment's responsibility.
     ///
     /// # Returns
     ///
-    /// `true` if the state satisfies all constraints, `false` otherwise.
-    fn is_valid(&self) -> bool {
-        true
-    }
+    /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
+    fn is_valid(&self) -> bool;
 
     /// Returns the total number of scalar elements in this state's representation.
     ///

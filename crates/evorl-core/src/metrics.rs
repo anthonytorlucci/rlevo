@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 /// Example
-/// ```no-run
+/// ```no_run
 /// #[derive(Debug, Clone)]
 /// struct PpoMetrics {
 ///     reward: f32,

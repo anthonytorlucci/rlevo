@@ -1,3 +1,4 @@
+use crate::dynamics::History;
 use burn::module::AutodiffModule;
 use burn::optim::Optimizer;
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -35,6 +36,10 @@ use std::fmt::Debug;
 
 //     /// Reset agent state between episodes
 //     fn reset(&mut self);
+//
+//     fn trajectory(
+//         &self,
+//     ) -> History<D, AD, Self::ObservationType, Self::ActionType, Self::RewardType>;
 // }
 
 // /// Trait for agents that use neural network policies
