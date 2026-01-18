@@ -1,225 +1,9 @@
-use crate::action::{Action, ActionTensorConvertible};
-use crate::state::{State, StateTensorConvertible};
+use crate::action::Action;
+use crate::base::TensorConvertible;
+use crate::dynamics::{ExperienceTuple, History, HistoryRepresentation, Reward, UpdateFunction};
+use crate::state::{Observation, State};
+use std::collections::VecDeque;
 use std::fmt::Debug;
-
-/// Snapshot trait defines the interface for environment state observations.
-///
-/// A snapshot captures the state of the environment at a single point in time,
-/// including the observed state, reward received, and episode termination flag.
-/// This trait allows for custom snapshot implementations while providing sensible defaults.
-pub trait Snapshot: Debug {
-    /// The type of state contained in this snapshot.
-    type StateType: State + Debug + Clone;
-
-    /// The type of reward contained in this snapshot.
-    type RewardType: Into<f32> + Debug + Clone;
-
-    /// Access the observed state.
-    ///
-    /// # Returns
-    /// A reference to the state captured in this snapshot.
-    fn state(&self) -> &Self::StateType;
-
-    /// Access the reward received.
-    ///
-    /// # Returns
-    /// A reference to the reward value.
-    fn reward(&self) -> &Self::RewardType;
-
-    /// Check if the episode is terminal.
-    ///
-    /// # Returns
-    /// `true` if this snapshot represents the end of an episode, `false` otherwise.
-    fn is_done(&self) -> bool;
-}
-
-/// Default snapshot implementation for standard reinforcement learning observations.
-///
-/// `SnapshotBase` is a generic struct that stores the essential components of an
-/// environment observation: the current state, the reward received, and whether
-/// the episode is complete. It implements the `Snapshot` trait for ergonomic use.
-///
-/// # Type Parameters
-///
-/// * `StateType` - The type of state (must implement `State` and `Clone`)
-/// * `RewardType` - The type of reward (must implement `Into<f32>` and `Clone`)
-///
-/// # Examples
-///
-/// ```no_run
-/// # use evorl_core::environment::SnapshotBase;
-/// # struct MyState;
-/// # impl evorl_core::state::State for MyState {
-/// #     fn numel(&self) -> usize { 0 }
-/// #     fn shape(&self) -> Vec<usize> { vec![] }
-/// # }
-/// # impl Clone for MyState { fn clone(&self) -> Self { MyState } }
-/// # impl std::fmt::Debug for MyState { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) } }
-/// # impl PartialEq for MyState { fn eq(&self, _: &Self) -> bool { true } }
-/// # impl Eq for MyState {}
-/// # impl std::hash::Hash for MyState { fn hash<H: std::hash::Hasher>(&self, _: &mut H) {} }
-///
-/// let state = MyState;
-/// let snapshot = SnapshotBase::new(state, 1.5, false);
-///
-/// assert_eq!(snapshot.reward(), &1.5);
-/// assert!(!snapshot.is_done());
-/// ```
-#[derive(Debug, Clone)]
-pub struct SnapshotBase<StateType: State + Debug + Clone, RewardType: Into<f32> + Debug + Clone> {
-    /// The observed state of the environment.
-    pub state: StateType,
-    /// The reward received from the last action.
-    pub reward: RewardType,
-    /// Whether the episode has terminated.
-    pub done: bool,
-}
-
-impl<StateType: State + Debug + Clone, RewardType: Into<f32> + Debug + Clone>
-    SnapshotBase<StateType, RewardType>
-{
-    /// Create a new snapshot with the given state, reward, and terminal status.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - The environment state at this observation
-    /// * `reward` - The reward received
-    /// * `done` - Whether the episode has terminated
-    pub fn new(state: StateType, reward: RewardType, done: bool) -> Self {
-        Self {
-            state,
-            reward,
-            done,
-        }
-    }
-}
-
-impl<StateType: State + Debug + Clone, RewardType: Into<f32> + Debug + Clone> Snapshot
-    for SnapshotBase<StateType, RewardType>
-{
-    type StateType = StateType;
-    type RewardType = RewardType;
-
-    fn state(&self) -> &Self::StateType {
-        &self.state
-    }
-
-    fn reward(&self) -> &Self::RewardType {
-        &self.reward
-    }
-
-    fn is_done(&self) -> bool {
-        self.done
-    }
-}
-
-/// The environment trait defines the interaction protocol between an agent and a problem domain.
-///
-/// An environment encapsulates the dynamics of a problem, processing actions and
-/// returning observations (snapshots) along with rewards. Environments are responsible
-/// for managing state, computing rewards, and determining episode termination.
-///
-/// # Type Parameters
-///
-/// * `S` - The dimensionality of the state tensor representation
-/// * `A` - The dimensionality of the action tensor representation
-///
-/// # Associated Types
-///
-/// * `StateType` - The concrete state type of this environment
-/// * `ActionType` - The concrete action type this environment accepts
-/// * `RewardType` - The reward scalar type
-/// * `SnapshotType` - The snapshot type returned by reset/step
-///
-/// # Examples
-///
-/// ```no_run
-/// use evorl_core::environment::Environment;
-///
-/// # struct MyEnv;
-/// # struct MyState;
-/// # impl evorl_core::state::State for MyState {
-/// #     fn numel(&self) -> usize { 0 }
-/// #     fn shape(&self) -> Vec<usize> { vec![] }
-/// # }
-/// # impl Clone for MyState { fn clone(&self) -> Self { MyState } }
-/// # impl std::fmt::Debug for MyState { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) } }
-/// # impl PartialEq for MyState { fn eq(&self, _: &Self) -> bool { true } }
-/// # impl Eq for MyState {}
-/// # impl std::hash::Hash for MyState { fn hash<H: std::hash::Hasher>(&self, _: &mut H) {} }
-/// # struct MyAction;
-/// # impl evorl_core::action::Action for MyAction {
-/// #     fn is_valid(&self) -> bool { true }
-/// # }
-/// # impl Clone for MyAction { fn clone(&self) -> Self { MyAction } }
-/// # impl std::fmt::Debug for MyAction { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) } }
-/// # impl Sized for MyAction {}
-///
-/// impl Environment<1, 1> for MyEnv {
-///     type StateType = MyState;
-///     type ActionType = MyAction;
-///     type RewardType = f32;
-///     type SnapshotType = evorl_core::environment::SnapshotBase<MyState, f32>;
-///
-///     fn new(_render: bool) -> Self { MyEnv }
-///     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-///         Ok(evorl_core::environment::SnapshotBase::new(MyState, 0.0, false))
-///     }
-///     fn step(&mut self, _action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
-///         Ok(evorl_core::environment::SnapshotBase::new(MyState, 1.0, true))
-///     }
-/// }
-/// ```
-pub trait Environment<const S: usize, const A: usize> {
-    /// The concrete state type for this environment.
-    type StateType: State + StateTensorConvertible<S> + Debug + Clone;
-
-    /// The concrete action type this environment accepts.
-    type ActionType: Action + ActionTensorConvertible<A> + Debug + Clone;
-
-    /// The reward scalar type returned by this environment.
-    type RewardType: Into<f32> + Debug + Clone;
-
-    /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<StateType = Self::StateType, RewardType = Self::RewardType>;
-
-    /// Create a new environment instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `render` - Whether to render/display the environment (if supported)
-    ///
-    /// # Returns
-    ///
-    /// A new instance of this environment.
-    fn new(render: bool) -> Self;
-
-    /// Reset the environment to its initial state.
-    ///
-    /// This method should reset all state and return an initial observation (snapshot)
-    /// of the environment. This is typically called at the start of each episode.
-    ///
-    /// # Returns
-    ///
-    /// A snapshot containing the initial state, reward (typically 0), and done=false,
-    /// or an error if reset fails.
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError>;
-
-    /// Execute one step of the environment with the given action.
-    ///
-    /// This method processes the action, updates internal state, and returns
-    /// an observation of the new state along with the reward received.
-    ///
-    /// # Arguments
-    ///
-    /// * `action` - The action to execute in the current state
-    ///
-    /// # Returns
-    ///
-    /// A snapshot containing the next state, reward, and done flag,
-    /// or an error if the step fails.
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
-}
 
 /// Error type for environment operations.
 ///
@@ -273,114 +57,291 @@ impl From<std::io::Error> for EnvironmentError {
     }
 }
 
+/// Snapshot trait defines the interface for environment state observations.
+///
+/// A snapshot captures the state of the environment at a single point in time,
+/// including the observed state, reward received, and episode termination flag.
+/// This trait allows for custom snapshot implementations while providing sensible defaults.
+pub trait Snapshot<const D: usize>: Debug {
+    type ObservationType: Observation<D>;
+
+    /// The type of reward contained in this snapshot.
+    type RewardType: Reward;
+
+    /// Access the observed state.
+    ///
+    /// # Returns
+    /// A reference to the state captured in this snapshot.
+    fn observation(&self) -> &Self::ObservationType; // state.observe()
+
+    /// Access the reward received.
+    ///
+    /// # Returns
+    /// A reference to the reward value.
+    fn reward(&self) -> &Self::RewardType;
+
+    /// Check if the episode is terminal.
+    ///
+    /// # Returns
+    /// `true` if this snapshot represents the end of an episode, `false` otherwise.
+    fn is_done(&self) -> bool;
+}
+
+/// Default snapshot implementation for standard reinforcement learning observations.
+///
+/// `SnapshotBase` is a generic struct that stores the essential components of an
+/// environment observation: the current state, the reward received, and whether
+/// the episode is complete. It implements the `Snapshot` trait for ergonomic use.
+///
+/// # Type Parameters
+///
+/// * `D` - The state dimension
+/// * `ObservationType` - The type of observation (must implement `Observation<D>`)
+/// * `RewardType` - The type of reward (must implement `Reward`)
+#[derive(Debug, Clone)]
+pub struct SnapshotBase<const D: usize, ObservationType: Observation<D>, RewardType: Reward> {
+    /// The observation derived from the state.
+    pub observation: ObservationType,
+    /// The reward received from the last action.
+    pub reward: RewardType,
+    /// Whether the episode has terminated.
+    pub done: bool,
+}
+
+impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
+    SnapshotBase<D, ObservationType, RewardType>
+{
+    /// Create a new snapshot with the given observation, reward, and terminal status.
+    ///
+    /// This method computes the observation from the state upon creation.
+    ///
+    /// # Arguments
+    ///
+    /// * `obs` - The environment observation from the state
+    /// * `reward` - The reward received
+    /// * `done` - Whether the episode has terminated
+    pub fn new(observation: ObservationType, reward: RewardType, done: bool) -> Self {
+        Self {
+            observation,
+            reward,
+            done,
+        }
+    }
+}
+
+impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapshot<D>
+    for SnapshotBase<D, ObservationType, RewardType>
+{
+    type ObservationType = ObservationType;
+    type RewardType = RewardType;
+
+    fn observation(&self) -> &Self::ObservationType {
+        &self.observation
+    }
+
+    fn reward(&self) -> &Self::RewardType {
+        &self.reward
+    }
+
+    fn is_done(&self) -> bool {
+        self.done
+    }
+}
+
+/// The environment trait defines the interaction protocol between an agent and a problem domain.
+///
+/// An environment encapsulates the dynamics of a problem, processing actions and
+/// returning observations (snapshots) along with rewards. Environments are responsible
+/// for managing state, computing rewards, and determining episode termination.
+///
+/// # Type Parameters
+///
+/// * `S` - The dimensionality of the state tensor representation
+/// * `A` - The dimensionality of the action tensor representation
+///
+/// # Associated Types
+///
+/// * `StateType` - The concrete state type of this environment
+/// * `ActionType` - The concrete action type this environment accepts
+/// * `RewardType` - The reward scalar type
+/// * `SnapshotType` - The snapshot type returned by reset/step
+pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
+    /// The concrete state type for this environment.
+    type StateType: State<SD>;
+
+    type ObservationType: Observation<D>;
+
+    /// The concrete action type this environment accepts.
+    type ActionType: Action<AD>;
+
+    /// The reward scalar type returned by this environment.
+    type RewardType: Reward;
+
+    /// The snapshot type returned by reset and step operations.
+    type SnapshotType: Snapshot<
+        D,
+        ObservationType = Self::ObservationType,
+        RewardType = Self::RewardType,
+    >;
+
+    /// Create a new environment instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `render` - Whether to render/display the environment (if supported)
+    ///
+    /// # Returns
+    ///
+    /// A new instance of this environment.
+    fn new(render: bool) -> Self;
+
+    /// Reset the environment to its initial state.
+    ///
+    /// This method should reset all state and return an initial observation (snapshot)
+    /// of the environment. This is typically called at the start of each episode.
+    ///
+    /// # Returns
+    ///
+    /// A snapshot containing the initial state, reward (typically 0), and done=false,
+    /// or an error if reset fails.
+    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError>;
+
+    /// Execute one step of the environment with the given action.
+    ///
+    /// This method processes the action, updates internal state, and returns
+    /// an observation of the new state along with the reward received.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - The action to execute in the current state
+    ///
+    /// # Returns
+    ///
+    /// A snapshot containing the next state, reward, and done flag,
+    /// or an error if the step fails.
+    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
+}
+
 #[cfg(test)]
 mod tests {
-    use burn::tensor::backend::Backend;
-    use burn::tensor::{Tensor, TensorData};
+    use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::state::StateError;
-    use std::hash::Hash;
+    use crate::action::DiscreteAction;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct MockObservation {
+        /// The agent's current position in the range [0, 6]
+        position: i32,
+    }
+
+    impl Default for MockObservation {
+        fn default() -> Self {
+            Self { position: 0 }
+        }
+    }
+
+    impl Observation<1> for MockObservation {
+        fn shape() -> [usize; 1] {
+            [1]
+        }
+    }
 
     // Mock types for testing using Random Walk (1D) environment with 7 states
     // States: 0, 1, 2, 3, 4, 5, 6 (representing positions on a 1D line)
     // Actions: 0 = move left, 1 = move right
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    struct MockState {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct MockState {
         /// The agent's current position in the range [0, 6]
-        value: i32,
+        position: i32,
     }
 
     impl MockState {
-        fn new(value: i32) -> Self {
-            Self { value }
+        fn new(position: i32) -> Self {
+            Self { position }
         }
 
         /// Check if position is within valid bounds
-        fn is_in_bounds(value: i32) -> bool {
-            value >= 0 && value <= 6
+        fn is_in_bounds(position: i32) -> bool {
+            position >= 0 && position <= 6
         }
     }
 
-    impl State for MockState {
+    impl State<1> for MockState {
+        type Observation = MockObservation;
         fn numel(&self) -> usize {
             7
         }
 
-        fn shape(&self) -> Vec<usize> {
-            vec![7]
+        fn shape() -> [usize; 1] {
+            [7]
         }
 
         fn is_valid(&self) -> bool {
-            Self::is_in_bounds(self.value)
-        }
-    }
-
-    impl StateTensorConvertible<1> for MockState {
-        fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
-            // Create a one-hot encoded 1D tensor with 7 elements
-            // Position `value` is set to 1.0, all others are 0.0
-            let mut u: [f32; 7] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-            if Self::is_in_bounds(self.value) {
-                u[self.value as usize] = 1.0;
-            }
-            Tensor::<B, 1>::from_data(u, device)
+            Self::is_in_bounds(self.position)
         }
 
-        fn from_tensor<B: Backend>(tensor: &Tensor<B, 1>) -> Result<Self, StateError>
-        where
-            Self: Sized,
-        {
-            let tensor_data: TensorData = tensor.to_data();
-
-            if tensor_data.shape[0] != 7 {
-                return Err(StateError::InvalidSize {
-                    expected: 7,
-                    got: tensor_data.shape[0],
-                });
+        fn observe(&self) -> Self::Observation {
+            MockObservation {
+                position: self.position,
             }
-
-            let values: Vec<f32> = tensor_data.to_vec().unwrap();
-
-            // Find the index where the value is 1.0 (one-hot encoding)
-            let index = values
-                .iter()
-                .position(|&v| (v - 1.0).abs() < 1e-6)
-                .ok_or_else(|| {
-                    StateError::InvalidData(
-                        "Expected one-hot encoded tensor with exactly one 1.0 value".to_string(),
-                    )
-                })?;
-
-            Ok(MockState {
-                value: index as i32,
-            })
         }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct MockAction {
-        /// 0 -> move left (position -= 1), 1 -> move right (position += 1)
-        value: i32,
+    enum MockAction {
+        MoveLeft,  // position -= 1
+        MoveRight, // position +=1
     }
 
-    impl MockAction {
-        /// Create a new action. Value should be 0 (left) or 1 (right).
-        fn new(value: i32) -> Self {
-            Self { value }
-        }
-    }
-
-    impl Action for MockAction {
+    impl Action<1> for MockAction {
         fn is_valid(&self) -> bool {
-            self.value == 0 || self.value == 1
+            true // any instance of the enum is a valid action
+        }
+
+        fn shape() -> [usize; 1] {
+            [1]
         }
     }
 
-    impl ActionTensorConvertible<1> for MockAction {
-        fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
-            // Create a 1D tensor with a single element representing the action
-            Tensor::<B, 1>::from_data([self.value as f32], device)
+    impl DiscreteAction<1> for MockAction {
+        const ACTION_COUNT: usize = 2;
+        fn from_index(index: usize) -> Self {
+            match index {
+                0 => MockAction::MoveLeft,
+                1 => MockAction::MoveRight,
+                _ => panic!("Unknown action index: {}", index),
+            }
+        }
+
+        fn to_index(&self) -> usize {
+            match self {
+                MockAction::MoveLeft => 0,
+                MockAction::MoveRight => 1,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ScalarReward(f32);
+
+    impl Reward for ScalarReward {
+        fn zero() -> Self {
+            Self(0.0)
+        }
+    }
+
+    impl std::ops::Add for ScalarReward {
+        type Output = Self;
+
+        fn add(self, other: Self) -> Self {
+            Self(self.0 + other.0)
+        }
+    }
+
+    impl From<ScalarReward> for f32 {
+        fn from(reward: ScalarReward) -> Self {
+            reward.0
         }
     }
 
@@ -408,11 +369,12 @@ mod tests {
         }
     }
 
-    impl Environment<1, 1> for MockEnvironment {
+    impl Environment<1, 1, 1> for MockEnvironment {
         type StateType = MockState;
+        type ObservationType = MockObservation;
         type ActionType = MockAction;
-        type RewardType = f32;
-        type SnapshotType = SnapshotBase<MockState, f32>;
+        type RewardType = ScalarReward;
+        type SnapshotType = SnapshotBase<1, MockObservation, ScalarReward>;
 
         fn new(render: bool) -> Self {
             Self::with_defaults(render)
@@ -421,7 +383,11 @@ mod tests {
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.current_state = MockState::new(Self::START_STATE);
             self.step_count = 0;
-            Ok(SnapshotBase::new(self.current_state, 0.0, false))
+            Ok(SnapshotBase {
+                observation: self.current_state.observe(),
+                reward: ScalarReward(0.0),
+                done: false,
+            })
         }
 
         fn step(
@@ -430,16 +396,16 @@ mod tests {
         ) -> Result<Self::SnapshotType, EnvironmentError> {
             if !action.is_valid() {
                 return Err(EnvironmentError::InvalidAction(format!(
-                    "Invalid action value: {}. Expected 0 (left) or 1 (right).",
-                    action.value
+                    "Invalid action: {:?}.",
+                    action
                 )));
             }
 
-            // Update state based on action: 0 = move left, 1 = move right
-            let next_position = if action.value == 0 {
-                self.current_state.value - 1
+            // Update state based on action
+            let next_position = if action == MockAction::MoveLeft {
+                self.current_state.position - 1 // move left one step
             } else {
-                self.current_state.value + 1
+                self.current_state.position + 1 // move right one step
             };
 
             // Check boundaries: valid positions are [0, 6]
@@ -467,29 +433,33 @@ mod tests {
             // Episode also terminates after max steps
             let done = done || (self.step_count >= self.max_steps);
 
-            Ok(SnapshotBase::new(new_state, reward, done))
+            Ok(SnapshotBase::new(
+                new_state.observe(),
+                ScalarReward(reward),
+                done,
+            ))
         }
     }
 
     // Custom snapshot implementation for advanced testing
     #[derive(Debug, Clone)]
-    struct CustomSnapshot {
-        state: MockState,
-        reward: f32,
+    pub struct CustomSnapshot {
+        observation: MockObservation,
+        reward: ScalarReward,
         done: bool,
         step_count: usize,
         cumulative_reward: f32,
     }
 
-    impl Snapshot for CustomSnapshot {
-        type StateType = MockState;
-        type RewardType = f32;
+    impl Snapshot<1> for CustomSnapshot {
+        type ObservationType = MockObservation;
+        type RewardType = ScalarReward;
 
-        fn state(&self) -> &Self::StateType {
-            &self.state
+        fn observation(&self) -> &MockObservation {
+            &self.observation
         }
 
-        fn reward(&self) -> &Self::RewardType {
+        fn reward(&self) -> &ScalarReward {
             &self.reward
         }
 
@@ -501,43 +471,43 @@ mod tests {
     // Tests for Snapshot trait
     #[test]
     fn test_snapshot_base_creation() {
-        let state = MockState { value: 42 };
-        let snapshot = SnapshotBase::new(state, 1.5, false);
+        let obs = MockObservation { position: 42 };
+        let snapshot = SnapshotBase::new(obs, ScalarReward(1.5), false);
 
-        assert_eq!(snapshot.state(), &state);
-        assert_eq!(snapshot.reward(), &1.5);
+        assert_eq!(snapshot.observation(), &obs);
+        assert_eq!(snapshot.reward(), &ScalarReward(1.5));
         assert!(!snapshot.is_done());
     }
 
     #[test]
     fn test_snapshot_base_terminal() {
-        let state = MockState { value: 0 };
-        let snapshot = SnapshotBase::new(state, -1.0, true);
+        let obs = MockObservation { position: 0 };
+        let snapshot = SnapshotBase::new(obs, ScalarReward(-1.0), true);
 
         assert!(snapshot.is_done());
-        assert_eq!(snapshot.reward(), &-1.0);
+        assert_eq!(snapshot.reward(), &ScalarReward(-1.0));
     }
 
     #[test]
     fn test_snapshot_base_clone() {
-        let state = MockState { value: 10 };
-        let snapshot1 = SnapshotBase::new(state, 0.5, false);
+        let obs = MockObservation { position: 10 };
+        let snapshot1 = SnapshotBase::new(obs, ScalarReward(0.5), false);
         let snapshot2 = snapshot1.clone();
 
-        assert_eq!(snapshot1.state(), snapshot2.state());
+        assert_eq!(snapshot1.observation(), snapshot2.observation());
         assert_eq!(snapshot1.reward(), snapshot2.reward());
         assert_eq!(snapshot1.is_done(), snapshot2.is_done());
     }
 
     #[test]
     fn test_snapshot_debug() {
-        let state = MockState { value: 5 };
-        let snapshot = SnapshotBase::new(state, 2.0, true);
+        let obs = MockObservation { position: 5 };
+        let snapshot = SnapshotBase::new(obs, ScalarReward(2.0), true);
         let debug_str = format!("{:?}", snapshot);
 
         assert!(debug_str.contains("SnapshotBase"));
-        assert!(debug_str.contains("value: 5"));
-        assert!(debug_str.contains("reward: 2.0"));
+        assert!(debug_str.contains("position: 5"));
+        assert!(debug_str.contains("reward: ScalarReward(2.0)"));
         assert!(debug_str.contains("done: true"));
     }
 
@@ -545,16 +515,16 @@ mod tests {
     #[test]
     fn test_custom_snapshot_trait_impl() {
         let snapshot = CustomSnapshot {
-            state: MockState { value: 1 },
-            reward: 10.0,
+            observation: MockObservation { position: 1 },
+            reward: ScalarReward(10.0),
             done: false,
             step_count: 5,
             cumulative_reward: 25.0,
         };
 
         // Verify trait method access
-        assert_eq!(snapshot.state().value, 1);
-        assert_eq!(snapshot.reward(), &10.0);
+        assert_eq!(snapshot.observation().position, 1);
+        assert_eq!(snapshot.reward(), &ScalarReward(10.0));
         assert!(!snapshot.is_done());
 
         // Verify custom fields are accessible
@@ -574,8 +544,8 @@ mod tests {
         let mut env = MockEnvironment::new(false);
         let snapshot = env.reset().expect("Reset should succeed");
 
-        assert_eq!(snapshot.state().value, 3);
-        assert_eq!(snapshot.reward(), &0.0);
+        assert_eq!(snapshot.observation().position, 3);
+        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
         assert!(!snapshot.is_done());
     }
 
@@ -584,40 +554,24 @@ mod tests {
         let mut env = MockEnvironment::new(false);
         env.reset().expect("Reset should succeed");
 
-        let action = MockAction::new(1);
+        let action = MockAction::MoveRight;
         let snapshot = env
             .step(action)
             .expect("Step with valid action should succeed");
 
-        assert_eq!(snapshot.state().value, 4);
-        assert_eq!(snapshot.reward(), &0.0);
-    }
-
-    #[test]
-    fn test_environment_step_invalid_action() {
-        let mut env = MockEnvironment::new(false);
-        env.reset().expect("Reset should succeed");
-
-        let action = MockAction::new(15); // Out of range
-        let result = env.step(action);
-
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            EnvironmentError::InvalidAction(msg) => {
-                assert!(msg.contains("Invalid action"));
-            }
-            _ => panic!("Expected InvalidAction error"),
-        }
+        assert_eq!(snapshot.observation().position, 4);
+        assert_eq!(snapshot.reward(), &ScalarReward(0.0));
     }
 
     #[test]
     fn test_environment_episode_termination() {
         let mut env = MockEnvironment::new(false);
         env.reset().expect("Reset should succeed");
+        env.current_state.position = 0;
 
         // Move right toward the goal (state 6)
         for i in 0..6 {
-            let action = MockAction::new(1);
+            let action = MockAction::MoveRight;
             let snapshot = env.step(action).expect("Step should succeed");
 
             if i < 5 {
@@ -641,13 +595,13 @@ mod tests {
         // Run for 5 steps
         env.reset().expect("Reset should succeed");
         for _ in 0..5 {
-            let action = MockAction::new(1);
+            let action = MockAction::MoveRight;
             let _ = env.step(action);
         }
 
         // Reset and verify state is cleared
         let snapshot = env.reset().expect("Second reset should succeed");
-        assert_eq!(snapshot.state().value, 3);
+        assert_eq!(snapshot.observation().position, 3);
         assert!(!snapshot.is_done());
     }
 
@@ -720,7 +674,7 @@ mod tests {
             let mut step = 0;
 
             while !snapshot.is_done() && step < 5 {
-                let action = MockAction::new(1);
+                let action = MockAction::MoveRight;
                 snapshot = env.step(action).expect("Step should succeed");
                 step += 1;
             }
@@ -729,8 +683,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_reward_conversion() {
-        let state = MockState { value: 1 };
-        let snapshot = SnapshotBase::new(state, 42.5_f32, false);
+        let observation = MockObservation { position: 1 };
+        let snapshot = SnapshotBase::new(observation, ScalarReward(42.5), false);
 
         // RewardType implements Into<f32>
         let reward_as_f32: f32 = snapshot.reward().clone().into();

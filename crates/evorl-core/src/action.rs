@@ -2,18 +2,13 @@
 //!
 //! This module provides a flexible type system for representing agent actions in RL environments.
 //! Actions can be discrete (finite choices), multi-discrete (multiple independent discrete choices),
-//! or continuous (real-valued vectors). The design keeps action representations framework-agnostic
-//! while providing optional Burn tensor conversion.
+//! or continuous (real-valued vectors).
 //!
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
 //! - [`Action`]: Base trait providing validation and cloning semantics
 //! - [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`]: Type-specific extensions
-//! - [`ActionTensorConvertible`]: Optional framework integration (Burn tensors)
-//!
-//! This separation allows action types to remain independent of deep learning frameworks while
-//! still enabling efficient neural network integration when needed.
 //!
 //! # Action Types
 //!
@@ -22,135 +17,70 @@
 //! Discrete actions represent a finite set of mutually exclusive choices (e.g., "move left",
 //! "move right", "jump"). They are indexed from `0` to `ACTION_COUNT - 1`.
 //!
-//! ```rust,ignore
-//! #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-//! enum GameAction {
-//!     Left,
-//!     Right,
-//!     Jump,
-//! }
-//!
-//! impl Action for GameAction {
-//!     fn is_valid(&self) -> bool { true }
-//! }
-//!
-//! impl DiscreteAction for GameAction {
-//!     const ACTION_COUNT: usize = 3;
-//!
-//!     fn from_index(index: usize) -> Self {
-//!         match index {
-//!             0 => GameAction::Left,
-//!             1 => GameAction::Right,
-//!             2 => GameAction::Jump,
-//!             _ => panic!("Invalid index"),
-//!         }
-//!     }
-//!
-//!     fn to_index(&self) -> usize {
-//!         *self as usize
-//!     }
-//! }
-//! ```
-//!
 //! ## Multi-Discrete Actions
 //!
 //! Multi-discrete actions consist of multiple independent discrete choices, such as selecting
 //! both a direction and an attack type simultaneously.
-//!
-//! ```rust,ignore
-//! #[derive(Debug, Clone)]
-//! struct CombatAction {
-//!     direction: u8,  // 0-3: North, East, South, West
-//!     attack: u8,     // 0-2: Light, Heavy, Special
-//! }
-//!
-//! impl Action for CombatAction {
-//!     fn is_valid(&self) -> bool {
-//!         self.direction < 4 && self.attack < 3
-//!     }
-//! }
-//!
-//! impl MultiDiscreteAction<2> for CombatAction {
-//!     fn action_space() -> [usize; 2] {
-//!         [4, 3]  // 4 directions × 3 attacks = 12 total combinations
-//!     }
-//!
-//!     fn from_indices(indices: [usize; 2]) -> Self {
-//!         Self { direction: indices[0] as u8, attack: indices[1] as u8 }
-//!     }
-//!
-//!     fn to_indices(&self) -> [usize; 2] {
-//!         [self.direction as usize, self.attack as usize]
-//!     }
-//! }
-//! ```
 //!
 //! ## Continuous Actions
 //!
 //! Continuous actions are real-valued vectors, typically used for motor control or
 //! parametrized actions (e.g., steering angle, throttle).
 //!
-//! ```rust,ignore
-//! #[derive(Debug, Clone)]
-//! struct RobotControl {
-//!     joint_angles: [f32; 6],
-//! }
+//! # Test Suite
 //!
-//! impl Action for RobotControl {
-//!     fn is_valid(&self) -> bool {
-//!         self.joint_angles.iter().all(|&x| x.is_finite())
-//!     }
-//! }
+//! This module includes a comprehensive test suite covering:
 //!
-//! impl ContinuousAction for RobotControl {
-//!     const DIM: usize = 6;
+//! ## DiscreteAction Tests (10 tests)
+//! - `test_discrete_action_shape`: Verifies shape and dimension constants
+//! - `test_discrete_action_count`: Checks action count constant
+//! - `test_discrete_action_from_index`: Tests index-to-action conversion
+//! - `test_discrete_action_from_index_out_of_bounds`: Validates panic on invalid indices
+//! - `test_discrete_action_to_index`: Tests action-to-index conversion
+//! - `test_discrete_action_roundtrip`: Ensures bidirectional conversion consistency
+//! - `test_discrete_action_enumerate`: Verifies all actions are enumerated correctly
+//! - `test_discrete_action_random`: Tests random action generation
+//! - `test_discrete_action_is_valid`: Validates the `is_valid()` predicate
+//! - `test_discrete_action_clone_and_debug`: Tests Debug and Clone trait implementations
 //!
-//!     fn as_slice(&self) -> &[f32] {
-//!         &self.joint_angles
-//!     }
+//! ## MultiDiscreteAction Tests (11 tests)
+//! - `test_multidiscrete_action_shape`: Verifies multi-dimensional shape
+//! - `test_multidiscrete_action_from_indices`: Tests multi-index conversion
+//! - `test_multidiscrete_action_from_indices_*_out_of_bounds`: Validates panic on invalid indices
+//! - `test_multidiscrete_action_to_indices`: Tests reverse conversion
+//! - `test_multidiscrete_action_roundtrip`: Ensures bidirectional consistency
+//! - `test_multidiscrete_action_enumerate`: Verifies all action combinations are enumerated
+//! - `test_multidiscrete_action_enumerate_large_space`: Tests scalability with large action spaces
+//! - `test_multidiscrete_action_random`: Tests random sampling
+//! - `test_multidiscrete_action_is_valid`: Validates constraints
+//! - `test_multidiscrete_action_clone_and_debug`: Tests trait implementations
 //!
-//!     fn clip(&self, min: f32, max: f32) -> Self {
-//!         let mut clipped = self.clone();
-//!         clipped.joint_angles.iter_mut().for_each(|x| *x = x.clamp(min, max));
-//!         clipped
-//!     }
+//! ## ContinuousAction Tests (15 tests)
+//! - `test_continuous_action_shape`: Verifies shape specification
+//! - `test_continuous_action_as_slice`: Tests slice view access
+//! - `test_continuous_action_from_slice`: Tests construction from slice
+//! - `test_continuous_action_from_slice_wrong_size`: Validates dimension checking
+//! - `test_continuous_action_roundtrip`: Ensures slice conversion consistency
+//! - `test_continuous_action_clip_*`: Tests clipping behavior (within, exceeds max/min, mixed, extreme)
+//! - `test_continuous_action_clip_chaining`: Verifies method chaining
+//! - `test_continuous_action_random`: Tests random action generation
+//! - `test_continuous_action_is_valid_*`: Tests validity checking (finite, NaN, Inf)
+//! - `test_continuous_action_with_zero_values`: Tests edge case with zero values
+//! - `test_continuous_action_clone_and_debug`: Tests trait implementations
 //!
-//!     fn from_slice(values: &[f32]) -> Self {
-//!         let mut angles = [0.0; 6];
-//!         angles.copy_from_slice(values);
-//!         Self { joint_angles: angles }
-//!     }
-//! }
-//! ```
+//! ## InvalidActionError Tests (6 tests)
+//! - `test_invalid_action_error_creation`: Tests error instantiation
+//! - `test_invalid_action_error_display`: Tests Display trait formatting
+//! - `test_invalid_action_error_debug`: Tests Debug trait formatting
+//! - `test_invalid_action_error_clone`: Tests Clone implementation
+//! - `test_invalid_action_error_equality`: Tests PartialEq implementation
+//! - `test_invalid_action_error_is_error`: Tests std::error::Error trait compatibility
 //!
-//! # Tensor Conversion
-//!
-//! The optional [`ActionTensorConvertible`] trait enables conversion to Burn tensors for
-//! neural network processing. This separation keeps action types framework-agnostic.
-//!
-//! # Examples
-//!
-//! Generate random actions for exploration:
-//!
-//! ```rust,ignore
-//! use evorl_core::action::{DiscreteAction, ContinuousAction};
-//!
-//! // Sample a random discrete action
-//! let action = GameAction::random();
-//!
-//! // Sample a random continuous action (uniform distribution)
-//! let control = RobotControl::random();
-//! ```
-//!
-//! Enumerate all possible actions for tabular methods:
-//!
-//! ```rust,ignore
-//! let all_actions = GameAction::enumerate();
-//! assert_eq!(all_actions.len(), GameAction::ACTION_COUNT);
-//! ```
+//! ## Integration Tests (4 tests)
+//! - `test_large_discrete_action_space`: Tests with 256 actions
+//! - `test_continuous_action_extreme_clip_bounds`: Tests edge cases in clipping
+//! - Various clone/debug/trait tests across different action types
 
-use burn::tensor::backend::Backend;
-use burn::tensor::Tensor;
 use std::error::Error;
 use std::fmt::Debug;
 
@@ -168,30 +98,6 @@ use std::fmt::Debug;
 /// - `Sized`: Enables efficient stack allocation and compile-time optimization
 /// - `is_valid()`: Allows runtime validation of action constraints
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use evorl_core::action::Action;
-///
-/// #[derive(Debug, Clone)]
-/// struct MyAction {
-///     value: i32,
-/// }
-///
-/// impl Action for MyAction {
-///     fn is_valid(&self) -> bool {
-///         // Validate action constraints
-///         self.value >= 0 && self.value <= 10
-///     }
-/// }
-///
-/// let action = MyAction { value: 5 };
-/// assert!(action.is_valid());
-///
-/// let invalid = MyAction { value: -1 };
-/// assert!(!invalid.is_valid());
-/// ```
-///
 /// # Implementing Action
 ///
 /// When implementing this trait, ensure `is_valid()` checks all constraints:
@@ -199,7 +105,18 @@ use std::fmt::Debug;
 /// - Finiteness for floating-point values
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
-pub trait Action: Debug + Clone + Sized {
+pub trait Action<const D: usize>: Debug + Clone + Sized {
+    /// The number of independent dimensions in this action space.
+    ///
+    /// This is automatically set to match the const generic parameter `D`.
+    const DIM: usize = D;
+
+    /// Returns the cardinality of each dimension in this action space.
+    ///
+    /// The returned array has length `D`, where each element specifies the number
+    /// of possible values for that dimension. All values must be greater than zero.
+    fn shape() -> [usize; D];
+
     /// Validates whether this action satisfies all constraints.
     ///
     /// This method checks if the action is legal according to its type's invariants.
@@ -209,16 +126,6 @@ pub trait Action: Debug + Clone + Sized {
     /// # Returns
     ///
     /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = ContinuousAction::from_slice(&[0.5, 0.3]);
-    /// assert!(action.is_valid());  // Values are finite
-    ///
-    /// let invalid = ContinuousAction::from_slice(&[f32::NAN, 0.0]);
-    /// assert!(!invalid.is_valid());  // NaN is not valid
-    /// ```
     fn is_valid(&self) -> bool;
 }
 
@@ -238,63 +145,16 @@ pub trait Action: Debug + Clone + Sized {
 /// ∀ a: Action: a == from_index(a.to_index())
 /// ```
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use evorl_core::action::{Action, DiscreteAction};
-///
-/// #[derive(Debug, Clone, Copy, PartialEq)]
-/// enum Move { Up, Down, Left, Right }
-///
-/// impl Action for Move {
-///     fn is_valid(&self) -> bool { true }
-/// }
-///
-/// impl DiscreteAction for Move {
-///     const ACTION_COUNT: usize = 4;
-///
-///     fn from_index(index: usize) -> Self {
-///         match index {
-///             0 => Move::Up,
-///             1 => Move::Down,
-///             2 => Move::Left,
-///             3 => Move::Right,
-///             _ => panic!("Index {} out of bounds", index),
-///         }
-///     }
-///
-///     fn to_index(&self) -> usize { *self as usize }
-/// }
-///
-/// // Sample random actions
-/// let action = Move::random();
-///
-/// // Enumerate all possibilities (useful for tabular RL)
-/// let all_moves = Move::enumerate();
-/// assert_eq!(all_moves.len(), 4);
-/// ```
-///
 /// # Performance
 ///
 /// For performance-critical code, prefer `from_index()` over `random()` when you
 /// already have an index (e.g., from a neural network's argmax). The `random()`
 /// method allocates a thread-local RNG on each call.
-pub trait DiscreteAction: Action {
+pub trait DiscreteAction<const D: usize>: Action<D> {
     /// The total number of distinct actions in this action space.
     ///
     /// This constant defines the cardinality of the action space. It must be
     /// greater than zero and remain constant for the lifetime of the program.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// enum GameAction { Jump, Duck, Left, Right }
-    ///
-    /// impl DiscreteAction for GameAction {
-    ///     const ACTION_COUNT: usize = 4;
-    ///     // ... other methods
-    /// }
-    /// ```
     const ACTION_COUNT: usize;
 
     /// Constructs an action from its zero-based index.
@@ -305,28 +165,12 @@ pub trait DiscreteAction: Action {
     ///
     /// Implementations should panic if `index >= ACTION_COUNT`, as this indicates
     /// a programming error (out-of-bounds access).
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = GameAction::from_index(0);  // First action
-    /// assert_eq!(action.to_index(), 0);
-    /// ```
     fn from_index(index: usize) -> Self;
 
     /// Converts this action to its zero-based index.
     ///
     /// The returned index must be in the range `[0, ACTION_COUNT)` and must be
     /// the inverse of [`from_index()`](DiscreteAction::from_index).
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = GameAction::Jump;
-    /// let idx = action.to_index();
-    /// assert!(idx < GameAction::ACTION_COUNT);
-    /// assert_eq!(GameAction::from_index(idx), action);
-    /// ```
     fn to_index(&self) -> usize;
 
     /// Samples a uniformly random action from this action space.
@@ -334,19 +178,6 @@ pub trait DiscreteAction: Action {
     /// This is a convenience method for exploration in reinforcement learning.
     /// It uses thread-local RNG state, so it's safe to call from multiple threads
     /// but will produce different sequences per thread.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// // Epsilon-greedy exploration
-    /// use rand::Rng;
-    ///
-    /// let action = if rand::rng().gen_bool(epsilon) {
-    ///     GameAction::random()  // Explore
-    /// } else {
-    ///     policy.select_action(state)  // Exploit
-    /// };
-    /// ```
     ///
     /// # Performance
     ///
@@ -367,15 +198,6 @@ pub trait DiscreteAction: Action {
     /// This is useful for tabular RL methods (e.g., Q-learning) that need to
     /// iterate over the entire action space. The returned vector has length
     /// `ACTION_COUNT` with actions ordered by their index.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let actions = GameAction::enumerate();
-    /// for (i, action) in actions.iter().enumerate() {
-    ///     assert_eq!(action.to_index(), i);
-    /// }
-    /// ```
     ///
     /// # Performance
     ///
@@ -408,81 +230,12 @@ pub trait DiscreteAction: Action {
 /// total_actions = ∏ action_space()[i]
 /// ```
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use evorl_core::action::{Action, MultiDiscreteAction};
-///
-/// #[derive(Debug, Clone)]
-/// struct StrategyAction {
-///     unit_id: u8,    // 0-9: which unit to control
-///     action: u8,     // 0-4: move/attack/defend/heal/wait
-///     direction: u8,  // 0-3: north/south/east/west
-/// }
-///
-/// impl Action for StrategyAction {
-///     fn is_valid(&self) -> bool {
-///         self.unit_id < 10 && self.action < 5 && self.direction < 4
-///     }
-/// }
-///
-/// impl MultiDiscreteAction<3> for StrategyAction {
-///     fn action_space() -> [usize; 3] {
-///         [10, 5, 4]  // 10 units × 5 actions × 4 directions = 200 combinations
-///     }
-///
-///     fn from_indices(indices: [usize; 3]) -> Self {
-///         Self {
-///             unit_id: indices[0] as u8,
-///             action: indices[1] as u8,
-///             direction: indices[2] as u8,
-///         }
-///     }
-///
-///     fn to_indices(&self) -> [usize; 3] {
-///         [self.unit_id as usize, self.action as usize, self.direction as usize]
-///     }
-/// }
-/// ```
-///
 /// # Caution: Combinatorial Explosion
 ///
 /// Be careful with [`enumerate()`](MultiDiscreteAction::enumerate) on large action spaces.
 /// A 3D action space with dimensions [10, 10, 10] produces 1000 actions, but
 /// [100, 100, 100] produces 1,000,000!
-pub trait MultiDiscreteAction<const D: usize>: Action {
-    /// The number of independent dimensions in this action space.
-    ///
-    /// This is automatically set to match the const generic parameter `D`.
-    /// Each dimension represents an independent categorical choice.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// impl MultiDiscreteAction<3> for MyAction {
-    ///     // DIM is automatically 3
-    ///     // ...
-    /// }
-    ///
-    /// assert_eq!(MyAction::DIM, 3);
-    /// ```
-    const DIM: usize = D;
-
-    /// Returns the cardinality of each dimension in this action space.
-    ///
-    /// The returned array has length `D`, where each element specifies the number
-    /// of possible values for that dimension. All values must be greater than zero.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// // Action with 4 directions and 3 intensities
-    /// fn action_space() -> [usize; 2] {
-    ///     [4, 3]  // Total: 4 × 3 = 12 action combinations
-    /// }
-    /// ```
-    fn action_space() -> [usize; D];
-
+pub trait MultiDiscreteAction<const D: usize>: Action<D> {
     /// Constructs an action from multi-dimensional indices.
     ///
     /// Each index must be in the range `[0, action_space()[i])` for dimension `i`.
@@ -490,26 +243,12 @@ pub trait MultiDiscreteAction<const D: usize>: Action {
     /// # Panics
     ///
     /// Implementations should panic if any index is out of bounds for its dimension.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = StrategyAction::from_indices([2, 1, 3]);
-    /// // unit_id=2, action=1, direction=3
-    /// ```
     fn from_indices(indices: [usize; D]) -> Self;
 
     /// Converts this action to its multi-dimensional index representation.
     ///
     /// The returned array must satisfy: each element `i` is in `[0, action_space()[i])`.
     /// This method must be the inverse of [`from_indices()`](MultiDiscreteAction::from_indices).
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = StrategyAction::from_indices([1, 2, 0]);
-    /// assert_eq!(action.to_indices(), [1, 2, 0]);
-    /// ```
     fn to_indices(&self) -> [usize; D];
 
     /// Samples a uniformly random action from this multi-discrete action space.
@@ -529,7 +268,7 @@ pub trait MultiDiscreteAction<const D: usize>: Action {
     {
         use rand::Rng;
         let mut rng = rand::rng();
-        let space = Self::action_space();
+        let space = Self::shape();
         let indices = space.map(|dim| rng.random_range(0..dim));
         Self::from_indices(indices)
     }
@@ -548,13 +287,6 @@ pub trait MultiDiscreteAction<const D: usize>: Action {
     /// Use this method only when you need to iterate over the entire action space
     /// (e.g., for exact policy evaluation in tabular methods).
     ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let all_actions = SmallAction::enumerate();  // [2, 3] = 6 actions
-    /// assert_eq!(all_actions.len(), 6);
-    /// ```
-    ///
     /// # Panics
     ///
     /// May panic or run out of memory if the action space is too large.
@@ -562,7 +294,7 @@ pub trait MultiDiscreteAction<const D: usize>: Action {
     where
         Self: Sized,
     {
-        let space = Self::action_space();
+        let space = Self::shape();
         let total: usize = space.iter().product();
         let mut actions = Vec::with_capacity(total);
 
@@ -601,92 +333,16 @@ pub trait MultiDiscreteAction<const D: usize>: Action {
 /// Continuous actions typically have bounded ranges (e.g., `[-1, 1]` or `[0, 1]`).
 /// The [`clip()`](ContinuousAction::clip) method enforces these bounds.
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use evorl_core::action::{Action, ContinuousAction};
-///
-/// #[derive(Debug, Clone)]
-/// struct VehicleControl {
-///     steering: f32,  // -1.0 (left) to 1.0 (right)
-///     throttle: f32,  // 0.0 (idle) to 1.0 (full)
-/// }
-///
-/// impl Action for VehicleControl {
-///     fn is_valid(&self) -> bool {
-///         self.steering.is_finite() &&
-///         self.throttle.is_finite() &&
-///         self.steering >= -1.0 && self.steering <= 1.0 &&
-///         self.throttle >= 0.0 && self.throttle <= 1.0
-///     }
-/// }
-///
-/// impl ContinuousAction for VehicleControl {
-///     const DIM: usize = 2;
-///
-///     fn as_slice(&self) -> &[f32] {
-///         // Use unsafe to reinterpret struct as slice
-///         unsafe { std::slice::from_raw_parts(self as *const _ as *const f32, 2) }
-///     }
-///
-///     fn clip(&self, min: f32, max: f32) -> Self {
-///         Self {
-///             steering: self.steering.clamp(min, max),
-///             throttle: self.throttle.clamp(min, max),
-///         }
-///     }
-///
-///     fn from_slice(values: &[f32]) -> Self {
-///         Self {
-///             steering: values[0],
-///             throttle: values[1],
-///         }
-///     }
-/// }
-///
-/// // Clip to valid range
-/// let action = VehicleControl { steering: 1.5, throttle: -0.5 };
-/// let clipped = action.clip(-1.0, 1.0);
-/// assert_eq!(clipped.steering, 1.0);
-/// assert_eq!(clipped.throttle, -1.0);
-/// ```
-///
 /// # Neural Network Integration
 ///
 /// Continuous actions are typically produced by neural networks with `tanh` or
 /// `sigmoid` activation functions. Use [`clip()`](ContinuousAction::clip) to
 /// ensure outputs stay within valid ranges.
-pub trait ContinuousAction: Action {
-    /// The number of real-valued components in this action.
-    ///
-    /// This defines the size of the continuous action vector. It must match
-    /// the length of the slice returned by [`as_slice()`](ContinuousAction::as_slice).
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// struct Control { x: f32, y: f32, z: f32 }
-    ///
-    /// impl ContinuousAction for Control {
-    ///     const DIM: usize = 3;  // 3D control vector
-    ///     // ...
-    /// }
-    /// ```
-    const DIM: usize;
-
+pub trait ContinuousAction<const D: usize>: Action<D> {
     /// Returns a slice view of this action's component values.
     ///
     /// The returned slice must have exactly `DIM` elements. This is used for
     /// efficient serialization and tensor conversion.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = VehicleControl { steering: 0.5, throttle: 0.8 };
-    /// let slice = action.as_slice();
-    /// assert_eq!(slice.len(), VehicleControl::DIM);
-    /// assert_eq!(slice, &[0.5, 0.8]);
-    /// ```
     fn as_slice(&self) -> &[f32];
 
     /// Returns a new action with all components clipped to `[min, max]`.
@@ -694,15 +350,6 @@ pub trait ContinuousAction: Action {
     /// This is essential for ensuring neural network outputs (which may exceed
     /// valid ranges due to numerical errors or exploration noise) stay within
     /// acceptable bounds.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let action = VehicleControl { steering: 1.5, throttle: -0.2 };
-    /// let safe = action.clip(-1.0, 1.0);
-    /// assert_eq!(safe.steering, 1.0);   // Clipped to max
-    /// assert_eq!(safe.throttle, -0.2);  // Within bounds
-    /// ```
     ///
     /// # Common Use Cases
     ///
@@ -716,29 +363,6 @@ pub trait ContinuousAction: Action {
     /// The default implementation generates uniform random values. Override this
     /// method if you need different sampling behavior (e.g., Gaussian noise,
     /// domain-specific distributions).
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// // Random exploration
-    /// let action = VehicleControl::random();
-    /// assert!(action.as_slice().iter().all(|&x| x >= -1.0 && x <= 1.0));
-    /// ```
-    ///
-    /// # Custom Sampling
-    ///
-    /// ```rust,ignore
-    /// // Override for Gaussian sampling
-    /// fn random() -> Self {
-    ///     use rand_distr::{Normal, Distribution};
-    ///     let normal = Normal::new(0.0, 0.5).unwrap();
-    ///     let mut rng = rand::rng();
-    ///     let values: Vec<f32> = (0..Self::DIM)
-    ///         .map(|_| normal.sample(&mut rng) as f32)
-    ///         .collect();
-    ///     Self::from_slice(&values).clip(-1.0, 1.0)
-    /// }
-    /// ```
     fn random() -> Self
     where
         Self: Sized,
@@ -760,17 +384,10 @@ pub trait ContinuousAction: Action {
     /// # Panics
     ///
     /// Implementations should panic if `values.len() != DIM`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let values = [0.5, 0.8];
-    /// let action = VehicleControl::from_slice(&values);
-    /// assert_eq!(action.as_slice(), &values);
-    /// ```
     fn from_slice(values: &[f32]) -> Self;
 }
 
+// ----------------------------------------------------------------------------
 /// Error indicating an action violated its type's constraints.
 ///
 /// This error is returned when an action fails validation or when invalid
@@ -795,10 +412,650 @@ impl std::fmt::Display for InvalidActionError {
 
 impl Error for InvalidActionError {}
 
-/// Framework-Specific Conversion Trait
-/// Separate trait for converting actions to tensors
-/// Keeps core action traits framework-agnostic
-pub trait ActionTensorConvertible<const R: usize> {
-    // todo! investigate how to include batch_size
-    fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, R>;
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Test Implementations
+    // ========================================================================
+
+    /// Simple discrete action with 4 possible choices.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum SimpleDiscreteAction {
+        Left,
+        Right,
+        Up,
+        Down,
+    }
+
+    impl Action<1> for SimpleDiscreteAction {
+        fn shape() -> [usize; 1] {
+            [4]
+        }
+
+        fn is_valid(&self) -> bool {
+            true // All variants are always valid
+        }
+    }
+
+    impl DiscreteAction<1> for SimpleDiscreteAction {
+        const ACTION_COUNT: usize = 4;
+
+        fn from_index(index: usize) -> Self {
+            match index {
+                0 => SimpleDiscreteAction::Left,
+                1 => SimpleDiscreteAction::Right,
+                2 => SimpleDiscreteAction::Up,
+                3 => SimpleDiscreteAction::Down,
+                _ => panic!("Index out of bounds: {}", index),
+            }
+        }
+
+        fn to_index(&self) -> usize {
+            match self {
+                SimpleDiscreteAction::Left => 0,
+                SimpleDiscreteAction::Right => 1,
+                SimpleDiscreteAction::Up => 2,
+                SimpleDiscreteAction::Down => 3,
+            }
+        }
+    }
+
+    /// Multi-discrete action with 2 dimensions.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct MultiActionTest {
+        direction: usize, // 0-3
+        intensity: usize, // 0-2
+    }
+
+    impl Action<2> for MultiActionTest {
+        fn shape() -> [usize; 2] {
+            [4, 3]
+        }
+
+        fn is_valid(&self) -> bool {
+            self.direction < 4 && self.intensity < 3
+        }
+    }
+
+    impl MultiDiscreteAction<2> for MultiActionTest {
+        fn from_indices(indices: [usize; 2]) -> Self {
+            if indices[0] >= 4 {
+                panic!("Direction index out of bounds: {}", indices[0]);
+            }
+            if indices[1] >= 3 {
+                panic!("Intensity index out of bounds: {}", indices[1]);
+            }
+            MultiActionTest {
+                direction: indices[0],
+                intensity: indices[1],
+            }
+        }
+
+        fn to_indices(&self) -> [usize; 2] {
+            [self.direction, self.intensity]
+        }
+    }
+
+    /// Continuous action with 3 dimensions (e.g., 3D velocity).
+    #[derive(Debug, Clone)]
+    struct ContinuousActionTest {
+        values: [f32; 3],
+    }
+
+    impl Action<3> for ContinuousActionTest {
+        fn shape() -> [usize; 3] {
+            [1, 1, 1] // Continuous dimensions typically have size 1
+        }
+
+        fn is_valid(&self) -> bool {
+            self.values.iter().all(|v| v.is_finite())
+        }
+    }
+
+    impl ContinuousAction<3> for ContinuousActionTest {
+        fn as_slice(&self) -> &[f32] {
+            &self.values
+        }
+
+        fn clip(&self, min: f32, max: f32) -> Self {
+            let clipped = self
+                .values
+                .iter()
+                .map(|&v| v.max(min).min(max))
+                .collect::<Vec<_>>();
+            ContinuousActionTest {
+                values: [clipped[0], clipped[1], clipped[2]],
+            }
+        }
+
+        fn from_slice(values: &[f32]) -> Self {
+            assert_eq!(values.len(), 3, "Expected 3 values, got {}", values.len());
+            ContinuousActionTest {
+                values: [values[0], values[1], values[2]],
+            }
+        }
+    }
+
+    // ========================================================================
+    // DiscreteAction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_discrete_action_shape() {
+        assert_eq!(SimpleDiscreteAction::shape(), [4]);
+        assert_eq!(SimpleDiscreteAction::DIM, 1);
+    }
+
+    #[test]
+    fn test_discrete_action_count() {
+        assert_eq!(SimpleDiscreteAction::ACTION_COUNT, 4);
+    }
+
+    #[test]
+    fn test_discrete_action_from_index() {
+        assert_eq!(
+            SimpleDiscreteAction::from_index(0),
+            SimpleDiscreteAction::Left
+        );
+        assert_eq!(
+            SimpleDiscreteAction::from_index(1),
+            SimpleDiscreteAction::Right
+        );
+        assert_eq!(
+            SimpleDiscreteAction::from_index(2),
+            SimpleDiscreteAction::Up
+        );
+        assert_eq!(
+            SimpleDiscreteAction::from_index(3),
+            SimpleDiscreteAction::Down
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Index out of bounds")]
+    fn test_discrete_action_from_index_out_of_bounds() {
+        SimpleDiscreteAction::from_index(4);
+    }
+
+    #[test]
+    #[should_panic(expected = "Index out of bounds")]
+    fn test_discrete_action_from_index_negative_like() {
+        // Note: usize can't be negative, but we test the boundary
+        SimpleDiscreteAction::from_index(100);
+    }
+
+    #[test]
+    fn test_discrete_action_to_index() {
+        assert_eq!(SimpleDiscreteAction::Left.to_index(), 0);
+        assert_eq!(SimpleDiscreteAction::Right.to_index(), 1);
+        assert_eq!(SimpleDiscreteAction::Up.to_index(), 2);
+        assert_eq!(SimpleDiscreteAction::Down.to_index(), 3);
+    }
+
+    #[test]
+    fn test_discrete_action_roundtrip() {
+        // Test bidirectional conversion
+        for i in 0..SimpleDiscreteAction::ACTION_COUNT {
+            let action = SimpleDiscreteAction::from_index(i);
+            assert_eq!(action.to_index(), i);
+        }
+    }
+
+    #[test]
+    fn test_discrete_action_enumerate() {
+        let actions = SimpleDiscreteAction::enumerate();
+        assert_eq!(actions.len(), 4);
+        assert_eq!(
+            actions,
+            vec![
+                SimpleDiscreteAction::Left,
+                SimpleDiscreteAction::Right,
+                SimpleDiscreteAction::Up,
+                SimpleDiscreteAction::Down
+            ]
+        );
+    }
+
+    #[test]
+    fn test_discrete_action_random() {
+        for _ in 0..100 {
+            let action = SimpleDiscreteAction::random();
+            let index = action.to_index();
+            assert!(index < SimpleDiscreteAction::ACTION_COUNT);
+        }
+    }
+
+    #[test]
+    fn test_discrete_action_is_valid() {
+        for i in 0..SimpleDiscreteAction::ACTION_COUNT {
+            let action = SimpleDiscreteAction::from_index(i);
+            assert!(action.is_valid());
+        }
+    }
+
+    // ========================================================================
+    // MultiDiscreteAction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_multidiscrete_action_shape() {
+        assert_eq!(MultiActionTest::shape(), [4, 3]);
+        assert_eq!(MultiActionTest::DIM, 2);
+    }
+
+    #[test]
+    fn test_multidiscrete_action_from_indices() {
+        let action = MultiActionTest::from_indices([0, 0]);
+        assert_eq!(action.direction, 0);
+        assert_eq!(action.intensity, 0);
+
+        let action = MultiActionTest::from_indices([3, 2]);
+        assert_eq!(action.direction, 3);
+        assert_eq!(action.intensity, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Direction index out of bounds")]
+    fn test_multidiscrete_action_from_indices_direction_out_of_bounds() {
+        MultiActionTest::from_indices([4, 0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Intensity index out of bounds")]
+    fn test_multidiscrete_action_from_indices_intensity_out_of_bounds() {
+        MultiActionTest::from_indices([0, 3]);
+    }
+
+    #[test]
+    fn test_multidiscrete_action_to_indices() {
+        let action = MultiActionTest::from_indices([2, 1]);
+        assert_eq!(action.to_indices(), [2, 1]);
+    }
+
+    #[test]
+    fn test_multidiscrete_action_roundtrip() {
+        for d in 0..4 {
+            for i in 0..3 {
+                let action = MultiActionTest::from_indices([d, i]);
+                assert_eq!(action.to_indices(), [d, i]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_multidiscrete_action_enumerate() {
+        let actions = MultiActionTest::enumerate();
+        // 4 directions × 3 intensities = 12 total actions
+        assert_eq!(actions.len(), 12);
+
+        // Verify all combinations are present
+        for (idx, action) in actions.iter().enumerate() {
+            let expected_d = idx / 3;
+            let expected_i = idx % 3;
+            assert_eq!(action.direction, expected_d);
+            assert_eq!(action.intensity, expected_i);
+        }
+    }
+
+    #[test]
+    fn test_multidiscrete_action_enumerate_large_space() {
+        // Test with 3D space: [5, 5, 5] = 125 total actions
+        #[derive(Debug, Clone)]
+        struct LargeMultiAction([usize; 3]);
+
+        impl Action<3> for LargeMultiAction {
+            fn shape() -> [usize; 3] {
+                [5, 5, 5]
+            }
+
+            fn is_valid(&self) -> bool {
+                self.0.iter().enumerate().all(|(i, &v)| v < [5, 5, 5][i])
+            }
+        }
+
+        impl MultiDiscreteAction<3> for LargeMultiAction {
+            fn from_indices(indices: [usize; 3]) -> Self {
+                for i in 0..3 {
+                    assert!(indices[i] < 5, "Index {} out of bounds", i);
+                }
+                LargeMultiAction(indices)
+            }
+
+            fn to_indices(&self) -> [usize; 3] {
+                self.0
+            }
+        }
+
+        let actions = LargeMultiAction::enumerate();
+        assert_eq!(actions.len(), 125);
+    }
+
+    #[test]
+    fn test_multidiscrete_action_random() {
+        for _ in 0..100 {
+            let action = MultiActionTest::random();
+            assert!(action.is_valid());
+            let indices = action.to_indices();
+            assert!(indices[0] < 4);
+            assert!(indices[1] < 3);
+        }
+    }
+
+    #[test]
+    fn test_multidiscrete_action_is_valid() {
+        // Valid actions
+        assert!(MultiActionTest::from_indices([0, 0]).is_valid());
+        assert!(MultiActionTest::from_indices([3, 2]).is_valid());
+
+        // Invalid actions created directly
+        let invalid = MultiActionTest {
+            direction: 5,
+            intensity: 0,
+        };
+        assert!(!invalid.is_valid());
+
+        let invalid = MultiActionTest {
+            direction: 0,
+            intensity: 5,
+        };
+        assert!(!invalid.is_valid());
+    }
+
+    // ========================================================================
+    // ContinuousAction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_continuous_action_shape() {
+        assert_eq!(ContinuousActionTest::shape(), [1, 1, 1]);
+        assert_eq!(ContinuousActionTest::DIM, 3);
+    }
+
+    #[test]
+    fn test_continuous_action_as_slice() {
+        let action = ContinuousActionTest {
+            values: [0.5, -0.3, 1.0],
+        };
+        let slice = action.as_slice();
+        assert_eq!(slice.len(), 3);
+        assert_eq!(slice, &[0.5, -0.3, 1.0]);
+    }
+
+    #[test]
+    fn test_continuous_action_from_slice() {
+        let values = [0.1, 0.2, 0.3];
+        let action = ContinuousActionTest::from_slice(&values);
+        assert_eq!(action.values, values);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected 3 values")]
+    fn test_continuous_action_from_slice_wrong_size() {
+        let values = [0.1, 0.2];
+        ContinuousActionTest::from_slice(&values);
+    }
+
+    #[test]
+    fn test_continuous_action_roundtrip() {
+        let original = [0.5, -0.3, 0.9];
+        let action = ContinuousActionTest::from_slice(&original);
+        assert_eq!(action.as_slice(), &original);
+    }
+
+    #[test]
+    fn test_continuous_action_clip_within_bounds() {
+        let action = ContinuousActionTest {
+            values: [0.0, 0.5, -0.5],
+        };
+        let clipped = action.clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [0.0, 0.5, -0.5]);
+    }
+
+    #[test]
+    fn test_continuous_action_clip_exceeds_max() {
+        let action = ContinuousActionTest {
+            values: [2.0, 1.5, 3.0],
+        };
+        let clipped = action.clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_continuous_action_clip_exceeds_min() {
+        let action = ContinuousActionTest {
+            values: [-2.0, -1.5, -3.0],
+        };
+        let clipped = action.clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [-1.0, -1.0, -1.0]);
+    }
+
+    #[test]
+    fn test_continuous_action_clip_mixed() {
+        let action = ContinuousActionTest {
+            values: [2.0, 0.5, -2.0],
+        };
+        let clipped = action.clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [1.0, 0.5, -1.0]);
+    }
+
+    #[test]
+    fn test_continuous_action_random() {
+        for _ in 0..100 {
+            let action = ContinuousActionTest::random();
+            assert!(action.is_valid());
+            for &value in action.as_slice() {
+                assert!(value >= -1.0 && value <= 1.0);
+                assert!(value.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn test_continuous_action_is_valid_finite() {
+        let action = ContinuousActionTest {
+            values: [0.5, -0.3, 1.0],
+        };
+        assert!(action.is_valid());
+    }
+
+    #[test]
+    fn test_continuous_action_is_invalid_nan() {
+        let action = ContinuousActionTest {
+            values: [f32::NAN, 0.5, 1.0],
+        };
+        assert!(!action.is_valid());
+    }
+
+    #[test]
+    fn test_continuous_action_is_invalid_inf() {
+        let action = ContinuousActionTest {
+            values: [f32::INFINITY, 0.5, 1.0],
+        };
+        assert!(!action.is_valid());
+
+        let action = ContinuousActionTest {
+            values: [f32::NEG_INFINITY, 0.5, 1.0],
+        };
+        assert!(!action.is_valid());
+    }
+
+    // ========================================================================
+    // InvalidActionError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_invalid_action_error_creation() {
+        let error = InvalidActionError {
+            message: String::from("Index out of bounds"),
+        };
+        assert_eq!(error.message, "Index out of bounds");
+    }
+
+    #[test]
+    fn test_invalid_action_error_display() {
+        let error = InvalidActionError {
+            message: String::from("Invalid value"),
+        };
+        let displayed = format!("{}", error);
+        assert_eq!(displayed, "Invalid action: Invalid value");
+    }
+
+    #[test]
+    fn test_invalid_action_error_debug() {
+        let error = InvalidActionError {
+            message: String::from("Test error"),
+        };
+        let debug_str = format!("{:?}", error);
+        assert!(debug_str.contains("Test error"));
+    }
+
+    #[test]
+    fn test_invalid_action_error_clone() {
+        let error = InvalidActionError {
+            message: String::from("Original"),
+        };
+        let cloned = error.clone();
+        assert_eq!(error, cloned);
+    }
+
+    #[test]
+    fn test_invalid_action_error_equality() {
+        let error1 = InvalidActionError {
+            message: String::from("Same error"),
+        };
+        let error2 = InvalidActionError {
+            message: String::from("Same error"),
+        };
+        let error3 = InvalidActionError {
+            message: String::from("Different error"),
+        };
+
+        assert_eq!(error1, error2);
+        assert_ne!(error1, error3);
+    }
+
+    #[test]
+    fn test_invalid_action_error_is_error() {
+        let error: Box<dyn Error> = Box::new(InvalidActionError {
+            message: String::from("Test"),
+        });
+        // Should be able to use as std::error::Error trait object
+        let _msg = error.to_string();
+    }
+
+    // ========================================================================
+    // Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_discrete_action_clone_and_debug() {
+        let action = SimpleDiscreteAction::Left;
+        let cloned = action.clone();
+        assert_eq!(action, cloned);
+
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("Left"));
+    }
+
+    #[test]
+    fn test_multidiscrete_action_clone_and_debug() {
+        let action = MultiActionTest::from_indices([1, 2]);
+        let cloned = action.clone();
+        assert_eq!(action, cloned);
+
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("direction"));
+    }
+
+    #[test]
+    fn test_continuous_action_clone_and_debug() {
+        let action = ContinuousActionTest {
+            values: [0.1, 0.2, 0.3],
+        };
+        let cloned = action.clone();
+        assert_eq!(action.as_slice(), cloned.as_slice());
+
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("values"));
+    }
+
+    #[test]
+    fn test_continuous_action_clip_chaining() {
+        let action = ContinuousActionTest {
+            values: [2.0, -3.0, 0.5],
+        };
+        let clipped = action.clip(-2.0, 2.0).clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [1.0, -1.0, 0.5]);
+    }
+
+    #[test]
+    fn test_large_discrete_action_space() {
+        // Test with 256 actions
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        struct LargeDiscreteAction(u8);
+
+        impl Action<1> for LargeDiscreteAction {
+            fn shape() -> [usize; 1] {
+                [256]
+            }
+
+            fn is_valid(&self) -> bool {
+                true
+            }
+        }
+
+        impl DiscreteAction<1> for LargeDiscreteAction {
+            const ACTION_COUNT: usize = 256;
+
+            fn from_index(index: usize) -> Self {
+                assert!(index < 256);
+                LargeDiscreteAction(index as u8)
+            }
+
+            fn to_index(&self) -> usize {
+                self.0 as usize
+            }
+        }
+
+        // Enumerate should produce all 256 actions
+        let actions = LargeDiscreteAction::enumerate();
+        assert_eq!(actions.len(), 256);
+
+        // Verify roundtrip for a few samples
+        for i in [0, 1, 127, 255] {
+            let action = LargeDiscreteAction::from_index(i);
+            assert_eq!(action.to_index(), i);
+        }
+    }
+
+    #[test]
+    fn test_continuous_action_with_zero_values() {
+        let action = ContinuousActionTest {
+            values: [0.0, 0.0, 0.0],
+        };
+        assert!(action.is_valid());
+        assert_eq!(action.as_slice(), &[0.0, 0.0, 0.0]);
+
+        let clipped = action.clip(-1.0, 1.0);
+        assert_eq!(clipped.values, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_continuous_action_extreme_clip_bounds() {
+        let action = ContinuousActionTest {
+            values: [100.0, -100.0, 0.0],
+        };
+
+        let clipped = action.clip(f32::NEG_INFINITY, f32::INFINITY);
+        assert_eq!(clipped.values, [100.0, -100.0, 0.0]);
+
+        let clipped = action.clip(0.0, 0.0);
+        assert_eq!(clipped.values, [0.0, 0.0, 0.0]);
+    }
 }

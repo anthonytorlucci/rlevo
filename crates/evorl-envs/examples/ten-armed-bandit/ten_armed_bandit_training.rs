@@ -88,7 +88,7 @@
 //! by Sutton and Barto (2018), pages 25-36.
 
 use evorl_core::action::DiscreteAction;
-use evorl_core::environment::{Environment, Snapshot};
+// use evorl_core::environment::{Environment, Snapshot};
 use evorl_envs::classic::ten_armed_bandit::{TenArmedBandit, TenArmedBanditAction};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -332,8 +332,8 @@ mod agent {
                         (idx, f32::INFINITY)
                     } else {
                         let q_value = self.q_values[idx];
-                        let exploration_bonus = self.c
-                            * ((self.total_steps as f32).ln() / count as f32).sqrt();
+                        let exploration_bonus =
+                            self.c * ((self.total_steps as f32).ln() / count as f32).sqrt();
                         let ucb_value = q_value + exploration_bonus;
                         (idx, ucb_value)
                     }
@@ -479,105 +479,105 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("10-Armed Bandit Training Example");
     println!("=================================\n");
 
-    // Initialize environment
-    let mut env = TenArmedBandit::new(false);
-    env.reset()?;
+    // // Initialize environment
+    // let mut env = TenArmedBandit::new(false);
+    // env.reset()?;
 
-    // Initialize agent based on feature flags
-    #[cfg(not(any(feature = "ucb", feature = "thompson")))]
-    let mut agent = agent::EpsilonGreedyAgent::new(config::EPSILON);
+    // // Initialize agent based on feature flags
+    // #[cfg(not(any(feature = "ucb", feature = "thompson")))]
+    // let mut agent = agent::EpsilonGreedyAgent::new(config::EPSILON);
 
-    #[cfg(feature = "ucb")]
-    let mut agent = agent::UCBAgent::new(config::C);
+    // #[cfg(feature = "ucb")]
+    // let mut agent = agent::UCBAgent::new(config::C);
 
-    #[cfg(feature = "thompson")]
-    let mut agent = agent::ThompsonSamplingAgent::new();
+    // #[cfg(feature = "thompson")]
+    // let mut agent = agent::ThompsonSamplingAgent::new();
 
-    println!("Algorithm: {}", agent);
-    println!("Total steps: {}\n", TOTAL_STEPS);
+    // println!("Algorithm: {}", agent);
+    // println!("Total steps: {}\n", TOTAL_STEPS);
 
-    // Determine the optimal arm (for evaluation only - agent doesn't see this)
-    let optimal_arm = determine_optimal_arm(&mut env);
-    println!("True optimal arm: {} (for evaluation)\n", optimal_arm);
+    // // Determine the optimal arm (for evaluation only - agent doesn't see this)
+    // let optimal_arm = determine_optimal_arm(&mut env);
+    // println!("True optimal arm: {} (for evaluation)\n", optimal_arm);
 
-    // Initialize statistics tracker
-    let mut stats = BanditMetrics::new(optimal_arm);
+    // // Initialize statistics tracker
+    // let mut stats = BanditMetrics::new(optimal_arm);
 
-    // Training loop
-    println!("Training...\n");
+    // // Training loop
+    // println!("Training...\n");
 
-    for step in 0..TOTAL_STEPS {
-        // Agent selects an action
-        let action_idx = agent.select_action();
-        let action = TenArmedBanditAction::from_index(action_idx);
+    // for step in 0..TOTAL_STEPS {
+    //     // Agent selects an action
+    //     let action_idx = agent.select_action();
+    //     let action = TenArmedBanditAction::from_index(action_idx);
 
-        // Execute action in environment
-        let snapshot = env.step(action)?;
-        let reward = *snapshot.reward();
+    //     // Execute action in environment
+    //     let snapshot = env.step(action)?;
+    //     let reward = *snapshot.reward();
 
-        // Update agent with received reward
-        agent.update(action_idx, reward);
+    //     // Update agent with received reward
+    //     agent.update(action_idx, reward);
 
-        // Update statistics
-        stats.update(reward, action_idx);
+    //     // Update statistics
+    //     stats.update(reward, action_idx);
 
-        // Print progress every 100 steps
-        if (step + 1) % 100 == 0 {
-            println!("Step {:4}: {}", step + 1, stats);
-        }
-    }
+    //     // Print progress every 100 steps
+    //     if (step + 1) % 100 == 0 {
+    //         println!("Step {:4}: {}", step + 1, stats);
+    //     }
+    // }
 
-    // Final results
-    println!("\n{}", "=".repeat(70));
-    println!("Training Complete!");
-    println!("{}", "=".repeat(70));
-    println!("\nFinal Statistics:");
-    println!("  {}", stats);
-    println!("\nLearned Q-values:");
-    print_q_values(&agent);
+    // // Final results
+    // println!("\n{}", "=".repeat(70));
+    // println!("Training Complete!");
+    // println!("{}", "=".repeat(70));
+    // println!("\nFinal Statistics:");
+    // println!("  {}", stats);
+    // println!("\nLearned Q-values:");
+    // print_q_values(&agent);
 
     Ok(())
 }
 
-/// Determines the optimal arm by sampling each arm many times.
-///
-/// This is only used for evaluation purposes - the agent does not have
-/// access to this information.
-fn determine_optimal_arm(env: &mut TenArmedBandit) -> usize {
-    const SAMPLES_PER_ARM: usize = 100;
-    let mut arm_rewards = [0.0; NUM_ARMS];
+// /// Determines the optimal arm by sampling each arm many times.
+// ///
+// /// This is only used for evaluation purposes - the agent does not have
+// /// access to this information.
+// fn determine_optimal_arm(env: &mut TenArmedBandit) -> usize {
+//     const SAMPLES_PER_ARM: usize = 100;
+//     let mut arm_rewards = [0.0; NUM_ARMS];
 
-    for arm_idx in 0..NUM_ARMS {
-        let mut total_reward = 0.0;
+//     for arm_idx in 0..NUM_ARMS {
+//         let mut total_reward = 0.0;
 
-        for _ in 0..SAMPLES_PER_ARM {
-            let action = TenArmedBanditAction::from_index(arm_idx);
-            let snapshot = env.step(action).unwrap();
-            total_reward += *snapshot.reward();
-        }
+//         for _ in 0..SAMPLES_PER_ARM {
+//             let action = TenArmedBanditAction::from_index(arm_idx);
+//             let snapshot = env.step(action).unwrap();
+//             total_reward += *snapshot.reward();
+//         }
 
-        arm_rewards[arm_idx] = total_reward / SAMPLES_PER_ARM as f32;
-    }
+//         arm_rewards[arm_idx] = total_reward / SAMPLES_PER_ARM as f32;
+//     }
 
-    arm_rewards
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-        .map(|(idx, _)| idx)
-        .unwrap()
-}
+//     arm_rewards
+//         .iter()
+//         .enumerate()
+//         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+//         .map(|(idx, _)| idx)
+//         .unwrap()
+// }
 
-/// Prints the learned Q-values in a formatted table.
-fn print_q_values(agent: &Agent) {
-    let q_values = agent.q_values();
+// /// Prints the learned Q-values in a formatted table.
+// fn print_q_values(agent: &Agent) {
+//     let q_values = agent.q_values();
 
-    println!("  Arm | Estimated Value");
-    println!("  {}", "-".repeat(23));
+//     println!("  Arm | Estimated Value");
+//     println!("  {}", "-".repeat(23));
 
-    for (arm, &value) in q_values.iter().enumerate() {
-        println!("  {:3} | {:15.3}", arm, value);
-    }
-}
+//     for (arm, &value) in q_values.iter().enumerate() {
+//         println!("  {:3} | {:15.3}", arm, value);
+//     }
+// }
 
 // Type alias for the agent based on features
 #[cfg(not(any(feature = "ucb", feature = "thompson")))]

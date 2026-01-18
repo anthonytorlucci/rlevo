@@ -39,7 +39,7 @@ The example implements `RobotPose`, a 2D robot state with workspace constraints:
 
 ```bash
 cd burn-evorl
-cargo run --example continuous_state_with_constraints
+cargo run --example grid_position_state
 ```
 
 #### Expected Output
