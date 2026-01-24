@@ -263,14 +263,14 @@ When working on tasks in this project, please follow these file organization rul
 ### Examples
 ```
 agent-space/
-├── 2024-01-15-chess-state-refactor/
+├── 2026-01-15-chess-state-refactor/
 │   ├── CHECKLIST.md
 │   ├── CHESS_STATE_REFACTOR.md
 │   └── IMPLEMENTATION_NOTES.md
-├── 2024-01-16-api-redesign/
+├── 2026-01-16-api-redesign/
 │   ├── API_CHANGES.md
 │   └── MIGRATION_PLAN.md
-└── 2024-01-17-performance-optimization/
+└── 2026-01-17-performance-optimization/
     └── PROFILING_RESULTS.md
 ```
 
