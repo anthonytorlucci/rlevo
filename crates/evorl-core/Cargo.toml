@@ -14,6 +14,7 @@ rand = { workspace = true }
 ringbuffer = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+rand_distr = {workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }

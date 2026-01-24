@@ -1,4 +1,4 @@
-use crate::base::TensorConvertible;
+use crate::tensor_convert::TensorConvertible;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use rand::prelude::IteratorRandom;

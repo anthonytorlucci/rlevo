@@ -1,47 +1,5 @@
 use std::collections::VecDeque;
 
-/// Example
-/// ```no_run
-/// #[derive(Debug, Clone)]
-/// struct PpoMetrics {
-///     reward: f32,
-///     steps: usize,
-///     policy_loss: f32,
-///     value_loss: f32,
-///     entropy: f32,
-///     kl_divergence: f32,
-/// }
-///
-/// impl PerformanceRecord for PpoMetrics {
-///     fn score(&self) -> f32 {
-///         self.reward
-///     }
-///
-///     fn duration(&self) -> usize {
-///         self.steps
-///     }
-/// }
-///
-/// // Usage
-/// fn main() {
-///     // The library now works with the specific PpoMetrics struct
-///     let mut stats: AgentStats<PpoMetrics> = AgentStats::new(100);
-///
-///     let episode_data = PpoMetrics {
-///         reward: 105.0,
-///         steps: 200,
-///         policy_loss: 0.02,
-///         value_loss: 0.5,
-///         entropy: 0.1,
-///         kl_divergence: 0.001,
-///     };
-///
-///     stats.record(episode_data);
-///
-///     println!("Best Score: {:?}", stats.best_score);
-/// }
-/// ```
-
 /// A trait representing the result of a step or an episode.
 pub trait PerformanceRecord: std::fmt::Debug + Clone {
     /// The primary metric used for checkpointing/best-model tracking

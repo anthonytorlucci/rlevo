@@ -1,11 +1,8 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
-use evorl_core::action::{Action, DiscreteAction};
-//use evorl_core::environment::{Environment, EnvironmentError, SnapshotBase};
-use evorl_core::base::TensorConvertible;
-use evorl_core::state::{State, StateError};
+use evorl_core::state::{Observation, State};
+use evorl_core::tensor_convert::TensorConvertible;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -24,19 +21,39 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TenArmedBanditState {}
 
-// impl State for TenArmedBanditState {
-//     fn is_valid(&self) -> bool {
-//         true
-//     }
+/// Observation for the ten-armed bandit problem.
+///
+/// Since the bandit is stateless, the observation is also empty.
+/// This satisfies the Observation trait requirement but carries no information,
+/// as the optimal action is independent of any history or state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct TenArmedBanditObservation {}
 
-//     fn numel(&self) -> usize {
-//         1
-//     }
+impl Observation<1> for TenArmedBanditObservation {
+    fn shape() -> [usize; 1] {
+        [1]
+    }
+}
 
-//     fn shape(&self) -> Vec<usize> {
-//         vec![1]
-//     }
-// }
+impl State<1> for TenArmedBanditState {
+    type Observation = TenArmedBanditObservation;
+
+    fn shape() -> [usize; 1] {
+        [1]
+    }
+
+    fn observe(&self) -> Self::Observation {
+        TenArmedBanditObservation {}
+    }
+
+    fn is_valid(&self) -> bool {
+        true
+    }
+
+    fn numel(&self) -> usize {
+        1
+    }
+}
 
 impl Display for TenArmedBanditState {
     /// Formats the state for human-readable output.
@@ -51,20 +68,9 @@ impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditState {
     /// Since the bandit is stateless, this simply returns a tensor with a single
     /// neutral value [0.0].
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        let data = vec![0.0];
-        Tensor::from_floats(data.as_slice(), device)
+        let data: [f32; 1] = [0.0];
+        Tensor::from_floats(data, device)
     }
-
-    // /// Reconstructs state from a rank-1 tensor.
-    // ///
-    // /// Since the state is stateless, this ignores the tensor contents and
-    // /// returns a new `TenArmedBanditState`.
-    // fn from_tensor<B: Backend>(_tensor: &Tensor<B, 1>) -> Result<Self, StateError>
-    // where
-    //     Self: Sized,
-    // {
-    //     Ok(Self {})
-    // }
 }
 
 // SAFETY: TenArmedBanditState is an empty struct with no fields,

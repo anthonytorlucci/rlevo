@@ -479,7 +479,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("10-Armed Bandit Training Example");
     println!("=================================\n");
 
-    // // Initialize environment
+    // Initialize environment
     // let mut env = TenArmedBandit::new(false);
     // env.reset()?;
 
