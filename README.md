@@ -13,29 +13,15 @@ burn-evorl/
     |-- evorl-core/
         |-- Cargo.toml
         |-- src/
-            |-- lib.rs
-            |-- action.rs
-            |-- agent.rs
-            |-- environment.rs
-            |-- memory.rs
-            |-- metrics.rs
-            |-- model.rs
-            |-- state.rs
     |-- evorl-evolution/
         |-- Cargo.toml
         |-- src/
-            |-- lib.rs 
             |-- algorithms/        // ES, GA, etc.
-            |-- operators/         // Mutation, crossover
     |-- evorl-rl/
         |-- Cargo.toml
         |-- src/
-            |-- lib.rs 
             |-- algorithms/        // Deep Q-Networks, Double DQN, Dueling DQN, Rainbow, REINFORCE, Trust Region Policy Optimization, Proximal Policy Optimization, Soft Actor-Critic, Advantage Actor-Critic, Deep Deterministic Policy Gradient, AlphaZero and MuZero
                 |-- dqn\
-                    |-- dqn_agent.rs
-                    |-- dqn_config.rs
-                    |-- dqn_model.rs
             |-- environment/       // Sepcific RL environments, e.g. chess, connect4, cartpole, etc.
           |-- utils.rs             // utility functions specific to reinforcement learning
     |-- evorl-hybrid/
@@ -49,15 +35,9 @@ burn-evorl/
         └── src/
             ├── lib.rs
             ├── classic/           // Classic control problems
-                ├── cartpole.rs
-                └── mountain_car.rs
             ├── games/             // Board games
                 ├── mod.rs
                 ├── chess/
-                    ├── board.rs
-                    ├── moves.rs
-                    ├── state.rs
-                    └── environment.rs
                 └── connect4.rs
             └── benchmarks/        // Standard benchmarks
                 └── mod.rs

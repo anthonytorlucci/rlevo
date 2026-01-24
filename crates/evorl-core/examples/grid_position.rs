@@ -1,9 +1,9 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use evorl_core::action::{Action, DiscreteAction};
-use evorl_core::base::TensorConvertible;
 use evorl_core::dynamics::{ExperienceTuple, History, HistoryRepresentation};
 use evorl_core::state::{Observation, State};
+use evorl_core::tensor_convert::TensorConvertible;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
