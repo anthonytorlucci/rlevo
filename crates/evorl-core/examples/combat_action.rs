@@ -1,4 +1,5 @@
-use evorl_core::action::{Action, MultiDiscreteAction};
+use evorl_core::action::MultiDiscreteAction;
+use evorl_core::base::Action;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {

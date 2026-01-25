@@ -1,7 +1,7 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
-use evorl_core::state::{Observation, State};
-use evorl_core::tensor_convert::TensorConvertible;
+use evorl_core::base::TensorConvertible;
+use evorl_core::base::{Observation, State};
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};

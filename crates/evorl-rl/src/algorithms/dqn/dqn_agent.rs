@@ -4,13 +4,12 @@ use burn::optim::Optimizer;
 use burn::prelude::ToElement;
 use burn::tensor::backend::AutodiffBackend;
 use burn::Tensor;
-use evorl_core::action::{Action, DiscreteAction};
+use evorl_core::action::DiscreteAction;
 // use evorl_core::agent::{Agent, NeuralAgent};
 // use evorl_core::environment::Environment;
 // use evorl_core::memory::{PrioritizedExperienceReplay, TrainingBatch};
-use evorl_core::tensor_convert::TensorConvertible;
+use evorl_core::base::{Action, State, TensorConvertible};
 use evorl_core::metrics::{AgentStats, PerformanceRecord};
-use evorl_core::state::State;
 use rand::Rng;
 use std::marker::PhantomData;
 

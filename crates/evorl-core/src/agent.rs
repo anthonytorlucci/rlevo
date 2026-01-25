@@ -1,4 +1,4 @@
-use crate::dynamics::History;
+use crate::experience::History;
 use burn::module::AutodiffModule;
 use burn::optim::Optimizer;
 use burn::tensor::backend::{AutodiffBackend, Backend};

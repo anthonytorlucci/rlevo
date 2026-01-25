@@ -118,7 +118,7 @@
 //! This example serves as a template for any continuous control environment where
 //! state validity depends on domain constraints (e.g., physics engines, game rules).
 
-use evorl_core::state::{Observation, State};
+use evorl_core::base::{Observation, State};
 use serde::{Deserialize, Serialize};
 
 /// Observation type for RobotPose: the perceived robot state.
