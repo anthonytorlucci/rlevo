@@ -104,8 +104,7 @@
 //!   environment. Agents learn to avoid them through reward signals.
 
 use crate::games::chess::board::Square;
-use evorl_core::action::{Action, MultiDiscreteAction};
-use evorl_core::tensor_convert::TensorConvertible;
+use evorl_core::action::MultiDiscreteAction;
 
 /// Promotion piece types for pawn promotion moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

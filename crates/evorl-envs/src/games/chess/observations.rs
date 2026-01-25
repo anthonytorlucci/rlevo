@@ -119,8 +119,7 @@
 
 use crate::games::chess::board::{CastlingRights, Color, PieceType, Square};
 use burn::prelude::*;
-use evorl_core::tensor_convert::TensorConvertible;
-use evorl_core::state::{State, StateError};
+use evorl_core::base::{Observation, State, TensorConvertible};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 

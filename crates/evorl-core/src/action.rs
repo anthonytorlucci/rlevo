@@ -81,53 +81,9 @@
 //! - `test_continuous_action_extreme_clip_bounds`: Tests edge cases in clipping
 //! - Various clone/debug/trait tests across different action types
 
+use crate::base::Action;
 use std::error::Error;
 use std::fmt::Debug;
-
-/// Base trait for all action types in reinforcement learning environments.
-///
-/// This trait defines the minimal interface that all actions must implement, regardless
-/// of their underlying representation (discrete, continuous, or hybrid). It ensures actions
-/// are debuggable, clonable, and can validate themselves.
-///
-/// # Design Rationale
-///
-/// The `Action` trait is intentionally minimal and framework-agnostic:
-/// - `Debug`: Required for logging and debugging agents
-/// - `Clone`: Actions may be stored in replay buffers or used multiple times
-/// - `Sized`: Enables efficient stack allocation and compile-time optimization
-/// - `is_valid()`: Allows runtime validation of action constraints
-///
-/// # Implementing Action
-///
-/// When implementing this trait, ensure `is_valid()` checks all constraints:
-/// - Range bounds for numeric values
-/// - Finiteness for floating-point values
-/// - Structural invariants (e.g., array dimensions)
-/// - Environment-specific rules (e.g., available moves in a game state)
-pub trait Action<const D: usize>: Debug + Clone + Sized {
-    /// The number of independent dimensions in this action space.
-    ///
-    /// This is automatically set to match the const generic parameter `D`.
-    const DIM: usize = D;
-
-    /// Returns the cardinality of each dimension in this action space.
-    ///
-    /// The returned array has length `D`, where each element specifies the number
-    /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D];
-
-    /// Validates whether this action satisfies all constraints.
-    ///
-    /// This method checks if the action is legal according to its type's invariants.
-    /// It does **not** check environment-specific legality (e.g., whether a move
-    /// is valid in the current game state)—that's the environment's responsibility.
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
-    fn is_valid(&self) -> bool;
-}
 
 /// Trait for discrete actions with a finite, enumerable set of choices.
 ///

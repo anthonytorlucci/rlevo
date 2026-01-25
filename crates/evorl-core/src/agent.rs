@@ -1,8 +1,3 @@
-use crate::dynamics::History;
-use burn::module::AutodiffModule;
-use burn::optim::Optimizer;
-use burn::tensor::backend::{AutodiffBackend, Backend};
-use std::fmt::Debug;
 
 // todo! distinguish between RL agents and EA agents
 
