@@ -1,7 +1,7 @@
 use evorl_core::evolution::{Crossover, Individual, Mutation, Selection};
+use rand::Rng;
 use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
-use rand::Rng;
 
 // Binary individual for classic GA
 #[derive(Clone, Debug)]
@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Evolution loop
-    for gen in 0..generations {
+    for r#gen in 0..generations {
         // Evaluate fitness
         for individual in &mut population {
             evaluate(individual);
@@ -170,10 +170,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if let Some(best_individual) = best {
-            if gen % 10 == 0 {
+            if r#gen % 10 == 0 {
                 println!(
                     "Generation {}: Best fitness = {:.1} / {}",
-                    gen,
+                    r#gen,
                     best_individual.fitness(),
                     genome_length
                 );

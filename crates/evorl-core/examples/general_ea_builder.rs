@@ -209,7 +209,7 @@ impl Crossover<BitStringIndividual> for UniformCrossover {
         let mut child2_genes = parent2.genes.clone();
 
         for i in 0..child1_genes.len() {
-            if rng.gen::<f64>() < 0.5 {
+            if rng.r#gen::<f64>() < 0.5 {
                 (child1_genes[i], child2_genes[i]) = (child2_genes[i], child1_genes[i]);
             }
         }
@@ -246,7 +246,7 @@ impl Mutation<BitStringIndividual> for BitFlipMutation {
     fn mutate(&self, individual: &mut BitStringIndividual) {
         let mut rng = rand::thread_rng();
         for gene in individual.genes_mut() {
-            if rng.gen::<f64>() < self.rate {
+            if rng.r#gen::<f64>() < self.rate {
                 *gene = if *gene == 0 { 1 } else { 0 };
             }
         }
