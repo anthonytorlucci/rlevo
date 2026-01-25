@@ -1,7 +1,6 @@
 use crate::base::{Action, Observation, Reward};
 use crate::state::MarkovState;
 use std::collections::VecDeque;
-use std::fmt::Debug;
 use std::ops::Index;
 
 /// A single transition/experience in the replay memory.

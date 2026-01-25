@@ -1,11 +1,9 @@
 use crate::base::{Action, Observation, Reward, TensorConvertible};
 use crate::experience::{ExperienceTuple, History};
 use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::Tensor;
 use rand::prelude::IteratorRandom;
-use rand::seq::SliceRandom;
 use rand::Rng;
-use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 // todo! RolloutBuffer for on-policy algorithms)
