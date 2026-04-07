@@ -15,5 +15,7 @@ target
 
 .DS_Store
 
-/agent-space/*
+# project specific
+.scratchpad
 /scratch
+.memory

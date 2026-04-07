@@ -256,25 +256,12 @@ Workspace lints are configured for:
 When working on tasks in this project, please follow these file organization rules:
 
 ### Working Files Directory Structure
-- Create all task-specific markdown files (checklists, refactor plans, summaries, thinking documents, etc.) in the `agent-space/` directory at the project root
-- For each distinct task or problem, create a new subdirectory within `agent-space/` using a descriptive name
-- Use ISO date prefixes for task directories to maintain chronological order: `YYYY-MM-DD-task-description/`
+- Create all task-specific markdown files (checklists, refactor plans, summaries, thinking documents, etc.) in the `.scratchpad/` directory at the project root
+- For each distinct task or problem, create a new subdirectory within `.scratchpad/` using a descriptive name
+- Use ISO date prefixes for task directories to maintain chronological order: `YYYY-MM-DDThh:mm:ss-task-description/`
+- datetime in the proper format can be acquired using the terminal command `date +\"%Y-%m-%dT%H:%M:%S\"`
 
-### Examples
-```
-agent-space/
-├── 2026-01-15-chess-state-refactor/
-│   ├── CHECKLIST.md
-│   ├── CHESS_STATE_REFACTOR.md
-│   └── IMPLEMENTATION_NOTES.md
-├── 2026-01-16-api-redesign/
-│   ├── API_CHANGES.md
-│   └── MIGRATION_PLAN.md
-└── 2026-01-17-performance-optimization/
-    └── PROFILING_RESULTS.md
-```
-
-### What Goes in `agent-space/`
+### What Goes in `.scratchpad/`
 - ✅ Task checklists and TODO lists
 - ✅ Refactoring plans and strategies
 - ✅ Architectural decision documents
@@ -289,10 +276,10 @@ agent-space/
 - ❌ Test files
 
 ### Cleanup
-The `agent-space/` directory is considered temporary working space. Task directories can be archived or deleted once the work is complete and any relevant information has been incorporated into permanent documentation.
+The `.scratchpad/` directory is considered temporary working space. Task directories can be archived or deleted once the work is complete and any relevant information has been incorporated into permanent documentation.
 
 ## Note to All LLMs
-This guideline applies to any AI assistant working on this project through Zed or other development tools. Always create your working files in `agent-space/` with appropriate task subdirectories.
+This guideline applies to any AI assistant working on this project through Zed or other development tools. Always create your working files in `.scratchpad/` with appropriate task subdirectories.
 
 ## Current Development Focus
 
