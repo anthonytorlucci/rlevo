@@ -27,4 +27,5 @@ pub mod evolution;
 pub mod experience;
 pub mod memory;
 pub mod metrics;
+pub mod reward;
 pub mod state;

@@ -27,3 +27,15 @@ thompson = []   # Thompson Sampling algorithm
 [[example]]
 name = 'ten_armed_bandit_training'
 path = 'examples/ten-armed-bandit/ten_armed_bandit_training.rs'
+
+[[example]]
+name = 'grid_empty_random'
+path = 'examples/grids/grid_empty_random.rs'
+
+[[example]]
+name = 'grid_door_key_scripted'
+path = 'examples/grids/grid_door_key_scripted.rs'
+
+[[example]]
+name = 'grid_memory_random'
+path = 'examples/grids/grid_memory_random.rs'

@@ -17,21 +17,14 @@
 //! # Getting Started
 //!
 //! ```rust
-//! use evorl_envs::classic::CartPole;
-//! use evorl_core::environment::Environment;
+//! use evorl_core::environment::{Environment, Snapshot};
+//! use evorl_envs::grids::core::GridAction;
+//! use evorl_envs::grids::{EmptyConfig, EmptyEnv};
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create environment
-//!     let mut env = CartPole::new()?;
-//!
-//!     // Reset to initial state
-//!     let state = env.reset()?;
-//!
-//!     // Take an action
-//!     let (next_state, reward, done) = env.step(0)?;
-//!
-//!     Ok(())
-//! }
+//! let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
+//! env.reset().expect("reset");
+//! let snapshot = env.step(GridAction::Forward).expect("step");
+//! assert!(!snapshot.is_done());
 //! ```
 //!
 //! # Module Organization
@@ -59,3 +52,4 @@ pub mod games {
     pub mod chess;
     pub mod connect_four;
 }
+pub mod grids;

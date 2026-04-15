@@ -318,28 +318,7 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
-    pub struct ScalarReward(f32);
-
-    impl Reward for ScalarReward {
-        fn zero() -> Self {
-            Self(0.0)
-        }
-    }
-
-    impl std::ops::Add for ScalarReward {
-        type Output = Self;
-
-        fn add(self, other: Self) -> Self {
-            Self(self.0 + other.0)
-        }
-    }
-
-    impl From<ScalarReward> for f32 {
-        fn from(reward: ScalarReward) -> Self {
-            reward.0
-        }
-    }
+    use crate::reward::ScalarReward;
 
     // Mock environment for testing: 1D random walk with 7 states
     // The agent starts at position 3 (middle) and can move left or right.
