@@ -47,7 +47,9 @@
 //! - `step(action)` → (next_state, reward, done)
 //! - Deterministic or stochastic based on configuration
 
-// todo! pub mod benchmarks;
+pub mod benchmarks {
+    pub mod rastrigin;
+}
 pub mod classic {
     pub mod cartpole;
     pub mod ten_armed_bandit;

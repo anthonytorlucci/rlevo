@@ -362,10 +362,61 @@ impl FromStr for TenArmedBanditConfig {
 
 // todo! use evorl_core::dynamics::Reward
 impl TenArmedBandit {
+    /// Construct a 10-armed bandit with a deterministic seed.
+    ///
+    /// Arm means are sampled from N(0, 1) using an `StdRng` seeded from
+    /// `seed`, so two instances built with the same seed have identical
+    /// reward distributions. This is the constructor used by the
+    /// `evorl-benchmarks` harness for reproducible trials.
+    pub fn with_seed(seed: u64) -> Self {
+        use rand::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let normal = Normal::new(0.0_f32, 1.0).unwrap();
+        let mut arm_means = [0.0_f32; 10];
+        for mean in &mut arm_means {
+            *mean = normal.sample(&mut rng);
+        }
+        Self {
+            state: TenArmedBanditState {},
+            steps: 0,
+            done: false,
+            config: TenArmedBanditConfig::default(),
+            rng,
+            arm_means,
+        }
+    }
+
+    /// Reset the environment to its initial state (does not reseed).
+    pub fn reset(&mut self) {
+        self.state = TenArmedBanditState {};
+        self.steps = 0;
+        self.done = false;
+    }
+
+    /// Pull `arm` and return a sampled reward from N(q*(arm), 1).
+    ///
+    /// Advances the step counter and flips `done` when `max_steps` is reached.
+    pub fn pull(&mut self, arm: usize) -> f32 {
+        assert!(arm < 10, "arm {arm} out of range");
+        self.steps += 1;
+        let reward = self.compute_reward(arm);
+        if self.steps >= self.config.max_steps {
+            self.done = true;
+        }
+        reward
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    pub fn arm_means(&self) -> &[f32; 10] {
+        &self.arm_means
+    }
+
     /// Computes a reward for the given arm index.
     fn compute_reward(&mut self, arm_index: usize) -> f32 {
         let mean = self.arm_means[arm_index];
-        // Sample from N(mean, 1)
         let normal = Normal::new(mean, 1.0).unwrap();
         normal.sample(&mut self.rng)
     }

@@ -2144,6 +2144,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "evorl-benchmarks"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "crossterm",
+ "evorl-core",
+ "evorl-envs",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "ratatui",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "evorl-core"
 version = "0.1.0"
 dependencies = [
