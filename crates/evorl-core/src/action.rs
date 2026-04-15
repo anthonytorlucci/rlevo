@@ -143,7 +143,7 @@ pub trait DiscreteAction<const D: usize>: Action<D> {
     where
         Self: Sized,
     {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let index = rng.random_range(0..Self::ACTION_COUNT);
         Self::from_index(index)
@@ -222,7 +222,7 @@ pub trait MultiDiscreteAction<const D: usize>: Action<D> {
     where
         Self: Sized,
     {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let space = Self::shape();
         let indices = space.map(|dim| rng.random_range(0..dim));
@@ -323,7 +323,7 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
     where
         Self: Sized,
     {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         // Default implementation - override for custom behavior
         let values: Vec<f32> = (0..Self::DIM)

@@ -1,7 +1,7 @@
 // use evorl_core::action::{Action, DiscreteAction};
 // use evorl_core::environment::Environment;
 // use evorl_core::state::{FlattenedState, State, StateError};
-// use rand::Rng;
+// use rand::RngExt;
 
 // /// CartPole state: [x, x_dot, theta, theta_dot]
 // #[derive(Debug, Clone, PartialEq, Eq, Hash)]

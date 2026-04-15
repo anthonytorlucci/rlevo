@@ -1,7 +1,7 @@
 use evorl_core::evolution::{
     Crossover, FitnessEvaluator, Individual, Mutation, Replacement, Selection,
 };
-use rand::Rng;
+use rand::RngExt;
 use rand_distr::{Distribution, Normal};
 
 // Real-valued individual with strategy parameters for ES

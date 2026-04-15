@@ -15,5 +15,7 @@ target
 
 .DS_Store
 
-/agent-space/*
-/scratch
+# project specific
+.scratchpad
+CLAUDE.md
+CLAUDE.md.bak

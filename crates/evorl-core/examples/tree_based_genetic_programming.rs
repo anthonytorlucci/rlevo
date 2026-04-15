@@ -1,7 +1,7 @@
 use evorl_core::evolution::{
     Crossover, FitnessEvaluator, Individual, Mutation, Replacement, Selection, Termination,
 };
-use rand::Rng;
+use rand::RngExt;
 use std::rc::Rc;
 
 // Tree node for GP

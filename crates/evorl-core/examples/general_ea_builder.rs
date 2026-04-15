@@ -2,7 +2,7 @@ use evorl_core::evolution::{
     Crossover, EvolutionaryAlgorithm, FitnessEvaluator, Individual, Mutation, Replacement,
     Selection, Termination,
 };
-use rand::Rng;
+use rand::RngExt;
 
 // Generic EA that composes different components
 pub struct GenericEA<I, S, C, M, R, T>
@@ -164,16 +164,16 @@ impl Selection<BitStringIndividual> for TournamentSelection {
         population: &'a [BitStringIndividual],
         count: usize,
     ) -> Vec<&'a BitStringIndividual> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut selected = Vec::with_capacity(count);
 
         for _ in 0..count {
-            let first_idx = rng.gen_range(0..population.len());
+            let first_idx = rng.random_range(0..population.len());
             let mut best_idx = first_idx;
             let mut best_fitness = population[first_idx].fitness();
 
             for _ in 1..self.tournament_size {
-                let idx = rng.gen_range(0..population.len());
+                let idx = rng.random_range(0..population.len());
                 if population[idx].fitness() > best_fitness {
                     best_idx = idx;
                     best_fitness = population[idx].fitness();
@@ -204,12 +204,12 @@ impl Crossover<BitStringIndividual> for UniformCrossover {
         parent1: &BitStringIndividual,
         parent2: &BitStringIndividual,
     ) -> (BitStringIndividual, BitStringIndividual) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut child1_genes = parent1.genes.clone();
         let mut child2_genes = parent2.genes.clone();
 
         for i in 0..child1_genes.len() {
-            if rng.r#gen::<f64>() < 0.5 {
+            if rng.random::<f64>() < 0.5 {
                 (child1_genes[i], child2_genes[i]) = (child2_genes[i], child1_genes[i]);
             }
         }
@@ -244,9 +244,9 @@ impl BitFlipMutation {
 
 impl Mutation<BitStringIndividual> for BitFlipMutation {
     fn mutate(&self, individual: &mut BitStringIndividual) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for gene in individual.genes_mut() {
-            if rng.r#gen::<f64>() < self.rate {
+            if rng.random::<f64>() < self.rate {
                 *gene = if *gene == 0 { 1 } else { 0 };
             }
         }
@@ -355,9 +355,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize population with random bit strings
     let mut population: Vec<BitStringIndividual> = (0..population_size)
         .map(|_| {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             BitStringIndividual {
-                genes: (0..gene_length).map(|_| rng.gen_range(0..=1)).collect(),
+                genes: (0..gene_length).map(|_| rng.random_range(0..=1)).collect(),
                 fitness: 0.0,
             }
         })
