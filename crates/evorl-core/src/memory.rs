@@ -3,7 +3,7 @@ use crate::experience::{ExperienceTuple, History};
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use rand::prelude::IteratorRandom;
-use rand::Rng;
+use rand::RngExt;
 use std::collections::VecDeque;
 
 // todo! RolloutBuffer for on-policy algorithms)
@@ -261,7 +261,7 @@ where
         let indices: Vec<usize> = if self.priorities.is_empty() || self.alpha == 0.0 {
             // Fallback to uniform random sampling if no priorities or alpha = 0
             (0..self.buffer.len())
-                .choose_multiple(&mut rng, batch_size)
+                .sample(&mut rng, batch_size)
                 .into_iter()
                 .collect()
         } else {

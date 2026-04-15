@@ -10,7 +10,7 @@ use evorl_core::action::DiscreteAction;
 // use evorl_core::memory::{PrioritizedExperienceReplay, TrainingBatch};
 use evorl_core::base::{Action, State, TensorConvertible};
 use evorl_core::metrics::{AgentStats, PerformanceRecord};
-use rand::Rng;
+use rand::RngExt;
 use std::marker::PhantomData;
 
 // Define error type for DQNAgent

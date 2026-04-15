@@ -1,5 +1,5 @@
 use evorl_core::evolution::{Crossover, Individual, Mutation, Selection};
-use rand::Rng;
+use rand::RngExt;
 use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
 
@@ -113,7 +113,7 @@ impl<I: Individual> Selection<I> for TournamentSelection {
 
         for _ in 0..count {
             let tournament: Vec<&I> = population
-                .choose_multiple(&mut rng, self.tournament_size)
+                .sample(&mut rng, self.tournament_size)
                 .collect();
 
             let winner = tournament

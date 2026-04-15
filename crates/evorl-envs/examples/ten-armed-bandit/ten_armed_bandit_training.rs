@@ -226,7 +226,7 @@ mod agent {
         /// With probability ε, selects a random action (exploration).
         /// With probability 1-ε, selects the action with highest Q-value (exploitation).
         pub fn select_action(&mut self) -> usize {
-            use rand::Rng;
+            use rand::RngExt;
 
             if self.rng.random::<f32>() < self.epsilon {
                 // Explore: select random action

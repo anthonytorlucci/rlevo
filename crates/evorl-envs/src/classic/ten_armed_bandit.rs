@@ -212,7 +212,7 @@ unsafe impl Sync for TenArmedBanditAction {}
 // }
 
 /// 10-armed bandit environment
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TenArmedBandit {
     state: TenArmedBanditState,
     steps: usize,
