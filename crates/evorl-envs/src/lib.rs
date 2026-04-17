@@ -53,4 +53,5 @@ pub mod games {
 }
 pub mod grids;
 pub mod render;
+pub mod toy_text;
 pub mod wrappers;
