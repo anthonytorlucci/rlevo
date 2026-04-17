@@ -41,7 +41,9 @@
 //! - Deterministic or stochastic based on configuration
 
 pub mod benchmarks {
+    pub mod ackley;
     pub mod rastrigin;
+    pub mod sphere;
 }
 pub mod classic {
     pub mod cartpole;

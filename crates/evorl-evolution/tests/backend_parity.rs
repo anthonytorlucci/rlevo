@@ -40,6 +40,7 @@ use evorl_benchmarks::env::BenchEnv;
 use evorl_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
+use evorl_evolution::algorithms::swarm::pso::{ParticleSwarm, PsoConfig};
 use evorl_evolution::fitness::FromFitnessEvaluable;
 use evorl_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -90,6 +91,35 @@ where
     harness.latest_metrics().unwrap().best_fitness_ever
 }
 
+fn run_sphere_pso<B>(seed: u64, gens: usize, device: B::Device) -> f32
+where
+    B: burn::tensor::backend::Backend,
+    B::Device: Clone,
+    ParticleSwarm<B>: Strategy<
+        B,
+        Params = PsoConfig,
+        State = evorl_evolution::algorithms::swarm::pso::PsoState<B>,
+        Genome = burn::tensor::Tensor<B, 2>,
+    >,
+{
+    let params = PsoConfig::default_for(32, 10);
+    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+        ParticleSwarm::<B>::new(),
+        params,
+        FromFitnessEvaluable::new(SphereFit, Sphere),
+        seed,
+        device,
+        gens,
+    );
+    harness.reset();
+    loop {
+        if harness.step(()).done {
+            break;
+        }
+    }
+    harness.latest_metrics().unwrap().best_fitness_ever
+}
+
 #[test]
 fn wgpu_matches_ndarray_on_sphere_d10() {
     const SEED: u64 = 999;
@@ -97,7 +127,8 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
 
     // Run ndarray first so the host seed state is deterministic; wgpu
     // has its own per-device stream and doesn't disturb it.
-    let ndarray_best = run_sphere_ga::<NdArray>(SEED, GENS, Default::default());
+    let ndarray_ga = run_sphere_ga::<NdArray>(SEED, GENS, Default::default());
+    let ndarray_pso = run_sphere_pso::<NdArray>(SEED, GENS, Default::default());
 
     // Initializing a wgpu device can fail on CI machines without a GPU
     // or without system-level wgpu support. Treat initialization
@@ -105,7 +136,8 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
     // ndarray run still validates the operators, and the parity
     // assertion is only meaningful when the device actually exists.
     let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
-    let wgpu_best = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device);
+    let wgpu_ga = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device.clone());
+    let wgpu_pso = run_sphere_pso::<Wgpu>(SEED, GENS, wgpu_device);
 
     // Both backends should compose the operators correctly and drive
     // GA to a non-trivial optimum. "Non-trivial" here means well below
@@ -113,15 +145,34 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
     // x ~ U(-5.12, 5.12) is ~87), so any final value under 1.0
     // proves the operator chain works on both backends.
     assert!(
-        ndarray_best.is_finite() && wgpu_best.is_finite(),
-        "non-finite result: ndarray={ndarray_best}, wgpu={wgpu_best}",
+        ndarray_ga.is_finite() && wgpu_ga.is_finite(),
+        "non-finite GA result: ndarray={ndarray_ga}, wgpu={wgpu_ga}",
     );
     assert!(
-        ndarray_best < 1.0,
-        "ndarray did not converge on Sphere-D10: {ndarray_best}",
+        ndarray_ga < 1.0,
+        "ndarray GA did not converge on Sphere-D10: {ndarray_ga}",
     );
     assert!(
-        wgpu_best < 1.0,
-        "wgpu did not converge on Sphere-D10: {wgpu_best}",
+        wgpu_ga < 1.0,
+        "wgpu GA did not converge on Sphere-D10: {wgpu_ga}",
+    );
+
+    // Same functional assertion for PSO. This exercises the phase-2
+    // swarm operator chain (velocity clamp, tensor broadcast in the
+    // inertia update, gather-based personal-best tracking) on both
+    // backends. Threshold 1e-2 (tighter than GA's 1.0) is justified
+    // because PSO with the default inertia schedule converges faster
+    // than BLX-α GA on Sphere.
+    assert!(
+        ndarray_pso.is_finite() && wgpu_pso.is_finite(),
+        "non-finite PSO result: ndarray={ndarray_pso}, wgpu={wgpu_pso}",
+    );
+    assert!(
+        ndarray_pso < 1e-2,
+        "ndarray PSO did not converge on Sphere-D10: {ndarray_pso}",
+    );
+    assert!(
+        wgpu_pso < 1e-2,
+        "wgpu PSO did not converge on Sphere-D10: {wgpu_pso}",
     );
 }

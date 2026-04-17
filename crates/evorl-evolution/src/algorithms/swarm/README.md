@@ -1,0 +1,63 @@
+# `evorl-evolution::algorithms::swarm`
+
+Phase-2 of the evo-opt-algos track: nine swarm-intelligence and
+nature-inspired metaheuristics plugged into the existing
+`Strategy<B>` trait.
+
+## Which one should I pick?
+
+**Start with [`pso`].** It is the best-studied, best-behaved member of
+this family. If PSO isn't good enough, the next honest step is to wait
+for (or contribute) CMA-ES or LSHADE in a future phase — not to try
+every algorithm in this directory hoping one of them wins.
+
+## Calibration
+
+The metaheuristics literature has matured enough to say this plainly.
+Independent benchmarking (IEEE CEC competitions, Piotrowski et al.
+2020, Camacho Villalón et al. 2020) shows:
+
+| Algorithm  | Status | Recommendation |
+|------------|--------|---------------|
+| **PSO**    | Ships  | Solid baseline; well-studied; good comparator |
+| **ACO_R**  | Ships  | Niche but principled — useful where the Gaussian-kernel-mixture structure fits |
+| **ABC**    | Ships  | Competitive on simple multimodal; weaker in high dimensions |
+| **GWO**    | Ships  | *Legacy comparator.* No novel mechanism over weighted PSO; prefer CMA-ES / LSHADE |
+| **WOA**    | Ships  | *Legacy comparator.* Same caveat |
+| **CS**     | Ships  | Lévy flights are the interesting part; otherwise a thin wrapper around random walk + abandonment |
+| **FA**     | Ships  | Useful on multimodal landscapes where `O(N²)` attraction is informative |
+| **BA**     | Ships  | *Legacy comparator.* Same caveat |
+| **SSA**    | Ships  | *Legacy comparator.* Same caveat |
+| **ACO (permutation)** | Stubbed | `todo!()` — deferred to the combinatorial-benchmarks spec |
+
+Module-level doc comments restate the caveats at the point of use so
+they show up in `cargo doc`.
+
+## Why ship the "legacy comparator" algorithms at all?
+
+Three reasons:
+
+1. The library is a reference implementation, not an opinion piece.
+2. These algorithms are widely cited in applied literature; users will
+   reach for them expecting to find them.
+3. They exercise the phase-1 `Strategy<B>` trait across a wider design
+   space, surfacing abstraction leaks before more serious algorithms
+   (CMA-ES, LSHADE) land.
+
+## References
+
+- Kennedy & Eberhart (1995), *Particle Swarm Optimization*.
+- Socha & Dorigo (2008), *Ant colony optimization for continuous domains*.
+- Karaboga (2005), *An idea based on honey bee swarm for numerical optimization*.
+- Mirjalili, Mirjalili & Lewis (2014), *Grey Wolf Optimizer*.
+- Mirjalili & Lewis (2016), *The Whale Optimization Algorithm*.
+- Yang & Deb (2009), *Cuckoo Search via Lévy Flights*.
+- Yang (2008), *Nature-Inspired Metaheuristic Algorithms* (Firefly Algorithm).
+- Yang (2010), *A New Metaheuristic Bat-Inspired Algorithm*.
+- Mirjalili et al. (2017), *Salp Swarm Algorithm*.
+- Sörensen (2015), *Metaheuristics — the metaphor exposed*.
+- Camacho Villalón, Dorigo & Stützle (2020), *Grey Wolf, Firefly and
+  Bat Algorithms: Three Widespread Algorithms that Do Not Contain Any
+  Novelty*.
+- Piotrowski, Napiorkowski & Rowinski (2020),
+  *How novel is the "novel" black hole optimization approach?*

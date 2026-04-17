@@ -49,12 +49,27 @@ pub struct Integer;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Tree;
 
+/// Permutation genome (each row is a permutation of `0..n_nodes`).
+///
+/// Populations are stored as `Tensor<B, 2, Int>` of shape
+/// `(pop_size, n_nodes)` where every row is a valid permutation. Used by
+/// Ant Colony Optimization over combinatorial domains (TSP, QAP, …);
+/// phase-2 swarm spec ships only a stubbed consumer — the full
+/// combinatorial-benchmarks spec lands separately.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Permutation;
+
 impl GenomeKind for Integer {
     const DIM: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Tree {
+    const DIM: usize = 0;
+    type Element = i32;
+}
+
+impl GenomeKind for Permutation {
     const DIM: usize = 0;
     type Element = i32;
 }
@@ -79,7 +94,15 @@ mod tests {
     }
 
     #[test]
+    fn permutation_has_i32_element() {
+        let _x: <Permutation as GenomeKind>::Element = 7_i32;
+    }
+
+    #[test]
     fn markers_are_debug() {
-        let _ = format!("{:?} {:?} {:?} {:?}", Real, Binary, Integer, Tree);
+        let _ = format!(
+            "{:?} {:?} {:?} {:?} {:?}",
+            Real, Binary, Integer, Tree, Permutation
+        );
     }
 }
