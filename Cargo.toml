@@ -43,6 +43,9 @@ tracing-subscriber = "0.3"
 thiserror = "1.0"
 anyhow = "1.0"
 
+# Physics (Box2D-style environments)
+rapier2d = { version = "0.32", features = ["enhanced-determinism"] }
+
 # Testing
 approx = "0.5"
 

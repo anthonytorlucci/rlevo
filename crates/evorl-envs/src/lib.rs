@@ -45,6 +45,7 @@ pub mod benchmarks {
     pub mod rastrigin;
     pub mod sphere;
 }
+pub mod box2d;
 pub mod classic;
 pub mod games {
     pub mod chess;
