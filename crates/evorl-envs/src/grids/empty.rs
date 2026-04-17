@@ -178,7 +178,11 @@ impl EmptyEnv {
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
-        SnapshotBase::new(self.state.observe(), ScalarReward::new(reward), done)
+        if done {
+            SnapshotBase::terminated(self.state.observe(), ScalarReward::new(reward))
+        } else {
+            SnapshotBase::running(self.state.observe(), ScalarReward::new(reward))
+        }
     }
 }
 

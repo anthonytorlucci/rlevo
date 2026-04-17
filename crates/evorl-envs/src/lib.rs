@@ -45,13 +45,11 @@ pub mod benchmarks {
     pub mod rastrigin;
     pub mod sphere;
 }
-pub mod classic {
-    pub mod cartpole;
-    pub mod ten_armed_bandit;
-    // todo! pub mod mountain_car;
-}
+pub mod classic;
 pub mod games {
     pub mod chess;
     pub mod connect_four;
 }
 pub mod grids;
+pub mod render;
+pub mod wrappers;

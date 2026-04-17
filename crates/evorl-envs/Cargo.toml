@@ -39,3 +39,27 @@ path = 'examples/grids/grid_door_key_scripted.rs'
 [[example]]
 name = 'grid_memory_random'
 path = 'examples/grids/grid_memory_random.rs'
+
+[[example]]
+name = 'cartpole_random'
+path = 'examples/classic/cartpole_random.rs'
+
+[[example]]
+name = 'cartpole_timelimit'
+path = 'examples/classic/cartpole_timelimit.rs'
+
+[[example]]
+name = 'mountain_car_random'
+path = 'examples/classic/mountain_car_random.rs'
+
+[[example]]
+name = 'mountain_car_continuous_random'
+path = 'examples/classic/mountain_car_continuous_random.rs'
+
+[[example]]
+name = 'pendulum_random'
+path = 'examples/classic/pendulum_random.rs'
+
+[[example]]
+name = 'acrobot_random'
+path = 'examples/classic/acrobot_random.rs'

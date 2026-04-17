@@ -1,20 +1,32 @@
 # Tasks
 
-evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
-- [✔] classical-evolutionary-algorithms (sessions/2026-04-17-classical-ea-implementation)
-- [ ] swarm-intelligence-algorithms
-- [ ] advanced-hybrid-specialized-ea
-  - [ ] memetic-algorithms
-  - [ ] estimation-of-distribution-algorithms
-  - [ ] co-evolutionary-algorithms
-  - [ ] neuroevolution-weight-only
-  - [ ] neuroevolution-neat
-  - [ ] gene-expression-programming
-- [ ] multi-objective-evolutionary-algorithms
-  - [ ] nsga
-  - [ ] moea-d
-  - [ ] spea
-  - [ ] mopso
+- [ ] EXAMPLES.md
+
+## Milestone 1 & 2: evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
+- [✔] classical-evolutionary-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/classical-evolutionary-algorithms -> sessions/2026-04-17-classical-ea-implementation)
+- [✔] swarm-intelligence-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/swarm-intelligence-algorithms -> projects/burn-evorl/sessions/2026-04-17-swarm-intelligence-implementation)
+- [ ] advanced-hybrid-specialized-ea (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/advanced-hybrid-specialized-ea)
+  - [ ] memetic-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/memetic-algorithms)
+  - [ ] estimation-of-distribution-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/estimation-of-distribution-algorithms)
+  - [ ] co-evolutionary-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/co-evolutionary-algorithms)
+  - [ ] neuroevolution-weight-only (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/neuroevolution-weight-only)
+  - [ ] neuroevolution-neat (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/neuroevolution-neat)
+  - [ ] gene-expression-programming (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/gene-expression-programming)
+- [ ] multi-objective-evolutionary-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/multi-objective-evolutionary-algorithms)
+  - [ ] nsga (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/nsga)
+  - [ ] moea-d (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/moea-d)
+  - [ ] spea (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/spea)
+  - [ ] mopso (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/mopso)
+
+## Milestone 3: rl-envs (`projects/burn-evorl/specs/2026-04-17-rl-envs/rl-envs-overview`, `projects/burn-evorl/sessions/2026-04-17-rl-envs-specs`)
+- research documents
+  - [ ] gymnasium-env-technical-audit (`projects/burn-evorl/research/rl-envs-specification/gymnasium-env-technical-audit`)
+  - [ ] rust-physics-backend-options (`projects/burn-evorl/research/rl-envs-specification/rust-physics-backend-options`)
+- specs
+  - [ ] classic-control (`projects/burn-evorl/specs/2026-04-17-rl-envs/classic-control`)
+  - [ ] box2d (`projects/burn-evorl/specs/2026-04-17-rl-envs/box2d`)
+  - [ ] toy-text (`projects/burn-evorl/specs/2026-04-17-rl-envs/toy-text`)
+  - [ ] mujoco-locomotion (`projects/burn-evorl/specs/2026-04-17-rl-envs/mujoco-locomotion`)
 
 ---
 

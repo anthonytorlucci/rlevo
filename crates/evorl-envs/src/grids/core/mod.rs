@@ -47,5 +47,9 @@ pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 #[must_use]
 pub fn build_snapshot(state: &GridState, reward: f32, done: bool) -> GridSnapshot {
     use evorl_core::base::State as _;
-    SnapshotBase::new(state.observe(), ScalarReward::new(reward), done)
+    if done {
+        SnapshotBase::terminated(state.observe(), ScalarReward::new(reward))
+    } else {
+        SnapshotBase::running(state.observe(), ScalarReward::new(reward))
+    }
 }
