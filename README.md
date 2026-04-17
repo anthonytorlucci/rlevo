@@ -5,51 +5,10 @@
 
 Evolutionary Deep Reinforcement Learning library written entirely in the Rust programming language. It uses [burn](https://github.com/tracel-ai/burn) for tensor operations and neural network architectures for deep learning.
 
-## Project Structure
-```
-burn-evorl/
-|-- Cargo.toml (workspace)
-|-- crates/
-    |-- evorl-core/
-        |-- Cargo.toml
-        |-- src/
-    |-- evorl-evolution/
-        |-- Cargo.toml
-        |-- src/
-            |-- algorithms/        // ES, GA, etc.
-    |-- evorl-rl/
-        |-- Cargo.toml
-        |-- src/
-            |-- algorithms/        // Deep Q-Networks, Double DQN, Dueling DQN, Rainbow, REINFORCE, Trust Region Policy Optimization, Proximal Policy Optimization, Soft Actor-Critic, Advantage Actor-Critic, Deep Deterministic Policy Gradient, AlphaZero and MuZero
-                |-- dqn\
-            |-- environment/       // Sepcific RL environments, e.g. chess, connect4, cartpole, etc.
-          |-- utils.rs             // utility functions specific to reinforcement learning
-    |-- evorl-hybrid/
-        |-- Cargo.toml
-        |-- src/
-            |-- lib.rs 
-            |-- evorl.rs           // Combined approaches
-            |-- strategies.rs      // Population-based training, etc.
-    ├── evorl-envs/                // Environment implementations
-        ├── Cargo.toml
-        └── src/
-            ├── lib.rs
-            ├── classic/           // Classic control problems
-            ├── games/             // Board games
-                ├── mod.rs
-                ├── chess/
-                └── connect4.rs
-            └── benchmarks/        // Standard benchmarks
-                └── mod.rs
-    └── evorl-utils/                   // Utilities crate
-        ├── Cargo.toml
-        └── src/
-            ├── lib.rs
-            ├── math.rs                // Mathematical utilities
-            ├── logging.rs             // Logging helpers
-            ├── validations.rs         // Data validation
-            └── serialization.rs         // Data validation      
-```
+
+
+
+
 
 ## Crates
 
