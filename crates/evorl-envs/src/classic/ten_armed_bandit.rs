@@ -1,7 +1,7 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use evorl_core::base::TensorConvertible;
-use evorl_core::base::{Observation, State};
+use evorl_core::base::{Observation, State, TensorConversionError};
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
@@ -70,6 +70,24 @@ impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditState {
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
         let data: [f32; 1] = [0.0];
         Tensor::from_floats(data, device)
+    }
+
+    /// Reconstructs the (stateless) bandit state from a rank-1 tensor.
+    ///
+    /// Validates only the tensor shape; tensor contents are ignored because
+    /// `TenArmedBanditState` carries no fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor shape is not `[1]`.
+    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+        let dims = tensor.shape().dims;
+        if dims.as_slice() != [1] {
+            return Err(TensorConversionError {
+                message: format!("expected shape [1], got {dims:?}"),
+            });
+        }
+        Ok(Self::default())
     }
 }
 
@@ -425,6 +443,34 @@ impl TenArmedBandit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_round_trips_through_tensor() {
+        use burn::backend::NdArray;
+        type TestBackend = NdArray;
+        let device = Default::default();
+        let state = TenArmedBanditState::default();
+        let tensor =
+            <TenArmedBanditState as TensorConvertible<1, TestBackend>>::to_tensor(&state, &device);
+        let back =
+            <TenArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+                .expect("round-trip should succeed for valid shape");
+        assert_eq!(back, state);
+    }
+
+    #[test]
+    fn state_from_tensor_rejects_wrong_shape() {
+        use burn::backend::NdArray;
+        use burn::tensor::{Tensor, TensorData as TD};
+        type TestBackend = NdArray;
+        let device = Default::default();
+        let data = TD::new(vec![0.0f32, 0.0f32], [2]);
+        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let err =
+            <TenArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+                .expect_err("shape [2] should be rejected");
+        assert!(err.message.contains("expected shape [1]"));
+    }
 
     #[test]
     fn test_fromstr_simple_number() {

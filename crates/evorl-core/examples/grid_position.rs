@@ -1,7 +1,7 @@
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use evorl_core::action::DiscreteAction;
-use evorl_core::base::{Action, Observation, State, TensorConvertible};
+use evorl_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,8 +58,12 @@ impl State<1> for GridPosition {
 }
 
 impl<const D: usize, B: Backend> TensorConvertible<D, B> for GridPosition {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, D> {
+    fn to_tensor(&self, _device: &B::Device) -> Tensor<B, D> {
         todo!("Implement conversion to tensor")
+    }
+
+    fn from_tensor(_tensor: Tensor<B, D>) -> Result<Self, TensorConversionError> {
+        todo!("Implement conversion from tensor")
     }
 }
 

@@ -1,7 +1,7 @@
 # Tasks
 
 evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
-- [ ] classical-evolutionary-algorithms
+- [✔] classical-evolutionary-algorithms (sessions/2026-04-17-classical-ea-implementation)
 - [ ] swarm-intelligence-algorithms
 - [ ] advanced-hybrid-specialized-ea
   - [ ] memetic-algorithms

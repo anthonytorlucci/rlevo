@@ -1,113 +1,229 @@
+//! Minimal core traits for evolutionary optimization.
+//!
+//! This module contains the shape-erased vocabulary that the rest of the
+//! workspace — in particular [`evorl-evolution`][evorl-evolution] — builds
+//! on. Concrete strategies, genome containers, and operators live in
+//! `evorl-evolution`; this module only fixes the semantic contracts.
+//!
+//! # Traits
+//!
+//! - [`Fitness`] — scalar objective value with a well-defined "worst" element
+//!   and a finiteness predicate. Blanket-implemented for `f32` and `f64`.
+//! - [`GenomeKind`] — marker trait that tags genome categories at the type
+//!   level (real, binary, integer, tree). Concrete kinds live in
+//!   `evorl-evolution::genome`.
+//! - [`MultiFitness`] — minimal multi-objective fitness view. Pareto
+//!   dominance and multi-objective selection machinery live in
+//!   `evorl-evolution` with the NSGA family.
+//!
+//! # Design notes
+//!
+//! The harness convention is "higher is better" (rewards). Strategies that
+//! minimize internally are free to negate on input; that choice is not
+//! encoded in the trait. See the `evorl-evolution` crate for the
+//! algorithm-by-algorithm convention.
+//!
+//! [evorl-evolution]: https://docs.rs/evorl-evolution
+
 use std::fmt::Debug;
 
-// Core trait for representing individuals in the population
-pub trait Individual: Clone + Debug {
-    type Gene: Clone;
+/// Scalar fitness contract.
+///
+/// Implementors must provide a [`worst`](Fitness::worst) sentinel used to
+/// initialize best-so-far trackers, an [`is_finite`](Fitness::is_finite)
+/// predicate so strategies can filter diverging evaluations, and an
+/// [`as_f32`](Fitness::as_f32) conversion for metric reporting.
+///
+/// The trait is `Copy` to avoid lifetime plumbing inside tight generation
+/// loops; fitness is always a scalar in the classical families.
+///
+/// # Examples
+///
+/// ```
+/// use evorl_core::evolution::Fitness;
+///
+/// let worst = <f32 as Fitness>::worst();
+/// assert!(!worst.is_finite());
+///
+/// let good: f32 = 1.5;
+/// assert!(good.is_finite());
+/// assert_eq!(good.as_f32(), 1.5);
+/// ```
+pub trait Fitness: Copy + PartialOrd + Debug + Send + Sync + 'static {
+    /// Returns the sentinel used to initialize "best-so-far" trackers.
+    ///
+    /// The convention is `Fitness::worst()` compares strictly less than any
+    /// finite real fitness under `PartialOrd`, so comparisons of the form
+    /// `candidate > best` initialize correctly.
+    fn worst() -> Self;
 
-    fn fitness(&self) -> f64;
-    fn set_fitness(&mut self, fitness: f64);
-    fn genes(&self) -> &[Self::Gene];
-    fn genes_mut(&mut self) -> &mut [Self::Gene];
+    /// Whether this fitness value represents a finite real number.
+    ///
+    /// NaN and infinity both return `false`. Strategies use this to discard
+    /// diverged candidates without poisoning selection.
+    fn is_finite(&self) -> bool;
+
+    /// Lossy conversion to `f32` for metric reporting and logging.
+    fn as_f32(&self) -> f32;
 }
 
-// Trait for encoding schemes - converting between problem and genetic representation
-pub trait Encoding<Problem, Genome> {
-    fn encode(&self, problem: &Problem) -> Genome;
-    fn decode(&self, genome: &Genome) -> Problem;
-}
+impl Fitness for f32 {
+    fn worst() -> Self {
+        f32::NEG_INFINITY
+    }
 
-// Trait for fitness evaluation
-pub trait FitnessEvaluator<I: Individual> {
-    fn evaluate(&self, individual: &I) -> f64;
-    fn evaluate_population(&self, population: &mut [I]) {
-        for individual in population.iter_mut() {
-            let fitness = self.evaluate(individual);
-            individual.set_fitness(fitness);
-        }
+    fn is_finite(&self) -> bool {
+        f32::is_finite(*self)
+    }
+
+    fn as_f32(&self) -> f32 {
+        *self
     }
 }
 
-// Trait for selection strategies
-pub trait Selection<I: Individual> {
-    fn select<'a>(&self, population: &'a [I], count: usize) -> Vec<&'a I>;
-    fn select_one<'a>(&self, population: &'a [I]) -> &'a I {
-        &self.select(population, 1)[0]
+impl Fitness for f64 {
+    fn worst() -> Self {
+        f64::NEG_INFINITY
+    }
+
+    fn is_finite(&self) -> bool {
+        f64::is_finite(*self)
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn as_f32(&self) -> f32 {
+        *self as f32
     }
 }
 
-// Trait for crossover operations
-pub trait Crossover<I: Individual> {
-    fn crossover(&self, parent1: &I, parent2: &I) -> (I, I);
-    fn crossover_rate(&self) -> f64;
+/// Shape-erased genome kind.
+///
+/// `GenomeKind` is a zero-sized marker that strategies parameterize on to
+/// pick operators. Concrete kinds (`Real`, `Binary`, `Integer`, `Tree`) live
+/// in `evorl-evolution::genome`; keeping only the trait here lets
+/// downstream crates add new kinds without modifying `evorl-core`.
+///
+/// The associated constant [`DIM`](GenomeKind::DIM) records the genome
+/// dimensionality at the type level when it is compile-time known (for
+/// variable-length representations like trees, impls set it to `0`).
+pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
+    /// Compile-time genome dimensionality, or `0` for variable-length kinds.
+    const DIM: usize;
+
+    /// Element type of the genome (typically `f32`, `i32`, or `bool`).
+    type Element: Copy + Debug + Send + Sync + 'static;
 }
 
-// Trait for mutation operations
-pub trait Mutation<I: Individual> {
-    fn mutate(&self, individual: &mut I);
-    fn mutation_rate(&self) -> f64;
+/// Multi-objective fitness view.
+///
+/// This trait is deliberately minimal: it only exposes the slice of
+/// objective values. Pareto dominance, non-dominated sorting, crowding
+/// distance, and selection operators live in `evorl-evolution` where they
+/// are actually used by the NSGA family. Keeping those algorithms out of
+/// `evorl-core` means this crate has no opinion on how many objectives are
+/// supported or how ties are broken.
+///
+/// # Examples
+///
+/// ```
+/// use evorl_core::evolution::MultiFitness;
+///
+/// #[derive(Debug, Clone)]
+/// struct Bi { values: [f32; 2] }
+///
+/// impl MultiFitness for Bi {
+///     fn objectives(&self) -> &[f32] { &self.values }
+/// }
+///
+/// let f = Bi { values: [1.0, -2.0] };
+/// assert_eq!(f.objectives(), &[1.0, -2.0]);
+/// ```
+pub trait MultiFitness: Debug + Clone + Send + Sync {
+    /// Returns the objective values associated with an individual.
+    ///
+    /// The slice length must remain stable across calls; strategies may
+    /// assume a fixed number of objectives per run.
+    fn objectives(&self) -> &[f32];
 }
 
-// Trait for reproduction - combines crossover and mutation
-pub trait Reproduction<I: Individual> {
-    fn reproduce(&self, parents: &[&I]) -> Vec<I>;
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-// Trait for population management and replacement strategies
-pub trait Replacement<I: Individual> {
-    fn replace(&self, current: Vec<I>, offspring: Vec<I>) -> Vec<I>;
-}
+    #[test]
+    fn fitness_f32_worst_is_less_than_any_finite() {
+        let worst = <f32 as Fitness>::worst();
+        assert!(worst < 0.0);
+        assert!(worst < -1e30);
+        assert!(worst < f32::MIN);
+    }
 
-// Trait for termination criteria
-pub trait Termination<I: Individual> {
-    fn should_terminate(&self, generation: usize, population: &[I]) -> bool;
-}
+    #[test]
+    fn fitness_f64_worst_is_less_than_any_finite() {
+        let worst = <f64 as Fitness>::worst();
+        assert!(worst < 0.0);
+        assert!(worst < -1e300);
+        assert!(worst < f64::MIN);
+    }
 
-// Main evolutionary algorithm trait
-pub trait EvolutionaryAlgorithm<I: Individual> {
-    fn initialize_population(&self, size: usize) -> Vec<I>;
-    fn evolve(&mut self, population: Vec<I>) -> Vec<I>;
-    fn run(&mut self, population_size: usize, max_generations: usize) -> I;
-}
+    #[test]
+    fn fitness_is_finite_excludes_nan_and_inf() {
+        let nan = f32::NAN;
+        let pos_inf = f32::INFINITY;
+        let neg_inf = f32::NEG_INFINITY;
+        let finite: f32 = 3.14;
 
-// More sophisticated individual trait with associated types
-pub trait AdvancedIndividual: Clone + Debug {
-    type Genome: Clone + Debug;
-    type Fitness: PartialOrd + Clone + Debug;
+        assert!(!<f32 as Fitness>::is_finite(&nan));
+        assert!(!<f32 as Fitness>::is_finite(&pos_inf));
+        assert!(!<f32 as Fitness>::is_finite(&neg_inf));
+        assert!(<f32 as Fitness>::is_finite(&finite));
+    }
 
-    fn genome(&self) -> &Self::Genome;
-    fn genome_mut(&mut self) -> &mut Self::Genome;
-    fn fitness(&self) -> &Self::Fitness;
-    fn set_fitness(&mut self, fitness: Self::Fitness);
-}
+    #[test]
+    fn fitness_as_f32_f64_truncates() {
+        let v: f64 = 1.5;
+        assert_eq!(v.as_f32(), 1.5_f32);
+    }
 
-// Multi-objective fitness
-#[derive(Clone, Debug, PartialEq)]
-pub struct MultiObjectiveFitness {
-    objectives: Vec<f64>,
-}
+    #[derive(Debug, Clone, Copy)]
+    struct TestKind;
+    impl GenomeKind for TestKind {
+        const DIM: usize = 7;
+        type Element = f32;
+    }
 
-impl PartialOrd for MultiObjectiveFitness {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // Pareto dominance comparison
-        let mut dominates = false;
-        let mut dominated = false;
+    #[test]
+    fn genome_kind_records_dim_and_element() {
+        assert_eq!(TestKind::DIM, 7);
+        let _elem: <TestKind as GenomeKind>::Element = 0.0_f32;
+    }
 
-        for (a, b) in self.objectives.iter().zip(&other.objectives) {
-            if a > b {
-                dominates = true;
-            } else if a < b {
-                dominated = true;
-            }
+    #[derive(Debug, Clone)]
+    struct ThreeObj {
+        values: Vec<f32>,
+    }
+
+    impl MultiFitness for ThreeObj {
+        fn objectives(&self) -> &[f32] {
+            &self.values
         }
+    }
 
-        if dominates && !dominated {
-            Some(std::cmp::Ordering::Greater)
-        } else if dominated && !dominates {
-            Some(std::cmp::Ordering::Less)
-        } else if !dominates && !dominated {
-            Some(std::cmp::Ordering::Equal)
-        } else {
-            None // Non-comparable (both dominate in different objectives)
-        }
+    #[test]
+    fn multi_fitness_exposes_objectives() {
+        let f = ThreeObj {
+            values: vec![1.0, 2.0, 3.0],
+        };
+        assert_eq!(f.objectives(), &[1.0, 2.0, 3.0]);
+        assert_eq!(f.objectives().len(), 3);
+    }
+
+    #[test]
+    fn multi_fitness_clone_preserves_objectives() {
+        let f = ThreeObj {
+            values: vec![0.5, -0.5],
+        };
+        let g = f.clone();
+        assert_eq!(f.objectives(), g.objectives());
     }
 }

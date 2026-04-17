@@ -144,9 +144,33 @@ impl std::fmt::Display for TensorConversionError {
 
 impl Error for TensorConversionError {}
 
-pub trait TensorConvertible<const D: usize, B: Backend> {
+/// Bidirectional conversion between a domain type and a Burn tensor.
+///
+/// Implementors must round-trip: `from_tensor(x.to_tensor(device))` equals
+/// `Ok(x)` for any valid `x`. Strategies and replay buffers rely on this
+/// invariant.
+///
+/// # Type Parameters
+///
+/// - `D`: Rank of the tensor produced.
+/// - `B`: Burn backend.
+///
+/// # Errors
+///
+/// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
+/// dtype, or contents violate the domain type's invariants (see
+/// [`State::is_valid`] / [`Action::is_valid`]).
+pub trait TensorConvertible<const D: usize, B: Backend>: Sized {
+    /// Converts `self` into a tensor on `device`.
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, D>;
-    // todo! fn from_tensor(tensor: &Tensor<B, D>) -> Result<Self, TensorConversionError>;
+
+    /// Reconstructs a value from a tensor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor's shape or contents
+    /// do not describe a valid instance of `Self`.
+    fn from_tensor(tensor: Tensor<B, D>) -> Result<Self, TensorConversionError>;
 }
 
 #[cfg(test)]
