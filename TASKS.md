@@ -1,5 +1,23 @@
 # Tasks
 
+evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
+- [ ] classical-evolutionary-algorithms
+- [ ] swarm-intelligence-algorithms
+- [ ] advanced-hybrid-specialized-ea
+  - [ ] memetic-algorithms
+  - [ ] estimation-of-distribution-algorithms
+  - [ ] co-evolutionary-algorithms
+  - [ ] neuroevolution-weight-only
+  - [ ] neuroevolution-neat
+  - [ ] gene-expression-programming
+- [ ] multi-objective-evolutionary-algorithms
+  - [ ] nsga
+  - [ ] moea-d
+  - [ ] spea
+  - [ ] mopso
+
+---
+
 - [ ] Check out and consider implementing RL^2: Fast Reinforcement Learning via Slow Reinforcement Learning [arXiv](https://arxiv.org/pdf/1611.02779) user implemented [github](https://github.com/fatcatZF/RL2-Torch)
 - [ ] Bayesian inference for RL (?)
 
