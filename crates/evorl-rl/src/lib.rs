@@ -22,6 +22,9 @@
 //! - [`algorithms::ddpg`] — Deep Deterministic Policy Gradient (off-policy,
 //!   continuous actions): deterministic actor + Q-critic with Polyak-averaged
 //!   target networks and Gaussian exploration noise.
+//! - [`algorithms::td3`] — Twin Delayed DDPG (off-policy, continuous actions):
+//!   DDPG with twin critics (min-target), Gaussian target-policy smoothing,
+//!   and delayed actor/Polyak updates per Fujimoto et al. 2018.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -86,6 +89,27 @@ pub mod algorithms {
         pub mod ddpg_config;
         pub mod ddpg_model;
         pub mod exploration;
+        pub mod train;
+    }
+
+    pub mod td3 {
+        //! Twin Delayed DDPG (TD3): off-policy actor-critic for continuous
+        //! action spaces with twin critics and delayed policy updates.
+        //!
+        //! Extends [`super::ddpg`] with Fujimoto et al. 2018's three deltas:
+        //! a `min`-of-twin-critics bootstrap target, Gaussian target-policy
+        //! smoothing, and delayed actor/Polyak updates every
+        //! `policy_frequency`-th critic step. Reuses
+        //! [`super::ddpg::exploration::GaussianNoise`] at action-selection
+        //! time and the [`super::ddpg::ddpg_model::DeterministicPolicy`] /
+        //! [`super::ddpg::ddpg_model::ContinuousQ`] traits unchanged.
+        //! CleanRL's `td3_continuous_action.py` is the reference
+        //! implementation.
+
+        pub mod target_smoothing;
+        pub mod td3_agent;
+        pub mod td3_config;
+        pub mod td3_model;
         pub mod train;
     }
 
