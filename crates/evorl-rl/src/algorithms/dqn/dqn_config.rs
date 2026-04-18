@@ -1,3 +1,5 @@
+//! Hyperparameter configuration for the DQN algorithm.
+
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 
@@ -65,7 +67,7 @@ pub struct DqnTrainingConfig {
 }
 
 impl Default for DqnTrainingConfig {
-    /// Creates a configuration with standard default values suitable for many gym environments.
+    /// Returns standard default values suitable for most gym-style environments.
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -84,30 +86,31 @@ impl Default for DqnTrainingConfig {
     }
 }
 
-/// A Builder for creating `DqnTrainingConfig` instances.
+/// Builder for [`DqnTrainingConfig`] with fluent setters.
 ///
-/// This allows for setting specific configuration parameters while falling back
-/// to reasonable defaults for unspecified values.
+/// All unset fields default to the values from [`DqnTrainingConfig::default`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+///
+/// // Default configuration.
+/// let cfg = DqnTrainingConfigBuilder::new().build();
+///
+/// // Custom learning rate and batch size.
+/// let cfg = DqnTrainingConfigBuilder::new()
+///     .learning_rate(0.0005)
+///     .batch_size(64)
+///     .build();
+/// ```
 pub struct DqnTrainingConfigBuilder {
     config: DqnTrainingConfig,
 }
 
-/// Example
-/// Create a config using the default parameters via the builder.
-/// ```ignore
-/// let default_config: DqnTrainingConfig = DqnTrainingConfig::builder()
-///     .build();
-/// ```
-/// Create a config with custom modifications (e.g., changing learning rate and optimizer).
-/// ```ignore
-/// let custom_config: DqnTrainingConfig = DqnTrainingConfig::builder()
-///     .learning_rate(0.0005)
-///     .batch_size(64)
-///     .optimizer(AdamConfig::new().with_weight_decay(1e-5))
-///     .build();
-/// ```
 impl DqnTrainingConfigBuilder {
-    /// Creates a new builder initialized with the default configuration.
+    /// Creates a new builder initialized with default configuration values.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: DqnTrainingConfig::default(),

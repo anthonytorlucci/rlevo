@@ -47,6 +47,7 @@ pub struct AcoRConfig {
 }
 
 impl AcoRConfig {
+    /// Default configuration for a given archive size, offspring count, and dimensionality.
     #[must_use]
     pub fn default_for(archive_size: usize, m: usize, genome_dim: usize) -> Self {
         Self {
@@ -103,6 +104,7 @@ pub struct AntColonyReal<B: Backend> {
 }
 
 impl<B: Backend> AntColonyReal<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

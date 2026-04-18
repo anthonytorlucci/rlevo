@@ -89,6 +89,7 @@ pub struct BinaryGeneticAlgorithm<B: Backend> {
 }
 
 impl<B: Backend> BinaryGeneticAlgorithm<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

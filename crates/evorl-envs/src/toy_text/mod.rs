@@ -13,11 +13,17 @@ pub mod taxi;
 /// or when random map generation exhausts its retry budget.
 #[derive(Debug)]
 pub enum MapError {
+    /// A row has a different number of tiles than the first row.
     RowLengthMismatch { row: usize, got: usize, expected: usize },
+    /// The map does not contain exactly one `'S'` start tile.
     WrongStartCount(usize),
+    /// The map contains no `'G'` goal tiles.
     NoGoal(usize),
+    /// BFS from start cannot reach any goal tile.
     GoalUnreachable,
+    /// A tile character is not one of `'S'`, `'F'`, `'H'`, `'G'`.
     InvalidTile { row: usize, col: usize, ch: char },
+    /// Random map generation failed to produce a solvable map within the retry budget.
     MaxRetriesExceeded,
 }
 

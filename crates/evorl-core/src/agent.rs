@@ -1,3 +1,7 @@
+//! Agent trait definitions for reinforcement learning and evolutionary agents.
+//!
+//! This module is a work-in-progress. The planned trait hierarchy distinguishes
+//! between gradient-based RL agents and population-based evolutionary agents.
 
 // todo! distinguish between RL agents and EA agents
 

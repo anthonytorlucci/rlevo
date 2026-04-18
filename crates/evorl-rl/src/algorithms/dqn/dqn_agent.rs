@@ -1,3 +1,10 @@
+//! Deep Q-Network agent implementation.
+//!
+//! Contains [`DqnAgentError`], the agent error type, and [`DqnMetrics`], the
+//! per-episode statistics record. The full agent struct and its `Agent` /
+//! `NeuralAgent` trait implementations are work-in-progress and currently
+//! commented out pending stabilisation of the `evorl-core` agent traits.
+
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use burn::optim::Optimizer;
@@ -13,13 +20,17 @@ use evorl_core::metrics::{AgentStats, PerformanceRecord};
 use rand::RngExt;
 use std::marker::PhantomData;
 
-// Define error type for DQNAgent
-// todo! implement From
+/// Error variants returned by DQN agent operations.
+// todo! implement additional From conversions
 #[derive(Debug)]
 pub enum DqnAgentError {
+    /// The policy or target network has not been initialised before use.
     ModelNotInitialized,
+    /// A tensor-to-action or action-to-tensor conversion failed.
     TensorConversionFailed(String),
+    /// The sampled or requested action is outside the valid action space.
     InvalidAction(String),
+    /// An I/O error occurred (e.g., while saving or loading model weights).
     IoError(std::io::Error),
 }
 

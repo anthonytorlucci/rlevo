@@ -1,3 +1,12 @@
+//! Environment interaction protocol and snapshot types.
+//!
+//! This module defines the contract between an agent and a problem domain:
+//! - [`Environment`] — core trait with `reset` / `step` methods
+//! - [`Snapshot`] — per-step result carrying observation, reward, and status
+//! - [`SnapshotBase`] — default `Snapshot` implementation for most environments
+//! - [`EpisodeStatus`] — distinguishes running, terminated, and truncated episodes
+//! - [`SnapshotMetadata`] — optional named reward components and 3D positions
+
 use crate::base::{Action, Observation, Reward, State};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -48,6 +57,7 @@ pub struct SnapshotMetadata {
 }
 
 impl SnapshotMetadata {
+    /// Creates an empty `SnapshotMetadata`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -251,6 +261,7 @@ pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
     /// The concrete state type for this environment.
     type StateType: State<SD>;
 
+    /// The observation type exposed to the agent.
     type ObservationType: Observation<D>;
 
     /// The concrete action type this environment accepts.

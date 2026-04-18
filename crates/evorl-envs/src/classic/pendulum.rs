@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 /// Returned when constructing a [`PendulumAction`] with an invalid torque.
 #[derive(Debug, Clone)]
 pub struct InvalidActionError {
+    /// Human-readable description of the constraint that was violated.
     pub message: String,
 }
 

@@ -55,6 +55,7 @@ pub struct WoaConfig {
 }
 
 impl WoaConfig {
+    /// Default configuration for a given population size and genome dimensionality.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -100,6 +101,7 @@ pub struct WhaleOptimization<B: Backend> {
 }
 
 impl<B: Backend> WhaleOptimization<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

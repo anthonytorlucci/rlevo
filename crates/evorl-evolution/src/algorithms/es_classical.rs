@@ -45,6 +45,7 @@ pub enum EsKind {
 }
 
 impl EsKind {
+    /// Returns the effective offspring-population size for this variant.
     #[must_use]
     pub fn population_size(&self) -> usize {
         match self {
@@ -130,6 +131,7 @@ pub struct EvolutionStrategy<B: Backend> {
 }
 
 impl<B: Backend> EvolutionStrategy<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

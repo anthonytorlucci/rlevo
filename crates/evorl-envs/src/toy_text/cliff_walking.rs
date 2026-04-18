@@ -27,15 +27,18 @@ pub struct CliffWalkingConfig {
     /// When `true`, the agent slips with equal probability to each of the three
     /// possible directions (`1/3` intended, `1/3` each perpendicular).
     pub is_slippery: bool,
+    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
     pub seed: u64,
 }
 
 impl CliffWalkingConfig {
+    /// Returns a builder for constructing a `CliffWalkingConfig`.
     pub fn builder() -> CliffWalkingConfigBuilder {
         CliffWalkingConfigBuilder::default()
     }
 }
 
+/// Builder for [`CliffWalkingConfig`].
 #[derive(Default)]
 pub struct CliffWalkingConfigBuilder {
     is_slippery: bool,
@@ -43,14 +46,19 @@ pub struct CliffWalkingConfigBuilder {
 }
 
 impl CliffWalkingConfigBuilder {
+    /// Enables or disables the stochastic slipping behaviour.
     pub fn is_slippery(mut self, v: bool) -> Self {
         self.is_slippery = v;
         self
     }
+
+    /// Sets the RNG seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
+
+    /// Builds the [`CliffWalkingConfig`].
     pub fn build(self) -> CliffWalkingConfig {
         CliffWalkingConfig { is_slippery: self.is_slippery, seed: self.seed }
     }

@@ -4,12 +4,15 @@
 //! Commonly evaluated over `[-5.12, 5.12]^n` for comparability with
 //! Rastrigin / Ackley, though any symmetric domain works.
 
+/// Sphere function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Sphere {
+    /// Number of input dimensions.
     pub dim: usize,
 }
 
 impl Sphere {
+    /// Creates a `dim`-dimensional Sphere evaluator.
     #[must_use]
     pub const fn new(dim: usize) -> Self {
         Self { dim }

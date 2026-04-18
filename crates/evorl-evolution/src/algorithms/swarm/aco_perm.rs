@@ -37,6 +37,7 @@ pub struct AcoPermConfig {
 }
 
 impl AcoPermConfig {
+    /// Default configuration for a given population size and graph node count.
     #[must_use]
     pub fn default_for(pop_size: usize, n_nodes: usize) -> Self {
         Self {
@@ -76,6 +77,7 @@ pub struct AntColonyPermutation<B: Backend> {
 }
 
 impl<B: Backend> AntColonyPermutation<B> {
+    /// Builds a new (stateless) strategy object (stub; all methods `todo!()`).
     #[must_use]
     pub fn new() -> Self {
         Self {

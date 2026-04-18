@@ -1,29 +1,39 @@
+//! Agent performance tracking via episode statistics.
+//!
+//! This module provides [`PerformanceRecord`] for representing per-episode
+//! outcomes and [`AgentStats`] for accumulating them into running statistics.
+
 use std::collections::VecDeque;
 
-/// A trait representing the result of a step or an episode.
+/// The outcome of a single episode or step used for performance tracking.
 pub trait PerformanceRecord: std::fmt::Debug + Clone {
-    /// The primary metric used for checkpointing/best-model tracking
+    /// The primary scalar metric used for checkpointing and best-model tracking.
     fn score(&self) -> f32;
 
-    /// The duration of the event (steps in an episode)
+    /// The number of environment steps taken during this episode.
     fn duration(&self) -> usize;
 }
 
+/// Accumulates per-episode statistics for a running agent.
+///
+/// Tracks global counters, best observed score, and a fixed-size sliding
+/// window of recent episodes for computing moving averages.
 #[derive(Debug, Clone)]
 pub struct AgentStats<T: PerformanceRecord> {
-    /// Global counter of episodes seen
+    /// Global counter of episodes recorded so far.
     pub total_episodes: usize,
-    /// Global counter of environment steps taken
+    /// Total environment steps taken across all episodes.
     pub total_steps: usize,
-    /// The highest score observed so far
-    pub best_score: Option<f32>, // Renamed from best_episode_reward
-    /// Sliding window of the most recent episodes
+    /// The highest score observed across all episodes.
+    pub best_score: Option<f32>,
+    /// Fixed-size sliding window of the most recent episodes.
     pub recent_history: VecDeque<T>,
-    ///Maximum capacity of the sliding window
+    /// Maximum capacity of the sliding window.
     window_size: usize,
 }
 
 impl<T: PerformanceRecord> AgentStats<T> {
+    /// Creates a new `AgentStats` with a sliding window of `window_size` episodes.
     pub fn new(window_size: usize) -> Self {
         Self {
             total_episodes: 0,
@@ -34,6 +44,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
         }
     }
 
+    /// Records a completed episode, updating all counters and the sliding window.
     pub fn record(&mut self, record: T) {
         self.total_episodes += 1;
         self.total_steps += record.duration();

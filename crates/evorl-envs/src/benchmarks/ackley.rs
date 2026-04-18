@@ -9,11 +9,16 @@
 
 use std::f64::consts::{E, PI};
 
+/// Ackley function evaluator with configurable dimensionality and constants.
 #[derive(Debug, Clone, Copy)]
 pub struct Ackley {
+    /// Number of input dimensions.
     pub dim: usize,
+    /// Outer scaling constant (canonical: `20.0`).
     pub a: f64,
+    /// Inner exponential decay constant (canonical: `0.2`).
     pub b: f64,
+    /// Cosine frequency constant (canonical: `2π`).
     pub c: f64,
 }
 

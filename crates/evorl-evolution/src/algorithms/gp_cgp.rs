@@ -140,6 +140,7 @@ pub struct CartesianGeneticProgramming<B: Backend> {
 }
 
 impl<B: Backend> CartesianGeneticProgramming<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

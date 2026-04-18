@@ -50,6 +50,7 @@ pub struct AbcConfig {
 }
 
 impl AbcConfig {
+    /// Default configuration for a given population size and genome dimensionality.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -101,6 +102,7 @@ pub struct ArtificialBeeColony<B: Backend> {
 }
 
 impl<B: Backend> ArtificialBeeColony<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

@@ -47,16 +47,18 @@ pub struct TaxiConfig {
     pub is_rainy: bool,
     /// Fickle passenger: after pickup, first movement triggers 30% destination resample.
     pub fickle_passenger: bool,
+    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
     pub seed: u64,
 }
 
-
 impl TaxiConfig {
+    /// Returns a builder for constructing a `TaxiConfig`.
     pub fn builder() -> TaxiConfigBuilder {
         TaxiConfigBuilder::default()
     }
 }
 
+/// Builder for [`TaxiConfig`].
 #[derive(Default)]
 pub struct TaxiConfigBuilder {
     is_rainy: bool,
@@ -65,18 +67,25 @@ pub struct TaxiConfigBuilder {
 }
 
 impl TaxiConfigBuilder {
+    /// Enables or disables rainy stochastic transitions.
     pub fn is_rainy(mut self, v: bool) -> Self {
         self.is_rainy = v;
         self
     }
+
+    /// Enables or disables fickle-passenger destination resampling.
     pub fn fickle_passenger(mut self, v: bool) -> Self {
         self.fickle_passenger = v;
         self
     }
+
+    /// Sets the RNG seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
+
+    /// Builds the [`TaxiConfig`].
     pub fn build(self) -> TaxiConfig {
         TaxiConfig { is_rainy: self.is_rainy, fickle_passenger: self.fickle_passenger, seed: self.seed }
     }

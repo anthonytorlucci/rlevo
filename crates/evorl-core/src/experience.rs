@@ -1,10 +1,21 @@
+//! Trajectory storage and history representation for experience replay.
+//!
+//! This module provides the building blocks for storing and reasoning over
+//! sequences of agent–environment interactions:
+//! - [`ExperienceTuple`] — a single `(obs, action, reward, next_obs, done)` transition
+//! - [`History`] — a fixed-capacity FIFO buffer of transitions
+//! - [`HistoryRepresentation`] — trait for constructing state summaries from history
+//! - [`SufficientStatistic`] — history summary that satisfies the Markov property
+
 use crate::base::{Action, Observation, Reward};
 use crate::state::MarkovState;
 use std::collections::VecDeque;
 use std::ops::Index;
 
-/// A single transition/experience in the replay memory.
-/// This is fundamentally different from supervised learning, where a batch is just input-label pairs. In RL, you need all five components to compute the Bellman update for Q-learning.
+/// A single `(obs, action, reward, next_obs, done)` transition tuple.
+///
+/// All five fields are required to compute the Bellman target for off-policy
+/// algorithms such as DQN and SAC.
 #[derive(Clone)]
 pub struct ExperienceTuple<
     const D: usize,
@@ -13,15 +24,23 @@ pub struct ExperienceTuple<
     A: Action<AD>,
     R: Reward,
 > {
+    /// Observation at time *t*.
     pub observation: O,
+    /// Action taken at time *t*.
     pub action: A,
+    /// Reward received after taking `action`.
     pub reward: R,
+    /// Observation at time *t+1*.
     pub next_observation: O,
+    /// `true` when the episode ended after this transition.
     pub is_done: bool,
 }
 
-/// A history of interactions: sequence of observations, actions, rewards
-/// Note that History is an intentional thin-wrapper around VecDeque to enforce capacity.
+/// Fixed-capacity FIFO buffer of experience tuples.
+///
+/// When the buffer is full, the oldest entry is evicted before each new push.
+/// This is a thin wrapper around [`VecDeque`] that enforces the capacity
+/// contract at the API level.
 #[derive(Clone)]
 pub struct History<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> {
     trace: VecDeque<ExperienceTuple<D, AD, O, A, R>>,
@@ -40,30 +59,34 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
 impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward>
     History<D, AD, O, A, R>
 {
+    /// Creates an empty `History` with the given maximum `capacity`.
     pub fn new(capacity: usize) -> Self {
         Self {
             trace: VecDeque::with_capacity(capacity),
         }
     }
 
+    /// Returns the number of stored transitions.
     pub fn len(&self) -> usize {
         self.trace.len()
     }
 
+    /// Returns `true` when no transitions have been stored yet.
     pub fn is_empty(&self) -> bool {
         self.trace.is_empty()
     }
 
+    /// Removes all stored transitions without changing capacity.
     pub fn clear(&mut self) {
         self.trace.clear();
     }
 
-    /// Full history of experiences
+    /// Returns a clone of the full transition sequence in insertion order.
     pub fn trace(&self) -> VecDeque<ExperienceTuple<D, AD, O, A, R>> {
         self.trace.clone()
     }
 
-    /// Add an experience, maintaining fixed capacity (FIFO if at capacity)
+    /// Appends an experience, evicting the oldest entry when at capacity.
     pub fn add(
         &mut self,
         observation: O,
@@ -85,20 +108,23 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
         });
     }
 
+    /// Returns `true` when `len() >= capacity`.
     pub fn is_full(&self) -> bool {
         self.len() >= self.trace.capacity()
     }
 
+    /// Returns an iterator over stored transitions in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &ExperienceTuple<D, AD, O, A, R>> {
         self.trace.iter()
     }
 
+    /// Returns a reference to the transition at `idx`, or `None` if out of bounds.
     pub fn get(&self, idx: usize) -> Option<&ExperienceTuple<D, AD, O, A, R>> {
         self.trace.get(idx)
     }
 }
 
-/// A representation that can be constructed from history
+/// A summary representation constructed from an interaction history.
 pub trait HistoryRepresentation<
     const D: usize,
     const AD: usize,
@@ -107,14 +133,18 @@ pub trait HistoryRepresentation<
     R: Reward,
 >: Clone
 {
-    /// Construct representation from complete history
+    /// Constructs this representation from the complete interaction history.
     fn from_history(history: &History<D, AD, O, A, R>) -> Self;
 
-    /// Incrementally update representation with new experience
+    /// Incrementally incorporates one new `(obs, action, reward)` triple.
     fn update_with(&mut self, obs: &O, action: &A, reward: &R);
 }
 
-/// Sufficient statistic: contains all decision-relevant information
+/// A history summary that captures all decision-relevant information.
+///
+/// A sufficient statistic satisfies the Markov property: conditioning on it
+/// renders the future independent of the past, so agents need not retain the
+/// full trajectory.
 pub trait SufficientStatistic<
     const D: usize,
     const AD: usize,
@@ -123,7 +153,7 @@ pub trait SufficientStatistic<
     R: Reward,
 >: HistoryRepresentation<D, AD, O, A, R> + MarkovState
 {
-    /// Verify this is a sufficient statistic for the given history
+    /// Returns `true` if `self` is a sufficient statistic for `history`.
     fn is_sufficient(&self, history: &History<D, AD, O, A, R>) -> bool;
 }
 

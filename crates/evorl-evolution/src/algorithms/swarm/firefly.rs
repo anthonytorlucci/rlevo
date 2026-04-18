@@ -102,6 +102,7 @@ pub struct FireflyAlgorithm<B: Backend> {
 }
 
 impl<B: Backend> FireflyAlgorithm<B> {
+    /// Builds a new (stateless) strategy object.
     #[must_use]
     pub fn new() -> Self {
         Self {

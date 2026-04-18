@@ -52,7 +52,9 @@ impl Default for BlackjackVariant {
 /// Configuration for the [`Blackjack`] environment.
 #[derive(Debug, Clone)]
 pub struct BlackjackConfig {
+    /// Rule variant (Standard or Sutton & Barto).
     pub variant: BlackjackVariant,
+    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
     pub seed: u64,
 }
 
@@ -63,11 +65,13 @@ impl Default for BlackjackConfig {
 }
 
 impl BlackjackConfig {
+    /// Returns a builder for constructing a `BlackjackConfig`.
     pub fn builder() -> BlackjackConfigBuilder {
         BlackjackConfigBuilder::default()
     }
 }
 
+/// Builder for [`BlackjackConfig`].
 #[derive(Default)]
 pub struct BlackjackConfigBuilder {
     variant: BlackjackVariant,
@@ -75,14 +79,19 @@ pub struct BlackjackConfigBuilder {
 }
 
 impl BlackjackConfigBuilder {
+    /// Sets the rule variant.
     pub fn variant(mut self, v: BlackjackVariant) -> Self {
         self.variant = v;
         self
     }
+
+    /// Sets the RNG seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
+
+    /// Builds the [`BlackjackConfig`].
     pub fn build(self) -> BlackjackConfig {
         BlackjackConfig { variant: self.variant, seed: self.seed }
     }

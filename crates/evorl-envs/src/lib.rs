@@ -29,9 +29,15 @@
 //!
 //! # Module Organization
 //!
-//! - [`classic`]: Classic control problems
-//! - [`games`]: Board games and game trees
-//! - [`benchmarks`]: Standard benchmarks
+//! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot)
+//! - [`games`]: Board games and game trees (Chess, Connect Four)
+//! - [`benchmarks`]: Optimization benchmark functions (Sphere, Ackley, Rastrigin)
+//! - [`grids`]: Gridworld environments inspired by Farama Minigrid
+//! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
+//! - [`wrappers`]: Environment wrappers (TimeLimit)
+//! - [`render`]: ASCII and null renderers
+//! - [`box2d`]: Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
+//! - [`locomotion`]: MuJoCo-inspired locomotion environments via Rapier3D
 //!
 //! # Design Principles
 //!

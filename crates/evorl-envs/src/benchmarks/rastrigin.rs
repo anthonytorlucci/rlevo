@@ -5,13 +5,17 @@
 
 use std::f64::consts::PI;
 
+/// Rastrigin function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Rastrigin {
+    /// Number of input dimensions.
     pub dim: usize,
+    /// Amplitude constant (canonical: `10.0`).
     pub a: f64,
 }
 
 impl Rastrigin {
+    /// Creates a `dim`-dimensional Rastrigin evaluator with `A = 10`.
     #[must_use]
     pub const fn new(dim: usize) -> Self {
         Self { dim, a: 10.0 }

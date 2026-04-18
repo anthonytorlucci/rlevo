@@ -1,3 +1,9 @@
+//! Rendering abstractions for environment visualization.
+//!
+//! The [`Renderer`] trait is generic over frame type, so ASCII, image, and
+//! no-op renderers all share the same interface. Use [`NullRenderer`] when
+//! rendering is not required — all calls are eliminated by the compiler.
+
 /// A renderer for environment `E`.
 ///
 /// The associated `Frame` type makes rendering zero-cost when `NullRenderer` is

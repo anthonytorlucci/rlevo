@@ -1,3 +1,13 @@
+//! Experience replay buffers for off-policy reinforcement learning.
+//!
+//! This module provides [`PrioritizedExperienceReplay`], an off-policy replay
+//! buffer that samples transitions proportional to their temporal-difference
+//! error, and [`TrainingBatch`], a GPU-ready tensor bundle consumed by
+//! learning algorithms.
+//!
+//! Use [`PrioritizedExperienceReplayBuilder`] to configure and construct the
+//! buffer.
+
 use crate::base::{Action, Observation, Reward, TensorConvertible};
 use crate::experience::{ExperienceTuple, History};
 use burn::tensor::backend::Backend;
@@ -8,11 +18,14 @@ use std::collections::VecDeque;
 
 // todo! RolloutBuffer for on-policy algorithms)
 
-/// Errors that can occur during memory operations.
+/// Errors that can occur during replay buffer operations.
 #[derive(Debug)]
 pub enum ReplayBufferError {
+    /// A general batch-assembly failure.
     BatchError(String),
+    /// The buffer holds fewer experiences than the requested batch size.
     InsufficientData { requested: usize, available: usize },
+    /// A domain type could not be converted to or from a tensor.
     TensorConversionError(String),
 }
 
@@ -39,47 +52,38 @@ impl std::fmt::Display for ReplayBufferError {
 
 impl std::error::Error for ReplayBufferError {}
 
-/// A batch of transitions ready for training. Contains tensors for efficient GPU processing.
-/// D: The dimension of the Observation tensor (e.g., 4 for [Batch, Channel, Height, Width])
-/// AD: The dimension of the Action tensor (e.g., 1 for [Batch])
+/// A GPU-ready bundle of tensors sampled from a replay buffer for one training step.
+///
+/// `D` is the observation tensor rank and `AD` is the action tensor rank.
+/// For image observations (e.g., chess board) `D = 4` giving
+/// `[Batch, Channels, Height, Width]`; for vector observations `D = 2`
+/// giving `[Batch, Features]`.
 pub struct TrainingBatch<const D: usize, const AD: usize, B: Backend> {
-    // Observations are generic Rank 'D'
-    // For Chess: [Batch, Channels(119), Height(8), Width(8)] -> Rank 4
+    /// Stacked observations at time *t* with shape `[batch, ...]`.
     pub observations: Tensor<B, D>,
-
-    // Rank 'A' is typically 1 for discrete actions [Batch]
+    /// Stacked actions with shape `[batch, ...]`.
     pub actions: Tensor<B, AD>,
-
-    // Rewards are usually scalar floats per step
+    /// Per-step scalar rewards with shape `[batch]`.
     pub rewards: Tensor<B, 1>,
-
-    // Next states same rank as states
+    /// Stacked observations at time *t+1* with shape `[batch, ...]`.
     pub next_observations: Tensor<B, D>,
-
-    // Dones are boolean flags (0.0 or 1.0)
+    /// Episode-done flags encoded as `0.0`/`1.0` with shape `[batch]`.
     pub dones: Tensor<B, 1>,
 }
 
-/// In modern reinforcement learning, the replay buffer is a standard component for almost any **off-policy** algorithm and several **model-based** approaches. It is essential for stabilizing training by:
-///  * Storing and reusing past experiences so the agent can revisit and learn from them multiple times.
-///  * Providing random, uncorrelated batches for efficient learning.
-///  * Managing memory usage to avoid overflow.
+/// Off-policy replay buffer with priority-weighted sampling.
 ///
-/// A **Prioritized Experience Replay** is an improved version of a standard experience replay
-/// buffer. Instead of sampling past experiences uniformly at random, it assigns a priority to
-/// each experience to focus the agents learning on more "informative" or "surprising" transitions.
+/// Transitions are sampled proportional to `priority^alpha` rather than
+/// uniformly, so the agent replays "surprising" transitions (high TD error)
+/// more often than mundane ones.
 ///
-/// **Core Mechanism**
-/// - **Priority Metric**: Most implementations use the **Temporal Difference (TD) error** as the
-///   measure of priority. A high TD error indicates that the agent's current predictions
-///   significantly differ from the actual outcome, suggesting there is more to "learn" from that
-///   specific experience.
-/// - **Stochastic Sampling**: Experiences are sampled based on their priority, but a "temperature"
-///   hyperparameter ($\alpha$) is used to balance between purely greedy prioritization and
-///   uniform random sampling.
-/// - **Bias Correction**: Because prioritization changes the data distribution (leading to
-///   potential overfitting), Importance Sampling (IS) weights are introduced to adjust the
-///   gradient updates during training.
+/// # Priority exponent (`alpha`)
+///
+/// - `alpha = 0.0` — uniform random sampling (no prioritization)
+/// - `alpha = 1.0` — fully greedy prioritization (raw priorities)
+/// - Typical values: `0.4`–`0.7`
+///
+/// Construct via [`PrioritizedExperienceReplayBuilder`].
 pub struct PrioritizedExperienceReplay<
     const D: usize,
     const AD: usize,
@@ -189,14 +193,17 @@ where
     A: Action<AD>,
     R: Reward,
 {
+    /// Returns the number of transitions currently stored.
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    /// Returns `true` when the buffer contains no transitions.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
 
+    /// Returns `true` when `len() >= capacity`.
     pub fn is_full(&self) -> bool {
         self.buffer.len() >= self.capacity
     }

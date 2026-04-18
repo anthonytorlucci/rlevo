@@ -1,15 +1,16 @@
 use burn::module::{AutodiffModule, Module};
 use burn::tensor::backend::AutodiffBackend;
 
-/// A trait for DQN models that supports transition between
-/// training (Autodiff) and target (Inner) states.
+/// Bridges a trainable DQN model and its non-differentiable target counterpart.
 ///
-/// `DqnModel` requires the supertrait to ensure that any struct implementing `DqnModel` must also
-/// support the transiftion to an `InnerModule`. This is the standard way in Burn to handle the
-/// relationship between a traininable model and its non-differentiable counterpart.
+/// `DqnModel` extends [`AutodiffModule`] so any implementor can transition to
+/// its `InnerModule` (the non-differentiable copy used as the target network).
+/// This is the standard Burn pattern for managing trainable vs. frozen network
+/// copies in off-policy algorithms.
 pub trait DqnModel<B: AutodiffBackend>: AutodiffModule<B> {
-    /// Update the target network (InnerModule) using weights from the active network (Self).
+    /// Updates the target network via Polyak averaging.
     ///
-    /// Formula: target = (1 - tau) * target + tau * active
+    /// Applies `target ← (1 − τ) · target + τ · active` element-wise to all
+    /// parameters and returns the updated target network.
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
 }

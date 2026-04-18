@@ -343,20 +343,22 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
     fn from_slice(values: &[f32]) -> Self;
 }
 
-// ----------------------------------------------------------------------------
 /// Error indicating an action violated its type's constraints.
 ///
-/// This error is returned when an action fails validation or when invalid
-/// conversions are attempted (e.g., out-of-bounds indices, non-finite values).
+/// Returned when an action fails validation or when invalid conversions are
+/// attempted (e.g., out-of-bounds indices, non-finite float values).
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```
 /// use evorl_core::action::InvalidActionError;
 ///
-/// fn validate_action(action: &GameAction) -> Result<(),
+/// let err = InvalidActionError { message: "index 5 out of bounds for ACTION_COUNT=4".into() };
+/// assert!(err.to_string().contains("index 5"));
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct InvalidActionError {
+    /// Human-readable description of the constraint that was violated.
     pub message: String,
 }
 
