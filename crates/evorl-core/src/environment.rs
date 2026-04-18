@@ -228,7 +228,7 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
     }
 }
 
-/// The environment trait defines the interaction protocol between an agent and a problem domain.
+/// Interaction protocol between an agent and a problem domain.
 ///
 /// An environment encapsulates the dynamics of a problem, processing actions and
 /// returning observations (snapshots) along with rewards. Environments are responsible
@@ -236,15 +236,17 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
 ///
 /// # Type Parameters
 ///
-/// * `S` - The dimensionality of the state tensor representation
-/// * `A` - The dimensionality of the action tensor representation
+/// * `D`  - Rank of the observation tensor (matches `Observation<D>` and `Snapshot<D>`).
+/// * `SD` - Rank of the state tensor (matches `State<SD>`).
+/// * `AD` - Rank of the action tensor (matches `Action<AD>`).
 ///
 /// # Associated Types
 ///
-/// * `StateType` - The concrete state type of this environment
-/// * `ActionType` - The concrete action type this environment accepts
-/// * `RewardType` - The reward scalar type
-/// * `SnapshotType` - The snapshot type returned by reset/step
+/// * `StateType`       - The concrete state type for this environment.
+/// * `ObservationType` - The observation type exposed to the agent.
+/// * `ActionType`      - The action type this environment accepts.
+/// * `RewardType`      - The reward scalar type returned each step.
+/// * `SnapshotType`    - The snapshot type returned by `reset` and `step`.
 pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
     /// The concrete state type for this environment.
     type StateType: State<SD>;
