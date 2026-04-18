@@ -2304,9 +2304,11 @@ dependencies = [
  "burn",
  "evorl-core",
  "evorl-rl",
+ "nalgebra 0.33.3",
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "rapier2d",
+ "rapier3d",
  "serde",
 ]
 
@@ -3045,7 +3047,7 @@ checksum = "375b4fa374a343fef990a18a6e0413d54bd990c6d7b8c7ada2d3c884275edea3"
 dependencies = [
  "approx",
  "glam 0.30.10",
- "nalgebra",
+ "nalgebra 0.34.2",
  "num-traits",
  "simba",
 ]
@@ -3164,6 +3166,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hash32"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3216,6 +3227,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "heapless"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
+dependencies = [
+ "hash32",
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -4034,6 +4055,22 @@ dependencies = [
 
 [[package]]
 name = "nalgebra"
+version = "0.33.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d43ddcacf343185dfd6de2ee786d9e8b1c2301622afab66b6c73baf9882abfd"
+dependencies = [
+ "approx",
+ "matrixmultiply",
+ "nalgebra-macros 0.2.2",
+ "num-complex",
+ "num-rational",
+ "num-traits",
+ "simba",
+ "typenum",
+]
+
+[[package]]
+name = "nalgebra"
 version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df76ea0ff5c7e6b88689085804d6132ded0ddb9de5ca5b8aeb9eeadc0508a70a"
@@ -4058,12 +4095,23 @@ dependencies = [
  "glam 0.31.1",
  "glam 0.32.1",
  "matrixmultiply",
- "nalgebra-macros",
+ "nalgebra-macros 0.3.0",
  "num-complex",
  "num-rational",
  "num-traits",
  "simba",
  "typenum",
+]
+
+[[package]]
+name = "nalgebra-macros"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "254a5372af8fc138e36684761d3c0cdb758a4410e938babcff1c860ce14ddbfc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -4441,6 +4489,35 @@ dependencies = [
  "slab",
  "smallvec",
  "spade",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "parry3d"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e04d21bda5249438b5695e7f08f1655524a6025bcdb186c324b7a66562f2d61"
+dependencies = [
+ "approx",
+ "arrayvec",
+ "bitflags",
+ "downcast-rs",
+ "either",
+ "ena",
+ "foldhash 0.2.0",
+ "glamx",
+ "hashbrown 0.16.1",
+ "indexmap",
+ "log",
+ "num-derive",
+ "num-traits",
+ "ordered-float",
+ "rstar",
+ "simba",
+ "slab",
+ "smallvec",
+ "spade",
+ "static_assertions",
  "thiserror 2.0.18",
 ]
 
@@ -4906,11 +4983,38 @@ dependencies = [
  "downcast-rs",
  "glamx",
  "log",
- "nalgebra",
+ "nalgebra 0.34.2",
  "num-derive",
  "num-traits",
  "ordered-float",
  "parry2d",
+ "profiling",
+ "rustc-hash 2.1.2",
+ "simba",
+ "static_assertions",
+ "thiserror 2.0.18",
+ "vec_map",
+ "wide",
+]
+
+[[package]]
+name = "rapier3d"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a576251c9dc2d6aff08470b7433096a04019c8b7bea9bbb7087f092c180feaea"
+dependencies = [
+ "approx",
+ "arrayvec",
+ "bit-vec",
+ "bitflags",
+ "downcast-rs",
+ "glamx",
+ "log",
+ "nalgebra 0.34.2",
+ "num-derive",
+ "num-traits",
+ "ordered-float",
+ "parry3d",
  "profiling",
  "rustc-hash 2.1.2",
  "simba",
@@ -5200,6 +5304,17 @@ name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
+name = "rstar"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "421400d13ccfd26dfa5858199c30a5d76f9c54e0dba7575273025b43c5175dbb"
+dependencies = [
+ "heapless",
+ "num-traits",
+ "smallvec",
+]
 
 [[package]]
 name = "rstest"

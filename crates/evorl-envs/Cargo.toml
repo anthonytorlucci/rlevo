@@ -16,16 +16,23 @@ rand = { workspace = true }
 serde = { workspace = true }
 rand_distr = { workspace = true }
 rapier2d = { workspace = true, optional = true }
+rapier3d = { workspace = true, optional = true }
+nalgebra = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
 
 [features]
+default = ["box2d", "locomotion"]
 # Bandit algorithm selection (default is epsilon-greedy)
 ucb = []        # Upper Confidence Bound algorithm
 thompson = []   # Thompson Sampling algorithm
 # Box2D-style physics environments (rapier2d)
 box2d = ["dep:rapier2d"]
+# MuJoCo-style locomotion environments (rapier3d)
+locomotion = ["dep:rapier3d", "dep:nalgebra"]
+# Reserved for future FFI-bound MuJoCo backend; currently errors at compile time.
+mujoco-ffi = []
 
 [[example]]
 name = 'ten_armed_bandit_training'

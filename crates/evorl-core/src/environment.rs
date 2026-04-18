@@ -43,6 +43,8 @@ impl EpisodeStatus {
 pub struct SnapshotMetadata {
     /// Named reward components (e.g. `"ctrl"`, `"goal"`, `"healthy"`).
     pub components: BTreeMap<&'static str, f32>,
+    /// Named 3D positions for analysis (e.g. `"torso"`, `"com"`, `"main_body"`).
+    pub positions: BTreeMap<&'static str, [f32; 3]>,
 }
 
 impl SnapshotMetadata {
@@ -50,9 +52,15 @@ impl SnapshotMetadata {
         Self::default()
     }
 
-    /// Builder-style insert.
+    /// Builder-style insert for a named reward component.
     pub fn with(mut self, key: &'static str, value: f32) -> Self {
         self.components.insert(key, value);
+        self
+    }
+
+    /// Builder-style insert for a named 3D position.
+    pub fn with_position(mut self, key: &'static str, xyz: [f32; 3]) -> Self {
+        self.positions.insert(key, xyz);
         self
     }
 }
@@ -733,5 +741,26 @@ mod tests {
         // RewardType implements Into<f32>
         let reward_as_f32: f32 = snapshot.reward().clone().into();
         assert_eq!(reward_as_f32, 42.5);
+    }
+
+    #[test]
+    fn test_metadata_default_is_empty() {
+        let meta = SnapshotMetadata::default();
+        assert!(meta.components.is_empty());
+        assert!(meta.positions.is_empty());
+    }
+
+    #[test]
+    fn test_metadata_builder_components_and_positions() {
+        let meta = SnapshotMetadata::new()
+            .with("forward", 1.25)
+            .with("ctrl", -0.1)
+            .with_position("torso", [0.5, 0.0, 1.1])
+            .with_position("com", [0.4, 0.0, 0.9]);
+
+        assert_eq!(meta.components.len(), 2);
+        assert_eq!(meta.components.get("forward"), Some(&1.25));
+        assert_eq!(meta.positions.len(), 2);
+        assert_eq!(meta.positions.get("torso"), Some(&[0.5, 0.0, 1.1]));
     }
 }

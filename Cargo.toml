@@ -45,6 +45,9 @@ anyhow = "1.0"
 
 # Physics (Box2D-style environments)
 rapier2d = { version = "0.32", features = ["enhanced-determinism"] }
+# Physics (MuJoCo-style locomotion environments)
+rapier3d = { version = "0.32", features = ["enhanced-determinism"] }
+nalgebra = "0.33"
 
 # Testing
 approx = "0.5"

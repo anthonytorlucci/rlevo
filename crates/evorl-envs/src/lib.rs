@@ -52,6 +52,7 @@ pub mod games {
     pub mod connect_four;
 }
 pub mod grids;
+pub mod locomotion;
 pub mod render;
 pub mod toy_text;
 pub mod wrappers;
