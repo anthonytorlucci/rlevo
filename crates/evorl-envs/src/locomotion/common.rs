@@ -207,6 +207,23 @@ pub fn clip_contact_cost(contact_cost: f32, range: (f32, f32)) -> f32 {
     contact_cost.clamp(range.0, range.1)
 }
 
+/// Normalise an angle (radians) to the half-open interval `(-π, π]`.
+///
+/// Used by any env that extracts a joint angle from a quaternion and needs a
+/// unique branch cut (e.g. `InvertedPendulum`'s pole angle, `Reacher`'s
+/// relative elbow angle).
+#[must_use]
+pub fn wrap_to_pi(angle: f32) -> f32 {
+    let two_pi = std::f32::consts::TAU;
+    let mut a = angle % two_pi;
+    if a > std::f32::consts::PI {
+        a -= two_pi;
+    } else if a <= -std::f32::consts::PI {
+        a += two_pi;
+    }
+    a
+}
+
 /// Shared snapshot type for every locomotion environment.
 ///
 /// Generic in the per-env [`Observation`] so each env's snapshot has a
@@ -367,5 +384,16 @@ mod tests {
     #[test]
     fn termination_mode_default_is_on_unhealthy() {
         assert_eq!(TerminationMode::default(), TerminationMode::OnUnhealthy);
+    }
+
+    #[test]
+    fn wrap_to_pi_canonical_values() {
+        use std::f32::consts::PI;
+        assert!((wrap_to_pi(0.0) - 0.0).abs() < 1e-6);
+        assert!((wrap_to_pi(PI) - PI).abs() < 1e-6); // π maps to itself (half-open)
+        assert!((wrap_to_pi(-PI) - PI).abs() < 1e-6); // -π → π (excluded below)
+        assert!((wrap_to_pi(3.0 * PI / 2.0) - (-PI / 2.0)).abs() < 1e-5);
+        assert!((wrap_to_pi(-3.0 * PI / 2.0) - (PI / 2.0)).abs() < 1e-5);
+        assert!((wrap_to_pi(4.0 * PI) - 0.0).abs() < 1e-5);
     }
 }

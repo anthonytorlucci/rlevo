@@ -93,3 +93,8 @@ required-features = ["box2d"]
 name = 'car_racing_random'
 path = 'examples/box2d/car_racing_random.rs'
 required-features = ["box2d"]
+
+[[example]]
+name = 'reacher_random'
+path = 'examples/locomotion/reacher_random.rs'
+required-features = ["locomotion"]

@@ -37,7 +37,7 @@ use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
-use super::common::{Gear, HealthyCheck, LocomotionSnapshot, TerminationMode};
+use super::common::{Gear, HealthyCheck, LocomotionSnapshot, TerminationMode, wrap_to_pi};
 
 /// Reward-component metadata key: `+1` if alive at this step, `0` otherwise.
 pub const METADATA_KEY_ALIVE: &str = "alive";
@@ -461,17 +461,6 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
 
 fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
     config.cart_half_extents[2]
-}
-
-fn wrap_to_pi(angle: f32) -> f32 {
-    let two_pi = std::f32::consts::TAU;
-    let mut a = angle % two_pi;
-    if a > std::f32::consts::PI {
-        a -= two_pi;
-    } else if a <= -std::f32::consts::PI {
-        a += two_pi;
-    }
-    a
 }
 
 #[cfg(test)]

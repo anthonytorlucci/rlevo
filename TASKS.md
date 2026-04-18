@@ -1,6 +1,7 @@
 # Tasks
 
 - [ ] EXAMPLES.md
+- [ ] BENCHMARKS.md
 
 ## Milestone 1 & 2: evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
 - [✔] classical-evolutionary-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/classical-evolutionary-algorithms -> sessions/2026-04-17-classical-ea-implementation)
@@ -23,6 +24,18 @@
 - [✔] box2d (`projects/burn-evorl/specs/2026-04-17-rl-envs/box2d`)
 - [✔] toy-text (`projects/burn-evorl/specs/2026-04-17-rl-envs/toy-text`)
 - [ ] mujoco-locomotion (`projects/burn-evorl/specs/2026-04-17-rl-envs/mujoco-locomotion`)
+  - [✔] Inverted Pendulum
+  - [✔] Reacher
+  - [ ] Inverted Double Pendulum
+  - [ ] Swimmer
+  - [ ] Half Cheetah
+  - [ ] Hopper
+  - [ ] Walker2D
+  - [ ] Ant
+  - [ ] Pusher
+  - [ ] Humanoid
+  - [ ] Humanoid Standup
+
 
 ---
 

@@ -45,5 +45,8 @@ pub mod common;
 #[cfg(feature = "locomotion")]
 pub mod inverted_pendulum;
 
+#[cfg(feature = "locomotion")]
+pub mod reacher;
+
 #[cfg(all(feature = "locomotion", feature = "mujoco-ffi"))]
 pub use backend::mujoco_ffi;
