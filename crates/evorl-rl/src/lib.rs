@@ -10,6 +10,8 @@
 //! - [`algorithms::dqn`] — Deep Q-Network: config, model trait, and agent.
 //! - [`algorithms::c51`] — Categorical DQN (distributional): config, model
 //!   trait, categorical projection, agent, and training loop.
+//! - [`algorithms::qrdqn`] — Quantile Regression DQN (distributional):
+//!   config, model trait, quantile Huber loss, agent, and training loop.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -33,6 +35,16 @@ pub mod algorithms {
         pub mod c51_model;
         pub mod loss;
         pub mod projection;
+        pub mod train;
+    }
+
+    pub mod qrdqn {
+        //! Quantile Regression DQN (QR-DQN) distributional algorithm.
+
+        pub mod qrdqn_agent;
+        pub mod qrdqn_config;
+        pub mod qrdqn_model;
+        pub mod quantile_loss;
         pub mod train;
     }
 }
