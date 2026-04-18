@@ -98,3 +98,8 @@ required-features = ["box2d"]
 name = 'reacher_random'
 path = 'examples/locomotion/reacher_random.rs'
 required-features = ["locomotion"]
+
+[[example]]
+name = 'inverted_double_pendulum_random'
+path = 'examples/locomotion/inverted_double_pendulum_random.rs'
+required-features = ["locomotion"]

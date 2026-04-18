@@ -48,5 +48,8 @@ pub mod inverted_pendulum;
 #[cfg(feature = "locomotion")]
 pub mod reacher;
 
+#[cfg(feature = "locomotion")]
+pub mod inverted_double_pendulum;
+
 #[cfg(all(feature = "locomotion", feature = "mujoco-ffi"))]
 pub use backend::mujoco_ffi;
