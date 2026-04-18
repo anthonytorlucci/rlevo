@@ -15,6 +15,10 @@
 //! - [`algorithms::ppo`] — Proximal Policy Optimization (on-policy
 //!   policy-gradient): config, policy/value traits, tanh-Gaussian + categorical
 //!   built-in heads, rollout buffer with GAE, and training loop.
+//! - [`algorithms::ppg`] — Phasic Policy Gradient (on-policy with an auxiliary
+//!   phase): extends PPO with a periodic auxiliary phase that retrains the
+//!   value function plus an auxiliary value head on the policy network,
+//!   distilling the pre-aux-phase policy via KL. v1 is discrete-only.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -61,6 +65,25 @@ pub mod algorithms {
         pub mod ppo_policy;
         pub mod ppo_value;
         pub mod rollout;
+        pub mod train;
+    }
+
+    pub mod ppg {
+        //! Phasic Policy Gradient (PPG): PPO policy phase + periodic
+        //! auxiliary phase with distillation.
+        //!
+        //! v1 ships a discrete-only [`policies::PpgCategoricalPolicyHead`]
+        //! and reuses PPO's [`super::ppo::rollout::RolloutBuffer`],
+        //! [`super::ppo::losses`], and [`super::ppo::ppo_value::PpoValue`].
+        //! CartPole parity with PPO is the v1 target; Procgen-scale gains
+        //! require vectorised envs + CNN encoders (deferred).
+
+        pub mod aux_buffer;
+        pub mod losses;
+        pub mod policies;
+        pub mod ppg_agent;
+        pub mod ppg_config;
+        pub mod ppg_policy;
         pub mod train;
     }
 }
