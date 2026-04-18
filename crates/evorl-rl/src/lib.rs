@@ -19,6 +19,8 @@ pub mod algorithms {
         pub mod dqn_agent;
         pub mod dqn_config;
         pub mod dqn_model;
+        pub mod exploration;
+        pub mod train;
     }
 }
 

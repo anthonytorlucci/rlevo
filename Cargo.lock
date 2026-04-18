@@ -2303,7 +2303,6 @@ dependencies = [
  "approx",
  "burn",
  "evorl-core",
- "evorl-rl",
  "nalgebra 0.33.3",
  "rand 0.10.1",
  "rand_distr 0.6.0",
@@ -2349,9 +2348,15 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "burn",
+ "criterion",
  "evorl-core",
+ "evorl-envs",
  "rand 0.10.1",
+ "rand_distr 0.6.0",
  "serde",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
