@@ -21,7 +21,7 @@
 ## Milestone 3: rl-envs (`projects/burn-evorl/specs/2026-04-17-rl-envs/rl-envs-overview`, `projects/burn-evorl/sessions/2026-04-17-rl-envs-specs`)
 - [✔] classic-control (`projects/burn-evorl/specs/2026-04-17-rl-envs/classic-control`)
 - [✔] box2d (`projects/burn-evorl/specs/2026-04-17-rl-envs/box2d`)
-- [ ] toy-text (`projects/burn-evorl/specs/2026-04-17-rl-envs/toy-text`)
+- [✔] toy-text (`projects/burn-evorl/specs/2026-04-17-rl-envs/toy-text`)
 - [ ] mujoco-locomotion (`projects/burn-evorl/specs/2026-04-17-rl-envs/mujoco-locomotion`)
 
 ---
