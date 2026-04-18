@@ -47,6 +47,10 @@ path = "examples/ppo_pendulum.rs"
 name = "ppg_cart_pole"
 path = "examples/ppg_cart_pole.rs"
 
+[[example]]
+name = "ddpg_pendulum"
+path = "examples/ddpg_pendulum.rs"
+
 [[bench]]
 name = "dqn_bench"
 path = "benches/dqn_bench.rs"
@@ -70,4 +74,9 @@ harness = false
 [[bench]]
 name = "ppg_bench"
 path = "benches/ppg_bench.rs"
+harness = false
+
+[[bench]]
+name = "ddpg_bench"
+path = "benches/ddpg_bench.rs"
 harness = false

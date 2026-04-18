@@ -19,6 +19,9 @@
 //!   phase): extends PPO with a periodic auxiliary phase that retrains the
 //!   value function plus an auxiliary value head on the policy network,
 //!   distilling the pre-aux-phase policy via KL. v1 is discrete-only.
+//! - [`algorithms::ddpg`] — Deep Deterministic Policy Gradient (off-policy,
+//!   continuous actions): deterministic actor + Q-critic with Polyak-averaged
+//!   target networks and Gaussian exploration noise.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -65,6 +68,24 @@ pub mod algorithms {
         pub mod ppo_policy;
         pub mod ppo_value;
         pub mod rollout;
+        pub mod train;
+    }
+
+    pub mod ddpg {
+        //! Deep Deterministic Policy Gradient (DDPG): off-policy actor-critic
+        //! for continuous action spaces.
+        //!
+        //! Pairs a [`ddpg_model::DeterministicPolicy`] actor with a
+        //! [`ddpg_model::ContinuousQ`] critic, each with a Polyak-averaged
+        //! target copy. Explores via Gaussian noise on the actor output
+        //! ([`exploration::GaussianNoise`]) and learns off a uniform replay
+        //! buffer. CleanRL's `ddpg_continuous_action.py` is the reference
+        //! implementation.
+
+        pub mod ddpg_agent;
+        pub mod ddpg_config;
+        pub mod ddpg_model;
+        pub mod exploration;
         pub mod train;
     }
 

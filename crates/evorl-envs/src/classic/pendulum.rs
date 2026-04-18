@@ -9,7 +9,7 @@
 use std::fmt;
 
 use evorl_core::{
-    action::ContinuousAction,
+    action::{BoundedAction, ContinuousAction},
     base::{Action, Observation, State},
     environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -139,6 +139,16 @@ impl ContinuousAction<1> for PendulumAction {
         Self: Sized,
     {
         Self::unchecked(0.0)
+    }
+}
+
+impl BoundedAction<1> for PendulumAction {
+    fn low() -> [f32; 1] {
+        [-2.0]
+    }
+
+    fn high() -> [f32; 1] {
+        [2.0]
     }
 }
 

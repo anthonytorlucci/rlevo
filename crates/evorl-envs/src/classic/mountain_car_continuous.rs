@@ -7,7 +7,7 @@
 use std::fmt;
 
 use evorl_core::{
-    action::ContinuousAction,
+    action::{BoundedAction, ContinuousAction},
     base::{Action, Observation, State},
     environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -154,6 +154,16 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
         Self: Sized,
     {
         Self::unchecked(0.0) // deterministic fallback; use env.step_with_rng for stochastic
+    }
+}
+
+impl BoundedAction<1> for MountainCarContinuousAction {
+    fn low() -> [f32; 1] {
+        [-1.0]
+    }
+
+    fn high() -> [f32; 1] {
+        [1.0]
     }
 }
 

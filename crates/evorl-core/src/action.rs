@@ -343,6 +343,26 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
     fn from_slice(values: &[f32]) -> Self;
 }
 
+/// A [`ContinuousAction`] with statically-known `[low, high]` component bounds.
+///
+/// DDPG and other continuous-control algorithms need the per-component action
+/// bounds to scale/shift neural-network outputs and to sample uniform warm-up
+/// actions. Expose them via associated static methods rather than associated
+/// constants so implementors can still derive bounds from a runtime env config
+/// (e.g. a `max_torque` field) while presenting a uniform API.
+///
+/// # Invariants
+///
+/// - `low()[i] < high()[i]` for every component `i`.
+/// - [`ContinuousAction::clip`] must be a no-op on an action whose components
+///   already lie in `[low, high]`.
+pub trait BoundedAction<const D: usize>: ContinuousAction<D> {
+    /// Per-component lower bounds.
+    fn low() -> [f32; D];
+    /// Per-component upper bounds.
+    fn high() -> [f32; D];
+}
+
 /// Error indicating an action violated its type's constraints.
 ///
 /// Returned when an action fails validation or when invalid conversions are
@@ -497,6 +517,16 @@ mod tests {
             ContinuousActionTest {
                 values: [values[0], values[1], values[2]],
             }
+        }
+    }
+
+    impl BoundedAction<3> for ContinuousActionTest {
+        fn low() -> [f32; 3] {
+            [-1.0, -1.0, -1.0]
+        }
+
+        fn high() -> [f32; 3] {
+            [1.0, 1.0, 1.0]
         }
     }
 
@@ -1015,5 +1045,30 @@ mod tests {
 
         let clipped = action.clip(0.0, 0.0);
         assert_eq!(clipped.values, [0.0, 0.0, 0.0]);
+    }
+
+    // ========================================================================
+    // BoundedAction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_bounded_action_low_strictly_below_high() {
+        let low = ContinuousActionTest::low();
+        let high = ContinuousActionTest::high();
+        for i in 0..3 {
+            assert!(low[i] < high[i], "bound {i}: low >= high");
+        }
+    }
+
+    #[test]
+    fn test_bounded_action_clip_is_noop_inside_bounds() {
+        // Construct an action at the low/high bounds: clip(low, high) must
+        // return the same components.
+        let low = ContinuousActionTest::low();
+        let high = ContinuousActionTest::high();
+        let at_low = ContinuousActionTest::from_slice(&low);
+        let at_high = ContinuousActionTest::from_slice(&high);
+        assert_eq!(at_low.clip(low[0], high[0]).as_slice(), &low);
+        assert_eq!(at_high.clip(low[0], high[0]).as_slice(), &high);
     }
 }
