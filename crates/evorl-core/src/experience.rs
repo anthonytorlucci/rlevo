@@ -207,7 +207,7 @@ mod tests {
         };
 
         assert_eq!(experience.reward, TestReward(50.0));
-        assert!(experience.is_done)
+        assert!(!experience.is_done)
     }
 
     /// Test that ExperienceTuple preserves reward through cloning
