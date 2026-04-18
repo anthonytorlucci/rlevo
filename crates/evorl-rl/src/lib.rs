@@ -12,6 +12,9 @@
 //!   trait, categorical projection, agent, and training loop.
 //! - [`algorithms::qrdqn`] — Quantile Regression DQN (distributional):
 //!   config, model trait, quantile Huber loss, agent, and training loop.
+//! - [`algorithms::ppo`] — Proximal Policy Optimization (on-policy
+//!   policy-gradient): config, policy/value traits, tanh-Gaussian + categorical
+//!   built-in heads, rollout buffer with GAE, and training loop.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -45,6 +48,19 @@ pub mod algorithms {
         pub mod qrdqn_config;
         pub mod qrdqn_model;
         pub mod quantile_loss;
+        pub mod train;
+    }
+
+    pub mod ppo {
+        //! Proximal Policy Optimization (PPO) on-policy algorithm.
+
+        pub mod losses;
+        pub mod policies;
+        pub mod ppo_agent;
+        pub mod ppo_config;
+        pub mod ppo_policy;
+        pub mod ppo_value;
+        pub mod rollout;
         pub mod train;
     }
 }

@@ -35,6 +35,14 @@ path = "examples/c51_cart_pole.rs"
 name = "qrdqn_cart_pole"
 path = "examples/qrdqn_cart_pole.rs"
 
+[[example]]
+name = "ppo_cart_pole"
+path = "examples/ppo_cart_pole.rs"
+
+[[example]]
+name = "ppo_pendulum"
+path = "examples/ppo_pendulum.rs"
+
 [[bench]]
 name = "dqn_bench"
 path = "benches/dqn_bench.rs"
@@ -48,4 +56,9 @@ harness = false
 [[bench]]
 name = "qrdqn_bench"
 path = "benches/qrdqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "ppo_bench"
+path = "benches/ppo_bench.rs"
 harness = false
