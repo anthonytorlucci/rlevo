@@ -105,7 +105,7 @@ where
 mod tests {
     use super::*;
     use evorl_core::{
-        base::{Action, Observation, Reward, State},
+        base::{Action, Observation, State},
         environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase},
         reward::ScalarReward,
     };

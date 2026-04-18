@@ -54,6 +54,8 @@ impl From<std::io::Error> for DqnAgentError {
 }
 
 /// Deep Q-Network (DQN) agent training statistics
+// Prepared for the DQN training loop; will be constructed once DqnAgent is fully implemented.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct DqnMetrics {
     reward: f32,

@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn test_knight_move_encoding() {
         // Knight move from e4 (28) to f6 (45): +2 rank, +1 file
-        let mv = ChessMove::new(Square(28), Square(45));
+        let _mv = ChessMove::new(Square(28), Square(45));
         // let indices = mv.to_indices();
         // assert_eq!(indices[0], 3); // rank 3 (e4)
         // assert_eq!(indices[1], 4); // file 4 (e-file)
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn test_queen_move_encoding() {
         // North move: e2 to e4 (2 squares north)
-        let mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
+        let _mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
         // let indices = mv.to_indices();
         // assert_eq!(indices[0], 1); // rank 1
         // assert_eq!(indices[1], 4); // file 4
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn test_promotion_encoding() {
         // Pawn promotion: e7 to e8 with knight promotion
-        let mv = ChessMove::new_with_promotion(Square(52), Square(60), PromotionPiece::Knight);
+        let _mv = ChessMove::new_with_promotion(Square(52), Square(60), PromotionPiece::Knight);
         // let indices = mv.to_indices();
         // assert_eq!(indices[0], 6); // rank 6
         // assert_eq!(indices[1], 4); // file 4

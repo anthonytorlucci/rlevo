@@ -32,7 +32,6 @@ use evorl_core::environment::{Environment, EnvironmentError, EpisodeStatus, Snap
 use evorl_core::reward::ScalarReward;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rapier3d::math::Real;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 

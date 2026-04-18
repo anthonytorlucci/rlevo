@@ -154,6 +154,8 @@ impl RobotPoseObservation {
     }
 
     /// Converts the observation back to a pose (since we have full observability).
+    // Inverse of `from_pose`; demonstrates the round-trip but is not called in this example.
+    #[allow(dead_code)]
     pub fn to_pose(self) -> Option<RobotPose> {
         RobotPose::new(self.x_mm, self.y_mm, self.theta_mdeg)
     }
