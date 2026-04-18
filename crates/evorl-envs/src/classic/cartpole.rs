@@ -21,8 +21,8 @@ use std::fmt;
 
 use evorl_core::{
     action::DiscreteAction,
-    base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    base::{Action, Observation, State},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -102,25 +102,62 @@ pub struct CartPoleConfigBuilder {
 impl CartPoleConfig {
     /// Create a builder seeded from this config's defaults.
     pub fn builder() -> CartPoleConfigBuilder {
-        CartPoleConfigBuilder { inner: CartPoleConfig::default() }
+        CartPoleConfigBuilder {
+            inner: CartPoleConfig::default(),
+        }
     }
 }
 
 impl CartPoleConfigBuilder {
-    pub fn gravity(mut self, v: f32) -> Self { self.inner.gravity = v; self }
-    pub fn masscart(mut self, v: f32) -> Self { self.inner.masscart = v; self }
-    pub fn masspole(mut self, v: f32) -> Self { self.inner.masspole = v; self }
-    pub fn length(mut self, v: f32) -> Self { self.inner.length = v; self }
-    pub fn force_mag(mut self, v: f32) -> Self { self.inner.force_mag = v; self }
-    pub fn tau(mut self, v: f32) -> Self { self.inner.tau = v; self }
-    pub fn theta_threshold_radians(mut self, v: f32) -> Self { self.inner.theta_threshold_radians = v; self }
-    pub fn x_threshold(mut self, v: f32) -> Self { self.inner.x_threshold = v; self }
-    pub fn integrator(mut self, v: Integrator) -> Self { self.inner.integrator = v; self }
-    pub fn sutton_barto_reward(mut self, v: bool) -> Self { self.inner.sutton_barto_reward = v; self }
-    pub fn seed(mut self, v: u64) -> Self { self.inner.seed = v; self }
+    pub fn gravity(mut self, v: f32) -> Self {
+        self.inner.gravity = v;
+        self
+    }
+    pub fn masscart(mut self, v: f32) -> Self {
+        self.inner.masscart = v;
+        self
+    }
+    pub fn masspole(mut self, v: f32) -> Self {
+        self.inner.masspole = v;
+        self
+    }
+    pub fn length(mut self, v: f32) -> Self {
+        self.inner.length = v;
+        self
+    }
+    pub fn force_mag(mut self, v: f32) -> Self {
+        self.inner.force_mag = v;
+        self
+    }
+    pub fn tau(mut self, v: f32) -> Self {
+        self.inner.tau = v;
+        self
+    }
+    pub fn theta_threshold_radians(mut self, v: f32) -> Self {
+        self.inner.theta_threshold_radians = v;
+        self
+    }
+    pub fn x_threshold(mut self, v: f32) -> Self {
+        self.inner.x_threshold = v;
+        self
+    }
+    pub fn integrator(mut self, v: Integrator) -> Self {
+        self.inner.integrator = v;
+        self
+    }
+    pub fn sutton_barto_reward(mut self, v: bool) -> Self {
+        self.inner.sutton_barto_reward = v;
+        self
+    }
+    pub fn seed(mut self, v: u64) -> Self {
+        self.inner.seed = v;
+        self
+    }
 
     /// Finalise and return the config.
-    pub fn build(self) -> CartPoleConfig { self.inner }
+    pub fn build(self) -> CartPoleConfig {
+        self.inner
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -142,19 +179,30 @@ pub struct CartPoleState {
 
 impl CartPoleState {
     fn new(x: f32, x_dot: f32, theta: f32, theta_dot: f32) -> Self {
-        Self { x, x_dot, theta, theta_dot }
+        Self {
+            x,
+            x_dot,
+            theta,
+            theta_dot,
+        }
     }
 }
 
 impl State<1> for CartPoleState {
     type Observation = CartPoleObservation;
 
-    fn shape() -> [usize; 1] { [4] }
-    fn numel(&self) -> usize { 4 }
+    fn shape() -> [usize; 1] {
+        [4]
+    }
+    fn numel(&self) -> usize {
+        4
+    }
 
     fn is_valid(&self) -> bool {
-        self.x.is_finite() && self.x_dot.is_finite()
-            && self.theta.is_finite() && self.theta_dot.is_finite()
+        self.x.is_finite()
+            && self.x_dot.is_finite()
+            && self.theta.is_finite()
+            && self.theta_dot.is_finite()
     }
 
     fn observe(&self) -> CartPoleObservation {
@@ -187,12 +235,19 @@ pub struct CartPoleObservation {
 impl CartPoleObservation {
     /// Flatten to a `[f32; 4]` array for tensor conversion.
     pub fn to_array(&self) -> [f32; 4] {
-        [self.cart_pos, self.cart_vel, self.pole_angle, self.pole_ang_vel]
+        [
+            self.cart_pos,
+            self.cart_vel,
+            self.pole_angle,
+            self.pole_ang_vel,
+        ]
     }
 }
 
 impl Observation<1> for CartPoleObservation {
-    fn shape() -> [usize; 1] { [4] }
+    fn shape() -> [usize; 1] {
+        [4]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -209,8 +264,12 @@ pub enum CartPoleAction {
 }
 
 impl Action<1> for CartPoleAction {
-    fn shape() -> [usize; 1] { [2] }
-    fn is_valid(&self) -> bool { true }
+    fn shape() -> [usize; 1] {
+        [2]
+    }
+    fn is_valid(&self) -> bool {
+        true
+    }
 }
 
 impl DiscreteAction<1> for CartPoleAction {
@@ -282,8 +341,16 @@ impl CartPole {
     }
 
     /// Apply equations of motion and return the next state.
-    fn step_physics(state: &CartPoleState, action: CartPoleAction, cfg: &CartPoleConfig) -> CartPoleState {
-        let force = if action == CartPoleAction::Right { cfg.force_mag } else { -cfg.force_mag };
+    fn step_physics(
+        state: &CartPoleState,
+        action: CartPoleAction,
+        cfg: &CartPoleConfig,
+    ) -> CartPoleState {
+        let force = if action == CartPoleAction::Right {
+            cfg.force_mag
+        } else {
+            -cfg.force_mag
+        };
         let total_mass = cfg.masscart + cfg.masspole;
         let pm_l = cfg.masspole * cfg.length;
 
@@ -297,18 +364,18 @@ impl CartPole {
 
         match cfg.integrator {
             Integrator::Euler => CartPoleState {
-                x:         state.x         + cfg.tau * state.x_dot,
-                x_dot:     state.x_dot     + cfg.tau * x_acc,
-                theta:     state.theta     + cfg.tau * state.theta_dot,
+                x: state.x + cfg.tau * state.x_dot,
+                x_dot: state.x_dot + cfg.tau * x_acc,
+                theta: state.theta + cfg.tau * state.theta_dot,
                 theta_dot: state.theta_dot + cfg.tau * theta_acc,
             },
             Integrator::SemiImplicit => {
-                let x_dot_new     = state.x_dot     + cfg.tau * x_acc;
+                let x_dot_new = state.x_dot + cfg.tau * x_acc;
                 let theta_dot_new = state.theta_dot + cfg.tau * theta_acc;
                 CartPoleState {
-                    x:         state.x     + cfg.tau * x_dot_new,
-                    x_dot:     x_dot_new,
-                    theta:     state.theta + cfg.tau * theta_dot_new,
+                    x: state.x + cfg.tau * x_dot_new,
+                    x_dot: x_dot_new,
+                    theta: state.theta + cfg.tau * theta_dot_new,
                     theta_dot: theta_dot_new,
                 }
             }
@@ -344,7 +411,10 @@ impl Environment<1, 1, 1> for CartPole {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward(0.0),
+        ))
     }
 
     fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -354,7 +424,11 @@ impl Environment<1, 1, 1> for CartPole {
 
         let terminated = Self::is_terminal(&self.state, &self.config);
         let reward = if self.config.sutton_barto_reward {
-            if terminated { ScalarReward(-1.0) } else { ScalarReward(0.0) }
+            if terminated {
+                ScalarReward(-1.0)
+            } else {
+                ScalarReward(0.0)
+            }
         } else {
             ScalarReward(1.0)
         };
@@ -405,11 +479,17 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [4], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
-        Ok(Self { cart_pos: v[0], cart_vel: v[1], pole_angle: v[2], pole_ang_vel: v[3] })
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
+        Ok(Self {
+            cart_pos: v[0],
+            cart_vel: v[1],
+            pole_angle: v[2],
+            pole_ang_vel: v[3],
+        })
     }
 }
 
@@ -431,10 +511,11 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [2], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
         let idx = v
             .iter()
             .enumerate()
@@ -460,6 +541,8 @@ mod tests {
 
     #[test]
     fn reset_returns_running_obs_in_range() {
+        use evorl_core::environment::EpisodeStatus;
+
         let mut env = default_env();
         let snap = env.reset().unwrap();
         assert_eq!(snap.status(), EpisodeStatus::Running);
@@ -486,6 +569,8 @@ mod tests {
 
     #[test]
     fn terminates_on_large_angle() {
+        use evorl_core::environment::EpisodeStatus;
+
         let mut env = default_env();
         env.reset().unwrap();
         // Set pole way past threshold
@@ -517,7 +602,10 @@ mod tests {
 
     #[test]
     fn sutton_barto_reward_switch() {
-        let config = CartPoleConfig { sutton_barto_reward: true, ..Default::default() };
+        let config = CartPoleConfig {
+            sutton_barto_reward: true,
+            ..Default::default()
+        };
         let mut env = CartPole::with_config(config);
         env.reset().unwrap();
         // Force termination next step
@@ -529,7 +617,10 @@ mod tests {
 
     #[test]
     fn sutton_barto_zero_for_non_terminal_step() {
-        let config = CartPoleConfig { sutton_barto_reward: true, ..Default::default() };
+        let config = CartPoleConfig {
+            sutton_barto_reward: true,
+            ..Default::default()
+        };
         let mut env = CartPole::with_config(config);
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
@@ -540,12 +631,22 @@ mod tests {
 
     #[test]
     fn determinism() {
-        let mut env_a = CartPole::with_config(CartPoleConfig { seed: 42, ..Default::default() });
-        let mut env_b = CartPole::with_config(CartPoleConfig { seed: 42, ..Default::default() });
+        let mut env_a = CartPole::with_config(CartPoleConfig {
+            seed: 42,
+            ..Default::default()
+        });
+        let mut env_b = CartPole::with_config(CartPoleConfig {
+            seed: 42,
+            ..Default::default()
+        });
         env_a.reset().unwrap();
         env_b.reset().unwrap();
 
-        let actions = [CartPoleAction::Right, CartPoleAction::Left, CartPoleAction::Right];
+        let actions = [
+            CartPoleAction::Right,
+            CartPoleAction::Left,
+            CartPoleAction::Right,
+        ];
         for action in actions {
             let sa = env_a.step(action).unwrap();
             let sb = env_b.step(action).unwrap();
@@ -555,10 +656,18 @@ mod tests {
 
     #[test]
     fn euler_and_semi_implicit_diverge_after_many_steps() {
-        let euler_cfg = CartPoleConfig { integrator: Integrator::Euler, seed: 1, ..Default::default() };
-        let si_cfg    = CartPoleConfig { integrator: Integrator::SemiImplicit, seed: 1, ..Default::default() };
+        let euler_cfg = CartPoleConfig {
+            integrator: Integrator::Euler,
+            seed: 1,
+            ..Default::default()
+        };
+        let si_cfg = CartPoleConfig {
+            integrator: Integrator::SemiImplicit,
+            seed: 1,
+            ..Default::default()
+        };
         let mut euler_env = CartPole::with_config(euler_cfg);
-        let mut si_env    = CartPole::with_config(si_cfg);
+        let mut si_env = CartPole::with_config(si_cfg);
         euler_env.reset().unwrap();
         si_env.reset().unwrap();
 
@@ -573,11 +682,17 @@ mod tests {
         // Both integrate the same ODE so they may be close but should differ.
         // This test just checks the SemiImplicit branch is wired up, not that
         // they produce wildly different results.
-        let diff: f32 = euler_env.state.to_array().iter()
+        let diff: f32 = euler_env
+            .state
+            .to_array()
+            .iter()
             .zip(si_env.state.to_array().iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
-        assert!(diff > 0.0, "Euler and SemiImplicit produced identical states");
+        assert!(
+            diff > 0.0,
+            "Euler and SemiImplicit produced identical states"
+        );
     }
 
     #[test]

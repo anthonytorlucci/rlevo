@@ -195,27 +195,50 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
 {
     /// Snapshot for a step where the episode is still running.
     pub fn running(observation: ObservationType, reward: RewardType) -> Self {
-        Self { observation, reward, status: EpisodeStatus::Running }
+        Self {
+            observation,
+            reward,
+            status: EpisodeStatus::Running,
+        }
     }
 
     /// Snapshot for the step on which the MDP reached a terminal state.
     pub fn terminated(observation: ObservationType, reward: RewardType) -> Self {
-        Self { observation, reward, status: EpisodeStatus::Terminated }
+        Self {
+            observation,
+            reward,
+            status: EpisodeStatus::Terminated,
+        }
     }
 
     /// Snapshot for the step on which an external step limit was reached.
     pub fn truncated(observation: ObservationType, reward: RewardType) -> Self {
-        Self { observation, reward, status: EpisodeStatus::Truncated }
+        Self {
+            observation,
+            reward,
+            status: EpisodeStatus::Truncated,
+        }
     }
 
     /// Create a snapshot from a raw `done: bool`.
     ///
     /// Prefer the named constructors. This exists for migration compatibility;
     /// `done = true` maps to `Terminated` (not `Truncated`).
-    #[deprecated(since = "0.2.0", note = "use SnapshotBase::running / ::terminated / ::truncated")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "use SnapshotBase::running / ::terminated / ::truncated"
+    )]
     pub fn new(observation: ObservationType, reward: RewardType, done: bool) -> Self {
-        let status = if done { EpisodeStatus::Terminated } else { EpisodeStatus::Running };
-        Self { observation, reward, status }
+        let status = if done {
+            EpisodeStatus::Terminated
+        } else {
+            EpisodeStatus::Running
+        };
+        Self {
+            observation,
+            reward,
+            status,
+        }
     }
 }
 
@@ -271,11 +294,7 @@ pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
     type RewardType: Reward;
 
     /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<
-        D,
-        ObservationType = Self::ObservationType,
-        RewardType = Self::RewardType,
-    >;
+    type SnapshotType: Snapshot<D, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
     /// Create a new environment instance.
     ///
@@ -455,7 +474,10 @@ mod tests {
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.current_state = MockState::new(Self::START_STATE);
             self.step_count = 0;
-            Ok(SnapshotBase::running(self.current_state.observe(), ScalarReward(0.0)))
+            Ok(SnapshotBase::running(
+                self.current_state.observe(),
+                ScalarReward(0.0),
+            ))
         }
 
         fn step(
@@ -483,7 +505,11 @@ mod tests {
                 (MockState::new(6), -1.0, true)
             } else {
                 let new_state = MockState::new(next_position);
-                let reward = if next_position == Self::GOAL_STATE { 1.0 } else { 0.0 };
+                let reward = if next_position == Self::GOAL_STATE {
+                    1.0
+                } else {
+                    0.0
+                };
                 let done = next_position == Self::GOAL_STATE;
                 (new_state, reward, done)
             };
@@ -499,7 +525,11 @@ mod tests {
                 EpisodeStatus::Running
             };
 
-            Ok(SnapshotBase { observation: new_state.observe(), reward: ScalarReward(reward), status })
+            Ok(SnapshotBase {
+                observation: new_state.observe(),
+                reward: ScalarReward(reward),
+                status,
+            })
         }
     }
 
@@ -734,7 +764,7 @@ mod tests {
     fn test_environment_multiple_episodes() {
         let mut env = MockEnvironment::new(false);
 
-        for episode in 0..3 {
+        for _episode in 0..3 {
             let mut snapshot = env.reset().expect("Reset should succeed");
             let mut step = 0;
 

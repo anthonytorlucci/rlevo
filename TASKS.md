@@ -2,6 +2,8 @@
 
 - [ ] EXAMPLES.md
 - [ ] BENCHMARKS.md
+- [ ] clean warnings
+- [ ] create release v0.1.0
 
 ## Milestone 1 & 2: evo-opt-algos (specs; **!! complete the research docs first before starting plan !!**)
 - [✔] classical-evolutionary-algorithms (projects/burn-evorl/specs/2026-04-17-evo-opt-algos/classical-evolutionary-algorithms -> sessions/2026-04-17-classical-ea-implementation)

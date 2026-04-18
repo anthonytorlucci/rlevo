@@ -104,7 +104,6 @@
 //!   environment. Agents learn to avoid them through reward signals.
 
 use crate::games::chess::board::Square;
-use evorl_core::action::MultiDiscreteAction;
 
 /// Promotion piece types for pawn promotion moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -557,10 +556,10 @@ mod tests {
     fn test_queen_move_encoding() {
         // North move: e2 to e4 (2 squares north)
         let mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
-                                                         // let indices = mv.to_indices();
-                                                         // assert_eq!(indices[0], 1); // rank 1
-                                                         // assert_eq!(indices[1], 4); // file 4
-                                                         // assert_eq!(indices[2], 1); // North direction, distance 2 (plane 0 + 1)
+        // let indices = mv.to_indices();
+        // assert_eq!(indices[0], 1); // rank 1
+        // assert_eq!(indices[1], 4); // file 4
+        // assert_eq!(indices[2], 1); // North direction, distance 2 (plane 0 + 1)
 
         // Reconstruct
         // let reconstructed = ChessMove::from_indices(indices);

@@ -8,8 +8,8 @@ use std::fmt;
 
 use evorl_core::{
     action::ContinuousAction,
-    base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    base::{Action, Observation, State},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -111,14 +111,20 @@ impl MountainCarContinuousAction {
     }
 
     /// The raw force value.
-    pub fn force(&self) -> f32 { self.0 }
+    pub fn force(&self) -> f32 {
+        self.0
+    }
 
     /// Unchecked construction for internal use (value already clamped).
-    fn unchecked(force: f32) -> Self { Self(force) }
+    fn unchecked(force: f32) -> Self {
+        Self(force)
+    }
 }
 
 impl Action<1> for MountainCarContinuousAction {
-    fn shape() -> [usize; 1] { [1] }
+    fn shape() -> [usize; 1] {
+        [1]
+    }
 
     fn is_valid(&self) -> bool {
         self.0.is_finite() && self.0.abs() <= 1.0
@@ -126,18 +132,27 @@ impl Action<1> for MountainCarContinuousAction {
 }
 
 impl ContinuousAction<1> for MountainCarContinuousAction {
-    fn as_slice(&self) -> &[f32] { std::slice::from_ref(&self.0) }
+    fn as_slice(&self) -> &[f32] {
+        std::slice::from_ref(&self.0)
+    }
 
     fn clip(&self, min: f32, max: f32) -> Self {
         Self::unchecked(self.0.clamp(min, max))
     }
 
     fn from_slice(values: &[f32]) -> Self {
-        assert_eq!(values.len(), 1, "MountainCarContinuousAction expects a 1-element slice");
+        assert_eq!(
+            values.len(),
+            1,
+            "MountainCarContinuousAction expects a 1-element slice"
+        );
         Self::unchecked(values[0])
     }
 
-    fn random() -> Self where Self: Sized {
+    fn random() -> Self
+    where
+        Self: Sized,
+    {
         Self::unchecked(0.0) // deterministic fallback; use env.step_with_rng for stochastic
     }
 }
@@ -170,18 +185,29 @@ impl MountainCarContinuousObservation {
 }
 
 impl Observation<1> for MountainCarContinuousObservation {
-    fn shape() -> [usize; 1] { [2] }
+    fn shape() -> [usize; 1] {
+        [2]
+    }
 }
 
 impl State<1> for MountainCarContinuousState {
     type Observation = MountainCarContinuousObservation;
 
-    fn shape() -> [usize; 1] { [2] }
-    fn numel(&self) -> usize { 2 }
-    fn is_valid(&self) -> bool { self.position.is_finite() && self.velocity.is_finite() }
+    fn shape() -> [usize; 1] {
+        [2]
+    }
+    fn numel(&self) -> usize {
+        2
+    }
+    fn is_valid(&self) -> bool {
+        self.position.is_finite() && self.velocity.is_finite()
+    }
 
     fn observe(&self) -> MountainCarContinuousObservation {
-        MountainCarContinuousObservation { position: self.position, velocity: self.velocity }
+        MountainCarContinuousObservation {
+            position: self.position,
+            velocity: self.velocity,
+        }
     }
 }
 
@@ -203,7 +229,10 @@ impl MountainCarContinuous {
     pub fn with_config(config: MountainCarContinuousConfig) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
-            state: MountainCarContinuousState { position: -0.5, velocity: 0.0 },
+            state: MountainCarContinuousState {
+                position: -0.5,
+                velocity: 0.0,
+            },
             config,
             rng,
             steps: 0,
@@ -211,18 +240,32 @@ impl MountainCarContinuous {
     }
 
     fn sample_init_state(&mut self) -> MountainCarContinuousState {
-        let pos = Uniform::new_inclusive(-0.6_f32, -0.4_f32).unwrap().sample(&mut self.rng);
-        MountainCarContinuousState { position: pos, velocity: 0.0 }
+        let pos = Uniform::new_inclusive(-0.6_f32, -0.4_f32)
+            .unwrap()
+            .sample(&mut self.rng);
+        MountainCarContinuousState {
+            position: pos,
+            velocity: 0.0,
+        }
     }
 
-    fn apply_physics(state: MountainCarContinuousState, force: f32, cfg: &MountainCarContinuousConfig) -> MountainCarContinuousState {
+    fn apply_physics(
+        state: MountainCarContinuousState,
+        force: f32,
+        cfg: &MountainCarContinuousConfig,
+    ) -> MountainCarContinuousState {
         let clamped = force.clamp(cfg.min_action, cfg.max_action);
         let mut vel = state.velocity + clamped * cfg.power - 0.0025 * (3.0 * state.position).cos();
         vel = vel.clamp(-cfg.max_speed, cfg.max_speed);
         let mut pos = state.position + vel;
         pos = pos.clamp(cfg.min_pos, cfg.max_pos);
-        if pos <= cfg.min_pos { vel = 0.0; }
-        MountainCarContinuousState { position: pos, velocity: vel }
+        if pos <= cfg.min_pos {
+            vel = 0.0;
+        }
+        MountainCarContinuousState {
+            position: pos,
+            velocity: vel,
+        }
     }
 
     fn is_terminal(state: &MountainCarContinuousState, cfg: &MountainCarContinuousConfig) -> bool {
@@ -232,7 +275,11 @@ impl MountainCarContinuous {
 
 impl fmt::Display for MountainCarContinuous {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MountainCarContinuous(step={}, pos={:.3})", self.steps, self.state.position)
+        write!(
+            f,
+            "MountainCarContinuous(step={}, pos={:.3})",
+            self.steps, self.state.position
+        )
     }
 }
 
@@ -252,10 +299,16 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward(0.0),
+        ))
     }
 
-    fn step(&mut self, action: MountainCarContinuousAction) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(
+        &mut self,
+        action: MountainCarContinuousAction,
+    ) -> Result<Self::SnapshotType, EnvironmentError> {
         let force = action.force();
         self.state = Self::apply_physics(self.state, force, &self.config);
         self.steps += 1;
@@ -294,11 +347,15 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [2], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
-        Ok(Self { position: v[0], velocity: v[1] })
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
+        Ok(Self {
+            position: v[0],
+            velocity: v[1],
+        })
     }
 }
 
@@ -318,10 +375,11 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [1], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
         Ok(Self::unchecked(v[0]))
     }
 }
@@ -378,7 +436,11 @@ mod tests {
         let snap = env.step(action).unwrap();
         if !snap.is_done() {
             let expected = -0.1_f32;
-            assert!((snap.reward().0 - expected).abs() < 1e-5, "reward={}", snap.reward().0);
+            assert!(
+                (snap.reward().0 - expected).abs() < 1e-5,
+                "reward={}",
+                snap.reward().0
+            );
         }
     }
 
@@ -387,18 +449,35 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         // Force into goal position
-        env.state = MountainCarContinuousState { position: 0.49, velocity: 0.05 };
+        env.state = MountainCarContinuousState {
+            position: 0.49,
+            velocity: 0.05,
+        };
         let action = MountainCarContinuousAction::new(1.0).unwrap();
         let snap = env.step(action).unwrap();
-        assert!(snap.is_terminated(), "expected terminated, got {:?}", snap.status());
+        assert!(
+            snap.is_terminated(),
+            "expected terminated, got {:?}",
+            snap.status()
+        );
         // reward = -0.1 * 1² + 100 = 99.9
-        assert!(snap.reward().0 > 90.0, "expected large positive reward, got {}", snap.reward().0);
+        assert!(
+            snap.reward().0 > 90.0,
+            "expected large positive reward, got {}",
+            snap.reward().0
+        );
     }
 
     #[test]
     fn determinism() {
-        let mut a = MountainCarContinuous::with_config(MountainCarContinuousConfig { seed: 3, ..Default::default() });
-        let mut b = MountainCarContinuous::with_config(MountainCarContinuousConfig { seed: 3, ..Default::default() });
+        let mut a = MountainCarContinuous::with_config(MountainCarContinuousConfig {
+            seed: 3,
+            ..Default::default()
+        });
+        let mut b = MountainCarContinuous::with_config(MountainCarContinuousConfig {
+            seed: 3,
+            ..Default::default()
+        });
         a.reset().unwrap();
         b.reset().unwrap();
         let act = MountainCarContinuousAction::new(0.5).unwrap();

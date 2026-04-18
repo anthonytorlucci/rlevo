@@ -16,8 +16,8 @@ use std::fmt;
 
 use evorl_core::{
     action::DiscreteAction,
-    base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    base::{Action, Observation, State},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -57,9 +57,8 @@ impl AcrobotDynamicsFn for BookDynamics {
         let i2 = cfg.link_moi;
         let g = cfg.gravity;
 
-        let d1 = m1 * lc1 * lc1
-            + m2 * (l1 * l1 + lc2 * lc2 + 2.0 * l1 * lc2 * theta2.cos())
-            + i1 + i2;
+        let d1 =
+            m1 * lc1 * lc1 + m2 * (l1 * l1 + lc2 * lc2 + 2.0 * l1 * lc2 * theta2.cos()) + i1 + i2;
         let d2 = m2 * (lc2 * lc2 + l1 * lc2 * theta2.cos()) + i2;
         let phi2 = m2 * lc2 * g * (theta1 + theta2 - std::f32::consts::FRAC_PI_2).cos();
         let phi1 = -(m2 * l1 * lc2 * dtheta2 * dtheta2 * theta2.sin())
@@ -67,10 +66,9 @@ impl AcrobotDynamicsFn for BookDynamics {
             + (m1 * lc1 + m2 * l1) * g * (theta1 - std::f32::consts::FRAC_PI_2).cos()
             + phi2;
 
-        let ddtheta2 = (a + d2 / d1 * phi1
-            - m2 * l1 * lc2 * dtheta1 * dtheta1 * theta2.sin()
-            - phi2)
-            / (m2 * lc2 * lc2 + i2 - d2 * d2 / d1);
+        let ddtheta2 =
+            (a + d2 / d1 * phi1 - m2 * l1 * lc2 * dtheta1 * dtheta1 * theta2.sin() - phi2)
+                / (m2 * lc2 * lc2 + i2 - d2 * d2 / d1);
         let ddtheta1 = -(d2 * ddtheta2 + phi1) / d1;
 
         [dtheta1, dtheta2, ddtheta1, ddtheta2]
@@ -89,9 +87,8 @@ impl AcrobotDynamicsFn for NipsDynamics {
         let i2 = cfg.link_moi;
         let g = cfg.gravity;
 
-        let d1 = m1 * lc1 * lc1
-            + m2 * (l1 * l1 + lc2 * lc2 + 2.0 * l1 * lc2 * theta2.cos())
-            + i1 + i2;
+        let d1 =
+            m1 * lc1 * lc1 + m2 * (l1 * l1 + lc2 * lc2 + 2.0 * l1 * lc2 * theta2.cos()) + i1 + i2;
         let d2 = m2 * (lc2 * lc2 + l1 * lc2 * theta2.cos()) + i2;
         let phi2 = m2 * lc2 * g * (theta1 + theta2 - std::f32::consts::FRAC_PI_2).cos();
         // NIPS form omits the dtheta1^2 term and the 2*dtheta2*dtheta1 cross-term
@@ -119,11 +116,13 @@ fn rk4<F: Fn([f32; 4]) -> [f32; 4]>(dsdt: F, s: [f32; 4], dt: f32) -> [f32; 4] {
     add4(s, scale4(k, dt / 6.0))
 }
 
-#[inline] fn add4(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [a[0]+b[0], a[1]+b[1], a[2]+b[2], a[3]+b[3]]
+#[inline]
+fn add4(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
 }
-#[inline] fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
-    [a[0]*s, a[1]*s, a[2]*s, a[3]*s]
+#[inline]
+fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
+    [a[0] * s, a[1] * s, a[2] * s, a[3] * s]
 }
 
 // ---------------------------------------------------------------------------
@@ -191,25 +190,68 @@ pub struct AcrobotConfigBuilder {
 
 impl AcrobotConfig {
     pub fn builder() -> AcrobotConfigBuilder {
-        AcrobotConfigBuilder { inner: AcrobotConfig::default() }
+        AcrobotConfigBuilder {
+            inner: AcrobotConfig::default(),
+        }
     }
 }
 
 impl AcrobotConfigBuilder {
-    pub fn dt(mut self, v: f32) -> Self { self.inner.dt = v; self }
-    pub fn link_length_1(mut self, v: f32) -> Self { self.inner.link_length_1 = v; self }
-    pub fn link_length_2(mut self, v: f32) -> Self { self.inner.link_length_2 = v; self }
-    pub fn link_mass_1(mut self, v: f32) -> Self { self.inner.link_mass_1 = v; self }
-    pub fn link_mass_2(mut self, v: f32) -> Self { self.inner.link_mass_2 = v; self }
-    pub fn link_com_pos_1(mut self, v: f32) -> Self { self.inner.link_com_pos_1 = v; self }
-    pub fn link_com_pos_2(mut self, v: f32) -> Self { self.inner.link_com_pos_2 = v; self }
-    pub fn link_moi(mut self, v: f32) -> Self { self.inner.link_moi = v; self }
-    pub fn gravity(mut self, v: f32) -> Self { self.inner.gravity = v; self }
-    pub fn max_vel_1(mut self, v: f32) -> Self { self.inner.max_vel_1 = v; self }
-    pub fn max_vel_2(mut self, v: f32) -> Self { self.inner.max_vel_2 = v; self }
-    pub fn torque_noise_max(mut self, v: f32) -> Self { self.inner.torque_noise_max = v; self }
-    pub fn seed(mut self, v: u64) -> Self { self.inner.seed = v; self }
-    pub fn build(self) -> AcrobotConfig { self.inner }
+    pub fn dt(mut self, v: f32) -> Self {
+        self.inner.dt = v;
+        self
+    }
+    pub fn link_length_1(mut self, v: f32) -> Self {
+        self.inner.link_length_1 = v;
+        self
+    }
+    pub fn link_length_2(mut self, v: f32) -> Self {
+        self.inner.link_length_2 = v;
+        self
+    }
+    pub fn link_mass_1(mut self, v: f32) -> Self {
+        self.inner.link_mass_1 = v;
+        self
+    }
+    pub fn link_mass_2(mut self, v: f32) -> Self {
+        self.inner.link_mass_2 = v;
+        self
+    }
+    pub fn link_com_pos_1(mut self, v: f32) -> Self {
+        self.inner.link_com_pos_1 = v;
+        self
+    }
+    pub fn link_com_pos_2(mut self, v: f32) -> Self {
+        self.inner.link_com_pos_2 = v;
+        self
+    }
+    pub fn link_moi(mut self, v: f32) -> Self {
+        self.inner.link_moi = v;
+        self
+    }
+    pub fn gravity(mut self, v: f32) -> Self {
+        self.inner.gravity = v;
+        self
+    }
+    pub fn max_vel_1(mut self, v: f32) -> Self {
+        self.inner.max_vel_1 = v;
+        self
+    }
+    pub fn max_vel_2(mut self, v: f32) -> Self {
+        self.inner.max_vel_2 = v;
+        self
+    }
+    pub fn torque_noise_max(mut self, v: f32) -> Self {
+        self.inner.torque_noise_max = v;
+        self
+    }
+    pub fn seed(mut self, v: u64) -> Self {
+        self.inner.seed = v;
+        self
+    }
+    pub fn build(self) -> AcrobotConfig {
+        self.inner
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -235,19 +277,30 @@ impl AcrobotState {
     }
 
     fn from_array(a: [f32; 4]) -> Self {
-        Self { theta1: a[0], theta2: a[1], theta1_dot: a[2], theta2_dot: a[3] }
+        Self {
+            theta1: a[0],
+            theta2: a[1],
+            theta1_dot: a[2],
+            theta2_dot: a[3],
+        }
     }
 }
 
 impl State<1> for AcrobotState {
     type Observation = AcrobotObservation;
 
-    fn shape() -> [usize; 1] { [4] }
-    fn numel(&self) -> usize { 4 }
+    fn shape() -> [usize; 1] {
+        [4]
+    }
+    fn numel(&self) -> usize {
+        4
+    }
 
     fn is_valid(&self) -> bool {
-        self.theta1.is_finite() && self.theta2.is_finite()
-            && self.theta1_dot.is_finite() && self.theta2_dot.is_finite()
+        self.theta1.is_finite()
+            && self.theta2.is_finite()
+            && self.theta1_dot.is_finite()
+            && self.theta2_dot.is_finite()
     }
 
     fn observe(&self) -> AcrobotObservation {
@@ -280,13 +333,21 @@ pub struct AcrobotObservation {
 impl AcrobotObservation {
     /// Flatten to a `[f32; 6]` array.
     pub fn to_array(&self) -> [f32; 6] {
-        [self.cos_theta1, self.sin_theta1, self.cos_theta2, self.sin_theta2,
-         self.theta1_dot, self.theta2_dot]
+        [
+            self.cos_theta1,
+            self.sin_theta1,
+            self.cos_theta2,
+            self.sin_theta2,
+            self.theta1_dot,
+            self.theta2_dot,
+        ]
     }
 }
 
 impl Observation<1> for AcrobotObservation {
-    fn shape() -> [usize; 1] { [6] }
+    fn shape() -> [usize; 1] {
+        [6]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,16 +368,20 @@ pub enum AcrobotAction {
 impl AcrobotAction {
     fn to_torque(self) -> f32 {
         match self {
-            Self::TorqueNeg  => -1.0,
-            Self::TorqueZero =>  0.0,
-            Self::TorquePos  =>  1.0,
+            Self::TorqueNeg => -1.0,
+            Self::TorqueZero => 0.0,
+            Self::TorquePos => 1.0,
         }
     }
 }
 
 impl Action<1> for AcrobotAction {
-    fn shape() -> [usize; 1] { [3] }
-    fn is_valid(&self) -> bool { true }
+    fn shape() -> [usize; 1] {
+        [3]
+    }
+    fn is_valid(&self) -> bool {
+        true
+    }
 }
 
 impl DiscreteAction<1> for AcrobotAction {
@@ -333,9 +398,9 @@ impl DiscreteAction<1> for AcrobotAction {
 
     fn to_index(&self) -> usize {
         match self {
-            Self::TorqueNeg  => 0,
+            Self::TorqueNeg => 0,
             Self::TorqueZero => 1,
-            Self::TorquePos  => 2,
+            Self::TorquePos => 2,
         }
     }
 }
@@ -360,7 +425,12 @@ impl<D: AcrobotDynamicsFn + Default> Acrobot<D> {
     pub fn with_config(config: AcrobotConfig) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
-            state: AcrobotState { theta1: 0.0, theta2: 0.0, theta1_dot: 0.0, theta2_dot: 0.0 },
+            state: AcrobotState {
+                theta1: 0.0,
+                theta2: 0.0,
+                theta1_dot: 0.0,
+                theta2_dot: 0.0,
+            },
             config,
             dynamics: D::default(),
             rng,
@@ -374,7 +444,12 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
     pub fn with_config_and_dynamics(config: AcrobotConfig, dynamics: D) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
-            state: AcrobotState { theta1: 0.0, theta2: 0.0, theta1_dot: 0.0, theta2_dot: 0.0 },
+            state: AcrobotState {
+                theta1: 0.0,
+                theta2: 0.0,
+                theta1_dot: 0.0,
+                theta2_dot: 0.0,
+            },
             config,
             dynamics,
             rng,
@@ -385,8 +460,8 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
     fn sample_init_state(&mut self) -> AcrobotState {
         let u = Uniform::new_inclusive(-0.1_f32, 0.1_f32).unwrap();
         AcrobotState {
-            theta1:     u.sample(&mut self.rng),
-            theta2:     u.sample(&mut self.rng),
+            theta1: u.sample(&mut self.rng),
+            theta2: u.sample(&mut self.rng),
             theta1_dot: u.sample(&mut self.rng),
             theta2_dot: u.sample(&mut self.rng),
         }
@@ -445,13 +520,18 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward(0.0),
+        ))
     }
 
     fn step(&mut self, action: AcrobotAction) -> Result<Self::SnapshotType, EnvironmentError> {
         let mut torque = action.to_torque();
         if self.config.torque_noise_max > 0.0 {
-            let noise = Uniform::new_inclusive(-self.config.torque_noise_max, self.config.torque_noise_max).unwrap();
+            let noise =
+                Uniform::new_inclusive(-self.config.torque_noise_max, self.config.torque_noise_max)
+                    .unwrap();
             torque += noise.sample(&mut self.rng);
         }
 
@@ -492,10 +572,11 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [6], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
         Ok(Self {
             cos_theta1: v[0],
             sin_theta1: v[1],
@@ -525,10 +606,11 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [3], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
         let idx = v
             .iter()
             .enumerate()
@@ -568,6 +650,8 @@ mod tests {
 
     #[test]
     fn reset_returns_running() {
+        use evorl_core::environment::EpisodeStatus;
+
         let mut env = default_env();
         let snap = env.reset().unwrap();
         assert_eq!(snap.status(), EpisodeStatus::Running);
@@ -577,8 +661,10 @@ mod tests {
     fn velocity_clamp_applied() {
         let cfg = AcrobotConfig::default();
         let over_state = AcrobotState {
-            theta1: 0.0, theta2: 0.0,
-            theta1_dot: 100.0, theta2_dot: -100.0,
+            theta1: 0.0,
+            theta2: 0.0,
+            theta1_dot: 100.0,
+            theta2_dot: -100.0,
         };
         let clamped = DefaultAcrobot::clamp_velocities(over_state, &cfg);
         assert!(clamped.theta1_dot <= cfg.max_vel_1);
@@ -590,24 +676,44 @@ mod tests {
         let cfg = AcrobotConfig::default();
         // θ1 = π (link 1 pointing straight up), θ2 = 0
         // height = -cos(π)*1 - cos(π+0)*1 = 1 + 1 = 2 > 1
-        let state = AcrobotState { theta1: std::f32::consts::PI, theta2: 0.0, theta1_dot: 0.0, theta2_dot: 0.0 };
+        let state = AcrobotState {
+            theta1: std::f32::consts::PI,
+            theta2: 0.0,
+            theta1_dot: 0.0,
+            theta2_dot: 0.0,
+        };
         assert!(DefaultAcrobot::is_terminal(&state, &cfg));
     }
 
     #[test]
     fn no_termination_at_rest() {
         let cfg = AcrobotConfig::default();
-        let state = AcrobotState { theta1: 0.0, theta2: 0.0, theta1_dot: 0.0, theta2_dot: 0.0 };
+        let state = AcrobotState {
+            theta1: 0.0,
+            theta2: 0.0,
+            theta1_dot: 0.0,
+            theta2_dot: 0.0,
+        };
         assert!(!DefaultAcrobot::is_terminal(&state, &cfg));
     }
 
     #[test]
     fn determinism() {
-        let mut a = DefaultAcrobot::with_config(AcrobotConfig { seed: 5, ..Default::default() });
-        let mut b = DefaultAcrobot::with_config(AcrobotConfig { seed: 5, ..Default::default() });
+        let mut a = DefaultAcrobot::with_config(AcrobotConfig {
+            seed: 5,
+            ..Default::default()
+        });
+        let mut b = DefaultAcrobot::with_config(AcrobotConfig {
+            seed: 5,
+            ..Default::default()
+        });
         a.reset().unwrap();
         b.reset().unwrap();
-        for action in [AcrobotAction::TorquePos, AcrobotAction::TorqueNeg, AcrobotAction::TorqueZero] {
+        for action in [
+            AcrobotAction::TorquePos,
+            AcrobotAction::TorqueNeg,
+            AcrobotAction::TorqueZero,
+        ] {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
             assert_eq!(sa.observation().to_array(), sb.observation().to_array());
@@ -622,7 +728,12 @@ mod tests {
         book.reset().unwrap();
         nips.reset().unwrap();
         // Force same initial state
-        let init = AcrobotState { theta1: 0.1, theta2: 0.1, theta1_dot: 0.1, theta2_dot: 0.1 };
+        let init = AcrobotState {
+            theta1: 0.1,
+            theta2: 0.1,
+            theta1_dot: 0.1,
+            theta2_dot: 0.1,
+        };
         book.state = init;
         nips.state = init;
 
@@ -635,12 +746,19 @@ mod tests {
                 break;
             }
         }
-        assert!(any_diff, "Book and NIPS dynamics produced identical trajectories");
+        assert!(
+            any_diff,
+            "Book and NIPS dynamics produced identical trajectories"
+        );
     }
 
     #[test]
     fn config_builder() {
-        let cfg = AcrobotConfig::builder().gravity(9.81).dt(0.1).seed(42).build();
+        let cfg = AcrobotConfig::builder()
+            .gravity(9.81)
+            .dt(0.1)
+            .seed(42)
+            .build();
         assert!((cfg.gravity - 9.81).abs() < 1e-5);
         assert!((cfg.dt - 0.1).abs() < 1e-5);
         assert_eq!(cfg.seed, 42);

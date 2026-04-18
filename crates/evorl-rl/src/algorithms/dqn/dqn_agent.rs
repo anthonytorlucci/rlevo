@@ -5,20 +5,7 @@
 //! `NeuralAgent` trait implementations are work-in-progress and currently
 //! commented out pending stabilisation of the `evorl-core` agent traits.
 
-use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
-use crate::algorithms::dqn::dqn_model::DqnModel;
-use burn::optim::Optimizer;
-use burn::prelude::ToElement;
-use burn::tensor::backend::AutodiffBackend;
-use burn::Tensor;
-use evorl_core::action::DiscreteAction;
-// use evorl_core::agent::{Agent, NeuralAgent};
-// use evorl_core::environment::Environment;
-// use evorl_core::memory::{PrioritizedExperienceReplay, TrainingBatch};
-use evorl_core::base::{Action, State, TensorConvertible};
-use evorl_core::metrics::{AgentStats, PerformanceRecord};
-use rand::RngExt;
-use std::marker::PhantomData;
+use evorl_core::metrics::PerformanceRecord;
 
 /// Error variants returned by DQN agent operations.
 // todo! implement additional From conversions

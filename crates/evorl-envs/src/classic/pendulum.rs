@@ -10,8 +10,8 @@ use std::fmt;
 
 use evorl_core::{
     action::ContinuousAction,
-    base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    base::{Action, Observation, State},
+    environment::{Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -101,13 +101,19 @@ impl PendulumAction {
     }
 
     /// The raw torque value.
-    pub fn torque(&self) -> f32 { self.0 }
+    pub fn torque(&self) -> f32 {
+        self.0
+    }
 
-    fn unchecked(v: f32) -> Self { Self(v) }
+    fn unchecked(v: f32) -> Self {
+        Self(v)
+    }
 }
 
 impl Action<1> for PendulumAction {
-    fn shape() -> [usize; 1] { [1] }
+    fn shape() -> [usize; 1] {
+        [1]
+    }
 
     fn is_valid(&self) -> bool {
         self.0.is_finite() && self.0.abs() <= 2.0
@@ -115,7 +121,9 @@ impl Action<1> for PendulumAction {
 }
 
 impl ContinuousAction<1> for PendulumAction {
-    fn as_slice(&self) -> &[f32] { std::slice::from_ref(&self.0) }
+    fn as_slice(&self) -> &[f32] {
+        std::slice::from_ref(&self.0)
+    }
 
     fn clip(&self, min: f32, max: f32) -> Self {
         Self::unchecked(self.0.clamp(min, max))
@@ -126,7 +134,10 @@ impl ContinuousAction<1> for PendulumAction {
         Self::unchecked(values[0])
     }
 
-    fn random() -> Self where Self: Sized {
+    fn random() -> Self
+    where
+        Self: Sized,
+    {
         Self::unchecked(0.0)
     }
 }
@@ -147,9 +158,15 @@ pub struct PendulumState {
 impl State<1> for PendulumState {
     type Observation = PendulumObservation;
 
-    fn shape() -> [usize; 1] { [2] }
-    fn numel(&self) -> usize { 2 }
-    fn is_valid(&self) -> bool { self.theta.is_finite() && self.theta_dot.is_finite() }
+    fn shape() -> [usize; 1] {
+        [2]
+    }
+    fn numel(&self) -> usize {
+        2
+    }
+    fn is_valid(&self) -> bool {
+        self.theta.is_finite() && self.theta_dot.is_finite()
+    }
 
     fn observe(&self) -> PendulumObservation {
         PendulumObservation {
@@ -183,7 +200,9 @@ impl PendulumObservation {
 }
 
 impl Observation<1> for PendulumObservation {
-    fn shape() -> [usize; 1] { [3] }
+    fn shape() -> [usize; 1] {
+        [3]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +237,10 @@ impl Pendulum {
     pub fn with_config(config: PendulumConfig) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
-            state: PendulumState { theta: 0.0, theta_dot: 0.0 },
+            state: PendulumState {
+                theta: 0.0,
+                theta_dot: 0.0,
+            },
             config,
             rng,
             steps: 0,
@@ -226,17 +248,26 @@ impl Pendulum {
     }
 
     fn sample_init_state(&mut self) -> PendulumState {
-        let theta     = Uniform::new_inclusive(-std::f32::consts::PI, std::f32::consts::PI).unwrap().sample(&mut self.rng);
-        let theta_dot = Uniform::new_inclusive(-1.0_f32, 1.0_f32).unwrap().sample(&mut self.rng);
+        let theta = Uniform::new_inclusive(-std::f32::consts::PI, std::f32::consts::PI)
+            .unwrap()
+            .sample(&mut self.rng);
+        let theta_dot = Uniform::new_inclusive(-1.0_f32, 1.0_f32)
+            .unwrap()
+            .sample(&mut self.rng);
         PendulumState { theta, theta_dot }
     }
 
-    fn step_dynamics(state: PendulumState, torque: f32, cfg: &PendulumConfig) -> (PendulumState, f32) {
+    fn step_dynamics(
+        state: PendulumState,
+        torque: f32,
+        cfg: &PendulumConfig,
+    ) -> (PendulumState, f32) {
         let u = torque.clamp(-cfg.max_torque, cfg.max_torque);
-        let theta_ddot = (3.0 * cfg.g / (2.0 * cfg.l)) * state.theta.sin()
-            + (3.0 / (cfg.m * cfg.l * cfg.l)) * u;
+        let theta_ddot =
+            (3.0 * cfg.g / (2.0 * cfg.l)) * state.theta.sin() + (3.0 / (cfg.m * cfg.l * cfg.l)) * u;
 
-        let new_theta_dot = (state.theta_dot + theta_ddot * cfg.dt).clamp(-cfg.max_speed, cfg.max_speed);
+        let new_theta_dot =
+            (state.theta_dot + theta_ddot * cfg.dt).clamp(-cfg.max_speed, cfg.max_speed);
         let new_theta = angle_normalize(state.theta + new_theta_dot * cfg.dt);
 
         let cost = angle_normalize(state.theta).powi(2)
@@ -244,7 +275,13 @@ impl Pendulum {
             + 0.001 * u.powi(2);
         let reward = -cost;
 
-        (PendulumState { theta: new_theta, theta_dot: new_theta_dot }, reward)
+        (
+            PendulumState {
+                theta: new_theta,
+                theta_dot: new_theta_dot,
+            },
+            reward,
+        )
     }
 }
 
@@ -276,14 +313,20 @@ impl Environment<1, 1, 1> for Pendulum {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward(0.0),
+        ))
     }
 
     fn step(&mut self, action: PendulumAction) -> Result<Self::SnapshotType, EnvironmentError> {
         let (next_state, reward_f) = Self::step_dynamics(self.state, action.torque(), &self.config);
         self.state = next_state;
         self.steps += 1;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(reward_f)))
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward(reward_f),
+        ))
     }
 }
 
@@ -321,11 +364,16 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [3], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
-        Ok(Self { cos_theta: v[0], sin_theta: v[1], theta_dot: v[2] })
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
+        Ok(Self {
+            cos_theta: v[0],
+            sin_theta: v[1],
+            theta_dot: v[2],
+        })
     }
 }
 
@@ -345,10 +393,11 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
                 message: format!("expected shape [1], got {dims:?}"),
             });
         }
-        let v = tensor
-            .into_data()
-            .into_vec::<f32>()
-            .map_err(|e| evorl_core::base::TensorConversionError { message: e.to_string() })?;
+        let v = tensor.into_data().into_vec::<f32>().map_err(|e| {
+            evorl_core::base::TensorConversionError {
+                message: e.to_string(),
+            }
+        })?;
         Ok(Self::unchecked(v[0]))
     }
 }
@@ -381,7 +430,10 @@ mod tests {
 
     #[test]
     fn upright_zero_reward() {
-        let state = PendulumState { theta: 0.0, theta_dot: 0.0 };
+        let state = PendulumState {
+            theta: 0.0,
+            theta_dot: 0.0,
+        };
         let cfg = PendulumConfig::default();
         let (_, reward) = Pendulum::step_dynamics(state, 0.0, &cfg);
         assert!((reward - 0.0).abs() < 1e-6, "reward={reward}");
@@ -390,7 +442,10 @@ mod tests {
     #[test]
     fn worst_case_reward_approx_minus_16() {
         let cfg = PendulumConfig::default();
-        let state = PendulumState { theta: std::f32::consts::PI, theta_dot: cfg.max_speed };
+        let state = PendulumState {
+            theta: std::f32::consts::PI,
+            theta_dot: cfg.max_speed,
+        };
         let (_, reward) = Pendulum::step_dynamics(state, cfg.max_torque, &cfg);
         assert!(reward < -15.0, "expected ≈ -16.27, got {reward}");
     }
@@ -400,21 +455,32 @@ mod tests {
         let pi = std::f32::consts::PI;
         // 3π and -3π are both ≡ π (mod 2π). The formula maps them to -π (same angle).
         let n3pi = angle_normalize(3.0 * pi);
-        assert!(n3pi.abs() - pi < 1e-4, "angle_normalize(3π)={n3pi} should be ±π");
+        assert!(
+            n3pi.abs() - pi < 1e-4,
+            "angle_normalize(3π)={n3pi} should be ±π"
+        );
         let nm3pi = angle_normalize(-3.0 * pi);
-        assert!(nm3pi.abs() - pi < 1e-4, "angle_normalize(-3π)={nm3pi} should be ±π");
+        assert!(
+            nm3pi.abs() - pi < 1e-4,
+            "angle_normalize(-3π)={nm3pi} should be ±π"
+        );
         // 2π → 0; -2π → 0
         assert!(angle_normalize(2.0 * pi).abs() < 1e-4);
         assert!(angle_normalize(0.0).abs() < 1e-4);
         // Result always in (-π, π]
         for x in [-5.0_f32, -pi, -0.5, 0.0, 0.5, pi, 5.0, 7.0] {
             let n = angle_normalize(x);
-            assert!(n >= -pi - 1e-4 && n <= pi + 1e-4, "normalize({x}) = {n} out of range");
+            assert!(
+                n >= -pi - 1e-4 && n <= pi + 1e-4,
+                "normalize({x}) = {n} out of range"
+            );
         }
     }
 
     #[test]
     fn never_terminates() {
+        use evorl_core::environment::EpisodeStatus;
+
         let mut env = default_env();
         env.reset().unwrap();
         let action = PendulumAction::new(1.0).unwrap();
@@ -427,8 +493,14 @@ mod tests {
 
     #[test]
     fn determinism() {
-        let mut a = Pendulum::with_config(PendulumConfig { seed: 11, ..Default::default() });
-        let mut b = Pendulum::with_config(PendulumConfig { seed: 11, ..Default::default() });
+        let mut a = Pendulum::with_config(PendulumConfig {
+            seed: 11,
+            ..Default::default()
+        });
+        let mut b = Pendulum::with_config(PendulumConfig {
+            seed: 11,
+            ..Default::default()
+        });
         a.reset().unwrap();
         b.reset().unwrap();
         let action = PendulumAction::unchecked(0.5);

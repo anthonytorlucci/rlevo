@@ -1,4 +1,4 @@
-use burn::module::{AutodiffModule, Module};
+use burn::module::AutodiffModule;
 use burn::tensor::backend::AutodiffBackend;
 
 /// Bridges a trainable DQN model and its non-differentiable target counterpart.

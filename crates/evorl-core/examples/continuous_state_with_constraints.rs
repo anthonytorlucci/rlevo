@@ -247,11 +247,7 @@ impl RobotPose {
             theta_mdeg,
         };
 
-        if pose.is_valid() {
-            Some(pose)
-        } else {
-            None
-        }
+        if pose.is_valid() { Some(pose) } else { None }
     }
 
     /// Creates a pose without validation (use with caution).
@@ -424,7 +420,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "—".repeat(60));
 
     let mut trajectory = vec![];
-    let mut current = RobotPose::new(100, 100, 0).expect("Valid starting pose");
+    let current = RobotPose::new(100, 100, 0).expect("Valid starting pose");
     trajectory.push(current);
 
     // Simulate a simple path: move right and up
