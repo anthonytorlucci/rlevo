@@ -103,3 +103,8 @@ required-features = ["locomotion"]
 name = 'inverted_double_pendulum_random'
 path = 'examples/locomotion/inverted_double_pendulum_random.rs'
 required-features = ["locomotion"]
+
+[[example]]
+name = 'swimmer_random'
+path = 'examples/locomotion/swimmer_random.rs'
+required-features = ["locomotion"]

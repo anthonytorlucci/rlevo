@@ -26,13 +26,13 @@
 - [ ] mujoco-locomotion (`projects/burn-evorl/specs/2026-04-17-rl-envs/mujoco-locomotion`)
   - [✔] Inverted Pendulum
   - [✔] Reacher
-  - [ ] Inverted Double Pendulum
-  - [ ] Swimmer
-  - [ ] Half Cheetah
-  - [ ] Hopper
-  - [ ] Walker2D
-  - [ ] Ant
-  - [ ] Pusher
+  - [✔] Inverted Double Pendulum
+  - [✔] Swimmer (Tier 2)
+  - [ ] Half Cheetah (Tier 2)
+  - [ ] Hopper (Tier 2)
+  - [ ] Walker2D (Tier 2)
+  - [ ] Ant (Tier 3)
+  - [ ] Pusher (Tier 3)
   - [ ] Humanoid
   - [ ] Humanoid Standup
 
