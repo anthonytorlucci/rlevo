@@ -55,6 +55,10 @@ path = "examples/ddpg_pendulum.rs"
 name = "td3_pendulum"
 path = "examples/td3_pendulum.rs"
 
+[[example]]
+name = "sac_pendulum"
+path = "examples/sac_pendulum.rs"
+
 [[bench]]
 name = "dqn_bench"
 path = "benches/dqn_bench.rs"
@@ -88,4 +92,9 @@ harness = false
 [[bench]]
 name = "td3_bench"
 path = "benches/td3_bench.rs"
+harness = false
+
+[[bench]]
+name = "sac_bench"
+path = "benches/sac_bench.rs"
 harness = false

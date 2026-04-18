@@ -25,6 +25,9 @@
 //! - [`algorithms::td3`] — Twin Delayed DDPG (off-policy, continuous actions):
 //!   DDPG with twin critics (min-target), Gaussian target-policy smoothing,
 //!   and delayed actor/Polyak updates per Fujimoto et al. 2018.
+//! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
+//!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
+//!   Bellman backup and auto-tuned temperature α per Haarnoja et al. 2018.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -110,6 +113,28 @@ pub mod algorithms {
         pub mod td3_agent;
         pub mod td3_config;
         pub mod td3_model;
+        pub mod train;
+    }
+
+    pub mod sac {
+        //! Soft Actor-Critic (SAC): off-policy, stochastic-actor,
+        //! maximum-entropy algorithm for continuous-action spaces.
+        //!
+        //! Pairs a squashed-Gaussian
+        //! [`sac_policy::SquashedGaussianPolicyHead`] actor with two
+        //! [`sac_model::ContinuousQ`] critics (each with a Polyak-averaged
+        //! target), a scalar [`sac_alpha::LogAlpha`] learnable temperature,
+        //! and a uniform replay buffer. The Bellman target includes the
+        //! entropy term `−α·log π(a'|s')`; the actor is trained via
+        //! reparameterization, and α is auto-tuned toward the heuristic
+        //! target entropy `-|A|` by default. CleanRL's
+        //! `sac_continuous_action.py` is the reference implementation.
+
+        pub mod sac_agent;
+        pub mod sac_alpha;
+        pub mod sac_config;
+        pub mod sac_model;
+        pub mod sac_policy;
         pub mod train;
     }
 
