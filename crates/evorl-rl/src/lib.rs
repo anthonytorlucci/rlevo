@@ -8,6 +8,8 @@
 //! # Structure
 //!
 //! - [`algorithms::dqn`] — Deep Q-Network: config, model trait, and agent.
+//! - [`algorithms::c51`] — Categorical DQN (distributional): config, model
+//!   trait, categorical projection, agent, and training loop.
 //! - [`utils`] — Shared helpers (e.g., Bellman target computation).
 
 pub mod algorithms {
@@ -20,6 +22,17 @@ pub mod algorithms {
         pub mod dqn_config;
         pub mod dqn_model;
         pub mod exploration;
+        pub mod train;
+    }
+
+    pub mod c51 {
+        //! Categorical DQN (C51) distributional algorithm.
+
+        pub mod c51_agent;
+        pub mod c51_config;
+        pub mod c51_model;
+        pub mod loss;
+        pub mod projection;
         pub mod train;
     }
 }

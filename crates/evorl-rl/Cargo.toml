@@ -27,7 +27,16 @@ tracing-subscriber = { workspace = true }
 name = "dqn_cart_pole"
 path = "examples/dqn_cart_pole.rs"
 
+[[example]]
+name = "c51_cart_pole"
+path = "examples/c51_cart_pole.rs"
+
 [[bench]]
 name = "dqn_bench"
 path = "benches/dqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "c51_bench"
+path = "benches/c51_bench.rs"
 harness = false
