@@ -36,7 +36,7 @@
 //!
 //! Rapier's `capsule_x(half_len, r)` places the capsule symmetric about the
 //! body origin, so `link2`'s tip sits at body-local `(+link2_length/2, 0, 0)`.
-//! The spec §9's phrasing `link2_rotation * [link2_length, 0, 0]` is a
+//! Gymnasium's phrasing `link2_rotation * [link2_length, 0, 0]` is a
 //! shorthand — the geometrically correct offset is `link2_length/2`.
 //!
 //! ## Divergence from Gymnasium-v5 dynamics
@@ -320,7 +320,7 @@ impl Reacher<Rapier3DBackend> {
         config: &ReacherConfig,
         rng: &mut StdRng,
     ) -> (Rapier3DWorld, ReacherState) {
-        // Zero gravity — the arm is planar and must not droop in z (spec §9).
+        // Zero gravity — the arm is planar and must not droop in z.
         let mut world = Rapier3DWorld::new(
             Vector::new(0.0, 0.0, 0.0),
             config.dt,
@@ -347,7 +347,7 @@ impl Reacher<Rapier3DBackend> {
         let half2 = config.link2_length * 0.5;
 
         // Density from mass / capsule-volume so each body has a valid inertia
-        // tensor (notes §2 — `additional_mass` would leave angular inertia zero).
+        // tensor (using `additional_mass` instead would leave angular inertia zero).
         let capsule_volume = |half_len: f32, radius: f32| {
             std::f32::consts::PI * radius.powi(2) * (2.0 * half_len + (4.0 / 3.0) * radius)
         };
@@ -442,7 +442,7 @@ impl Reacher<Rapier3DBackend> {
         let [w2, _, _, z2] = p2.orientation;
         let theta1 = wrap_to_pi(2.0 * z1.atan2(w1));
         let theta2_world = wrap_to_pi(2.0 * z2.atan2(w2));
-        let theta2 = wrap_to_pi(theta2_world - theta1); // relative (spec §2)
+        let theta2 = wrap_to_pi(theta2_world - theta1); // relative elbow angle
 
         // Fingertip in world frame: link2 body origin is the capsule midpoint;
         // the tip sits at body-local (+half2, 0, 0).

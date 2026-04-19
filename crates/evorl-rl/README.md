@@ -114,7 +114,7 @@ Distributional-specific hyperparameters:
 
 ## Planned Algorithms
 
-The following are planned per the [Milestone 4 spec](obsidian://open?vault=infinity-vault&file=projects%2Fburn-evorl%2Fspecs%2F2026-04-18-rl-algos%2Frl-algos-overview):
+The following algorithms are planned for future releases:
 
 | Algorithm | Family | Action space | Status |
 |-----------|--------|-------------|--------|

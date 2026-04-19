@@ -1,4 +1,4 @@
-//! Spec §12.3: Rastrigin-D10 convergence via the benchmark harness.
+//! Rastrigin-D10 convergence via the benchmark harness.
 //!
 //! This test verifies that each real-valued strategy plugs into
 //! `evorl_benchmarks::Evaluator::run_suite` end-to-end. We assert that

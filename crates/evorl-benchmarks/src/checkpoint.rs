@@ -1,4 +1,4 @@
-//! Trial-boundary checkpointing (spec §7).
+//! Trial-boundary checkpointing.
 //!
 //! After each completed trial the evaluator serializes the partial
 //! `BenchmarkReport` to `<checkpoint_dir>/<suite_name>.ckpt.json`. On resume

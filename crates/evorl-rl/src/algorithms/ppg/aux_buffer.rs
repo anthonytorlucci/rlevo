@@ -15,10 +15,10 @@
 //! per-step at rollout collection time would anchor the distillation to a
 //! stale policy and undo the policy-phase's learning.
 //!
-//! Sampling is i.i.d. random across the concatenated pool (the "simpler
-//! random-obs sampling" choice from the PPG spec §8.1). The more elaborate
-//! contiguous-per-rollout sampling used in CleanRL's `ppg_procgen.py` is a
-//! follow-up once benchmarks demand it.
+//! Sampling is i.i.d. random across the concatenated pool (the simpler
+//! random-obs sampling choice). The more elaborate contiguous-per-rollout
+//! sampling used in CleanRL's `ppg_procgen.py` is a follow-up once
+//! benchmarks demand it.
 
 use burn::tensor::Tensor;
 use burn::tensor::TensorData;

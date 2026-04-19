@@ -1,9 +1,9 @@
 //! Swarm-intelligence and nature-inspired metaheuristics.
 //!
-//! Phase 2 of the evo-opt-algos track. Each algorithm implements the
-//! [`Strategy`](crate::Strategy) trait over tensor-backed populations so
-//! it plugs into the same [`EvolutionaryHarness`](crate::EvolutionaryHarness)
-//! pipeline as the classical families (GA, ES, DE, EP, CGP).
+//! Each algorithm implements the [`Strategy`](crate::Strategy) trait over
+//! tensor-backed populations so it plugs into the same
+//! [`EvolutionaryHarness`](crate::EvolutionaryHarness) pipeline as the
+//! classical families (GA, ES, DE, EP, CGP).
 //!
 //! # Shipping algorithms
 //!
@@ -18,7 +18,7 @@
 //! | [`firefly`] | Firefly Algorithm | Real | Useful for multimodal |
 //! | [`bat`] | Bat Algorithm | Real | Legacy comparator |
 //! | [`salp`] | Salp Swarm Algorithm | Real | Legacy comparator |
-//! | [`aco_perm`] | Ant Colony (permutation) | Permutation | **Stub** — deferred to combinatorial-benchmarks spec |
+//! | [`aco_perm`] | Ant Colony (permutation) | Permutation | **Stub** — deferred to a future release |
 //!
 //! # Calibration
 //!

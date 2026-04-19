@@ -48,6 +48,15 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
 /// Fitness is computed on the host and then re-uploaded as a single
 /// `Tensor<B, 1>`.
 ///
+/// # Precision
+///
+/// Populations are read as `f32` and widened to `f64` for the evaluator
+/// call; the returned `f64` fitness is narrowed back to `f32` before it
+/// is uploaded as a `Tensor<B, 1>`. Fitness values that exceed `f32`
+/// range (or rely on sub-ulp precision) will lose information at the
+/// narrowing step. Purpose-built batched-on-device landscapes should
+/// implement [`BatchFitnessFn`] directly to avoid the round-trip.
+///
 /// # Type Parameters
 ///
 /// - `FE`: Concrete [`FitnessEvaluable`] implementation.

@@ -1,6 +1,4 @@
 //! Reproducible benchmarking harness for `burn-evorl`.
-//!
-//! See `projects/burn-evorl/specs/evorl-benchmarks.md` for the design spec.
 
 pub mod agent;
 pub mod checkpoint;

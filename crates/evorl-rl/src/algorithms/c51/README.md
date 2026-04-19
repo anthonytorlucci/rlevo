@@ -67,5 +67,3 @@ cargo test -p evorl-rl --release --test c51_integration
 - Bellemare, Dabney, Munos (2017), *A Distributional Perspective on
   Reinforcement Learning*, ICML.
 - [CleanRL C51 docs](https://docs.cleanrl.dev/rl-algorithms/c51/)
-- Spec: `projects/burn-evorl/specs/2026-04-18-rl-algos/c51.md` in the
-  project vault.

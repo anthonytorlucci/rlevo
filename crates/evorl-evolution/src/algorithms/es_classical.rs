@@ -532,11 +532,10 @@ mod tests {
 
     #[test]
     fn mu_plus_lambda_converges_on_sphere_d10() {
-        // Spec §12.2: each family must converge on Sphere (D=10) to
-        // best_fitness < 1e-6 within budget on ndarray. We allow a
-        // generous budget because the classical ES is slower than
-        // CMA-ES; the goal is to verify convergence direction, not to
-        // optimize hyperparameters.
+        // Convergence on Sphere (D=10) to best_fitness < 1e-6 within
+        // budget on ndarray. We allow a generous budget because the
+        // classical ES is slower than CMA-ES; the goal is to verify
+        // convergence direction, not to optimize hyperparameters.
         let best = run_es(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10, 1500, 42);
         assert!(best < 1e-6, "MuPlusLambda D10 best={best}");
     }

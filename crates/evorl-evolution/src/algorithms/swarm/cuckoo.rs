@@ -376,13 +376,13 @@ mod tests {
     #[test]
     fn cuckoo_reduces_on_sphere_d10() {
         // Pure-Lévy CS has no gradient-biased update — it's a biased
-        // random walk with abandonment. The spec (§6.6, §12) flags CS
-        // as "the Lévy flights are the interesting part; otherwise a
-        // thin wrapper around random walk + abandonment"; convergence
-        // to machine precision is not expected within reasonable
-        // budgets on Sphere-D10. Threshold 20.0 in 800 generations is
-        // still a ~4× reduction from the uniform-random baseline (≈ 87)
-        // — it verifies the Lévy machinery composes correctly.
+        // random walk with abandonment. The Lévy flights are the
+        // interesting part; otherwise CS is a thin wrapper around
+        // random walk + abandonment, so convergence to machine
+        // precision is not expected within reasonable budgets on
+        // Sphere-D10. Threshold 20.0 in 800 generations is still a ~4×
+        // reduction from the uniform-random baseline (≈ 87) — it
+        // verifies the Lévy machinery composes correctly.
         let device = Default::default();
         let strategy = CuckooSearch::<TestBackend>::new();
         let mut params = CuckooConfig::default_for(30, 10);

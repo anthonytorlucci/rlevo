@@ -45,7 +45,7 @@ pub struct AbcConfig {
     pub limit: usize,
     /// Tournament size for onlooker selection. Canonical ABC uses
     /// roulette (fitness-proportionate); tournament is a GPU-friendly
-    /// equivalent that reuses the phase-1 primitive.
+    /// equivalent that reuses [`crate::ops::selection::tournament_select`].
     pub tournament_size: usize,
 }
 

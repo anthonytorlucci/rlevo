@@ -1,12 +1,12 @@
-//! Phase-2 spec §13.4: every shipping swarm strategy drives
+//! Every shipping swarm strategy drives
 //! `evorl_benchmarks::Evaluator::run_suite` end-to-end on Rastrigin-D10
 //! and Ackley-D10.
 //!
-//! Mirrors the phase-1 `rastrigin_run_suite.rs` pattern: assert each
-//! strategy finishes materially below the uniform-random baseline.
-//! Precise convergence targets belong to per-strategy tests in the
+//! Mirrors the `rastrigin_run_suite.rs` pattern: assert each strategy
+//! finishes materially below the uniform-random baseline. Precise
+//! convergence targets belong to per-strategy tests in the
 //! `algorithms::swarm::*` modules. ACO-Permutation is excluded because
-//! its module is a `todo!()` stub (§6.2).
+//! its module is a `todo!()` stub.
 
 use burn::backend::NdArray;
 use evorl_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
@@ -63,7 +63,7 @@ fn cfg() -> EvaluatorConfig {
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 29,
-        // Single-threaded — see phase-1 rastrigin_run_suite.rs for the
+        // Single-threaded — see rastrigin_run_suite.rs for the
         // ndarray-RNG-mutex rationale.
         num_threads: Some(1),
         checkpoint_dir: None,
@@ -272,11 +272,11 @@ fn de_rand1_ak(
 #[test]
 fn swarm_strategies_reduce_on_rastrigin_and_ackley() {
     // Random-search baseline on Rastrigin-D10 is roughly 80-120; on
-    // Ackley-D10 it is ~18-21. The phase-2 spec §13.3 acceptance bar
-    // is "within 2× of the best-in-class phase-1 baseline
-    // (DE/Rand1/bin)". We compute DE's result here too and use it as
-    // the anchor for the Ackley check; for Rastrigin we accept any
-    // strategy-average below a generous ceiling.
+    // Ackley-D10 it is ~18-21. The acceptance bar is "within 2× of the
+    // best-in-class classical baseline (DE/Rand1/bin)". We compute DE's
+    // result here too and use it as the anchor for the Ackley check;
+    // for Rastrigin we accept any strategy-average below a generous
+    // ceiling.
     //
     // Ceilings kept loose to stay stable across RNG seed versions.
     let rastrigin_ceiling = 120.0_f64;
@@ -302,7 +302,7 @@ fn swarm_strategies_reduce_on_rastrigin_and_ackley() {
     check_rastrigin!(cuckoo_ra, "Cuckoo");
     check_rastrigin!(firefly_ra, "Firefly");
 
-    // Ackley — anchor against DE/Rand1/bin as the phase-1 comparator
+    // Ackley — anchor against DE/Rand1/bin as the classical comparator
     // and require PSO (the canonical swarm baseline) to finish in the
     // same order of magnitude.
     let de_avg = collect_best_returns("swarm-ak", "ackley-10d", de_rand1_ak);

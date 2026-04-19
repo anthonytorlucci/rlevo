@@ -3,12 +3,12 @@
 //! A canonical textbook GA over `Tensor<B, 2>` populations:
 //!
 //! 1. Evaluate the current population (done externally by the harness).
-//! 2. Select parents via [`ops::selection::tournament_select`].
-//! 3. Recombine via [`ops::crossover::blx_alpha`] or
-//!    [`ops::crossover::uniform_crossover`].
-//! 4. Mutate via [`ops::mutation::gaussian_mutation`].
-//! 5. Replace via [`ops::replacement::elitist`] or
-//!    [`ops::replacement::generational`].
+//! 2. Select parents via [`crate::ops::selection::tournament_select`].
+//! 3. Recombine via [`crate::ops::crossover::blx_alpha`] or
+//!    [`crate::ops::crossover::uniform_crossover`].
+//! 4. Mutate via [`crate::ops::mutation::gaussian_mutation`].
+//! 5. Replace via [`crate::ops::replacement::elitist`] or
+//!    [`crate::ops::replacement::generational`].
 //!
 //! Operator variants are enum-selected via the [`GaConfig`] to avoid a
 //! generic explosion; custom operator mixtures can still be built

@@ -33,7 +33,10 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// ever shows up on a profile.
 #[must_use]
 pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &B::Device) -> Tensor<B, 1> {
-    let data = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+    let data = fitness
+        .into_data()
+        .into_vec::<f32>()
+        .expect("centered_rank requires f32 tensor data");
     let n = data.len();
     if n == 0 {
         return Tensor::<B, 1>::from_floats([0.0f32; 0], device);

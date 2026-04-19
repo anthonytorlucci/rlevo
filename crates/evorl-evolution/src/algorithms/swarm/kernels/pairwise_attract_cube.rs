@@ -1,21 +1,21 @@
-//! Fused pairwise-attract kernel for [`super::super::firefly`] (§9.1).
+//! Fused pairwise-attract kernel for [`super::super::firefly`].
 //!
 //! # Status: designed, not yet implemented
 //!
-//! The v1 milestone ships the **pure-tensor** `O(N²D)` Firefly path
-//! (see [`super::super::firefly::FireflyAlgorithm::pure_tensor_attract`])
-//! which works on every backend Burn supports and is capped at
+//! The current release ships the **pure-tensor** `O(N²D)` Firefly path
+//! (the `pure_tensor_attract` helper inside
+//! [`super::super::firefly::FireflyAlgorithm`]) which works on every
+//! backend Burn supports and is capped at
 //! `pop_size ≤ 128` because the `(N, N, D)` difference tensor dominates
 //! device memory beyond that. This module reserves the CubeCL-native
 //! replacement path behind the `custom-kernels` feature.
 //!
 //! Landing the real kernel requires first-time integration with
-//! `cubecl 0.9` in `evorl-evolution` (phase-2 adds the optional
-//! dependency; phase-1 designs documented in `crate::ops::kernels` are
-//! still unwritten) and per-backend validation on wgpu and the cpu-jit
-//! path. None of that blocks the strategy machinery, so the kernel
-//! itself is scheduled as follow-up work tracked by the plan's task
-//! C1 in `.claude/plans/in-this-session-let-s-immutable-lamport.md`.
+//! `cubecl 0.9` in `evorl-evolution` (the designs documented in
+//! [`crate::ops::kernels`] are still unwritten) and per-backend
+//! validation on wgpu and the cpu-jit path. None of that blocks the
+//! strategy machinery, so the kernel itself is scheduled as follow-up
+//! work.
 //!
 //! # Target interface
 //!
@@ -45,8 +45,8 @@
 //! At `N ≥ 128` on wgpu, the pure-tensor path allocates a `(N, N, D)`
 //! tensor — 10 MB at `N = 512, D = 10`. The fused kernel eliminates
 //! that allocation and collapses three launches (diff, β, attraction
-//! sum) into one. Spec §13.6 targets a measurable speedup at
-//! `N ≥ 128` on both backends.
+//! sum) into one, with a target of measurable speedup at `N ≥ 128` on
+//! both backends.
 //!
 //! # Fallback
 //!
@@ -54,6 +54,6 @@
 //! unimplemented, the strategy continues to use the pure-tensor
 //! fallback exported from [`super::super::firefly`] — an honest
 //! "kernel feature-flag is declared, implementation is future work"
-//! state that mirrors the phase-1 `ops/kernels` treatment.
+//! state that mirrors the [`crate::ops::kernels`] treatment.
 
 #![allow(dead_code)]

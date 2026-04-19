@@ -347,7 +347,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
             config.frame_skip,
         );
 
-        // Reset-noise sampling per spec §7:
+        // Reset-noise sampling:
         //   qpos (cart_x, θ₁, θ₂) ~ U(-scale, scale)
         //   qvel (cart_vx, θ̇₁, θ̇₂) ~ N(0, scale)
         let n = config.reset_noise_scale;
@@ -457,7 +457,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
 
         let theta1 = pole_y_angle(&pole1_pose);
         let theta2_abs = pole_y_angle(&pole2_pose);
-        // θ₂ is the **relative** elbow angle (pole2 − pole1), per spec §2.
+        // θ₂ is the **relative** elbow angle (pole2 − pole1).
         let theta2 = wrap_to_pi(theta2_abs - theta1);
 
         let cfrc_ext = Rapier3DBackend::contact_force(&self.world, self.state.pole2);

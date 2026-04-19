@@ -1,30 +1,29 @@
 //! Cross-backend parity for the pure-tensor operator baselines.
 //!
-//! Spec §12.5 originally targeted a `1e-4` relative-tolerance match of
-//! `best_fitness_ever` between ndarray and wgpu on Sphere-D10. In
-//! practice that target is untestable: the two backends use
-//! independent RNG streams (ndarray = splitmix-seeded `NdArrayRng`;
-//! wgpu = per-device compute-pipeline seeded stream) so even when the
-//! same host seed is supplied, tensor `random()` calls produce
-//! different bytes. The strategies therefore take different
+//! A `1e-4` relative-tolerance match of `best_fitness_ever` between
+//! ndarray and wgpu on Sphere-D10 is untestable in practice: the two
+//! backends use independent RNG streams (ndarray = splitmix-seeded
+//! `NdArrayRng`; wgpu = per-device compute-pipeline seeded stream) so
+//! even when the same host seed is supplied, tensor `random()` calls
+//! produce different bytes. The strategies therefore take different
 //! trajectories and end at different points — both small, neither a
 //! function of the other.
 //!
-//! This test accordingly validates the real acceptance criterion: the
-//! pure-tensor operators compose correctly on both backends and each
-//! drives GA to a non-trivial optimum on Sphere-D10. Bit-level
+//! This test accordingly validates a weaker but meaningful criterion:
+//! the pure-tensor operators compose correctly on both backends and
+//! each drives GA to a non-trivial optimum on Sphere-D10. Bit-level
 //! backend-parity would require routing a single host RNG through both
 //! backends, which CubeCL doesn't currently expose; landing a custom
-//! kernel (M4 future work, see `ops/kernels/mod.rs`) is the natural
+//! kernel (follow-up work, see `ops/kernels/mod.rs`) is the natural
 //! path to change that.
 //!
 //! # Reduction-nondeterminism caveat
 //!
 //! Even when the RNG disparity is set aside, the wgpu backend does not
 //! guarantee bit-identical reductions because workgroup ordering is
-//! implementation-dependent (see `evorl-benchmarks` §4.6 and spec §10).
-//! The ndarray backend is still expected to be bit-deterministic; that
-//! contract is enforced by `tests/determinism.rs`.
+//! implementation-dependent. The ndarray backend is still expected to
+//! be bit-deterministic; that contract is enforced by
+//! `tests/determinism.rs`.
 //!
 //! # Single test, serial execution
 //!
@@ -157,8 +156,8 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
         "wgpu GA did not converge on Sphere-D10: {wgpu_ga}",
     );
 
-    // Same functional assertion for PSO. This exercises the phase-2
-    // swarm operator chain (velocity clamp, tensor broadcast in the
+    // Same functional assertion for PSO. This exercises the swarm
+    // operator chain (velocity clamp, tensor broadcast in the
     // inertia update, gather-based personal-best tracking) on both
     // backends. Threshold 1e-2 (tighter than GA's 1.0) is justified
     // because PSO with the default inertia schedule converges faster

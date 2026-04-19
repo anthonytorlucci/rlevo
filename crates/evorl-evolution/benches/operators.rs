@@ -3,8 +3,7 @@
 //!
 //! The numbers these benches produce are the reference point for the
 //! custom CubeCL kernel work scoped in `ops/kernels/mod.rs`. Kernels
-//! should strictly beat the pure-tensor baseline at `pop_size ≥ 256`
-//! — that's the acceptance criterion from spec §12.6 / §12.7.
+//! should strictly beat the pure-tensor baseline at `pop_size ≥ 256`.
 //!
 //! Run with `cargo bench -p evorl-evolution`. Pass
 //! `--save-baseline pre-kernel` before landing kernels and

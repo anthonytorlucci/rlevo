@@ -1,6 +1,6 @@
 //! Concrete evolutionary algorithms.
 //!
-//! # Classical families (phase 1)
+//! # Classical families
 //!
 //! - [`ga`] / [`ga_binary`] — Genetic Algorithm (real- and binary-coded).
 //! - [`es_classical`] — (1+1), (1+λ), (μ,λ), (μ+λ) Evolution Strategies.
@@ -8,7 +8,7 @@
 //! - [`ep`] — Evolutionary Programming (Fogel-style).
 //! - [`gp_cgp`] — Cartesian Genetic Programming.
 //!
-//! # Swarm / nature-inspired metaheuristics (phase 2)
+//! # Swarm / nature-inspired metaheuristics
 //!
 //! - [`swarm`] — PSO, ACO_R, ABC, GWO, WOA, CS, FA, BA, SSA.
 

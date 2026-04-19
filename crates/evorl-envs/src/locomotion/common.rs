@@ -231,7 +231,7 @@ pub fn wrap_to_pi(angle: f32) -> f32 {
 /// `impl Snapshot<1>` rather than duplicating it. Carries a
 /// [`SnapshotMetadata`] whose `components` map records decomposed reward
 /// contributions and whose `positions` map records torso / centre-of-mass /
-/// fingertip coordinates, matching the spec's [§7.3–7.4].
+/// fingertip coordinates.
 #[derive(Debug, Clone)]
 pub struct LocomotionSnapshot<O>
 where

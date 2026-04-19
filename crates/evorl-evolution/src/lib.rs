@@ -23,11 +23,6 @@
 //! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.
 //! - [`algorithms`] — concrete strategies.
-//!
-//! # Design
-//!
-//! See `projects/burn-evorl/specs/2026-04-17-evo-opt-algos/classical-evolutionary-algorithms.md`
-//! for the canonical design rationale.
 
 pub mod algorithms;
 pub mod fitness;

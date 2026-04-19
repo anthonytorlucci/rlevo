@@ -11,7 +11,7 @@ to check for regressions.
 
 Run with `cargo bench -p evorl-evolution`. Reference point for the custom
 CubeCL kernel work in `ops/kernels/` — kernels must strictly beat the
-pure-tensor baseline at `pop_size ≥ 256` (spec §12.6 / §12.7).
+pure-tensor baseline at `pop_size ≥ 256`.
 
 - **`tournament_select`** — `ops::selection::tournament_select` at
   `pop_size ∈ {64, 256, 1024}`, `dim = 10`, tournament size 2. Seeded

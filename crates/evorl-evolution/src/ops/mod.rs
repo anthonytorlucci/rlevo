@@ -9,7 +9,7 @@
 //!   (μ+λ), (μ,λ)).
 //!
 //! The [`kernels`] submodule houses custom CubeCL fused kernels (empty
-//! until M4; see the `custom-kernels` crate feature).
+//! for now; see the `custom-kernels` crate feature).
 //!
 //! All operator functions take an explicit `&mut dyn RngCore` and a
 //! `&B::Device` so the harness owns determinism. Operators never touch

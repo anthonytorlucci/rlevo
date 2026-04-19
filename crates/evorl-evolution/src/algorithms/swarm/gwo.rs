@@ -351,8 +351,8 @@ mod tests {
         // GWO is a "legacy comparator" per the module-level candor note;
         // it converges strongly on Sphere but does not reach machine
         // precision as quickly as DE/Rand1/bin. Budget 600 gens keeps
-        // the test within acceptance §13.3 (rank-1 acceptable within 2×
-        // of phase-1 baselines).
+        // the test within the acceptance bar (rank-1 acceptable within
+        // 2× of the classical baselines).
         let device = Default::default();
         let strategy = GreyWolfOptimizer::<TestBackend>::new();
         let params = GwoConfig::default_for(32, 10);

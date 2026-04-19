@@ -1,15 +1,14 @@
 # `evorl-evolution::algorithms::swarm`
 
-Phase-2 of the evo-opt-algos track: nine swarm-intelligence and
-nature-inspired metaheuristics plugged into the existing
-`Strategy<B>` trait.
+Nine swarm-intelligence and nature-inspired metaheuristics plugged into
+the existing `Strategy<B>` trait.
 
 ## Which one should I pick?
 
 **Start with [`pso`].** It is the best-studied, best-behaved member of
 this family. If PSO isn't good enough, the next honest step is to wait
-for (or contribute) CMA-ES or LSHADE in a future phase — not to try
-every algorithm in this directory hoping one of them wins.
+for (or contribute) CMA-ES or LSHADE — not to try every algorithm in
+this directory hoping one of them wins.
 
 ## Calibration
 
@@ -28,7 +27,7 @@ Independent benchmarking (IEEE CEC competitions, Piotrowski et al.
 | **FA**     | Ships  | Useful on multimodal landscapes where `O(N²)` attraction is informative |
 | **BA**     | Ships  | *Legacy comparator.* Same caveat |
 | **SSA**    | Ships  | *Legacy comparator.* Same caveat |
-| **ACO (permutation)** | Stubbed | `todo!()` — deferred to the combinatorial-benchmarks spec |
+| **ACO (permutation)** | Stubbed | `todo!()` — deferred to a future release |
 
 Module-level doc comments restate the caveats at the point of use so
 they show up in `cargo doc`.
@@ -40,9 +39,9 @@ Three reasons:
 1. The library is a reference implementation, not an opinion piece.
 2. These algorithms are widely cited in applied literature; users will
    reach for them expecting to find them.
-3. They exercise the phase-1 `Strategy<B>` trait across a wider design
-   space, surfacing abstraction leaks before more serious algorithms
-   (CMA-ES, LSHADE) land.
+3. They exercise the `Strategy<B>` trait across a wider design space,
+   surfacing abstraction leaks before more serious algorithms (CMA-ES,
+   LSHADE) land.
 
 ## References
 

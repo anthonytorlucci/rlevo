@@ -1,13 +1,11 @@
 //! Ant Colony Optimization over permutation genomes — **stub**.
 //!
-//! The phase-2 swarm spec (§6.2) reserves this module path so the
-//! public API is stable, but the v1 implementation is deferred to a
-//! separate combinatorial-benchmarks spec that can design the
-//! pheromone-matrix update, tour construction, and candidate-list
-//! machinery properly. A useful ACO-TSP implementation is a
-//! substantial design exercise of its own and does not belong inside
-//! the continuous-domain phase that the other nine swarm algorithms
-//! target.
+//! This module path is reserved so the public API surface is stable,
+//! but the implementation is deferred to a future release. A useful
+//! ACO-TSP implementation is a substantial design exercise of its own
+//! (pheromone-matrix update, tour construction, candidate lists) and
+//! does not belong inside the continuous-domain strategies that the
+//! other nine swarm algorithms in this module target.
 //!
 //! All trait methods below panic with `todo!()`. The struct exists so
 //! the [`Permutation`](crate::genome::Permutation) genome kind has at
@@ -58,8 +56,7 @@ pub struct AcoPermState<B: Backend> {
 
 /// Ant Colony Optimization for permutation problems (TSP, QAP, …).
 ///
-/// **Not yet implemented.** Tracking spec: forthcoming
-/// `specs/2026-04-17-evo-opt-algos/combinatorial-benchmarks.md`.
+/// **Not yet implemented** — planned for a future release.
 ///
 /// # Example
 ///
@@ -98,9 +95,8 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
         _device: &B::Device,
     ) -> AcoPermState<B> {
         todo!(
-            "ACO over permutation genomes ships with the forthcoming \
-             combinatorial-benchmarks spec; use AntColonyReal for \
-             continuous problems in the meantime"
+            "permutation ACO is not yet implemented; \
+             use AntColonyReal for continuous problems in the meantime"
         )
     }
 
@@ -111,10 +107,7 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
         _rng: &mut dyn Rng,
         _device: &B::Device,
     ) -> (Self::Genome, AcoPermState<B>) {
-        todo!(
-            "ACO over permutation genomes ships with the forthcoming \
-             combinatorial-benchmarks spec"
-        )
+        todo!("permutation ACO is not yet implemented")
     }
 
     fn tell(
@@ -125,10 +118,7 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
         _state: AcoPermState<B>,
         _rng: &mut dyn Rng,
     ) -> (AcoPermState<B>, StrategyMetrics) {
-        todo!(
-            "ACO over permutation genomes ships with the forthcoming \
-             combinatorial-benchmarks spec"
-        )
+        todo!("permutation ACO is not yet implemented")
     }
 
     fn best(&self, _state: &AcoPermState<B>) -> Option<(Self::Genome, f32)> {
@@ -150,8 +140,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "combinatorial-benchmarks")]
-    fn init_todos_with_tracking_spec_hint() {
+    #[should_panic(expected = "permutation ACO is not yet implemented")]
+    fn init_panics_with_clear_message() {
         use rand::SeedableRng;
         let strategy = AntColonyPermutation::<TestBackend>::new();
         let params = AcoPermConfig::default_for(4, 5);

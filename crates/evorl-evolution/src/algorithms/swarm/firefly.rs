@@ -11,9 +11,10 @@
 //! implementation materializes an `(N, N, D)` pairwise-difference
 //! tensor and therefore blows out memory at `N > 128`. This module
 //! enforces that hard cap when the `custom-kernels` feature is off. A
-//! future fused CubeCL kernel (§9.1 of the phase-2 spec, tracked by
-//! task C1 / [`super::kernels::pairwise_attract_cube`]) streams over
-//! the neighbour axis to keep memory at `O(ND)` and removes the cap.
+//! future fused CubeCL kernel
+//! ([`super::kernels::pairwise_attract_cube`], tracked as follow-up
+//! work) streams over the neighbour axis to keep memory at `O(ND)` and
+//! removes the cap.
 //!
 //! # References
 //!

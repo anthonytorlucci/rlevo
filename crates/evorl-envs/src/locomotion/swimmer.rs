@@ -16,9 +16,9 @@
 //! MuJoCo's native fluid model.
 //!
 //! * Segment shape: capsule along body-x, length `0.1`, radius `0.05`, mass
-//!   `≈0.0471` (density ≈60 kg/m³ derived from capsule volume). Capsule stands
-//!   in for the spec's cylinder — drag depends on COM velocity only, not
-//!   collider geometry.
+//!   `≈0.0471` (density ≈60 kg/m³ derived from capsule volume). The capsule
+//!   stands in for Gymnasium's cylinder — drag depends on COM velocity only,
+//!   not collider geometry.
 //! * Planar constraint: every segment has `enabled_translations(true, true, false)`
 //!   and `enabled_rotations(false, false, true)`, so motion is confined to the
 //!   xy-plane and rotations to about-z.
@@ -41,8 +41,8 @@
 //! ## Viscous drag
 //!
 //! Rapier has no native fluid solver. Each segment accrues a drag force
-//! `F = −k · v · ‖v‖` (per spec §4.5) before every physics substep, where `k`
-//! is `drag_coefficient` (default `0.1`). The env owns its own `frame_skip`
+//! `F = −k · v · ‖v‖` before every physics substep, where `k` is
+//! `drag_coefficient` (default `0.1`). The env owns its own `frame_skip`
 //! loop so drag is applied on every substep, not once per env step; this is
 //! required for numerical stability and to match the Gymnasium frame_skip
 //! semantics. If/when a second locomotion env needs viscous drag, the pattern
@@ -50,11 +50,10 @@
 //!
 //! ## Divergence from Gymnasium
 //!
-//! The per-env spec §1 pins reward structure and observation layout; these
-//! match Gymnasium v5. Physics parameters diverge where Rapier's
-//! reduced-coordinate multibody solver cannot integrate the MuJoCo-native
-//! XML at the Gymnasium substep. Specifically (see [`SwimmerConfig::default`]
-//! for full reasoning):
+//! Reward structure and observation layout match Gymnasium v5. Physics
+//! parameters diverge where Rapier's reduced-coordinate multibody solver
+//! cannot integrate the MuJoCo-native XML at the Gymnasium substep.
+//! Specifically (see [`SwimmerConfig::default`] for full reasoning):
 //!
 //! * **Joints are in `MultibodyJointSet`, not `ImpulseJointSet`.** A
 //!   free-floating serial chain with no grounded reference is a stiff
@@ -67,9 +66,9 @@
 //!   matches Gymnasium; the integration step is halved to keep per-step
 //!   Δω tractable.
 //! * **`segment_mass = 0.947 kg`** from MuJoCo's body density (1000 kg/m³)
-//!   applied to the capsule volume; the per-env spec §1's 0.0471 figure
-//!   appears to have crossed body density with MuJoCo's fluid `<option
-//!   density>` and would give negligible inertia.
+//!   applied to the capsule volume; using 0.0471 kg (as Gymnasium-derived
+//!   calculations sometimes produce by crossing body density with MuJoCo's
+//!   fluid `<option density>`) gives negligible inertia.
 //! * **Linear angular drag** `τ = −k_ang · ω`, not quadratic. Explicit
 //!   Euler on quadratic drag overshoots past zero at high |ω| and
 //!   diverges within a substep; linear drag is unconditionally stable.
@@ -139,9 +138,8 @@ impl Default for SwimmerConfig {
         //
         // * `segment_mass = 0.947` uses MuJoCo's default *body* density
         //   (1000 kg/m³) applied to the capsule volume π·r²·(2·half + (4/3)·r).
-        //   The per-env spec §1's figure of 0.0471 kg crossed body density
-        //   with fluid density (`<option density>`); the XML uses body
-        //   density 1000.
+        //   A figure of 0.0471 kg would cross body density with fluid density
+        //   (`<option density>`); the XML uses body density 1000.
         //
         // * `gear = [30, 30]` is one fifth of Gymnasium's `[150, 150]`.
         //   At full gear the angular acceleration (α ≈ τ/I ≈ 7 500 rad/s²)
@@ -158,8 +156,8 @@ impl Default for SwimmerConfig {
         //   (since no kinetic-energy sink exists about the joint axis) and
         //   the solver still diverges at gear=30 within ~50 steps.
         //
-        // Spec §4's "absolute reward values will NOT transfer" disclaimer
-        // covers these divergences.
+        // The module-level "absolute reward values will NOT transfer"
+        // disclaimer covers these divergences.
         Self {
             seed: 0,
             gear: Gear::new([5.0, 5.0]),
@@ -394,7 +392,7 @@ impl Swimmer<Rapier3DBackend> {
         config: &SwimmerConfig,
         rng: &mut StdRng,
     ) -> (Rapier3DWorld, SwimmerState) {
-        // Zero gravity — swimmer floats in open water (spec §6).
+        // Zero gravity — swimmer floats in open water.
         // Pass frame_skip=1 to the world: the env owns its own substep loop so
         // drag can be injected per substep (see `step_physics`).
         let mut world = Rapier3DWorld::new(
@@ -403,7 +401,7 @@ impl Swimmer<Rapier3DBackend> {
             1,
         );
 
-        // Reset-noise sampling per spec §8: qpos and qvel all ~ U(-s, s).
+        // Reset-noise sampling: qpos and qvel all ~ U(-s, s).
         let n = config.reset_noise_scale;
         let p0_x: f32 = rng.random_range(-n..=n);
         let p0_y: f32 = rng.random_range(-n..=n);
@@ -420,8 +418,8 @@ impl Swimmer<Rapier3DBackend> {
         let r = config.segment_radius;
 
         // Capsule volume: cylinder of length 2·half_l plus two hemispherical
-        // caps. Density drives the inertia tensor (notes §2 — `additional_mass`
-        // would leave angular inertia zero → segments wouldn't rotate).
+        // caps. Density drives the inertia tensor (using `additional_mass`
+        // instead would leave angular inertia zero → segments wouldn't rotate).
         let capsule_volume =
             std::f32::consts::PI * r.powi(2) * (2.0 * half_l + (4.0 / 3.0) * r);
         let density = config.segment_mass / capsule_volume.max(f32::EPSILON);
@@ -564,8 +562,8 @@ impl Swimmer<Rapier3DBackend> {
     }
 
     /// Apply per-segment viscous drag to each segment:
-    /// quadratic linear drag `F = −k · v · ‖v‖` (per spec §4.5) plus
-    /// **linear** angular drag `τ = −k_ang · ω`.
+    /// quadratic linear drag `F = −k · v · ‖v‖` plus **linear** angular
+    /// drag `τ = −k_ang · ω`.
     ///
     /// The angular term is linear (not quadratic) because Rapier integrates
     /// forces with explicit Euler, and the overshoot threshold of an

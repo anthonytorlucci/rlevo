@@ -1,6 +1,6 @@
 //! EA-specific metrics: diversity, convergence, fitness variance.
 //!
-//! Spec §5.2: EA evaluation is noisy, so `fitness_variance` is tracked across
+//! EA evaluation is noisy, so `fitness_variance` is tracked across
 //! repeated evaluations of the same individual, not only across episodes.
 
 use super::{core, Metric};

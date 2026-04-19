@@ -18,7 +18,7 @@
 //! `[-v_max, v_max]` as several reference implementations do — the zero
 //! initialization converges slightly faster on Sphere and produces
 //! bit-reproducible initial populations independent of the velocity
-//! clamp (spec §8.2).
+//! clamp.
 //!
 //! # References
 //!
@@ -406,9 +406,9 @@ mod tests {
     #[test]
     fn inertia_converges_on_sphere_d10() {
         // PSO on Sphere D=10: inertia variant. Budget 500 generations
-        // chosen to stay well within the phase-2 acceptance envelope
-        // (§13.3: within 2× of the best-in-class phase-1 baseline on
-        // Rastrigin; Sphere we want < 1e-6).
+        // chosen to stay well within the acceptance envelope (within 2×
+        // of the best-in-class classical baseline on Rastrigin; on
+        // Sphere we want < 1e-6).
         let best = run_pso(PsoVariant::Inertia, 10, 500, 42);
         assert!(best < 1e-6, "PSO inertia D10 best={best}");
     }

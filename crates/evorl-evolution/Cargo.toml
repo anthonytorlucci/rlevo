@@ -35,14 +35,15 @@ path = "examples/sphere_showcase.rs"
 
 [features]
 default = ["custom-kernels"]
-# Enables custom CubeCL kernels on hot paths. Phase 2 ships the first two:
-# the fused pairwise-attract kernel used by Firefly (large-`N` path) and
-# the fused Lévy-flight (Mantegna) kernel available to Cuckoo and Bat.
-# Phase-1 design placeholders for tournament selection, DE trial vectors,
-# and fitness-proportionate selection remain unimplemented — see
-# `src/ops/kernels/mod.rs`. When the feature is disabled, pure-tensor
-# fallbacks are used; Firefly in that mode is capped at `pop_size ≤ 128`
-# because the `O(N²D)` decomposition's memory grows as the cube of `N`.
+# Enables custom CubeCL kernels on hot paths. Two kernel slots are
+# declared today: the fused pairwise-attract kernel used by Firefly
+# (large-`N` path) and the fused Lévy-flight (Mantegna) kernel available
+# to Cuckoo and Bat. Additional design placeholders for tournament
+# selection, DE trial vectors, and fitness-proportionate selection remain
+# unimplemented — see `src/ops/kernels/mod.rs`. When the feature is
+# disabled, pure-tensor fallbacks are used; Firefly in that mode is
+# capped at `pop_size ≤ 128` because the `O(N²D)` decomposition's memory
+# grows as the cube of `N`.
 custom-kernels = ["dep:cubecl"]
 
 [lints]

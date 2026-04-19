@@ -1,8 +1,7 @@
 //! Determinism integration test.
 //!
-//! Spec §12.4 (phase 1) and §13.4 (phase 2): on the ndarray backend,
-//! running a strategy twice with the same `base_seed` must produce a
-//! bit-identical fitness trajectory.
+//! On the ndarray backend, running a strategy twice with the same
+//! `base_seed` must produce a bit-identical fitness trajectory.
 //!
 //! # Why this file runs a single test
 //!
@@ -149,7 +148,7 @@ fn same_seed_same_generations() {
     const SEED: u64 = 1_234_567;
     const GENS: usize = 30;
 
-    // Phase 1 — classical EAs.
+    // Classical EAs.
     let ga_a = run_ga(SEED, GENS);
     let ga_b = run_ga(SEED, GENS);
     assert_eq!(ga_a, ga_b, "GA trajectories diverge under the same seed");
@@ -168,8 +167,7 @@ fn same_seed_same_generations() {
         );
     }
 
-    // Phase 2 — swarm. ACO-Permutation excluded per spec §13.4
-    // (the module is a `todo!()` stub).
+    // Swarm strategies. ACO-Permutation excluded (stub).
     macro_rules! check {
         ($fn:ident, $name:expr) => {
             let a = $fn(SEED, GENS);

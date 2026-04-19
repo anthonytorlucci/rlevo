@@ -1,6 +1,6 @@
 //! Tier-1 core metrics: return stats, episode length, throughput, success rate.
 //!
-//! All metric names are flat slash-separated keys per spec §12 Q4.
+//! All metric names are flat slash-separated keys.
 
 use super::Metric;
 

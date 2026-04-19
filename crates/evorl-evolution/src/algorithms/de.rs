@@ -18,10 +18,10 @@
 //!
 //! # Hot path
 //!
-//! Spec §8.2 motivates a fused CubeCL kernel for trial-vector
-//! construction — that kernel lands in M4. Until then this module uses
-//! host-sampled indices and composes the update from primitive tensor
-//! ops.
+//! A fused CubeCL kernel for trial-vector construction is tracked as
+//! follow-up work (see [`crate::ops::kernels`]). Until then this module
+//! uses host-sampled indices and composes the update from primitive
+//! tensor ops.
 //!
 //! # Reference
 //!

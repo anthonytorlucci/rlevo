@@ -6,9 +6,9 @@
 //! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
 //! concrete backend selection and full `DiscreteAction`/`TensorConvertible`
 //! wiring for `TenArmedBandit`, neither of which exists yet in
-//! `evorl-envs`. The spec-approved acceptance criterion §11.2 is
-//! demonstrated here with a non-DL stand-in; a follow-up session will add
-//! the DQN adapter once the underlying trait impls land.
+//! `evorl-envs`. The acceptance path is demonstrated here with a non-DL
+//! stand-in; a follow-up release will add the DQN adapter once the
+//! underlying trait impls land.
 
 use evorl_benchmarks::agent::BenchableAgent;
 use evorl_benchmarks::env::{BenchEnv, BenchStep};

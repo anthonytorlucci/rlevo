@@ -468,12 +468,8 @@ mod tests {
             (state, metrics)
         }
 
-        fn best(&self, state: &State) -> Option<(Tensor<TestBackend, 2>, f32)> {
-            if state.best.is_finite() {
-                None
-            } else {
-                None
-            }
+        fn best(&self, _state: &State) -> Option<(Tensor<TestBackend, 2>, f32)> {
+            None
         }
     }
 

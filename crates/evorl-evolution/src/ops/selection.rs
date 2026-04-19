@@ -2,8 +2,9 @@
 //!
 //! Selection operators turn a fitness tensor into winner indices that the
 //! caller uses (via `Tensor::select`) to gather parents out of the
-//! population. The v1 baseline is host-side sampling + a single device
-//! gather; the fused [kernel](super::kernels) variant lands in M4.
+//! population. The baseline is host-side sampling + a single device
+//! gather; a fused [kernel](super::kernels) variant is tracked as
+//! follow-up work.
 //!
 //! # Fitness convention
 //!

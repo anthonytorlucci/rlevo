@@ -1,27 +1,27 @@
 //! Custom CubeCL kernels for hot-path operators.
 //!
-//! This module is a **design placeholder**. The v1 milestone of the
-//! classical-EA spec ships only the pure-tensor operator baselines in
-//! [`crate::ops::selection`], [`crate::ops::crossover`], and
-//! [`crate::ops::mutation`]. Those compose from Burn tensor primitives
-//! and run on every backend Burn supports (ndarray, wgpu, …) with no
-//! extra work. The `custom-kernels` Cargo feature exists so downstream
-//! crates can pin the future ABI when kernels land.
+//! This module is a **design placeholder**. The current release ships
+//! only the pure-tensor operator baselines in [`crate::ops::selection`],
+//! [`crate::ops::crossover`], and [`crate::ops::mutation`]. Those
+//! compose from Burn tensor primitives and run on every backend Burn
+//! supports (ndarray, wgpu, …) with no extra work. The `custom-kernels`
+//! Cargo feature exists so downstream crates can pin the future ABI
+//! when kernels land.
 //!
-//! # Why kernels aren't in v1
+//! # Why kernels aren't in the current release
 //!
-//! Spec §8 identified three operator paths where a fused CubeCL kernel
+//! Three operator paths were identified where a fused CubeCL kernel
 //! would eliminate multi-launch overhead. Landing real kernels requires
-//! non-trivial CubeCL integration (`cubecl 0.9` ships with Burn 0.20.1
-//! — the spec's referenced 0.4 API is out of date) and device-specific
-//! validation on wgpu. None of that work blocks the core strategy
-//! machinery, so it was deferred to keep the v1 milestone shippable.
+//! non-trivial CubeCL integration (`cubecl 0.9` ships with Burn 0.20.1)
+//! and device-specific validation on wgpu. None of that work blocks the
+//! core strategy machinery, so it was deferred to keep the release
+//! shippable.
 //!
 //! The three designs below document the intended interfaces so a
 //! future contributor can write them without re-deriving the
 //! motivation.
 //!
-//! # §8.1 — Tournament selection
+//! # Tournament selection
 //!
 //! Today the pure-tensor path
 //! ([`super::selection::tournament_select`]) samples tournament
@@ -29,7 +29,7 @@
 //! single `tensor.select(0, indices)` gather. Cost at `pop_size = N`:
 //! `N` host-side index draws and one device kernel launch.
 //!
-//! Spec §8.1 proposes a fused kernel
+//! A fused kernel would take the form
 //!
 //! ```ignore
 //! fn tournament_select_cube<F: Float, I: Int>(
@@ -39,11 +39,11 @@
 //! )
 //! ```
 //!
-//! that performs the index sampling and comparison in a single launch,
+//! performing the index sampling and comparison in a single launch,
 //! eliminating the host trip entirely. Expected speedup at `N ≥ 256`
 //! on wgpu: order-of-magnitude.
 //!
-//! # §8.2 — DE trial-vector construction
+//! # DE trial-vector construction
 //!
 //! Classical DE computes `v_i = x_{r1} + F · (x_{r2} − x_{r3})` plus
 //! a binomial-crossover mask per gene. In
@@ -51,8 +51,8 @@
 //! one subtract, one `mul_scalar`, one mask-build, and one
 //! `mask_where` — seven kernel launches per generation.
 //!
-//! Spec §8.2 proposes a fused kernel that takes the whole population
-//! plus pre-sampled indices and emits the trial vector in one pass:
+//! A fused kernel that takes the whole population plus pre-sampled
+//! indices and emits the trial vector in one pass:
 //!
 //! ```ignore
 //! fn de_trial_cube<F: Float, I: Int>(
@@ -68,12 +68,12 @@
 //! Expected impact: DE's inner loop is dominated by these 7 launches;
 //! collapsing to 1 would likely double throughput at `pop_size ≥ 256`.
 //!
-//! # §8.3 — Fitness-proportionate (roulette) selection
+//! # Fitness-proportionate (roulette) selection
 //!
 //! Roulette selection is a prefix-sum + inverse-CDF lookup. Burn's
 //! `cumsum` + `searchsorted` would work but materializes two
-//! intermediate tensors. This kernel is lower priority than §8.1 and
-//! §8.2 — the pure-tensor path is fine for typical population sizes —
+//! intermediate tensors. This kernel is lower priority than the two
+//! above — the pure-tensor path is fine for typical population sizes —
 //! but worth writing if profiling later shows roulette on a hot path.
 //!
 //! # Kernel infrastructure

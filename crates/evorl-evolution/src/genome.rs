@@ -43,9 +43,9 @@ pub struct Integer;
 
 /// Tree-based genome (variable-length AST, stored host-side).
 ///
-/// Used by classical Koza-style GP when that is implemented in a later
-/// spec. Tree genomes cannot be batched on a GPU and therefore have no
-/// tensor representation in this crate.
+/// Reserved for classical Koza-style GP in a future release. Tree
+/// genomes cannot be batched on a GPU and therefore have no tensor
+/// representation in this crate.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Tree;
 
@@ -54,8 +54,8 @@ pub struct Tree;
 /// Populations are stored as `Tensor<B, 2, Int>` of shape
 /// `(pop_size, n_nodes)` where every row is a valid permutation. Used by
 /// Ant Colony Optimization over combinatorial domains (TSP, QAP, …);
-/// phase-2 swarm spec ships only a stubbed consumer — the full
-/// combinatorial-benchmarks spec lands separately.
+/// only a stubbed consumer ships in this release — a full implementation
+/// is planned for a future release.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Permutation;
 

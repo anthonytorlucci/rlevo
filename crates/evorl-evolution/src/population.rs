@@ -20,6 +20,14 @@ use crate::genome::{Binary, Integer, Real};
 /// consumers interact with [`Population<B, Real>`] via [`tensor`](Population::tensor),
 /// but strategies parameterized on the kind can keep the `K` generic and
 /// reach for the right tensor flavor through the inherent impls below.
+///
+/// Invariant: for every `Population<B, K>` produced by the public
+/// constructors, exactly one of `tensor_real` / `tensor_int` is `Some`,
+/// determined by `K`. `Real` populates `tensor_real`; `Binary`,
+/// `Integer`, and `Permutation` populate `tensor_int`. The inherent
+/// `tensor(&self)` accessors `.expect()` on the matching field because
+/// the constructor contract pins the invariant — a mismatch would be a
+/// bug in this module.
 #[derive(Debug, Clone)]
 pub struct Population<B: Backend, K> {
     pop_size: usize,

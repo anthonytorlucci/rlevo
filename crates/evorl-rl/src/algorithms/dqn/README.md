@@ -79,5 +79,3 @@ cargo test -p evorl-rl --release --test dqn_integration -- \
 - van Hasselt, Guez, Silver (2016), *Deep Reinforcement Learning with
   Double Q-learning*, AAAI.
 - [CleanRL DQN docs](https://docs.cleanrl.dev/rl-algorithms/dqn/)
-- Spec: `projects/burn-evorl/specs/2026-04-18-rl-algos/dqn.md` in the
-  project vault.

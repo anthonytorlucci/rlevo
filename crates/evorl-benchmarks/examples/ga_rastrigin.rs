@@ -1,10 +1,10 @@
 //! Benchmark: hand-rolled GA on the Rastrigin landscape.
 //!
-//! Exercises two spec contracts in one binary:
+//! Exercises two trait contracts in one binary:
 //!
-//! 1. `FitnessEvaluable` — implemented for a local wrapper around
-//!    `evorl_envs::benchmarks::rastrigin::Rastrigin`. This is the
-//!    "optimizer-on-landscape" trait from spec §4.3.
+//! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
+//!    for a local wrapper around
+//!    `evorl_envs::benchmarks::rastrigin::Rastrigin`.
 //! 2. `BenchEnv` — the GA is itself wrapped as a `BenchEnv` so the full
 //!    `run_suite` path drives it, producing a `BenchmarkReport` with the
 //!    same shape as RL trials.

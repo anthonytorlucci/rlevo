@@ -120,14 +120,12 @@ random` call pair atomic.
   dispatch is not a good fit for dense tensor ops). Genotype storage
   stays on-device.
 
-## References
+## Related work
 
-See the feature spec at
-`projects/burn-evorl/specs/2026-04-17-evo-opt-algos/classical-evolutionary-algorithms.md`
-for the canonical design rationale, comparisons to
-[evosax](https://github.com/RobertTLange/evosax) and
-[EvoJAX](https://github.com/google/evojax), and the full acceptance
-criteria.
+- [evosax](https://github.com/RobertTLange/evosax) — JAX-based evolution
+  strategies, the closest analogue in the Python ecosystem.
+- [EvoJAX](https://github.com/google/evojax) — hardware-accelerated
+  neuroevolution on JAX.
 
 ## License
 
