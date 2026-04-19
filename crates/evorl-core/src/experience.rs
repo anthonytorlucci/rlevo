@@ -44,6 +44,7 @@ pub struct ExperienceTuple<
 #[derive(Clone)]
 pub struct History<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> {
     trace: VecDeque<ExperienceTuple<D, AD, O, A, R>>,
+    capacity: usize,
 }
 
 impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> Index<usize>
@@ -63,7 +64,13 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     pub fn new(capacity: usize) -> Self {
         Self {
             trace: VecDeque::with_capacity(capacity),
+            capacity,
         }
+    }
+
+    /// Returns the configured maximum capacity.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Returns the number of stored transitions.
@@ -95,8 +102,10 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
         next_observation: O,
         is_done: bool,
     ) {
-        // is this needed since VecDeque is defined as "A double-ended queue implemented with a growable ring buffer." Since it is constructed with capacity, adding to the history should automatically `pop_front`, right?
-        if self.trace.len() >= self.trace.capacity() {
+        // `VecDeque::with_capacity(n)` may allocate more than `n` slots, so we
+        // compare against the caller-requested capacity rather than the
+        // underlying allocation.
+        if self.trace.len() >= self.capacity {
             self.trace.pop_front();
         }
         self.trace.push_back(ExperienceTuple {
@@ -110,7 +119,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
 
     /// Returns `true` when `len() >= capacity`.
     pub fn is_full(&self) -> bool {
-        self.len() >= self.trace.capacity()
+        self.len() >= self.capacity
     }
 
     /// Returns an iterator over stored transitions in insertion order.

@@ -55,7 +55,7 @@ pub trait State<const D: usize>: Debug + Clone + Send + Sync {
     ///
     /// The returned array has length `D`, where each element specifies the number
     /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D]; // todo! why static method here?
+    fn shape() -> [usize; D];
 
     /// Generate an observation from this state (may be partial)
     fn observe(&self) -> Self::Observation;

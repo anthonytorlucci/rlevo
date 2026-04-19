@@ -9,7 +9,6 @@
 //! - [`StateAggregation`] — maps concrete states to abstract representatives
 
 use crate::base::{Action, Observation, State};
-use std::fmt::Debug;
 
 /// Error type for state validation failures.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,10 +62,11 @@ pub trait MarkovState {
 ///
 /// Belief states are used in partially-observable settings where the agent
 /// cannot observe the true state directly. The belief is updated via Bayes'
-/// rule as new observations arrive.
-pub trait BeliefState<const SD: usize, S: State<SD>>: Clone {
-    /// Updates the belief distribution given a taken action and new observation.
-    fn update(&self, action: &S::Observation, observation: &S::Observation) -> Self;
+/// rule as the most recent action and new observation arrive.
+pub trait BeliefState<const SD: usize, const AD: usize, S: State<SD>, A: Action<AD>>: Clone {
+    /// Updates the belief distribution given the last action taken and the
+    /// newly received observation.
+    fn update(&self, action: &A, observation: &S::Observation) -> Self;
 
     /// Draws a state sample from the current belief distribution.
     fn sample(&self) -> S;

@@ -171,7 +171,7 @@ mod tests {
         let nan = f32::NAN;
         let pos_inf = f32::INFINITY;
         let neg_inf = f32::NEG_INFINITY;
-        let finite: f32 = 3.14;
+        let finite: f32 = 2.5;
 
         assert!(!<f32 as Fitness>::is_finite(&nan));
         assert!(!<f32 as Fitness>::is_finite(&pos_inf));

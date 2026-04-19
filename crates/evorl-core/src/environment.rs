@@ -172,8 +172,8 @@ pub trait Snapshot<const D: usize>: Debug {
 /// Default snapshot implementation for standard reinforcement learning observations.
 ///
 /// `SnapshotBase` stores an observation, reward, and [`EpisodeStatus`].
-/// Construct via the named constructors (`running`, `terminated`, `truncated`)
-/// rather than the deprecated `new(obs, reward, done: bool)`.
+/// Construct via the named constructors [`running`](Self::running),
+/// [`terminated`](Self::terminated), or [`truncated`](Self::truncated).
 ///
 /// # Type Parameters
 ///
@@ -217,27 +217,6 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
             observation,
             reward,
             status: EpisodeStatus::Truncated,
-        }
-    }
-
-    /// Create a snapshot from a raw `done: bool`.
-    ///
-    /// Prefer the named constructors. This exists for migration compatibility;
-    /// `done = true` maps to `Terminated` (not `Truncated`).
-    #[deprecated(
-        since = "0.2.0",
-        note = "use SnapshotBase::running / ::terminated / ::truncated"
-    )]
-    pub fn new(observation: ObservationType, reward: RewardType, done: bool) -> Self {
-        let status = if done {
-            EpisodeStatus::Terminated
-        } else {
-            EpisodeStatus::Running
-        };
-        Self {
-            observation,
-            reward,
-            status,
         }
     }
 }
@@ -730,36 +709,6 @@ mod tests {
         assert!(env_error.source().is_some());
     }
 
-    // #[test]
-    // fn test_snapshot_trait_object() {
-    //     let state = MockState { value: 7 };
-    //     let snapshot: Box<dyn Snapshot<StateType = MockState, RewardType = f32>> =
-    //         Box::new(SnapshotBase::new(state, 3.5, false));
-
-    //     assert_eq!(snapshot.state().value, 7);
-    //     assert_eq!(snapshot.reward(), &3.5);
-    //     assert!(!snapshot.is_done());
-    // }
-
-    // #[test]
-    // fn test_snapshot_multiple_types() {
-    //     let base_snapshot: Box<dyn Snapshot<StateType = MockState, RewardType = f32>> =
-    //         Box::new(SnapshotBase::new(MockState { value: 1 }, 1.0, false));
-
-    //     let rich_snapshot: Box<dyn Snapshot<StateType = MockState, RewardType = f32>> =
-    //         Box::new(RichSnapshot {
-    //             state: MockState { value: 2 },
-    //             reward: 2.0,
-    //             done: false,
-    //             step_count: 0,
-    //             cumulative_reward: 2.0,
-    //         });
-
-    //     // Both snapshot types implement the trait
-    //     assert_eq!(base_snapshot.state().value, 1);
-    //     assert_eq!(rich_snapshot.state().value, 2);
-    // }
-
     #[test]
     fn test_environment_multiple_episodes() {
         let mut env = MockEnvironment::new(false);
@@ -779,7 +728,7 @@ mod tests {
     #[test]
     fn test_snapshot_reward_conversion() {
         let observation = MockObservation { position: 1 };
-        let snapshot = SnapshotBase::new(observation, ScalarReward(42.5), false);
+        let snapshot = SnapshotBase::running(observation, ScalarReward(42.5));
 
         // RewardType implements Into<f32>
         let reward_as_f32: f32 = snapshot.reward().clone().into();

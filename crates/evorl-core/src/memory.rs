@@ -16,8 +16,6 @@ use rand::prelude::IteratorRandom;
 use rand::RngExt;
 use std::collections::VecDeque;
 
-// todo! RolloutBuffer for on-policy algorithms)
-
 /// Errors that can occur during replay buffer operations.
 #[derive(Debug)]
 pub enum ReplayBufferError {
@@ -773,6 +771,40 @@ mod prioritized_experience_replay_builder_tests {
         // `None` default picks max of (existing priorities ∪ {1.0}) so the
         // new item gets a priority of 1.0 here.
         assert!((per.priorities[1] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_add_respects_requested_capacity_under_overflow() {
+        // Regression: `VecDeque::with_capacity(n)` may allocate more than `n`
+        // slots, so eviction must be driven by the caller-requested capacity,
+        // not by `VecDeque::capacity()`. Otherwise the `priorities` queue
+        // (capped at the requested capacity) drifts out of sync with the
+        // underlying transition buffer.
+        let capacity = 7;
+        let mut per = PrioritizedExperienceReplayBuilder::<
+            2,
+            1,
+            TestObservation,
+            TestAction,
+            TestReward,
+        >::new()
+        .with_capacity(capacity)
+        .build();
+
+        for i in 0..30 {
+            per.add(
+                TestObservation,
+                TestAction,
+                TestReward(i as f32),
+                TestObservation,
+                false,
+                Some(i as f32),
+            );
+        }
+
+        assert_eq!(per.len(), capacity);
+        assert_eq!(per.priorities.len(), capacity);
+        assert_eq!(per.buffer.len(), per.priorities.len());
     }
 
     #[test]
