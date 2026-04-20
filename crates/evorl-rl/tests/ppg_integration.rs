@@ -153,7 +153,10 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
         "aux phase should not have fired with n_iteration=10000"
     );
     let avg = agent.stats().avg_score().unwrap_or(0.0);
-    assert!(avg >= 80.0, "expected avg reward >= 80 (PPO-parity), got {avg:.2}");
+    assert!(
+        avg >= 80.0,
+        "expected avg reward >= 80 (PPO-parity), got {avg:.2}"
+    );
 }
 
 #[test]
@@ -210,7 +213,10 @@ fn ppg_short_run_produces_finite_rewards() {
     .expect("training");
     for (i, m) in agent.stats().recent_history.iter().enumerate() {
         assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
-        assert!(m.policy_loss.is_finite(), "non-finite policy_loss at ep {i}");
+        assert!(
+            m.policy_loss.is_finite(),
+            "non-finite policy_loss at ep {i}"
+        );
         assert!(m.value_loss.is_finite(), "non-finite value_loss at ep {i}");
     }
 }

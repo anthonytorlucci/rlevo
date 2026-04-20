@@ -10,14 +10,16 @@
 use burn::backend::{Autodiff, NdArray};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{Pendulum, PendulumAction, PendulumConfig, PendulumObservation};
+use evorl_envs::classic::pendulum::{
+    Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
+};
 use evorl_envs::wrappers::TimeLimit;
 use evorl_rl::algorithms::ppo::policies::{TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig};
 use evorl_rl::algorithms::ppo::ppo_agent::PpoAgent;
@@ -126,7 +128,7 @@ fn main() {
         .update_epochs(10)
         .learning_rate(3e-4)
         .clip_coef(0.2)
-        .entropy_coef(0.0)  // CleanRL default for continuous
+        .entropy_coef(0.0) // CleanRL default for continuous
         .value_coef(0.5)
         .gamma(0.9)
         .gae_lambda(0.95)

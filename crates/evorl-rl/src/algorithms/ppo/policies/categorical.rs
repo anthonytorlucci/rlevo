@@ -114,10 +114,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
             sampled.push(best_i as i64);
         }
 
-        let action_1d: Tensor<B, 1, Int> = Tensor::from_data(
-            TensorData::new(sampled, vec![batch]),
-            &device,
-        );
+        let action_1d: Tensor<B, 1, Int> =
+            Tensor::from_data(TensorData::new(sampled, vec![batch]), &device);
         let action_2d: Tensor<B, 2, Int> = action_1d.unsqueeze_dim::<2>(1);
 
         // log_prob of the sampled action per row.
@@ -174,7 +172,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
 pub fn discrete_action_from_row<const AD: usize, A: evorl_core::action::DiscreteAction<AD>>(
     row: &[f32],
 ) -> A {
-    assert_eq!(row.len(), 1, "discrete action row must have exactly 1 component");
+    assert_eq!(
+        row.len(),
+        1,
+        "discrete action row must have exactly 1 component"
+    );
     let idx = row[0] as usize;
     A::from_index(idx)
 }
@@ -216,9 +218,8 @@ mod tests {
             "sample log_prob {a} vs evaluate log_prob {b}"
         );
         assert!(
-            (out.entropy.into_scalar().elem::<f32>()
-                - eval.entropy.into_scalar().elem::<f32>())
-            .abs()
+            (out.entropy.into_scalar().elem::<f32>() - eval.entropy.into_scalar().elem::<f32>())
+                .abs()
                 < 1e-5
         );
     }

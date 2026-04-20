@@ -155,10 +155,7 @@ mod tests {
             .e_aux(3)
             .beta_clone(0.5)
             .aux_batch_size(64)
-            .with_ppo(|p| PpoTrainingConfig {
-                num_steps: 64,
-                ..p
-            })
+            .with_ppo(|p| PpoTrainingConfig { num_steps: 64, ..p })
             .build();
         assert_eq!(cfg.n_iteration, 8);
         assert_eq!(cfg.e_aux, 3);

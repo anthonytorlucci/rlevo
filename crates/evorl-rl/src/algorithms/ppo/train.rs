@@ -29,18 +29,7 @@ use crate::algorithms::ppo::ppo_value::PpoValue;
 ///
 /// Pass `log_every > 0` to enable periodic `tracing::info!` progress; set
 /// `log_every == 0` to suppress logging.
-pub fn train_discrete<
-    B,
-    P,
-    V,
-    E,
-    O,
-    A,
-    R,
-    const DO: usize,
-    const SD: usize,
-    const DB: usize,
->(
+pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut PpoAgent<B, P, V, O, DO, DB>,
     env: &mut E,
     rng: &mut impl Rng,
@@ -94,7 +83,20 @@ where
     run_loop(agent, env, rng, total_timesteps, log_every, A::from_slice)
 }
 
-fn run_loop<B, P, V, E, O, A, R, F, const DO: usize, const SD: usize, const AD: usize, const DB: usize>(
+fn run_loop<
+    B,
+    P,
+    V,
+    E,
+    O,
+    A,
+    R,
+    F,
+    const DO: usize,
+    const SD: usize,
+    const AD: usize,
+    const DB: usize,
+>(
     agent: &mut PpoAgent<B, P, V, O, DO, DB>,
     env: &mut E,
     rng: &mut impl Rng,

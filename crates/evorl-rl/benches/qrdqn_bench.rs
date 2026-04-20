@@ -19,11 +19,7 @@ fn make_taus(n: usize, device: &<Be as Backend>::Device) -> Tensor<Be, 1> {
     Tensor::from_data(TensorData::new(data, vec![n]), device)
 }
 
-fn make_quantile_batch(
-    batch: usize,
-    n: usize,
-    device: &<Be as Backend>::Device,
-) -> Tensor<Be, 2> {
+fn make_quantile_batch(batch: usize, n: usize, device: &<Be as Backend>::Device) -> Tensor<Be, 2> {
     // Deterministic but non-trivial payload: a saw-tooth across the row.
     let data: Vec<f32> = (0..batch * n)
         .map(|i| ((i % n) as f32) * 0.1 - ((i / n) as f32) * 0.01)
@@ -43,12 +39,7 @@ fn bench_quantile_huber_loss(c: &mut Criterion) {
             let label = format!("quantile_huber_loss/quantiles={num_quantiles}/batch={batch}");
             c.bench_function(&label, |b| {
                 b.iter(|| {
-                    let out = quantile_huber_loss(
-                        pred.clone(),
-                        target.clone(),
-                        taus.clone(),
-                        1.0,
-                    );
+                    let out = quantile_huber_loss(pred.clone(), target.clone(), taus.clone(), 1.0);
                     let _ = out.into_data();
                 });
             });

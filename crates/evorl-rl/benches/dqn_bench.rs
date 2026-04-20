@@ -18,7 +18,9 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_rl::algorithms::dqn::dqn_agent::DqnAgent;
 use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use evorl_rl::algorithms::dqn::dqn_model::DqnModel;
@@ -58,7 +60,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         inner.forward_impl(obs)
     }
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(active.valid(), target, tau as f32)
+        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
+            active.valid(),
+            target,
+            tau as f32,
+        )
     }
 }
 
@@ -149,7 +155,11 @@ fn bench_learn(c: &mut Criterion) {
         let done = next.is_done();
         agent.remember(obs, &action, r, next.observation().clone(), done);
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     c.bench_function("dqn_learn_step_batch64", |b| {
         b.iter(|| {

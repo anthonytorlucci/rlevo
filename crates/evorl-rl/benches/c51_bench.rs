@@ -14,7 +14,12 @@ use evorl_rl::algorithms::c51::projection::project_distribution;
 
 type Be = NdArray;
 
-fn make_support(v_min: f32, v_max: f32, n: usize, device: &<Be as Backend>::Device) -> Tensor<Be, 1> {
+fn make_support(
+    v_min: f32,
+    v_max: f32,
+    n: usize,
+    device: &<Be as Backend>::Device,
+) -> Tensor<Be, 1> {
     let delta = (v_max - v_min) / (n as f32 - 1.0);
     let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
     Tensor::from_data(TensorData::new(data, vec![n]), device)
@@ -39,8 +44,9 @@ fn bench_projection(c: &mut Criterion) {
             let rewards: Tensor<Be, 1> =
                 Tensor::from_data(TensorData::new(rewards_data, vec![batch]), &device);
 
-            let dones_data: Vec<f32> =
-                (0..batch).map(|i| if i % 5 == 0 { 1.0 } else { 0.0 }).collect();
+            let dones_data: Vec<f32> = (0..batch)
+                .map(|i| if i % 5 == 0 { 1.0 } else { 0.0 })
+                .collect();
             let dones: Tensor<Be, 1> =
                 Tensor::from_data(TensorData::new(dones_data, vec![batch]), &device);
 

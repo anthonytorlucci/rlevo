@@ -101,9 +101,7 @@ fn parse_args() -> CliArgs {
                 n_iteration = args.next().and_then(|v| v.parse().ok()).expect("usize")
             }
             "--e-aux" => e_aux = args.next().and_then(|v| v.parse().ok()).expect("usize"),
-            "--beta-clone" => {
-                beta_clone = args.next().and_then(|v| v.parse().ok()).expect("f32")
-            }
+            "--beta-clone" => beta_clone = args.next().and_then(|v| v.parse().ok()).expect("f32"),
             other => panic!("unknown flag: {other}"),
         }
     }

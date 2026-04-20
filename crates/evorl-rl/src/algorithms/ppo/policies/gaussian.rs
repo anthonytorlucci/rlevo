@@ -112,8 +112,7 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         let scaled = centered.clone() / std.clone();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim: Tensor<B, 2> =
-            scaled_sq.mul_scalar(-0.5) - log_std.clone() - log_2pi * 0.5;
+        let per_dim: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std.clone() - log_2pi * 0.5;
         // Sum over action dim → (batch,).
         let log_prob = per_dim.sum_dim(1).squeeze_dim::<1>(1);
 
@@ -148,10 +147,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             let x: f64 = normal.sample(rng);
             eps_vec.push(x as f32);
         }
-        let eps: Tensor<B, 2> = Tensor::from_data(
-            TensorData::new(eps_vec, vec![batch, action_dim]),
-            &device,
-        );
+        let eps: Tensor<B, 2> =
+            Tensor::from_data(TensorData::new(eps_vec, vec![batch, action_dim]), &device);
 
         let mean = self.mean(obs.clone());
         let log_std_row: Tensor<B, 2> = self.log_std.val().unsqueeze_dim::<2>(0);
@@ -202,10 +199,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
 
 /// Convenience: build a `ContinuousAction` from the env-action row produced
 /// by [`TanhGaussianPolicyHead::raw_to_env_row`].
-pub fn continuous_action_from_row<
-    const AD: usize,
-    A: evorl_core::action::ContinuousAction<AD>,
->(
+pub fn continuous_action_from_row<const AD: usize, A: evorl_core::action::ContinuousAction<AD>>(
     row: &[f32],
 ) -> A {
     A::from_slice(row)
@@ -299,12 +293,16 @@ mod tests {
             action_scale: 1.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
-        let obs: Tensor<B, 2> = Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
+        let obs: Tensor<B, 2> =
+            Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
         let eval = head.evaluate(obs, mean);
         // Per dim entropy at σ=1 is 0 + 0.5·log(2πe); two dims summed.
         let expected = 2.0 * 0.5 * ((2.0_f32 * std::f32::consts::PI).ln() + 1.0);
         let got = eval.entropy.into_scalar().elem::<f32>();
-        assert!((got - expected).abs() < 1e-5, "expected {expected}, got {got}");
+        assert!(
+            (got - expected).abs() < 1e-5,
+            "expected {expected}, got {got}"
+        );
     }
 }

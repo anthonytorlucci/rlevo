@@ -56,11 +56,7 @@ pub trait SquashedGaussianPolicy<B: AutodiffBackend, const DB: usize, const DAB:
     /// Autodiff forward sample: given a pre-drawn standard-normal noise
     /// `eps` of shape `(batch, ...action)`, returns the squashed action and
     /// its log-probability (shape `(batch,)`) under the current policy.
-    fn forward_sample(
-        &self,
-        obs: Tensor<B, DB>,
-        eps: Tensor<B, DAB>,
-    ) -> SampleOutput<B, DAB>;
+    fn forward_sample(&self, obs: Tensor<B, DB>, eps: Tensor<B, DAB>) -> SampleOutput<B, DAB>;
 
     /// No-autodiff counterpart used when computing the Bellman target against
     /// `next_obs`. Produces the same squashed sample + log-prob on the inner

@@ -46,10 +46,7 @@ where
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
     E: Environment<DO, SD, DA, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>
-        + Clone,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
     A: BoundedAction<DA>,
     R: Reward + Copy,
 {

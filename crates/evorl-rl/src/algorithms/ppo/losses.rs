@@ -150,10 +150,7 @@ mod tests {
         let advs = t1(&[1.0, 2.0, 3.0, 4.0, 5.0]);
         let norm = normalize_advantages(advs);
         let data = norm.into_data();
-        let v: Vec<f32> = data
-            .as_slice::<f32>()
-            .expect("float")
-            .to_vec();
+        let v: Vec<f32> = data.as_slice::<f32>().expect("float").to_vec();
         let mean: f32 = v.iter().sum::<f32>() / v.len() as f32;
         let var: f32 = v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / v.len() as f32;
         assert!(mean.abs() < 1e-5, "mean not zero: {mean}");
@@ -204,9 +201,6 @@ mod tests {
         let new_lp = t1(&[0.5_f32.ln(), 1.0_f32.ln(), 1.5_f32.ln()]);
         let old_lp = t1(&[0.0, 0.0, 0.0]);
         let frac = clip_fraction(new_lp, old_lp, 0.2);
-        assert!(
-            (frac - 2.0 / 3.0).abs() < 1e-5,
-            "expected 2/3, got {frac}"
-        );
+        assert!((frac - 2.0 / 3.0).abs() < 1e-5, "expected 2/3, got {frac}");
     }
 }

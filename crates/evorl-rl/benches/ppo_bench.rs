@@ -4,7 +4,7 @@
 
 use burn::backend::NdArray;
 use burn::tensor::{Tensor, TensorData};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, black_box};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use evorl_rl::algorithms::ppo::losses::{clipped_surrogate, normalize_advantages};
 use evorl_rl::algorithms::ppo::rollout::compute_gae;
 
@@ -66,18 +66,12 @@ fn bench_clipped_surrogate(c: &mut Criterion) {
     let device: <B as burn::tensor::backend::Backend>::Device = Default::default();
     for &n in &[64_usize, 256, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
-            let new_lp: Tensor<B, 1> = Tensor::from_data(
-                TensorData::new(vec![0.0_f32; n], vec![n]),
-                &device,
-            );
-            let old_lp: Tensor<B, 1> = Tensor::from_data(
-                TensorData::new(vec![0.05_f32; n], vec![n]),
-                &device,
-            );
-            let advs: Tensor<B, 1> = Tensor::from_data(
-                TensorData::new(vec![1.0_f32; n], vec![n]),
-                &device,
-            );
+            let new_lp: Tensor<B, 1> =
+                Tensor::from_data(TensorData::new(vec![0.0_f32; n], vec![n]), &device);
+            let old_lp: Tensor<B, 1> =
+                Tensor::from_data(TensorData::new(vec![0.05_f32; n], vec![n]), &device);
+            let advs: Tensor<B, 1> =
+                Tensor::from_data(TensorData::new(vec![1.0_f32; n], vec![n]), &device);
             b.iter(|| {
                 let out = clipped_surrogate(
                     black_box(new_lp.clone()),
@@ -92,5 +86,10 @@ fn bench_clipped_surrogate(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_compute_gae, bench_advantage_norm, bench_clipped_surrogate);
+criterion_group!(
+    benches,
+    bench_compute_gae,
+    bench_advantage_norm,
+    bench_clipped_surrogate
+);
 criterion_main!(benches);

@@ -11,15 +11,19 @@
 use burn::backend::{Autodiff, NdArray};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
-use evorl_envs::classic::pendulum::{Pendulum, PendulumAction, PendulumConfig, PendulumObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
+use evorl_envs::classic::pendulum::{
+    Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
+};
 use evorl_envs::wrappers::TimeLimit;
 use evorl_rl::algorithms::ppo::policies::{
     CategoricalPolicyHead, CategoricalPolicyHeadConfig, TanhGaussianPolicyHead,
@@ -145,7 +149,10 @@ fn ppo_short_run_produces_finite_rewards() {
     .expect("training");
     for (i, m) in agent.stats().recent_history.iter().enumerate() {
         assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
-        assert!(m.policy_loss.is_finite(), "non-finite policy_loss at ep {i}");
+        assert!(
+            m.policy_loss.is_finite(),
+            "non-finite policy_loss at ep {i}"
+        );
         assert!(m.value_loss.is_finite(), "non-finite value_loss at ep {i}");
     }
 }

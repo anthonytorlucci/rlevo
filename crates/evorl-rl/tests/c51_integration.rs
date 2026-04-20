@@ -16,7 +16,9 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_rl::algorithms::c51::c51_agent::C51Agent;
 use evorl_rl::algorithms::c51::c51_config::C51TrainingConfigBuilder;
 use evorl_rl::algorithms::c51::c51_model::C51Model;
@@ -66,7 +68,11 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
         inner.forward_impl(observations)
     }
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(active.valid(), target, tau as f32)
+        polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
+            active.valid(),
+            target,
+            tau as f32,
+        )
     }
 }
 

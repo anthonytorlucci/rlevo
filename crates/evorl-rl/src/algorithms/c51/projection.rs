@@ -100,14 +100,23 @@ mod tests {
 
     type B = NdArray;
 
-    fn make_support(v_min: f32, v_max: f32, n: usize, device: &<B as Backend>::Device) -> Tensor<B, 1> {
+    fn make_support(
+        v_min: f32,
+        v_max: f32,
+        n: usize,
+        device: &<B as Backend>::Device,
+    ) -> Tensor<B, 1> {
         let delta = (v_max - v_min) / (n as f32 - 1.0);
         let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
         Tensor::from_data(TensorData::new(data, vec![n]), device)
     }
 
     fn into_vec(tensor: Tensor<B, 2>) -> Vec<f32> {
-        tensor.into_data().convert::<f32>().into_vec::<f32>().expect("f32 vec")
+        tensor
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 vec")
     }
 
     #[test]
@@ -149,8 +158,16 @@ mod tests {
         let out = project_distribution(next_probs, rewards, dones, support, 0.99, -1.0, 1.0, 3);
         let v = into_vec(out);
         assert!(v[0].abs() < 1e-6, "atom 0 should be empty, got {}", v[0]);
-        assert!((v[1] - 0.5).abs() < 1e-6, "atom 1 should hold half the mass, got {}", v[1]);
-        assert!((v[2] - 0.5).abs() < 1e-6, "atom 2 should hold half the mass, got {}", v[2]);
+        assert!(
+            (v[1] - 0.5).abs() < 1e-6,
+            "atom 1 should hold half the mass, got {}",
+            v[1]
+        );
+        assert!(
+            (v[2] - 0.5).abs() < 1e-6,
+            "atom 2 should hold half the mass, got {}",
+            v[2]
+        );
     }
 
     #[test]
@@ -158,10 +175,8 @@ mod tests {
         // reward ≫ v_max ⇒ Tz clamps at v_max for every atom ⇒ all mass at
         // the top atom.
         let device: <B as Backend>::Device = Default::default();
-        let next_probs = Tensor::<B, 2>::from_data(
-            TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]),
-            &device,
-        );
+        let next_probs =
+            Tensor::<B, 2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
         let dones = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, &device);
@@ -186,10 +201,8 @@ mod tests {
             let s: f32 = row.iter().sum();
             next_probs_norm.extend(row.iter().map(|x| x / s));
         }
-        let next_probs = Tensor::<B, 2>::from_data(
-            TensorData::new(next_probs_norm, vec![batch, n]),
-            &device,
-        );
+        let next_probs =
+            Tensor::<B, 2>::from_data(TensorData::new(next_probs_norm, vec![batch, n]), &device);
         let rewards = Tensor::<B, 1>::from_data(
             TensorData::new(vec![0.3_f32, -0.5, 1.2, 0.0], vec![batch]),
             &device,
@@ -204,7 +217,10 @@ mod tests {
         let v = into_vec(out);
         for row in v.chunks(n) {
             let s: f32 = row.iter().sum();
-            assert!((s - 1.0).abs() < 1e-5, "row sum should be 1, got {s}: {row:?}");
+            assert!(
+                (s - 1.0).abs() < 1e-5,
+                "row sum should be 1, got {s}: {row:?}"
+            );
         }
     }
 }

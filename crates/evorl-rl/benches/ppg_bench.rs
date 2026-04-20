@@ -22,20 +22,20 @@ fn bench_policy_kl_categorical(c: &mut Criterion) {
     let device: <B as Backend>::Device = Default::default();
     for &(batch, num_actions) in &[(64_usize, 2_usize), (256, 2), (1024, 2), (256, 18)] {
         let id = format!("batch{batch}_actions{num_actions}");
-        group.bench_with_input(BenchmarkId::from_parameter(&id), &(batch, num_actions), |b, &(n, a)| {
-            let old: Tensor<B, 2> = Tensor::from_data(
-                TensorData::new(vec![0.1_f32; n * a], vec![n, a]),
-                &device,
-            );
-            let new: Tensor<B, 2> = Tensor::from_data(
-                TensorData::new(vec![0.0_f32; n * a], vec![n, a]),
-                &device,
-            );
-            b.iter(|| {
-                let out = policy_kl_categorical(black_box(old.clone()), black_box(new.clone()));
-                black_box(out);
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(&id),
+            &(batch, num_actions),
+            |b, &(n, a)| {
+                let old: Tensor<B, 2> =
+                    Tensor::from_data(TensorData::new(vec![0.1_f32; n * a], vec![n, a]), &device);
+                let new: Tensor<B, 2> =
+                    Tensor::from_data(TensorData::new(vec![0.0_f32; n * a], vec![n, a]), &device);
+                b.iter(|| {
+                    let out = policy_kl_categorical(black_box(old.clone()), black_box(new.clone()));
+                    black_box(out);
+                });
+            },
+        );
     }
     group.finish();
 }

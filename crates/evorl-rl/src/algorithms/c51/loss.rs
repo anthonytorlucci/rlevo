@@ -64,14 +64,23 @@ mod tests {
         let n = 4;
         let batch = 3;
         let target = tensor_2d(vec![1.0 / n as f32; batch * n], batch, n);
-        let logits = tensor_2d(vec![0.5, -0.2, 1.1, -0.7, 0.0, 0.9, -1.3, 0.4, -0.5, 0.2, 0.8, -0.1], batch, n);
+        let logits = tensor_2d(
+            vec![
+                0.5, -0.2, 1.1, -0.7, 0.0, 0.9, -1.3, 0.4, -0.5, 0.2, 0.8, -0.1,
+            ],
+            batch,
+            n,
+        );
         let log_p = activation::log_softmax(logits, 1);
         let loss = categorical_cross_entropy(target, log_p)
             .into_data()
             .convert::<f32>()
             .into_vec::<f32>()
             .expect("f32 loss")[0];
-        assert!(loss >= 0.0, "cross-entropy must be non-negative, got {loss}");
+        assert!(
+            loss >= 0.0,
+            "cross-entropy must be non-negative, got {loss}"
+        );
         assert!(loss.is_finite());
     }
 }

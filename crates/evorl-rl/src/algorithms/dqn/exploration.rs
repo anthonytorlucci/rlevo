@@ -34,7 +34,11 @@ impl EpsilonGreedy {
     /// Builds a schedule from the epsilon fields of a [`DqnTrainingConfig`].
     #[must_use]
     pub fn from_config(config: &DqnTrainingConfig) -> Self {
-        Self::new(config.epsilon_start, config.epsilon_end, config.epsilon_decay)
+        Self::new(
+            config.epsilon_start,
+            config.epsilon_end,
+            config.epsilon_decay,
+        )
     }
 
     /// Current exploration rate.

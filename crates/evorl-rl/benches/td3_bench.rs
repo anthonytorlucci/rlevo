@@ -7,9 +7,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -36,7 +34,13 @@ struct ActorMlp<B: Backend> {
 }
 
 impl<B: Backend> ActorMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &B::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        action_dim: usize,
+        scale: f32,
+        device: &B::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -154,17 +158,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M 
 }
 
 type Be = Autodiff<NdArray>;
-type Agent = Td3Agent<
-    Be,
-    ActorMlp<Be>,
-    CriticMlp<Be>,
-    PendulumObservation,
-    PendulumAction,
-    1,
-    2,
-    1,
-    2,
->;
+type Agent =
+    Td3Agent<Be, ActorMlp<Be>, CriticMlp<Be>, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 
 fn build_agent() -> Agent {
     let device = Default::default();
@@ -215,7 +210,11 @@ fn bench_learn(c: &mut Criterion) {
             done,
         );
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     c.bench_function("td3_learn_step_batch256", |b| {
         b.iter(|| {

@@ -41,8 +41,7 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: us
     ///
     /// Returns `(1 − τ) · target + τ · active` element-wise for every
     /// parameter.
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64)
-    -> Self::InnerModule;
+    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
 }
 
 /// Contract implemented by any network usable as a DDPG continuous Q-critic
@@ -66,6 +65,5 @@ pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     ) -> Tensor<B::InnerBackend, 1>;
 
     /// Polyak-averages the target toward the active network.
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64)
-    -> Self::InnerModule;
+    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
 }

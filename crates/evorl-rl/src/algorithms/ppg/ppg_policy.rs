@@ -30,7 +30,9 @@ use burn::tensor::backend::AutodiffBackend;
 /// expected to also implement
 /// [`PpoPolicy`](crate::algorithms::ppo::ppo_policy::PpoPolicy) so the policy
 /// phase runs unchanged.
-pub trait PpgAuxValueHead<B: AutodiffBackend, const DB: usize>: burn::module::AutodiffModule<B> {
+pub trait PpgAuxValueHead<B: AutodiffBackend, const DB: usize>:
+    burn::module::AutodiffModule<B>
+{
     /// Auxiliary value prediction, shape `(batch,)`.
     ///
     /// Trained in the auxiliary phase against the same target returns as the

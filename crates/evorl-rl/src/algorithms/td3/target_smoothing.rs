@@ -90,9 +90,7 @@ mod tests {
         let action: Tensor<B, 2> =
             Tensor::from_data(TensorData::new(vec![0.3_f32, -5.0], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(42);
-        let out = smoothed_target_action::<B, _, 2>(
-            action, 0.0, 0.5, -1.0, 1.0, &mut rng,
-        );
+        let out = smoothed_target_action::<B, _, 2>(action, 0.0, 0.5, -1.0, 1.0, &mut rng);
         let data = out.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         // `0.3` passes through; `-5.0` clips to `-1.0`.
@@ -113,14 +111,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         for _ in 0..256 {
             let action: Tensor<B, 2> = Tensor::zeros([4, 2], &device);
-            let out = smoothed_target_action::<B, _, 2>(
-                action,
-                100.0,
-                noise_clip,
-                low,
-                high,
-                &mut rng,
-            );
+            let out =
+                smoothed_target_action::<B, _, 2>(action, 100.0, noise_clip, low, high, &mut rng);
             let data = out.into_data().convert::<f32>();
             for v in data.as_slice::<f32>().unwrap() {
                 assert!(
@@ -141,9 +133,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let action: Tensor<B, 2> =
             Tensor::from_data(TensorData::new(vec![10.0_f32; 6], vec![3, 2]), &device);
-        let out = smoothed_target_action::<B, _, 2>(
-            action, 0.1, 0.1, low, high, &mut rng,
-        );
+        let out = smoothed_target_action::<B, _, 2>(action, 0.1, 0.1, low, high, &mut rng);
         let data = out.into_data().convert::<f32>();
         for v in data.as_slice::<f32>().unwrap() {
             assert!((*v - high).abs() < 1e-6, "expected clip to {high}, got {v}");
@@ -156,9 +146,7 @@ mod tests {
         let device = Default::default();
         let action: Tensor<B, 2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
-        let _ = smoothed_target_action::<B, _, 2>(
-            action, -0.1, 0.5, -1.0, 1.0, &mut rng,
-        );
+        let _ = smoothed_target_action::<B, _, 2>(action, -0.1, 0.5, -1.0, 1.0, &mut rng);
     }
 
     #[test]
@@ -167,8 +155,6 @@ mod tests {
         let device = Default::default();
         let action: Tensor<B, 2> = Tensor::zeros([1, 1], &device);
         let mut rng = StdRng::seed_from_u64(0);
-        let _ = smoothed_target_action::<B, _, 2>(
-            action, 0.2, -0.1, -1.0, 1.0, &mut rng,
-        );
+        let _ = smoothed_target_action::<B, _, 2>(action, 0.2, -0.1, -1.0, 1.0, &mut rng);
     }
 }

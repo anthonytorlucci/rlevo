@@ -10,14 +10,16 @@
 use burn::backend::{Autodiff, NdArray};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_envs::wrappers::TimeLimit;
 use evorl_rl::algorithms::ppo::policies::{CategoricalPolicyHead, CategoricalPolicyHeadConfig};
 use evorl_rl::algorithms::ppo::ppo_agent::PpoAgent;
@@ -131,8 +133,14 @@ fn main() {
 
     let total_iterations = args.total_timesteps / config.batch_size().max(1);
 
-    let mut agent: PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2> =
-        PpoAgent::new(policy, value, config, device, total_iterations);
+    let mut agent: PpoAgent<
+        Be,
+        CategoricalPolicyHead<Be>,
+        ValueMlp<Be>,
+        CartPoleObservation,
+        1,
+        2,
+    > = PpoAgent::new(policy, value, config, device, total_iterations);
 
     train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
         &mut agent,

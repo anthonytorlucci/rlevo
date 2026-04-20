@@ -154,8 +154,7 @@ fn squashed_sample_log_prob<BB: Backend>(
     let scaled = diff / log_std.clone().exp();
     let scaled_sq = scaled.clone() * scaled;
     let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-    let per_dim_gauss: Tensor<BB, 2> =
-        scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+    let per_dim_gauss: Tensor<BB, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
 
     // Tanh Jacobian per dim: log(1 − tanh²(z)) = 2·(ln 2 − z − softplus(−2z))
     // Additionally, `action = scale·tanh(z) + bias` introduces a `log|scale|`
@@ -179,19 +178,10 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedGaussianPol
         self.action_dim
     }
 
-    fn forward_sample(
-        &self,
-        obs: Tensor<B, 2>,
-        eps: Tensor<B, 2>,
-    ) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
         let (mean, log_std) = self.mean_and_log_std(obs);
-        let (action, log_prob) = squashed_sample_log_prob::<B>(
-            mean,
-            log_std,
-            eps,
-            self.action_scale,
-            self.action_bias,
-        );
+        let (action, log_prob) =
+            squashed_sample_log_prob::<B>(mean, log_std, eps, self.action_scale, self.action_bias);
         SampleOutput { action, log_prob }
     }
 
@@ -254,25 +244,16 @@ mod tests {
     #[test]
     fn squashed_gaussian_logprob_matches_hand_roll_at_pinned_inputs() {
         let device = Default::default();
-        let mean = Tensor::<BI, 2>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]),
-            &device,
-        );
-        let log_std = Tensor::<BI, 2>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]),
-            &device,
-        );
-        let eps = Tensor::<BI, 2>::from_data(
-            TensorData::new(vec![0.5_f32, 0.5], vec![1, 2]),
-            &device,
-        );
-        let (action, log_prob) = squashed_sample_log_prob::<BI>(
-            mean, log_std, eps, 1.0, 0.0,
-        );
+        let mean =
+            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]), &device);
+        let log_std =
+            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0], vec![1, 2]), &device);
+        let eps =
+            Tensor::<BI, 2>::from_data(TensorData::new(vec![0.5_f32, 0.5], vec![1, 2]), &device);
+        let (action, log_prob) = squashed_sample_log_prob::<BI>(mean, log_std, eps, 1.0, 0.0);
 
         let z = 0.5_f32;
-        let gauss_per_dim = -0.5 * (2.0_f32 * std::f32::consts::PI).ln()
-            - 0.5 * z * z;
+        let gauss_per_dim = -0.5 * (2.0_f32 * std::f32::consts::PI).ln() - 0.5 * z * z;
         let jac_per_dim = (1.0_f32 - z.tanh().powi(2)).ln();
         let expected = 2.0 * (gauss_per_dim - jac_per_dim);
         let got = log_prob.into_scalar().elem::<f32>();
@@ -304,18 +285,13 @@ mod tests {
             action_bias: 0.5,
         };
         let head: SquashedGaussianPolicyHead<B> = cfg.init::<B>(&device);
-        let obs = Tensor::<B, 2>::from_data(
-            TensorData::new(vec![0.1_f32], vec![1, 1]),
-            &device,
-        );
+        let obs = Tensor::<B, 2>::from_data(TensorData::new(vec![0.1_f32], vec![1, 1]), &device);
         let det = head.deterministic_action(obs.clone());
         let (mean, _) = head.mean_and_log_std(obs);
         let expected = tanh(mean).mul_scalar(2.0).add_scalar(0.5);
         let a = det.into_data().convert::<f32>();
         let b = expected.into_data().convert::<f32>();
-        assert!(
-            (a.as_slice::<f32>().unwrap()[0] - b.as_slice::<f32>().unwrap()[0]).abs() < 1e-6
-        );
+        assert!((a.as_slice::<f32>().unwrap()[0] - b.as_slice::<f32>().unwrap()[0]).abs() < 1e-6);
     }
 
     /// Two calls with the same ε produce identical samples and log-probs.
@@ -332,10 +308,8 @@ mod tests {
             action_bias: 0.0,
         };
         let head: SquashedGaussianPolicyHead<B> = cfg.init::<B>(&device);
-        let obs = Tensor::<B, 2>::from_data(
-            TensorData::new(vec![0.2_f32, -0.3], vec![1, 2]),
-            &device,
-        );
+        let obs =
+            Tensor::<B, 2>::from_data(TensorData::new(vec![0.2_f32, -0.3], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(9);
         let eps1: Tensor<B, 2> = standard_normal_tensor(1, 1, &device, &mut rng);
         let eps2 = eps1.clone();

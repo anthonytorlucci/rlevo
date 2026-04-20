@@ -11,9 +11,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -60,7 +58,8 @@ impl<B: Backend> ActorMlp<B> {
         let h = relu(self.fc1.forward(obs));
         let h = relu(self.fc2.forward(h));
         let raw = tanh(self.head.forward(h));
-        raw.mul_scalar(self.action_scale).add_scalar(self.action_bias)
+        raw.mul_scalar(self.action_scale)
+            .add_scalar(self.action_bias)
     }
 }
 
@@ -207,10 +206,7 @@ fn parse_args() -> CliArgs {
         match flag.as_str() {
             "--seed" => seed = args.next().and_then(|v| v.parse().ok()).expect("u64"),
             "--total-timesteps" => {
-                total_timesteps = args
-                    .next()
-                    .and_then(|v| v.parse().ok())
-                    .expect("usize");
+                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize");
             }
             "--log-every" => {
                 log_every = args.next().and_then(|v| v.parse().ok()).expect("usize");

@@ -11,9 +11,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -28,9 +26,7 @@ use evorl_envs::classic::pendulum::{
 use evorl_envs::wrappers::TimeLimit;
 use evorl_rl::algorithms::sac::sac_agent::SacAgent;
 use evorl_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
-use evorl_rl::algorithms::sac::sac_model::{
-    ContinuousQ, SampleOutput, SquashedGaussianPolicy,
-};
+use evorl_rl::algorithms::sac::sac_model::{ContinuousQ, SampleOutput, SquashedGaussianPolicy};
 use evorl_rl::algorithms::sac::train::train;
 
 // ---------------------------------------------------------------------------
@@ -75,10 +71,7 @@ impl<B: Backend> StochasticActor<B> {
     fn mean_and_log_std(&self, obs: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
         let h = self.features(obs);
         let mean = self.mean.forward(h.clone());
-        let log_std = self
-            .log_std
-            .forward(h)
-            .clamp(LOG_STD_MIN, LOG_STD_MAX);
+        let log_std = self.log_std.forward(h).clamp(LOG_STD_MIN, LOG_STD_MAX);
         (mean, log_std)
     }
 
@@ -96,14 +89,12 @@ impl<B: Backend> StochasticActor<B> {
         let scaled = diff / log_std.clone().exp();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<B, 2> =
-            scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+        let per_dim_gauss: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
 
         let ln_2 = std::f32::consts::LN_2;
         let neg_two_z = z.clone().mul_scalar(-2.0);
         let sp = burn::tensor::activation::softplus(neg_two_z, 1.0);
-        let per_dim_jac: Tensor<B, 2> =
-            (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
+        let per_dim_jac: Tensor<B, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
 
         let per_dim = per_dim_gauss - per_dim_jac;
         let log_prob_z = per_dim.sum_dim(1).squeeze_dim::<1>(1);
@@ -122,11 +113,7 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> 
         self.action_dim
     }
 
-    fn forward_sample(
-        &self,
-        obs: Tensor<B, 2>,
-        eps: Tensor<B, 2>,
-    ) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
         let (action, log_prob) = self.squashed_sample(obs, eps);
         SampleOutput { action, log_prob }
     }
@@ -270,10 +257,7 @@ fn parse_args() -> CliArgs {
         match flag.as_str() {
             "--seed" => seed = args.next().and_then(|v| v.parse().ok()).expect("u64"),
             "--total-timesteps" => {
-                total_timesteps = args
-                    .next()
-                    .and_then(|v| v.parse().ok())
-                    .expect("usize");
+                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize");
             }
             "--log-every" => {
                 log_every = args.next().and_then(|v| v.parse().ok()).expect("usize");

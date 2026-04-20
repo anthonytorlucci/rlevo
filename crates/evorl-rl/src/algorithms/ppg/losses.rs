@@ -7,9 +7,9 @@
 //! # References
 //! - Cobbe et al. (2021), *Phasic Policy Gradient*, ICML.
 
+use burn::tensor::Tensor;
 use burn::tensor::activation::log_softmax;
 use burn::tensor::backend::Backend;
-use burn::tensor::Tensor;
 
 /// Mean per-batch categorical KL divergence `KL(π_old ‖ π_new)`.
 ///
@@ -47,7 +47,9 @@ mod tests {
     #[test]
     fn policy_kl_zero_when_logits_identical() {
         let l = t2(&[0.1_f32, 0.2, -0.3, 0.5, -0.1, 0.0], 2, 3);
-        let kl = policy_kl_categorical(l.clone(), l).into_scalar().elem::<f32>();
+        let kl = policy_kl_categorical(l.clone(), l)
+            .into_scalar()
+            .elem::<f32>();
         assert!(kl.abs() < 1e-6, "expected 0, got {kl}");
     }
 

@@ -18,7 +18,9 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_rl::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use evorl_rl::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
 use evorl_rl::algorithms::qrdqn::qrdqn_model::QrDqnModel;

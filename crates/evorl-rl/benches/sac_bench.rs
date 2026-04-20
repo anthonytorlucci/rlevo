@@ -8,9 +8,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -26,9 +24,7 @@ use evorl_envs::classic::pendulum::{
 };
 use evorl_rl::algorithms::sac::sac_agent::SacAgent;
 use evorl_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
-use evorl_rl::algorithms::sac::sac_model::{
-    ContinuousQ, SampleOutput, SquashedGaussianPolicy,
-};
+use evorl_rl::algorithms::sac::sac_model::{ContinuousQ, SampleOutput, SquashedGaussianPolicy};
 
 #[derive(Module, Debug)]
 struct StochasticActor<B: Backend> {
@@ -41,7 +37,13 @@ struct StochasticActor<B: Backend> {
 }
 
 impl<B: Backend> StochasticActor<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &B::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        action_dim: usize,
+        scale: f32,
+        device: &B::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -69,8 +71,7 @@ impl<B: Backend> StochasticActor<B> {
         let scaled = diff / log_std.clone().exp();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<B, 2> =
-            scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+        let per_dim_gauss: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
         let ln_2 = std::f32::consts::LN_2;
         let neg_two_z = z.clone().mul_scalar(-2.0);
         let sp = softplus(neg_two_z, 1.0);
@@ -251,7 +252,11 @@ fn bench_learn(c: &mut Criterion) {
             done,
         );
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     c.bench_function("sac_learn_step_batch256", |b| {
         b.iter(|| {
