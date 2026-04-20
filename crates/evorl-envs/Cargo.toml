@@ -23,9 +23,6 @@ approx = { workspace = true }
 
 [features]
 default = ["box2d", "locomotion"]
-# Bandit algorithm selection (default is epsilon-greedy)
-ucb = []        # Upper Confidence Bound algorithm
-thompson = []   # Thompson Sampling algorithm
 # Box2D-style physics environments (rapier2d)
 box2d = ["dep:rapier2d"]
 # MuJoCo-style locomotion environments (rapier3d)

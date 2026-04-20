@@ -110,13 +110,13 @@ impl Square {
 
         // Parse file letter (a-h maps to 0-7)
         let file = match file_char {
-            b'a'..=b'h' => (file_char - b'a') as u8,
+            b'a'..=b'h' => file_char - b'a',
             _ => return None,
         };
 
         // Parse rank digit (1-8 maps to 0-7)
         let rank = match rank_char {
-            b'1'..=b'8' => (rank_char - b'1') as u8,
+            b'1'..=b'8' => rank_char - b'1',
             _ => return None,
         };
 
@@ -239,7 +239,7 @@ mod tests {
         for (file_index, file_letter) in "abcdefgh".chars().enumerate() {
             let notation = format!("{}1", file_letter);
             let sq = Square::from_algebraic_notation(&notation)
-                .expect(&format!("{}1 should parse", file_letter));
+                .unwrap_or_else(|| panic!("{}1 should parse", file_letter));
             assert_eq!(sq.file(), file_index as u8);
             assert_eq!(sq.rank(), 0);
         }
@@ -251,7 +251,7 @@ mod tests {
         for (rank_index, rank_digit) in "12345678".chars().enumerate() {
             let notation = format!("a{}", rank_digit);
             let sq = Square::from_algebraic_notation(&notation)
-                .expect(&format!("a{} should parse", rank_digit));
+                .unwrap_or_else(|| panic!("a{} should parse", rank_digit));
             assert_eq!(sq.rank(), rank_index as u8);
             assert_eq!(sq.file(), 0);
         }
@@ -338,7 +338,7 @@ mod tests {
 
         for notation in notations {
             let sq = Square::from_algebraic_notation(notation)
-                .expect(&format!("{} should parse", notation));
+                .unwrap_or_else(|| panic!("{} should parse", notation));
             assert_eq!(
                 sq.algebraic_notation(),
                 notation,

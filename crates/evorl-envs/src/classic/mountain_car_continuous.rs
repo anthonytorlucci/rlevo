@@ -101,7 +101,7 @@ pub struct MountainCarContinuousAction(f32);
 impl MountainCarContinuousAction {
     /// Construct, returning an error if `force` is not in `[-1, 1]` or is non-finite.
     pub fn new(force: f32) -> Result<Self, InvalidActionError> {
-        if force.is_finite() && force >= -1.0 && force <= 1.0 {
+        if force.is_finite() && (-1.0..=1.0).contains(&force) {
             Ok(Self(force))
         } else {
             Err(InvalidActionError {

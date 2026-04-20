@@ -267,7 +267,7 @@ impl ChessMove {
 
         let distance = delta_rank.abs().max(delta_file.abs()) as usize;
         assert!(
-            distance >= 1 && distance <= 7,
+            (1..=7).contains(&distance),
             "Invalid distance: {}",
             distance
         );

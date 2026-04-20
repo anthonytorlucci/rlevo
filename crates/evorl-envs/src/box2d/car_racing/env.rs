@@ -327,7 +327,7 @@ mod tests {
         let mut env = make_env();
         env.reset().unwrap();
         let snap = env.step(CarRacingAction { steer: 0.0, gas: 0.0, brake: 0.0 }).unwrap();
-        let reward: f32 = snap.reward().clone().into();
+        let reward: f32 = (*snap.reward()).into();
         let config = CarRacingConfig::default();
         // Frame penalty is always applied; tile reward may also apply on step 1.
         // Even with one tile: tile_reward + frame_penalty < tile_reward.
@@ -357,7 +357,7 @@ mod tests {
             let mut reward_sum = 0.0f32;
             for _ in 0..5 {
                 if let Ok(snap) = env.step(a.clone()) {
-                    let r: f32 = snap.reward().clone().into();
+                    let r: f32 = (*snap.reward()).into();
                     reward_sum += r;
                 }
             }

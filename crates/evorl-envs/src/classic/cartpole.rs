@@ -526,6 +526,14 @@ impl<B: burn::tensor::backend::Backend> evorl_core::base::TensorConvertible<1, B
     }
 }
 
+// helper for divergence test
+#[cfg(test)]
+impl CartPoleState {
+    fn to_array(self) -> [f32; 4] {
+        [self.x, self.x_dot, self.theta, self.theta_dot]
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -705,12 +713,5 @@ mod tests {
         assert!((cfg.gravity - 9.81).abs() < 1e-6);
         assert!((cfg.masscart - 2.0).abs() < 1e-6);
         assert_eq!(cfg.seed, 99);
-    }
-}
-
-// helper for divergence test
-impl CartPoleState {
-    fn to_array(self) -> [f32; 4] {
-        [self.x, self.x_dot, self.theta, self.theta_dot]
     }
 }

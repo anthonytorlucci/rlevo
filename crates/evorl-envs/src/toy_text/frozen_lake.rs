@@ -580,7 +580,7 @@ mod tests {
         }
         let snap = last_snap.unwrap();
         assert!(snap.is_terminated(), "goal must terminate");
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert!((r - 1.0).abs() < 1e-6, "goal reward must be 1.0, got {r}");
     }
 
@@ -592,7 +592,7 @@ mod tests {
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
         assert!(snap.is_terminated(), "hole must terminate");
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, 0.0, "default hole reward is 0.0");
     }
 
@@ -609,7 +609,7 @@ mod tests {
         // Step into hole at (1,1): Down then Right.
         env.step(FrozenLakeAction::Down).unwrap();
         let snap = env.step(FrozenLakeAction::Right).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert!((r - (-10.0)).abs() < 1e-6, "custom hole reward -10.0, got {r}");
     }
 
@@ -694,7 +694,7 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..20 {
                     let snap = env.step(FrozenLakeAction::Right).unwrap();
-                    let r: f32 = snap.reward().clone().into();
+                    let r: f32 = (*snap.reward()).into();
                     total += r;
                     if snap.is_done() {
                         break;

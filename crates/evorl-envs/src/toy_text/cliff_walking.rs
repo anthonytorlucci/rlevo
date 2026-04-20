@@ -264,6 +264,12 @@ impl Environment<1, 1, 1> for CliffWalking {
     }
 }
 
+impl From<(u8, u8)> for CliffWalkingState {
+    fn from((row, col): (u8, u8)) -> Self {
+        CliffWalkingState { row, col }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,7 +306,7 @@ mod tests {
         env.reset().unwrap();
         // Start (3,0): move right → (3,1) = cliff.
         let snap = env.step(CliffWalkingAction::Right).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, -100.0);
         assert!(!snap.is_done(), "cliff must not terminate episode");
         // Agent should be back at start.
@@ -315,7 +321,7 @@ mod tests {
         // Better: place at (2,11) and step down.
         env.state = CliffWalkingState { row: 2, col: 11 };
         let snap = env.step(CliffWalkingAction::Down).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, -1.0);
         assert!(snap.is_terminated());
     }
@@ -339,16 +345,16 @@ mod tests {
         let mut total = 0.0_f32;
         // One step up from (3,0) → (2,0)
         let snap = env.step(CliffWalkingAction::Up).unwrap();
-        { let r: f32 = snap.reward().clone().into(); total += r; }
+        { let r: f32 = (*snap.reward()).into(); total += r; }
         // Eleven steps right: (2,0) → … → (2,11)
         for _ in 0..11 {
             let snap = env.step(CliffWalkingAction::Right).unwrap();
-            let r: f32 = snap.reward().clone().into();
+            let r: f32 = (*snap.reward()).into();
             total += r;
         }
         // One step down (2,11) → (3,11) = GOAL
         let snap = env.step(CliffWalkingAction::Down).unwrap();
-        { let r: f32 = snap.reward().clone().into(); total += r; }
+        { let r: f32 = (*snap.reward()).into(); total += r; }
         assert!(snap.is_done(), "goal must terminate episode");
         assert!((total - (-13.0)).abs() < 1e-5, "optimal path must yield -13, got {total}");
     }
@@ -389,7 +395,7 @@ mod tests {
             let mut total = 0.0_f32;
             for _ in 0..20 {
                 let snap = env.step(CliffWalkingAction::Right).unwrap();
-                let r: f32 = snap.reward().clone().into();
+                let r: f32 = (*snap.reward()).into();
                 total += r;
                 if snap.is_done() {
                     break;
@@ -398,11 +404,5 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
-    }
-}
-
-impl From<(u8, u8)> for CliffWalkingState {
-    fn from((row, col): (u8, u8)) -> Self {
-        CliffWalkingState { row, col }
     }
 }

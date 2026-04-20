@@ -109,6 +109,7 @@ impl Rapier3DWorld {
         self.colliders.insert_with_parent(desc, parent, &mut self.bodies)
     }
 
+    #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
     pub(crate) fn add_ground_collider(&mut self, desc: ColliderBuilder) -> ColliderHandle {
         self.colliders.insert(desc)
     }
@@ -131,6 +132,7 @@ impl Rapier3DWorld {
         self.multibody_joints.insert(b1, b2, joint, true)
     }
 
+    #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
     pub(crate) fn bodies(&self) -> &RigidBodySet {
         &self.bodies
     }
@@ -212,17 +214,19 @@ impl LocomotionBackend for Rapier3DBackend {
         _joint: Self::JointHandle,
         _torque: f32,
     ) {
-        // TODO(locomotion-stage1): Rapier 3D doesn't expose a clean
-        // "joint torque" primitive — for revolute joints we'll either
-        // (a) apply equal-and-opposite angular impulses to the two bodies
-        //     about the joint's free axis, or
-        // (b) use the joint motor API with high damping / zero stiffness.
-        //
-        // The cleanest mapping depends on whether the joint is impulse-based
-        // or multibody. Per-env skeleton builders currently apply torque
-        // directly via `RigidBodySet::get_mut(...).add_torque(...)` until
-        // this is unified. Tracking this gap so I don't ship a half-wired
-        // motor and forget.
+        // Rapier 3D doesn't expose a clean "joint torque" primitive — for
+        // revolute joints the future implementation will either (a) apply
+        // equal-and-opposite angular impulses to the two bodies about the
+        // joint's free axis, or (b) use the joint motor API with high
+        // damping / zero stiffness. The cleanest mapping depends on whether
+        // the joint is impulse-based or multibody. Per-env skeleton builders
+        // currently apply torque directly via
+        // `RigidBodySet::get_mut(...).add_torque(...)`.
+        unimplemented!(
+            "Rapier3DBackend::apply_joint_torque is not wired up; \
+             per-env skeletons apply torque directly via RigidBodySet::add_torque. \
+             Planned for v0.2."
+        );
     }
 
     fn contact_force(world: &Self::World, body: Self::BodyHandle) -> [f32; 6] {

@@ -407,7 +407,7 @@ mod tests {
         env.state = TaxiState { taxi_row: 0, taxi_col: 1, passenger_loc: 0, destination: 1 };
         let pos_before = (env.state.taxi_row, env.state.taxi_col);
         let snap = env.step(TaxiAction::East).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, -1.0);
         assert_eq!((env.state.taxi_row, env.state.taxi_col), pos_before);
     }
@@ -419,7 +419,7 @@ mod tests {
         // Passenger at location 0 (0,0), taxi at (2,2): pickup must fail.
         env.state = TaxiState { taxi_row: 2, taxi_col: 2, passenger_loc: 0, destination: 1 };
         let snap = env.step(TaxiAction::Pickup).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, -10.0);
     }
 
@@ -431,7 +431,7 @@ mod tests {
         env.state =
             TaxiState { taxi_row: 0, taxi_col: 4, passenger_loc: 4, destination: 1 };
         let snap = env.step(TaxiAction::Dropoff).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, 20.0);
         assert!(snap.is_terminated());
     }
@@ -507,7 +507,7 @@ mod tests {
                 env.reset().unwrap();
                 for _ in 0..10 {
                     let snap = env.step(TaxiAction::South).unwrap();
-                    let r: f32 = snap.reward().clone().into();
+                    let r: f32 = (*snap.reward()).into();
                     total += r;
                     if snap.is_done() {
                         break;

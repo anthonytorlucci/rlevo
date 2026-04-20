@@ -375,7 +375,7 @@ mod tests {
             env.set_hands(vec![10, 10], vec![6, 5]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Hit).unwrap();
-            let r: f32 = snap.reward().clone().into();
+            let r: f32 = (*snap.reward()).into();
             if r == -1.0 {
                 assert!(snap.is_done());
                 return;
@@ -393,7 +393,7 @@ mod tests {
             env.set_hands(vec![9, 9], vec![10, 6]);
             env.rng = StdRng::seed_from_u64(seed);
             let snap = env.step(BlackjackAction::Stick).unwrap();
-            let r: f32 = snap.reward().clone().into();
+            let r: f32 = (*snap.reward()).into();
             if r == 1.0 {
                 assert!(snap.is_done());
                 return;
@@ -409,7 +409,7 @@ mod tests {
         // Player 18, dealer 18 (10+8) → no draw needed (18 ≥ 17).
         env.set_hands(vec![9, 9], vec![10, 8]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert_eq!(r, 0.0, "equal sums must push (reward 0), got {r}");
         assert!(snap.is_done());
     }
@@ -425,7 +425,7 @@ mod tests {
         // Natural player [1,10]=21, dealer [8,9]=17 (not natural, no draw).
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert!((r - 1.5).abs() < 1e-6, "natural pays 1.5, got {r}");
         assert!(snap.is_done());
     }
@@ -439,7 +439,7 @@ mod tests {
         // SAB: player natural [1,10], dealer non-natural [8,9] → reward = 1.0.
         env.set_hands(vec![1, 10], vec![8, 9]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert!((r - 1.0).abs() < 1e-6, "SAB player natural must pay 1.0, got {r}");
         assert!(snap.is_done());
     }
@@ -453,7 +453,7 @@ mod tests {
         // SAB: dealer natural [1,10], player non-natural [9,7] → reward = -1.0.
         env.set_hands(vec![9, 7], vec![1, 10]);
         let snap = env.step(BlackjackAction::Stick).unwrap();
-        let r: f32 = snap.reward().clone().into();
+        let r: f32 = (*snap.reward()).into();
         assert!((r - (-1.0)).abs() < 1e-6, "SAB dealer natural costs -1.0, got {r}");
         assert!(snap.is_done());
     }
@@ -473,7 +473,7 @@ mod tests {
                         BlackjackAction::Stick
                     };
                     let snap = env.step(a).unwrap();
-                    let r: f32 = snap.reward().clone().into();
+                    let r: f32 = (*snap.reward()).into();
                     total += r;
                     if snap.is_done() {
                         break;

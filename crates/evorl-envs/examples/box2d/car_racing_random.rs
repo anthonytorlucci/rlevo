@@ -18,7 +18,7 @@ fn main() {
         let action = CarRacingAction::random_valid(&mut rng);
         match env.step(action) {
             Ok(snap) => {
-                let r: f32 = snap.reward().clone().into();
+                let r: f32 = (*snap.reward()).into();
                 total_reward += r;
                 if snap.is_done() {
                     println!("episode ended at step {step}, total_reward={total_reward:.2}");

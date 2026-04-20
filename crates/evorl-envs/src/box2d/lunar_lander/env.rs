@@ -108,10 +108,7 @@ impl LunarLanderCore {
         self.state.lander_handle = lander_rb;
 
         // Landing legs (hinged below the hull)
-        for (sign, handle_slot) in [
-            (-1.0_f32, &mut self.state.leg1_handle as *mut _),
-            (1.0_f32, &mut self.state.leg2_handle as *mut _),
-        ] {
+        for sign in [-1.0_f32, 1.0_f32] {
             let leg_x = HELIPAD_X + sign * LANDER_W / 2.0;
             let leg_y = INITIAL_Y - LANDER_H / 2.0 - 0.2;
             let leg_rb = self.world.add_body(
@@ -127,8 +124,11 @@ impl LunarLanderCore {
             joint.set_local_anchor2(Vector::new(0.0, 0.3));
             joint.set_contacts_enabled(false);
             self.world.add_joint(joint, lander_rb, leg_rb, true);
-            // SAFETY: we iterate a slice of raw pointers to distinct fields.
-            unsafe { *handle_slot = leg_rb; }
+            if sign < 0.0 {
+                self.state.leg1_handle = leg_rb;
+            } else {
+                self.state.leg2_handle = leg_rb;
+            }
         }
 
         self.steps = 0;

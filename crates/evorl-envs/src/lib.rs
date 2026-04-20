@@ -2,17 +2,8 @@
 //!
 //! This crate provides a collection of standard benchmark environments
 //! for training and evaluating reinforcement learning agents, including
-//! classic control problems, game environments, and custom benchmarks.
-//!
-//! # Supported Environments
-//!
-//! ## Classic Control
-//! - **CartPole**: Balance a pole on a moving cart
-//! - **MountainCar**: Drive a car up a mountain with limited power
-//!
-//! ## Games
-//! - **Chess**: Full game tree search in chess
-//! - **Connect Four**: Two-player game solving
+//! classic control problems, gridworlds, tabular MDPs, physics-based
+//! continuous-control tasks, and optimisation benchmark functions.
 //!
 //! # Getting Started
 //!
@@ -29,8 +20,7 @@
 //!
 //! # Module Organization
 //!
-//! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot)
-//! - [`games`]: Board games and game trees (Chess, Connect Four)
+//! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot, TenArmedBandit)
 //! - [`benchmarks`]: Optimization benchmark functions (Sphere, Ackley, Rastrigin)
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
@@ -53,6 +43,14 @@ pub mod benchmarks {
 }
 pub mod box2d;
 pub mod classic;
+/// Board-game environments — **stub, planned for v0.2**.
+///
+/// The submodules compile but do not yet implement the [`evorl_core::environment::Environment`]
+/// trait. They are hidden from the rendered docs until the `Environment` impls land.
+/// Internal dead-code and doc-lint warnings are suppressed here because the
+/// contained code is scaffolding for the v0.2 implementation.
+#[doc(hidden)]
+#[allow(dead_code, clippy::doc_lazy_continuation, clippy::needless_range_loop)]
 pub mod games {
     pub mod chess;
     pub mod connect_four;

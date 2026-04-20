@@ -10,6 +10,7 @@
 //! | [`mountain_car`] | Discrete(3) | 2 | goal position |
 //! | [`mountain_car_continuous`] | Continuous(1) | 2 | goal position |
 //! | [`pendulum`] | Continuous(1) | 3 | never (truncated by wrapper) |
+//! | [`ten_armed_bandit`] | Discrete(10) | 1 | `max_steps` reached |
 //!
 //! Wrap any env with [`crate::wrappers::TimeLimit`] to impose a step cap.
 pub mod acrobot;
@@ -36,4 +37,8 @@ pub use mountain_car_continuous::{
 };
 pub use pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation, PendulumState, angle_normalize,
+};
+pub use ten_armed_bandit::{
+    TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig, TenArmedBanditObservation,
+    TenArmedBanditState,
 };

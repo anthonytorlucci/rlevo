@@ -19,7 +19,7 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 | `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
 | `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
-| `TenArmedBandit` | `classic::TenArmedBandit` | — | Discrete(10) | ε-greedy / UCB / Thompson via features |
+| `TenArmedBandit` | `classic::TenArmedBandit` | — | Discrete(10) | Classic 10-armed bandit; Sutton & Barto |
 
 ---
 
@@ -82,12 +82,11 @@ MuJoCo-style locomotion environments in pure Rust via [Rapier3D](https://rapier.
 
 ---
 
-### Games
+### Games (planned for v0.2)
 
-| Environment | Module | Notes |
-|---|---|---|
-| `Chess` | `games::chess` | Full legal-move board; uses `chess` crate |
-| `ConnectFour` | `games::connect_four` | Two-player; 7×6 board |
+`Chess` and `ConnectFour` are planned for a future release. Stub modules exist
+in-source (`src/games/chess/` and `src/games/connect_four.rs`) but do not yet
+implement the `Environment` trait and are hidden from the public API docs.
 
 ---
 
@@ -141,8 +140,6 @@ while !snap.is_done() {
 |---|---|---|
 | `box2d` | yes | Box2D-style physics environments via `rapier2d` |
 | `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
-| `ucb` | no | Upper Confidence Bound bandit strategy |
-| `thompson` | no | Thompson Sampling bandit strategy |
 | `mujoco-ffi` | no | Reserved for future FFI-bound MuJoCo backend (compile-errors at v1) |
 
 Disable physics environments to shrink compile time:

@@ -115,10 +115,9 @@ mod tests {
     #[test]
     fn test_status_variants() {
         let obs = LunarLanderObservation::default();
-        assert!(LunarLanderSnapshot::running(obs.clone(), ScalarReward(0.0), 0.0)
+        assert!(!LunarLanderSnapshot::running(obs.clone(), ScalarReward(0.0), 0.0)
             .status()
-            .is_done()
-            == false);
+            .is_done());
         assert!(LunarLanderSnapshot::terminated(obs.clone(), ScalarReward(0.0), 0.0)
             .status()
             .is_terminated());
