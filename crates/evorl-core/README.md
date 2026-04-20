@@ -26,7 +26,7 @@ The primitive building blocks of the RL abstraction.
 | `State<D>` | Full MDP state; produces an `Observation<D>` via `observe()` |
 | `Observation<D>` | What the agent perceives (may be a partial view of state) |
 | `Action<D>` | Base action constraint (`is_valid()`) |
-| `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32>` |
+| `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
 | `TensorConvertible<D, B>` | Bidirectional conversion between domain types and Burn tensors |
 | `TransitionDynamics<SD, AD, S, A>` | Deterministic state-transition function |
 | `UpdateFunction<Input, Output>` | Generic parameterized update (policy gradient step, etc.) |
@@ -51,7 +51,7 @@ Extensions to `State<D>` for partial observability, recurrence, and hierarchy:
 | Trait | Purpose |
 |---|---|
 | `MarkovState` | Asserts the Markov property holds for this state representation |
-| `BeliefState<SD, S>` | POMDP belief distribution over latent states |
+| `BeliefState<SD, AD, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
 | `HiddenState<D>` | RNN-style recurrent memory (`update`, `reset`) |
 | `LatentState<D, AD>` | World-model compressed representation (`encode`, `predict`, `decode`) |
 | `StateAggregation<SD, S>` | Maps concrete states to abstract representatives for hierarchical RL |
@@ -107,6 +107,13 @@ Minimal trait surface that `evorl-evolution` builds on:
 |---|---|
 | `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
 | `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average |
+
+### `agent` — Agent Traits (reserved)
+
+Placeholder module reserved for a future unified agent trait hierarchy
+(`act` / `learn` / checkpoint). Empty in v0.1.0 — concrete algorithms currently
+live in `evorl-rl` and `evorl-evolution` and will migrate behind these traits
+once the API stabilizes.
 
 ### `render` — Rendering Abstractions
 
@@ -185,13 +192,11 @@ let mut buffer = PrioritizedExperienceReplayBuilder::default()
 ## Examples
 
 ```bash
-# 4-directional grid movement: State / DiscreteAction / Observation interplay
-cargo run -p evorl-core --example grid_position
+# Egocentric grid agent: State, Observation, TensorConvertible,
+# DiscreteAction, and MultiDiscreteAction (move + interact)
+cargo run -p evorl-core --example grid_agent
 
-# Multi-discrete action space: direction × attack
-cargo run -p evorl-core --example combat_action
-
-# Constrained continuous state (robot workspace)
+# Constrained continuous state (2D robot workspace with orientation bounds)
 cargo run -p evorl-core --example continuous_state_with_constraints
 ```
 
