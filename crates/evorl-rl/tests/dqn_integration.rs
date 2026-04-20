@@ -16,7 +16,9 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_rl::algorithms::dqn::dqn_agent::DqnAgent;
 use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use evorl_rl::algorithms::dqn::dqn_model::DqnModel;
@@ -62,7 +64,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     }
 
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(active.valid(), target, tau as f32)
+        polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
+            active.valid(),
+            target,
+            tau as f32,
+        )
     }
 }
 
@@ -157,9 +163,9 @@ fn dqn_cart_pole_reaches_100() {
     let mut agent = fresh_agent(seed);
     train(&mut agent, &mut env, &mut rng, 30_000, 0).expect("training loop");
     let avg = agent.stats().avg_score().unwrap_or(0.0);
-    // The spec target is >= 100 within 200k steps; we train for 30k here to
-    // keep CI fast. The smoke/reproducibility tests are `#[ignore]` so they
-    // don't compete for Burn's global ndarray RNG.
+    // The acceptance target is >= 100 within 200k steps; this test trains
+    // for 30k to keep CI fast. The smoke/reproducibility tests are
+    // `#[ignore]` so they don't compete for Burn's global ndarray RNG.
     assert!(avg >= 100.0, "expected avg reward >= 100, got {avg:.2}");
 }
 

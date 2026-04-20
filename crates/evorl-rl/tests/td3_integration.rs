@@ -9,9 +9,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -166,10 +164,7 @@ impl Environment<1, 1, 1> for LinearEnv {
         })
     }
 
-    fn step(
-        &mut self,
-        action: Self::ActionType,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         let a = action.0.clamp(-1.0, 1.0);
         let err = a - self.state.x;
         let reward = -(err * err);
@@ -204,7 +199,13 @@ struct Actor<B: Backend> {
 }
 
 impl<B: Backend> Actor<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &B::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        action_dim: usize,
+        scale: f32,
+        device: &B::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             head: LinearConfig::new(hidden, action_dim).init(device),
@@ -229,11 +230,7 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
         inner.forward_impl(obs)
     }
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
-            active.valid(),
-            target,
-            tau as f32,
-        )
+        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(active.valid(), target, tau as f32)
     }
 }
 
@@ -371,19 +368,12 @@ fn td3_solves_linear_1d_continuous() {
     > = Td3Agent::new(actor, critic_1, critic_2, config, device);
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        8_000,
-        0,
+        &mut agent, &mut env, &mut rng, 8_000, 0,
     )
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(
-        avg.is_finite(),
-        "avg reward must be finite, got {avg}"
-    );
+    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Random baseline ≈ −6.67. A learned policy should easily beat −1.0.
     assert!(
         avg > -1.0,
@@ -435,7 +425,11 @@ fn td3_delayed_update_skips_actor_step() {
         let next_obs = *next.observation();
         agent.remember(obs, &action, reward, next_obs, done);
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     assert!(agent.can_learn(), "agent should be past warm-up");
 
@@ -504,18 +498,14 @@ fn td3_pendulum_smoke() {
     > = Td3Agent::new(actor, critic_1, critic_2, config, device);
 
     train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        500_000,
-        0,
+        &mut agent, &mut env, &mut rng, 500_000, 0,
     )
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
     assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Zero-torque Pendulum scores ≈ -1200; TD3 should comfortably beat
-    // that after 500k steps. The spec's tighter -150 target stays
+    // that after 500k steps. The tighter -150 acceptance target stays
     // aspirational, mirroring the DDPG macro-smoke threshold.
     assert!(avg > -800.0, "expected avg reward > -800, got {avg:.2}");
 }

@@ -36,8 +36,8 @@ pub struct SacTrainingConfig {
     /// When `true`, `log α` is trained toward `target_entropy`. When `false`,
     /// `α` is frozen at `initial_alpha`.
     pub autotune: bool,
-    /// Initial value for α (i.e. `log α = ln(initial_alpha)`). CleanRL uses
-    /// `1.0`; the spec follows suit so `log α = 0`.
+    /// Initial value for α (i.e. `log α = ln(initial_alpha)`). Defaults to
+    /// `1.0` so `log α` starts at `0`, matching CleanRL.
     pub initial_alpha: f32,
     /// Target entropy H̄. `None` ⇒ `-(A::DIM as f32)` (the common heuristic
     /// from Haarnoja et al. 2018b, matching CleanRL).

@@ -8,9 +8,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -21,9 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use evorl_core::action::{BoundedAction, ContinuousAction};
 use evorl_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
-use evorl_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
-};
+use evorl_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use evorl_core::reward::ScalarReward;
 use evorl_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
@@ -167,10 +163,7 @@ impl Environment<1, 1, 1> for LinearEnv {
         })
     }
 
-    fn step(
-        &mut self,
-        action: Self::ActionType,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         let a = action.0.clamp(-1.0, 1.0);
         let err = a - self.state.x;
         let reward = -(err * err);
@@ -204,7 +197,13 @@ struct Actor<B: Backend> {
 }
 
 impl<B: Backend> Actor<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, scale: f32, device: &B::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        action_dim: usize,
+        scale: f32,
+        device: &B::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             head: LinearConfig::new(hidden, action_dim).init(device),
@@ -229,11 +228,7 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
         inner.forward_impl(obs)
     }
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
-            active.valid(),
-            target,
-            tau as f32,
-        )
+        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(active.valid(), target, tau as f32)
     }
 }
 
@@ -368,19 +363,12 @@ fn ddpg_solves_linear_1d_continuous() {
     > = DdpgAgent::new(actor, critic, config, device);
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        8_000,
-        0,
+        &mut agent, &mut env, &mut rng, 8_000, 0,
     )
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(
-        avg.is_finite(),
-        "avg reward must be finite, got {avg}"
-    );
+    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Random baseline ≈ −6.67. A learned policy should easily beat −1.0.
     assert!(
         avg > -1.0,
@@ -430,17 +418,14 @@ fn ddpg_pendulum_smoke() {
     > = DdpgAgent::new(actor, critic, config, device);
 
     train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        500_000,
-        0,
+        &mut agent, &mut env, &mut rng, 500_000, 0,
     )
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
     assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Zero-torque Pendulum scores ≈ -1200; DDPG should comfortably beat that
-    // after 500k steps. The spec's tighter -200 target is gated further.
+    // after 500k steps. A tighter -200 acceptance target stays aspirational
+    // and is not gated as a test.
     assert!(avg > -800.0, "expected avg reward > -800, got {avg:.2}");
 }

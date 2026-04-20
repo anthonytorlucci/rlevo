@@ -1,7 +1,7 @@
 //! End-to-end training loop for DQN.
 //!
-//! [`train`] drives the collect-learn-sync cycle described in the DQN spec:
-//! reset the environment, step with ε-greedy actions, push each transition
+//! [`train`] drives the collect-learn-sync cycle: reset the environment,
+//! step with ε-greedy actions, push each transition
 //! into the agent's replay buffer, call [`DqnAgent::learn_step`] on the
 //! configured cadence, and sync the target network. Per-episode metrics are
 //! accumulated into the agent's [`AgentStats`].
@@ -10,10 +10,10 @@
 
 use rand::Rng;
 
+use burn::tensor::backend::AutodiffBackend;
 use evorl_core::action::DiscreteAction;
 use evorl_core::base::{Observation, Reward, TensorConvertible};
 use evorl_core::environment::{Environment, Snapshot};
-use burn::tensor::backend::AutodiffBackend;
 
 use crate::algorithms::dqn::dqn_agent::{DqnAgent, DqnAgentError, DqnMetrics};
 use crate::algorithms::dqn::dqn_model::DqnModel;
@@ -58,11 +58,11 @@ where
         episode_reward += reward_f32;
         episode_steps += 1;
 
-        if agent.should_train() {
-            if let Some(outcome) = agent.learn_step(rng) {
-                last_loss = outcome.loss;
-                last_q_mean = outcome.q_mean;
-            }
+        if agent.should_train()
+            && let Some(outcome) = agent.learn_step(rng)
+        {
+            last_loss = outcome.loss;
+            last_q_mean = outcome.q_mean;
         }
         agent.sync_target();
         agent.decay_exploration();

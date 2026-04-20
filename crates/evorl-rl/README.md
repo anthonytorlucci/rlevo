@@ -112,18 +112,208 @@ Distributional-specific hyperparameters:
 
 ---
 
-## Planned Algorithms
+### Proximal Policy Optimization (PPO)
 
-The following algorithms are planned for future releases:
+**Module:** `algorithms::ppo`
+
+Schulman et al.'s on-policy policy-gradient algorithm with a clipped surrogate objective. Supports both discrete and continuous action spaces through two built-in policy heads: `CategoricalPolicyHead` (softmax over logits) and `TanhGaussianPolicyHead` (state-independent `log_std` with `scale · tanh(z)` squashing). The rollout buffer computes GAE advantages; the update step runs `update_epochs` passes over `num_minibatches`-sized minibatches with an optional early-stop on `approx_kl`. Implementation details follow Huang et al. 2022.
+
+Key components:
+
+| File | Purpose |
+|------|---------|
+| `ppo_config.rs` | `PpoTrainingConfig` + `PpoTrainingConfigBuilder` + `annealed_learning_rate` |
+| `ppo_policy.rs` | `PpoPolicy` trait with associated `ActionTensor` type |
+| `ppo_value.rs` | `PpoValue` trait |
+| `policies/categorical.rs` | `CategoricalPolicyHead` (discrete) |
+| `policies/gaussian.rs` | `TanhGaussianPolicyHead` (continuous) |
+| `rollout.rs` | `RolloutBuffer` + free `compute_gae` |
+| `losses.rs` | `clipped_surrogate`, `clipped_value_loss`, `approx_kl`, `clip_fraction` |
+| `ppo_agent.rs` | `PpoAgent` — `act`, `record_step`, `finalize_rollout`, `update` |
+| `train.rs` | `train_discrete` / `train_continuous` entry points |
+
+Default hyperparameters follow CleanRL's `ppo.py`:
+
+| Hyperparameter | Default | Source |
+|----------------|---------|--------|
+| `num_steps` (rollout horizon) | 128 | CleanRL |
+| `num_minibatches` | 4 | CleanRL |
+| `update_epochs` | 4 | CleanRL |
+| `learning_rate` | 2.5e-4 | CleanRL |
+| `anneal_lr` | true | Huang et al. #4 |
+| `gamma` (γ) | 0.99 | CleanRL |
+| `gae_lambda` (λ) | 0.95 | Schulman et al. (2015) |
+| `clip_coef` (ε) | 0.2 | Schulman et al. (2017) |
+| `clip_value_loss` | true | Huang et al. #8 |
+| `entropy_coef` | 0.01 | CleanRL |
+| `value_coef` | 0.5 | CleanRL |
+| `max_grad_norm` | 0.5 | Huang et al. #10 |
+| Adam `epsilon` | 1e-5 | Huang et al. #3 |
+
+`num_envs` is fixed at `1` in v0.1.0; vectorised rollout is deferred.
+
+**References**
+
+- Schulman et al. (2017), *Proximal Policy Optimization Algorithms* — https://arxiv.org/abs/1707.06707
+- Huang et al. (2022), *The 37 Implementation Details of PPO* — https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+- CleanRL PPO implementation — https://docs.cleanrl.dev/rl-algorithms/ppo/
+
+---
+
+### Phasic Policy Gradient (PPG)
+
+**Module:** `algorithms::ppg`
+
+Cobbe et al.'s on-policy algorithm that interleaves a standard PPO policy phase with a periodic auxiliary phase that retrains the value function plus an auxiliary value head on the policy network, distilling the pre-aux-phase policy via a KL penalty. v0.1.0 ships a discrete-only `PpgCategoricalPolicyHead`; continuous support is deferred. CartPole parity with PPO is the v1 target — Procgen-scale gains require vectorised envs and CNN encoders.
+
+Key components:
+
+| File | Purpose |
+|------|---------|
+| `ppg_config.rs` | `PpgConfig` + `PpgConfigBuilder` (wraps `PpoTrainingConfig`) |
+| `ppg_policy.rs` | `PpgPolicy` trait with auxiliary-value head accessor |
+| `policies/categorical.rs` | `PpgCategoricalPolicyHead` (discrete-only in v0.1.0) |
+| `aux_buffer.rs` | `AuxBuffer` accumulating rollouts between auxiliary phases |
+| `losses.rs` | Auxiliary-phase losses (value, behavioural cloning / KL) |
+| `ppg_agent.rs` | `PpgAgent` — policy-phase + auxiliary-phase updates |
+| `train.rs` | End-to-end training loop |
+
+The PPG-specific hyperparameters layer on top of PPO's defaults:
+
+| Hyperparameter | Default | Source |
+|----------------|---------|--------|
+| `n_iteration` (policy phases per aux phase) | 32 | CleanRL |
+| `e_aux` (aux epochs) | 6 | CleanRL |
+| `beta_clone` (KL distillation coefficient) | 1.0 | CleanRL |
+| `aux_batch_size` | 256 | CleanRL |
+
+**References**
+
+- Cobbe et al. (2020), *Phasic Policy Gradient* — https://arxiv.org/abs/2009.04416
+- CleanRL PPG implementation — https://docs.cleanrl.dev/rl-algorithms/ppg/
+
+---
+
+### Deep Deterministic Policy Gradient (DDPG)
+
+**Module:** `algorithms::ddpg`
+
+Lillicrap et al.'s off-policy actor-critic for continuous action spaces. Pairs a deterministic actor with a Q-critic, each with a Polyak-averaged target copy. Explores via Gaussian noise on the actor output and learns off a uniform replay buffer. CleanRL's `ddpg_continuous_action.py` is the reference implementation.
+
+Key components:
+
+| File | Purpose |
+|------|---------|
+| `ddpg_config.rs` | `DdpgTrainingConfig` + `DdpgTrainingConfigBuilder` |
+| `ddpg_model.rs` | `DeterministicPolicy` actor trait + `ContinuousQ` critic trait |
+| `exploration.rs` | `GaussianNoise` (shared with TD3) |
+| `ddpg_agent.rs` | `DdpgAgent` — act / remember / learn |
+| `train.rs` | End-to-end collect-learn loop with warm-up |
+
+Default hyperparameters follow CleanRL:
+
+| Hyperparameter | Default | Source |
+|----------------|---------|--------|
+| `buffer_capacity` | 1 000 000 | CleanRL |
+| `batch_size` | 256 | CleanRL |
+| `learning_starts` | 25 000 | CleanRL |
+| `actor_lr` | 3e-4 | CleanRL |
+| `critic_lr` | 3e-4 | CleanRL |
+| `gamma` (γ) | 0.99 | CleanRL |
+| `tau` (Polyak) | 0.005 | CleanRL |
+| `exploration_noise` (σ) | 0.1 | CleanRL |
+| `policy_frequency` | 2 | CleanRL |
+
+**References**
+
+- Lillicrap et al. (2015), *Continuous Control with Deep Reinforcement Learning* — https://arxiv.org/abs/1509.02971
+- CleanRL DDPG implementation — https://docs.cleanrl.dev/rl-algorithms/ddpg/
+
+---
+
+### Twin Delayed DDPG (TD3)
+
+**Module:** `algorithms::td3`
+
+Fujimoto et al.'s three-delta refinement of DDPG that addresses deterministic-policy Q-overestimation: a `min`-of-twin-critics bootstrap target, Gaussian target-policy smoothing, and delayed actor + Polyak updates every `policy_frequency`-th critic step. Reuses DDPG's `GaussianNoise`, `DeterministicPolicy`, and `ContinuousQ` trait surfaces unchanged. CleanRL's `td3_continuous_action.py` is the reference.
+
+Key components:
+
+| File | Purpose |
+|------|---------|
+| `td3_config.rs` | `Td3TrainingConfig` + `Td3TrainingConfigBuilder` |
+| `td3_model.rs` | Re-exports / aliases atop `ddpg::ddpg_model` for twin-critic setups |
+| `target_smoothing.rs` | `smooth_target_actions` — clipped Gaussian noise on target actor |
+| `td3_agent.rs` | `Td3Agent` — twin critics + delayed actor update |
+| `train.rs` | End-to-end collect-learn loop |
+
+TD3 inherits DDPG's defaults and adds target-smoothing parameters:
+
+| Hyperparameter | Default | Source |
+|----------------|---------|--------|
+| `policy_noise` (target σ) | 0.2 | Fujimoto et al. (2018) |
+| `noise_clip` (target σ clip) | 0.5 | Fujimoto et al. (2018) |
+| `policy_frequency` (delayed actor) | 2 | Fujimoto et al. (2018) |
+
+**References**
+
+- Fujimoto, van Hoof, Meger (2018), *Addressing Function Approximation Error in Actor-Critic Methods* — https://arxiv.org/abs/1802.09477
+- CleanRL TD3 implementation — https://docs.cleanrl.dev/rl-algorithms/td3/
+
+---
+
+### Soft Actor-Critic (SAC)
+
+**Module:** `algorithms::sac`
+
+Haarnoja et al.'s off-policy max-entropy algorithm for continuous action spaces. Pairs a squashed-Gaussian stochastic actor with two critics (each with a Polyak-averaged target), a scalar learnable temperature α, and a uniform replay buffer. The Bellman target includes the entropy term `−α·log π(a'|s')`; the actor is trained via reparameterization; α is auto-tuned toward the heuristic target entropy `-|A|` by default. CleanRL's `sac_continuous_action.py` is the reference.
+
+Key components:
+
+| File | Purpose |
+|------|---------|
+| `sac_config.rs` | `SacTrainingConfig` + `SacTrainingConfigBuilder` |
+| `sac_model.rs` | `ContinuousQ` critic trait (SAC uses twin critics) |
+| `sac_policy.rs` | `SquashedGaussianPolicyHead` stochastic actor |
+| `sac_alpha.rs` | `LogAlpha` — learnable log-temperature with auto-tuning toward `target_entropy` |
+| `sac_agent.rs` | `SacAgent` — twin-critic updates + entropy-regularised actor loss |
+| `train.rs` | End-to-end collect-learn loop |
+
+Default hyperparameters follow CleanRL:
+
+| Hyperparameter | Default | Source |
+|----------------|---------|--------|
+| `buffer_capacity` | 1 000 000 | CleanRL |
+| `batch_size` | 256 | CleanRL |
+| `learning_starts` | 5 000 | CleanRL |
+| `actor_lr` | 3e-4 | CleanRL |
+| `critic_lr` | 1e-3 | CleanRL |
+| `alpha_lr` | 1e-3 | CleanRL |
+| `gamma` (γ) | 0.99 | CleanRL |
+| `tau` (Polyak) | 0.005 | CleanRL |
+| `autotune` (α auto-tune) | true | Haarnoja et al. (2018b) |
+| `initial_alpha` | 1.0 | CleanRL |
+| `target_entropy` | `-|A|` heuristic | Haarnoja et al. (2018b) |
+| `log_std_min` | -5.0 | CleanRL |
+| `log_std_max` | 2.0 | CleanRL |
+| `policy_frequency` | 2 | CleanRL |
+| `target_update_frequency` | 1 | CleanRL |
+
+**References**
+
+- Haarnoja et al. (2018a), *Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor* — https://arxiv.org/abs/1801.01290
+- Haarnoja et al. (2018b), *Soft Actor-Critic Algorithms and Applications* — https://arxiv.org/abs/1812.05905
+- CleanRL SAC implementation — https://docs.cleanrl.dev/rl-algorithms/sac/
+
+---
+
+## Planned / Deferred Algorithms
+
+The following algorithms are deferred stubs — scope is parked until prerequisites land.
 
 | Algorithm | Family | Action space | Status |
 |-----------|--------|-------------|--------|
 | Rainbow | Distributional value | Discrete | Deferred stub |
-| PPO | Policy gradient | Both | Planned |
-| PPG | Policy gradient | Discrete | Planned |
-| DDPG | Actor-critic | Continuous | Planned |
-| TD3 | Actor-critic | Continuous | Planned |
-| SAC | Max-entropy actor-critic | Both | Planned |
 | RND | Exploration | Discrete | Deferred stub |
 | QDagger | Distillation | Discrete | Deferred stub |
 
@@ -178,4 +368,10 @@ All config structs are `Clone + Debug`. Serde support is planned.
 - van Hasselt, Guez & Silver (2016), *Deep Reinforcement Learning with Double Q-learning* — https://arxiv.org/abs/1509.06461
 - Bellemare, Dabney & Munos (2017), *A Distributional Perspective on Reinforcement Learning* — https://arxiv.org/abs/1707.06887
 - Dabney et al. (2018), *Distributional Reinforcement Learning with Quantile Regression* — https://arxiv.org/abs/1710.10044
+- Schulman et al. (2017), *Proximal Policy Optimization Algorithms* — https://arxiv.org/abs/1707.06707
 - Huang et al. (2022), *The 37 Implementation Details of Proximal Policy Optimization* — https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+- Cobbe et al. (2020), *Phasic Policy Gradient* — https://arxiv.org/abs/2009.04416
+- Lillicrap et al. (2015), *Continuous Control with Deep Reinforcement Learning* — https://arxiv.org/abs/1509.02971
+- Fujimoto, van Hoof & Meger (2018), *Addressing Function Approximation Error in Actor-Critic Methods* — https://arxiv.org/abs/1802.09477
+- Haarnoja et al. (2018a), *Soft Actor-Critic* — https://arxiv.org/abs/1801.01290
+- Haarnoja et al. (2018b), *Soft Actor-Critic Algorithms and Applications* — https://arxiv.org/abs/1812.05905

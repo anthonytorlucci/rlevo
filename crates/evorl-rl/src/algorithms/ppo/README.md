@@ -50,10 +50,10 @@ critical subset):
 **Deferred** (documented gaps, not bugs):
 
 - #1 Vectorised architecture — sequential `num_envs = 1` in v1; vec-envs are
-  a follow-up spec.
+  a follow-up.
 - #11 Vectorised reset handling — N/A while sequential.
-- Running observation normalization / returns-based reward scaling — follow-up
-  spec. Pendulum reward targets note the expected gap.
+- Running observation normalization / returns-based reward scaling — a
+  follow-up. Pendulum reward targets note the expected gap.
 - #14–37 Continuous- and Atari-specific details — covered as the relevant
   envs/wrappers land.
 - Truncation bootstrap bias: when an episode ends via `Truncated` mid-rollout,

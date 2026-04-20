@@ -23,7 +23,7 @@ pub struct PpoTrainingConfig {
     /// Number of environments stepped in parallel.
     ///
     /// v1 only supports sequential rollout (`num_envs == 1`). Vectorised rollout
-    /// is tracked as a follow-up spec.
+    /// is deferred to a future release.
     pub num_envs: usize,
 
     /// Rollout horizon per env (steps collected before each update).

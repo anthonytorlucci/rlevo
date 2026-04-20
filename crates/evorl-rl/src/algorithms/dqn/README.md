@@ -2,7 +2,7 @@
 
 `evorl-rl`'s DQN implementation follows the Nature-style Q-learning algorithm
 with an optional Double-DQN target path. It is the anchor algorithm for the
-`evorl-rl` crate — later specs (C51, Rainbow, PPO) will reuse the trait
+`evorl-rl` crate — later algorithms (C51, QR-DQN, PPO, ...) reuse the trait
 surface and example scaffolding introduced here.
 
 ## Modules

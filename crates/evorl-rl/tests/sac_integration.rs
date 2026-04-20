@@ -9,9 +9,7 @@
 use std::collections::HashMap;
 
 use burn::backend::{Autodiff, NdArray};
-use burn::module::{
-    AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId,
-};
+use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -32,9 +30,7 @@ use evorl_envs::classic::pendulum::{
 use evorl_envs::wrappers::TimeLimit;
 use evorl_rl::algorithms::sac::sac_agent::SacAgent;
 use evorl_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
-use evorl_rl::algorithms::sac::sac_model::{
-    ContinuousQ, SampleOutput, SquashedGaussianPolicy,
-};
+use evorl_rl::algorithms::sac::sac_model::{ContinuousQ, SampleOutput, SquashedGaussianPolicy};
 use evorl_rl::algorithms::sac::train::train;
 
 // ---------------------------------------------------------------------------
@@ -164,10 +160,7 @@ impl Environment<1, 1, 1> for LinearEnv {
         })
     }
 
-    fn step(
-        &mut self,
-        action: Self::ActionType,
-    ) -> Result<Self::SnapshotType, EnvironmentError> {
+    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         let a = action.0.clamp(-1.0, 1.0);
         let err = a - self.state.x;
         let reward = -(err * err);
@@ -233,11 +226,7 @@ impl<B: Backend> StochasticActor<B> {
         (mean, log_std)
     }
 
-    fn sample_impl(
-        &self,
-        obs: Tensor<B, 2>,
-        eps: Tensor<B, 2>,
-    ) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let action_dim = mean.dims()[1];
         let std = log_std.clone().exp();
@@ -246,13 +235,11 @@ impl<B: Backend> StochasticActor<B> {
         let scaled = diff / log_std.clone().exp();
         let scaled_sq = scaled.clone() * scaled;
         let log_2pi = (2.0_f32 * std::f32::consts::PI).ln();
-        let per_dim_gauss: Tensor<B, 2> =
-            scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
+        let per_dim_gauss: Tensor<B, 2> = scaled_sq.mul_scalar(-0.5) - log_std - log_2pi * 0.5;
         let ln_2 = std::f32::consts::LN_2;
         let neg_two_z = z.clone().mul_scalar(-2.0);
         let sp = softplus(neg_two_z, 1.0);
-        let per_dim_jac: Tensor<B, 2> =
-            (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
+        let per_dim_jac: Tensor<B, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
         let per_dim = per_dim_gauss - per_dim_jac;
         let log_prob_z = per_dim.sum_dim(1).squeeze_dim::<1>(1);
         let log_scale_abs = self.action_scale.abs().ln();
@@ -267,11 +254,7 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> 
         self.action_dim
     }
 
-    fn forward_sample(
-        &self,
-        obs: Tensor<B, 2>,
-        eps: Tensor<B, 2>,
-    ) -> SampleOutput<B, 2> {
+    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
         let (action, log_prob) = self.sample_impl(obs, eps);
         SampleOutput { action, log_prob }
     }
@@ -482,7 +465,11 @@ fn sac_alpha_moves_under_autotune() {
         let next_obs = *next.observation();
         agent.remember(obs, &action, reward, next_obs, done);
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     assert!(agent.can_learn(), "agent should be past warm-up");
 
@@ -541,7 +528,11 @@ fn sac_alpha_frozen_when_autotune_disabled() {
         let next_obs = *next.observation();
         agent.remember(obs, &action, reward, next_obs, done);
         agent.on_env_step();
-        snap = if done { env.reset().expect("reset") } else { next };
+        snap = if done {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
     }
     for _ in 0..50 {
         let _ = agent.learn_step(&mut rng).expect("can learn");
@@ -604,7 +595,7 @@ fn sac_pendulum_smoke() {
     let avg = agent.stats().avg_score().expect("non-empty history");
     assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Zero-torque Pendulum scores ≈ -1200; SAC should comfortably beat
-    // that after 500k steps. The spec's tighter -150 target stays
+    // that after 500k steps. The tighter -150 acceptance target stays
     // aspirational, mirroring the DDPG/TD3 macro-smoke thresholds.
     assert!(avg > -800.0, "expected avg reward > -800, got {avg:.2}");
 }
@@ -650,5 +641,9 @@ fn sac_reproducibility_ndarray() {
 
     let a = run_once();
     let b = run_once();
-    assert_eq!(a.to_bits(), b.to_bits(), "SAC run not reproducible: {a} vs {b}");
+    assert_eq!(
+        a.to_bits(),
+        b.to_bits(),
+        "SAC run not reproducible: {a} vs {b}"
+    );
 }

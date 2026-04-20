@@ -1,8 +1,8 @@
 //! Built-in PPG policy heads.
 //!
 //! v1 ships a discrete-only [`PpgCategoricalPolicyHead`]. A tanh-Gaussian
-//! variant is a follow-up — matching the spec scope that defers continuous
-//! PPG until a discrete shakedown passes.
+//! variant is a follow-up — continuous PPG is deferred until the discrete
+//! variant is validated.
 
 pub mod categorical;
 

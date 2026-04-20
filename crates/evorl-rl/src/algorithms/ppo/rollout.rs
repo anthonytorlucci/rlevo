@@ -211,7 +211,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 /// bootstrap from `V(s_continuation)`, which isn't available once the env has
 /// reset. Matching CleanRL's default PPO, we accept this small bias on
 /// truncation-heavy envs. The terminated/truncated arrays are kept separate
-/// so a follow-up spec can rework this without changing the buffer API.
+/// so a future revision can rework this without changing the buffer API.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_gae(
     rewards: &[f32],
@@ -318,8 +318,8 @@ mod tests {
             &values,
             &[false],
             &[false],
-            10.0,  // would-be bootstrap
-            true,  // but last_done zeros it
+            10.0, // would-be bootstrap
+            true, // but last_done zeros it
             0.99,
             0.95,
         );

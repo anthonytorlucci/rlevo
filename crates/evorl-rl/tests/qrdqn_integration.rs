@@ -17,7 +17,9 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
+use evorl_envs::classic::cartpole::{
+    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
+};
 use evorl_rl::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use evorl_rl::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
 use evorl_rl::algorithms::qrdqn::qrdqn_model::QrDqnModel;
@@ -226,7 +228,7 @@ fn qrdqn_cart_pole_reaches_50() {
     assert!(avg >= 50.0, "expected avg reward >= 50, got {avg:.2}");
 }
 
-/// Full acceptance target from the spec: ≥ 195 on CartPole-v1 in ≤ 500k
+/// Full acceptance target: ≥ 195 on CartPole-v1 in ≤ 500k
 /// steps at seed 42. Ignored by default — too expensive for regular CI.
 /// Run with:
 /// `cargo test -p evorl-rl --test qrdqn_integration --release --

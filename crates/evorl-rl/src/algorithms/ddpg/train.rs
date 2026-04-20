@@ -1,7 +1,7 @@
 //! End-to-end training loop for DDPG.
 //!
-//! [`train`] drives the collect-learn cycle described in the DDPG spec: reset
-//! the environment, act via [`DdpgAgent::act`] (uniform random during
+//! [`train`] drives the collect-learn cycle: reset the environment, act via
+//! [`DdpgAgent::act`] (uniform random during
 //! warm-up, noisy actor afterwards), push each transition into the replay
 //! buffer, and invoke [`DdpgAgent::learn_step`] once the warm-up is complete.
 
@@ -44,10 +44,7 @@ where
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
     E: Environment<DO, SD, DA, ObservationType = O, ActionType = A, RewardType = R>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>
-        + Clone,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend> + Clone,
     A: BoundedAction<DA>,
     R: Reward + Copy,
 {

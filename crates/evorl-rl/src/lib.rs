@@ -1,8 +1,8 @@
 //! Deep reinforcement learning algorithms for `burn-evorl`.
 //!
-//! Provides implementations of deep RL algorithms (DQN and future additions
-//! such as PPO) that operate over the `evorl-core` environment and agent
-//! abstractions. All neural-network operations are performed through the
+//! Provides implementations of deep RL algorithms that operate over the
+//! `evorl-core` environment and agent abstractions. All neural-network
+//! operations are performed through the
 //! [Burn](https://github.com/tracel-ai/burn) tensor framework.
 //!
 //! # Structure
