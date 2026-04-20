@@ -52,8 +52,7 @@ pub fn save(path: &Path, report: &BenchmarkReport) -> std::io::Result<()> {
     let tmp = path.with_extension("ckpt.json.tmp");
     {
         let mut f = std::fs::File::create(&tmp)?;
-        let bytes = serde_json::to_vec(report)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let bytes = serde_json::to_vec(report).map_err(std::io::Error::other)?;
         f.write_all(&bytes)?;
         f.sync_all()?;
     }

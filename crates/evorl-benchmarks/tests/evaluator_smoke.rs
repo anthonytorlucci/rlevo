@@ -1,4 +1,4 @@
-//! Smoke tests for the Phase 6 evaluator run loop.
+//! Smoke tests for the evaluator run loop (suite → trial → report path).
 
 use std::path::PathBuf;
 
@@ -94,8 +94,7 @@ fn runs_suite_and_collects_trials() {
 #[test]
 fn determinism_same_seed_same_metrics() {
     let cfg = basic_cfg();
-    let suite: Suite<ToyEnv> =
-        Suite::new("toy", cfg.clone()).with_env("toy", ToyEnv::with_seed);
+    let suite: Suite<ToyEnv> = Suite::new("toy", cfg.clone()).with_env("toy", ToyEnv::with_seed);
     let evaluator = Evaluator::new(cfg);
 
     let mut r1 = LoggingReporter::new();
@@ -134,19 +133,20 @@ fn panicking_trial_does_not_abort_suite() {
         num_threads: Some(1),
         ..basic_cfg()
     };
-    let suite: Suite<ToyEnv> =
-        Suite::new("panic", cfg.clone()).with_env("toy", ToyEnv::with_seed);
+    let suite: Suite<ToyEnv> = Suite::new("panic", cfg.clone()).with_env("toy", ToyEnv::with_seed);
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_suite(&suite, |_s| PanicAgent, &mut reporter);
 
     assert_eq!(report.trials.len(), 1);
     assert!(report.trials[0].errored);
-    assert!(report.trials[0]
-        .error_message
-        .as_deref()
-        .unwrap()
-        .contains("intentional"));
+    assert!(
+        report.trials[0]
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("intentional")
+    );
 }
 
 #[cfg(feature = "json")]
@@ -161,8 +161,7 @@ fn checkpoint_resume_skips_completed_trials() {
         checkpoint_dir: Some(tmp.clone()),
         ..basic_cfg()
     };
-    let suite: Suite<ToyEnv> =
-        Suite::new("resume", cfg.clone()).with_env("toy", ToyEnv::with_seed);
+    let suite: Suite<ToyEnv> = Suite::new("resume", cfg.clone()).with_env("toy", ToyEnv::with_seed);
 
     // First run.
     let evaluator = Evaluator::new(cfg.clone());

@@ -16,8 +16,8 @@
 use evorl_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
 use evorl_benchmarks::env::{BenchEnv, BenchStep};
 use evorl_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use evorl_benchmarks::metrics::ea;
 use evorl_benchmarks::metrics::Metric;
+use evorl_benchmarks::metrics::ea;
 use evorl_benchmarks::reporter::logging::LoggingReporter;
 use evorl_benchmarks::suite::Suite;
 use evorl_envs::benchmarks::rastrigin::Rastrigin;
@@ -53,12 +53,8 @@ struct GaEnv {
 impl GaEnv {
     fn new(seed: u64, dim: usize, pop_size: usize, max_generations: usize) -> Self {
         let landscape = Rastrigin::new(dim);
-        let (lo, hi) = landscape.bounds();
         let mut rng = StdRng::seed_from_u64(seed);
-        let unit = Uniform::new(lo, hi).unwrap();
-        let population: Vec<Vec<f64>> = (0..pop_size)
-            .map(|_| (0..dim).map(|_| unit.sample(&mut rng)).collect())
-            .collect();
+        let population = sample_population(&mut rng, &landscape, pop_size);
         Self {
             landscape,
             population,
@@ -106,11 +102,22 @@ impl GaEnv {
     }
 }
 
+fn sample_population(rng: &mut StdRng, landscape: &Rastrigin, pop_size: usize) -> Vec<Vec<f64>> {
+    let (lo, hi) = landscape.bounds();
+    let unit = Uniform::new(lo, hi).unwrap();
+    (0..pop_size)
+        .map(|_| (0..landscape.dim).map(|_| unit.sample(rng)).collect())
+        .collect()
+}
+
 impl BenchEnv for GaEnv {
     type Observation = ();
     type Action = ();
 
     fn reset(&mut self) -> Self::Observation {
+        let pop_size = self.population.len();
+        self.population = sample_population(&mut self.rng, &self.landscape, pop_size);
+        self.best_so_far = f64::INFINITY;
         self.generation = 0;
     }
 

@@ -145,7 +145,10 @@ use evorl_benchmarks::{
 
 // 1. Wrap your environment as BenchEnv
 struct MyEnv { /* ... */ }
-impl BenchEnv<f64, usize> for MyEnv {
+impl BenchEnv for MyEnv {
+    type Observation = f64;
+    type Action = usize;
+
     fn reset(&mut self) -> f64 { /* ... */ 0.0 }
     fn step(&mut self, action: usize) -> BenchStep<f64> {
         BenchStep { observation: 0.0, reward: 1.0, done: true }

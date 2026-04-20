@@ -52,11 +52,10 @@ impl JsonReporter {
         let report = self
             .last_report
             .as_ref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no report buffered"))?;
+            .ok_or_else(|| io::Error::other("no report buffered"))?;
         let file = File::create(&self.output_path)?;
         let mut w = BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut w, report)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        serde_json::to_writer_pretty(&mut w, report).map_err(io::Error::other)?;
         w.flush()?;
         Ok(())
     }

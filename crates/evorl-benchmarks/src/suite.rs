@@ -24,7 +24,10 @@ impl<E> std::fmt::Debug for Suite<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Suite")
             .field("name", &self.name)
-            .field("envs", &self.envs.iter().map(|(n, _)| n).collect::<Vec<_>>())
+            .field(
+                "envs",
+                &self.envs.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            )
             .field("default_config", &self.default_config)
             .finish()
     }

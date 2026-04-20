@@ -3,7 +3,7 @@
 //! EA evaluation is noisy, so `fitness_variance` is tracked across
 //! repeated evaluations of the same individual, not only across episodes.
 
-use super::{core, Metric};
+use super::{Metric, core};
 
 pub const POPULATION_DIVERSITY: &str = "ea/population_diversity";
 pub const BEST_FITNESS: &str = "ea/best_fitness";

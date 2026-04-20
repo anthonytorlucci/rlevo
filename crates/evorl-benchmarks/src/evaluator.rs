@@ -1,13 +1,13 @@
 //! Evaluator — orchestrates suite execution with rayon trial-level parallelism.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 
 use crate::agent::BenchableAgent;
@@ -110,14 +110,12 @@ impl Evaluator {
         let report_lock: Mutex<&mut BenchmarkReport> = Mutex::new(&mut report);
         let aborted = AtomicBool::new(false);
 
-        let pool = cfg
-            .num_threads
-            .map(|n| {
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(n)
-                    .build()
-                    .expect("build rayon pool")
-            });
+        let pool = cfg.num_threads.map(|n| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .expect("build rayon pool")
+        });
 
         let run_all = || {
             pending.par_iter().for_each(|&key| {
@@ -154,7 +152,7 @@ impl Evaluator {
                 let tr = match trial_report {
                     Ok(tr) => tr,
                     Err(payload) => {
-                        let msg = panic_message(&payload);
+                        let msg = panic_message(&*payload);
                         let mut err = TrialReport::new(key, env_name.clone(), trial_seed);
                         err.errored = true;
                         err.error_message = Some(msg);
@@ -175,7 +173,14 @@ impl Evaluator {
                 rep.trials.push(tr);
                 if let Some(dir) = &cfg.checkpoint_dir {
                     let path = checkpoint::checkpoint_path(dir, &suite.name);
-                    let _ = checkpoint::save(&path, &rep);
+                    if let Err(e) = checkpoint::save(&path, &rep) {
+                        tracing::warn!(
+                            target: "evorl_benchmarks",
+                            path = %path.display(),
+                            error = %e,
+                            "checkpoint save failed"
+                        );
+                    }
                 }
             });
         };
@@ -194,7 +199,14 @@ impl Evaluator {
 
         if let Some(dir) = &cfg.checkpoint_dir {
             let path = checkpoint::checkpoint_path(dir, &suite.name);
-            let _ = checkpoint::save(&path, &report);
+            if let Err(e) = checkpoint::save(&path, &report) {
+                tracing::warn!(
+                    target: "evorl_benchmarks",
+                    path = %path.display(),
+                    error = %e,
+                    "checkpoint save failed"
+                );
+            }
         }
 
         report
@@ -252,12 +264,17 @@ where
     }
 
     let wall = start.elapsed().as_secs_f64();
-    report.absorb_metrics(core_metrics(&returns, &lengths, wall, cfg.success_threshold));
+    report.absorb_metrics(core_metrics(
+        &returns,
+        &lengths,
+        wall,
+        cfg.success_threshold,
+    ));
     report.absorb_metrics(agent.emit_metrics());
     report
 }
 
-fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&'static str>() {
         (*s).to_string()
     } else if let Some(s) = payload.downcast_ref::<String>() {
