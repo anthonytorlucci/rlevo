@@ -42,46 +42,28 @@ cd burn-evorl
 
 ### 1. 10-Armed Bandit Training (`ten_armed_bandit_training.rs`)
 
-**Purpose**: Demonstrate three classical approaches to the exploration-exploitation trade-off in reinforcement learning.
+**Purpose**: Demonstrate the exploration-exploitation trade-off using a sample-average ε-greedy agent.
 
 **What It Demonstrates**:
 - Multi-armed bandit problem formulation
-- Three distinct algorithms selectable via feature flags:
-  - **Epsilon-Greedy** (default): Random exploration with probability ε
-  - **UCB** (feature="ucb"): Upper Confidence Bound algorithm
-  - **Thompson Sampling** (feature="thompson"): Bayesian posterior sampling
-- Incremental action-value estimation
-- Performance metrics and evaluation
+- Incremental action-value estimation: `Q(a) ← Q(a) + (1/n(a)) · [r − Q(a)]`
+- ε-greedy policy (ε = 0.1): random exploration vs. greedy exploitation
+- Per-step performance metrics
 
 **Key Concepts**:
 - **State Space**: Stateless (bandit problem)
-- **Action Space**: 10 discrete actions (arms 0-9)
-- **Reward Distribution**: Each arm returns N(q*(a), 1) where q*(a) ~ N(0, 1)
-- **Goal**: Maximize total reward over 1000 steps by learning optimal arm
-- **Success Metrics**: 
-  - Average reward per step
-  - Percentage of optimal actions taken
+- **Action Space**: 10 discrete actions (arms 0–9)
+- **Reward Distribution**: Each arm returns `N(q*(a), 1)` where `q*(a) ~ N(0, 1)`
+- **Goal**: Maximize total reward over 1 000 steps by learning the optimal arm
 
 **Running**:
 ```bash
-# Default epsilon-greedy (ε=0.1)
-cargo run --example ten_armed_bandit_training
-
-# UCB algorithm (c=2.0) - best performance
-cargo run --example ten_armed_bandit_training --features ucb
-
-# Thompson Sampling - Bayesian approach
-cargo run --example ten_armed_bandit_training --features thompson
+cargo run -p evorl-envs --example ten_armed_bandit_training
 ```
 
-**Expected Performance** (after 1000 steps):
-- Epsilon-Greedy: ~1.15 avg reward, ~80% optimal actions
-- UCB: ~1.33 avg reward, ~91% optimal actions
-- Thompson Sampling: ~1.22 avg reward, ~84% optimal actions
+**Expected Performance** (after 1 000 steps): ~1.15 avg reward, ~80% optimal actions.
 
 **Reference**: Sutton & Barto (2018), Chapter 2
-
-**Detailed Documentation**: See [README_ten_armed_bandit.md](README_ten_armed_bandit.md)
 
 ## Example Structure
 

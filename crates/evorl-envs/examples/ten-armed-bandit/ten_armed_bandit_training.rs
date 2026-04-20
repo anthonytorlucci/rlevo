@@ -1,18 +1,55 @@
-//! Training example for the ten-armed bandit.
+//! Training example for the ten-armed bandit using ε-greedy action selection.
 //!
-//! Drives a sample-average ε-greedy agent against [`TenArmedBandit`] via the
-//! standard `Environment::reset` / `Environment::step` loop. The bandit
-//! samples each reward from `N(q*(a), 1)` where the arm means `q*(a)` are
-//! themselves drawn from `N(0, 1)` at construction; the agent must balance
-//! exploration (sampling each arm enough times to estimate its value)
-//! against exploitation (pulling the arm with the highest estimate).
+//! Demonstrates the **exploration-exploitation trade-off** on the classic
+//! multi-armed bandit problem. The agent interacts with [`TenArmedBandit`]
+//! through the standard `Environment::reset` / `Environment::step` loop.
 //!
-//! Based on Chapter 2 of Sutton & Barto, *Reinforcement Learning: An
-//! Introduction* (2nd ed.), pp. 25–36.
+//! # Problem
+//!
+//! Ten arms each have a fixed true mean `q*(a) ~ N(0, 1)` drawn at
+//! construction. Pulling arm `a` returns a reward `r ~ N(q*(a), 1)`. The
+//! agent does not observe the true means; it must discover the best arm
+//! through trial and error over 1 000 steps.
+//!
+//! # Algorithm
+//!
+//! A **sample-average ε-greedy** agent maintains per-arm value estimates
+//! `Q(a)` updated incrementally after each pull:
+//!
+//! ```text
+//! Q(a) ← Q(a) + (1 / n(a)) · [r − Q(a)]
+//! ```
+//!
+//! With probability `ε = 0.1` a random arm is selected (exploration);
+//! otherwise the arm with the highest current estimate is pulled (exploitation).
+//!
+//! # Running
 //!
 //! ```bash
 //! cargo run -p evorl-envs --example ten_armed_bandit_training
 //! ```
+//!
+//! # Expected output
+//!
+//! Progress is printed every 100 steps, followed by a summary table:
+//!
+//! ```text
+//! Steps:  100, Avg Reward: +0.854, Optimal Action: 62.0% (62/100)
+//! ...
+//! Steps: 1000, Avg Reward: +1.145, Optimal Action: 79.7% (797/1000)
+//!
+//! Learned Q-values vs. true arm means:
+//!   Arm | Q-estimate | q*(a) true |  Δ
+//!   ----+------------+------------+---------
+//!     0 |   +0.477   |   +0.512   | -0.035
+//!   ...
+//!     7 |   +1.479   |   +1.501   | -0.022  *  ← optimal arm
+//! ```
+//!
+//! # Reference
+//!
+//! Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An
+//! Introduction* (2nd ed.). MIT Press, pp. 25–36.
 
 use std::fmt::{self, Display, Formatter};
 
