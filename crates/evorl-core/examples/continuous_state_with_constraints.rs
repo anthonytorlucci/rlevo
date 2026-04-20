@@ -1,7 +1,7 @@
 //! # RobotPose: Continuous State with Workspace Constraints
 //!
 //! This example demonstrates how to implement a constrained state representation for reinforcement learning
-//! environments. It showcases several key design patterns and best practices for the Burn-EvoRL library.
+//! environments. It showcases several key design patterns and best practices for the burn-evorl library.
 //!
 //! ## Design Patterns & Principles
 //!
@@ -304,7 +304,7 @@ impl RobotPose {
 // --------------------------------------------------------------------------
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔════════════════════════════════════════════════════════════╗");
-    println!("║   RobotPose State Constraint Example for Burn-EvoRL        ║");
+    println!("║   RobotPose State Constraint Example for burn-evorl        ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // ========================================================================

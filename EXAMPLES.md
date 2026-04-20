@@ -14,11 +14,8 @@ cargo run -p <crate> --example <name> --release
 
 These examples have no neural networks and no training loop. They exist to make the central traits (`State`, `Observation`, `Action`) concrete before you touch any algorithm.
 
-### `grid_position`
-A 2D grid with a discrete "move N/S/E/W" action. Demonstrates the minimum viable implementation of `State<D>`, `Observation<D>`, and `DiscreteAction`: how states encode validity, how observations expose agent-visible data, and how a discrete action round-trips between an enum and its integer index. **Start here** to understand the shape of an environment before the RL machinery shows up.
-
-### `combat_action`
-Extends `grid_position` with a compound action — four directions × three attack strengths — via `MultiDiscreteAction`. The payoff is seeing how a multi-dimensional action space decomposes into independent sub-dimensions and how hierarchical enum structures flatten to an index array. Pick this up once `grid_position` feels obvious.
+### `grid_agent`
+An egocentric grid agent that mirrors the architecture used in `evorl-envs::grids`. The agent has a **facing direction** — it turns and steps forward rather than moving in absolute coordinates. Covers `State`, `Observation`, `DiscreteAction`, `MultiDiscreteAction`, and a working `TensorConvertible` round-trip. **Start here** to understand how the core traits wire together before any RL machinery shows up.
 
 ### `continuous_state_with_constraints`
 A 1000×1000 mm robot workspace with orientation in [-180°, 180°], built with a constraint-driven builder pattern. Covers validation, distance metrics for reward shaping, angle normalization, and trajectory checks. This is the most heavily commented of the core examples and is intentionally written as a design-pattern reference for physics and robotics domains.

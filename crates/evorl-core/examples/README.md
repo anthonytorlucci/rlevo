@@ -1,14 +1,15 @@
-# Burn-EvoRL Examples
+# burn-evorl Examples
 
-This directory contains example implementations demonstrating key concepts and design patterns for the Burn-EvoRL library. Each example serves as a template for building evolutionary reinforcement learning solutions.
+This directory contains example implementations demonstrating key concepts and design patterns for the `burn-evorl` library. Each example serves as a template for building evolutionary reinforcement learning solutions.
 
 ## Directory Structure
 
 ```
 examples/
 ├── README.md (this file)
+├── combat_action.rs
 ├── continuous_state_with_constraints.rs
-└── ...
+└── grid_position.rs
 ```
 
 ## Examples
@@ -39,7 +40,7 @@ The example implements `RobotPose`, a 2D robot state with workspace constraints:
 
 ```bash
 cd burn-evorl
-cargo run --example grid_position_state
+cargo run -p evorl-core --example continuous_state_with_constraints --release
 ```
 
 #### Expected Output
