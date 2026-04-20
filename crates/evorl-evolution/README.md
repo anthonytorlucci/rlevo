@@ -21,8 +21,6 @@ CubeCL kernels on hot paths are preserved as design docs
 | Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<B, 2>` | < 1e-22 (rand/1/bin) |
 | Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<B, 2, Int>` | see symbolic regression test |
 
-See `examples/sphere_showcase.rs` for full numbers.
-
 ## Quick start
 
 ```rust,no_run
@@ -60,6 +58,10 @@ fn main() {
 }
 ```
 
+The quick start uses `evorl_benchmarks` (a sibling workspace crate) to supply the
+`FitnessEvaluable` trait and `BenchEnv` driver; add it to your `[dev-dependencies]`
+or swap in your own fitness function.
+
 Run the showcase across every shipping family:
 
 ```bash
@@ -90,24 +92,9 @@ drives it identically to an RL environment — one generation per
 
 ## Reproducibility
 
-Same `base_seed` → bit-identical generation-by-generation trajectory on
-the ndarray backend (enforced by `tests/determinism.rs`). The
-`wgpu` backend uses an independent RNG stream per device, so
-trajectories diverge; both backends are expected to reach similar
-optima, not identical intermediate points.
-
-Burn backends seed their tensor RNG through process-global state. When
-running multiple harness instances concurrently (e.g. with rayon),
-pass `EvaluatorConfig::num_threads = Some(1)` to keep the `seed →
-random` call pair atomic.
-
-## Cargo features
-
-- `custom-kernels` (default) — compile-time gate for future CubeCL
-  kernels on hot paths (tournament selection, DE trial-vector
-  construction, roulette). Design sketches in
-  `src/ops/kernels/mod.rs`. No kernels ship in v1; the feature
-  currently only affects the compile matrix.
+Same `base_seed` → bit-identical trajectory on the `ndarray` backend
+(enforced by `tests/determinism.rs`). The `wgpu` backend is
+non-deterministic across runs; both backends converge to similar optima.
 
 ## Caveats
 
