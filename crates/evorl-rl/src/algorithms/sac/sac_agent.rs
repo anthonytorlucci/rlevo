@@ -154,9 +154,7 @@ pub struct SacAgent<
     B: AutodiffBackend,
     Actor: SquashedGaussianPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     actor: Option<Actor>,
@@ -189,24 +187,13 @@ pub struct SacAgent<
     _action: PhantomData<A>,
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> std::fmt::Debug for SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    std::fmt::Debug for SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: SquashedGaussianPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -223,24 +210,13 @@ where
     }
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    SacAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: SquashedGaussianPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     /// Constructs a new agent from pre-built actor and two independent
@@ -281,9 +257,7 @@ where
         let initial_alpha = config.initial_alpha;
         let log_alpha_init = initial_alpha.max(f32::MIN_POSITIVE).ln();
         let log_alpha = LogAlpha::new(log_alpha_init);
-        let target_entropy = config
-            .target_entropy
-            .unwrap_or_else(|| -(A::DIM as f32));
+        let target_entropy = config.target_entropy.unwrap_or_else(|| -(A::DIM as f32));
         let buffer_capacity = config.buffer_capacity;
         let stats = AgentStats::<SacMetrics>::new(100);
         Self {
@@ -361,19 +335,19 @@ where
     fn actor_ref(&self) -> &Actor {
         self.actor
             .as_ref()
-            .expect("actor is populated except transiently during learn_step")
+            .expect("actor not restored — earlier panic in learn_step?")
     }
 
     fn critic_1_ref(&self) -> &Critic {
         self.critic_1
             .as_ref()
-            .expect("critic_1 is populated except transiently during learn_step")
+            .expect("critic_1 not restored — earlier panic in learn_step?")
     }
 
     fn critic_2_ref(&self) -> &Critic {
         self.critic_2
             .as_ref()
-            .expect("critic_2 is populated except transiently during learn_step")
+            .expect("critic_2 not restored — earlier panic in learn_step?")
     }
 
     /// Samples an action for the current observation.
@@ -445,8 +419,7 @@ where
     /// Returns `true` once warm-up has elapsed and the buffer has enough
     /// transitions to draw a batch.
     pub fn can_learn(&self) -> bool {
-        self.buffer.len() >= self.config.batch_size
-            && self.step >= self.config.learning_starts
+        self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
     /// Runs one learning step.
@@ -510,14 +483,10 @@ where
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, DB> = Tensor::from_data(
-            TensorData::new(next_flat, batched_obs_shape),
-            &device,
-        );
-        let action_t: Tensor<B, DAB> = Tensor::from_data(
-            TensorData::new(action_flat, batched_action_shape),
-            &device,
-        );
+        let next_t_inner: Tensor<B::InnerBackend, DB> =
+            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
+        let action_t: Tensor<B, DAB> =
+            Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
@@ -527,12 +496,9 @@ where
         // --- Target computation (no autodiff) ---
         let action_dim = self.actor_ref().action_dim();
         let next_eps: Tensor<B::InnerBackend, DAB> =
-            sample_noise::<B::InnerBackend, R, DAB>(
-                batch_size, action_dim, &device, rng,
-            );
-        let next_sample = Actor::forward_sample_inner(
-            &self.actor_snapshot, next_t_inner.clone(), next_eps,
-        );
+            sample_noise::<B::InnerBackend, R, DAB>(batch_size, action_dim, &device, rng);
+        let next_sample =
+            Actor::forward_sample_inner(&self.actor_snapshot, next_t_inner.clone(), next_eps);
         let next_action = next_sample.action;
         let next_log_prob = next_sample.log_prob;
 
@@ -541,11 +507,8 @@ where
             next_t_inner.clone(),
             next_action.clone(),
         );
-        let next_q2: Tensor<B::InnerBackend, 1> = Critic::forward_inner(
-            &self.target_critic_2,
-            next_t_inner,
-            next_action,
-        );
+        let next_q2: Tensor<B::InnerBackend, 1> =
+            Critic::forward_inner(&self.target_critic_2, next_t_inner, next_action);
 
         let alpha_val = self.log_alpha.alpha();
         let target_inner: Tensor<B::InnerBackend, 1> = compute_sac_target(
@@ -557,12 +520,11 @@ where
             dones_inner,
             self.config.gamma,
         );
-        let target: Tensor<B, 1> =
-            Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic updates: two independent backward passes ---
-        let critic_1 = self.critic_1.take().expect("critic_1 already taken");
-        let critic_2 = self.critic_2.take().expect("critic_2 already taken");
+        let critic_1 = self.critic_1.take().expect("critic_1 not restored — earlier panic in learn_step?");
+        let critic_2 = self.critic_2.take().expect("critic_2 not restored — earlier panic in learn_step?");
 
         let q1_pred: Tensor<B, 1> = critic_1.forward(obs_t.clone(), action_t.clone());
         let q2_pred: Tensor<B, 1> = critic_2.forward(obs_t.clone(), action_t);
@@ -611,7 +573,7 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let actor = self.actor.take().expect("actor already taken");
+            let actor = self.actor.take().expect("actor not restored — earlier panic in learn_step?");
             let eps: Tensor<B, DAB> =
                 sample_noise::<B, R, DAB>(batch_size, action_dim, &device, rng);
             let sample = actor.forward_sample(obs_t.clone(), eps);
@@ -625,15 +587,10 @@ where
             // alone; the pessimism still enters the policy via the Bellman
             // target's min-of-twin-target-Q backup, which is the term that
             // drives most of the overestimation control anyway.
-            let min_q_pi: Tensor<B, 1> =
-                self.critic_1_ref().forward(obs_t.clone(), sample.action);
+            let min_q_pi: Tensor<B, 1> = self.critic_1_ref().forward(obs_t.clone(), sample.action);
 
             let alpha_scalar = self.log_alpha.alpha();
-            let actor_loss_tensor = (log_prob
-                .clone()
-                .mul_scalar(alpha_scalar)
-                - min_q_pi)
-                .mean();
+            let actor_loss_tensor = (log_prob.clone().mul_scalar(alpha_scalar) - min_q_pi).mean();
             let actor_loss_value = actor_loss_tensor
                 .clone()
                 .inner()
@@ -642,12 +599,7 @@ where
 
             // Capture batch-mean log-prob for the α Adam update and the
             // entropy metric before consuming the actor graph in backward.
-            let log_prob_mean = log_prob
-                .clone()
-                .mean()
-                .inner()
-                .into_scalar()
-                .elem::<f32>();
+            let log_prob_mean = log_prob.clone().mean().inner().into_scalar().elem::<f32>();
             let entropy_value = -log_prob_mean;
 
             let grads = actor_loss_tensor.backward();
@@ -686,14 +638,12 @@ where
             let fresh_target_critic_1 = self.critic_1_ref().valid();
             let target_critic_1 =
                 std::mem::replace(&mut self.target_critic_1, fresh_target_critic_1);
-            self.target_critic_1 =
-                Critic::soft_update(self.critic_1_ref(), target_critic_1, tau);
+            self.target_critic_1 = Critic::soft_update(self.critic_1_ref(), target_critic_1, tau);
 
             let fresh_target_critic_2 = self.critic_2_ref().valid();
             let target_critic_2 =
                 std::mem::replace(&mut self.target_critic_2, fresh_target_critic_2);
-            self.target_critic_2 =
-                Critic::soft_update(self.critic_2_ref(), target_critic_2, tau);
+            self.target_critic_2 = Critic::soft_update(self.critic_2_ref(), target_critic_2, tau);
         }
 
         Some(LearnOutcome {
@@ -734,7 +684,6 @@ mod tests {
 
     type BI = NdArray;
 
-
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {
         let m = SacMetrics {
@@ -767,30 +716,18 @@ mod tests {
     #[test]
     fn sac_target_includes_entropy_term() {
         let device = Default::default();
-        let rewards = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let next_q1 = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]),
-            &device,
-        );
-        let next_q2 = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]),
-            &device,
-        );
-        let next_logp = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let dones = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]),
-            &device,
-        );
+        let rewards =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let next_q1 =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
+        let next_q2 =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
+        let next_logp =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let dones =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
 
-        let target = compute_sac_target(
-            rewards, next_q1, next_q2, next_logp, 0.5, dones, 0.9,
-        );
+        let target = compute_sac_target(rewards, next_q1, next_q2, next_logp, 0.5, dones, 0.9);
         let data = target.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         assert!((slice[0] - 1.855).abs() < 1e-5, "row 0: {}", slice[0]);
@@ -803,18 +740,11 @@ mod tests {
     #[test]
     fn actor_loss_penalizes_higher_log_prob() {
         let device = Default::default();
-        let min_q = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![1.0_f32; 4], vec![4]),
-            &device,
-        );
-        let logp_low = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![-0.5_f32; 4], vec![4]),
-            &device,
-        );
-        let logp_high = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.5_f32; 4], vec![4]),
-            &device,
-        );
+        let min_q = Tensor::<BI, 1>::from_data(TensorData::new(vec![1.0_f32; 4], vec![4]), &device);
+        let logp_low =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![-0.5_f32; 4], vec![4]), &device);
+        let logp_high =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.5_f32; 4], vec![4]), &device);
         let alpha = 0.3_f32;
         let low_loss = (logp_low.mul_scalar(alpha) - min_q.clone())
             .mean()

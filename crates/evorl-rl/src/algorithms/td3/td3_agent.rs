@@ -142,9 +142,7 @@ pub struct Td3Agent<
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     actor: Option<Actor>,
@@ -169,24 +167,13 @@ pub struct Td3Agent<
     _action: PhantomData<A>,
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> std::fmt::Debug for Td3Agent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    std::fmt::Debug for Td3Agent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -202,24 +189,13 @@ where
     }
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> Td3Agent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    Td3Agent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     /// Constructs a new agent from pre-built actor and two independent
@@ -312,19 +288,19 @@ where
     fn actor_ref(&self) -> &Actor {
         self.actor
             .as_ref()
-            .expect("actor is populated except transiently during learn_step")
+            .expect("actor not restored — earlier panic in learn_step?")
     }
 
     fn critic_1_ref(&self) -> &Critic {
         self.critic_1
             .as_ref()
-            .expect("critic_1 is populated except transiently during learn_step")
+            .expect("critic_1 not restored — earlier panic in learn_step?")
     }
 
     fn critic_2_ref(&self) -> &Critic {
         self.critic_2
             .as_ref()
-            .expect("critic_2 is populated except transiently during learn_step")
+            .expect("critic_2 not restored — earlier panic in learn_step?")
     }
 
     /// Samples an action for the current observation.
@@ -381,8 +357,7 @@ where
     /// Returns `true` once the warm-up period has elapsed and the buffer has
     /// enough transitions to draw a batch.
     pub fn can_learn(&self) -> bool {
-        self.buffer.len() >= self.config.batch_size
-            && self.step >= self.config.learning_starts
+        self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
     /// Runs one learning step.
@@ -444,14 +419,10 @@ where
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, DB> = Tensor::from_data(
-            TensorData::new(next_flat, batched_obs_shape),
-            &device,
-        );
-        let action_t: Tensor<B, DAB> = Tensor::from_data(
-            TensorData::new(action_flat, batched_action_shape),
-            &device,
-        );
+        let next_t_inner: Tensor<B::InnerBackend, DB> =
+            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
+        let action_t: Tensor<B, DAB> =
+            Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
@@ -479,11 +450,8 @@ where
             next_t_inner.clone(),
             next_actions.clone(),
         );
-        let next_q2: Tensor<B::InnerBackend, 1> = Critic::forward_inner(
-            &self.target_critic_2,
-            next_t_inner,
-            next_actions,
-        );
+        let next_q2: Tensor<B::InnerBackend, 1> =
+            Critic::forward_inner(&self.target_critic_2, next_t_inner, next_actions);
         let target_inner: Tensor<B::InnerBackend, 1> = compute_twin_critic_target(
             rewards_inner,
             next_q1,
@@ -491,12 +459,11 @@ where
             dones_inner,
             self.config.gamma,
         );
-        let target: Tensor<B, 1> =
-            Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic updates: two independent backward passes ---
-        let critic_1 = self.critic_1.take().expect("critic_1 already taken");
-        let critic_2 = self.critic_2.take().expect("critic_2 already taken");
+        let critic_1 = self.critic_1.take().expect("critic_1 not restored — earlier panic in learn_step?");
+        let critic_2 = self.critic_2.take().expect("critic_2 not restored — earlier panic in learn_step?");
 
         let q1_pred: Tensor<B, 1> = critic_1.forward(obs_t.clone(), action_t.clone());
         let q2_pred: Tensor<B, 1> = critic_2.forward(obs_t.clone(), action_t);
@@ -532,15 +499,15 @@ where
 
         // --- Actor + Polyak update (every policy_frequency-th critic step) ---
         let mut actor_loss_opt: Option<f32> = None;
-        if self.critic_updates.is_multiple_of(self.config.policy_frequency) {
-            let actor = self.actor.take().expect("actor already taken");
+        if self
+            .critic_updates
+            .is_multiple_of(self.config.policy_frequency)
+        {
+            let actor = self.actor.take().expect("actor not restored — earlier panic in learn_step?");
             let predicted_actions: Tensor<B, DAB> = actor.forward(obs_t.clone());
-            let q_actor: Tensor<B, 1> = self
-                .critic_1_ref()
-                .forward(obs_t, predicted_actions);
+            let q_actor: Tensor<B, 1> = self.critic_1_ref().forward(obs_t, predicted_actions);
             let actor_loss_tensor = q_actor.mean().neg();
-            let actor_loss_value =
-                actor_loss_tensor.clone().into_scalar().elem::<f32>();
+            let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
 
             let grads = actor_loss_tensor.backward();
             let actor_grads = GradientsParams::from_grads(grads, &actor);
@@ -557,14 +524,12 @@ where
             let fresh_target_critic_1 = self.critic_1_ref().valid();
             let target_critic_1 =
                 std::mem::replace(&mut self.target_critic_1, fresh_target_critic_1);
-            self.target_critic_1 =
-                Critic::soft_update(self.critic_1_ref(), target_critic_1, tau);
+            self.target_critic_1 = Critic::soft_update(self.critic_1_ref(), target_critic_1, tau);
 
             let fresh_target_critic_2 = self.critic_2_ref().valid();
             let target_critic_2 =
                 std::mem::replace(&mut self.target_critic_2, fresh_target_critic_2);
-            self.target_critic_2 =
-                Critic::soft_update(self.critic_2_ref(), target_critic_2, tau);
+            self.target_critic_2 = Critic::soft_update(self.critic_2_ref(), target_critic_2, tau);
 
             self.actor = Some(actor);
             self.last_actor_loss = actor_loss_value;
@@ -620,22 +585,14 @@ mod tests {
         // `[0.1 + 0.9*2.0, 0.2 + 0.9*0.5, 0.3 + 0.9*4.0*0]`
         // `= [1.9, 0.65, 0.3]`.
         let device = Default::default();
-        let rewards = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]),
-            &device,
-        );
-        let next_q1 = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]),
-            &device,
-        );
-        let next_q2 = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]),
-            &device,
-        );
-        let dones = Tensor::<BI, 1>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]),
-            &device,
-        );
+        let rewards =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3], vec![3]), &device);
+        let next_q1 =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
+        let next_q2 =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
+        let dones =
+            Tensor::<BI, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
 
         let target = compute_twin_critic_target(rewards, next_q1, next_q2, dones, 0.9);
         let data = target.into_data().convert::<f32>();

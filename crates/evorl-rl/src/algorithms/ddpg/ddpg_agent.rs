@@ -119,9 +119,7 @@ pub struct DdpgAgent<
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     actor: Option<Actor>,
@@ -143,24 +141,13 @@ pub struct DdpgAgent<
     _action: PhantomData<A>,
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> std::fmt::Debug for DdpgAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    std::fmt::Debug for DdpgAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -176,24 +163,13 @@ where
     }
 }
 
-impl<
-    B,
-    Actor,
-    Critic,
-    O,
-    A,
-    const DO: usize,
-    const DB: usize,
-    const DA: usize,
-    const DAB: usize,
-> DdpgAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
+impl<B, Actor, Critic, O, A, const DO: usize, const DB: usize, const DA: usize, const DAB: usize>
+    DdpgAgent<B, Actor, Critic, O, A, DO, DB, DA, DAB>
 where
     B: AutodiffBackend,
     Actor: DeterministicPolicy<B, DB, DAB>,
     Critic: ContinuousQ<B, DB, DAB>,
-    O: Observation<DO>
-        + TensorConvertible<DO, B>
-        + TensorConvertible<DO, B::InnerBackend>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
     /// Constructs a new agent from pre-built actor and critic networks.
@@ -266,13 +242,13 @@ where
     fn actor_ref(&self) -> &Actor {
         self.actor
             .as_ref()
-            .expect("actor is populated except transiently during learn_step")
+            .expect("actor not restored — earlier panic in learn_step?")
     }
 
     fn critic_ref(&self) -> &Critic {
         self.critic
             .as_ref()
-            .expect("critic is populated except transiently during learn_step")
+            .expect("critic not restored — earlier panic in learn_step?")
     }
 
     /// Samples an action for the current observation.
@@ -329,8 +305,7 @@ where
     /// Returns `true` once the warm-up period has elapsed and the buffer has
     /// enough transitions to draw a batch.
     pub fn can_learn(&self) -> bool {
-        self.buffer.len() >= self.config.batch_size
-            && self.step >= self.config.learning_starts
+        self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
     /// Runs one learning step: a critic update and (every
@@ -384,14 +359,10 @@ where
             TensorData::new(obs_flat, batched_obs_shape.clone()),
             &device,
         );
-        let next_t_inner: Tensor<B::InnerBackend, DB> = Tensor::from_data(
-            TensorData::new(next_flat, batched_obs_shape),
-            &device,
-        );
-        let action_t: Tensor<B, DAB> = Tensor::from_data(
-            TensorData::new(action_flat, batched_action_shape),
-            &device,
-        );
+        let next_t_inner: Tensor<B::InnerBackend, DB> =
+            Tensor::from_data(TensorData::new(next_flat, batched_obs_shape), &device);
+        let action_t: Tensor<B, DAB> =
+            Tensor::from_data(TensorData::new(action_flat, batched_action_shape), &device);
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
@@ -408,17 +379,12 @@ where
                 .clamp(low_scalar, high_scalar);
         let next_q: Tensor<B::InnerBackend, 1> =
             Critic::forward_inner(&self.target_critic, next_t_inner, next_actions);
-        let target_inner: Tensor<B::InnerBackend, 1> = compute_target_q_values(
-            rewards_inner,
-            next_q,
-            dones_inner,
-            self.config.gamma,
-        );
-        let target: Tensor<B, 1> =
-            Tensor::from_data(target_inner.into_data(), &device);
+        let target_inner: Tensor<B::InnerBackend, 1> =
+            compute_target_q_values(rewards_inner, next_q, dones_inner, self.config.gamma);
+        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic update ---
-        let critic = self.critic.take().expect("critic already taken");
+        let critic = self.critic.take().expect("critic not restored — earlier panic in learn_step?");
         let q_pred: Tensor<B, 1> = critic.forward(obs_t.clone(), action_t);
         let q_mean = q_pred.clone().mean().into_scalar().elem::<f32>();
         let td_error = q_pred - target;
@@ -427,23 +393,21 @@ where
 
         let grads = critic_loss_tensor.backward();
         let grads = GradientsParams::from_grads(grads, &critic);
-        let critic = self
-            .critic_opt
-            .step(self.config.critic_lr, critic, grads);
+        let critic = self.critic_opt.step(self.config.critic_lr, critic, grads);
         self.critic = Some(critic);
         self.critic_updates += 1;
 
         // --- Actor + Polyak update (every policy_frequency-th critic step) ---
         let mut actor_loss_opt: Option<f32> = None;
-        if self.critic_updates.is_multiple_of(self.config.policy_frequency) {
-            let actor = self.actor.take().expect("actor already taken");
+        if self
+            .critic_updates
+            .is_multiple_of(self.config.policy_frequency)
+        {
+            let actor = self.actor.take().expect("actor not restored — earlier panic in learn_step?");
             let predicted_actions: Tensor<B, DAB> = actor.forward(obs_t.clone());
-            let q_actor: Tensor<B, 1> = self
-                .critic_ref()
-                .forward(obs_t, predicted_actions);
+            let q_actor: Tensor<B, 1> = self.critic_ref().forward(obs_t, predicted_actions);
             let actor_loss_tensor = q_actor.mean().neg();
-            let actor_loss_value =
-                actor_loss_tensor.clone().into_scalar().elem::<f32>();
+            let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
 
             let grads = actor_loss_tensor.backward();
             let actor_grads = GradientsParams::from_grads(grads, &actor);
@@ -457,10 +421,8 @@ where
             self.target_actor = Actor::soft_update(&actor, target_actor, tau);
 
             let fresh_target_critic = self.critic_ref().valid();
-            let target_critic =
-                std::mem::replace(&mut self.target_critic, fresh_target_critic);
-            self.target_critic =
-                Critic::soft_update(self.critic_ref(), target_critic, tau);
+            let target_critic = std::mem::replace(&mut self.target_critic, fresh_target_critic);
+            self.target_critic = Critic::soft_update(self.critic_ref(), target_critic, tau);
 
             self.actor = Some(actor);
             self.last_actor_loss = actor_loss_value;
@@ -502,5 +464,4 @@ mod tests {
         let err = DdpgAgentError::InvalidAction("bad slice".into());
         assert_eq!(err.to_string(), "Invalid action: bad slice");
     }
-
 }

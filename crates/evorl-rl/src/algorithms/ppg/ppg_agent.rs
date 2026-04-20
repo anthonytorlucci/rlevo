@@ -128,8 +128,7 @@ where
     last_aux: Option<AuxPhaseStats>,
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug
-    for PpgAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpgAgent<B, P, V, O, DO, DB>
 where
     B: AutodiffBackend,
     P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
@@ -236,7 +235,7 @@ where
     fn policy(&self) -> &P {
         self.policy
             .as_ref()
-            .expect("policy is populated outside transient step() calls")
+            .expect("policy not restored — earlier panic in learn_step?")
     }
 
     fn value(&self) -> &V {
@@ -283,13 +282,7 @@ where
     }
 
     /// Pushes one step into the rollout buffer.
-    pub fn record_step(
-        &mut self,
-        obs: O,
-        action: &ActOutcome,
-        reward: f32,
-        status: EpisodeStatus,
-    ) {
+    pub fn record_step(&mut self, obs: O, action: &ActOutcome, reward: f32, status: EpisodeStatus) {
         self.buffer.push_step(
             obs,
             &action.raw_row,
@@ -382,33 +375,25 @@ where
                 let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, DB> = Tensor::from_data(
-                    TensorData::new(obs_flat, batched_shape),
-                    &self.device,
-                );
+                let obs_batch: Tensor<B, DB> =
+                    Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 let action_flat = self.buffer.gather_action_flat(chunk);
                 let actions: P::ActionTensor =
                     P::action_tensor_from_flat(&action_flat, n, &self.device);
 
-                let old_lp: Tensor<B, 1> = self.buffer.gather_f32(
-                    self.buffer.log_probs(),
-                    chunk,
-                    &self.device,
-                );
+                let old_lp: Tensor<B, 1> =
+                    self.buffer
+                        .gather_f32(self.buffer.log_probs(), chunk, &self.device);
                 let old_v: Tensor<B, 1> =
                     self.buffer
                         .gather_f32(self.buffer.values(), chunk, &self.device);
-                let returns: Tensor<B, 1> = self.buffer.gather_f32(
-                    self.buffer.returns(),
-                    chunk,
-                    &self.device,
-                );
-                let advs_raw: Tensor<B, 1> = self.buffer.gather_f32(
-                    self.buffer.advantages(),
-                    chunk,
-                    &self.device,
-                );
+                let returns: Tensor<B, 1> =
+                    self.buffer
+                        .gather_f32(self.buffer.returns(), chunk, &self.device);
+                let advs_raw: Tensor<B, 1> =
+                    self.buffer
+                        .gather_f32(self.buffer.advantages(), chunk, &self.device);
                 let advs = if cfg.normalize_advantages {
                     normalize_advantages(advs_raw)
                 } else {
@@ -416,17 +401,12 @@ where
                 };
 
                 // Policy update.
-                let policy = self.policy.take().expect("policy present");
+                let policy = self.policy.take().expect("policy not restored — earlier panic in learn_step?");
                 let eval = policy.evaluate(obs_batch.clone(), actions);
-                let pg = clipped_surrogate(
-                    eval.log_prob.clone(),
-                    old_lp.clone(),
-                    advs,
-                    cfg.clip_coef,
-                );
+                let pg =
+                    clipped_surrogate(eval.log_prob.clone(), old_lp.clone(), advs, cfg.clip_coef);
                 let entropy_mean = eval.entropy.mean();
-                let policy_loss =
-                    pg.clone() - entropy_mean.clone().mul_scalar(cfg.entropy_coef);
+                let policy_loss = pg.clone() - entropy_mean.clone().mul_scalar(cfg.entropy_coef);
                 let policy_loss_val = policy_loss.clone().into_scalar().elem::<f32>();
 
                 let kl = approx_kl(eval.log_prob.clone(), old_lp.clone());
@@ -560,7 +540,7 @@ where
                 self.value = Some(updated_value);
 
                 // Policy-net update: aux-value MSE + β · KL distillation.
-                let policy = self.policy.take().expect("policy present");
+                let policy = self.policy.take().expect("policy not restored — earlier panic in learn_step?");
                 let aux_v_pred = PpgAuxValueHead::aux_value(&policy, obs_t.clone());
                 let aux_v_loss = unclipped_value_loss(aux_v_pred, returns_t);
                 let new_logits = PpgAuxValueHead::logits(&policy, obs_t);

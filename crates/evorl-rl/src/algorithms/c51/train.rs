@@ -55,12 +55,12 @@ where
         episode_reward += reward_f32;
         episode_steps += 1;
 
-        if agent.should_train() {
-            if let Some(outcome) = agent.learn_step(rng) {
-                last_loss = outcome.loss;
-                last_q_mean = outcome.q_mean;
-                last_entropy = outcome.entropy;
-            }
+        if agent.should_train()
+            && let Some(outcome) = agent.learn_step(rng)
+        {
+            last_loss = outcome.loss;
+            last_q_mean = outcome.q_mean;
+            last_entropy = outcome.entropy;
         }
         agent.sync_target();
         agent.decay_exploration();

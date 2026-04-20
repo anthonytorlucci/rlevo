@@ -121,8 +121,7 @@ where
     _action: PhantomData<A>,
 }
 
-impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug
-    for DqnAgent<B, M, O, A, DO, DB>
+impl<B, M, O, A, const DO: usize, const DB: usize> std::fmt::Debug for DqnAgent<B, M, O, A, DO, DB>
 where
     B: AutodiffBackend,
     M: DqnModel<B, DB>,
@@ -198,7 +197,7 @@ where
     fn policy(&self) -> &M {
         self.policy_net
             .as_ref()
-            .expect("policy_net is always populated except transiently during learn_step")
+            .expect("policy_net not restored — earlier panic in learn_step?")
     }
 
     /// ε-greedy action selection.
@@ -250,7 +249,7 @@ where
     /// Returns `true` when the agent's internal clock matches
     /// `config.train_frequency`.
     pub fn should_train(&self) -> bool {
-        self.config.train_frequency > 0 && self.step % self.config.train_frequency == 0
+        self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
     /// Hard-syncs the target network with the policy network when
@@ -259,7 +258,11 @@ where
         if self.config.target_update_frequency == 0 {
             return;
         }
-        if self.step > 0 && self.step % self.config.target_update_frequency == 0 {
+        if self.step > 0
+            && self
+                .step
+                .is_multiple_of(self.config.target_update_frequency)
+        {
             self.target_net = self.policy().valid();
         }
     }
@@ -310,10 +313,8 @@ where
         let next_tensor_inner: Tensor<B::InnerBackend, DB> =
             Tensor::from_data(TensorData::new(next_flat, batched_shape), &device);
 
-        let action_tensor_1: Tensor<B, 1, Int> = Tensor::from_data(
-            TensorData::new(action_idxs, vec![batch_size]),
-            &device,
-        );
+        let action_tensor_1: Tensor<B, 1, Int> =
+            Tensor::from_data(TensorData::new(action_idxs, vec![batch_size]), &device);
         let action_tensor: Tensor<B, 2, Int> = action_tensor_1.unsqueeze_dim::<2>(1);
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
@@ -322,7 +323,7 @@ where
             Tensor::from_data(TensorData::new(dones, vec![batch_size]), &device);
 
         // --- Forward ---
-        let policy = self.policy_net.take().expect("policy_net already taken");
+        let policy = self.policy_net.take().expect("policy_net not restored — earlier panic in learn_step?");
         let q_all: Tensor<B, 2> = policy.forward(obs_tensor);
         let q_mean = q_all.clone().mean().into_scalar().elem::<f32>();
         let q_pred: Tensor<B, 2> = q_all.gather(1, action_tensor);
@@ -335,7 +336,9 @@ where
             let next_q_policy_inner: Tensor<B::InnerBackend, 2> =
                 M::forward_inner(&policy.valid(), next_tensor_inner);
             let next_actions: Tensor<B::InnerBackend, 2, Int> = next_q_policy_inner.argmax(1);
-            next_q_target_inner.gather(1, next_actions).squeeze_dim::<1>(1)
+            next_q_target_inner
+                .gather(1, next_actions)
+                .squeeze_dim::<1>(1)
         } else {
             next_q_target_inner.max_dim(1).squeeze_dim::<1>(1)
         };
@@ -346,17 +349,19 @@ where
             dones_inner,
             self.config.gamma as f32,
         );
-        let target: Tensor<B, 1> =
-            Tensor::from_data(target_inner.into_data(), &device);
+        let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
-        let loss_tensor = HuberLossConfig::new(1.0)
-            .init()
-            .forward(q_pred_flat, target, Reduction::Mean);
+        let loss_tensor =
+            HuberLossConfig::new(1.0)
+                .init()
+                .forward(q_pred_flat, target, Reduction::Mean);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
         let grads = GradientsParams::from_grads(grads, &policy);
-        let updated = self.optimizer.step(self.config.learning_rate, policy, grads);
+        let updated = self
+            .optimizer
+            .step(self.config.learning_rate, policy, grads);
         self.policy_net = Some(updated);
 
         // Soft update when tau > 0; otherwise rely on hard sync_target().

@@ -203,7 +203,7 @@ where
     fn policy(&self) -> &M {
         self.policy_net
             .as_ref()
-            .expect("policy_net is always populated except transiently during learn_step")
+            .expect("policy_net not restored — earlier panic in learn_step?")
     }
 
     /// ε-greedy action selection using the mean-quantile Q-value of the
@@ -253,7 +253,7 @@ where
     /// Returns `true` when the agent's internal clock matches
     /// `config.train_frequency`.
     pub fn should_train(&self) -> bool {
-        self.config.train_frequency > 0 && self.step % self.config.train_frequency == 0
+        self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
     /// Hard-syncs the target network with the policy network when
@@ -262,7 +262,11 @@ where
         if self.config.target_update_frequency == 0 {
             return;
         }
-        if self.step > 0 && self.step % self.config.target_update_frequency == 0 {
+        if self.step > 0
+            && self
+                .step
+                .is_multiple_of(self.config.target_update_frequency)
+        {
             self.target_net = self.policy().valid();
         }
     }
@@ -329,12 +333,10 @@ where
         let q_next: Tensor<B::InnerBackend, 2> =
             next_quantiles_all.clone().mean_dim(2).squeeze_dim::<2>(2); // (B, A)
         let a_star_2: Tensor<B::InnerBackend, 2, Int> = q_next.argmax(1); // (B, 1)
-        let a_star_3: Tensor<B::InnerBackend, 3, Int> = a_star_2
-            .unsqueeze_dim::<3>(2)
-            .repeat_dim(2, num_quantiles); // (B, 1, N)
-        let next_quantiles_chosen: Tensor<B::InnerBackend, 2> = next_quantiles_all
-            .gather(1, a_star_3)
-            .squeeze_dim::<2>(1); // (B, N)
+        let a_star_3: Tensor<B::InnerBackend, 3, Int> =
+            a_star_2.unsqueeze_dim::<3>(2).repeat_dim(2, num_quantiles); // (B, 1, N)
+        let next_quantiles_chosen: Tensor<B::InnerBackend, 2> =
+            next_quantiles_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
         // Bellman backup (no projection): T θ_j = r + γ (1 − done) · θ_target_j.
         let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
@@ -345,7 +347,7 @@ where
             rewards_bn + keep * next_quantiles_chosen.mul_scalar(gamma);
 
         // --- Policy forward (autodiff) ---
-        let policy = self.policy_net.take().expect("policy_net already taken");
+        let policy = self.policy_net.take().expect("policy_net not restored — earlier panic in learn_step?");
         let quantiles: Tensor<B, 3> = policy.forward(obs_tensor); // (B, A, N)
 
         // Diagnostic: mean Q-value across actions and batch.
@@ -363,22 +365,22 @@ where
         // quantile axis. Low spread ⇒ distribution collapse.
         let pred_mean: Tensor<B, 2> = pred_quantiles.clone().mean_dim(1); // (B, 1)
         let centered: Tensor<B, 2> = pred_quantiles.clone() - pred_mean;
-        let variance: Tensor<B, 1> = centered
-            .powi_scalar(2)
-            .mean_dim(1)
-            .squeeze_dim::<1>(1); // (B,)
+        let variance: Tensor<B, 1> = centered.powi_scalar(2).mean_dim(1).squeeze_dim::<1>(1); // (B,)
         let spread_value = variance.sqrt().mean().into_scalar().elem::<f32>();
 
         // Upload the target quantile vector onto the autodiff backend.
         let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
 
         let taus: Tensor<B, 1> = self.config.quantile_taus::<B>(&device);
-        let loss_tensor = quantile_huber_loss(pred_quantiles, target_autodiff, taus, self.config.kappa);
+        let loss_tensor =
+            quantile_huber_loss(pred_quantiles, target_autodiff, taus, self.config.kappa);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
         let grads = GradientsParams::from_grads(grads, &policy);
-        let updated = self.optimizer.step(self.config.learning_rate, policy, grads);
+        let updated = self
+            .optimizer
+            .step(self.config.learning_rate, policy, grads);
         self.policy_net = Some(updated);
 
         if self.config.tau > 0.0 {

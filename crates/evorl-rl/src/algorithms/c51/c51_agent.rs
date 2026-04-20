@@ -201,7 +201,7 @@ where
     fn policy(&self) -> &M {
         self.policy_net
             .as_ref()
-            .expect("policy_net is always populated except transiently during learn_step")
+            .expect("policy_net not restored — earlier panic in learn_step?")
     }
 
     /// Builds a fresh support tensor `[z_0, z_1, …, z_{N-1}]` on the
@@ -213,7 +213,9 @@ where
     ) -> Tensor<BK, 1> {
         let n = self.config.num_atoms;
         let delta = self.config.delta_z();
-        let data: Vec<f32> = (0..n).map(|i| self.config.v_min + (i as f32) * delta).collect();
+        let data: Vec<f32> = (0..n)
+            .map(|i| self.config.v_min + (i as f32) * delta)
+            .collect();
         Tensor::from_data(TensorData::new(data, vec![n]), device)
     }
 
@@ -267,7 +269,7 @@ where
     /// Returns `true` when the agent's internal clock matches
     /// `config.train_frequency`.
     pub fn should_train(&self) -> bool {
-        self.config.train_frequency > 0 && self.step % self.config.train_frequency == 0
+        self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
     /// Hard-syncs the target network with the policy network when
@@ -276,7 +278,11 @@ where
         if self.config.target_update_frequency == 0 {
             return;
         }
-        if self.step > 0 && self.step % self.config.target_update_frequency == 0 {
+        if self.step > 0
+            && self
+                .step
+                .is_multiple_of(self.config.target_update_frequency)
+        {
             self.target_net = self.policy().valid();
         }
     }
@@ -349,9 +355,8 @@ where
         let a_star_2: Tensor<B::InnerBackend, 2, Int> = q_next.argmax(1); // (B, 1)
         let a_star_3: Tensor<B::InnerBackend, 3, Int> =
             a_star_2.unsqueeze_dim::<3>(2).repeat_dim(2, num_atoms); // (B, 1, N)
-        let next_probs_chosen: Tensor<B::InnerBackend, 2> = next_probs_all
-            .gather(1, a_star_3)
-            .squeeze_dim::<2>(1); // (B, N)
+        let next_probs_chosen: Tensor<B::InnerBackend, 2> =
+            next_probs_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
         let target_inner: Tensor<B::InnerBackend, 2> = project_distribution(
             next_probs_chosen,
@@ -365,7 +370,7 @@ where
         );
 
         // --- Policy forward (autodiff) ---
-        let policy = self.policy_net.take().expect("policy_net already taken");
+        let policy = self.policy_net.take().expect("policy_net not restored — earlier panic in learn_step?");
         let logits: Tensor<B, 3> = policy.forward(obs_tensor); // (B, A, N)
 
         let probs_all: Tensor<B, 3> = activation::softmax(logits.clone(), 2);
@@ -397,14 +402,15 @@ where
 
         // Upload the target distribution onto the autodiff backend and
         // compute the cross-entropy loss.
-        let target_autodiff: Tensor<B, 2> =
-            Tensor::from_data(target_inner.into_data(), &device);
+        let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
         let loss_tensor = categorical_cross_entropy(target_autodiff, pred_log_p);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
         let grads = GradientsParams::from_grads(grads, &policy);
-        let updated = self.optimizer.step(self.config.learning_rate, policy, grads);
+        let updated = self
+            .optimizer
+            .step(self.config.learning_rate, policy, grads);
         self.policy_net = Some(updated);
 
         if self.config.tau > 0.0 {

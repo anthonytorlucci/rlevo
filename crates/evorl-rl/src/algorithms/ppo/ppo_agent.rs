@@ -23,7 +23,7 @@ use crate::algorithms::ppo::losses::{
     approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, normalize_advantages,
     unclipped_value_loss,
 };
-use crate::algorithms::ppo::ppo_config::{annealed_learning_rate, PpoTrainingConfig};
+use crate::algorithms::ppo::ppo_config::{PpoTrainingConfig, annealed_learning_rate};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
 use crate::algorithms::ppo::rollout::RolloutBuffer;
@@ -140,8 +140,7 @@ where
     stats: AgentStats<PpoMetrics>,
 }
 
-impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug
-    for PpoAgent<B, P, V, O, DO, DB>
+impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpoAgent<B, P, V, O, DO, DB>
 where
     B: AutodiffBackend,
     P: PpoPolicy<B, DB>,
@@ -185,12 +184,16 @@ where
 
         let adam_policy = config.optimizer.clone();
         let policy_optim = match &config.clip_grad {
-            Some(clip) => adam_policy.with_grad_clipping(Some(clip.clone())).init::<B, P>(),
+            Some(clip) => adam_policy
+                .with_grad_clipping(Some(clip.clone()))
+                .init::<B, P>(),
             None => adam_policy.init::<B, P>(),
         };
         let adam_value = config.optimizer.clone();
         let value_optim = match &config.clip_grad {
-            Some(clip) => adam_value.with_grad_clipping(Some(clip.clone())).init::<B, V>(),
+            Some(clip) => adam_value
+                .with_grad_clipping(Some(clip.clone()))
+                .init::<B, V>(),
             None => adam_value.init::<B, V>(),
         };
 
@@ -250,7 +253,7 @@ where
     fn policy(&self) -> &P {
         self.policy
             .as_ref()
-            .expect("policy is populated outside of transient step() calls")
+            .expect("policy not restored — earlier panic in learn_step?")
     }
 
     fn value(&self) -> &V {
@@ -262,7 +265,11 @@ where
     /// Current learning rate after annealing.
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.anneal_lr {
-            annealed_learning_rate(self.config.learning_rate, self.iteration, self.total_iterations)
+            annealed_learning_rate(
+                self.config.learning_rate,
+                self.iteration,
+                self.total_iterations,
+            )
         } else {
             self.config.learning_rate
         }
@@ -300,13 +307,7 @@ where
 
     /// Pushes one step into the rollout buffer. Callers typically pair this
     /// with [`PpoAgent::act`] and the env step that consumed `action.env_row`.
-    pub fn record_step(
-        &mut self,
-        obs: O,
-        action: &ActOutcome,
-        reward: f32,
-        status: EpisodeStatus,
-    ) {
+    pub fn record_step(&mut self, obs: O, action: &ActOutcome, reward: f32, status: EpisodeStatus) {
         self.buffer.push_step(
             obs,
             &action.raw_row,
@@ -378,10 +379,8 @@ where
                 let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
                 batched_shape.push(n);
                 batched_shape.extend_from_slice(&obs_shape);
-                let obs_batch: Tensor<B, DB> = Tensor::from_data(
-                    TensorData::new(obs_flat, batched_shape),
-                    &self.device,
-                );
+                let obs_batch: Tensor<B, DB> =
+                    Tensor::from_data(TensorData::new(obs_flat, batched_shape), &self.device);
 
                 // Action tensor.
                 let action_flat = self.buffer.gather_action_flat(chunk);
@@ -390,9 +389,11 @@ where
 
                 // Old log_probs, old_values, returns, advantages.
                 let old_lp: Tensor<B, 1> =
-                    self.buffer.gather_f32(self.buffer.log_probs(), chunk, &self.device);
+                    self.buffer
+                        .gather_f32(self.buffer.log_probs(), chunk, &self.device);
                 let old_v: Tensor<B, 1> =
-                    self.buffer.gather_f32(self.buffer.values(), chunk, &self.device);
+                    self.buffer
+                        .gather_f32(self.buffer.values(), chunk, &self.device);
                 let returns: Tensor<B, 1> =
                     self.buffer
                         .gather_f32(self.buffer.returns(), chunk, &self.device);
@@ -406,7 +407,7 @@ where
                 };
 
                 // ----- Policy update -----
-                let policy = self.policy.take().expect("policy present");
+                let policy = self.policy.take().expect("policy not restored — earlier panic in learn_step?");
                 let eval = policy.evaluate(obs_batch.clone(), actions);
                 let pg = clipped_surrogate(
                     eval.log_prob.clone(),

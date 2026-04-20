@@ -130,6 +130,12 @@ pub struct DqnTrainingConfigBuilder {
     config: DqnTrainingConfig,
 }
 
+impl Default for DqnTrainingConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DqnTrainingConfigBuilder {
     /// Creates a new builder initialized with default configuration values.
     #[must_use]
