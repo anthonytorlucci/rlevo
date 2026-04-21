@@ -104,7 +104,6 @@
 //!   environment. Agents learn to avoid them through reward signals.
 
 use crate::games::chess::board::Square;
-use evorl_core::action::MultiDiscreteAction;
 
 /// Promotion piece types for pawn promotion moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -268,7 +267,7 @@ impl ChessMove {
 
         let distance = delta_rank.abs().max(delta_file.abs()) as usize;
         assert!(
-            distance >= 1 && distance <= 7,
+            (1..=7).contains(&distance),
             "Invalid distance: {}",
             distance
         );
@@ -541,7 +540,7 @@ mod tests {
     #[test]
     fn test_knight_move_encoding() {
         // Knight move from e4 (28) to f6 (45): +2 rank, +1 file
-        let mv = ChessMove::new(Square(28), Square(45));
+        let _mv = ChessMove::new(Square(28), Square(45));
         // let indices = mv.to_indices();
         // assert_eq!(indices[0], 3); // rank 3 (e4)
         // assert_eq!(indices[1], 4); // file 4 (e-file)
@@ -556,11 +555,11 @@ mod tests {
     #[test]
     fn test_queen_move_encoding() {
         // North move: e2 to e4 (2 squares north)
-        let mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
-                                                         // let indices = mv.to_indices();
-                                                         // assert_eq!(indices[0], 1); // rank 1
-                                                         // assert_eq!(indices[1], 4); // file 4
-                                                         // assert_eq!(indices[2], 1); // North direction, distance 2 (plane 0 + 1)
+        let _mv = ChessMove::new(Square(12), Square(28)); // e2 to e4
+        // let indices = mv.to_indices();
+        // assert_eq!(indices[0], 1); // rank 1
+        // assert_eq!(indices[1], 4); // file 4
+        // assert_eq!(indices[2], 1); // North direction, distance 2 (plane 0 + 1)
 
         // Reconstruct
         // let reconstructed = ChessMove::from_indices(indices);
@@ -571,7 +570,7 @@ mod tests {
     #[test]
     fn test_promotion_encoding() {
         // Pawn promotion: e7 to e8 with knight promotion
-        let mv = ChessMove::new_with_promotion(Square(52), Square(60), PromotionPiece::Knight);
+        let _mv = ChessMove::new_with_promotion(Square(52), Square(60), PromotionPiece::Knight);
         // let indices = mv.to_indices();
         // assert_eq!(indices[0], 6); // rank 6
         // assert_eq!(indices[1], 4); // file 4

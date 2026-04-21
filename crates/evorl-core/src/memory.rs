@@ -1,3 +1,13 @@
+//! Experience replay buffers for off-policy reinforcement learning.
+//!
+//! This module provides [`PrioritizedExperienceReplay`], an off-policy replay
+//! buffer that samples transitions proportional to their temporal-difference
+//! error, and [`TrainingBatch`], a GPU-ready tensor bundle consumed by
+//! learning algorithms.
+//!
+//! Use [`PrioritizedExperienceReplayBuilder`] to configure and construct the
+//! buffer.
+
 use crate::base::{Action, Observation, Reward, TensorConvertible};
 use crate::experience::{ExperienceTuple, History};
 use burn::tensor::backend::Backend;
@@ -6,13 +16,14 @@ use rand::prelude::IteratorRandom;
 use rand::RngExt;
 use std::collections::VecDeque;
 
-// todo! RolloutBuffer for on-policy algorithms)
-
-/// Errors that can occur during memory operations.
+/// Errors that can occur during replay buffer operations.
 #[derive(Debug)]
 pub enum ReplayBufferError {
+    /// A general batch-assembly failure.
     BatchError(String),
+    /// The buffer holds fewer experiences than the requested batch size.
     InsufficientData { requested: usize, available: usize },
+    /// A domain type could not be converted to or from a tensor.
     TensorConversionError(String),
 }
 
@@ -39,47 +50,46 @@ impl std::fmt::Display for ReplayBufferError {
 
 impl std::error::Error for ReplayBufferError {}
 
-/// A batch of transitions ready for training. Contains tensors for efficient GPU processing.
-/// D: The dimension of the Observation tensor (e.g., 4 for [Batch, Channel, Height, Width])
-/// AD: The dimension of the Action tensor (e.g., 1 for [Batch])
-pub struct TrainingBatch<const D: usize, const AD: usize, B: Backend> {
-    // Observations are generic Rank 'D'
-    // For Chess: [Batch, Channels(119), Height(8), Width(8)] -> Rank 4
-    pub observations: Tensor<B, D>,
-
-    // Rank 'A' is typically 1 for discrete actions [Batch]
-    pub actions: Tensor<B, AD>,
-
-    // Rewards are usually scalar floats per step
+/// A GPU-ready bundle of tensors sampled from a replay buffer for one training step.
+///
+/// `BD` and `BAD` are **batched** tensor ranks — they are one greater than
+/// the unbatched ranks of the source [`Observation`] and [`Action`]:
+/// `BD = Observation::DIM + 1`, `BAD = Action::DIM + 1`. Stacking a batch of
+/// rank-`D` tensors produces rank-`D + 1` output, and Rust cannot express
+/// `D + 1` in a generic position on stable, so the caller of
+/// [`PrioritizedExperienceReplay::sample_batch`] supplies both ranks.
+///
+/// | Observation       | `O: Observation<D>` | `BD` |
+/// |-------------------|---------------------|------|
+/// | Scalar (bandit)   | `D = 1`, shape `[1]`| `2`  |
+/// | Vector (CartPole) | `D = 1`, shape `[4]`| `2`  |
+/// | Image (Atari)     | `D = 3`, shape `[C, H, W]` | `4` |
+pub struct TrainingBatch<const BD: usize, const BAD: usize, B: Backend> {
+    /// Stacked observations at time *t* with shape `[batch, ...obs_shape]`.
+    pub observations: Tensor<B, BD>,
+    /// Stacked actions with shape `[batch, ...action_shape]`.
+    pub actions: Tensor<B, BAD>,
+    /// Per-step scalar rewards with shape `[batch]`.
     pub rewards: Tensor<B, 1>,
-
-    // Next states same rank as states
-    pub next_observations: Tensor<B, D>,
-
-    // Dones are boolean flags (0.0 or 1.0)
+    /// Stacked observations at time *t+1* with shape `[batch, ...obs_shape]`.
+    pub next_observations: Tensor<B, BD>,
+    /// Episode-done flags encoded as `0.0`/`1.0` with shape `[batch]`.
     pub dones: Tensor<B, 1>,
 }
 
-/// In modern reinforcement learning, the replay buffer is a standard component for almost any **off-policy** algorithm and several **model-based** approaches. It is essential for stabilizing training by:
-///  * Storing and reusing past experiences so the agent can revisit and learn from them multiple times.
-///  * Providing random, uncorrelated batches for efficient learning.
-///  * Managing memory usage to avoid overflow.
+/// Off-policy replay buffer with priority-weighted sampling.
 ///
-/// A **Prioritized Experience Replay** is an improved version of a standard experience replay
-/// buffer. Instead of sampling past experiences uniformly at random, it assigns a priority to
-/// each experience to focus the agents learning on more "informative" or "surprising" transitions.
+/// Transitions are sampled proportional to `priority^alpha` rather than
+/// uniformly, so the agent replays "surprising" transitions (high TD error)
+/// more often than mundane ones.
 ///
-/// **Core Mechanism**
-/// - **Priority Metric**: Most implementations use the **Temporal Difference (TD) error** as the
-///   measure of priority. A high TD error indicates that the agent's current predictions
-///   significantly differ from the actual outcome, suggesting there is more to "learn" from that
-///   specific experience.
-/// - **Stochastic Sampling**: Experiences are sampled based on their priority, but a "temperature"
-///   hyperparameter ($\alpha$) is used to balance between purely greedy prioritization and
-///   uniform random sampling.
-/// - **Bias Correction**: Because prioritization changes the data distribution (leading to
-///   potential overfitting), Importance Sampling (IS) weights are introduced to adjust the
-///   gradient updates during training.
+/// # Priority exponent (`alpha`)
+///
+/// - `alpha = 0.0` — uniform random sampling (no prioritization)
+/// - `alpha = 1.0` — fully greedy prioritization (raw priorities)
+/// - Typical values: `0.4`–`0.7`
+///
+/// Construct via [`PrioritizedExperienceReplayBuilder`].
 pub struct PrioritizedExperienceReplay<
     const D: usize,
     const AD: usize,
@@ -189,21 +199,49 @@ where
     A: Action<AD>,
     R: Reward,
 {
+    /// Returns the number of transitions currently stored.
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    /// Returns `true` when the buffer contains no transitions.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
 
+    /// Returns `true` when `len() >= capacity`.
     pub fn is_full(&self) -> bool {
         self.buffer.len() >= self.capacity
     }
 
-    // pub fn clear(&mut self) {
-    //     self.buffer.clear();
-    // }
+    /// Appends a transition to the buffer and records its sampling priority.
+    ///
+    /// When the buffer is at capacity the oldest transition (and its priority)
+    /// is evicted before the new one is inserted. New transitions are usually
+    /// given the current maximum priority so they are sampled at least once
+    /// before their TD error is known; callers can pass `None` to get that
+    /// behaviour, or an explicit value to override it.
+    pub fn add(
+        &mut self,
+        observation: O,
+        action: A,
+        reward: R,
+        next_observation: O,
+        is_done: bool,
+        priority: Option<f32>,
+    ) {
+        if self.buffer.len() >= self.capacity {
+            self.priorities.pop_front();
+        }
+        self.buffer.add(observation, action, reward, next_observation, is_done);
+        let p = priority.unwrap_or_else(|| {
+            self.priorities
+                .iter()
+                .copied()
+                .fold(1.0_f32, f32::max)
+        });
+        self.priorities.push_back(p);
+    }
 
     /// Samples a batch of experiences based on priorities for training.
     ///
@@ -238,16 +276,26 @@ where
     ///
     /// Returns `ReplayBufferError::InsufficientData` if the buffer contains fewer
     /// experiences than requested batch size.
-    pub fn sample_batch<B: Backend>(
+    pub fn sample_batch<const BD: usize, const BAD: usize, B: Backend>(
         &self,
         batch_size: usize,
         device: &B::Device,
-    ) -> Result<TrainingBatch<D, AD, B>, ReplayBufferError>
+    ) -> Result<TrainingBatch<BD, BAD, B>, ReplayBufferError>
     where
         O: TensorConvertible<D, B>,
         A: TensorConvertible<AD, B>,
         R: TensorConvertible<1, B>,
     {
+        assert_eq!(
+            BD,
+            D + 1,
+            "batched observation rank BD must equal Observation::DIM + 1"
+        );
+        assert_eq!(
+            BAD,
+            AD + 1,
+            "batched action rank BAD must equal Action::DIM + 1"
+        );
         if batch_size > self.buffer.len() {
             return Err(ReplayBufferError::InsufficientData {
                 requested: batch_size,
@@ -362,12 +410,16 @@ where
             .map(|obs| obs.to_tensor(device))
             .collect();
 
-        // Stack individual tensors into batch tensors
-        // The first dimension becomes the batch dimension
-        let observations: Tensor<B, D> = Tensor::stack(observations_tensors, 0);
-        let actions: Tensor<B, AD> = Tensor::stack(actions_tensors, 0);
-        let rewards: Tensor<B, 1> = Tensor::stack(rewards_tensors, 0);
-        let next_observations: Tensor<B, D> = Tensor::stack(next_observations_tensors, 0);
+        // Stack individual tensors into batch tensors. Stacking bumps the
+        // rank by 1 — `BD = D + 1`, `BAD = AD + 1` — enforced by the
+        // `assert_eq!`s at the top of the function. Rewards come through as
+        // rank-1 `[1]` tensors from `TensorConvertible<1, B>`, so we use
+        // `cat` (rank-preserving) instead of `stack` to produce shape
+        // `[batch]`.
+        let observations: Tensor<B, BD> = Tensor::stack(observations_tensors, 0);
+        let actions: Tensor<B, BAD> = Tensor::stack(actions_tensors, 0);
+        let rewards: Tensor<B, 1> = Tensor::cat(rewards_tensors, 0);
+        let next_observations: Tensor<B, BD> = Tensor::stack(next_observations_tensors, 0);
         let dones: Tensor<B, 1> = Tensor::from_floats(dones_vec.as_slice(), device);
 
         Ok(TrainingBatch {
@@ -685,6 +737,101 @@ mod prioritized_experience_replay_builder_tests {
     }
 
     #[test]
+    fn test_add_stores_transition_and_priority() {
+        let mut per = PrioritizedExperienceReplayBuilder::<
+            2,
+            1,
+            TestObservation,
+            TestAction,
+            TestReward,
+        >::new()
+        .with_capacity(3)
+        .build();
+
+        per.add(
+            TestObservation,
+            TestAction,
+            TestReward(1.0),
+            TestObservation,
+            false,
+            Some(0.5),
+        );
+        per.add(
+            TestObservation,
+            TestAction,
+            TestReward(2.0),
+            TestObservation,
+            true,
+            None, // should pick max existing priority (0.5 vs default 1.0 floor)
+        );
+
+        assert_eq!(per.len(), 2);
+        assert_eq!(per.priorities.len(), 2);
+        assert!((per.priorities[0] - 0.5).abs() < 1e-6);
+        // `None` default picks max of (existing priorities ∪ {1.0}) so the
+        // new item gets a priority of 1.0 here.
+        assert!((per.priorities[1] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_add_respects_requested_capacity_under_overflow() {
+        // Regression: `VecDeque::with_capacity(n)` may allocate more than `n`
+        // slots, so eviction must be driven by the caller-requested capacity,
+        // not by `VecDeque::capacity()`. Otherwise the `priorities` queue
+        // (capped at the requested capacity) drifts out of sync with the
+        // underlying transition buffer.
+        let capacity = 7;
+        let mut per = PrioritizedExperienceReplayBuilder::<
+            2,
+            1,
+            TestObservation,
+            TestAction,
+            TestReward,
+        >::new()
+        .with_capacity(capacity)
+        .build();
+
+        for i in 0..30 {
+            per.add(
+                TestObservation,
+                TestAction,
+                TestReward(i as f32),
+                TestObservation,
+                false,
+                Some(i as f32),
+            );
+        }
+
+        assert_eq!(per.len(), capacity);
+        assert_eq!(per.priorities.len(), capacity);
+        assert_eq!(per.buffer.len(), per.priorities.len());
+    }
+
+    #[test]
+    fn test_add_evicts_oldest_when_full() {
+        let mut per = PrioritizedExperienceReplayBuilder::<
+            2,
+            1,
+            TestObservation,
+            TestAction,
+            TestReward,
+        >::new()
+        .with_capacity(2)
+        .build();
+
+        per.add(TestObservation, TestAction, TestReward(1.0), TestObservation, false, Some(0.1));
+        per.add(TestObservation, TestAction, TestReward(2.0), TestObservation, false, Some(0.2));
+        per.add(TestObservation, TestAction, TestReward(3.0), TestObservation, false, Some(0.3));
+
+        // The oldest transition (priority 0.1) should have been evicted and
+        // the buffer/priority queue must stay length-aligned at capacity.
+        assert!(per.len() <= 2);
+        assert_eq!(per.priorities.len(), per.len());
+        assert!((per.priorities[0] - 0.2).abs() < 1e-6);
+        assert!((per.priorities[1] - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_builder_different_observation_dimensions() {
         // Test with different observation space dimensions
         // All still use TestAction which implements Action<1>
@@ -700,5 +847,165 @@ mod prioritized_experience_replay_builder_tests {
 
         // Note: Can't test different AD dimensions without implementing
         // additional Action<N> for TestAction, which is not the focus of builder tests
+    }
+}
+
+#[cfg(test)]
+mod sample_batch_tests {
+    //! End-to-end regression tests for [`PrioritizedExperienceReplay::sample_batch`].
+    //!
+    //! These tests actually call `sample_batch` against a concrete backend
+    //! (Burn's ndarray) and verify the produced tensors have the batched
+    //! shapes `[batch, ...]`. Before the BD/BAD generics landed, the
+    //! function panicked at runtime because it tried to stack rank-`D`
+    //! tensors into a rank-`D` output, so this suite guards against that
+    //! regression.
+
+    use super::*;
+    use crate::base::{Action, Observation, Reward, TensorConvertible, TensorConversionError};
+    use burn::backend::NdArray;
+    use burn::tensor::Tensor;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    struct Obs(f32, f32, f32);
+
+    impl Observation<1> for Obs {
+        fn shape() -> [usize; 1] {
+            [3]
+        }
+    }
+
+    impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Obs {
+        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+            Tensor::from_floats([self.0, self.1, self.2], device)
+        }
+        fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            unimplemented!("not exercised by this test")
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    struct Act(u32); // one-hot index; shape [2]
+
+    impl Action<1> for Act {
+        fn shape() -> [usize; 1] {
+            [2]
+        }
+        fn is_valid(&self) -> bool {
+            self.0 < 2
+        }
+    }
+
+    impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Act {
+        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+            let mut one_hot = [0.0_f32; 2];
+            one_hot[self.0 as usize] = 1.0;
+            Tensor::from_floats(one_hot, device)
+        }
+        fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            unimplemented!("not exercised by this test")
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    struct Rew(f32);
+
+    impl Reward for Rew {
+        fn zero() -> Self {
+            Rew(0.0)
+        }
+    }
+
+    impl std::ops::Add for Rew {
+        type Output = Self;
+        fn add(self, rhs: Self) -> Self {
+            Rew(self.0 + rhs.0)
+        }
+    }
+
+    impl From<Rew> for f32 {
+        fn from(r: Rew) -> f32 {
+            r.0
+        }
+    }
+
+    impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Rew {
+        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+            Tensor::from_floats([self.0], device)
+        }
+        fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            unimplemented!("not exercised by this test")
+        }
+    }
+
+    type Be = NdArray;
+
+    fn populated(n: usize) -> PrioritizedExperienceReplay<1, 1, Obs, Act, Rew> {
+        let mut per = PrioritizedExperienceReplayBuilder::<1, 1, Obs, Act, Rew>::new()
+            .with_capacity(n.max(4))
+            .with_alpha(0.0) // uniform sampling — deterministic path
+            .build();
+        for i in 0..n {
+            let f = i as f32;
+            per.add(
+                Obs(f, f + 0.1, f + 0.2),
+                Act((i % 2) as u32),
+                Rew(f * 0.5),
+                Obs(f + 1.0, f + 1.1, f + 1.2),
+                i == n - 1,
+                Some(1.0),
+            );
+        }
+        per
+    }
+
+    #[test]
+    fn sample_batch_returns_correctly_shaped_tensors() {
+        let per = populated(16);
+        let device = Default::default();
+        let batch = per
+            .sample_batch::<2, 2, Be>(8, &device)
+            .expect("sample_batch");
+        assert_eq!(batch.observations.shape().dims, [8, 3]);
+        assert_eq!(batch.next_observations.shape().dims, [8, 3]);
+        assert_eq!(batch.actions.shape().dims, [8, 2]);
+        assert_eq!(batch.rewards.shape().dims, [8]);
+        assert_eq!(batch.dones.shape().dims, [8]);
+    }
+
+    #[test]
+    fn sample_batch_rejects_requests_larger_than_buffer() {
+        let per = populated(4);
+        let device = Default::default();
+        let err = match per.sample_batch::<2, 2, Be>(8, &device) {
+            Ok(_) => panic!("batch_size > len should fail"),
+            Err(e) => e,
+        };
+        match err {
+            ReplayBufferError::InsufficientData { requested, available } => {
+                assert_eq!(requested, 8);
+                assert_eq!(available, 4);
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "batched observation rank BD")]
+    fn sample_batch_panics_on_wrong_bd() {
+        let per = populated(4);
+        let device = Default::default();
+        // BD = 1 is wrong (should be D + 1 = 2). Runtime assertion fires.
+        let _ = per.sample_batch::<1, 2, Be>(2, &device);
+    }
+
+    #[test]
+    #[should_panic(expected = "batched action rank BAD")]
+    fn sample_batch_panics_on_wrong_bad() {
+        let per = populated(4);
+        let device = Default::default();
+        // BAD = 1 is wrong (should be AD + 1 = 2).
+        let _ = per.sample_batch::<2, 1, Be>(2, &device);
     }
 }

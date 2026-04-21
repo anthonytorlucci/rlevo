@@ -1,17 +1,26 @@
+//! Core traits for reinforcement learning abstractions.
+//!
+//! This module defines the foundational vocabulary used throughout `evorl-core`:
+//! rewards, observations, states, actions, transition dynamics, and tensor
+//! conversion. All other modules depend on these primitives.
+
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::Debug;
 
-/// Update function: how something evolves over time
-/// Generic over input and output types
+/// Generic update function: how something evolves over time.
+///
+/// Parameterized over the input stimulus and the output type it transforms.
 pub trait UpdateFunction<Input, Output> {
+    /// Computes the next value given the current value and an input.
     fn update(&self, current: &Output, input: &Input) -> Output;
 }
 
-/// Represents a reward signal
+/// A scalar reward signal emitted by an environment each step.
 pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
+    /// Returns the additive identity for this reward type (typically `0.0`).
     fn zero() -> Self;
 }
 
@@ -46,7 +55,7 @@ pub trait State<const D: usize>: Debug + Clone + Send + Sync {
     ///
     /// The returned array has length `D`, where each element specifies the number
     /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D]; // todo! why static method here?
+    fn shape() -> [usize; D];
 
     /// Generate an observation from this state (may be partial)
     fn observe(&self) -> Self::Observation;
@@ -126,13 +135,16 @@ pub trait Action<const D: usize>: Debug + Clone + Sized {
     fn is_valid(&self) -> bool;
 }
 
-/// Environment transition dynamics: s_{t+1} = f(s_t, a_t)
+/// Deterministic environment transition dynamics: s_{t+1} = f(s_t, a_t).
 pub trait TransitionDynamics<const SD: usize, const AD: usize, S: State<SD>, A: Action<AD>> {
+    /// Returns the successor state after applying `action` to `state`.
     fn transition(&self, state: &S, action: &A) -> S;
 }
 
+/// Error returned when a tensor cannot be converted to or from a domain type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TensorConversionError {
+    /// Human-readable description of why the conversion failed.
     pub message: String,
 }
 
@@ -144,9 +156,33 @@ impl std::fmt::Display for TensorConversionError {
 
 impl Error for TensorConversionError {}
 
-pub trait TensorConvertible<const D: usize, B: Backend> {
+/// Bidirectional conversion between a domain type and a Burn tensor.
+///
+/// Implementors must round-trip: `from_tensor(x.to_tensor(device))` equals
+/// `Ok(x)` for any valid `x`. Strategies and replay buffers rely on this
+/// invariant.
+///
+/// # Type Parameters
+///
+/// - `D`: Rank of the tensor produced.
+/// - `B`: Burn backend.
+///
+/// # Errors
+///
+/// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
+/// dtype, or contents violate the domain type's invariants (see
+/// [`State::is_valid`] / [`Action::is_valid`]).
+pub trait TensorConvertible<const D: usize, B: Backend>: Sized {
+    /// Converts `self` into a tensor on `device`.
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, D>;
-    // todo! fn from_tensor(tensor: &Tensor<B, D>) -> Result<Self, TensorConversionError>;
+
+    /// Reconstructs a value from a tensor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor's shape or contents
+    /// do not describe a valid instance of `Self`.
+    fn from_tensor(tensor: Tensor<B, D>) -> Result<Self, TensorConversionError>;
 }
 
 #[cfg(test)]

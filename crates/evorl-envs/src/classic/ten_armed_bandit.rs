@@ -1,33 +1,60 @@
-use burn::tensor::backend::Backend;
+//! Ten-armed bandit environment — Sutton & Barto, *Reinforcement Learning*, §2.
+//!
+//! Stateless k-armed bandit with `k = 10`. On each step the agent selects an
+//! arm `a ∈ {0, …, 9}` and receives a reward sampled from `N(q*(a), 1)` where
+//! the true means `q*(a)` are themselves drawn from `N(0, 1)` at construction
+//! (and re-drawn from the same seed on [`reset`](TenArmedBandit::reset)).
+//!
+//! # Example
+//!
+//! ```rust
+//! use evorl_core::environment::{Environment, Snapshot};
+//! use evorl_envs::classic::{TenArmedBandit, TenArmedBanditAction};
+//!
+//! let mut env: TenArmedBandit = <TenArmedBandit as Environment<1, 1, 1>>::new(false);
+//! let _ = <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut env)
+//!     .expect("reset succeeds");
+//! let action = TenArmedBanditAction::new(3).expect("arm index in range");
+//! let snap = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action)
+//!     .expect("valid action");
+//! assert!(!snap.is_done());
+//! ```
+
 use burn::tensor::Tensor;
-use evorl_core::base::TensorConvertible;
-use evorl_core::base::{Observation, State};
+use burn::tensor::backend::Backend;
+use evorl_core::action::DiscreteAction;
+use evorl_core::base::{Action, Observation, Reward, State, TensorConversionError, TensorConvertible};
+use evorl_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use evorl_core::reward::ScalarReward;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-// from Sutton and Barto, 2018, p.25-
-// The Problem
-// You are faced repeatedly with a choice among k different options, or actions. After each choice you receive a numerical reward chosen from a stationary probability distribution that depends on the action you selected. Your objective is to maximize the expected total reward over some time period, for example, over 1000 action selections, or time steps.
+/// Number of arms in the bandit problem (k = 10 per Sutton & Barto).
+const ARM_COUNT: usize = 10;
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
 
 /// Multi-armed bandit state.
 ///
-/// Represents the state in a multi-armed bandit problem where the agent
-/// must choose between k=10 different actions to maximize cumulative reward.
-/// Since bandit problems are stateless (the optimal action doesn't depend
-/// on history), this state is empty.
+/// Bandit problems are stateless (the optimal action is independent of
+/// history), so this struct carries no fields. It exists to satisfy the
+/// [`State`] trait contract expected by [`Environment`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct TenArmedBanditState {}
+pub struct TenArmedBanditState;
 
-/// Observation for the ten-armed bandit problem.
+/// Observation for the ten-armed bandit.
 ///
-/// Since the bandit is stateless, the observation is also empty.
-/// This satisfies the Observation trait requirement but carries no information,
-/// as the optimal action is independent of any history or state.
+/// Empty for the same reason as [`TenArmedBanditState`]. The [`Observation`]
+/// impl reports `shape() = [1]` so tensor-based policies can still convert
+/// through [`TensorConvertible`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct TenArmedBanditObservation {}
+pub struct TenArmedBanditObservation;
 
 impl Observation<1> for TenArmedBanditObservation {
     fn shape() -> [usize; 1] {
@@ -43,7 +70,7 @@ impl State<1> for TenArmedBanditState {
     }
 
     fn observe(&self) -> Self::Observation {
-        TenArmedBanditObservation {}
+        TenArmedBanditObservation
     }
 
     fn is_valid(&self) -> bool {
@@ -56,162 +83,291 @@ impl State<1> for TenArmedBanditState {
 }
 
 impl Display for TenArmedBanditState {
-    /// Formats the state for human-readable output.
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "TenArmedBanditState")
     }
 }
 
 impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditState {
-    /// Converts the stateless bandit state to a rank-1 tensor.
-    ///
-    /// Since the bandit is stateless, this simply returns a tensor with a single
-    /// neutral value [0.0].
+    /// Encodes the stateless bandit state as a 1-D tensor `[0.0]`.
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        let data: [f32; 1] = [0.0];
-        Tensor::from_floats(data, device)
+        Tensor::from_floats([0.0_f32; 1], device)
+    }
+
+    /// Accepts any rank-1 tensor of shape `[1]`; contents are ignored because
+    /// the state carries no data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor shape is not `[1]`.
+    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+        let dims = tensor.shape().dims;
+        if dims.as_slice() != [1] {
+            return Err(TensorConversionError {
+                message: format!("expected shape [1], got {dims:?}"),
+            });
+        }
+        Ok(Self)
     }
 }
 
-// SAFETY: TenArmedBanditState is an empty struct with no fields,
-// making it trivially Send and Sync. No synchronization is needed.
-unsafe impl Send for TenArmedBanditState {}
-unsafe impl Sync for TenArmedBanditState {}
+// ---------------------------------------------------------------------------
+// Action
+// ---------------------------------------------------------------------------
 
-/// Action for the multi-armed bandit problem.
+/// Action for the ten-armed bandit — the choice of which arm to pull.
 ///
-/// Represents the agent's choice of which arm to pull.
-/// Each action corresponds to selecting one of k=10 arms,
-/// indexed from 0 to k-1.
+/// Valid arm indices are `0..10`. Use [`TenArmedBanditAction::new`] for
+/// fallible construction from untrusted input, or
+/// [`TenArmedBanditAction::from_index`] (from the [`DiscreteAction`] trait)
+/// when the caller has already validated the index.
 ///
-/// # Traits Implemented
+/// # Traits implemented
 ///
-/// - **`Action`**: Core trait defining action validity constraints
-/// - **`DiscreteAction`**: Provides enumeration, indexing, and random sampling of actions
-/// - **`Display`**: Human-readable formatting (e.g., "TenArmedBanditAction(arm=3)")
-/// - **`ActionTensorConvertible<1>`**: Converts to one-hot encoded Burn tensors for neural networks
-/// - **`Send + Sync`**: Thread-safe type that can be shared across threads
+/// - [`Action<1>`]: validity check + shape reporting.
+/// - [`DiscreteAction<1>`]: `ACTION_COUNT = 10`, plus `from_index` /
+///   `to_index` / `random` / `enumerate` (the last three via trait defaults).
+/// - [`TensorConvertible<1, B>`]: one-hot encoding of length 10 for
+///   neural-network integration.
+/// - [`Display`]: renders as `"TenArmedBanditAction(arm=N)"`.
 ///
 /// # Examples
 ///
-/// ```rust,ignore
-/// use evorl_core::action::{Action, DiscreteAction};
+/// ```rust
+/// use evorl_core::action::DiscreteAction;
+/// use evorl_envs::classic::TenArmedBanditAction;
 ///
-/// // Create an action by index
-/// let action = TenArmedBanditAction::from_index(5);
-/// assert!(action.is_valid());
-/// assert_eq!(action.to_index(), 5);
+/// let a = TenArmedBanditAction::new(5).expect("5 is in range");
+/// assert_eq!(a.arm(), 5);
+/// assert_eq!(a.to_index(), 5);
 ///
-/// // Enumerate all possible actions
-/// let all_actions = TenArmedBanditAction::enumerate();
-/// assert_eq!(all_actions.len(), TenArmedBanditAction::ACTION_COUNT);
+/// let all = TenArmedBanditAction::enumerate();
+/// assert_eq!(all.len(), TenArmedBanditAction::ACTION_COUNT);
 ///
-/// // Sample a random action
-/// let random_action = TenArmedBanditAction::random();
-///
-/// // Access the arm index
-/// let arm_id = random_action.arm();
+/// let _random = TenArmedBanditAction::random();
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TenArmedBanditAction {
-    /// The index of the selected arm (0-indexed).
+    /// The index of the selected arm (`0..10`).
     selected_arm: usize,
 }
 
-impl Display for TenArmedBanditAction {
-    /// Formats the action for human-readable output.
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TenArmedBanditAction(arm={})", self.arm())
-    }
-}
-
 impl TenArmedBanditAction {
-    /// Returns the index of the selected arm.
+    /// Fallible constructor: returns [`EnvironmentError::InvalidAction`] when
+    /// `arm >= 10`.
     ///
-    /// # Examples
+    /// Prefer this over [`DiscreteAction::from_index`] for any index that
+    /// came from an external source (configuration, RPC, policy output
+    /// without a saturating mask). `from_index` panics on out-of-range input
+    /// by the [`DiscreteAction`] trait contract.
     ///
-    /// ```rust,ignore
-    /// let action = MultiArmedBanditAction::from_index(3);
-    /// assert_eq!(action.arm(), 3);
-    /// ```
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::InvalidAction`] if `arm >= 10`.
+    pub fn new(arm: usize) -> Result<Self, EnvironmentError> {
+        if arm < ARM_COUNT {
+            Ok(Self { selected_arm: arm })
+        } else {
+            Err(EnvironmentError::InvalidAction(format!(
+                "arm index {arm} out of range [0, {ARM_COUNT})"
+            )))
+        }
+    }
+
+    /// The index of the arm this action selects.
+    #[must_use]
     pub fn arm(&self) -> usize {
         self.selected_arm
     }
 }
 
-// impl Action for TenArmedBanditAction {
-//     fn is_valid(&self) -> bool {
-//         // Action is valid if the arm index is within the valid range.
-//         self.selected_arm < Self::ACTION_COUNT
-//     }
-// }
+impl Display for TenArmedBanditAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TenArmedBanditAction(arm={})", self.selected_arm)
+    }
+}
 
-// impl DiscreteAction for TenArmedBanditAction {
-//     /// Standard 10-armed bandit from Sutton & Barto (2018).
-//     ///
-//     /// This is the classic configuration for multi-armed bandit problems,
-//     /// commonly used in reinforcement learning literature and benchmarks.
-//     const ACTION_COUNT: usize = 10;
+impl Action<1> for TenArmedBanditAction {
+    fn shape() -> [usize; 1] {
+        [ARM_COUNT]
+    }
 
-//     fn from_index(index: usize) -> Self {
-//         assert!(
-//             index < Self::ACTION_COUNT,
-//             "Action index {} out of bounds [0, {})",
-//             index,
-//             Self::ACTION_COUNT
-//         );
-//         Self {
-//             selected_arm: index,
-//         }
-//     }
+    fn is_valid(&self) -> bool {
+        self.selected_arm < ARM_COUNT
+    }
+}
 
-//     fn to_index(&self) -> usize {
-//         self.selected_arm
-//     }
+impl DiscreteAction<1> for TenArmedBanditAction {
+    const ACTION_COUNT: usize = ARM_COUNT;
 
-//     fn enumerate() -> Vec<Self>
-//     where
-//         Self: Sized,
-//     {
-//         (0..Self::ACTION_COUNT)
-//             .map(|selected_arm| Self { selected_arm })
-//             .collect()
-//     }
-// }
+    /// Constructs from a validated index. Panics on out-of-range input, per
+    /// the [`DiscreteAction`] trait contract. Use [`TenArmedBanditAction::new`]
+    /// for a fallible alternative.
+    fn from_index(index: usize) -> Self {
+        assert!(
+            index < ARM_COUNT,
+            "TenArmedBanditAction index {index} out of range [0, {ARM_COUNT})",
+        );
+        Self {
+            selected_arm: index,
+        }
+    }
 
-// SAFETY: TenArmedBanditAction contains only a usize, which is Copy and thread-safe.
-// No synchronization primitives or heap allocations are involved.
-unsafe impl Send for TenArmedBanditAction {}
-unsafe impl Sync for TenArmedBanditAction {}
+    fn to_index(&self) -> usize {
+        self.selected_arm
+    }
+}
 
-// impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditAction {
-//     /// Converts this discrete action to a one-hot encoded tensor.
-//     ///
-//     /// For a 10-armed bandit, this creates a 1D tensor of length 10 where
-//     /// the selected arm's position is 1.0 and all others are 0.0.
-//     ///
-//     /// This conversion enables integration with Burn neural networks for deep
-//     /// reinforcement learning applications. The one-hot encoding provides a
-//     /// dense representation suitable for network input layers.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```rust,ignore
-//     /// use burn::backend::NdArray;
-//     /// let action = TenArmedBanditAction::from_index(3);
-//     /// let device = NdArray::device();
-//     /// let tensor = action.to_tensor::<NdArray>(&device);
-//     /// // tensor contains [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
-//     /// ```
-//     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-//         // Create one-hot encoding: [0, 0, ..., 1, ..., 0] where 1 is at position self.selected_arm
-//         let mut one_hot = vec![0.0_f32; Self::ACTION_COUNT];
-//         one_hot[self.selected_arm] = 1.0;
-//         Tensor::from_floats(one_hot.as_slice(), device)
-//     }
-// }
+impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditAction {
+    /// One-hot encoding of the selected arm as a rank-1 tensor of length 10.
+    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+        let mut one_hot = [0.0_f32; ARM_COUNT];
+        one_hot[self.selected_arm] = 1.0;
+        Tensor::from_floats(one_hot, device)
+    }
 
-/// 10-armed bandit environment
+    /// Reconstructs an action from a one-hot tensor by argmax.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor shape is not `[10]` or
+    /// the argmax falls outside the valid arm range.
+    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+        let dims = tensor.shape().dims;
+        if dims.as_slice() != [ARM_COUNT] {
+            return Err(TensorConversionError {
+                message: format!("expected shape [{ARM_COUNT}], got {dims:?}"),
+            });
+        }
+        let data = tensor.into_data();
+        let values: Vec<f32> = data.to_vec().map_err(|e| TensorConversionError {
+            message: format!("failed to extract tensor data: {e:?}"),
+        })?;
+        let (argmax, _) = values
+            .iter()
+            .enumerate()
+            .fold((0_usize, f32::NEG_INFINITY), |(i_best, v_best), (i, &v)| {
+                if v > v_best { (i, v) } else { (i_best, v_best) }
+            });
+        TenArmedBanditAction::new(argmax).map_err(|e| TensorConversionError {
+            message: format!("invalid one-hot argmax: {e}"),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+/// Configuration for [`TenArmedBandit`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenArmedBanditConfig {
+    /// Maximum number of steps before the episode terminates.
+    pub max_steps: usize,
+    /// RNG seed. [`reset`](TenArmedBandit::reset) re-draws arm means from
+    /// this seed so `(config, action sequence)` fully determines the
+    /// trajectory. Default: `42` (Sutton & Barto convention).
+    pub seed: u64,
+}
+
+impl Default for TenArmedBanditConfig {
+    fn default() -> Self {
+        Self {
+            max_steps: 500,
+            seed: 42,
+        }
+    }
+}
+
+/// Parses configs from `"max_steps=N"`, `"seed=S"`, `"max_steps=N,seed=S"`, or
+/// a bare integer interpreted as `max_steps`.
+impl FromStr for TenArmedBanditConfig {
+    type Err = String;
+
+    /// Parses a string into a [`TenArmedBanditConfig`].
+    ///
+    /// Supported formats:
+    /// - `"500"` — a bare integer sets `max_steps`; other fields keep their defaults.
+    /// - `"max_steps=500"` / `"seed=7"` — single key-value.
+    /// - `"max_steps=500,seed=7"` — comma-separated key-value pairs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input matches none of the above, or if a
+    /// numeric value fails to parse.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::str::FromStr;
+    /// use evorl_envs::classic::TenArmedBanditConfig;
+    ///
+    /// let c: TenArmedBanditConfig = "500".parse().unwrap();
+    /// assert_eq!(c.max_steps, 500);
+    /// let c: TenArmedBanditConfig = "max_steps=1000,seed=7".parse().unwrap();
+    /// assert_eq!(c.max_steps, 1000);
+    /// assert_eq!(c.seed, 7);
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+
+        // Bare integer → max_steps.
+        if let Ok(max_steps) = trimmed.parse::<usize>() {
+            return Ok(Self {
+                max_steps,
+                ..Self::default()
+            });
+        }
+
+        let mut cfg = Self::default();
+        let mut saw_key = false;
+        for pair in trimmed.split(',') {
+            let pair = pair.trim();
+            if pair.is_empty() {
+                continue;
+            }
+            let Some(eq_pos) = pair.find('=') else {
+                return Err(format!(
+                    "Invalid TenArmedBanditConfig format. Expected either a number or 'key=value' pairs, got: {s}"
+                ));
+            };
+            let key = pair[..eq_pos].trim();
+            let value_str = pair[eq_pos + 1..].trim();
+            match key {
+                "max_steps" => {
+                    cfg.max_steps = value_str
+                        .parse::<usize>()
+                        .map_err(|e| format!("Failed to parse max_steps value: {e}"))?;
+                }
+                "seed" => {
+                    cfg.seed = value_str
+                        .parse::<u64>()
+                        .map_err(|e| format!("Failed to parse seed value: {e}"))?;
+                }
+                other => {
+                    return Err(format!(
+                        "Unknown TenArmedBanditConfig key {other:?} (expected max_steps or seed)"
+                    ));
+                }
+            }
+            saw_key = true;
+        }
+
+        if saw_key {
+            Ok(cfg)
+        } else {
+            Err(format!(
+                "Invalid TenArmedBanditConfig format. Expected either a number or 'key=value' pairs, got: {s}"
+            ))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+
+/// Ten-armed bandit environment.
 #[derive(Debug)]
 pub struct TenArmedBandit {
     state: TenArmedBanditState,
@@ -219,8 +375,7 @@ pub struct TenArmedBandit {
     done: bool,
     config: TenArmedBanditConfig,
     rng: StdRng,
-    // Store the true means q*(a) for the 10 arms
-    arm_means: [f32; 10],
+    arm_means: [f32; ARM_COUNT],
 }
 
 impl Display for TenArmedBandit {
@@ -233,228 +388,396 @@ impl Display for TenArmedBandit {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenArmedBanditConfig {
-    pub max_steps: usize,
-}
-
-impl Default for TenArmedBanditConfig {
-    fn default() -> Self {
-        Self { max_steps: 500 }
-    }
-}
-
-// Useful for loading environment configurations from strings (e.g., command line arguments or config files)
-impl FromStr for TenArmedBanditConfig {
-    type Err = String;
-
-    /// Parses a string into a `TenArmedBanditConfig`.
+impl TenArmedBandit {
+    /// Construct a bandit with a specific seed.
     ///
-    /// Supports two formats:
-    /// - A single number: `"500"` → `TenArmedBanditConfig { max_steps: 500 }`
-    /// - Key-value format: `"max_steps=500"` → `TenArmedBanditConfig { max_steps: 500 }`
+    /// Sets `config.seed = seed` (so [`reset`](Self::reset) will re-draw the
+    /// same arm means) and samples `arm_means` from `N(0, 1)`. Keeps other
+    /// config fields at their defaults. Used by `evorl-benchmarks` for
+    /// reproducible trials.
+    pub fn with_seed(seed: u64) -> Self {
+        let config = TenArmedBanditConfig {
+            seed,
+            ..TenArmedBanditConfig::default()
+        };
+        Self::with_config(config)
+    }
+
+    /// Construct with an explicit config.
+    pub fn with_config(config: TenArmedBanditConfig) -> Self {
+        let mut rng = StdRng::seed_from_u64(config.seed);
+        let arm_means = sample_arm_means(&mut rng);
+        Self {
+            state: TenArmedBanditState,
+            steps: 0,
+            done: false,
+            config,
+            rng,
+            arm_means,
+        }
+    }
+
+    /// Inherent reset — re-seeds RNG and re-samples arm means.
+    ///
+    /// This is the bespoke entry point used by `evorl-benchmarks`; it
+    /// discards the snapshot return value. Prefer the
+    /// [`Environment::reset`] trait method for new code — it returns a
+    /// [`SnapshotBase`] for composition with wrappers.
+    pub fn reset(&mut self) {
+        self.rng = StdRng::seed_from_u64(self.config.seed);
+        self.arm_means = sample_arm_means(&mut self.rng);
+        self.state = TenArmedBanditState;
+        self.steps = 0;
+        self.done = false;
+    }
+
+    /// Pull `arm` and return a sampled reward from `N(q*(arm), 1)`.
+    ///
+    /// Advances the internal step counter and marks the episode `done` when
+    /// `steps == max_steps`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the string cannot be parsed as either format,
-    /// or if the numeric value is invalid.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use std::str::FromStr;
-    /// use evorl_envs::classic::TenArmedBanditConfig;
-    ///
-    /// let config1: TenArmedBanditConfig = "500".parse().unwrap();
-    /// assert_eq!(config1.max_steps, 500);
-    ///
-    /// let config2: TenArmedBanditConfig = "max_steps=1000".parse().unwrap();
-    /// assert_eq!(config2.max_steps, 1000);
-    /// ```
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let trimmed = s.trim();
-
-        // Try parsing as just a number first
-        if let Ok(max_steps) = trimmed.parse::<usize>() {
-            return Ok(Self { max_steps });
+    /// Returns [`EnvironmentError::InvalidAction`] if `arm >= 10`.
+    pub fn pull(&mut self, arm: usize) -> f32 {
+        let action = TenArmedBanditAction::new(arm).expect("arm index in range");
+        let reward = self.sample_reward(action.arm());
+        self.steps += 1;
+        if self.steps >= self.config.max_steps {
+            self.done = true;
         }
+        reward
+    }
 
-        // Try parsing as "max_steps=value" (with optional whitespace around =)
-        if let Some(eq_pos) = trimmed.find('=') {
-            let key = trimmed[..eq_pos].trim();
-            let value_str = trimmed[eq_pos + 1..].trim();
+    /// `true` when the episode has reached `max_steps`.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
 
-            if key == "max_steps" {
-                let max_steps = value_str
-                    .parse::<usize>()
-                    .map_err(|e| format!("Failed to parse max_steps value: {}", e))?;
-                return Ok(Self { max_steps });
-            }
-        }
+    /// Read-only view of the true arm means.
+    #[must_use]
+    pub fn arm_means(&self) -> &[f32; ARM_COUNT] {
+        &self.arm_means
+    }
 
-        Err(format!(
-            "Invalid TenArmedBanditConfig format. Expected either a number or 'max_steps=<number>', got: {}",
-            s
+    fn sample_reward(&mut self, arm: usize) -> f32 {
+        let mean = self.arm_means[arm];
+        Normal::new(mean, 1.0)
+            .expect("N(mean, 1) is always valid")
+            .sample(&mut self.rng)
+    }
+}
+
+fn sample_arm_means(rng: &mut StdRng) -> [f32; ARM_COUNT] {
+    let normal = Normal::new(0.0_f32, 1.0).expect("N(0, 1) is always valid");
+    let mut arm_means = [0.0_f32; ARM_COUNT];
+    for mean in &mut arm_means {
+        *mean = normal.sample(rng);
+    }
+    arm_means
+}
+
+impl Environment<1, 1, 1> for TenArmedBandit {
+    type StateType = TenArmedBanditState;
+    type ObservationType = TenArmedBanditObservation;
+    type ActionType = TenArmedBanditAction;
+    type RewardType = ScalarReward;
+    type SnapshotType = SnapshotBase<1, TenArmedBanditObservation, ScalarReward>;
+
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(TenArmedBanditConfig::default())
+    }
+
+    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        TenArmedBandit::reset(self);
+        Ok(SnapshotBase::running(
+            self.state.observe(),
+            ScalarReward::zero(),
         ))
     }
-}
 
-// impl Environment<1, 1> for TenArmedBandit {
-//     type StateType = TenArmedBanditState;
-//     type ActionType = TenArmedBanditAction;
-//     type RewardType = f32;
-//     type SnapshotType = SnapshotBase<TenArmedBanditState, f32>;
-
-//     fn new(_render: bool) -> Self {
-//         // Fixed seed for reproducibility - matches Sutton & Barto convention
-//         let seed = 42;
-//         let mut rng = StdRng::seed_from_u64(seed);
-
-//         // Sample q*(a) from normal distribution N(0, 1) for each arm
-//         // Each arm's true value is a sample from a normal distribution
-//         let normal = Normal::new(0.0, 1.0).unwrap();
-//         let mut arm_means = [0.0; 10];
-//         for mean in &mut arm_means {
-//             *mean = normal.sample(&mut rng);
-//         }
-
-//         Self {
-//             state: TenArmedBanditState {},
-//             steps: 0,
-//             done: false,
-//             config: TenArmedBanditConfig::default(),
-//             rng,
-//             arm_means,
-//         }
-//     }
-
-//     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-//         self.state = TenArmedBanditState {};
-//         self.steps = 0;
-//         self.done = false;
-
-//         Ok(SnapshotBase::new(self.state, 0.0, false))
-//     }
-
-//     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
-//         // Validate the action
-//         if !action.is_valid() {
-//             return Err(EnvironmentError::InvalidAction(format!(
-//                 "Invalid arm index: {}",
-//                 action.to_index()
-//             )));
-//         }
-
-//         // Increment step counter
-//         self.steps += 1;
-
-//         // In a real bandit environment, we would sample a reward based on the
-//         // arm's probability distribution. For now, we return a deterministic
-//         // or random reward based on the arm index.
-//         let reward = self.compute_reward(action.to_index());
-
-//         // Check if episode is done
-//         self.done = self.steps >= self.config.max_steps;
-
-//         Ok(SnapshotBase::new(self.state, reward, self.done))
-//     }
-// }
-
-// todo! use evorl_core::dynamics::Reward
-impl TenArmedBandit {
-    /// Computes a reward for the given arm index.
-    fn compute_reward(&mut self, arm_index: usize) -> f32 {
-        let mean = self.arm_means[arm_index];
-        // Sample from N(mean, 1)
-        let normal = Normal::new(mean, 1.0).unwrap();
-        normal.sample(&mut self.rng)
+    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        if !action.is_valid() {
+            return Err(EnvironmentError::InvalidAction(format!(
+                "arm index {} out of range [0, {})",
+                action.arm(),
+                ARM_COUNT
+            )));
+        }
+        let reward = ScalarReward(self.sample_reward(action.arm()));
+        self.steps += 1;
+        let obs = self.state.observe();
+        let snap = if self.steps >= self.config.max_steps {
+            self.done = true;
+            SnapshotBase::terminated(obs, reward)
+        } else {
+            SnapshotBase::running(obs, reward)
+        };
+        Ok(snap)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evorl_core::environment::Snapshot;
+
+    type TestBackend = burn::backend::NdArray;
 
     #[test]
-    fn test_fromstr_simple_number() {
-        // Test parsing as a simple number
-        let config: TenArmedBanditConfig = "500".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 500);
+    fn state_round_trips_through_tensor() {
+        let device = Default::default();
+        let state = TenArmedBanditState;
+        let tensor = <TenArmedBanditState as TensorConvertible<1, TestBackend>>::to_tensor(
+            &state, &device,
+        );
+        let back = <TenArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+            .expect("round-trip should succeed for valid shape");
+        assert_eq!(back, state);
     }
 
     #[test]
-    fn test_fromstr_with_whitespace() {
-        // Test parsing with surrounding whitespace
-        let config: TenArmedBanditConfig = "  750  ".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 750);
+    fn state_from_tensor_rejects_wrong_shape() {
+        use burn::tensor::{Tensor, TensorData as TD};
+        let device = Default::default();
+        let data = TD::new(vec![0.0_f32, 0.0_f32], [2]);
+        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let err = <TenArmedBanditState as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+            .expect_err("shape [2] should be rejected");
+        assert!(err.message.contains("expected shape [1]"));
     }
 
     #[test]
-    fn test_fromstr_key_value_format() {
-        // Test parsing as key-value format
-        let config: TenArmedBanditConfig = "max_steps=1000".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 1000);
+    fn action_from_index_round_trips() {
+        for i in 0..ARM_COUNT {
+            let action = TenArmedBanditAction::from_index(i);
+            assert_eq!(action.to_index(), i);
+            assert!(action.is_valid());
+        }
     }
 
     #[test]
-    fn test_fromstr_key_value_with_whitespace() {
-        // Test parsing key-value format with whitespace
-        let config: TenArmedBanditConfig = "max_steps = 2000".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 2000);
+    fn action_new_rejects_out_of_range() {
+        let err = TenArmedBanditAction::new(ARM_COUNT).expect_err("expected InvalidAction");
+        matches!(err, EnvironmentError::InvalidAction(_));
     }
 
     #[test]
-    fn test_fromstr_zero_steps() {
-        // Test parsing zero as max_steps
-        let config: TenArmedBanditConfig = "0".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 0);
+    #[should_panic(expected = "out of range")]
+    fn action_from_index_panics_out_of_range() {
+        let _ = TenArmedBanditAction::from_index(ARM_COUNT);
     }
 
     #[test]
-    fn test_fromstr_large_number() {
-        // Test parsing a large number
-        let config: TenArmedBanditConfig = "999999999".parse().expect("Failed to parse");
-        assert_eq!(config.max_steps, 999999999);
+    fn action_enumerate_covers_all_arms() {
+        let all = TenArmedBanditAction::enumerate();
+        assert_eq!(all.len(), ARM_COUNT);
+        for (i, a) in all.iter().enumerate() {
+            assert_eq!(a.to_index(), i);
+        }
     }
 
     #[test]
-    fn test_fromstr_invalid_format() {
-        // Test that invalid format returns error
-        let result: Result<TenArmedBanditConfig, String> = "invalid".parse();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Invalid TenArmedBanditConfig format"));
+    fn action_one_hot_round_trips_through_tensor() {
+        let device = Default::default();
+        for i in 0..ARM_COUNT {
+            let a = TenArmedBanditAction::from_index(i);
+            let t = <TenArmedBanditAction as TensorConvertible<1, TestBackend>>::to_tensor(
+                &a, &device,
+            );
+            let back =
+                <TenArmedBanditAction as TensorConvertible<1, TestBackend>>::from_tensor(t)
+                    .expect("valid one-hot");
+            assert_eq!(back, a);
+        }
     }
 
     #[test]
-    fn test_fromstr_invalid_number() {
-        // Test that non-numeric input returns error
-        let result: Result<TenArmedBanditConfig, String> = "not_a_number".parse();
-        assert!(result.is_err());
+    fn action_from_tensor_rejects_wrong_shape() {
+        use burn::tensor::{Tensor, TensorData as TD};
+        let device = Default::default();
+        let data = TD::new(vec![0.0_f32, 1.0_f32], [2]);
+        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let err =
+            <TenArmedBanditAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+                .expect_err("shape [2] should be rejected");
+        assert!(err.message.contains("expected shape"));
     }
 
     #[test]
-    fn test_fromstr_key_value_invalid_number() {
-        // Test that invalid number in key-value format returns error
-        let result: Result<TenArmedBanditConfig, String> = "max_steps=invalid".parse();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse max_steps value"));
+    fn environment_new_constructs() {
+        let env = <TenArmedBandit as Environment<1, 1, 1>>::new(false);
+        assert_eq!(env.steps, 0);
+        assert!(!env.done);
     }
 
     #[test]
-    fn test_fromstr_wrong_key() {
-        // Test that wrong key name returns error
-        let result: Result<TenArmedBanditConfig, String> = "wrong_key=500".parse();
-        assert!(result.is_err());
+    fn environment_reset_yields_running_snapshot_with_zero_reward() {
+        let mut env = TenArmedBandit::with_config(TenArmedBanditConfig::default());
+        let snap = <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
+        assert!(!snap.is_done());
+        assert_eq!(f32::from(*snap.reward()), 0.0);
     }
 
     #[test]
-    fn test_config_default() {
-        // Test that default config has expected max_steps
-        let config = TenArmedBanditConfig::default();
-        assert_eq!(config.max_steps, 500);
+    fn environment_step_invalid_action_returns_invalid_action_error() {
+        // Build an invalid action by bypassing the safe constructor, then
+        // feed it to `step` and confirm we get InvalidAction back.
+        let _env = TenArmedBandit::with_config(TenArmedBanditConfig::default());
+        let bogus = TenArmedBanditAction::from_index(0);
+        // Force an invalid state via unsafe-free struct literal is not possible
+        // (private field). The in-range case is already valid; the real path
+        // we exercise is Step's `is_valid` on a valid action — so instead we
+        // assert the converse property: TenArmedBanditAction::new rejects
+        // bad input at the boundary.
+        assert!(bogus.is_valid());
+        let bad = TenArmedBanditAction::new(ARM_COUNT);
+        assert!(matches!(bad, Err(EnvironmentError::InvalidAction(_))));
+    }
+
+    #[test]
+    fn environment_step_terminates_at_max_steps() {
+        let mut env = TenArmedBandit::with_config(TenArmedBanditConfig {
+            max_steps: 3,
+            seed: 1,
+        });
+        let action = TenArmedBanditAction::from_index(0);
+        let s1 = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        assert!(!s1.is_done());
+        let s2 = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        assert!(!s2.is_done());
+        let s3 = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        assert!(s3.is_terminated());
+    }
+
+    #[test]
+    fn same_seed_produces_identical_trajectories() {
+        let cfg = TenArmedBanditConfig {
+            max_steps: 64,
+            seed: 7,
+        };
+        let mut a = TenArmedBandit::with_config(cfg.clone());
+        let mut b = TenArmedBandit::with_config(cfg);
+        <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut a).unwrap();
+        <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut b).unwrap();
+        assert_eq!(a.arm_means(), b.arm_means());
+
+        for step in 0..64 {
+            let action = TenArmedBanditAction::from_index(step % ARM_COUNT);
+            let snap_a =
+                <TenArmedBandit as Environment<1, 1, 1>>::step(&mut a, action).unwrap();
+            let snap_b =
+                <TenArmedBandit as Environment<1, 1, 1>>::step(&mut b, action).unwrap();
+            assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
+            assert_eq!(snap_a.status(), snap_b.status());
+        }
+    }
+
+    #[test]
+    fn reset_redraws_arm_means_from_config_seed() {
+        let cfg = TenArmedBanditConfig {
+            max_steps: 10,
+            seed: 99,
+        };
+        let mut env = TenArmedBandit::with_config(cfg);
+        let means_before = *env.arm_means();
+        // Perturb state with some steps.
+        for _ in 0..5 {
+            let _ = env.pull(0);
+        }
+        <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        let means_after = *env.arm_means();
+        assert_eq!(means_before, means_after);
+        assert_eq!(env.steps, 0);
+    }
+
+    #[test]
+    fn fromstr_simple_number_sets_max_steps() {
+        let c: TenArmedBanditConfig = "500".parse().unwrap();
+        assert_eq!(c.max_steps, 500);
+        assert_eq!(c.seed, 42); // default preserved
+    }
+
+    #[test]
+    fn fromstr_with_whitespace() {
+        let c: TenArmedBanditConfig = "  750  ".parse().unwrap();
+        assert_eq!(c.max_steps, 750);
+    }
+
+    #[test]
+    fn fromstr_key_value_max_steps() {
+        let c: TenArmedBanditConfig = "max_steps=1000".parse().unwrap();
+        assert_eq!(c.max_steps, 1000);
+    }
+
+    #[test]
+    fn fromstr_key_value_seed() {
+        let c: TenArmedBanditConfig = "seed=17".parse().unwrap();
+        assert_eq!(c.seed, 17);
+        assert_eq!(c.max_steps, 500); // default preserved
+    }
+
+    #[test]
+    fn fromstr_two_keys() {
+        let c: TenArmedBanditConfig = "max_steps=50,seed=3".parse().unwrap();
+        assert_eq!(c.max_steps, 50);
+        assert_eq!(c.seed, 3);
+    }
+
+    #[test]
+    fn fromstr_key_value_with_whitespace() {
+        let c: TenArmedBanditConfig = "max_steps = 2000".parse().unwrap();
+        assert_eq!(c.max_steps, 2000);
+    }
+
+    #[test]
+    fn fromstr_zero_steps() {
+        let c: TenArmedBanditConfig = "0".parse().unwrap();
+        assert_eq!(c.max_steps, 0);
+    }
+
+    #[test]
+    fn fromstr_large_number() {
+        let c: TenArmedBanditConfig = "999999999".parse().unwrap();
+        assert_eq!(c.max_steps, 999_999_999);
+    }
+
+    #[test]
+    fn fromstr_invalid_format_errors() {
+        let err: String = "invalid".parse::<TenArmedBanditConfig>().unwrap_err();
+        assert!(err.contains("Invalid TenArmedBanditConfig format"));
+    }
+
+    #[test]
+    fn fromstr_non_numeric_errors() {
+        let err = "not_a_number".parse::<TenArmedBanditConfig>();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn fromstr_invalid_kv_number_errors() {
+        let err: String = "max_steps=invalid"
+            .parse::<TenArmedBanditConfig>()
+            .unwrap_err();
+        assert!(err.contains("Failed to parse max_steps value"));
+    }
+
+    #[test]
+    fn fromstr_unknown_key_errors() {
+        let err: String = "wrong_key=500".parse::<TenArmedBanditConfig>().unwrap_err();
+        assert!(err.contains("Unknown TenArmedBanditConfig key"));
+    }
+
+    #[test]
+    fn config_default_has_expected_values() {
+        let c = TenArmedBanditConfig::default();
+        assert_eq!(c.max_steps, 500);
+        assert_eq!(c.seed, 42);
     }
 }

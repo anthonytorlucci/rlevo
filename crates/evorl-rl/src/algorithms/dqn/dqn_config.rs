@@ -1,3 +1,5 @@
+//! Hyperparameter configuration for the DQN algorithm.
+
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 
@@ -52,6 +54,25 @@ pub struct DqnTrainingConfig {
     /// The maximum number of transitions to store in the replay buffer.
     pub replay_buffer_capacity: usize,
 
+    /// Number of environment steps collected before learning starts.
+    ///
+    /// Acts as a warm-up period that fills the replay buffer with diverse
+    /// transitions before the first gradient update, stabilising early
+    /// training.
+    pub learning_starts: usize,
+
+    /// How often (in environment steps) a learning update is performed.
+    ///
+    /// `train_frequency = 4` means one gradient step every four env steps,
+    /// matching the Nature-DQN setting.
+    pub train_frequency: usize,
+
+    /// If `true`, compute bootstrap targets using Double-DQN
+    /// (`a* = argmax_a Q_online(s', a)`, then `y = Q_target(s', a*)`).
+    ///
+    /// Leave `false` for vanilla DQN.
+    pub double_q: bool,
+
     /// Configuration for gradient clipping.
     ///
     /// Prevents exploding gradients by scaling the gradient vector if its norm exceeds a threshold.
@@ -65,7 +86,7 @@ pub struct DqnTrainingConfig {
 }
 
 impl Default for DqnTrainingConfig {
-    /// Creates a configuration with standard default values suitable for many gym environments.
+    /// Returns standard default values suitable for most gym-style environments.
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -78,36 +99,46 @@ impl Default for DqnTrainingConfig {
             target_update_frequency: 100,
             steps_per_episode: 1000,
             replay_buffer_capacity: 10000,
+            learning_starts: 1000,
+            train_frequency: 4,
+            double_q: false,
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
         }
     }
 }
 
-/// A Builder for creating `DqnTrainingConfig` instances.
+/// Builder for [`DqnTrainingConfig`] with fluent setters.
 ///
-/// This allows for setting specific configuration parameters while falling back
-/// to reasonable defaults for unspecified values.
+/// All unset fields default to the values from [`DqnTrainingConfig::default`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+///
+/// // Default configuration.
+/// let cfg = DqnTrainingConfigBuilder::new().build();
+///
+/// // Custom learning rate and batch size.
+/// let cfg = DqnTrainingConfigBuilder::new()
+///     .learning_rate(0.0005)
+///     .batch_size(64)
+///     .build();
+/// ```
 pub struct DqnTrainingConfigBuilder {
     config: DqnTrainingConfig,
 }
 
-/// Example
-/// Create a config using the default parameters via the builder.
-/// ```ignore
-/// let default_config: DqnTrainingConfig = DqnTrainingConfig::builder()
-///     .build();
-/// ```
-/// Create a config with custom modifications (e.g., changing learning rate and optimizer).
-/// ```ignore
-/// let custom_config: DqnTrainingConfig = DqnTrainingConfig::builder()
-///     .learning_rate(0.0005)
-///     .batch_size(64)
-///     .optimizer(AdamConfig::new().with_weight_decay(1e-5))
-///     .build();
-/// ```
+impl Default for DqnTrainingConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DqnTrainingConfigBuilder {
-    /// Creates a new builder initialized with the default configuration.
+    /// Creates a new builder initialized with default configuration values.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: DqnTrainingConfig::default(),
@@ -171,6 +202,24 @@ impl DqnTrainingConfigBuilder {
     /// Sets the capacity of the replay buffer.
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
+        self
+    }
+
+    /// Sets the number of warm-up steps before learning begins.
+    pub fn learning_starts(mut self, learning_starts: usize) -> Self {
+        self.config.learning_starts = learning_starts;
+        self
+    }
+
+    /// Sets how often a learning update runs, in environment steps.
+    pub fn train_frequency(mut self, train_frequency: usize) -> Self {
+        self.config.train_frequency = train_frequency;
+        self
+    }
+
+    /// Enables or disables Double-DQN bootstrap targets.
+    pub fn double_q(mut self, double_q: bool) -> Self {
+        self.config.double_q = double_q;
         self
     }
 

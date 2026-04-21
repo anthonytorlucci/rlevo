@@ -11,8 +11,90 @@ license.workspace = true
 [dependencies]
 burn = { workspace = true }
 rand = { workspace = true }
+rand_distr = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 evorl-core = { path = "../evorl-core" }
 
 [dev-dependencies]
 approx = { workspace = true }
+criterion = { workspace = true }
+evorl-envs = { path = "../evorl-envs", default-features = false }
+tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "dqn_cart_pole"
+path = "examples/dqn_cart_pole.rs"
+
+[[example]]
+name = "c51_cart_pole"
+path = "examples/c51_cart_pole.rs"
+
+[[example]]
+name = "qrdqn_cart_pole"
+path = "examples/qrdqn_cart_pole.rs"
+
+[[example]]
+name = "ppo_cart_pole"
+path = "examples/ppo_cart_pole.rs"
+
+[[example]]
+name = "ppo_pendulum"
+path = "examples/ppo_pendulum.rs"
+
+[[example]]
+name = "ppg_cart_pole"
+path = "examples/ppg_cart_pole.rs"
+
+[[example]]
+name = "ddpg_pendulum"
+path = "examples/ddpg_pendulum.rs"
+
+[[example]]
+name = "td3_pendulum"
+path = "examples/td3_pendulum.rs"
+
+[[example]]
+name = "sac_pendulum"
+path = "examples/sac_pendulum.rs"
+
+[[bench]]
+name = "dqn_bench"
+path = "benches/dqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "c51_bench"
+path = "benches/c51_bench.rs"
+harness = false
+
+[[bench]]
+name = "qrdqn_bench"
+path = "benches/qrdqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "ppo_bench"
+path = "benches/ppo_bench.rs"
+harness = false
+
+[[bench]]
+name = "ppg_bench"
+path = "benches/ppg_bench.rs"
+harness = false
+
+[[bench]]
+name = "ddpg_bench"
+path = "benches/ddpg_bench.rs"
+harness = false
+
+[[bench]]
+name = "td3_bench"
+path = "benches/td3_bench.rs"
+harness = false
+
+[[bench]]
+name = "sac_bench"
+path = "benches/sac_bench.rs"
+harness = false
