@@ -52,7 +52,7 @@ Default hyperparameters match the Nature DQN paper:
 
 **Module:** `algorithms::c51`
 
-Bellemare, Dabney & Munos's distributional extension of DQN. Instead of predicting a scalar Q-value, the network outputs a probability distribution over a fixed set of N atoms spanning `[v_min, v_max]`. Bootstrap targets are computed by projecting the Bellman-shifted distribution back onto the support (Cătălina projection); the loss is categorical cross-entropy.
+Bellemare, Dabney & Munos's distributional extension of DQN. Instead of predicting a scalar Q-value, the network outputs a probability distribution over a fixed set of N atoms spanning `[v_min, v_max]`. Bootstrap targets are computed by projecting the Bellman-shifted distribution back onto the support (Cramer projection); the loss is categorical cross-entropy.
 
 Key components:
 
