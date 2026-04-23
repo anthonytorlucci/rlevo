@@ -1,0 +1,33 @@
+[package]
+name = "rlevo-benchmarks"
+version.workspace = true
+authors.workspace = true
+description = "Benchmarking harness for rlevo (internal crate — use `rlevo` for the full API)"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+rlevo-core = { path = "../rlevo-core" }
+rayon = "1"
+rand = { workspace = true }
+rand_distr = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_json = { version = "1", optional = true }
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+rlevo-envs = { path = "../rlevo-envs" }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = ["json"]
+json = ["dep:serde", "dep:serde_json"]
+tui = ["dep:ratatui", "dep:crossterm"]
+
+[lints]
+workspace = true
