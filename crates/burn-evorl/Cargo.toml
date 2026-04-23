@@ -1,0 +1,32 @@
+[package]
+name = "burn-evorl"
+version.workspace = true
+authors.workspace = true
+description = "Evolutionary Deep Reinforcement Learning built on the Burn framework"
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+documentation = "https://docs.rs/burn-evorl"
+readme = "../../README.md"
+keywords = ["reinforcement-learning", "evolutionary", "deep-learning", "burn", "neural-network"]
+categories = ["science", "algorithms", "simulation"]
+
+[dependencies]
+evorl-core      = { path = "../evorl-core",      version = "0.1.0" }
+evorl-envs      = { path = "../evorl-envs",      version = "0.1.0", default-features = false }
+evorl-rl        = { path = "../evorl-rl",        version = "0.1.0" }
+evorl-evolution = { path = "../evorl-evolution", version = "0.1.0", default-features = false }
+evorl-hybrid    = { path = "../evorl-hybrid",    version = "0.1.0" }
+evorl-utils     = { path = "../evorl-utils",     version = "0.1.0" }
+
+[features]
+default = ["box2d", "locomotion", "custom-kernels"]
+# Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
+box2d = ["evorl-envs/box2d"]
+# MuJoCo-inspired locomotion environments via Rapier3D
+locomotion = ["evorl-envs/locomotion"]
+# Custom CubeCL GPU kernels for evolutionary algorithm hot paths
+custom-kernels = ["evorl-evolution/custom-kernels"]
+
+[lints]
+workspace = true

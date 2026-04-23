@@ -2,11 +2,9 @@
 name = "evorl-benchmarks"
 version.workspace = true
 authors.workspace = true
-description = "Reproducible benchmarking harness for burn-evorl (RL + EO)"
-documentation.workspace = true
+description = "Benchmarking harness for burn-evorl (internal crate — use `burn-evorl` for the full API)"
 license.workspace = true
 edition.workspace = true
-readme.workspace = true
 repository.workspace = true
 
 [dependencies]

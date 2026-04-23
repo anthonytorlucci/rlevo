@@ -655,6 +655,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "burn-evorl"
+version = "0.1.0"
+dependencies = [
+ "evorl-core",
+ "evorl-envs",
+ "evorl-evolution",
+ "evorl-hybrid",
+ "evorl-rl",
+ "evorl-utils",
+]
+
+[[package]]
 name = "burn-fusion"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

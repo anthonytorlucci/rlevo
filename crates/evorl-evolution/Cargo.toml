@@ -2,10 +2,8 @@
 name = "evorl-evolution"
 version.workspace = true
 authors.workspace = true
-description = "Tensor-native classical evolutionary algorithms for burn-evorl"
-documentation.workspace = true
+description = "Evolutionary algorithms for burn-evorl (internal crate — use `burn-evorl` for the full API)"
 edition.workspace = true
-readme.workspace = true
 license.workspace = true
 repository.workspace = true
 

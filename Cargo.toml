@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/burn-evorl",
     "crates/evorl-benchmarks",
     "crates/evorl-core",
     "crates/evorl-envs",
@@ -14,8 +15,7 @@ members = [
 version = "0.1.0"
 authors = ["Anthony Torlucci"]
 description = "Evolutionary Reinforcement Learning with Burn"
-documentation = "https://github.com/anthonytorlucci/burn-evorl"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 edition = "2024"
 readme = "README.md"
 repository = "https://github.com/anthonytorlucci/burn-evorl"

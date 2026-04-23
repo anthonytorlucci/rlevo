@@ -2,11 +2,10 @@
 name = "evorl-utils"
 version.workspace = true
 authors.workspace = true
-description.workspace = true
-documentation.workspace = true
+description = "Shared math utilities for burn-evorl (internal crate — use `burn-evorl` for the full API)"
 edition.workspace = true
-readme.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }
