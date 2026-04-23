@@ -9,22 +9,22 @@
 use std::sync::atomic::AtomicU32;
 
 use burn::backend::NdArray;
-use evorl_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
-use evorl_benchmarks::env::BenchEnv;
-use evorl_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use evorl_benchmarks::reporter::logging::LoggingReporter;
-use evorl_benchmarks::suite::Suite;
 use rand::Rng;
+use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
+use rlevo_benchmarks::env::BenchEnv;
+use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::reporter::logging::LoggingReporter;
+use rlevo_benchmarks::suite::Suite;
 
-use evorl_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
-use evorl_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
-use evorl_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
-use evorl_evolution::algorithms::ga::{
+use rlevo_envs::benchmarks::rastrigin::Rastrigin;
+use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
+use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
+use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
+use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use evorl_evolution::fitness::FromFitnessEvaluable;
-use evorl_evolution::strategy::EvolutionaryHarness;
-use evorl_envs::benchmarks::rastrigin::Rastrigin;
+use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::strategy::EvolutionaryHarness;
 
 type B = NdArray;
 
@@ -45,7 +45,9 @@ impl BenchableAgent<(), ()> for Passive {
     fn act(&mut self, _: &(), _: &mut dyn Rng) {}
 }
 
-fn ga_factory(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn ga_factory(
+    seed: u64,
+) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let params = GaConfig {
         pop_size: 64,
@@ -66,7 +68,9 @@ fn ga_factory(seed: u64) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitn
     )
 }
 
-fn es_factory(seed: u64) -> EvolutionaryHarness<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn es_factory(
+    seed: u64,
+) -> EvolutionaryHarness<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 30 }, DIM);
     EvolutionaryHarness::new(
@@ -79,7 +83,10 @@ fn es_factory(seed: u64) -> EvolutionaryHarness<B, EvolutionStrategy<B>, FromFit
     )
 }
 
-fn ep_factory(seed: u64) -> EvolutionaryHarness<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn ep_factory(
+    seed: u64,
+) -> EvolutionaryHarness<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>>
+{
     let device = Default::default();
     let params = EpConfig::default_for(30, DIM);
     EvolutionaryHarness::new(
@@ -92,7 +99,9 @@ fn ep_factory(seed: u64) -> EvolutionaryHarness<B, EvolutionaryProgramming<B>, F
     )
 }
 
-fn de_factory(seed: u64) -> EvolutionaryHarness<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
+fn de_factory(
+    seed: u64,
+) -> EvolutionaryHarness<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
     let device = Default::default();
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
@@ -196,7 +205,8 @@ fn harness_is_send_and_builds_through_suite() {
     // that all the trait bounds line up.
     let cfg = cfg();
     let _send_check = AtomicU32::new(0);
-    let suite: Suite<EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>>> =
-        Suite::new("smoke", cfg.clone()).with_env("rastrigin", ga_factory);
+    let suite: Suite<
+        EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>>,
+    > = Suite::new("smoke", cfg.clone()).with_env("rastrigin", ga_factory);
     assert_eq!(suite.envs.len(), 1);
 }

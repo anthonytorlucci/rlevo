@@ -23,11 +23,11 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for [`ArtificialBeeColony`].
@@ -141,11 +141,9 @@ impl<B: Backend> ArtificialBeeColony<B> {
         for (row, &j) in dims.iter().enumerate() {
             mask[row * genome_dim + j] = 1;
         }
-        let mask_bool = Tensor::<B, 2, Int>::from_data(
-            TensorData::new(mask, [n_cand, genome_dim]),
-            device,
-        )
-        .equal_elem(1);
+        let mask_bool =
+            Tensor::<B, 2, Int>::from_data(TensorData::new(mask, [n_cand, genome_dim]), device)
+                .equal_elem(1);
 
         // φ is per-row; broadcast to (n_cand, D).
         let phi_row = Tensor::<B, 1>::from_data(TensorData::new(phi.to_vec(), [n_cand]), device)
@@ -165,12 +163,7 @@ where
     type State = AbcState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &AbcConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> AbcState<B> {
+    fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &B::Device) -> AbcState<B> {
         assert!(params.pop_size >= 2, "ABC requires pop_size >= 2");
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
@@ -380,11 +373,8 @@ where
         }
 
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -415,8 +405,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

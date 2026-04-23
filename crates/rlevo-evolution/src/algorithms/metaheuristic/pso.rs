@@ -29,10 +29,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Which velocity-update rule PSO applies.
@@ -148,11 +148,7 @@ impl<B: Backend> ParticleSwarm<B> {
         }
     }
 
-    fn sample_positions(
-        params: &PsoConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> Tensor<B, 2> {
+    fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         Tensor::<B, 2>::random(
@@ -171,12 +167,7 @@ where
     type State = PsoState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &PsoConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> PsoState<B> {
+    fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &B::Device) -> PsoState<B> {
         let positions = Self::sample_positions(params, rng, device);
         let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
         let personal_best = positions.clone();
@@ -217,7 +208,12 @@ where
         );
         B::seed(
             device,
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation).next_u64(),
+            seed_stream(
+                rng.next_u64(),
+                state.generation as u64,
+                SeedPurpose::Mutation,
+            )
+            .next_u64(),
         );
         let r2 = Tensor::<B, 2>::random(
             [params.pop_size, params.genome_dim],
@@ -308,7 +304,9 @@ where
         let mask_row =
             Tensor::<B, 1, Int>::from_data(TensorData::new(improved, [pop_size]), &device)
                 .equal_elem(1);
-        let mask = mask_row.unsqueeze_dim::<2>(1).expand([pop_size, genome_dim]);
+        let mask = mask_row
+            .unsqueeze_dim::<2>(1)
+            .expand([pop_size, genome_dim]);
         state.personal_best = state
             .personal_best
             .clone()
@@ -364,8 +362,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 
@@ -391,7 +389,12 @@ mod tests {
         }
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, seed, device, generations,
+            strategy,
+            params,
+            fitness_fn,
+            seed,
+            device,
+            generations,
         );
         harness.reset();
         loop {

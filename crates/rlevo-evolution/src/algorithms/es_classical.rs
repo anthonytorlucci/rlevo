@@ -23,12 +23,12 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Tensor, TensorData};
+use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::ops::replacement::{mu_comma_lambda, mu_plus_lambda};
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Which selection scheme the ES uses.
@@ -175,12 +175,7 @@ where
     type State = EsState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &EsConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> EsState<B> {
+    fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &B::Device) -> EsState<B> {
         let (parents, sigmas) = Self::sample_initial_parents(params, rng, device);
         EsState {
             parents,
@@ -210,8 +205,11 @@ where
         let lambda = params.kind.population_size();
         let mu = Self::mu(params.kind);
 
-        let mut mutation_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+        let mut mutation_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
         let mut sigma_rng =
             seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Other);
 
@@ -244,14 +242,18 @@ where
             duplicated_sigmas
         } else {
             B::seed(device, sigma_rng.next_u64());
-            let noise =
-                Tensor::<B, 1>::random([lambda], burn::tensor::Distribution::Normal(0.0, 1.0), device);
+            let noise = Tensor::<B, 1>::random(
+                [lambda],
+                burn::tensor::Distribution::Normal(0.0, 1.0),
+                device,
+            );
             duplicated_sigmas * noise.mul_scalar(params.tau).exp()
         };
 
         // Mutate parents by the per-offspring σ.
         B::seed(device, mutation_rng.next_u64());
-        let mutated = gaussian_mutation_per_row(duplicated_parents, offspring_sigmas.clone(), device);
+        let mutated =
+            gaussian_mutation_per_row(duplicated_parents, offspring_sigmas.clone(), device);
 
         // Clamp to bounds.
         let (lo, hi) = params.bounds;
@@ -339,7 +341,8 @@ where
                 if state.window_len >= window {
                     #[allow(clippy::cast_precision_loss)]
                     let rate = state.successes_in_window as f32 / state.window_len as f32;
-                    let current_sigma = state.sigmas.clone().into_data().into_vec::<f32>().unwrap()[0];
+                    let current_sigma =
+                        state.sigmas.clone().into_data().into_vec::<f32>().unwrap()[0];
                     let new_sigma = if rate > 0.2 {
                         current_sigma * 1.22
                     } else if rate < 0.2 {
@@ -347,10 +350,8 @@ where
                     } else {
                         current_sigma
                     };
-                    state.sigmas = Tensor::<B, 1>::from_data(
-                        TensorData::new(vec![new_sigma], [1]),
-                        &device,
-                    );
+                    state.sigmas =
+                        Tensor::<B, 1>::from_data(TensorData::new(vec![new_sigma], [1]), &device);
                     state.successes_in_window = 0;
                     state.window_len = 0;
                 } else {
@@ -362,9 +363,7 @@ where
                 let best_off_idx = argmin(&fitness_host);
                 let best_off_fit = fitness_host[best_off_idx];
                 if best_off_fit < state.parent_fitness[0] {
-                    state.parents = offspring
-                        .clone()
-                        .slice([best_off_idx..best_off_idx + 1]);
+                    state.parents = offspring.clone().slice([best_off_idx..best_off_idx + 1]);
                     state.parent_fitness = vec![best_off_fit];
                 }
                 state.sigmas = parent_sigmas;
@@ -373,10 +372,8 @@ where
                 let (survivors, survivor_f) =
                     mu_comma_lambda::<B>(offspring.clone(), &fitness_host, mu, &device);
                 // Gather survivor σs matching the same indices.
-                let survivor_idx = crate::ops::selection::truncation_indices_host(
-                    &fitness_host,
-                    mu,
-                );
+                let survivor_idx =
+                    crate::ops::selection::truncation_indices_host(&fitness_host, mu);
                 let survivor_sigmas = offspring_sigmas.select(
                     0,
                     Tensor::<B, 1, burn::tensor::Int>::from_data(
@@ -421,11 +418,8 @@ where
 
         state.generation += 1;
         update_best(&mut state, &offspring, &fitness_host);
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -474,8 +468,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     struct Sphere;
@@ -494,7 +488,12 @@ mod tests {
         let params = EsConfig::default_for(kind, dim);
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, fitness_fn, seed, device, generations,
+            strategy,
+            params,
+            fitness_fn,
+            seed,
+            device,
+            generations,
         );
         harness.reset();
         loop {

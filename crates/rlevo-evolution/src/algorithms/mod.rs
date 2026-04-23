@@ -18,4 +18,4 @@ pub mod es_classical;
 pub mod ga;
 pub mod ga_binary;
 pub mod gp_cgp;
-pub mod swarm;
+pub mod metaheuristic;

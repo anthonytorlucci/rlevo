@@ -22,10 +22,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Hard cap for the pure-tensor `O(N²D)` Firefly path. Exceeding this
@@ -158,11 +158,7 @@ impl<B: Backend> FireflyAlgorithm<B> {
 
         // Noise: α · (U[0,1] - 0.5).
         B::seed(device, noise_seed);
-        let noise = Tensor::<B, 2>::random(
-            [pop, d],
-            Distribution::Uniform(-0.5, 0.5),
-            device,
-        );
+        let noise = Tensor::<B, 2>::random([pop, d], Distribution::Uniform(-0.5, 0.5), device);
         attr_sum + noise.mul_scalar(alpha)
     }
 }
@@ -227,8 +223,12 @@ where
             return (state.positions.clone(), state.clone());
         }
 
-        let seed =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation).next_u64();
+        let seed = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        )
+        .next_u64();
         let delta = Self::pure_tensor_attract(
             &state.positions,
             &state.fitness,
@@ -270,11 +270,8 @@ where
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -305,8 +302,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

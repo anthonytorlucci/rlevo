@@ -10,15 +10,17 @@
 //! `--baseline pre-kernel` afterwards to get a side-by-side report.
 
 use burn::backend::NdArray;
-use burn::tensor::{backend::Backend as _, Distribution, Tensor};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use rand::rngs::StdRng;
+use burn::tensor::{Distribution, Tensor, backend::Backend as _};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
-use evorl_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
-use evorl_evolution::fitness::BatchFitnessFn;
-use evorl_evolution::ops::selection::tournament_select;
-use evorl_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
+use rlevo_evolution::fitness::BatchFitnessFn;
+use rlevo_evolution::ops::selection::tournament_select;
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
+
+use rlevo_benchmarks::env::BenchEnv;
 
 type B = NdArray;
 
@@ -40,20 +42,13 @@ fn bench_tournament(c: &mut Criterion) {
     B::seed(&device, 7);
     for &pop_size in &[64_usize, 256, 1024] {
         let dim = 10;
-        let fitness: Vec<f32> =
-            (0..pop_size).map(|i| (i as f32) * 0.1).collect();
+        let fitness: Vec<f32> = (0..pop_size).map(|i| (i as f32) * 0.1).collect();
         let population =
             Tensor::<B, 2>::random([pop_size, dim], Distribution::Uniform(-1.0, 1.0), &device);
         let mut rng = StdRng::seed_from_u64(1);
-        group.bench_with_input(
-            BenchmarkId::from_parameter(pop_size),
-            &pop_size,
-            |b, &n| {
-                b.iter(|| {
-                    tournament_select::<B>(&population, &fitness, 2, n, &mut rng, &device)
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(pop_size), &pop_size, |b, &n| {
+            b.iter(|| tournament_select::<B>(&population, &fitness, 2, n, &mut rng, &device));
+        });
     }
     group.finish();
 }
@@ -66,40 +61,34 @@ fn bench_de_generation(c: &mut Criterion) {
         B::seed(&device, 42);
         let mut params = DeConfig::default_for(pop_size, 10);
         params.variant = DeVariant::Rand1Bin;
-        group.bench_with_input(
-            BenchmarkId::from_parameter(pop_size),
-            &pop_size,
-            |b, _n| {
-                b.iter_batched(
-                    || {
-                        // Fresh harness per iteration so the bench
-                        // measures a full `ask → evaluate → tell`
-                        // cycle on a warm population (no one-time init).
-                        let strategy = DifferentialEvolution::<B>::new();
-                        let mut harness = EvolutionaryHarness::<B, _, _>::new(
-                            strategy,
-                            params.clone(),
-                            ZeroFitness,
-                            11,
-                            device.clone(),
-                            1_000,
-                        );
-                        use evorl_benchmarks::env::BenchEnv;
-                        harness.reset();
-                        // Warm up: run one generation so init costs are
-                        // outside the measurement window.
-                        let _ = harness.step(());
-                        harness
-                    },
-                    |mut harness| {
-                        use evorl_benchmarks::env::BenchEnv;
-                        let _ = harness.step(());
-                        harness
-                    },
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(pop_size), &pop_size, |b, _n| {
+            b.iter_batched(
+                || {
+                    // Fresh harness per iteration so the bench
+                    // measures a full `ask → evaluate → tell`
+                    // cycle on a warm population (no one-time init).
+                    let strategy = DifferentialEvolution::<B>::new();
+                    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+                        strategy,
+                        params.clone(),
+                        ZeroFitness,
+                        11,
+                        device.clone(),
+                        1_000,
+                    );
+                    harness.reset();
+                    // Warm up: run one generation so init costs are
+                    // outside the measurement window.
+                    let _ = harness.step(());
+                    harness
+                },
+                |mut harness| {
+                    let _ = harness.step(());
+                    harness
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
     group.finish();
 }

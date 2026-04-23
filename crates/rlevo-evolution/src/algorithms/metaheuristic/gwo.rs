@@ -32,10 +32,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for [`GreyWolfOptimizer`].
@@ -108,11 +108,7 @@ impl<B: Backend> GreyWolfOptimizer<B> {
         }
     }
 
-    fn sample_initial(
-        params: &GwoConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> Tensor<B, 2> {
+    fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         Tensor::<B, 2>::random(
@@ -131,12 +127,7 @@ where
     type State = GwoState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &GwoConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> GwoState<B> {
+    fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &B::Device) -> GwoState<B> {
         assert!(params.pop_size >= 3, "GWO requires pop_size >= 3");
         let pack = Self::sample_initial(params, rng, device);
         GwoState {
@@ -253,11 +244,8 @@ where
             state.best_genome = Some(population.select(0, idx));
         }
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -323,8 +311,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

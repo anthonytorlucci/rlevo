@@ -27,11 +27,11 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for [`BatAlgorithm`].
@@ -135,12 +135,7 @@ where
     type State = BatState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &BatConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> BatState<B> {
+    fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &B::Device) -> BatState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let positions = Tensor::<B, 2>::random(
@@ -228,10 +223,8 @@ where
             state.velocities.clone() + (state.positions.clone() - best.clone()).mul(f_mat);
         let global_move = state.positions.clone() + new_velocities.clone();
         // Local walk: x_best + ε · mean(A).
-        let eps = Tensor::<B, 2>::from_data(
-            TensorData::new(epsilon_rows, [pop, genome_dim]),
-            device,
-        );
+        let eps =
+            Tensor::<B, 2>::from_data(TensorData::new(epsilon_rows, [pop, genome_dim]), device);
         let local_move = best + eps.mul_scalar(mean_loudness);
 
         #[allow(clippy::cast_possible_wrap)]
@@ -329,11 +322,8 @@ where
         }
 
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         let _ = genome_dim;
         (state, m)
@@ -365,8 +355,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

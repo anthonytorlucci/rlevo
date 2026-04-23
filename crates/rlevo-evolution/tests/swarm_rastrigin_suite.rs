@@ -9,26 +9,26 @@
 //! its module is a `todo!()` stub.
 
 use burn::backend::NdArray;
-use evorl_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
-use evorl_benchmarks::env::BenchEnv;
-use evorl_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use evorl_benchmarks::reporter::logging::LoggingReporter;
-use evorl_benchmarks::suite::Suite;
 use rand::Rng;
+use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
+use rlevo_benchmarks::env::BenchEnv;
+use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
+use rlevo_benchmarks::reporter::logging::LoggingReporter;
+use rlevo_benchmarks::suite::Suite;
 
-use evorl_evolution::algorithms::swarm::abc::{AbcConfig, ArtificialBeeColony};
-use evorl_evolution::algorithms::swarm::aco_r::{AcoRConfig, AntColonyReal};
-use evorl_evolution::algorithms::swarm::bat::{BatAlgorithm, BatConfig};
-use evorl_evolution::algorithms::swarm::cuckoo::{CuckooConfig, CuckooSearch};
-use evorl_evolution::algorithms::swarm::firefly::{FireflyAlgorithm, FireflyConfig};
-use evorl_evolution::algorithms::swarm::gwo::{GreyWolfOptimizer, GwoConfig};
-use evorl_evolution::algorithms::swarm::pso::{ParticleSwarm, PsoConfig};
-use evorl_evolution::algorithms::swarm::salp::{SalpConfig, SalpSwarm};
-use evorl_evolution::algorithms::swarm::woa::{WhaleOptimization, WoaConfig};
-use evorl_evolution::fitness::FromFitnessEvaluable;
-use evorl_evolution::strategy::{EvolutionaryHarness, Strategy};
-use evorl_envs::benchmarks::ackley::Ackley;
-use evorl_envs::benchmarks::rastrigin::Rastrigin;
+use rlevo_envs::benchmarks::ackley::Ackley;
+use rlevo_envs::benchmarks::rastrigin::Rastrigin;
+use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
+use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
+use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
+use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
+use rlevo_evolution::algorithms::metaheuristic::firefly::{FireflyAlgorithm, FireflyConfig};
+use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
+use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
+use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
+use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
+use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
 type B = NdArray;
 const DIM: usize = 10;
@@ -124,8 +124,7 @@ where
 
 fn gwo_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
-{
+) -> EvolutionaryHarness<B, GreyWolfOptimizer<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryHarness::new(
         GreyWolfOptimizer::<B>::new(),
         GwoConfig::default_for(32, DIM),
@@ -138,8 +137,7 @@ fn gwo_ra(
 
 fn woa_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
-{
+) -> EvolutionaryHarness<B, WhaleOptimization<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryHarness::new(
         WhaleOptimization::<B>::new(),
         WoaConfig::default_for(32, DIM),
@@ -165,8 +163,7 @@ fn salp_ra(
 
 fn abc_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, ArtificialBeeColony<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
-{
+) -> EvolutionaryHarness<B, ArtificialBeeColony<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryHarness::new(
         ArtificialBeeColony::<B>::new(),
         AbcConfig::default_for(30, DIM),
@@ -220,8 +217,7 @@ fn cuckoo_ra(
 
 fn firefly_ra(
     seed: u64,
-) -> EvolutionaryHarness<B, FireflyAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>>
-{
+) -> EvolutionaryHarness<B, FireflyAlgorithm<B>, FromFitnessEvaluable<RastriginFit, Rastrigin>> {
     EvolutionaryHarness::new(
         FireflyAlgorithm::<B>::new(),
         FireflyConfig::default_for(24, DIM),
@@ -253,10 +249,10 @@ fn de_rand1_ak(
     seed: u64,
 ) -> EvolutionaryHarness<
     B,
-    evorl_evolution::algorithms::de::DifferentialEvolution<B>,
+    rlevo_evolution::algorithms::de::DifferentialEvolution<B>,
     FromFitnessEvaluable<AckleyFit, Ackley>,
 > {
-    use evorl_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
+    use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
     let mut params = DeConfig::default_for(40, DIM);
     params.variant = DeVariant::Rand1Bin;
     EvolutionaryHarness::new(

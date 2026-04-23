@@ -4,16 +4,16 @@
 //! Run with `cargo run --release -p evorl-evolution --example sphere_showcase`.
 
 use burn::backend::NdArray;
-use evorl_benchmarks::agent::FitnessEvaluable;
-use evorl_benchmarks::env::BenchEnv;
-use evorl_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
-use evorl_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
-use evorl_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
-use evorl_evolution::algorithms::ga::{
+use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::env::BenchEnv;
+use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
+use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
+use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
+use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use evorl_evolution::fitness::FromFitnessEvaluable;
-use evorl_evolution::strategy::EvolutionaryHarness;
+use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
 type B = NdArray;
 
@@ -34,9 +34,9 @@ impl FitnessEvaluable for SphereFit {
 
 fn run<S, F>(label: &str, strategy: S, params: S::Params, fitness_fn: F)
 where
-    S: evorl_evolution::strategy::Strategy<B>,
+    S: Strategy<B>,
     S::Params: std::fmt::Debug,
-    F: evorl_evolution::fitness::BatchFitnessFn<B, S::Genome>,
+    F: BatchFitnessFn<B, S::Genome>,
     B: burn::tensor::backend::Backend,
     <B as burn::tensor::backend::Backend>::Device: Clone + Default,
 {

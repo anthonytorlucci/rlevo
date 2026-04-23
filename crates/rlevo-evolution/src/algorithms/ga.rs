@@ -23,7 +23,7 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Tensor, TensorData};
+use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
 use crate::ops::{
@@ -32,7 +32,7 @@ use crate::ops::{
     replacement::{elitist, generational},
     selection::tournament_select,
 };
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Selection algorithm choice.
@@ -173,12 +173,7 @@ where
     type State = GaState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &GaConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> GaState<B> {
+    fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &B::Device) -> GaState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         GaState {
             population,
@@ -210,12 +205,21 @@ where
             ..
         } = params;
 
-        let mut crossover_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Crossover);
-        let mut mutation_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
-        let mut selection_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Selection);
+        let mut crossover_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Crossover,
+        );
+        let mut mutation_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
+        let mut selection_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Selection,
+        );
 
         // 1. Select two tournaments' worth of parents.
         let parents_a = match selection {
@@ -303,11 +307,8 @@ where
         state.population = next_pop;
         state.fitness = next_fitness.clone();
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &next_fitness,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &next_fitness, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -350,8 +351,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 
@@ -380,15 +381,9 @@ mod tests {
         };
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
 
-        let mut harness =
-            EvolutionaryHarness::<TestBackend, _, _>::new(
-                strategy,
-                params,
-                fitness_fn,
-                42,
-                device,
-                200,
-            );
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 42, device, 200,
+        );
         harness.reset();
         loop {
             let step = harness.step(());

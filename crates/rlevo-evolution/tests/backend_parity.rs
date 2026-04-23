@@ -34,14 +34,14 @@
 //! concurrently.
 
 use burn::backend::{NdArray, Wgpu};
-use evorl_benchmarks::agent::FitnessEvaluable;
-use evorl_benchmarks::env::BenchEnv;
-use evorl_evolution::algorithms::ga::{
+use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::env::BenchEnv;
+use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use evorl_evolution::algorithms::swarm::pso::{ParticleSwarm, PsoConfig};
-use evorl_evolution::fitness::FromFitnessEvaluable;
-use evorl_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
+use rlevo_evolution::fitness::FromFitnessEvaluable;
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
 struct Sphere;
 struct SphereFit;
@@ -58,11 +58,11 @@ where
     B: burn::tensor::backend::Backend,
     B::Device: Clone,
     GeneticAlgorithm<B>: Strategy<
-        B,
-        Params = GaConfig,
-        State = evorl_evolution::algorithms::ga::GaState<B>,
-        Genome = burn::tensor::Tensor<B, 2>,
-    >,
+            B,
+            Params = GaConfig,
+            State = rlevo_evolution::algorithms::ga::GaState<B>,
+            Genome = burn::tensor::Tensor<B, 2>,
+        >,
 {
     let params = GaConfig {
         pop_size: 64,
@@ -95,11 +95,11 @@ where
     B: burn::tensor::backend::Backend,
     B::Device: Clone,
     ParticleSwarm<B>: Strategy<
-        B,
-        Params = PsoConfig,
-        State = evorl_evolution::algorithms::swarm::pso::PsoState<B>,
-        Genome = burn::tensor::Tensor<B, 2>,
-    >,
+            B,
+            Params = PsoConfig,
+            State = rlevo_evolution::algorithms::metaheuristic::pso::PsoState<B>,
+            Genome = burn::tensor::Tensor<B, 2>,
+        >,
 {
     let params = PsoConfig::default_for(32, 10);
     let mut harness = EvolutionaryHarness::<B, _, _>::new(

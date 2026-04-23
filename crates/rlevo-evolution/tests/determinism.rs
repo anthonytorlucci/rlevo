@@ -14,24 +14,24 @@
 //! byte-for-byte.
 
 use burn::backend::NdArray;
-use evorl_benchmarks::agent::FitnessEvaluable;
-use evorl_benchmarks::env::BenchEnv;
+use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::env::BenchEnv;
 
-use evorl_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
-use evorl_evolution::algorithms::ga::{
+use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
+use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use evorl_evolution::algorithms::swarm::abc::{AbcConfig, ArtificialBeeColony};
-use evorl_evolution::algorithms::swarm::aco_r::{AcoRConfig, AntColonyReal};
-use evorl_evolution::algorithms::swarm::bat::{BatAlgorithm, BatConfig};
-use evorl_evolution::algorithms::swarm::cuckoo::{CuckooConfig, CuckooSearch};
-use evorl_evolution::algorithms::swarm::firefly::{FireflyAlgorithm, FireflyConfig};
-use evorl_evolution::algorithms::swarm::gwo::{GreyWolfOptimizer, GwoConfig};
-use evorl_evolution::algorithms::swarm::pso::{ParticleSwarm, PsoConfig};
-use evorl_evolution::algorithms::swarm::salp::{SalpConfig, SalpSwarm};
-use evorl_evolution::algorithms::swarm::woa::{WhaleOptimization, WoaConfig};
-use evorl_evolution::fitness::FromFitnessEvaluable;
-use evorl_evolution::strategy::{EvolutionaryHarness, Strategy};
+use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
+use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
+use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
+use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
+use rlevo_evolution::algorithms::metaheuristic::firefly::{FireflyAlgorithm, FireflyConfig};
+use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
+use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
+use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
+use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
+use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
 type B = NdArray;
 
@@ -47,17 +47,11 @@ impl FitnessEvaluable for SphereFit {
 
 /// Drive a strategy through `gens` generations and collect the
 /// per-generation best-fitness trajectory.
-fn run<S>(
-    strategy: S,
-    params: S::Params,
-    seed: u64,
-    gens: usize,
-) -> Vec<f32>
+fn run<S>(strategy: S, params: S::Params, seed: u64, gens: usize) -> Vec<f32>
 where
     S: Strategy<B>,
     <S as Strategy<B>>::Genome: 'static,
-    FromFitnessEvaluable<SphereFit, Sphere>:
-        evorl_evolution::fitness::BatchFitnessFn<B, S::Genome>,
+    FromFitnessEvaluable<SphereFit, Sphere>: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
     let mut harness = EvolutionaryHarness::<B, _, _>::new(
@@ -172,11 +166,7 @@ fn same_seed_same_generations() {
         ($fn:ident, $name:expr) => {
             let a = $fn(SEED, GENS);
             let b = $fn(SEED, GENS);
-            assert_eq!(
-                a, b,
-                "{} trajectories diverge under the same seed",
-                $name
-            );
+            assert_eq!(a, b, "{} trajectories diverge under the same seed", $name);
         };
     }
     check!(run_pso, "PSO");

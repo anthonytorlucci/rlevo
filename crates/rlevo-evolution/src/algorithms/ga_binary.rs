@@ -15,13 +15,13 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
 use crate::ops::crossover::binary_uniform_crossover;
 use crate::ops::mutation::bit_flip_mutation;
 use crate::ops::selection::{tournament_indices_host, truncation_indices_host};
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for a [`BinaryGeneticAlgorithm`] run.
@@ -146,12 +146,21 @@ where
             return (state.population.clone(), state.clone());
         }
 
-        let mut selection_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Selection);
-        let mut crossover_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Crossover);
-        let mut mutation_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+        let mut selection_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Selection,
+        );
+        let mut crossover_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Crossover,
+        );
+        let mut mutation_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
 
         let idx_a = tournament_indices_host(
             &state.fitness,
@@ -242,11 +251,7 @@ where
         state.population = next_pop;
         state.fitness = next_fit.clone();
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &next_fit,
-            state.best_fitness,
-        );
+        let m = StrategyMetrics::from_host_fitness(state.generation, &next_fit, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -259,11 +264,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(
-    state: &mut BinaryGaState<B>,
-    pop: &Tensor<B, 2, Int>,
-    fitness: &[f32],
-) {
+fn update_best<B: Backend>(state: &mut BinaryGaState<B>, pop: &Tensor<B, 2, Int>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -278,10 +279,8 @@ fn update_best<B: Backend>(
     if best_f < state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(vec![best_idx as i64], [1]),
-            &device,
-        );
+        let idx =
+            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -293,7 +292,7 @@ mod tests {
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     /// OneMax phrased as minimization: `cost = D − count_ones`.

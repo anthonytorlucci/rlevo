@@ -20,11 +20,11 @@
 use std::f32::consts::PI;
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Distribution, Int, Tensor, TensorData};
+use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for [`AntColonyReal`].
@@ -141,12 +141,7 @@ where
     type State = AcoRState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &AcoRConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> AcoRState<B> {
+    fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &B::Device) -> AcoRState<B> {
         assert!(params.archive_size >= 2, "ACO_R requires archive_size >= 2");
         assert!(params.m >= 1, "ACO_R requires m >= 1");
         let (lo, hi) = params.bounds;
@@ -193,7 +188,11 @@ where
         let sigma = diffs.sum_dim(0).squeeze::<2>().mul_scalar(inv); // (k, d)
 
         // Weighted index sampling (host-side) — `m · d` independent draws.
-        let mut stream = seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Selection);
+        let mut stream = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Selection,
+        );
         let mut mean_rows = vec![0f32; m * d];
         let mut sigma_rows = vec![0f32; m * d];
 
@@ -209,11 +208,7 @@ where
             }
             v
         };
-        let pick = |u: f32| -> usize {
-            cdf.iter()
-                .position(|&c| u <= c)
-                .unwrap_or(k - 1)
-        };
+        let pick = |u: f32| -> usize { cdf.iter().position(|&c| u <= c).unwrap_or(k - 1) };
 
         for i in 0..m {
             for j in 0..d {
@@ -229,8 +224,11 @@ where
         // draw on the same splitmix stream already threaded through
         // `stream` above.
         let mut offspring = vec![0f32; m * d];
-        let mut sample_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+        let mut sample_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
         for (idx, out) in offspring.iter_mut().enumerate() {
             let normal = Normal::new(mean_rows[idx], sigma_rows[idx]).expect("sigma > 0");
             *out = normal.sample(&mut sample_rng);
@@ -305,11 +303,8 @@ where
         }
 
         state.generation += 1;
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -328,8 +323,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

@@ -20,11 +20,11 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
 use crate::ops::mutation::gaussian_mutation_per_row;
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Static configuration for an [`EvolutionaryProgramming`] run.
@@ -116,12 +116,7 @@ where
     type State = EpState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &EpConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> EpState<B> {
+    fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &B::Device) -> EpState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let parents = Tensor::<B, 2>::random(
@@ -158,16 +153,16 @@ where
         let mu = params.mu;
         let mut sigma_rng =
             seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Other);
-        let mut mutation_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+        let mut mutation_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
 
         // Log-normal σ update for every parent.
         B::seed(device, sigma_rng.next_u64());
-        let noise = Tensor::<B, 1>::random(
-            [mu],
-            burn::tensor::Distribution::Normal(0.0, 1.0),
-            device,
-        );
+        let noise =
+            Tensor::<B, 1>::random([mu], burn::tensor::Distribution::Normal(0.0, 1.0), device);
         let offspring_sigmas = state.sigmas.clone() * noise.mul_scalar(params.tau).exp();
 
         // Mutate each parent exactly once using its own σ.
@@ -227,8 +222,11 @@ where
         // q-tournament: for each of the 2μ members, sample q opponents
         // and count wins (lower fitness beats higher). The μ highest-
         // win members survive.
-        let mut selection_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Selection);
+        let mut selection_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Selection,
+        );
         let n = combined_fit.len();
         let mut win_counts: Vec<u32> = vec![0; n];
         for (i, &my_fit) in combined_fit.iter().enumerate() {
@@ -271,11 +269,8 @@ where
         state.parent_fitness = next_fitness;
         state.generation += 1;
         update_best(&mut state, &offspring, &fitness_host);
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -303,10 +298,8 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f < state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(vec![best_idx as i64], [1]),
-            &device,
-        );
+        let idx =
+            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -318,8 +311,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     struct Sphere;

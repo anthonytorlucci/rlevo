@@ -43,10 +43,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Fixed v1 function set: arity of each opcode.
@@ -148,15 +148,11 @@ impl<B: Backend> CartesianGeneticProgramming<B> {
         }
     }
 
-    fn sample_initial_genome(
-        params: &CgpConfig,
-        rng: &mut dyn Rng,
-    ) -> Vec<i64> {
+    fn sample_initial_genome(params: &CgpConfig, rng: &mut dyn Rng) -> Vec<i64> {
         let mut genome = Vec::with_capacity(params.genome_len());
         for col in 0..params.cols {
             for _row in 0..params.rows {
-                let func =
-                    rng.random_range(0..NUM_FUNCTIONS as i64);
+                let func = rng.random_range(0..NUM_FUNCTIONS as i64);
                 let (inp0, inp1) = sample_input_pair(col, params, rng);
                 genome.push(func);
                 genome.push(inp0);
@@ -185,9 +181,9 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
     let node_indices_end = params.n_inputs + col * params.rows;
     let max = node_indices_end.max(params.n_inputs);
     // Allowed inputs: 0..n_inputs (graph inputs) ∪ previous nodes.
-    let input_count = params.n_inputs + (max - params.n_inputs).saturating_sub(
-        node_indices_start.saturating_sub(params.n_inputs),
-    );
+    let input_count = params.n_inputs
+        + (max - params.n_inputs)
+            .saturating_sub(node_indices_start.saturating_sub(params.n_inputs));
     let pool: Vec<i64> = (0..params.n_inputs)
         .chain(node_indices_start..node_indices_end)
         .map(|i| {
@@ -210,11 +206,7 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
     (pick(rng), pick(rng))
 }
 
-fn mutate_genome(
-    genome: &mut [i64],
-    params: &CgpConfig,
-    rng: &mut dyn Rng,
-) {
+fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
     let genes_per_node = CgpConfig::GENES_PER_NODE;
     let node_genes = params.rows * params.cols * genes_per_node;
     for gene_idx in 0..genome.len() {
@@ -252,11 +244,7 @@ fn mutate_genome(
 /// - `inputs` has shape `(n_samples, n_inputs)`.
 /// - Returns `(n_samples,)` predicted outputs as `f32`.
 #[must_use]
-pub fn evaluate_cgp(
-    genome: &[i64],
-    params: &CgpConfig,
-    inputs: &[Vec<f32>],
-) -> Vec<f32> {
+pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> Vec<f32> {
     let node_count = params.rows * params.cols;
     let n_inputs = params.n_inputs;
     let output_idx = genome[genome.len() - 1] as usize;
@@ -311,12 +299,7 @@ where
     type State = CgpState<B>;
     type Genome = Tensor<B, 2, Int>;
 
-    fn init(
-        &self,
-        params: &CgpConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> CgpState<B> {
+    fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &B::Device) -> CgpState<B> {
         let genome_vec = Self::sample_initial_genome(params, rng);
         let parent = Tensor::<B, 2, Int>::from_data(
             TensorData::new(genome_vec, [1, params.genome_len()]),
@@ -343,8 +326,11 @@ where
             return (state.parent.clone(), state.clone());
         }
 
-        let mut mut_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+        let mut mut_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Mutation,
+        );
         let parent_vec = Self::genome_to_host(&state.parent);
         let mut offspring_genomes: Vec<i64> =
             Vec::with_capacity(params.lambda * params.genome_len());
@@ -406,11 +392,8 @@ where
 
         state.generation += 1;
         update_best(&mut state, &offspring, &fitness_host);
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let m =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -423,11 +406,7 @@ where
     }
 }
 
-fn update_best<B: Backend>(
-    state: &mut CgpState<B>,
-    pop: &Tensor<B, 2, Int>,
-    fitness: &[f32],
-) {
+fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
@@ -442,10 +421,8 @@ fn update_best<B: Backend>(
     if best_f < state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(vec![best_idx as i64], [1]),
-            &device,
-        );
+        let idx =
+            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -457,7 +434,7 @@ mod tests {
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].
@@ -513,8 +490,7 @@ mod tests {
             let genome = CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(
                 &params, &mut rng,
             );
-            let inputs: Vec<Vec<f32>> =
-                landscape.xs.iter().map(|&x| vec![x]).collect();
+            let inputs: Vec<Vec<f32>> = landscape.xs.iter().map(|&x| vec![x]).collect();
             let preds = evaluate_cgp(&genome, &params, &inputs);
             preds
                 .iter()

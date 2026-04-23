@@ -31,10 +31,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
-use crate::rng::{seed_stream, SeedPurpose};
+use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Mutation + crossover variant for differential evolution.
@@ -227,12 +227,7 @@ where
     type State = DeState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(
-        &self,
-        params: &DeConfig,
-        rng: &mut dyn Rng,
-        device: &B::Device,
-    ) -> DeState<B> {
+    fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &B::Device) -> DeState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         DeState {
             population,
@@ -274,10 +269,10 @@ where
         //    and do the arithmetic on-device in one sweep.
         // ------------------------------------------------------------------
         let k = variant.random_indices();
-        let mut rand_indices: Vec<Vec<usize>> = (0..k).map(|_| Vec::with_capacity(pop_size)).collect();
+        let mut rand_indices: Vec<Vec<usize>> =
+            (0..k).map(|_| Vec::with_capacity(pop_size)).collect();
         for i in 0..pop_size {
-            let chosen =
-                Self::sample_distinct_excluding(i, pop_size, k, &mut trial_rng);
+            let chosen = Self::sample_distinct_excluding(i, pop_size, k, &mut trial_rng);
             for (j, idx) in chosen.into_iter().enumerate() {
                 rand_indices[j].push(idx);
             }
@@ -316,9 +311,7 @@ where
                 let current = state.population.clone();
                 let a = gather(&rand_indices[0]);
                 let b = gather(&rand_indices[1]);
-                current.clone()
-                    + (best - current).mul_scalar(f)
-                    + (a - b).mul_scalar(f)
+                current.clone() + (best - current).mul_scalar(f) + (a - b).mul_scalar(f)
             }
             DeVariant::Rand2Bin => {
                 let a = gather(&rand_indices[0]);
@@ -334,8 +327,11 @@ where
         // 2. Crossover: binomial or exponential. Always preserve at
         //    least one mutant gene per row (j_rand).
         // ------------------------------------------------------------------
-        let mut cross_rng =
-            seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Crossover);
+        let mut cross_rng = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::Crossover,
+        );
         let mut cross_mask = vec![false; pop_size * genome_dim];
         if variant.is_exponential() {
             for row in 0..pop_size {
@@ -361,11 +357,10 @@ where
         }
         #[allow(clippy::cast_possible_wrap)]
         let mask_int: Vec<i64> = cross_mask.iter().map(|&b| i64::from(b)).collect();
-        let mask_tensor =
-            Tensor::<B, 2, Int>::from_data(
-                TensorData::new(mask_int, [pop_size, genome_dim]),
-                device,
-            );
+        let mask_tensor = Tensor::<B, 2, Int>::from_data(
+            TensorData::new(mask_int, [pop_size, genome_dim]),
+            device,
+        );
         let mask_bool = mask_tensor.equal_elem(1);
 
         // Where cross_mask == 1, take from v; otherwise from state.population.
@@ -419,19 +414,20 @@ where
             Tensor::<B, 1, Int>::from_data(TensorData::new(replace_mask, [pop_size]), &device);
         let mask_bool_row = mask_int.equal_elem(1);
         let genome_dim = state.population.shape().dims[1];
-        let mask_bool = mask_bool_row.unsqueeze_dim::<2>(1).expand([pop_size, genome_dim]);
-        let next_pop = state.population.clone().mask_where(mask_bool, trial.clone());
+        let mask_bool = mask_bool_row
+            .unsqueeze_dim::<2>(1)
+            .expand([pop_size, genome_dim]);
+        let next_pop = state
+            .population
+            .clone()
+            .mask_where(mask_bool, trial.clone());
 
         state.population = next_pop;
         state.fitness = new_fit.clone();
         state.best_index = argmin(&new_fit);
         state.generation += 1;
         update_best(&mut state, &trial, &fitness_host);
-        let m = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &new_fit,
-            state.best_fitness,
-        );
+        let m = StrategyMetrics::from_host_fitness(state.generation, &new_fit, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
         (state, m)
     }
@@ -465,10 +461,8 @@ fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: 
     if best_f < state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
-        let idx = Tensor::<B, 1, Int>::from_data(
-            TensorData::new(vec![best_idx as i64], [1]),
-            &device,
-        );
+        let idx =
+            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -480,8 +474,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use evorl_benchmarks::agent::FitnessEvaluable;
-    use evorl_benchmarks::env::BenchEnv;
+    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     struct Sphere;
