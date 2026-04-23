@@ -655,18 +655,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "burn-evorl"
-version = "0.1.0"
-dependencies = [
- "evorl-core",
- "evorl-envs",
- "evorl-evolution",
- "evorl-hybrid",
- "evorl-rl",
- "evorl-utils",
-]
-
-[[package]]
 name = "burn-fusion"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2274,110 +2262,6 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
-]
-
-[[package]]
-name = "evorl-benchmarks"
-version = "0.1.0"
-dependencies = [
- "approx",
- "crossterm",
- "evorl-core",
- "evorl-envs",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "ratatui",
- "rayon",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "evorl-core"
-version = "0.1.0"
-dependencies = [
- "approx",
- "burn",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "ringbuffer",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "evorl-envs"
-version = "0.1.0"
-dependencies = [
- "approx",
- "burn",
- "evorl-core",
- "nalgebra 0.33.3",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "rapier2d",
- "rapier3d",
- "serde",
-]
-
-[[package]]
-name = "evorl-evolution"
-version = "0.1.0"
-dependencies = [
- "approx",
- "burn",
- "criterion",
- "cubecl",
- "evorl-benchmarks",
- "evorl-core",
- "evorl-envs",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "serde",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "evorl-hybrid"
-version = "0.1.0"
-dependencies = [
- "approx",
- "burn",
- "evorl-core",
- "evorl-evolution",
- "evorl-rl",
- "rand 0.10.1",
- "serde",
-]
-
-[[package]]
-name = "evorl-rl"
-version = "0.1.0"
-dependencies = [
- "approx",
- "burn",
- "criterion",
- "evorl-core",
- "evorl-envs",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "serde",
- "thiserror 1.0.69",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "evorl-utils"
-version = "0.1.0"
-dependencies = [
- "approx",
- "serde",
- "tracing",
 ]
 
 [[package]]
@@ -5296,6 +5180,122 @@ name = "ringbuffer"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57b0b88a509053cbfd535726dcaaceee631313cef981266119527a1d110f6d2b"
+
+[[package]]
+name = "rlevo"
+version = "0.1.0"
+dependencies = [
+ "rlevo-core",
+ "rlevo-envs",
+ "rlevo-evolution",
+ "rlevo-hybrid",
+ "rlevo-rl",
+ "rlevo-utils",
+]
+
+[[package]]
+name = "rlevo-benchmarks"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "crossterm",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "ratatui",
+ "rayon",
+ "rlevo-core",
+ "rlevo-envs",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "rlevo-core"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "burn",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "ringbuffer",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "rlevo-envs"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "burn",
+ "nalgebra 0.33.3",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "rapier2d",
+ "rapier3d",
+ "rlevo-core",
+ "serde",
+]
+
+[[package]]
+name = "rlevo-evolution"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "burn",
+ "criterion",
+ "cubecl",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "rlevo-benchmarks",
+ "rlevo-core",
+ "rlevo-envs",
+ "serde",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "rlevo-hybrid"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "burn",
+ "rand 0.10.1",
+ "rlevo-core",
+ "rlevo-evolution",
+ "rlevo-rl",
+ "serde",
+]
+
+[[package]]
+name = "rlevo-rl"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "burn",
+ "criterion",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "rlevo-core",
+ "rlevo-envs",
+ "serde",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "rlevo-utils"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "serde",
+ "tracing",
+]
 
 [[package]]
 name = "rmp"

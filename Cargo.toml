@@ -1,24 +1,24 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/burn-evorl",
-    "crates/evorl-benchmarks",
-    "crates/evorl-core",
-    "crates/evorl-envs",
-    "crates/evorl-evolution",
-    "crates/evorl-hybrid",
-    "crates/evorl-rl",
-    "crates/evorl-utils",
+    "crates/rlevo",
+    "crates/rlevo-benchmarks",
+    "crates/rlevo-core",
+    "crates/rlevo-envs",
+    "crates/rlevo-evolution",
+    "crates/rlevo-hybrid",
+    "crates/rlevo-rl",
+    "crates/rlevo-utils",
 ]
 
 [workspace.package]
 version = "0.1.0"
 authors = ["Anthony Torlucci"]
-description = "Evolutionary Reinforcement Learning with Burn"
+description = "Deep Reinforcement Learning with Evolutionary Optimization"
 license = "MIT OR Apache-2.0"
 edition = "2024"
 readme = "README.md"
-repository = "https://github.com/anthonytorlucci/burn-evorl"
+repository = "https://github.com/anthonytorlucci/rlevo"
 
 [workspace.dependencies]
 # Core ML and tensor computation

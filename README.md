@@ -1,12 +1,12 @@
-# burn-evorl
+# rlevo
 
 **Survival of the fittest, implemented in Rust.**
 
 Gradient descent is powerful, but it is a local optimizer. If an agent finds a mediocre solution that is "good enough," it often gets trapped in a local optimum — a mathematical rut that no amount of hyperparameter tuning can escape.
 
-`burn-evorl` takes a different path. Built on [Burn](https://burn.dev/), this library implements **Evolutionary Reinforcement Learning (ERL)**: a population-based approach that uses crossover, mutation, and natural selection to optimize neural networks across complex, non-convex search spaces.
+`rlevo` takes a different path. Built on [Burn](https://burn.dev/), this library implements **Deep Reinforcement Learning with Evolutionary Optimization**: a population-based approach that uses crossover, mutation, and natural selection to optimize neural networks across complex, non-convex search spaces.
 
-## Why ERL?
+## Why Evolutionary Optimization with Deep Reinforcement Learning?
 
 | Feature | Standard RL (Gradient-Based) | Evolutionary RL (ERL) |
 | :--- | :--- | :--- |
@@ -19,22 +19,22 @@ Gradient descent is powerful, but it is a local optimizer. If an agent finds a m
 
 Because evaluating individuals is independent, ERL maps naturally onto Rust's fearless concurrency and Burn's backend-agnostic tensor operations — turning the sample-efficiency trade-off into a raw-throughput advantage.
 
-## Why burn-evorl?
+## Why `rlevo`?
 
-Most ERL implementations are Python research prototypes built around flat vector observations and fixed-dimension action spaces. `burn-evorl` is designed differently from the ground up:
+Most ERL implementations are Python research prototypes built around flat vector observations and fixed-dimension action spaces. `rlevo` is designed differently from the ground up:
 
 **Const-generic dimensional safety.** `State<D>`, `Observation<D>`, and `Action<AD>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — a guarantee no existing Rust RL crate provides.
 
-**Unified evolutionary and gradient-based RL.** The `evorl-evolution`, `evorl-rl`, and `evorl-hybrid` crates share the same core trait abstractions, so evolutionary and gradient-based agents run against identical environments and compose naturally in a single training loop.
+**Unified evolutionary and gradient-based RL.** The `rlevo-evolution`, `rlevo-rl`, and `rlevo-hybrid` crates share the same core trait abstractions, so evolutionary and gradient-based agents run against identical environments and compose naturally in a single training loop.
 
 **Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU, WGPU, CUDA) swap without touching algorithm code.
 
 ## Workspace Crates
 
-### `evorl-core`
+### `rlevo-core`
 Foundational trait definitions used across the entire workspace. Defines the core abstractions: `State`, `Observation`, `Action`, `Environment`, `Snapshot`, `ReplayBuffer`, and reward types. Everything else is built on top of these.
 
-### `evorl-envs`
+### `rlevo-envs`
 A growing suite of benchmark environments implementing the `Environment` trait.
 
 **Classic Control**
@@ -57,7 +57,7 @@ A growing suite of benchmark environments implementing the `Environment` trait.
 **Grid Worlds**
 - Configurable grid environments with optional memory, keyed doors, and partial observability
 
-### `evorl-evolution`
+### `rlevo-evolution`
 The evolutionary engine. Implements tensor-native genetic algorithms and evolutionary strategies, with custom CubeCL kernels on hot paths and full swarm intelligence coverage.
 
 **Classical Algorithms**
@@ -72,7 +72,7 @@ The evolutionary engine. Implements tensor-native genetic algorithms and evoluti
 - Grey Wolf Optimizer (GWO), Artificial Bee Colony (ABC)
 - Whale Optimization Algorithm (WOA), Salp Swarm
 
-### `evorl-rl`
+### `rlevo-rl`
 Standard deep RL algorithm implementations.
 
 **Value-Based**
@@ -89,26 +89,26 @@ Standard deep RL algorithm implementations.
 - **TD3** — Twin Delayed DDPG with target policy smoothing
 - **SAC** — Soft Actor-Critic with automatic entropy tuning
 
-### `evorl-hybrid`
-Combines gradient-based RL with evolutionary optimization. The integration layer connecting `evorl-rl` and `evorl-evolution` for hybrid training strategies.
+### `rlevo-hybrid`
+Combines gradient-based RL with evolutionary optimization. The integration layer connecting `rlevo-rl` and `rlevo-evolution` for hybrid training strategies.
 
-### `evorl-benchmarks`
+### `rlevo-benchmarks`
 A reproducible benchmarking harness with deterministic seeding, checkpoint management, and JSON / TUI reporting. Used to evaluate and compare algorithms across environments.
 
-### `evorl-utils`
+### `rlevo-utils`
 Shared math utilities used across the workspace.
 
 ## Development Status
 
 | Crate | Status |
 | :--- | :--- |
-| `evorl-core` | Stable — trait API largely settled |
-| `evorl-envs` | Active — 13+ environments implemented |
-| `evorl-evolution` | Active — full classical EA + swarm suite |
-| `evorl-benchmarks` | Active — evaluation harness working |
-| `evorl-rl` | Active — 8 algorithms implemented (DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC) |
-| `evorl-hybrid` | Early — integration layer in design |
-| `evorl-utils` | Minimal — grows with need |
+| `rlevo-core` | Stable — trait API largely settled |
+| `rlevo-envs` | Active — 13+ environments implemented |
+| `rlevo-evolution` | Active — full classical EA + swarm suite |
+| `rlevo-benchmarks` | Active — evaluation harness working |
+| `rlevo-rl` | Active — 8 algorithms implemented (DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC) |
+| `rlevo-hybrid` | Early — integration layer in design |
+| `rlevo-utils` | Minimal — grows with need |
 
 ## Quick Start
 
@@ -120,7 +120,7 @@ cargo build
 cargo test
 
 # Run a specific environment example
-cargo run -p evorl-core --example grid_agent
+cargo run -p rlevo-core --example grid_agent
 
 # Generate documentation
 cargo doc --workspace --no-deps --open

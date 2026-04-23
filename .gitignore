@@ -17,6 +17,6 @@ target
 
 # project specific
 .scratchpad
-CLAUDE.md
-CLAUDE.md.bak
 .env
+.claude
+CLAUDE.md

@@ -1,0 +1,19 @@
+[package]
+name = "rlevo-hybrid"
+version.workspace = true
+authors.workspace = true
+description = "Hybrid evolutionary + RL strategies for rlevo (internal crate — use `rlevo` for the full API)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+rlevo-core = { path = "../rlevo-core" }
+rlevo-evolution = { path = "../rlevo-evolution" }
+rlevo-rl = { path = "../rlevo-rl" }
+rand = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }

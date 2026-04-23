@@ -1,0 +1,19 @@
+[package]
+name = "rlevo-core"
+version.workspace = true
+authors.workspace = true
+description = "Core traits and types for rlevo (internal crate — use `rlevo` for the full API)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+rand = { workspace = true }
+ringbuffer = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+rand_distr = {workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }

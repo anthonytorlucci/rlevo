@@ -1,0 +1,32 @@
+[package]
+name = "rlevo"
+version.workspace = true
+authors.workspace = true
+description = "Deep Reinforcement Learning with Evolutionary Optimization"
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+documentation = "https://docs.rs/rlevo"
+readme = "../../README.md"
+keywords = ["reinforcement-learning", "evolutionary", "deep-learning", "burn", "neural-network"]
+categories = ["science", "algorithms", "simulation"]
+
+[dependencies]
+rlevo-core      = { path = "../rlevo-core",      version = "0.1.0" }
+rlevo-envs      = { path = "../rlevo-envs",      version = "0.1.0", default-features = false }
+rlevo-rl        = { path = "../rlevo-rl",        version = "0.1.0" }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
+rlevo-hybrid    = { path = "../rlevo-hybrid",    version = "0.1.0" }
+rlevo-utils     = { path = "../rlevo-utils",     version = "0.1.0" }
+
+[features]
+default = ["box2d", "locomotion", "custom-kernels"]
+# Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
+box2d = ["rlevo-envs/box2d"]
+# MuJoCo-inspired locomotion environments via Rapier3D
+locomotion = ["rlevo-envs/locomotion"]
+# Custom CubeCL GPU kernels for evolutionary algorithm hot paths
+custom-kernels = ["rlevo-evolution/custom-kernels"]
+
+[lints]
+workspace = true

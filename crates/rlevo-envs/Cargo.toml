@@ -1,0 +1,105 @@
+[package]
+name = 'rlevo-envs'
+version.workspace = true
+authors.workspace = true
+description = "RL benchmark environments for rlevo (internal crate — use `rlevo` for the full API)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+rlevo-core = { path = '../rlevo-core' }
+rand = { workspace = true }
+serde = { workspace = true }
+rand_distr = { workspace = true }
+rapier2d = { workspace = true, optional = true }
+rapier3d = { workspace = true, optional = true }
+nalgebra = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+
+[features]
+default = ["box2d", "locomotion"]
+# Box2D-style physics environments (rapier2d)
+box2d = ["dep:rapier2d"]
+# MuJoCo-style locomotion environments (rapier3d)
+locomotion = ["dep:rapier3d", "dep:nalgebra"]
+# Reserved for future FFI-bound MuJoCo backend; currently errors at compile time.
+mujoco-ffi = []
+
+[[example]]
+name = 'ten_armed_bandit_training'
+path = 'examples/ten-armed-bandit/ten_armed_bandit_training.rs'
+
+[[example]]
+name = 'grid_empty_random'
+path = 'examples/grids/grid_empty_random.rs'
+
+[[example]]
+name = 'grid_door_key_scripted'
+path = 'examples/grids/grid_door_key_scripted.rs'
+
+[[example]]
+name = 'grid_memory_random'
+path = 'examples/grids/grid_memory_random.rs'
+
+[[example]]
+name = 'cartpole_random'
+path = 'examples/classic/cartpole_random.rs'
+
+[[example]]
+name = 'cartpole_timelimit'
+path = 'examples/classic/cartpole_timelimit.rs'
+
+[[example]]
+name = 'mountain_car_random'
+path = 'examples/classic/mountain_car_random.rs'
+
+[[example]]
+name = 'mountain_car_continuous_random'
+path = 'examples/classic/mountain_car_continuous_random.rs'
+
+[[example]]
+name = 'pendulum_random'
+path = 'examples/classic/pendulum_random.rs'
+
+[[example]]
+name = 'acrobot_random'
+path = 'examples/classic/acrobot_random.rs'
+
+[[example]]
+name = 'bipedal_walker_random'
+path = 'examples/box2d/bipedal_walker_random.rs'
+required-features = ["box2d"]
+
+[[example]]
+name = 'lunar_lander_discrete_random'
+path = 'examples/box2d/lunar_lander_discrete_random.rs'
+required-features = ["box2d"]
+
+[[example]]
+name = 'lunar_lander_continuous_random'
+path = 'examples/box2d/lunar_lander_continuous_random.rs'
+required-features = ["box2d"]
+
+[[example]]
+name = 'car_racing_random'
+path = 'examples/box2d/car_racing_random.rs'
+required-features = ["box2d"]
+
+[[example]]
+name = 'reacher_random'
+path = 'examples/locomotion/reacher_random.rs'
+required-features = ["locomotion"]
+
+[[example]]
+name = 'inverted_double_pendulum_random'
+path = 'examples/locomotion/inverted_double_pendulum_random.rs'
+required-features = ["locomotion"]
+
+[[example]]
+name = 'swimmer_random'
+path = 'examples/locomotion/swimmer_random.rs'
+required-features = ["locomotion"]
