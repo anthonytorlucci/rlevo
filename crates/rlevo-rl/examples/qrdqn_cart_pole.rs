@@ -18,13 +18,13 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_rl::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
-use evorl_rl::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
-use evorl_rl::algorithms::qrdqn::qrdqn_model::QrDqnModel;
-use evorl_rl::algorithms::qrdqn::train::train;
+use rlevo_rl::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
+use rlevo_rl::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+use rlevo_rl::algorithms::qrdqn::qrdqn_model::QrDqnModel;
+use rlevo_rl::algorithms::qrdqn::train::train;
 
 // ---------------------------------------------------------------------------
 // Model — two hidden layers; output reshaped to (batch, actions, quantiles).

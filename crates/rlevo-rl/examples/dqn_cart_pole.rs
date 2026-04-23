@@ -18,13 +18,13 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_rl::algorithms::dqn::dqn_agent::DqnAgent;
-use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
-use evorl_rl::algorithms::dqn::dqn_model::DqnModel;
-use evorl_rl::algorithms::dqn::train::train;
+use rlevo_rl::algorithms::dqn::dqn_agent::DqnAgent;
+use rlevo_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_rl::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_rl::algorithms::dqn::train::train;
 
 // ---------------------------------------------------------------------------
 // Model

@@ -18,12 +18,13 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{
+use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_rl::algorithms::td3::td3_agent::Td3Agent;
-use evorl_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
-use evorl_rl::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
+use rlevo_rl::algorithms::td3::td3_agent::Td3Agent;
+use rlevo_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_rl::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 
 #[derive(Module, Debug)]
 struct ActorMlp<B: Backend> {
@@ -194,7 +195,7 @@ fn bench_learn(c: &mut Criterion) {
     let mut agent = build_agent();
     let mut env = Pendulum::with_config(PendulumConfig::default());
     let mut rng = StdRng::seed_from_u64(0);
-    use evorl_core::environment::{Environment, Snapshot};
+
     let mut snap = env.reset().expect("reset");
     for _ in 0..2_000 {
         let obs = *snap.observation();

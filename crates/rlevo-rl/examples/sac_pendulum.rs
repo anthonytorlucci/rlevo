@@ -20,14 +20,14 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::sac::sac_agent::SacAgent;
-use evorl_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
-use evorl_rl::algorithms::sac::sac_model::{ContinuousQ, SampleOutput, SquashedGaussianPolicy};
-use evorl_rl::algorithms::sac::train::train;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::sac::sac_agent::SacAgent;
+use rlevo_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_rl::algorithms::sac::sac_model::{ContinuousQ, SampleOutput, SquashedGaussianPolicy};
+use rlevo_rl::algorithms::sac::train::train;
 
 // ---------------------------------------------------------------------------
 // Actor: (batch, 3) -> (batch, 1) ∈ [-2, 2], squashed-Gaussian reparameterized

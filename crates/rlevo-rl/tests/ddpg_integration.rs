@@ -17,18 +17,18 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
-use evorl_core::action::{BoundedAction, ContinuousAction};
-use evorl_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
-use evorl_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
-use evorl_core::reward::ScalarReward;
-use evorl_envs::classic::pendulum::{
+use rlevo_core::action::{BoundedAction, ContinuousAction};
+use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::reward::ScalarReward;
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use evorl_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-use evorl_rl::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
-use evorl_rl::algorithms::ddpg::train::train;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;
+use rlevo_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_rl::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
+use rlevo_rl::algorithms::ddpg::train::train;
 
 // ---------------------------------------------------------------------------
 // Synthetic 1-D continuous environment

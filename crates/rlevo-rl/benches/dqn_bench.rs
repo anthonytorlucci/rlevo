@@ -18,12 +18,13 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_rl::algorithms::dqn::dqn_agent::DqnAgent;
-use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
-use evorl_rl::algorithms::dqn::dqn_model::DqnModel;
+use rlevo_rl::algorithms::dqn::dqn_agent::DqnAgent;
+use rlevo_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_rl::algorithms::dqn::dqn_model::DqnModel;
 
 // MLP mirror of the example. Kept inline so the bench file is self-contained.
 
@@ -145,7 +146,7 @@ fn bench_learn(c: &mut Criterion) {
     let mut agent = build_agent();
     let mut env = CartPole::with_config(CartPoleConfig::default());
     let mut rng = StdRng::seed_from_u64(0);
-    use evorl_core::environment::{Environment, Snapshot};
+
     let mut snap = env.reset().expect("reset");
     for _ in 0..2_000 {
         let obs = snap.observation().clone();

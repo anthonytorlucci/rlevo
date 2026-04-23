@@ -26,17 +26,17 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::ppg::policies::{
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::ppg::policies::{
     PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
 };
-use evorl_rl::algorithms::ppg::ppg_agent::PpgAgent;
-use evorl_rl::algorithms::ppg::ppg_config::PpgConfigBuilder;
-use evorl_rl::algorithms::ppg::train::train_discrete;
-use evorl_rl::algorithms::ppo::ppo_value::PpoValue;
+use rlevo_rl::algorithms::ppg::ppg_agent::PpgAgent;
+use rlevo_rl::algorithms::ppg::ppg_config::PpgConfigBuilder;
+use rlevo_rl::algorithms::ppg::train::train_discrete;
+use rlevo_rl::algorithms::ppo::ppo_value::PpoValue;
 
 // Same two-hidden-layer value MLP as the PPO CartPole example.
 #[derive(Module, Debug)]
@@ -138,7 +138,7 @@ fn main() {
 
     let config = PpgConfigBuilder::new()
         .with_ppo(|p| {
-            use evorl_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+            use rlevo_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
             PpoTrainingConfigBuilder::new()
                 .num_envs(1)
                 .num_steps(args.num_steps)

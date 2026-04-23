@@ -19,14 +19,14 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;
-use evorl_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-use evorl_rl::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
-use evorl_rl::algorithms::ddpg::train::train;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;
+use rlevo_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+use rlevo_rl::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
+use rlevo_rl::algorithms::ddpg::train::train;
 
 // ---------------------------------------------------------------------------
 // Actor: (batch, 3) -> (batch, 1) in [-2, 2]

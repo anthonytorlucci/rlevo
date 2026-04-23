@@ -5,8 +5,8 @@
 use burn::backend::NdArray;
 use burn::tensor::{Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use evorl_rl::algorithms::ppo::losses::{clipped_surrogate, normalize_advantages};
-use evorl_rl::algorithms::ppo::rollout::compute_gae;
+use rlevo_rl::algorithms::ppo::losses::{clipped_surrogate, normalize_advantages};
+use rlevo_rl::algorithms::ppo::rollout::compute_gae;
 
 type B = NdArray;
 

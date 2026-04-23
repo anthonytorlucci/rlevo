@@ -18,13 +18,13 @@ use burn::tensor::{Tensor, TensorData, activation};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_rl::algorithms::c51::c51_agent::C51Agent;
-use evorl_rl::algorithms::c51::c51_config::C51TrainingConfigBuilder;
-use evorl_rl::algorithms::c51::c51_model::C51Model;
-use evorl_rl::algorithms::c51::train::train;
+use rlevo_rl::algorithms::c51::c51_agent::C51Agent;
+use rlevo_rl::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+use rlevo_rl::algorithms::c51::c51_model::C51Model;
+use rlevo_rl::algorithms::c51::train::train;
 
 // ---------------------------------------------------------------------------
 // Model — two hidden layers; output reshaped to (batch, actions, atoms).

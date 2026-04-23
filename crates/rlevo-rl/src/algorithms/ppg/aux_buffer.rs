@@ -165,7 +165,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use evorl_core::base::TensorConversionError;
+    use rlevo_core::base::TensorConversionError;
     type Be = burn::backend::NdArray;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]

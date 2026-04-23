@@ -20,14 +20,14 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::td3::td3_agent::Td3Agent;
-use evorl_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
-use evorl_rl::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
-use evorl_rl::algorithms::td3::train::train;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::td3::td3_agent::Td3Agent;
+use rlevo_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+use rlevo_rl::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
+use rlevo_rl::algorithms::td3::train::train;
 
 // ---------------------------------------------------------------------------
 // Actor: (batch, 3) -> (batch, 1) in [-2, 2]

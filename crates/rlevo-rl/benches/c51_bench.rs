@@ -10,7 +10,7 @@ use burn::tensor::{Tensor, TensorData};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-use evorl_rl::algorithms::c51::projection::project_distribution;
+use rlevo_rl::algorithms::c51::projection::project_distribution;
 
 type Be = NdArray;
 

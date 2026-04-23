@@ -10,7 +10,7 @@ use burn::tensor::{Tensor, TensorData};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-use evorl_rl::algorithms::qrdqn::quantile_loss::quantile_huber_loss;
+use rlevo_rl::algorithms::qrdqn::quantile_loss::quantile_huber_loss;
 
 type Be = NdArray;
 

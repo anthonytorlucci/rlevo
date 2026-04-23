@@ -12,8 +12,8 @@ use burn::backend::NdArray;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use evorl_rl::algorithms::ppg::losses::policy_kl_categorical;
-use evorl_rl::algorithms::ppo::losses::unclipped_value_loss;
+use rlevo_rl::algorithms::ppg::losses::policy_kl_categorical;
+use rlevo_rl::algorithms::ppo::losses::unclipped_value_loss;
 
 type B = NdArray;
 

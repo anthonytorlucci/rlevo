@@ -17,15 +17,15 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::pendulum::{
+use rlevo_envs::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::ppo::policies::{TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig};
-use evorl_rl::algorithms::ppo::ppo_agent::PpoAgent;
-use evorl_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
-use evorl_rl::algorithms::ppo::ppo_value::PpoValue;
-use evorl_rl::algorithms::ppo::train::train_continuous;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::ppo::policies::{TanhGaussianPolicyHead, TanhGaussianPolicyHeadConfig};
+use rlevo_rl::algorithms::ppo::ppo_agent::PpoAgent;
+use rlevo_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_rl::algorithms::ppo::ppo_value::PpoValue;
+use rlevo_rl::algorithms::ppo::train::train_continuous;
 
 // ---------------------------------------------------------------------------
 // Value network

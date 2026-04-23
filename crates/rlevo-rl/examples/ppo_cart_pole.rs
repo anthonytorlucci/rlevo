@@ -17,15 +17,15 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use evorl_envs::classic::cartpole::{
+use rlevo_envs::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use evorl_envs::wrappers::TimeLimit;
-use evorl_rl::algorithms::ppo::policies::{CategoricalPolicyHead, CategoricalPolicyHeadConfig};
-use evorl_rl::algorithms::ppo::ppo_agent::PpoAgent;
-use evorl_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
-use evorl_rl::algorithms::ppo::ppo_value::PpoValue;
-use evorl_rl::algorithms::ppo::train::train_discrete;
+use rlevo_envs::wrappers::TimeLimit;
+use rlevo_rl::algorithms::ppo::policies::{CategoricalPolicyHead, CategoricalPolicyHeadConfig};
+use rlevo_rl::algorithms::ppo::ppo_agent::PpoAgent;
+use rlevo_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_rl::algorithms::ppo::ppo_value::PpoValue;
+use rlevo_rl::algorithms::ppo::train::train_discrete;
 
 // ---------------------------------------------------------------------------
 // Value network — two-hidden-layer MLP matching CleanRL's `critic`.
