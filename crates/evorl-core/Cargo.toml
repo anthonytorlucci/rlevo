@@ -2,11 +2,10 @@
 name = "evorl-core"
 version.workspace = true
 authors.workspace = true
-description.workspace = true
-documentation.workspace = true
+description = "Core traits and types for burn-evorl (internal crate — use `burn-evorl` for the full API)"
 edition.workspace = true
-readme.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 burn = { workspace = true }

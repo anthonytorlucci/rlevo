@@ -19,6 +19,16 @@ Gradient descent is powerful, but it is a local optimizer. If an agent finds a m
 
 Because evaluating individuals is independent, ERL maps naturally onto Rust's fearless concurrency and Burn's backend-agnostic tensor operations — turning the sample-efficiency trade-off into a raw-throughput advantage.
 
+## Why burn-evorl?
+
+Most ERL implementations are Python research prototypes built around flat vector observations and fixed-dimension action spaces. `burn-evorl` is designed differently from the ground up:
+
+**Const-generic dimensional safety.** `State<D>`, `Observation<D>`, and `Action<AD>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — a guarantee no existing Rust RL crate provides.
+
+**Unified evolutionary and gradient-based RL.** The `evorl-evolution`, `evorl-rl`, and `evorl-hybrid` crates share the same core trait abstractions, so evolutionary and gradient-based agents run against identical environments and compose naturally in a single training loop.
+
+**Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU, WGPU, CUDA) swap without touching algorithm code.
+
 ## Workspace Crates
 
 ### `evorl-core`
@@ -63,11 +73,21 @@ The evolutionary engine. Implements tensor-native genetic algorithms and evoluti
 - Whale Optimization Algorithm (WOA), Salp Swarm
 
 ### `evorl-rl`
-Standard deep RL algorithm implementations. Currently in active development.
+Standard deep RL algorithm implementations.
 
-- **DQN** — core architecture in progress (config, model, agent scaffolded)
-- **PPO** — planned
-- **SAC** — planned
+**Value-Based**
+- **DQN** — Deep Q-Network with experience replay and target network
+- **C51** — Categorical DQN (distributional RL over 51 atoms)
+- **QR-DQN** — Quantile Regression DQN
+
+**Policy Gradient**
+- **PPO** — Proximal Policy Optimization with clipped surrogate objective (categorical and Gaussian policies)
+- **PPG** — Phasic Policy Gradient with auxiliary phase and distillation
+
+**Actor-Critic (Continuous Control)**
+- **DDPG** — Deep Deterministic Policy Gradient with Ornstein-Uhlenbeck exploration
+- **TD3** — Twin Delayed DDPG with target policy smoothing
+- **SAC** — Soft Actor-Critic with automatic entropy tuning
 
 ### `evorl-hybrid`
 Combines gradient-based RL with evolutionary optimization. The integration layer connecting `evorl-rl` and `evorl-evolution` for hybrid training strategies.
@@ -86,7 +106,7 @@ Shared math utilities used across the workspace.
 | `evorl-envs` | Active — 13+ environments implemented |
 | `evorl-evolution` | Active — full classical EA + swarm suite |
 | `evorl-benchmarks` | Active — evaluation harness working |
-| `evorl-rl` | In progress — DQN scaffolded, PPO/SAC pending |
+| `evorl-rl` | Active — 8 algorithms implemented (DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC) |
 | `evorl-hybrid` | Early — integration layer in design |
 | `evorl-utils` | Minimal — grows with need |
 
@@ -100,7 +120,7 @@ cargo build
 cargo test
 
 # Run a specific environment example
-cargo run -p evorl-core --example grid_position
+cargo run -p evorl-core --example grid_agent
 
 # Generate documentation
 cargo doc --workspace --no-deps --open
@@ -114,6 +134,10 @@ cargo doc --workspace --no-deps --open
 - **tracing 0.1** — structured logging
 - **rapier2d / rapier3d** — physics simulation with enhanced determinism
 - **criterion** — benchmarking
+
+## Development
+
+This crate was developed with the assistance of AI coding tools (Claude by Anthropic).
 
 ## License
 
