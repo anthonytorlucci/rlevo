@@ -1,4 +1,8 @@
-//! State type for BipedalWalker.
+//! Physics state for the BipedalWalker environment.
+//!
+//! [`BipedalWalkerState`] holds all Rapier2D handles required to read body
+//! kinematics and drive joints each step, plus cached contact flags and the
+//! most recent observation.
 
 use rapier2d::dynamics::{ImpulseJointHandle, RigidBodyHandle};
 use rlevo_core::base::State;

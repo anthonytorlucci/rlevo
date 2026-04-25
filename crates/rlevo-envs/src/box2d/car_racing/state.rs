@@ -1,4 +1,8 @@
-//! State type for CarRacing.
+//! Physics and progress state for the CarRacing environment.
+//!
+//! [`CarRacingState`] holds the Rapier2D body handles for the car and wheels,
+//! tile-visit counters used for lap-completion detection, and the most recent
+//! rendered pixel observation.
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rlevo_core::base::State;

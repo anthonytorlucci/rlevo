@@ -222,6 +222,7 @@ impl RapierWorld {
 mod tests {
     use super::*;
 
+    /// Creates a standard-gravity world at 60 Hz for use in tests.
     fn make_world() -> RapierWorld {
         RapierWorld::new(Vector::new(0.0, -9.8), 1.0 / 60.0)
     }

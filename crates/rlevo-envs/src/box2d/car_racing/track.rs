@@ -16,11 +16,14 @@ pub struct TrackTile {
     pub visited: bool,
 }
 
-/// A closed-loop procedurally generated track.
+/// A closed-loop procedurally generated racing track.
 #[derive(Debug, Clone)]
 pub struct Track {
+    /// Road surface tiles making up the full closed loop (CCW winding).
     pub tiles: Vec<TrackTile>,
+    /// World-space spawn position `[x, y]` at the start of the centreline.
     pub start_pos: [f32; 2],
+    /// Track heading angle at the spawn position (radians, from `atan2`).
     pub start_angle: f32,
 }
 
@@ -127,6 +130,7 @@ impl Track {
     }
 }
 
+/// Evaluates one dimension of a Catmull-Rom spline at parameter `t ∈ [0, 1)`.
 fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
     0.5 * ((2.0 * p1)
         + (-p0 + p2) * t
@@ -151,6 +155,7 @@ mod tests {
     use super::*;
     use rand::SeedableRng;
 
+    /// Generates a track with the given seed using default config.
     fn make_track(seed: u64) -> Track {
         let cfg = CarRacingConfig::default();
         let mut rng = StdRng::seed_from_u64(seed);

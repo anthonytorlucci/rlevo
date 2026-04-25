@@ -1,9 +1,9 @@
-//! Terrain generation for BipedalWalker (design decision D7).
+//! Terrain generation for BipedalWalker.
 
 use rand::RngExt;
 use rand::rngs::StdRng;
 
-/// Pluggable terrain generator (D7).
+/// Pluggable terrain generator.
 ///
 /// Implementations produce a polyline of (x, y) height samples that are
 /// used to build the ground collider in the rapier world.
@@ -22,9 +22,7 @@ pub struct FlatTerrain;
 impl TerrainGenerator for FlatTerrain {
     fn generate(&self, _rng: &mut StdRng) -> Vec<[f32; 2]> {
         // 200-unit-wide flat surface at y = 0
-        (0..=200)
-            .map(|i| [i as f32 - 10.0, 0.0])
-            .collect()
+        (0..=200).map(|i| [i as f32 - 10.0, 0.0]).collect()
     }
 }
 
@@ -39,7 +37,10 @@ pub struct RoughTerrain {
 
 impl Default for RoughTerrain {
     fn default() -> Self {
-        Self { roughness: 1.5, step: 1.0 }
+        Self {
+            roughness: 1.5,
+            step: 1.0,
+        }
     }
 }
 
@@ -71,7 +72,10 @@ pub struct HardcoreTerrain {
 
 impl Default for HardcoreTerrain {
     fn default() -> Self {
-        Self { pit_frequency: 0.5, stump_frequency: 0.5 }
+        Self {
+            pit_frequency: 0.5,
+            stump_frequency: 0.5,
+        }
     }
 }
 
