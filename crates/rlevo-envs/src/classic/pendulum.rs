@@ -1,11 +1,34 @@
 //! Pendulum-v1 environment.
 //!
 //! Swing an under-actuated pendulum to the upright position and keep it
-//! there. The episode never terminates intrinsically — use
-//! [`crate::wrappers::TimeLimit::new(env, 200)`] for the standard limit.
+//! there. The episode never terminates intrinsically — compose with
+//! [`crate::wrappers::TimeLimit::new(env, 200)`] for the standard 200-step limit.
 //!
-//! Reward is `-cost` where `cost = angle_normalize(θ)² + 0.1θ̇² + 0.001u²`.
-//! The minimum per-step reward is ≈ `-16.27`; the maximum is `0`.
+//! ## Reward
+//!
+//! Each step yields `reward = -cost` where:
+//!
+//! ```text
+//! cost = angle_normalize(θ)² + 0.1·θ̇² + 0.001·u²
+//! ```
+//!
+//! Minimum per-step reward ≈ `-16.27` (hanging down, max speed, max torque);
+//! maximum is `0.0` (perfectly upright, stationary, no torque).
+//!
+//! ## Quick start
+//!
+//! ```rust,ignore
+//! use rlevo_envs::classic::{Pendulum, PendulumConfig, PendulumAction};
+//! use rlevo_envs::wrappers::TimeLimit;
+//! use rlevo_core::environment::Environment;
+//!
+//! let env = Pendulum::with_config(PendulumConfig::default());
+//! let mut timed = TimeLimit::new(env, 200);
+//! let mut snap = timed.reset().unwrap();
+//! while !snap.is_done() {
+//!     snap = timed.step(PendulumAction::new(1.0).unwrap()).unwrap();
+//! }
+//! ```
 use std::fmt;
 
 use rand::{SeedableRng, rngs::StdRng};
@@ -42,6 +65,19 @@ impl std::error::Error for InvalidActionError {}
 // ---------------------------------------------------------------------------
 
 /// Configuration for [`Pendulum`].
+///
+/// All defaults match Gymnasium `Pendulum-v1`. Override individual fields with
+/// struct update syntax or construct the whole struct directly.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::pendulum::PendulumConfig;
+///
+/// let cfg = PendulumConfig { g: 9.81, seed: 42, ..PendulumConfig::default() };
+/// assert!((cfg.g - 9.81).abs() < 1e-5);
+/// assert_eq!(cfg.seed, 42);
+/// ```
 #[derive(Debug, Clone)]
 pub struct PendulumConfig {
     /// Maximum angular velocity (rad/s). Default: `8.0`.
@@ -129,6 +165,11 @@ impl ContinuousAction<1> for PendulumAction {
         Self::unchecked(self.0.clamp(min, max))
     }
 
+    /// Constructs a [`PendulumAction`] from a one-element slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() != 1`.
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "PendulumAction expects a 1-element slice");
         Self::unchecked(values[0])
@@ -194,9 +235,9 @@ impl State<1> for PendulumState {
 /// Observation returned by [`Pendulum`] at each step.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PendulumObservation {
-    /// cosine of the pole angle.
+    /// Cosine of the pole angle.
     pub cos_theta: f32,
-    /// sine of the pole angle.
+    /// Sine of the pole angle.
     pub sin_theta: f32,
     /// Angular velocity (rad/s).
     pub theta_dot: f32,
@@ -319,6 +360,14 @@ impl Environment<1, 1, 1> for Pendulum {
         Self::with_config(PendulumConfig::default())
     }
 
+    /// Resets the environment to a random initial state and returns the first snapshot.
+    ///
+    /// Re-seeds the internal RNG from `config.seed` so repeated calls produce
+    /// identical initial trajectories for the same seed.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
@@ -329,6 +378,16 @@ impl Environment<1, 1, 1> for Pendulum {
         ))
     }
 
+    /// Advances the simulation by one time step and returns the resulting snapshot.
+    ///
+    /// Clips the torque to `[-max_torque, max_torque]`, integrates the equations
+    /// of motion with forward Euler, and clamps angular velocity to
+    /// `[-max_speed, max_speed]`. The episode never terminates; the snapshot is
+    /// always `Running`.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn step(&mut self, action: PendulumAction) -> Result<Self::SnapshotType, EnvironmentError> {
         let (next_state, reward_f) = Self::step_dynamics(self.state, action.torque(), &self.config);
         self.state = next_state;
@@ -412,6 +471,10 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumActi
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for [`Pendulum`] covering observation shape, action validation,
+    //! reward at boundary states, `angle_normalize` correctness, non-termination,
+    //! and determinism.
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

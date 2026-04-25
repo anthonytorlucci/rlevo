@@ -1,9 +1,41 @@
 //! MountainCar-v0 environment.
 //!
-//! A car must escape a valley by building momentum. Reward is `-1` each step;
-//! the episode ends when the car reaches the goal position with sufficient
-//! velocity. No intrinsic step limit — compose with
-//! [`crate::wrappers::TimeLimit::new(env, 200)`] for the standard 200-step cap.
+//! A car starting near the bottom of a valley must reach the flag at the top
+//! of the right hill. Direct acceleration is insufficient; the agent must learn
+//! to swing left first to build enough momentum.
+//!
+//! ## Reward
+//!
+//! The agent receives `-1` every step until the goal is reached:
+//!
+//! - **Running step**: `reward = -1.0`
+//! - **Terminal step** (goal reached): `reward = -1.0`
+//!
+//! Minimising total cost is equivalent to reaching the goal as fast as
+//! possible. The minimum achievable return depends on the initial position.
+//!
+//! ## Step limit
+//!
+//! This environment has **no intrinsic episode limit**. The standard
+//! Gymnasium cap of 200 steps should be added externally:
+//!
+//! ```rust,ignore
+//! use rlevo_envs::{classic::mountain_car::MountainCar, wrappers::TimeLimit};
+//!
+//! let env = TimeLimit::new(MountainCar::new(false), 200);
+//! ```
+//!
+//! ## Quick start
+//!
+//! ```rust,ignore
+//! use rlevo_core::environment::Environment;
+//! use rlevo_envs::classic::mountain_car::{MountainCar, MountainCarAction};
+//!
+//! let mut env = MountainCar::new(false);
+//! let _snap = env.reset().unwrap();
+//! let snap = env.step(MountainCarAction::Right).unwrap();
+//! println!("{snap:?}");
+//! ```
 use std::fmt;
 
 use rand::{SeedableRng, rngs::StdRng};
@@ -21,6 +53,19 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Configuration for [`MountainCar`].
+///
+/// All fields are public so they can be set with struct-update syntax.
+/// Use `MountainCarConfig::default()` for Gymnasium-compatible defaults.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::mountain_car::MountainCarConfig;
+///
+/// let cfg = MountainCarConfig { seed: 42, ..MountainCarConfig::default() };
+/// assert_eq!(cfg.seed, 42);
+/// assert!((cfg.gravity - 0.0025).abs() < 1e-6);
+/// ```
 #[derive(Debug, Clone)]
 pub struct MountainCarConfig {
     /// Acceleration applied per step. Default: `0.001`.
@@ -144,6 +189,11 @@ impl Action<1> for MountainCarAction {
 impl DiscreteAction<1> for MountainCarAction {
     const ACTION_COUNT: usize = 3;
 
+    /// Constructs an action from its integer index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is not `0` (Left), `1` (NoAccel), or `2` (Right).
     fn from_index(index: usize) -> Self {
         match index {
             0 => Self::Left,
@@ -253,6 +303,14 @@ impl Environment<1, 1, 1> for MountainCar {
         Self::with_config(MountainCarConfig::default())
     }
 
+    /// Resets the environment to a random initial state and returns the first snapshot.
+    ///
+    /// Re-seeds the internal RNG from `config.seed` so repeated calls with the
+    /// same seed produce identical initial positions in `[-0.6, -0.4]`.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
@@ -263,6 +321,16 @@ impl Environment<1, 1, 1> for MountainCar {
         ))
     }
 
+    /// Advances the simulation by one time step and returns the resulting snapshot.
+    ///
+    /// Applies the discrete-action physics (velocity update → clamp → position
+    /// update → left-wall inelastic collision), then checks whether the car has
+    /// reached `goal_position` with at least `goal_velocity`. Reward is `-1.0`
+    /// on every step, including the terminal step.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn step(&mut self, action: MountainCarAction) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::apply_physics(self.state, action, &self.config);
         self.steps += 1;
@@ -362,6 +430,10 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarA
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for [`MountainCar`] covering observation shape, action
+    //! indexing, reset bounds, left-wall physics, goal termination, reward
+    //! value, and determinism.
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

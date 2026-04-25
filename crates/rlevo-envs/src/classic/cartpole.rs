@@ -4,11 +4,26 @@
 //! Physics from Barto, Sutton, and Anderson (1983); equations of motion
 //! match the Gymnasium `CartPole-v1` reference implementation exactly.
 //!
-//! # Quick start
+//! ## Integrators
+//!
+//! Two integration schemes are available via [`Integrator`]:
+//!
+//! | Variant | Description |
+//! |---------|-------------|
+//! | [`Integrator::Euler`] | Forward Euler — Gymnasium default |
+//! | [`Integrator::SemiImplicit`] | Semi-implicit Euler: velocities updated before positions |
+//!
+//! ## Step limit
+//!
+//! There is no intrinsic step cap. Compose with [`crate::wrappers::TimeLimit`]
+//! to replicate the Gymnasium v1 500-step episode limit.
+//!
+//! ## Quick start
 //!
 //! ```rust,ignore
-//! use rlevo_envs::{classic::CartPole, wrappers::TimeLimit};
-//! use rlevo_core::environment::{Environment, Snapshot};
+//! use rlevo_envs::classic::{CartPole, CartPoleConfig, CartPoleAction};
+//! use rlevo_envs::wrappers::TimeLimit;
+//! use rlevo_core::environment::Environment;
 //!
 //! let env = CartPole::with_config(CartPoleConfig::default());
 //! let mut timed = TimeLimit::new(env, 500);
@@ -45,7 +60,21 @@ pub enum Integrator {
 
 /// Configuration for [`CartPole`].
 ///
-/// All defaults match `CartPole-v1` in Gymnasium.
+/// All defaults match `CartPole-v1` in Gymnasium. Use [`CartPoleConfig::builder()`]
+/// for a fluent construction style.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::cartpole::CartPoleConfig;
+///
+/// let cfg = CartPoleConfig::builder()
+///     .gravity(9.81)
+///     .masscart(2.0)
+///     .seed(42)
+///     .build();
+/// assert!((cfg.gravity - 9.81).abs() < 1e-5);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CartPoleConfig {
     /// Gravitational acceleration (m/s²). Default: `9.8`.
@@ -109,52 +138,63 @@ impl CartPoleConfig {
 }
 
 impl CartPoleConfigBuilder {
+    /// Sets gravitational acceleration (m/s²).
     pub fn gravity(mut self, v: f32) -> Self {
         self.inner.gravity = v;
         self
     }
+    /// Sets the mass of the cart (kg).
     pub fn masscart(mut self, v: f32) -> Self {
         self.inner.masscart = v;
         self
     }
+    /// Sets the mass of the pole (kg).
     pub fn masspole(mut self, v: f32) -> Self {
         self.inner.masspole = v;
         self
     }
+    /// Sets half the pole length (m).
     pub fn length(mut self, v: f32) -> Self {
         self.inner.length = v;
         self
     }
+    /// Sets the magnitude of the force applied to the cart (N).
     pub fn force_mag(mut self, v: f32) -> Self {
         self.inner.force_mag = v;
         self
     }
+    /// Sets the time step between updates (s).
     pub fn tau(mut self, v: f32) -> Self {
         self.inner.tau = v;
         self
     }
+    /// Sets the pole angle termination threshold (rad).
     pub fn theta_threshold_radians(mut self, v: f32) -> Self {
         self.inner.theta_threshold_radians = v;
         self
     }
+    /// Sets the cart position termination threshold (m).
     pub fn x_threshold(mut self, v: f32) -> Self {
         self.inner.x_threshold = v;
         self
     }
+    /// Sets the integration scheme.
     pub fn integrator(mut self, v: Integrator) -> Self {
         self.inner.integrator = v;
         self
     }
+    /// Enables the Sutton-Barto reward schedule (`0` per step, `-1` on failure).
     pub fn sutton_barto_reward(mut self, v: bool) -> Self {
         self.inner.sutton_barto_reward = v;
         self
     }
+    /// Sets the RNG seed used by [`CartPole::reset`].
     pub fn seed(mut self, v: u64) -> Self {
         self.inner.seed = v;
         self
     }
 
-    /// Finalise and return the config.
+    /// Finalises and returns the config.
     pub fn build(self) -> CartPoleConfig {
         self.inner
     }
@@ -275,6 +315,11 @@ impl Action<1> for CartPoleAction {
 impl DiscreteAction<1> for CartPoleAction {
     const ACTION_COUNT: usize = 2;
 
+    /// Constructs an action from its integer index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is not `0` (Left) or `1` (Right).
     fn from_index(index: usize) -> Self {
         match index {
             0 => Self::Left,
@@ -407,6 +452,14 @@ impl Environment<1, 1, 1> for CartPole {
         Self::with_config(CartPoleConfig::default())
     }
 
+    /// Resets the environment to a random initial state and returns the first snapshot.
+    ///
+    /// Re-seeds the internal RNG from `config.seed`, so repeated calls with the
+    /// same seed produce identical initial trajectories.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
@@ -417,6 +470,15 @@ impl Environment<1, 1, 1> for CartPole {
         ))
     }
 
+    /// Advances the simulation by one time step and returns the resulting snapshot.
+    ///
+    /// Applies the selected integrator, then checks the termination conditions
+    /// (pole angle and cart position thresholds). Reward is `+1.0` per step by
+    /// default, or `0.0` / `-1.0` under the Sutton-Barto schedule.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
         let next = Self::step_physics(&self.state, action, &self.config);
         self.state = next;
@@ -534,6 +596,9 @@ impl CartPoleState {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for [`CartPole`] covering observation shape, action indexing,
+    //! episode lifecycle, reward schedules, determinism, and integrator divergence.
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

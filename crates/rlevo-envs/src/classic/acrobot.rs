@@ -1,17 +1,37 @@
 //! Acrobot-v1 environment.
 //!
-//! A two-link pendulum where the second joint is actuated. Goal: swing the
-//! end of the lower link above a target height. Reference: Sutton & Barto §10.
+//! A two-link pendulum where the second joint is actuated. The goal is to
+//! swing the end of the lower link above a target height. Reference:
+//! Sutton & Barto §10.
 //!
-//! Two dynamics variants are available:
-//! - [`BookDynamics`] (default): textbook form from Sutton & Barto.
-//! - [`NipsDynamics`]: original 1995 NIPS form (different cross-terms).
+//! ## Dynamics variants
 //!
-//! The environment is generic over the dynamics: `Acrobot<BookDynamics>` and
-//! `Acrobot<NipsDynamics>`. The type alias [`AcrobotDefault`] picks `BookDynamics`.
+//! Two dynamics implementations are available:
 //!
-//! No intrinsic step cap — compose with
-//! [`crate::wrappers::TimeLimit::new(env, 500)`] for the standard v1 limit.
+//! | Type | Description |
+//! |------|-------------|
+//! | [`BookDynamics`] | Sutton & Barto textbook form (Gymnasium default) |
+//! | [`NipsDynamics`] | Original NIPS-1995 form — omits certain cross-terms |
+//!
+//! The environment is generic over the dynamics via [`AcrobotDynamicsFn`]:
+//! `Acrobot<BookDynamics>` and `Acrobot<NipsDynamics>`.
+//!
+//! ## Step limit
+//!
+//! There is no intrinsic step cap. Compose with a `TimeLimit` wrapper for the
+//! standard 500-step v1 limit.
+//!
+//! ## Quick start
+//!
+//! ```no_run
+//! use rlevo_envs::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
+//! use rlevo_core::environment::Environment;
+//!
+//! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
+//! let _snap = env.reset().unwrap();
+//! let snap = env.step(AcrobotAction::TorquePos).unwrap();
+//! println!("terminated: {}", snap.is_terminated());
+//! ```
 use std::fmt;
 
 use rand::{SeedableRng, rngs::StdRng};
@@ -28,20 +48,35 @@ use serde::{Deserialize, Serialize};
 // Strategy trait (spec B4)
 // ---------------------------------------------------------------------------
 
-/// Computes the derivative of the Acrobot state vector.
+/// Computes the time derivative of the Acrobot state vector.
 ///
-/// Both the Book and NIPS forms implement this trait. Use as a generic
-/// parameter on [`Acrobot`] for zero-cost monomorphization.
+/// Both [`BookDynamics`] and [`NipsDynamics`] implement this trait. Supply it
+/// as the generic parameter `D` on [`Acrobot<D>`] to select the desired
+/// physics model at zero runtime cost (monomorphization).
+///
+/// Implement this trait only when you need custom dynamics; prefer the
+/// provided types for standard use.
 pub trait AcrobotDynamicsFn: fmt::Debug + Clone + Send + Sync {
-    /// Compute `d/dt [θ1, θ2, θ̇1, θ̇2]` given the current state and applied torque.
+    /// Computes `d/dt [θ1, θ2, θ̇1, θ̇2]` for the given state and torque.
+    ///
+    /// `s` is `[theta1, theta2, dtheta1, dtheta2]` and `a` is the applied
+    /// torque (N·m). The returned array has the same layout.
     fn dsdt(&self, s: [f32; 4], a: f32, cfg: &AcrobotConfig) -> [f32; 4];
 }
 
-/// Sutton & Barto textbook dynamics (Gymnasium default).
+/// Sutton & Barto textbook dynamics — the Gymnasium default.
+///
+/// Includes the full `2·dθ2·dθ1` Coriolis cross-term and the `dθ1²`
+/// centripetal term in φ₁. This is the recommended choice for reproducing
+/// published benchmark results.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BookDynamics;
 
-/// Original NIPS-1995 dynamics (without certain cross-term corrections).
+/// Original NIPS-1995 dynamics — omits certain cross-terms.
+///
+/// φ₁ drops the `2·dθ2·dθ1` Coriolis cross-term and the `dθ1²`
+/// centripetal term present in [`BookDynamics`]. Produces subtly different
+/// trajectories and is provided for historical reproducibility.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NipsDynamics;
 
@@ -107,6 +142,7 @@ impl AcrobotDynamicsFn for NipsDynamics {
 // RK4 integrator
 // ---------------------------------------------------------------------------
 
+/// Advances `s` by one step of size `dt` using the classic RK4 method.
 fn rk4<F: Fn([f32; 4]) -> [f32; 4]>(dsdt: F, s: [f32; 4], dt: f32) -> [f32; 4] {
     let k1 = dsdt(s);
     let k2 = dsdt(add4(s, scale4(k1, dt / 2.0)));
@@ -131,7 +167,21 @@ fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
 
 /// Configuration for [`Acrobot`].
 ///
-/// All defaults match Gymnasium `Acrobot-v1` with `BookDynamics`.
+/// All defaults match Gymnasium `Acrobot-v1` with [`BookDynamics`]. Use
+/// [`AcrobotConfig::builder()`] for a fluent construction style.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::acrobot::AcrobotConfig;
+///
+/// let cfg = AcrobotConfig::builder()
+///     .gravity(9.81)
+///     .dt(0.05)
+///     .seed(42)
+///     .build();
+/// assert!((cfg.gravity - 9.81).abs() < 1e-5);
+/// ```
 #[derive(Debug, Clone)]
 pub struct AcrobotConfig {
     /// Integration time step (s). Default: `0.2`.
@@ -182,7 +232,10 @@ impl Default for AcrobotConfig {
     }
 }
 
-/// Builder for [`AcrobotConfig`] (13 fields).
+/// Fluent builder for [`AcrobotConfig`].
+///
+/// Obtain via [`AcrobotConfig::builder()`]. All unset fields retain their
+/// default values from [`AcrobotConfig::default()`].
 #[derive(Debug, Default)]
 pub struct AcrobotConfigBuilder {
     inner: AcrobotConfig,
@@ -272,10 +325,12 @@ pub struct AcrobotState {
 }
 
 impl AcrobotState {
+    /// Converts the state to `[theta1, theta2, dtheta1, dtheta2]`.
     fn to_array(self) -> [f32; 4] {
         [self.theta1, self.theta2, self.theta1_dot, self.theta2_dot]
     }
 
+    /// Reconstructs a state from `[theta1, theta2, dtheta1, dtheta2]`.
     fn from_array(a: [f32; 4]) -> Self {
         Self {
             theta1: a[0],
@@ -331,7 +386,7 @@ pub struct AcrobotObservation {
 }
 
 impl AcrobotObservation {
-    /// Flatten to a `[f32; 6]` array.
+    /// Flattens the observation to `[cos θ1, sin θ1, cos θ2, sin θ2, dθ1, dθ2]`.
     pub fn to_array(&self) -> [f32; 6] {
         [
             self.cos_theta1,
@@ -366,6 +421,7 @@ pub enum AcrobotAction {
 }
 
 impl AcrobotAction {
+    /// Returns the torque value in N·m (`-1.0`, `0.0`, or `+1.0`).
     fn to_torque(self) -> f32 {
         match self {
             Self::TorqueNeg => -1.0,
@@ -387,6 +443,11 @@ impl Action<1> for AcrobotAction {
 impl DiscreteAction<1> for AcrobotAction {
     const ACTION_COUNT: usize = 3;
 
+    /// Constructs an action from its integer index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is not in `0..=2`.
     fn from_index(index: usize) -> Self {
         match index {
             0 => Self::TorqueNeg,
@@ -409,9 +470,25 @@ impl DiscreteAction<1> for AcrobotAction {
 // Environment
 // ---------------------------------------------------------------------------
 
-/// Acrobot-v1: swing the end of a two-link pendulum above a target height.
+/// Acrobot-v1 environment — swing a two-link pendulum end above a threshold.
 ///
-/// Generic over `D: AcrobotDynamicsFn`. The default is `BookDynamics`.
+/// Generic over `D: AcrobotDynamicsFn`. Use [`BookDynamics`] (the default) to
+/// match Gymnasium's reference implementation, or [`NipsDynamics`] for the
+/// original 1995 formulation.
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
+/// env.reset().unwrap();
+/// loop {
+///     let snap = env.step(AcrobotAction::TorquePos).unwrap();
+///     if snap.is_terminated() { break; }
+/// }
+/// ```
 pub struct Acrobot<D: AcrobotDynamicsFn = BookDynamics> {
     state: AcrobotState,
     config: AcrobotConfig,
@@ -516,6 +593,14 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         Self::with_config(AcrobotConfig::default())
     }
 
+    /// Resets the environment to a random initial state and returns the first snapshot.
+    ///
+    /// Re-seeds the internal RNG from `config.seed`, so repeated calls produce
+    /// the same initial trajectory for a given seed.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; returns `Ok` in all cases.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
@@ -526,6 +611,16 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         ))
     }
 
+    /// Advances the simulation by one time step and returns the resulting snapshot.
+    ///
+    /// Applies optional torque noise (if `config.torque_noise_max > 0`),
+    /// integrates the dynamics with RK4, clamps joint velocities, and checks
+    /// the terminal condition. The reward is `-1.0` on non-terminal steps and
+    /// `0.0` on the terminal step.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; returns `Ok` in all cases.
     fn step(&mut self, action: AcrobotAction) -> Result<Self::SnapshotType, EnvironmentError> {
         let mut torque = action.to_torque();
         if self.config.torque_noise_max > 0.0 {
@@ -621,6 +716,10 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotActio
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for [`Acrobot`] covering observation shape, action indexing,
+    //! episode lifecycle, physics invariants (velocity clamping, termination),
+    //! determinism, and dynamics variant divergence.
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 
