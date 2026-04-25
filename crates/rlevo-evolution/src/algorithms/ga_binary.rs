@@ -292,7 +292,6 @@ mod tests {
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     /// OneMax phrased as minimization: `cost = D − count_ones`.

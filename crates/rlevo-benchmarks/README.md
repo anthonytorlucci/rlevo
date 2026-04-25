@@ -129,7 +129,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-evorl-benchmarks = { path = "../rlevo-benchmarks" }
+rlevo-benchmarks = { path = "../rlevo-benchmarks" }
 ```
 
 ### Minimal example — ε-greedy bandit
@@ -149,9 +149,9 @@ impl BenchEnv for MyEnv {
     type Observation = f64;
     type Action = usize;
 
-    fn reset(&mut self) -> f64 { /* ... */ 0.0 }
-    fn step(&mut self, action: usize) -> BenchStep<f64> {
-        BenchStep { observation: 0.0, reward: 1.0, done: true }
+    fn reset(&mut self) -> Result<f64, BenchError> { Ok(0.0) }
+    fn step(&mut self, action: usize) -> Result<BenchStep<f64>, BenchError> {
+        Ok(BenchStep { observation: 0.0, reward: 1.0, done: true })
     }
 }
 
@@ -202,7 +202,7 @@ The following works directly informed the design and algorithms in this crate:
 
 - Steele, G. L., Lea, D., & Flood, C. H. (2014). **Fast splittable pseudorandom number generators**. *ACM SIGPLAN OOPSLA*, 453–472. — introduces the SplitMix family; the specific constants in `SeedStream` derive from this work.
 
-- Rastrigin, L. A. (1974). *Systems of extreme control*. Nauka, Moscow. — original formulation of the Rastrigin function `f(x) = A·n + Σ(xᵢ² − A·cos(2πxᵢ))` used in the `ga_rastrigin` example and `rlevo-envs::benchmarks::rastrigin`.
+- Rastrigin, L. A. (1974). *Systems of extreme control*. Nauka, Moscow. — original formulation of the Rastrigin function `f(x) = A·n + Σ(xᵢ² − A·cos(2πxᵢ))` used in the `ga_rastrigin` example and `rlevo-envs::landscapes::rastrigin`.
 
 - Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — sample-average and ε-greedy methods demonstrated in `tabular_bandit` follow Chapter 2 of this text.
 

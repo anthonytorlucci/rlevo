@@ -107,7 +107,7 @@
 //!
 //! - [`super::board`]: Board utilities and visualization
 //! - [`super::moves`]: Move generation and validation
-//! - [`evorl_core::state`]: Abstract state trait and conversions
+//! - [`rlevo_core::state`]: Abstract state trait and conversions
 //!
 //! # Implementation Notes
 //!

@@ -15,8 +15,8 @@ pub trait AsciiRenderable {
 /// # Example
 ///
 /// ```rust,ignore
-/// use evorl_envs::render::AsciiRenderer;
-/// use evorl_core::render::Renderer;
+/// use rlevo_envs::render::AsciiRenderer;
+/// use rlevo_core::render::Renderer;
 ///
 /// let renderer = AsciiRenderer;
 /// let frame: String = renderer.render(&my_env);

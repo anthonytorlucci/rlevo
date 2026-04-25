@@ -1,16 +1,16 @@
-# evorl-envs Examples
+# rlevo-envs Examples
 
-Standalone examples demonstrating `evorl-envs` environments. Each example runs independently and serves as a smoke test for the corresponding environment.
+Standalone examples demonstrating `rlevo-envs` environments. Each example runs independently and serves as a smoke test for the corresponding environment.
 
 ## Running Examples
 
 ```bash
 # From the workspace root
-cargo run -p evorl-envs --example <name>
+cargo run -p rlevo-envs --example <name>
 
 # Box2D and locomotion examples require feature flags (enabled by default)
-cargo run -p evorl-envs --example bipedal_walker_random --features box2d
-cargo run -p evorl-envs --example swimmer_random --features locomotion
+cargo run -p rlevo-envs --example bipedal_walker_random --features box2d
+cargo run -p rlevo-envs --example swimmer_random --features locomotion
 ```
 
 ## Available Examples

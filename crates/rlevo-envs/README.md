@@ -90,15 +90,15 @@ implement the `Environment` trait and are hidden from the public API docs.
 
 ---
 
-### Optimization Benchmarks
+### Optimization Landscapes
 
-Continuous single-objective functions for evaluating evolutionary algorithms.
+Continuous single-objective fitness functions for evaluating evolutionary algorithms.
 
 | Function | Module | Notes |
 |---|---|---|
-| Sphere | `benchmarks::sphere` | Convex, unimodal |
-| Ackley | `benchmarks::ackley` | Multimodal; exponential traps |
-| Rastrigin | `benchmarks::rastrigin` | Highly multimodal |
+| Sphere | `landscapes::sphere` | Convex, unimodal |
+| Ackley | `landscapes::ackley` | Multimodal; exponential traps |
+| Rastrigin | `landscapes::rastrigin` | Highly multimodal |
 
 ---
 

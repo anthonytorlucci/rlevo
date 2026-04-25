@@ -8,7 +8,7 @@
 //!
 //! These tests intentionally duplicate the per-env unit tests' optimal
 //! rollouts — the goal here is to exercise only items that are
-//! re-exported from `evorl_envs::grids` (public API only), not private
+//! re-exported from `rlevo_envs::grids` (public API only), not private
 //! helpers accessible from the source modules.
 
 use rlevo_core::environment::{Environment, Snapshot};

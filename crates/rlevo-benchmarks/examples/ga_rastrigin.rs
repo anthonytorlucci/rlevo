@@ -4,7 +4,7 @@
 //!
 //! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
 //!    for a local wrapper around
-//!    `rlevo_envs::benchmarks::rastrigin::Rastrigin`.
+//!    `rlevo_envs::landscapes::rastrigin::Rastrigin`.
 //! 2. `BenchEnv` — the GA is itself wrapped as a `BenchEnv` so the full
 //!    `run_suite` path drives it, producing a `BenchmarkReport` with the
 //!    same shape as RL trials.
@@ -17,13 +17,13 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, Uniform};
 use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
-use rlevo_benchmarks::env::{BenchEnv, BenchStep};
+use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::metrics::ea;
 use rlevo_benchmarks::metrics::Metric;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
-use rlevo_envs::benchmarks::rastrigin::Rastrigin;
+use rlevo_envs::landscapes::rastrigin::Rastrigin;
 
 // --- FitnessEvaluable wiring -------------------------------------------
 
@@ -114,21 +114,25 @@ impl BenchEnv for GaEnv {
     type Observation = ();
     type Action = ();
 
-    fn reset(&mut self) -> Self::Observation {
+    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
         let pop_size = self.population.len();
         self.population = sample_population(&mut self.rng, &self.landscape, pop_size);
         self.best_so_far = f64::INFINITY;
         self.generation = 0;
+        Ok(())
     }
 
-    fn step(&mut self, _action: Self::Action) -> BenchStep<Self::Observation> {
+    fn step(
+        &mut self,
+        _action: Self::Action,
+    ) -> Result<BenchStep<Self::Observation>, BenchError> {
         let best = self.evolve();
         self.generation += 1;
-        BenchStep {
+        Ok(BenchStep {
             observation: (),
             reward: -best,
             done: self.generation >= self.max_generations,
-        }
+        })
     }
 }
 

@@ -136,8 +136,8 @@ impl<B: Backend> TensorConvertible<1, B> for TenArmedBanditState {
 /// # Examples
 ///
 /// ```rust
-/// use evorl_core::action::DiscreteAction;
-/// use evorl_envs::classic::TenArmedBanditAction;
+/// use rlevo_core::action::DiscreteAction;
+/// use rlevo_envs::classic::TenArmedBanditAction;
 ///
 /// let a = TenArmedBanditAction::new(5).expect("5 is in range");
 /// assert_eq!(a.arm(), 5);
@@ -302,7 +302,7 @@ impl FromStr for TenArmedBanditConfig {
     ///
     /// ```rust
     /// use std::str::FromStr;
-    /// use evorl_envs::classic::TenArmedBanditConfig;
+    /// use rlevo_envs::classic::TenArmedBanditConfig;
     ///
     /// let c: TenArmedBanditConfig = "500".parse().unwrap();
     /// assert_eq!(c.max_steps, 500);
@@ -395,7 +395,7 @@ impl TenArmedBandit {
     ///
     /// Sets `config.seed = seed` (so [`reset`](Self::reset) will re-draw the
     /// same arm means) and samples `arm_means` from `N(0, 1)`. Keeps other
-    /// config fields at their defaults. Used by `evorl-benchmarks` for
+    /// config fields at their defaults. Used by `rlevo-benchmarks` for
     /// reproducible trials.
     pub fn with_seed(seed: u64) -> Self {
         let config = TenArmedBanditConfig {
@@ -421,7 +421,7 @@ impl TenArmedBandit {
 
     /// Inherent reset — re-seeds RNG and re-samples arm means.
     ///
-    /// This is the bespoke entry point used by `evorl-benchmarks`; it
+    /// This is the bespoke entry point used by `rlevo-benchmarks`; it
     /// discards the snapshot return value. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
     /// [`SnapshotBase`] for composition with wrappers.

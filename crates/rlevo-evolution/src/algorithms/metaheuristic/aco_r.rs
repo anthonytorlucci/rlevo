@@ -324,7 +324,6 @@ mod tests {
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
     use rlevo_benchmarks::agent::FitnessEvaluable;
-    use rlevo_benchmarks::env::BenchEnv;
 
     type TestBackend = NdArray;
 

@@ -70,7 +70,7 @@
 //! # Action Space Structure
 //!
 //! The `ChessMove` struct implements both the `Action`, `MultiDiscreteAction`, and
-//! `ActionTensorConvertible`  traits, enabling integration with the evorl-core framework:
+//! `ActionTensorConvertible`  traits, enabling integration with the rlevo-core framework:
 //!
 //! - **Validation**: Moves are validated by ensuring both source and destination squares
 //!   are valid (0-63). Legal move validation is delegated to the environment.
@@ -80,7 +80,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use evorl_envs::games::chess::{ChessMove, Square};
+//! use rlevo_envs::games::chess::{ChessMove, Square};
 //!
 //! // Create a move from e2 to e4
 //! todo!
@@ -375,8 +375,8 @@ impl ChessMove {
 //     /// # Examples
 //     ///
 //     /// ```rust
-//     /// use evorl_envs::games::chess::moves::ChessMove;
-//     /// use evorl_core::action::MultiDiscreteAction;
+//     /// use rlevo_envs::games::chess::moves::ChessMove;
+//     /// use rlevo_core::action::MultiDiscreteAction;
 //     ///
 //     /// let space = ChessMove::action_space();
 //     /// assert_eq!(space, [8, 8, 73]);
@@ -434,8 +434,8 @@ impl ChessMove {
 //     /// # Examples
 //     ///
 //     /// ```rust
-//     /// use evorl_envs::games::chess::moves::{ChessMove, PromotionPiece};
-//     /// use evorl_core::action::MultiDiscreteAction;
+//     /// use rlevo_envs::games::chess::moves::{ChessMove, PromotionPiece};
+//     /// use rlevo_core::action::MultiDiscreteAction;
 //     ///
 //     /// // e2 to e4 (center pawn advance on rank 2)
 //     /// // Source: rank 1, file 4 (e2 = square 12)
@@ -488,8 +488,8 @@ impl ChessMove {
 //     /// # Examples
 //     ///
 //     /// ```rust
-//     /// use evorl_envs::games::chess::moves::ChessMove;
-//     /// use evorl_core::action::MultiDiscreteAction;
+//     /// use rlevo_envs::games::chess::moves::ChessMove;
+//     /// use rlevo_core::action::MultiDiscreteAction;
 //     ///
 //     /// // Create a move from e2 to e4
 //     /// let mv = ChessMove::new(12, 28); // e2 = 12, e4 = 28
