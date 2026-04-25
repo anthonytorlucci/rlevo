@@ -6,6 +6,36 @@
 //! Success is reached when the door transitions to [`DoorState::Open`];
 //! timing out with the door still closed or locked returns `0.0`.
 //!
+//! ## Layout (5 × 5 default)
+//!
+//! ```text
+//! # D # # #    D = Door (yellow, locked) at (1, 0)
+//! # A K . #    A = agent (1, 1) facing East; K = Key (yellow) at (2, 1)
+//! # . . . #
+//! # . . . #
+//! # # # # #    # = wall
+//! ```
+//!
+//! Required action sequence: `Pickup` the key → turn to face the door →
+//! `Toggle` (Locked → Closed) → `Toggle` (Closed → Open).
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell    |
+//! |-------------|----------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Pickup`, `Toggle`               |
+//! | Reward      | `success_reward(steps, max_steps)` when door opens; `0.0` on timeout |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::unlock::{UnlockConfig, UnlockEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = UnlockConfig::new(5, 200, 0);
+//! let mut env = UnlockEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("door at: {:?}", env.door_pos());
+//! ```
+//!
 //! [`UnlockEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockEnv/
 
 use super::core::{
@@ -36,6 +66,15 @@ const MIN_SIZE: usize = 4;
 const DOOR_COLOR: Color = Color::Yellow;
 
 /// Configuration for [`UnlockEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::unlock::UnlockConfig;
+///
+/// let cfg = UnlockConfig::new(5, 200, 0);
+/// assert_eq!(cfg.size, 5);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlockConfig {
     /// Side length of the room.
@@ -47,7 +86,16 @@ pub struct UnlockConfig {
 }
 
 impl UnlockConfig {
-    /// Construct a new config.
+    /// Creates an [`UnlockConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::unlock::UnlockConfig;
+    ///
+    /// let cfg = UnlockConfig::new(6, 288, 42);
+    /// assert_eq!(cfg.seed, 42);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -107,6 +155,26 @@ impl FromStr for UnlockConfig {
 }
 
 /// Minigrid's `Unlock` environment.
+///
+/// The agent must pick up the key from the floor, navigate to the locked
+/// door on the north wall, and toggle it twice — first to unlock it
+/// (Locked → Closed) then to open it (Closed → Open). Reward is paid the
+/// moment the door opens; the episode times out if the step budget is
+/// exhausted first.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::unlock::UnlockEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = UnlockEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("door at: {:?}", env.door_pos());
+/// ```
 #[derive(Debug)]
 pub struct UnlockEnv {
     state: GridState,
@@ -118,7 +186,7 @@ pub struct UnlockEnv {
 }
 
 impl UnlockEnv {
-    /// Construct from an explicit configuration.
+    /// Constructs an [`UnlockEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: UnlockConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -133,31 +201,31 @@ impl UnlockEnv {
         }
     }
 
-    /// Borrow the active configuration.
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &UnlockConfig {
         &self.config
     }
 
-    /// Current step count within the episode.
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
-    /// Borrow the full grid + agent state.
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
-    /// World coordinates of the locked door.
+    /// Returns the world coordinates of the locked door.
     #[must_use]
     pub const fn door_pos(&self) -> (i32, i32) {
         self.door_pos
     }
 
-    /// Render the current state as a multi-line ASCII string.
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

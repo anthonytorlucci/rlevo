@@ -16,6 +16,35 @@
 //! holds the matching object, giving test suites and agent trainers a
 //! two-valued distribution over answers.
 //!
+//! ## Layout (7 × 5, fixed)
+//!
+//! ```text
+//! # # # # # # #
+//! # . . . # K #    K = Key (yellow) — match object at fork
+//! # K ← . . . #    ← = agent, start (2, 2) facing West; K = cue at (1, 2)
+//! # . . . # B #    B = Ball (red)  — distractor at fork
+//! # # # # # # #    # = wall; interior wall at x = 4, rows 1 and 3
+//! ```
+//!
+//! With `swap_fork = true` the Key moves to row 3 and the Ball moves to row 1.
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell |
+//! |-------------|------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                       |
+//! | Reward      | `success_reward(steps, max_steps)` on correct Done; else `0.0`   |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::memory::{MemoryConfig, MemoryEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = MemoryConfig::new(140, 0, false);
+//! let mut env = MemoryEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("match pos: {:?}", env.match_pos());
+//! ```
+//!
 //! [`MemoryEnv`]: https://minigrid.farama.org/environments/minigrid/MemoryEnv/
 //! [`Key`]: super::core::entity::Entity::Key
 
@@ -51,9 +80,20 @@ const CUE_COLOR: Color = Color::Yellow;
 const DISTRACTOR_COLOR: Color = Color::Red;
 
 /// Configuration for [`MemoryEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::memory::MemoryConfig;
+///
+/// let cfg = MemoryConfig::new(140, 42, true);
+/// assert!(cfg.swap_fork);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryConfig {
+    /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
+    /// RNG seed; reserved for future stochastic variants.
     pub seed: u64,
     /// When `true` the matching object sits at the bottom fork position
     /// instead of the top. This is the only source of variation: fix it
@@ -63,6 +103,16 @@ pub struct MemoryConfig {
 }
 
 impl MemoryConfig {
+    /// Creates a [`MemoryConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::memory::MemoryConfig;
+    ///
+    /// let cfg = MemoryConfig::new(140, 0, false);
+    /// assert_eq!(cfg.max_steps, 140);
+    /// ```
     #[must_use]
     pub const fn new(max_steps: usize, seed: u64, swap_fork: bool) -> Self {
         Self {
@@ -126,6 +176,26 @@ impl FromStr for MemoryConfig {
 }
 
 /// Minigrid's `Memory` environment.
+///
+/// The agent must observe a cue object at the episode start, navigate
+/// a corridor, and select the matching object at a fork by issuing
+/// [`GridAction::Done`] while facing it. Because the cue leaves the
+/// egocentric field of view before the fork is reached, a successful
+/// policy must maintain an internal memory of what it observed.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::memory::MemoryEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = MemoryEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("match pos: {:?}", env.match_pos());
+/// ```
 #[derive(Debug)]
 pub struct MemoryEnv {
     state: GridState,
@@ -138,6 +208,7 @@ pub struct MemoryEnv {
 }
 
 impl MemoryEnv {
+    /// Constructs a [`MemoryEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: MemoryConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -152,16 +223,19 @@ impl MemoryEnv {
         }
     }
 
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &MemoryConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
@@ -173,6 +247,7 @@ impl MemoryEnv {
         self.match_pos
     }
 
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

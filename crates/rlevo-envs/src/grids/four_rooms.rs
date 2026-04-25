@@ -1,10 +1,52 @@
-//! `FourRooms`: navigate a four-quadrant maze to reach the goal.
+//! Navigate a four-quadrant maze to reach the goal in the bottom-right room.
 //!
-//! Ports Farama Minigrid's [`FourRoomsEnv`]. The room is split into four
-//! quadrants by a vertical and a horizontal interior wall, each containing
-//! a single opening. The openings are positioned so a straight-line path
-//! around one corner leads from the top-left quadrant to the goal in the
-//! bottom-right quadrant.
+//! Ports Farama Minigrid's [`FourRoomsEnv`]. An interior cross of walls splits
+//! the `N×N` grid into four equal quadrants. Each arm of the cross has one
+//! opening, positioned symmetrically at `±3` cells from the centre. The agent
+//! starts in the top-left quadrant; the goal sits in the bottom-right.
+//!
+//! The grid size must be **odd** and at least 11 so each quadrant has enough
+//! interior cells to navigate.
+//!
+//! ## Layout (default `size = 11`, mid = 5)
+//!
+//! ```text
+//! # # # # # # # # # # #
+//! # A . . # . . . . . #   A = agent (1, 1)
+//! # . . . O . . . . . #   opening at (5, 2)
+//! # . . . # . . . . . #
+//! # . . . # . . . . . #
+//! # O . . # . . . O . #   openings at (2, 5) and (8, 5)
+//! # . . . # . . . . . #
+//! # . . . # . . . . . #
+//! # . . . O . . . . . #   opening at (5, 8)
+//! # . . . # . . . . G #   G = goal (9, 9)
+//! # # # # # # # # # # #
+//! ```
+//!
+//! - `A` — agent start (1, 1), facing East
+//! - `G` — goal (9, 9)
+//! - `O` — wall opening (passable gap)
+//! - `#` — border or interior wall
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar; positive only on reaching the goal |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = FourRoomsConfig::new(11, 484, 0);
+//! let mut env = FourRoomsEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`FourRoomsEnv`]: https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/
 
@@ -33,14 +75,44 @@ use std::str::FromStr;
 const MIN_SIZE: usize = 11;
 
 /// Configuration for [`FourRoomsEnv`].
+///
+/// Controls the grid size, episode length, and RNG seed. The interior wall
+/// positions and door openings are derived from `size`, so no positional
+/// fields are needed.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::grids::four_rooms::FourRoomsConfig;
+///
+/// let cfg = FourRoomsConfig::new(11, 484, 0);
+/// assert_eq!(cfg.size, 11);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FourRoomsConfig {
+    /// Side length of the square grid in cells, including border walls.
+    ///
+    /// Must be **odd** and at least [`MIN_SIZE`] (11). The interior cross sits
+    /// at column and row `size / 2`; openings are at `±3` from that centre.
     pub size: usize,
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
+    /// Seed for the internal random-number generator.
+    ///
+    /// Using the same seed always produces the same episode layout.
     pub seed: u64,
 }
 
 impl FourRoomsConfig {
+    /// Constructs a `FourRoomsConfig` with explicit field values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::four_rooms::FourRoomsConfig;
+    ///
+    /// let cfg = FourRoomsConfig::new(11, 484, 7);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -102,7 +174,31 @@ impl FromStr for FourRoomsConfig {
     }
 }
 
-/// Minigrid's `FourRooms` environment.
+/// Four-quadrant maze environment requiring multi-room navigation.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// The agent must transit through at least two openings to reach the goal,
+/// making this a classic long-horizon exploration task. Because the layout is
+/// fixed and deterministic, the environment is suitable for evaluating
+/// systematic search and planning policies.
+///
+/// Construct via [`FourRoomsEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (size 11, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = FourRoomsEnv::with_config(
+///     FourRoomsConfig::new(11, 484, 0),
+///     false,
+/// );
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct FourRoomsEnv {
     state: GridState,
@@ -113,6 +209,22 @@ pub struct FourRoomsEnv {
 }
 
 impl FourRoomsEnv {
+    /// Constructs a `FourRoomsEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+    ///
+    /// let env = FourRoomsEnv::with_config(
+    ///     FourRoomsConfig::new(11, 484, 0),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: FourRoomsConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -126,21 +238,28 @@ impl FourRoomsEnv {
         }
     }
 
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &FourRoomsConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Renders the current grid as an ASCII string.
+    ///
+    /// Useful for debugging; the same output is printed to stdout on each step
+    /// when the environment was constructed with `render = true`.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

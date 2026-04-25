@@ -11,6 +11,35 @@
 //! color is stored on the env and exposed via [`GoToDoorEnv::mission`]
 //! so callers can build instruction-conditioned policies.
 //!
+//! ## Layout (6 × 6 default)
+//!
+//! ```text
+//! # # # R # #    R = Red door    (North wall, midpoint)
+//! # . . . . #    G = Green door  (East wall, midpoint)
+//! # . A . . #    B = Blue door   (South wall, midpoint)
+//! Y . . . . G    Y = Yellow door (West wall, midpoint)
+//! # . . . . #    A = agent, start (2, 2) facing East
+//! # # # B # #    # = wall
+//! ```
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell |
+//! |-------------|------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                       |
+//! | Reward      | `success_reward(steps, max_steps)` on correct Done; else `0.0`   |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
+//! use rlevo_envs::grids::core::color::Color;
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = GoToDoorConfig::new(6, 100, 0, Color::Red);
+//! let mut env = GoToDoorEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("Mission: {}", env.mission().describe());
+//! ```
+//!
 //! [`GoToDoorEnv`]: https://minigrid.farama.org/environments/minigrid/GoToDoorEnv/
 
 use super::core::{
@@ -40,6 +69,20 @@ use std::str::FromStr;
 const MIN_SIZE: usize = 5;
 
 /// Instruction the agent must fulfil in a given episode.
+///
+/// Created at reset time from [`GoToDoorConfig::target_color`] and
+/// exposed via [`GoToDoorEnv::mission`] so callers can build
+/// instruction-conditioned policies.
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::go_to_door::Mission;
+/// use rlevo_envs::grids::core::color::Color;
+///
+/// let m = Mission::new(Color::Blue);
+/// assert!(m.describe().contains("Blue"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mission {
     /// Color of the door the agent must face when emitting [`GridAction::Done`].
@@ -47,7 +90,7 @@ pub struct Mission {
 }
 
 impl Mission {
-    /// Construct a new mission targeting the given color.
+    /// Constructs a [`Mission`] targeting the given door color.
     #[must_use]
     pub const fn new(target_color: Color) -> Self {
         Self { target_color }
@@ -61,15 +104,40 @@ impl Mission {
 }
 
 /// Configuration for [`GoToDoorEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::go_to_door::GoToDoorConfig;
+/// use rlevo_envs::grids::core::color::Color;
+///
+/// let cfg = GoToDoorConfig::new(6, 100, 0, Color::Green);
+/// assert_eq!(cfg.size, 6);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoToDoorConfig {
+    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (5).
     pub size: usize,
+    /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
+    /// RNG seed; identical seeds produce identical episodes.
     pub seed: u64,
+    /// Door color the agent must face when emitting [`GridAction::Done`].
     pub target_color: Color,
 }
 
 impl GoToDoorConfig {
+    /// Creates a [`GoToDoorConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::go_to_door::GoToDoorConfig;
+    /// use rlevo_envs::grids::core::color::Color;
+    ///
+    /// let cfg = GoToDoorConfig::new(8, 200, 42, Color::Blue);
+    /// assert_eq!(cfg.seed, 42);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64, target_color: Color) -> Self {
         Self {
@@ -145,6 +213,27 @@ impl FromStr for GoToDoorConfig {
 }
 
 /// Minigrid's `GoToDoor` environment.
+///
+/// The agent navigates a room with one colored door on each perimeter
+/// wall and must issue [`GridAction::Done`] while facing the door
+/// specified by the episode [`Mission`]. Inspect [`mission`] after each
+/// reset to build instruction-conditioned policies.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::go_to_door::GoToDoorEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = GoToDoorEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("Mission: {}", env.mission().describe());
+/// ```
+///
+/// [`mission`]: GoToDoorEnv::mission
 #[derive(Debug)]
 pub struct GoToDoorEnv {
     state: GridState,
@@ -156,6 +245,7 @@ pub struct GoToDoorEnv {
 }
 
 impl GoToDoorEnv {
+    /// Constructs a [`GoToDoorEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: GoToDoorConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -171,26 +261,31 @@ impl GoToDoorEnv {
         }
     }
 
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &GoToDoorConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Returns the episode mission specifying the target door color.
     #[must_use]
     pub const fn mission(&self) -> &Mission {
         &self.mission
     }
 
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

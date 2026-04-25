@@ -1,11 +1,50 @@
-//! `DistShift`: a fixed 9×7 gridworld from DeepMind's AI-safety suite.
+//! Fixed 9×7 gridworld from DeepMind's AI-safety distribution-shift suite.
 //!
-//! Ports Farama Minigrid's [`DistShiftEnv`]. The agent starts at the
-//! top-left and must reach the goal at the top-right along a safe
-//! corridor; a lava strip sits below the direct path. Two variants
-//! ([`DistShiftVariant::One`], [`DistShiftVariant::Two`]) shift the lava
-//! strip to a different interior row, mirroring the original
-//! distribution-shift benchmark.
+//! Ports Farama Minigrid's [`DistShiftEnv`]. The agent starts at `(1, 1)`
+//! facing East and must reach the goal at `(7, 1)` along the safe top
+//! corridor. A horizontal lava strip occupies columns 2–6 on one interior
+//! row; the two variants ([`DistShiftVariant::One`], [`DistShiftVariant::Two`])
+//! place this strip at different rows, simulating a distribution shift between
+//! training and evaluation.
+//!
+//! ## Layout (variant One — lava at row 3)
+//!
+//! ```text
+//! # # # # # # # # #
+//! # A . . . . . G #
+//! # . . . . . . . #
+//! # . L L L L L . #   ← lava strip, row 3
+//! # . . . . . . . #
+//! # . . . . . . . #
+//! # # # # # # # # #
+//! ```
+//!
+//! - `A` — agent start (1, 1), facing East
+//! - `G` — goal (7, 1)
+//! - `L` — lava (columns 2–6 on the variant's row)
+//! - `.` — empty passable cell
+//!
+//! Variant Two shifts the lava strip to row 5, leaving the top two interior
+//! rows clear.
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar; positive only on reaching the goal |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = DistShiftConfig::new(DistShiftVariant::Two, 100, 0);
+//! let mut env = DistShiftEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`DistShiftEnv`]: https://minigrid.farama.org/environments/minigrid/DistShiftEnv/
 
@@ -30,18 +69,24 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-/// The two distribution-shift variants.
+/// Selects which interior row the lava strip occupies.
+///
+/// The two variants mirror the train/eval split in the original
+/// distribution-shift benchmark: an agent trained on `One` (row 3) is then
+/// evaluated on `Two` (row 5) to test policy robustness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DistShiftVariant {
-    /// Lava strip at interior row `3`.
+    /// Lava strip at interior row 3 (the default / training layout).
     #[default]
     One,
-    /// Lava strip at interior row `5`.
+    /// Lava strip at interior row 5 (the shifted / evaluation layout).
     Two,
 }
 
 impl DistShiftVariant {
-    /// World row index where the lava strip sits.
+    /// Returns the world-space row index on which the lava strip is placed.
+    ///
+    /// `One` → row 3, `Two` → row 5.
     #[must_use]
     pub const fn lava_row(self) -> i32 {
         match self {
@@ -69,14 +114,42 @@ const WIDTH: usize = 9;
 const HEIGHT: usize = 7;
 
 /// Configuration for [`DistShiftEnv`].
+///
+/// The grid dimensions are fixed at 9×7, so only the variant, episode length,
+/// and RNG seed are configurable.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
+///
+/// let cfg = DistShiftConfig::new(DistShiftVariant::Two, 150, 7);
+/// assert_eq!(cfg.max_steps, 150);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DistShiftConfig {
+    /// Which interior row the lava strip occupies.
     pub variant: DistShiftVariant,
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
+    /// Seed for the internal random-number generator.
+    ///
+    /// The layout is deterministic given the variant, so the seed primarily
+    /// affects future stochastic extensions. Using the same seed guarantees
+    /// reproducible episodes.
     pub seed: u64,
 }
 
 impl DistShiftConfig {
+    /// Constructs a `DistShiftConfig` with explicit field values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
+    ///
+    /// let cfg = DistShiftConfig::new(DistShiftVariant::One, 100, 0);
+    /// ```
     #[must_use]
     pub const fn new(variant: DistShiftVariant, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -131,7 +204,30 @@ impl FromStr for DistShiftConfig {
     }
 }
 
-/// Minigrid's `DistShift` environment.
+/// Fixed 9×7 distribution-shift gridworld environment.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// The optimal policy for variant `One` hugs the top corridor; variant `Two`
+/// tests whether that policy generalises when the lava strip moves to a lower
+/// row.
+///
+/// Construct via [`DistShiftEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (variant One, 100 steps, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = DistShiftEnv::with_config(
+///     DistShiftConfig::new(DistShiftVariant::One, 100, 0),
+///     false,
+/// );
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct DistShiftEnv {
     state: GridState,
@@ -142,6 +238,22 @@ pub struct DistShiftEnv {
 }
 
 impl DistShiftEnv {
+    /// Constructs a `DistShiftEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+    ///
+    /// let env = DistShiftEnv::with_config(
+    ///     DistShiftConfig::new(DistShiftVariant::Two, 100, 42),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: DistShiftConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -155,21 +267,28 @@ impl DistShiftEnv {
         }
     }
 
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &DistShiftConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Renders the current grid as an ASCII string.
+    ///
+    /// Useful for debugging; the same output is printed to stdout on each step
+    /// when the environment was constructed with `render = true`.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

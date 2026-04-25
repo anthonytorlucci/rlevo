@@ -1,8 +1,51 @@
-//! `DoorKey`: pick up the key, unlock the door, reach the goal.
+//! Pick up the key, unlock the door, and reach the goal in two rooms.
 //!
-//! Ports Farama Minigrid's [`DoorKeyEnv`]. The room is bisected by a
-//! vertical interior wall containing a single [`Locked`] door. A matching
-//! key sits in the left room; the goal sits in the right room.
+//! Ports Farama Minigrid's [`DoorKeyEnv`]. A vertical interior wall at the
+//! midpoint column bisects the `N×N` grid into a left room (agent + key) and
+//! a right room (goal). The wall contains one [`Locked`] door; the agent must
+//! pick up the matching key before it can toggle the door open.
+//!
+//! ## Layout (default `size = 5`)
+//!
+//! ```text
+//! # # # # #
+//! # K # . #   K = key  (1, 1)
+//! # A D . #   A = agent (1, 2) facing North; D = locked door (2, 2)
+//! # . # G #   G = goal (3, 3)
+//! # # # # #
+//! ```
+//!
+//! - `#` — border or interior wall
+//! - `K` — yellow key (left room)
+//! - `A` — agent start, facing North so `Pickup` immediately grabs the key
+//! - `D` — locked door at `(split_col, split_col)`
+//! - `G` — goal (bottom-right interior cell)
+//! - `.` — empty passable cell
+//!
+//! ## Required action sequence
+//!
+//! 1. `Pickup` — grab the key
+//! 2. `Toggle` twice — unlock then open the door
+//! 3. Navigate through the door to the goal
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar; positive only on reaching the goal |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = DoorKeyConfig::new(5, 100, 0);
+//! let mut env = DoorKeyEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`DoorKeyEnv`]: https://minigrid.farama.org/environments/minigrid/DoorKeyEnv/
 //! [`Locked`]: super::core::entity::DoorState::Locked
@@ -35,14 +78,43 @@ const MIN_SIZE: usize = 5;
 const DOOR_COLOR: Color = Color::Yellow;
 
 /// Configuration for [`DoorKeyEnv`].
+///
+/// Controls the grid size, episode length, and RNG seed. The key, door, and
+/// goal positions are derived from `size` so no positional fields are needed.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::grids::door_key::DoorKeyConfig;
+///
+/// let cfg = DoorKeyConfig::new(7, 196, 0);
+/// assert_eq!(cfg.size, 7);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DoorKeyConfig {
+    /// Side length of the square grid in cells, including border walls.
+    ///
+    /// Must be at least [`MIN_SIZE`] (5). The interior split column is
+    /// `size / 2`; both sub-rooms are `(size / 2 - 1)` cells wide.
     pub size: usize,
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
+    /// Seed for the internal random-number generator.
+    ///
+    /// Using the same seed always produces the same episode layout.
     pub seed: u64,
 }
 
 impl DoorKeyConfig {
+    /// Constructs a `DoorKeyConfig` with explicit field values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::door_key::DoorKeyConfig;
+    ///
+    /// let cfg = DoorKeyConfig::new(5, 100, 42);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -101,7 +173,30 @@ impl FromStr for DoorKeyConfig {
     }
 }
 
-/// Minigrid's `DoorKey` environment.
+/// Two-room gridworld requiring key pickup, door toggle, and goal navigation.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// This environment tests long-horizon reasoning: the agent must learn a
+/// strict ordering (pick up key → unlock door → navigate to goal) before any
+/// reward is available.
+///
+/// Construct via [`DoorKeyEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (size 5, 100 steps, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = DoorKeyEnv::with_config(
+///     DoorKeyConfig::new(5, 100, 0),
+///     false,
+/// );
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct DoorKeyEnv {
     state: GridState,
@@ -112,6 +207,22 @@ pub struct DoorKeyEnv {
 }
 
 impl DoorKeyEnv {
+    /// Constructs a `DoorKeyEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+    ///
+    /// let env = DoorKeyEnv::with_config(
+    ///     DoorKeyConfig::new(7, 196, 99),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: DoorKeyConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -125,27 +236,37 @@ impl DoorKeyEnv {
         }
     }
 
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &DoorKeyConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Renders the current grid as an ASCII string.
+    ///
+    /// Useful for debugging; the same output is printed to stdout on each step
+    /// when the environment was constructed with `render = true`.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)
     }
 
-    /// Column where the vertical interior wall and door sit.
+    /// Returns the column index of the vertical interior wall and locked door.
+    ///
+    /// Equals `size / 2` (integer division). For the default size of 5 this
+    /// is column 2; the door sits at `(split_col, split_col)`.
     #[must_use]
     pub fn split_col(&self) -> i32 {
         #[allow(clippy::cast_possible_wrap)]

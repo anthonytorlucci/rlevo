@@ -5,6 +5,36 @@
 //! into lava terminates the episode with reward `0.0`; reaching the goal
 //! pays [`success_reward`].
 //!
+//! ## Layout (5 × 5 default)
+//!
+//! ```text
+//! # # # # #
+//! # A ~ . #    ~ = Lava
+//! # . . . #    A = agent, start (1, 1) facing East
+//! # . ~ G #    G = Goal (3, 3)
+//! # # # # #    # = wall
+//! ```
+//!
+//! The lava strip occupies `x = size / 2`; the single gap sits at
+//! `y = size / 2`. The goal is always at `(size-2, size-2)`.
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell  |
+//! |-------------|---------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`                                  |
+//! | Reward      | `success_reward(steps, max_steps)` on goal; `0.0` on lava / timeout |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = LavaGapConfig::new(5, 100, 0);
+//! let mut env = LavaGapEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("lava col: {}, gap row: {}", env.lava_col(), env.gap_row());
+//! ```
+//!
 //! [`LavaGapEnv`]: https://minigrid.farama.org/environments/minigrid/LavaGapEnv/
 //! [`Lava`]: super::core::entity::Entity::Lava
 
@@ -34,14 +64,38 @@ use std::str::FromStr;
 const MIN_SIZE: usize = 5;
 
 /// Configuration for [`LavaGapEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::lava_gap::LavaGapConfig;
+///
+/// let cfg = LavaGapConfig::new(7, 200, 42);
+/// assert_eq!(cfg.size, 7);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LavaGapConfig {
+    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (5).
+    ///
+    /// The lava column sits at `x = size / 2` and the gap at `y = size / 2`.
     pub size: usize,
+    /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
+    /// RNG seed; reserved for future stochastic placement variants.
     pub seed: u64,
 }
 
 impl LavaGapConfig {
+    /// Creates a [`LavaGapConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::lava_gap::LavaGapConfig;
+    ///
+    /// let cfg = LavaGapConfig::new(5, 100, 0);
+    /// assert_eq!(cfg.max_steps, 100);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -101,6 +155,24 @@ impl FromStr for LavaGapConfig {
 }
 
 /// Minigrid's `LavaGap` environment.
+///
+/// A vertical lava strip bisects the room; the agent must navigate
+/// through the single gap to reach the goal in the opposite corner.
+/// Stepping into lava ends the episode immediately with reward `0.0`.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::lava_gap::LavaGapEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = LavaGapEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("lava col: {}, gap row: {}", env.lava_col(), env.gap_row());
+/// ```
 #[derive(Debug)]
 pub struct LavaGapEnv {
     state: GridState,
@@ -111,6 +183,7 @@ pub struct LavaGapEnv {
 }
 
 impl LavaGapEnv {
+    /// Constructs a [`LavaGapEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: LavaGapConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -124,16 +197,19 @@ impl LavaGapEnv {
         }
     }
 
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &LavaGapConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
@@ -155,6 +231,7 @@ impl LavaGapEnv {
         row
     }
 
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

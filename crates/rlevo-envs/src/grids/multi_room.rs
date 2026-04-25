@@ -10,6 +10,36 @@
 //! a configurable structural knob (`num_rooms`), giving it a long-horizon
 //! planning flavor without depending on randomization.
 //!
+//! ## Layout (3 rooms, room_width = 5, height = 5 — default)
+//!
+//! ```text
+//! # # # # # # # # # # # # # # # #
+//! # . . . # . . . . # . . . . . #
+//! # A . . D . . . . D . . . . G #   D = Door (grey, closed)
+//! # . . . # . . . . # . . . . . #   A = agent, start (1, 2) facing East
+//! # # # # # # # # # # # # # # # #   G = goal (14, 2);  # = wall
+//! ```
+//!
+//! Dividing walls sit at `x = i × room_width` for `i` in `1..num_rooms`.
+//! Each wall has a single closed door at the corridor row (`height / 2`).
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell |
+//! |-------------|------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Toggle`                     |
+//! | Reward      | `success_reward(steps, max_steps)` on goal; `0.0` on timeout     |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
+//! let mut env = MultiRoomEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("walls: {:?}", env.wall_columns());
+//! ```
+//!
 //! [`MultiRoomEnv`]: https://minigrid.farama.org/environments/minigrid/MultiRoomEnv/
 
 use super::core::{
@@ -41,19 +71,40 @@ const MIN_NUM_ROOMS: usize = 2;
 const DOOR_COLOR: Color = Color::Grey;
 
 /// Configuration for [`MultiRoomEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::multi_room::MultiRoomConfig;
+///
+/// let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
+/// assert_eq!(cfg.total_width(), 16);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultiRoomConfig {
-    /// Number of rooms along the horizontal axis.
+    /// Number of rooms along the horizontal axis; must be ≥ `MIN_NUM_ROOMS` (2).
     pub num_rooms: usize,
-    /// Width of each individual room, including its right-hand wall.
+    /// Width of each individual room, including its right-hand wall; must be ≥ `MIN_ROOM_WIDTH` (3).
     pub room_width: usize,
-    /// Height of the strip.
+    /// Height of the strip in cells; must be ≥ 5.
     pub height: usize,
+    /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
+    /// RNG seed; reserved for future stochastic variants.
     pub seed: u64,
 }
 
 impl MultiRoomConfig {
+    /// Creates a [`MultiRoomConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::multi_room::MultiRoomConfig;
+    ///
+    /// let cfg = MultiRoomConfig::new(2, 4, 5, 160, 0);
+    /// assert_eq!(cfg.total_width(), 9);
+    /// ```
     #[must_use]
     pub const fn new(
         num_rooms: usize,
@@ -159,6 +210,25 @@ impl FromStr for MultiRoomConfig {
 }
 
 /// Minigrid's `MultiRoom` environment.
+///
+/// The world is a horizontal strip of rooms connected by closed (unlocked)
+/// doors; the agent must toggle each door open in sequence to reach the goal
+/// in the last room. Rollout length scales with [`MultiRoomConfig::num_rooms`],
+/// making this suitable for testing long-horizon planning and credit assignment.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::multi_room::MultiRoomEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = MultiRoomEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("wall cols: {:?}", env.wall_columns());
+/// ```
 #[derive(Debug)]
 pub struct MultiRoomEnv {
     state: GridState,
@@ -169,6 +239,7 @@ pub struct MultiRoomEnv {
 }
 
 impl MultiRoomEnv {
+    /// Constructs a [`MultiRoomEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: MultiRoomConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -182,21 +253,25 @@ impl MultiRoomEnv {
         }
     }
 
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &MultiRoomConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)
