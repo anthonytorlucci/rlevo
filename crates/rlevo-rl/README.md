@@ -42,8 +42,8 @@ Default hyperparameters match the Nature DQN paper:
 
 **References**
 
-- Mnih et al. (2015), *Human-level control through deep reinforcement learning*, Nature — https://www.nature.com/articles/nature14236
-- van Hasselt, Guez & Silver (2016), *Deep Reinforcement Learning with Double Q-learning*, AAAI — https://arxiv.org/abs/1509.06461
+- V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski, S. Petersen, C. Beattie, A. Sadik, I. Antonoglou, H. King, D. Kumaran, D. Wierstra, S. Legg, and D. Hassabis, "Human-level control through deep reinforcement learning," Nature, vol. 518, pp. 529–533, Feb. 2015, doi: 10.1038/nature14236. https://www.nature.com/articles/nature14236
+- H. van Hasselt, A. Guez, and D. Silver, "Deep reinforcement learning with double Q-learning," arXiv preprint arXiv:1509.06461, Sep. 2015. [arXiv](https://arxiv.org/abs/1509.06461)
 - CleanRL DQN implementation — https://docs.cleanrl.dev/rl-algorithms/dqn/
 
 ---
@@ -77,7 +77,7 @@ All standard DQN hyperparameters are inherited unchanged.
 
 **References**
 
-- Bellemare, Dabney & Munos (2017), *A Distributional Perspective on Reinforcement Learning*, ICML — https://arxiv.org/abs/1707.06887
+- M. G. Bellemare, W. Dabney, and R. Munos, "A distributional perspective on reinforcement learning," arXiv preprint arXiv:1707.06887, Jul. 2017. [arXiv](https://arxiv.org/abs/1707.06887)
 - CleanRL C51 implementation — https://docs.cleanrl.dev/rl-algorithms/c51/
 
 ---
@@ -107,7 +107,7 @@ Distributional-specific hyperparameters:
 
 **References**
 
-- Dabney et al. (2018), *Distributional Reinforcement Learning with Quantile Regression*, AAAI — https://arxiv.org/abs/1710.10044
+- W. Dabney, M. Rowland, M. G. Bellemare, and R. Munos, "Distributional reinforcement learning with quantile regression," in Proc. Thirty-Second AAAI Conf. Artif. Intell., vol. 32, no. 1, Feb. 2018, doi: 10.1609/aaai.v32i1.11791. [arXiv](https://arxiv.org/abs/1710.10044)
 - CleanRL QR-DQN implementation — https://docs.cleanrl.dev/rl-algorithms/c51/#qr-dqnpy
 
 ---
@@ -154,8 +154,9 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 
 **References**
 
-- Schulman et al. (2017), *Proximal Policy Optimization Algorithms* — https://arxiv.org/abs/1707.06707
-- Huang et al. (2022), *The 37 Implementation Details of PPO* — https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+- J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, "Proximal policy optimization algorithms," arXiv:1707.06347 [cs.LG], Jul. 2017. [arXiv](https://arxiv.org/abs/1707.06347)
+- S. Huang, R. F. J. Dossa, A. Raffin, A. Kanervisto, W. Wang, "The 37 implementation details of proximal policy optimization", 25 Mar 2022. [Online](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/)
+- J. Schulman, P. Moritz, S. Levine, M. I. Jordan, and P. Abbeel, "High-dimensional continuous control using generalized advantage estimation," in Proc. Int. Conf. Learn. Represent. (ICLR), San Juan, Puerto Rico, May 2016. [arXiv](https://arxiv.org/abs/1506.02438)
 - CleanRL PPO implementation — https://docs.cleanrl.dev/rl-algorithms/ppo/
 
 ---
@@ -189,7 +190,7 @@ The PPG-specific hyperparameters layer on top of PPO's defaults:
 
 **References**
 
-- Cobbe et al. (2020), *Phasic Policy Gradient* — https://arxiv.org/abs/2009.04416
+- K. W. Cobbe, J. Hilton, O. Klimov, and J. Schulman, "Phasic policy gradient," in Proc. 38th Int. Conf. Mach. Learn., PMLR, vol. 139, pp. 2020–2027, Jul. 2021. [arXiv 2020](https://arxiv.org/abs/2009.04416)
 - CleanRL PPG implementation — https://docs.cleanrl.dev/rl-algorithms/ppg/
 
 ---
@@ -226,7 +227,7 @@ Default hyperparameters follow CleanRL:
 
 **References**
 
-- Lillicrap et al. (2015), *Continuous Control with Deep Reinforcement Learning* — https://arxiv.org/abs/1509.02971
+- T. P. Lillicrap, J. J. Hunt, A. Pritzel, N. Heess, T. Erez, Y. Tassa, D. Silver, and D. Wierstra, "Continuous control with deep reinforcement learning," arXiv preprint arXiv:1509.02971, Sep. 2015. [arXiv](https://arxiv.org/abs/1509.02971)
 - CleanRL DDPG implementation — https://docs.cleanrl.dev/rl-algorithms/ddpg/
 
 ---
@@ -257,7 +258,7 @@ TD3 inherits DDPG's defaults and adds target-smoothing parameters:
 
 **References**
 
-- Fujimoto, van Hoof, Meger (2018), *Addressing Function Approximation Error in Actor-Critic Methods* — https://arxiv.org/abs/1802.09477
+- S. Fujimoto, H. van Hoof, and D. Meger, "Addressing function approximation error in actor-critic methods," arXiv preprint arXiv:1802.09477, 2018. [arXiv](https://arxiv.org/abs/1802.09477)
 - CleanRL TD3 implementation — https://docs.cleanrl.dev/rl-algorithms/td3/
 
 ---
@@ -301,8 +302,8 @@ Default hyperparameters follow CleanRL:
 
 **References**
 
-- Haarnoja et al. (2018a), *Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor* — https://arxiv.org/abs/1801.01290
-- Haarnoja et al. (2018b), *Soft Actor-Critic Algorithms and Applications* — https://arxiv.org/abs/1812.05905
+- T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, "Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor," arXiv preprint arXiv:1801.01290, Jan. 2018. [arXiv](https://arxiv.org/abs/1801.01290)
+- T. Haarnoja, A. Zhou, K. Hartikainen, G. Tucker, S. Ha, J. Tan, V. Kumar, H. Zhu, A. Gupta, P. Abbeel, and S. Levine, "Soft actor-critic algorithms and applications," arXiv preprint arXiv:1812.05905, Dec. 2018. [arXiv](https://arxiv.org/abs/1812.05905)
 - CleanRL SAC implementation — https://docs.cleanrl.dev/rl-algorithms/sac/
 
 ---
@@ -358,23 +359,6 @@ All config structs are `Clone + Debug`. Serde support is planned.
 - Unit tests that assert exact equality run on `ndarray`.
 
 ---
-
-## References
-
-- CleanRL — https://github.com/vwxyzjn/cleanrl
-- CleanRL algorithm overview — https://docs.cleanrl.dev/rl-algorithms/overview/
-- Burn framework — https://burn.dev
-- Mnih et al. (2015), *Human-level control through deep reinforcement learning* — https://www.nature.com/articles/nature14236
-- van Hasselt, Guez & Silver (2016), *Deep Reinforcement Learning with Double Q-learning* — https://arxiv.org/abs/1509.06461
-- Bellemare, Dabney & Munos (2017), *A Distributional Perspective on Reinforcement Learning* — https://arxiv.org/abs/1707.06887
-- Dabney et al. (2018), *Distributional Reinforcement Learning with Quantile Regression* — https://arxiv.org/abs/1710.10044
-- Schulman et al. (2017), *Proximal Policy Optimization Algorithms* — https://arxiv.org/abs/1707.06707
-- Huang et al. (2022), *The 37 Implementation Details of Proximal Policy Optimization* — https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
-- Cobbe et al. (2020), *Phasic Policy Gradient* — https://arxiv.org/abs/2009.04416
-- Lillicrap et al. (2015), *Continuous Control with Deep Reinforcement Learning* — https://arxiv.org/abs/1509.02971
-- Fujimoto, van Hoof & Meger (2018), *Addressing Function Approximation Error in Actor-Critic Methods* — https://arxiv.org/abs/1802.09477
-- Haarnoja et al. (2018a), *Soft Actor-Critic* — https://arxiv.org/abs/1801.01290
-- Haarnoja et al. (2018b), *Soft Actor-Critic Algorithms and Applications* — https://arxiv.org/abs/1812.05905
 
 ## License
 

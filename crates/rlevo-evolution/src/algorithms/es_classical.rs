@@ -19,7 +19,6 @@
 //!
 //! - Beyer & Schwefel (2002), *Evolution strategies: A comprehensive
 //!   introduction*.
-//! - Rechenberg (1973), *Evolutionsstrategie*.
 
 use std::marker::PhantomData;
 

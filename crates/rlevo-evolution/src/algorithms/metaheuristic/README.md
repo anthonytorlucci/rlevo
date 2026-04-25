@@ -14,7 +14,7 @@ this directory hoping one of them wins.
 
 The metaheuristics literature has matured enough to say this plainly.
 Independent benchmarking (IEEE CEC competitions, Piotrowski et al.
-2020, Camacho Villalón et al. 2020) shows:
+2014, Camacho Villalón et al. 2020) shows:
 
 | Algorithm  | Status | Recommendation |
 |------------|--------|---------------|
@@ -42,21 +42,3 @@ Three reasons:
 3. They exercise the `Strategy<B>` trait across a wider design space,
    surfacing abstraction leaks before more serious algorithms (CMA-ES,
    LSHADE) land.
-
-## References
-
-- Kennedy & Eberhart (1995), *Particle Swarm Optimization*.
-- Socha & Dorigo (2008), *Ant colony optimization for continuous domains*.
-- Karaboga (2005), *An idea based on honey bee swarm for numerical optimization*.
-- Mirjalili, Mirjalili & Lewis (2014), *Grey Wolf Optimizer*.
-- Mirjalili & Lewis (2016), *The Whale Optimization Algorithm*.
-- Yang & Deb (2009), *Cuckoo Search via Lévy Flights*.
-- Yang (2008), *Nature-Inspired Metaheuristic Algorithms* (Firefly Algorithm).
-- Yang (2010), *A New Metaheuristic Bat-Inspired Algorithm*.
-- Mirjalili et al. (2017), *Salp Swarm Algorithm*.
-- Sörensen (2015), *Metaheuristics — the metaphor exposed*.
-- Camacho Villalón, Dorigo & Stützle (2020), *Grey Wolf, Firefly and
-  Bat Algorithms: Three Widespread Algorithms that Do Not Contain Any
-  Novelty*.
-- Piotrowski, Napiorkowski & Rowinski (2020),
-  *How novel is the "novel" black hole optimization approach?*
