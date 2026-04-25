@@ -19,7 +19,7 @@ impl LoggingReporter {
 impl Reporter for LoggingReporter {
     fn on_suite_start(&mut self, suite: &SuiteInfo) {
         info!(
-            target: "evorl_benchmarks",
+            target: "rlevo_benchmarks",
             suite = %suite.name,
             num_envs = suite.env_names.len(),
             trials_per_env = suite.num_trials_per_env,
@@ -29,7 +29,7 @@ impl Reporter for LoggingReporter {
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
         info!(
-            target: "evorl_benchmarks",
+            target: "rlevo_benchmarks",
             env = %trial.env_name,
             env_idx = trial.key.env_idx,
             trial_idx = trial.key.trial_idx,
@@ -40,7 +40,7 @@ impl Reporter for LoggingReporter {
 
     fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeRecord) {
         info!(
-            target: "evorl_benchmarks",
+            target: "rlevo_benchmarks",
             env = %trial.env_name,
             trial_idx = trial.key.trial_idx,
             episode = ep.episode_idx,
@@ -52,7 +52,7 @@ impl Reporter for LoggingReporter {
 
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport) {
         info!(
-            target: "evorl_benchmarks",
+            target: "rlevo_benchmarks",
             env = %trial.env_name,
             trial_idx = trial.key.trial_idx,
             episodes = report.episodes.len(),
@@ -64,7 +64,7 @@ impl Reporter for LoggingReporter {
 
     fn on_suite_end(&mut self, report: &BenchmarkReport) {
         info!(
-            target: "evorl_benchmarks",
+            target: "rlevo_benchmarks",
             suite = %report.suite_name,
             trials = report.trials.len(),
             "suite end"

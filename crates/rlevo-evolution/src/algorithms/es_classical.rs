@@ -19,7 +19,6 @@
 //!
 //! - Beyer & Schwefel (2002), *Evolution strategies: A comprehensive
 //!   introduction*.
-//! - Rechenberg (1973), *Evolutionsstrategie*.
 
 use std::marker::PhantomData;
 
@@ -469,7 +468,6 @@ mod tests {
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
     use rlevo_benchmarks::agent::FitnessEvaluable;
-    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     struct Sphere;

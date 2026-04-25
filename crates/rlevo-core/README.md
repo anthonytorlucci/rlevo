@@ -208,7 +208,7 @@ The following papers directly informed the algorithms and concepts in this crate
 
 - Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design, Bellman targets in `ExperienceTuple`, and the Terminated vs. Truncated episode status distinction.
 
-- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley. — theoretical grounding for `MarkovState`, `BeliefState`, and `TransitionDynamics`.
+- Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for `MarkovState`, `BeliefState`, and `TransitionDynamics`.
 
 ## License
 

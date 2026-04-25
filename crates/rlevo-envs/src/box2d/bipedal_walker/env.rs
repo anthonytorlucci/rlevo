@@ -444,6 +444,7 @@ mod tests {
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
+    /// Creates a default flat-terrain environment for use in tests.
     fn make_env() -> BipedalWalker {
         BipedalWalker::with_config(BipedalWalkerConfig::default())
     }

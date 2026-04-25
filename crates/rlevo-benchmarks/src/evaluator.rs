@@ -175,7 +175,7 @@ impl Evaluator {
                     let path = checkpoint::checkpoint_path(dir, &suite.name);
                     if let Err(e) = checkpoint::save(&path, &rep) {
                         tracing::warn!(
-                            target: "evorl_benchmarks",
+                            target: "rlevo_benchmarks",
                             path = %path.display(),
                             error = %e,
                             "checkpoint save failed"
@@ -201,7 +201,7 @@ impl Evaluator {
             let path = checkpoint::checkpoint_path(dir, &suite.name);
             if let Err(e) = checkpoint::save(&path, &report) {
                 tracing::warn!(
-                    target: "evorl_benchmarks",
+                    target: "rlevo_benchmarks",
                     path = %path.display(),
                     error = %e,
                     "checkpoint save failed"
@@ -233,14 +233,28 @@ where
 
     let start = Instant::now();
 
-    for episode_idx in 0..cfg.num_episodes {
-        let mut obs = env.reset();
+    'episodes: for episode_idx in 0..cfg.num_episodes {
+        let mut obs = match env.reset() {
+            Ok(o) => o,
+            Err(e) => {
+                report.errored = true;
+                report.error_message = Some(e.to_string());
+                break 'episodes;
+            }
+        };
         let mut total_reward = 0.0;
         let mut length = 0;
 
         for _ in 0..cfg.max_steps {
             let action = agent.act(&obs, &mut rng);
-            let step = env.step(action);
+            let step = match env.step(action) {
+                Ok(s) => s,
+                Err(e) => {
+                    report.errored = true;
+                    report.error_message = Some(e.to_string());
+                    break 'episodes;
+                }
+            };
             total_reward += step.reward;
             length += 1;
             obs = step.observation;

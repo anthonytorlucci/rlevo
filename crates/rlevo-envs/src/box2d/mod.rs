@@ -2,7 +2,7 @@
 //!
 //! Enable with the `box2d` cargo feature:
 //! ```toml
-//! evorl-envs = { features = ["box2d"] }
+//! rlevo-envs = { features = ["box2d"] }
 //! ```
 //!
 //! | Environment | Action | Obs dim | Terminated by |

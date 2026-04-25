@@ -14,7 +14,7 @@ pub const METADATA_KEY_SHAPING: &str = "shaping";
 /// Snapshot returned by [`super::LunarLanderDiscrete`] and
 /// [`super::LunarLanderContinuous`] (design decision D6).
 ///
-/// Unlike [`evorl_core::environment::SnapshotBase`], this type overrides
+/// Unlike [`rlevo_core::environment::SnapshotBase`], this type overrides
 /// `metadata()` to expose the potential-based shaping component for logging
 /// and debugging.
 ///

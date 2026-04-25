@@ -183,7 +183,7 @@ impl Default for CastlingRights {
 
 // Run the tests with:
 // ```ignore
-// cargo test --package evorl-envs games::chess::board::tests
+// cargo test --package rlevo-envs games::chess::board::tests
 // ```
 #[cfg(test)]
 mod tests {

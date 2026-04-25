@@ -5,6 +5,38 @@
 //! the starting room; a target colored box sits in the far room. Success
 //! is reached when the agent is carrying the target box.
 //!
+//! ## Layout (7 × 7 default)
+//!
+//! ```text
+//! # # # # # # #
+//! # K . # . . #    K = Key (yellow) at (1, 1)
+//! # ↑ . # . . #    ↑ = agent (1, 2) facing North
+//! # . . D B . #    D = Door (yellow, locked) at (3, 3); B = Box (purple) at (4, 3)
+//! # . . # . . #
+//! # . . # . . #
+//! # # # # # # #    # = wall; interior wall at x = size / 2
+//! ```
+//!
+//! Required action sequence: pick up the key → navigate to the door →
+//! toggle twice (unlock then open) → cross into the far room → pick up the box.
+//!
+//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell      |
+//! |-------------|------------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Pickup`, `Drop`, `Toggle`         |
+//! | Reward      | `success_reward(steps, max_steps)` when box is carried; `0.0` on timeout |
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use rlevo_envs::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = UnlockPickupConfig::new(7, 196, 0);
+//! let mut env = UnlockPickupEnv::with_config(cfg, false);
+//! let snap = env.reset().unwrap();
+//! println!("target: {:?}", env.target());
+//! ```
+//!
 //! [`UnlockPickupEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockPickupEnv/
 
 use super::core::{
@@ -36,14 +68,39 @@ const DOOR_COLOR: Color = Color::Yellow;
 const BOX_COLOR: Color = Color::Purple;
 
 /// Configuration for [`UnlockPickupEnv`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::unlock_pickup::UnlockPickupConfig;
+///
+/// let cfg = UnlockPickupConfig::new(7, 196, 0);
+/// assert_eq!(cfg.size, 7);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlockPickupConfig {
+    /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (7).
+    ///
+    /// The interior wall sits at `x = size / 2`; the door and box are placed at
+    /// `(size/2, size/2)` and `(size/2 + 1, size/2)` respectively.
     pub size: usize,
+    /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
+    /// RNG seed; reserved for future stochastic placement variants.
     pub seed: u64,
 }
 
 impl UnlockPickupConfig {
+    /// Creates an [`UnlockPickupConfig`] with the given parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::unlock_pickup::UnlockPickupConfig;
+    ///
+    /// let cfg = UnlockPickupConfig::new(9, 324, 42);
+    /// assert_eq!(cfg.seed, 42);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -103,6 +160,25 @@ impl FromStr for UnlockPickupConfig {
 }
 
 /// Minigrid's `UnlockPickup` environment.
+///
+/// Two rooms separated by a locked door. The agent must pick up the key
+/// from the starting room, unlock and open the door, cross into the far
+/// room, and pick up the target box. Reward is paid the moment the agent
+/// is carrying the box; the episode times out if the step budget runs out.
+///
+/// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
+/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::unlock_pickup::UnlockPickupEnv;
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = UnlockPickupEnv::new(false);
+/// let snap = env.reset().unwrap();
+/// println!("target: {:?}", env.target());
+/// ```
 #[derive(Debug)]
 pub struct UnlockPickupEnv {
     state: GridState,
@@ -114,6 +190,7 @@ pub struct UnlockPickupEnv {
 }
 
 impl UnlockPickupEnv {
+    /// Constructs an [`UnlockPickupEnv`] from an explicit configuration.
     #[must_use]
     pub fn with_config(config: UnlockPickupConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -128,16 +205,19 @@ impl UnlockPickupEnv {
         }
     }
 
+    /// Returns the environment's active configuration.
     #[must_use]
     pub const fn config(&self) -> &UnlockPickupConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
@@ -149,6 +229,7 @@ impl UnlockPickupEnv {
         self.target
     }
 
+    /// Renders the current grid state as an ASCII string.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

@@ -15,7 +15,6 @@
 
 use burn::backend::NdArray;
 use rlevo_benchmarks::agent::FitnessEvaluable;
-use rlevo_benchmarks::env::BenchEnv;
 
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 use rlevo_evolution::algorithms::ga::{

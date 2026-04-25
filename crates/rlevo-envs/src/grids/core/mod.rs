@@ -36,7 +36,7 @@ use rlevo_core::environment::SnapshotBase;
 use rlevo_core::reward::ScalarReward;
 
 /// Canonical snapshot type produced by every grid environment's
-/// [`Environment::step`](evorl_core::environment::Environment::step).
+/// [`Environment::step`](rlevo_core::environment::Environment::step).
 ///
 /// All grid envs use a 3-D observation (`[7, 7, 3]`) and a scalar reward,
 /// so this alias saves typing in every per-env `impl`.

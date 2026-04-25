@@ -1,10 +1,46 @@
-//! `Empty`: reach the green goal tile in an empty walled room.
+//! Navigate an empty walled room to reach the goal tile.
 //!
-//! Ports Farama Minigrid's [`EmptyEnv`]. The grid is a `size × size` room
-//! with a wall perimeter, a [`Goal`] tile at `(size - 2, size - 2)`, and
-//! the agent starting at `(1, 1)` facing East. Stepping onto the goal
-//! terminates the episode and pays [`success_reward`]; exceeding
-//! `max_steps` terminates with reward `0.0`.
+//! Ports Farama Minigrid's [`EmptyEnv`]. The grid is an `N×N` room with a
+//! wall perimeter, a single [`Goal`] tile at `(size - 2, size - 2)`, and the
+//! agent starting at `(1, 1)` facing East. Stepping onto the goal terminates
+//! the episode and pays [`success_reward`]; exceeding `max_steps` terminates
+//! with reward `0.0`.
+//!
+//! This is the simplest grid environment — no obstacles, no items, no doors.
+//! It serves as a baseline for testing navigation policies and as a reference
+//! for implementing more complex environments.
+//!
+//! ## Layout (default `size = 8`)
+//!
+//! ```text
+//! # # # # # # # #
+//! # A . . . . . #   A = agent (1, 1), facing East
+//! # . . . . . . #
+//! # . . . . . . #
+//! # . . . . . . #
+//! # . . . . . . #
+//! # . . . . . G #   G = goal (6, 6)
+//! # # # # # # # #
+//! ```
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar; positive only on reaching the goal |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = EmptyConfig::new(8, 256, 0);
+//! let mut env = EmptyEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`EmptyEnv`]: https://minigrid.farama.org/environments/minigrid/EmptyEnv/
 //! [`Goal`]: super::core::entity::Entity::Goal
@@ -47,7 +83,16 @@ pub struct EmptyConfig {
 }
 
 impl EmptyConfig {
-    /// Construct a new config.
+    /// Constructs an `EmptyConfig` with explicit field values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::empty::EmptyConfig;
+    ///
+    /// let cfg = EmptyConfig::new(8, 256, 0);
+    /// assert_eq!(cfg.size, 8);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -116,7 +161,27 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
     Ok(())
 }
 
-/// Minigrid's `Empty` environment: reach the green goal tile.
+/// Simplest grid environment: navigate an empty room to the goal.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// No obstacles, keys, or doors — useful as a baseline for verifying that a
+/// navigation policy can solve a trivial task before tackling harder
+/// environments.
+///
+/// Construct via [`EmptyEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (size 8, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct EmptyEnv {
     state: GridState,
@@ -128,7 +193,22 @@ pub struct EmptyEnv {
 }
 
 impl EmptyEnv {
-    /// Construct an [`EmptyEnv`] from an explicit configuration.
+    /// Constructs an `EmptyEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+    ///
+    /// let env = EmptyEnv::with_config(
+    ///     EmptyConfig::new(8, 256, 0),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: EmptyConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -142,19 +222,19 @@ impl EmptyEnv {
         }
     }
 
-    /// Borrow the active configuration.
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &EmptyConfig {
         &self.config
     }
 
-    /// Current step count within the episode.
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
-    /// Borrow the full grid + agent state (useful in tests).
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state

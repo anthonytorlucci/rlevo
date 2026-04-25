@@ -1,59 +1,27 @@
 //! Benchmark: sample-average ε-greedy agent on the ten-armed bandit.
 //!
-//! Demonstrates the full harness path (`Suite` → `Evaluator::run_suite` →
-//! `BenchmarkReport`) against a real environment from `rlevo-envs`.
+//! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
+//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-envs`,
+//! through the [`BenchAdapter`] / [`ten_armed_bandit_suite`] glue exposed
+//! by the `bench` feature.
 //!
 //! **DQN integration is deferred.** A `FrozenDqnPolicy` adapter needs
 //! concrete backend selection and full `DiscreteAction`/`TensorConvertible`
-//! wiring for `TenArmedBandit`, neither of which exists yet in
-//! `rlevo-envs`. The acceptance path is demonstrated here with a non-DL
-//! stand-in; a follow-up release will add the DQN adapter once the
-//! underlying trait impls land.
+//! wiring for `TenArmedBandit`, neither of which exists yet. The harness
+//! path is exercised here with a non-DL stand-in; a follow-up release
+//! will add the DQN adapter once the underlying trait impls land.
+//!
+//! [`TenArmedBandit`]: rlevo_envs::classic::TenArmedBandit
+//! [`BenchAdapter`]: rlevo_envs::bench::BenchAdapter
+//! [`ten_armed_bandit_suite`]: rlevo_envs::bench::suites::ten_armed_bandit_suite
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
 use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::env::{BenchEnv, BenchStep};
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_benchmarks::suite::Suite;
-use rlevo_envs::classic::ten_armed_bandit::TenArmedBandit;
-
-struct BanditEnv {
-    inner: TenArmedBandit,
-    horizon: usize,
-    t: usize,
-}
-
-impl BanditEnv {
-    fn new(seed: u64, horizon: usize) -> Self {
-        Self {
-            inner: TenArmedBandit::with_seed(seed),
-            horizon,
-            t: 0,
-        }
-    }
-}
-
-impl BenchEnv for BanditEnv {
-    type Observation = ();
-    type Action = usize;
-
-    fn reset(&mut self) -> Self::Observation {
-        self.inner.reset();
-        self.t = 0;
-    }
-
-    fn step(&mut self, action: Self::Action) -> BenchStep<Self::Observation> {
-        let reward = f64::from(self.inner.pull(action));
-        self.t += 1;
-        BenchStep {
-            observation: (),
-            reward,
-            done: self.t >= self.horizon,
-        }
-    }
-}
+use rlevo_envs::bench::suites::ten_armed_bandit_suite;
+use rlevo_envs::classic::{TenArmedBanditAction, TenArmedBanditObservation};
 
 /// ε-greedy agent over a fixed Q prior.
 ///
@@ -88,15 +56,16 @@ impl SampleAverageAgent {
     }
 }
 
-impl BenchableAgent<(), usize> for SampleAverageAgent {
-    fn act(&mut self, _obs: &(), rng: &mut dyn Rng) -> usize {
+impl BenchableAgent<TenArmedBanditObservation, TenArmedBanditAction> for SampleAverageAgent {
+    fn act(&mut self, _obs: &TenArmedBanditObservation, rng: &mut dyn Rng) -> TenArmedBanditAction {
         let unit = Uniform::new(0.0_f64, 1.0).unwrap();
         let arms = Uniform::new(0u32, 10).unwrap();
-        if unit.sample(rng) < self.epsilon {
+        let arm = if unit.sample(rng) < self.epsilon {
             arms.sample(rng) as usize
         } else {
             self.argmax()
-        }
+        };
+        TenArmedBanditAction::new(arm).expect("arm in 0..10")
     }
 }
 
@@ -114,12 +83,7 @@ fn main() {
         success_threshold: Some(0.0),
     };
 
-    let horizon = cfg.max_steps;
-    let suite: Suite<BanditEnv> = Suite::new("ten-armed-bandit", cfg.clone())
-        .with_env("bandit-seedA", move |seed| BanditEnv::new(seed, horizon))
-        .with_env("bandit-seedB", move |seed| {
-            BanditEnv::new(seed.wrapping_add(999), horizon)
-        });
+    let suite = ten_armed_bandit_suite(cfg.clone());
 
     let evaluator = Evaluator::new(cfg);
     let mut reporter = LoggingReporter::new();

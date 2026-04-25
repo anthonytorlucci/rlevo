@@ -309,6 +309,7 @@ mod tests {
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
+    /// Creates a default seeded CarRacing environment for use in tests.
     fn make_env() -> CarRacing {
         CarRacing::with_config(CarRacingConfig::default())
     }

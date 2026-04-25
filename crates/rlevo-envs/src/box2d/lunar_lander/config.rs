@@ -1,4 +1,8 @@
 //! Configuration for LunarLander environments.
+//!
+//! [`LunarLanderConfig`] groups all tunable parameters shared by
+//! [`super::LunarLanderDiscrete`] and [`super::LunarLanderContinuous`].
+//! Use [`LunarLanderConfig::builder`] for ergonomic construction.
 
 use serde::{Deserialize, Serialize};
 
@@ -77,31 +81,37 @@ pub struct LunarLanderConfigBuilder {
 }
 
 impl LunarLanderConfigBuilder {
+    /// Sets the wind model applied each physics step.
     pub fn wind_mode(mut self, mode: WindMode) -> Self {
         self.inner.wind_mode = mode;
         self
     }
 
+    /// Sets gravitational acceleration (negative = downward).
     pub fn gravity(mut self, g: f32) -> Self {
         self.inner.gravity = g;
         self
     }
 
+    /// Sets the RNG seed for terrain layout and initial velocity.
     pub fn seed(mut self, seed: u64) -> Self {
         self.inner.seed = seed;
         self
     }
 
+    /// Sets the maximum steps per episode before truncation.
     pub fn max_steps(mut self, n: usize) -> Self {
         self.inner.max_steps = n;
         self
     }
 
+    /// Sets the main engine thrust in Newtons.
     pub fn main_engine_power(mut self, p: f32) -> Self {
         self.inner.main_engine_power = p;
         self
     }
 
+    /// Consumes the builder and returns the configured [`LunarLanderConfig`].
     pub fn build(self) -> LunarLanderConfig {
         self.inner
     }

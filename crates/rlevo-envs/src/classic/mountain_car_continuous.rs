@@ -1,9 +1,48 @@
 //! MountainCarContinuous-v0 environment.
 //!
-//! Continuous-action variant of MountainCar. Reward is shaped:
-//! `-0.1 * action²` per step plus `+100` when the goal is reached.
-//! No intrinsic step cap — compose with
-//! [`crate::wrappers::TimeLimit::new(env, 999)`] for the standard limit.
+//! Continuous-action variant of [`crate::classic::mountain_car::MountainCar`].
+//! The agent applies a scalar force in `[-1, 1]` at each step; it must swing
+//! left to build momentum before cresting the right hill.
+//!
+//! ## Reward
+//!
+//! Reward is shaped to penalise effort while rewarding goal-reaching:
+//!
+//! ```text
+//! reward = -0.1 * force² + 100 * [position ≥ goal_position ∧ velocity ≥ goal_velocity]
+//! ```
+//!
+//! - **Running step**: `reward = -0.1 * force²` (≤ 0)
+//! - **Terminal step**: `reward = -0.1 * force² + 100`
+//!
+//! A zero-force policy scores `0` every step; the agent must accept temporary
+//! control cost to achieve the large goal bonus.
+//!
+//! ## Step limit
+//!
+//! This environment has **no intrinsic episode limit**. The standard
+//! Gymnasium cap of 999 steps should be added externally:
+//!
+//! ```rust,ignore
+//! use rlevo_envs::{classic::mountain_car_continuous::MountainCarContinuous, wrappers::TimeLimit};
+//!
+//! let env = TimeLimit::new(MountainCarContinuous::new(false), 999);
+//! ```
+//!
+//! ## Quick start
+//!
+//! ```rust,ignore
+//! use rlevo_core::environment::Environment;
+//! use rlevo_envs::classic::mountain_car_continuous::{
+//!     MountainCarContinuous, MountainCarContinuousAction,
+//! };
+//!
+//! let mut env = MountainCarContinuous::new(false);
+//! let _snap = env.reset().unwrap();
+//! let action = MountainCarContinuousAction::new(0.5).unwrap();
+//! let snap = env.step(action).unwrap();
+//! println!("{snap:?}");
+//! ```
 use std::fmt;
 
 use rand::{SeedableRng, rngs::StdRng};
@@ -21,6 +60,15 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Returned when constructing an action with an out-of-bounds value.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::mountain_car_continuous::MountainCarContinuousAction;
+///
+/// let err = MountainCarContinuousAction::new(2.0).unwrap_err();
+/// assert!(err.to_string().contains("not in"));
+/// ```
 #[derive(Debug, Clone)]
 pub struct InvalidActionError {
     pub message: String,
@@ -48,6 +96,20 @@ pub const REWARD_GOAL: &str = "goal";
 // ---------------------------------------------------------------------------
 
 /// Configuration for [`MountainCarContinuous`].
+///
+/// All fields are public so they can be set with struct-update syntax.
+/// Use `MountainCarContinuousConfig::default()` for Gymnasium-compatible
+/// defaults.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::classic::mountain_car_continuous::MountainCarContinuousConfig;
+///
+/// let cfg = MountainCarContinuousConfig { seed: 42, ..MountainCarContinuousConfig::default() };
+/// assert_eq!(cfg.seed, 42);
+/// assert!((cfg.power - 0.0015).abs() < 1e-7);
+/// ```
 #[derive(Debug, Clone)]
 pub struct MountainCarContinuousConfig {
     /// Minimum valid action value. Default: `-1.0`.
@@ -99,7 +161,12 @@ impl Default for MountainCarContinuousConfig {
 pub struct MountainCarContinuousAction(f32);
 
 impl MountainCarContinuousAction {
-    /// Construct, returning an error if `force` is not in `[-1, 1]` or is non-finite.
+    /// Constructs an action, returning an error if `force` is out of range or non-finite.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `force` is outside `[-1.0, 1.0]` or is
+    /// `NaN` / infinite.
     pub fn new(force: f32) -> Result<Self, InvalidActionError> {
         if force.is_finite() && (-1.0..=1.0).contains(&force) {
             Ok(Self(force))
@@ -140,6 +207,11 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
         Self::unchecked(self.0.clamp(min, max))
     }
 
+    /// Constructs a [`MountainCarContinuousAction`] from a one-element slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() != 1`.
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(
             values.len(),
@@ -305,6 +377,14 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         Self::with_config(MountainCarContinuousConfig::default())
     }
 
+    /// Resets the environment to a random initial state and returns the first snapshot.
+    ///
+    /// Re-seeds the internal RNG from `config.seed` so repeated calls with the
+    /// same seed produce identical initial positions in `[-0.6, -0.4]`.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
@@ -315,6 +395,16 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         ))
     }
 
+    /// Advances the simulation by one time step and returns the resulting snapshot.
+    ///
+    /// Clamps the force to `[min_action, max_action]`, integrates physics
+    /// (velocity → clamp → position → left-wall inelastic collision), then
+    /// computes `reward = -0.1 * force² + 100 * goal_reached`. The episode
+    /// terminates when `position ≥ goal_position` and `velocity ≥ goal_velocity`.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn step(
         &mut self,
         action: MountainCarContinuousAction,
@@ -396,6 +486,10 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarC
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for [`MountainCarContinuous`] covering observation shape,
+    //! action boundary validation, control-cost formula, goal-reaching bonus,
+    //! and determinism.
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

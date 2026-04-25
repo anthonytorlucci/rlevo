@@ -1,4 +1,8 @@
-//! State type for LunarLander.
+//! Physics state for the LunarLander environments.
+//!
+//! [`LunarLanderState`] holds Rapier2D handles for the lander hull and legs,
+//! cached ground-contact flags, the most recent observation, and the previous
+//! shaping value needed for potential-based reward computation.
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rapier2d::geometry::ColliderHandle;

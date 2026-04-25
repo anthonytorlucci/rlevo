@@ -1,16 +1,57 @@
-//! `DynamicObstacles`: reach the goal while avoiding randomly moving balls.
+//! Reach the goal while randomly moving ball obstacles roam the room.
 //!
-//! Ports Farama Minigrid's [`DynamicObstaclesEnv`]. The room is otherwise
-//! empty, but a configurable number of [`Ball`] obstacles random-walk
-//! each step. Stepping onto an obstacle (bumping into one) is impossible
-//! because balls are not passable; the failure mode is an obstacle
-//! *moving onto the agent's cell*, which yields a reward of `-1.0` and
-//! terminates the episode.
+//! Ports Farama Minigrid's [`DynamicObstaclesEnv`]. The grid is otherwise
+//! empty, but a configurable number of [`Ball`] entities perform a
+//! random-walk after every agent action. Balls are *not* passable — the agent
+//! cannot step onto them — but a ball can move *onto the agent's cell*,
+//! which yields a reward of `−1.0` and terminates the episode.
 //!
-//! This is the first grid environment with a genuinely stochastic
-//! post-step hook driven by the env's own `StdRng`. Seeded resets are
-//! deterministic, so the default `with_config` + `reset` pair is fully
-//! reproducible for tests and benchmarks.
+//! Balls are spawned in random interior cells (excluding the agent start and
+//! goal) during `reset`. The RNG is seeded, so resets are deterministic and
+//! fully reproducible for tests and benchmarks.
+//!
+//! ## Layout (default `size = 6`, 1 obstacle — position random)
+//!
+//! ```text
+//! # # # # # #
+//! # A . . . #   A = agent (1, 1), facing East
+//! # . . B . #   B = ball obstacle (random spawn)
+//! # . . . . #
+//! # . . . G #   G = goal (4, 4)
+//! # # # # # #
+//! ```
+//!
+//! - `A` — agent start (1, 1), facing East
+//! - `B` — blue ball obstacle (exact position varies by seed)
+//! - `G` — goal (`size - 2`, `size - 2`)
+//! - `.` — empty passable cell
+//!
+//! ## Termination conditions
+//!
+//! | Condition | Reward | Done |
+//! |---|---|---|
+//! | Agent reaches goal | `success_reward(steps, max_steps)` | `true` |
+//! | Ball moves onto agent | `−1.0` | `true` |
+//! | Step budget exceeded | `0.0` | `true` |
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
+//! let mut env = DynamicObstaclesEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`DynamicObstaclesEnv`]: https://minigrid.farama.org/environments/minigrid/DynamicObstaclesEnv/
 //! [`Ball`]: super::core::entity::Entity::Ball
@@ -45,15 +86,48 @@ const OBSTACLE_COLOR: Color = Color::Blue;
 const COLLISION_REWARD: f32 = -1.0;
 
 /// Configuration for [`DynamicObstaclesEnv`].
+///
+/// Controls the grid size, number of ball obstacles, episode length, and RNG
+/// seed. Obstacle positions are random-sampled during `build`/`reset`.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::grids::dynamic_obstacles::DynamicObstaclesConfig;
+///
+/// let cfg = DynamicObstaclesConfig::new(8, 3, 256, 0);
+/// assert_eq!(cfg.num_obstacles, 3);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DynamicObstaclesConfig {
+    /// Side length of the square grid in cells, including border walls.
+    ///
+    /// Must be at least [`MIN_SIZE`] (5).
     pub size: usize,
+    /// Number of ball obstacles to spawn in random interior cells.
+    ///
+    /// If there are fewer free interior cells than `num_obstacles`, as many
+    /// balls as possible are placed and the rest are silently skipped.
     pub num_obstacles: usize,
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
+    /// Seed for the internal random-number generator.
+    ///
+    /// Controls both obstacle spawn positions and their random-walk motion.
+    /// Using the same seed always produces identical episode trajectories.
     pub seed: u64,
 }
 
 impl DynamicObstaclesConfig {
+    /// Constructs a `DynamicObstaclesConfig` with explicit field values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::dynamic_obstacles::DynamicObstaclesConfig;
+    ///
+    /// let cfg = DynamicObstaclesConfig::new(6, 1, 144, 42);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, num_obstacles: usize, max_steps: usize, seed: u64) -> Self {
         Self {
@@ -124,7 +198,30 @@ impl FromStr for DynamicObstaclesConfig {
     }
 }
 
-/// Minigrid's `DynamicObstacles` environment.
+/// Stochastic gridworld where ball obstacles random-walk after each agent step.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// This is the first grid environment with a genuinely stochastic post-step
+/// dynamics: obstacle positions change every step regardless of the agent's
+/// action. The internal RNG is seeded, so resets are fully reproducible.
+///
+/// Construct via [`DynamicObstaclesEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (size 6, 1 obstacle, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = DynamicObstaclesEnv::with_config(
+///     DynamicObstaclesConfig::new(6, 2, 144, 0),
+///     false,
+/// );
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct DynamicObstaclesEnv {
     state: GridState,
@@ -136,6 +233,22 @@ pub struct DynamicObstaclesEnv {
 }
 
 impl DynamicObstaclesEnv {
+    /// Constructs a `DynamicObstaclesEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state, spawns obstacles at random
+    /// positions, and seeds the internal RNG. Call [`Environment::reset`]
+    /// before the first [`Environment::step`] to obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+    ///
+    /// let env = DynamicObstaclesEnv::with_config(
+    ///     DynamicObstaclesConfig::new(8, 4, 256, 99),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: DynamicObstaclesConfig, render: bool) -> Self {
         let mut rng = StdRng::seed_from_u64(config.seed);
@@ -150,27 +263,38 @@ impl DynamicObstaclesEnv {
         }
     }
 
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &DynamicObstaclesConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
-    /// Current obstacle positions.
+    /// Returns the current `(x, y)` positions of all ball obstacles.
+    ///
+    /// Positions are updated after every [`Environment::step`] call. The
+    /// slice length equals `num_obstacles` (or fewer if there were not enough
+    /// free cells at spawn time).
     #[must_use]
     pub fn obstacles(&self) -> &[(i32, i32)] {
         &self.obstacles
     }
 
+    /// Renders the current grid as an ASCII string.
+    ///
+    /// Useful for debugging; the same output is printed to stdout on each step
+    /// when the environment was constructed with `render = true`.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)

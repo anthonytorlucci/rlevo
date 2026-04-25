@@ -434,7 +434,6 @@ mod tests {
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use rlevo_benchmarks::env::BenchEnv;
     type TestBackend = NdArray;
 
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].

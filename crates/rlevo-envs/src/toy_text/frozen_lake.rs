@@ -1,10 +1,31 @@
 //! FrozenLake-v1 environment.
 //!
-//! Grid MDP with four tile types: Start (`S`), Frozen (`F`), Hole (`H`), Goal (`G`).
-//! Stepping onto `H` terminates with `reward_schedule.hole`. Reaching `G` terminates
-//! with `reward_schedule.goal`. All other steps yield `reward_schedule.frozen`.
+//! A grid-world where the agent walks across a frozen lake to reach a goal without falling
+//! into holes. Supports 4×4 and 8×8 preset maps as well as custom or procedurally generated
+//! layouts. Random maps are validated by BFS to ensure the goal is always reachable.
 //!
-//! Random maps are generated via BFS-verified sampling to guarantee reachability.
+//! ## Tile types
+//!
+//! | Char | Name   | Effect                                      |
+//! |------|--------|---------------------------------------------|
+//! | `S`  | Start  | Initial agent position (treated as frozen)  |
+//! | `F`  | Frozen | Safe tile; episode continues                |
+//! | `H`  | Hole   | Episode terminates with `reward_schedule.hole` |
+//! | `G`  | Goal   | Episode terminates with `reward_schedule.goal` |
+//!
+//! ## Observation space
+//!
+//! Integer state id `row × ncol + col` in `[0, nrow × ncol)`.
+//!
+//! ## Action space
+//!
+//! Four discrete directions via [`FrozenLakeAction`]: `Left` (0), `Down` (1), `Right` (2), `Up` (3).
+//!
+//! ## Slippery mode
+//!
+//! When enabled, the intended direction succeeds with probability `success_rate`
+//! (default 1/3); each perpendicular direction occurs with probability
+//! `(1 − success_rate) / 2`.
 
 use std::collections::VecDeque;
 
@@ -22,11 +43,16 @@ use crate::toy_text::MapError;
 
 // ── tile ──────────────────────────────────────────────────────────────────────
 
+/// A single cell on the frozen-lake grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tile {
+    /// Starting cell — treated as frozen during simulation.
     Start,
+    /// Safe frozen surface — episode continues with the configured step reward.
     Frozen,
+    /// Open hole — episode terminates on entry.
     Hole,
+    /// Goal cell — episode terminates on entry with the goal reward.
     Goal,
 }
 
@@ -45,9 +71,12 @@ impl TryFrom<char> for Tile {
 
 // ── preset maps ───────────────────────────────────────────────────────────────
 
+/// Built-in preset map sizes for [`FrozenMapSpec::Preset`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrozenPreset {
+    /// The classic 4×4 map: `"SFFF" / "FHFH" / "FFFH" / "HFFG"`.
     Four4x4,
+    /// The classic 8×8 map with a longer path and more holes.
     Eight8x8,
 }
 
@@ -58,14 +87,23 @@ const MAP_8X8: &[&str] = &[
 
 // ── map spec (C2) ─────────────────────────────────────────────────────────────
 
-/// Map source for [`FrozenLakeConfig`]. Replaces the original `desc + map_name + random` option pair.
+/// Source specification for the frozen-lake grid.
+///
+/// Controls whether the environment uses a built-in preset, a user-supplied layout, or a
+/// procedurally generated map. Random maps are regenerated on every call to `reset()`.
 #[derive(Debug, Clone)]
 pub enum FrozenMapSpec {
+    /// One of the two canonical preset maps.
     Preset(FrozenPreset),
+    /// A user-defined grid supplied as a `Vec` of row strings using `S`, `F`, `H`, `G`.
     Custom(Vec<String>),
+    /// Procedurally generated map with BFS-guaranteed goal reachability.
     Random {
+        /// Number of rows.
         nrow: usize,
+        /// Number of columns.
         ncol: usize,
+        /// Probability that an interior cell is frozen (not a hole). Range: `[0.0, 1.0]`.
         frozen_prob: f32,
     },
 }
@@ -82,10 +120,16 @@ impl Default for FrozenMapSpec {
 
 // ── reward schedule ───────────────────────────────────────────────────────────
 
+/// Per-tile reward values for [`FrozenLake`].
+///
+/// The default schedule matches Gymnasium: `+1.0` on goal, `0.0` on hole, `0.0` on frozen.
 #[derive(Debug, Clone)]
 pub struct RewardSchedule {
+    /// Reward issued when the agent reaches the goal tile.
     pub goal: f32,
+    /// Reward issued when the agent falls into a hole.
     pub hole: f32,
+    /// Reward issued for each step on a frozen tile.
     pub frozen: f32,
 }
 
@@ -102,14 +146,32 @@ impl Default for RewardSchedule {
 // ── config ────────────────────────────────────────────────────────────────────
 
 /// Configuration for the [`FrozenLake`] environment.
+///
+/// Build with [`FrozenLakeConfig::builder`] for full control, or use
+/// [`FrozenLakeConfig::default`] for the standard random 8×8 slippery variant.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::toy_text::frozen_lake::{FrozenLakeConfig, FrozenMapSpec, FrozenPreset};
+///
+/// let cfg = FrozenLakeConfig::builder()
+///     .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
+///     .is_slippery(false)
+///     .seed(0)
+///     .build();
+/// ```
 #[derive(Debug, Clone)]
 pub struct FrozenLakeConfig {
+    /// Grid source: preset, custom, or randomly generated.
     pub map: FrozenMapSpec,
-    /// When `true`, apply slip: `success_rate` intended, `(1-success_rate)/2` each perpendicular.
+    /// When `true`, slip transitions are applied using `success_rate`.
     pub is_slippery: bool,
-    /// Probability of moving in the intended direction when slippery. Default: `1.0/3.0`.
+    /// Probability of moving in the intended direction when `is_slippery` is `true`. Default: `1/3`.
     pub success_rate: f32,
+    /// Tile-specific reward values.
     pub reward_schedule: RewardSchedule,
+    /// Seed used to initialise the RNG when the environment is created. Default: `0`.
     pub seed: u64,
 }
 
@@ -307,12 +369,16 @@ fn generate_random_map(
 
 // ── state / observation / action ──────────────────────────────────────────────
 
-/// State: grid position (row, col) plus map dimensions.
+/// Full state: agent position plus the map dimensions needed for id encoding.
 #[derive(Debug, Clone)]
 pub struct FrozenLakeState {
+    /// Current row index in `[0, nrow)`.
     pub row: u8,
+    /// Current column index in `[0, ncol)`.
     pub col: u8,
+    /// Total number of rows in the active map.
     pub nrow: u8,
+    /// Total number of columns in the active map.
     pub ncol: u8,
 }
 
@@ -359,9 +425,12 @@ impl State<1> for FrozenLakeState {
     }
 }
 
-/// Observation: integer state id `row × ncol + col`.
+/// Agent-visible observation: integer state id `row × ncol + col`.
+///
+/// The shape constant is fixed at 64 (8×8 maximum), even for smaller maps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrozenLakeObservation {
+    /// Linear index: `row × ncol + col`.
     pub state_id: u16,
 }
 
@@ -371,12 +440,18 @@ impl Observation<1> for FrozenLakeObservation {
     }
 }
 
-/// Four-direction action space (matches Gymnasium FrozenLake).
+/// Four-direction action space matching Gymnasium's FrozenLake ordering.
+///
+/// Movements are clamped at grid boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrozenLakeAction {
+    /// Move one column toward col 0 (west).
     Left = 0,
+    /// Move one row toward the last row (south).
     Down = 1,
+    /// Move one column toward the last column (east).
     Right = 2,
+    /// Move one row toward row 0 (north).
     Up = 3,
 }
 
@@ -567,6 +642,8 @@ impl Environment<1, 1, 1> for FrozenLake {
 }
 
 #[cfg(test)]
+/// Unit tests for [`FrozenLake`], covering map validation, tile transitions,
+/// reward customisation, slippery distributions, random map generation, and determinism.
 mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
@@ -585,11 +662,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the discrete action count matches the four-direction action space.
     fn action_count() {
         assert_eq!(FrozenLakeAction::ACTION_COUNT, 4);
     }
 
     #[test]
+    /// Verifies `from_index` and `to_index` are inverses for all valid action indices.
     fn action_roundtrip() {
         for i in 0..FrozenLakeAction::ACTION_COUNT {
             assert_eq!(FrozenLakeAction::from_index(i).to_index(), i);
@@ -597,12 +676,14 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the 4×4 preset map has exactly 16 cells.
     fn four_by_four_has_16_states() {
         let env = four_env();
         assert_eq!(env.map.nrow * env.map.ncol, 16);
     }
 
     #[test]
+    /// Verifies the 4×4 preset has start at index 0 and goal at index 15.
     fn default_start_is_0_goal_is_15() {
         let env = four_env();
         assert_eq!(env.map.start_pos, 0);
@@ -610,11 +691,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the observation shape is fixed at 64 (8×8 max).
     fn obs_shape() {
         assert_eq!(FrozenLakeObservation::shape(), [64]);
     }
 
     #[test]
+    /// Verifies that navigating to the goal terminates the episode with reward +1.
     fn reached_goal_terminates() {
         let mut env = four_env();
         env.reset().unwrap();
@@ -646,6 +729,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that stepping into a hole terminates the episode with the default hole reward.
     fn stepped_into_hole_terminates() {
         let mut env = four_env();
         env.reset().unwrap();
@@ -658,6 +742,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that a custom [`RewardSchedule`] is applied correctly on hole entry.
     fn reward_schedule_customisable() {
         let cfg = FrozenLakeConfig::builder()
             .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
@@ -682,6 +767,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that 100 randomly generated 8×8 maps all contain a reachable goal.
     fn generate_random_map_is_solvable() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
@@ -691,6 +777,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that slippery-mode movement frequency matches `success_rate = 1/3`.
     fn slippery_mean_direction_differs_from_action() {
         let cfg = FrozenLakeConfig::builder()
             .map(FrozenMapSpec::Preset(FrozenPreset::Eight8x8))
@@ -722,6 +809,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the slip distribution at `success_rate = 0.75` (75% intended, 12.5% each perpendicular).
     fn success_rate_distribution_at_0_75() {
         let cfg = FrozenLakeConfig::builder()
             .map(FrozenMapSpec::Preset(FrozenPreset::Eight8x8))
@@ -759,6 +847,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that two slippery environments seeded identically produce the same cumulative reward.
     fn determinism() {
         let cfg = FrozenLakeConfig::builder()
             .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))

@@ -26,28 +26,42 @@ impl LunarLanderObservation {
         Self { values }
     }
 
-    /// Accessors for named fields.
+    /// Returns the normalised x position relative to the helipad centre.
     pub fn x(&self) -> f32 {
         self.values[0]
     }
+
+    /// Returns the normalised y position relative to the helipad height.
     pub fn y(&self) -> f32 {
         self.values[1]
     }
+
+    /// Returns the normalised x velocity.
     pub fn vx(&self) -> f32 {
         self.values[2]
     }
+
+    /// Returns the normalised y velocity.
     pub fn vy(&self) -> f32 {
         self.values[3]
     }
+
+    /// Returns the hull rotation angle in radians.
     pub fn angle(&self) -> f32 {
         self.values[4]
     }
+
+    /// Returns the hull angular velocity in rad/s (scaled).
     pub fn angular_vel(&self) -> f32 {
         self.values[5]
     }
+
+    /// Returns 1.0 if the left leg is in ground contact, 0.0 otherwise.
     pub fn leg1_contact(&self) -> f32 {
         self.values[6]
     }
+
+    /// Returns 1.0 if the right leg is in ground contact, 0.0 otherwise.
     pub fn leg2_contact(&self) -> f32 {
         self.values[7]
     }

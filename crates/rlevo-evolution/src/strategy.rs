@@ -27,7 +27,7 @@
 //!
 //! [`EvolutionaryHarness`] glues a strategy to any
 //! [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) and implements
-//! [`BenchEnv`](evorl_benchmarks::env::BenchEnv), so the benchmark
+//! [`BenchEnv`](rlevo_benchmarks::env::BenchEnv), so the benchmark
 //! evaluator drives it just like an RL environment.
 
 use std::fmt::Debug;
@@ -37,7 +37,7 @@ use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use rlevo_benchmarks::env::{BenchEnv, BenchStep};
+use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 
 use crate::fitness::BatchFitnessFn;
 
@@ -191,8 +191,8 @@ impl StrategyMetrics {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_benchmarks::agent::FitnessEvaluable;
-/// use evorl_benchmarks::env::BenchEnv;
+/// use rlevo_benchmarks::agent::FitnessEvaluable;
+/// use rlevo_benchmarks::env::BenchEnv;
 /// use evorl_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use evorl_evolution::fitness::FromFitnessEvaluable;
 /// use evorl_evolution::strategy::EvolutionaryHarness;
@@ -331,18 +331,15 @@ where
     pub fn best(&self) -> Option<(S::Genome, f32)> {
         self.state.as_ref().and_then(|s| self.strategy.best(s))
     }
-}
 
-impl<B, S, F> BenchEnv for EvolutionaryHarness<B, S, F>
-where
-    B: Backend,
-    S: Strategy<B>,
-    F: BatchFitnessFn<B, S::Genome>,
-{
-    type Observation = ();
-    type Action = ();
-
-    fn reset(&mut self) -> Self::Observation {
+    /// Reset to a fresh initial state.
+    ///
+    /// Inherent shape (infallible): `EvolutionaryHarness` cannot legitimately
+    /// fail to reset — it is a deterministic optimization driver. The
+    /// [`BenchEnv`] trait impl wraps this in `Ok(())` so the harness is
+    /// callable both directly (this method) and via the [`BenchEnv`] surface
+    /// when fed to `Evaluator::run_suite`.
+    pub fn reset(&mut self) {
         self.rng = StdRng::seed_from_u64(self.base_seed);
         self.generation = 0;
         self.latest_metrics = None;
@@ -352,7 +349,11 @@ where
         );
     }
 
-    fn step(&mut self, _: Self::Action) -> BenchStep<Self::Observation> {
+    /// Run one ask → evaluate → tell generation.
+    ///
+    /// Inherent shape (infallible). The [`BenchEnv`] trait impl wraps this
+    /// in `Ok(...)`. See [`Self::reset`] for the rationale.
+    pub fn step(&mut self, _action: ()) -> BenchStep<()> {
         let state = self
             .state
             .take()
@@ -380,6 +381,28 @@ where
             reward,
             done,
         }
+    }
+}
+
+impl<B, S, F> BenchEnv for EvolutionaryHarness<B, S, F>
+where
+    B: Backend,
+    S: Strategy<B>,
+    F: BatchFitnessFn<B, S::Genome>,
+{
+    type Observation = ();
+    type Action = ();
+
+    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+        EvolutionaryHarness::<B, S, F>::reset(self);
+        Ok(())
+    }
+
+    fn step(
+        &mut self,
+        action: Self::Action,
+    ) -> Result<BenchStep<Self::Observation>, BenchError> {
+        Ok(EvolutionaryHarness::<B, S, F>::step(self, action))
     }
 }
 

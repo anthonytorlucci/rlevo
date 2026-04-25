@@ -1,4 +1,8 @@
 //! Configuration for the BipedalWalker environment.
+//!
+//! [`BipedalWalkerConfig`] groups all tunable parameters. Use
+//! [`BipedalWalkerConfig::builder`] for ergonomic construction; call
+//! [`Default::default`] for a flat-terrain, 1600-step episode.
 
 use serde::{Deserialize, Serialize};
 
@@ -74,31 +78,37 @@ pub struct BipedalWalkerConfigBuilder {
 }
 
 impl BipedalWalkerConfigBuilder {
+    /// Sets the terrain difficulty variant.
     pub fn terrain(mut self, terrain: BipedalTerrain) -> Self {
         self.inner.terrain = terrain;
         self
     }
 
+    /// Sets the RNG seed for terrain generation and initial state.
     pub fn seed(mut self, seed: u64) -> Self {
         self.inner.seed = seed;
         self
     }
 
+    /// Sets the maximum steps per episode before truncation.
     pub fn max_steps(mut self, max_steps: usize) -> Self {
         self.inner.max_steps = max_steps;
         self
     }
 
+    /// Sets the maximum torque applied by each leg motor.
     pub fn motors_torque(mut self, torque: f32) -> Self {
         self.inner.motors_torque = torque;
         self
     }
 
+    /// Sets the lidar sensing range in world units.
     pub fn lidar_range(mut self, range: f32) -> Self {
         self.inner.lidar_range = range;
         self
     }
 
+    /// Consumes the builder and returns the configured [`BipedalWalkerConfig`].
     pub fn build(self) -> BipedalWalkerConfig {
         self.inner
     }

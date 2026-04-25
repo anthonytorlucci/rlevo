@@ -1,10 +1,47 @@
-//! `Crossing`: navigate across `K` obstacle strips with one gap each.
+//! Navigate across obstacle strips, each with a single gap, to reach the goal.
 //!
-//! Ports Farama Minigrid's [`CrossingEnv`]. The room is sliced by `K`
-//! horizontal strips — either [`Lava`] or [`Wall`] depending on
-//! [`CrossingKind`] — with a single gap per strip. A gap column is
-//! shared across all strips so there is always a straight vertical
-//! corridor connecting the start and goal.
+//! Ports Farama Minigrid's [`CrossingEnv`]. The room is an `N×N` grid with
+//! border walls. Two horizontal strips of [`Lava`] or [`Wall`] tiles bisect
+//! the interior, each interrupted by exactly one open column (the *gap*). The
+//! gap column is the same for every strip, so a straight vertical corridor
+//! always connects the start cell to the goal cell — but the agent must
+//! navigate to that corridor first.
+//!
+//! ## Layout (default `size = 7`)
+//!
+//! ```text
+//! # # # # # # #
+//! # A . . . . #
+//! # L . L L L #   ← strip row, gap at column 3
+//! # . . . . . #
+//! # L . L L L #   ← strip row, gap at column 3
+//! # . . . . G #
+//! # # # # # # #
+//! ```
+//!
+//! - `A` — agent start (1, 1), facing East
+//! - `G` — goal (5, 5)
+//! - `L` — lava (or wall in [`CrossingKind::Wall`] variant)
+//! - `.` — empty passable cell
+//!
+//! ## Observation and action spaces
+//!
+//! | | Dimension | Description |
+//! |---|---|---|
+//! | Observation | 3 | `[agent_x, agent_y, agent_dir]` |
+//! | Action | 3 | `TurnLeft`, `TurnRight`, `Forward` (one-hot) |
+//! | Reward | 1 | Scalar; positive only on reaching the goal |
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+//! use rlevo_core::environment::Environment;
+//!
+//! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
+//! let mut env = CrossingEnv::with_config(cfg, false);
+//! let _snapshot = env.reset().unwrap();
+//! ```
 //!
 //! [`CrossingEnv`]: https://minigrid.farama.org/environments/minigrid/CrossingEnv/
 //! [`Lava`]: super::core::entity::Entity::Lava
@@ -31,18 +68,22 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-/// Whether the strips are lava (terminal hazard) or walls (bumpable blockers).
+/// Selects the obstacle type used for the crossing strips.
+///
+/// Determines whether the agent pays a hard penalty (lava, episode ends) or
+/// is simply blocked (wall, episode continues) when it tries to move through
+/// a strip cell that has no gap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CrossingKind {
-    /// Terminal hazard strips; stepping in ends the episode.
+    /// Terminal-hazard strips; stepping onto lava immediately ends the episode.
     #[default]
     Lava,
-    /// Impassable walls; stepping in bumps but the episode continues.
+    /// Impassable wall strips; the agent is bumped back but the episode continues.
     Wall,
 }
 
 impl CrossingKind {
-    /// Entity used for the blocking strip cells.
+    /// Returns the grid entity placed in non-gap strip cells.
     #[must_use]
     pub const fn entity(self) -> Entity {
         match self {
@@ -69,15 +110,51 @@ impl FromStr for CrossingKind {
 const MIN_SIZE: usize = 7;
 
 /// Configuration for [`CrossingEnv`].
+///
+/// Controls the grid dimensions, episode length, RNG seed, and obstacle type.
+/// All fields are public so configurations can be constructed with struct
+/// literal syntax or via [`CrossingConfig::new`].
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingKind};
+///
+/// let cfg = CrossingConfig::new(9, 324, 0, CrossingKind::Wall);
+/// assert_eq!(cfg.size, 9);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrossingConfig {
+    /// Side length of the square grid in cells, including border walls.
+    ///
+    /// Must be at least [`MIN_SIZE`] (7). The interior playable area is
+    /// `(size - 2) × (size - 2)`.
     pub size: usize,
+    /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
+    /// Seed for the internal random-number generator.
+    ///
+    /// Using the same seed always produces the same episode layout.
     pub seed: u64,
+    /// Obstacle type placed in the non-gap strip cells.
     pub kind: CrossingKind,
 }
 
 impl CrossingConfig {
+    /// Constructs a `CrossingConfig` with explicit field values.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic here; validation happens when [`CrossingEnv`] is built
+    /// or when parsing via [`FromStr`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingKind};
+    ///
+    /// let cfg = CrossingConfig::new(7, 196, 0, CrossingKind::Lava);
+    /// ```
     #[must_use]
     pub const fn new(size: usize, max_steps: usize, seed: u64, kind: CrossingKind) -> Self {
         Self {
@@ -140,7 +217,26 @@ impl FromStr for CrossingConfig {
     }
 }
 
-/// Minigrid's `Crossing` environment.
+/// Grid environment where the agent crosses obstacle strips to reach the goal.
+///
+/// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
+/// have three components, reward is a scalar.
+///
+/// Construct via [`CrossingEnv::with_config`] for full control or via
+/// [`Environment::new`] for default settings (size 7, lava, seed 0).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+/// use rlevo_core::environment::Environment;
+///
+/// let mut env = CrossingEnv::with_config(
+///     CrossingConfig::new(7, 196, 0, CrossingKind::Lava),
+///     false,
+/// );
+/// env.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct CrossingEnv {
     state: GridState,
@@ -151,6 +247,22 @@ pub struct CrossingEnv {
 }
 
 impl CrossingEnv {
+    /// Constructs a `CrossingEnv` from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+    ///
+    /// let env = CrossingEnv::with_config(
+    ///     CrossingConfig::new(9, 324, 42, CrossingKind::Wall),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: CrossingConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
@@ -164,27 +276,37 @@ impl CrossingEnv {
         }
     }
 
+    /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &CrossingConfig {
         &self.config
     }
 
+    /// Returns the number of steps taken since the last reset.
     #[must_use]
     pub const fn steps(&self) -> usize {
         self.steps
     }
 
+    /// Returns a reference to the current grid state.
     #[must_use]
     pub const fn state(&self) -> &GridState {
         &self.state
     }
 
+    /// Renders the current grid as an ASCII string.
+    ///
+    /// Useful for debugging; the same output is printed to stdout on each step
+    /// when the environment was constructed with `render = true`.
     #[must_use]
     pub fn ascii(&self) -> String {
         render_ascii(&self.state.grid, &self.state.agent)
     }
 
-    /// Column where every strip has its open gap.
+    /// Returns the column index shared by every strip's open gap.
+    ///
+    /// Equals `size / 2` (integer division), so for the default size of 7 the
+    /// gap column is 3.
     #[must_use]
     pub fn gap_col(&self) -> i32 {
         #[allow(clippy::cast_possible_wrap)]
@@ -192,7 +314,10 @@ impl CrossingEnv {
         col
     }
 
-    /// Rows on which the obstacle strips are placed.
+    /// Returns the row indices on which the two obstacle strips are placed.
+    ///
+    /// For size `N` the strips sit at `N/2 - 1` and `N/2 + 1`, straddling the
+    /// central row. For the default size of 7 this gives rows `[2, 4]`.
     #[must_use]
     pub fn strip_rows(&self) -> Vec<i32> {
         #[allow(clippy::cast_possible_wrap)]

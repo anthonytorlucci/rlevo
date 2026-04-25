@@ -1,4 +1,8 @@
 //! Configuration for the CarRacing environment.
+//!
+//! [`CarRacingConfig`] groups all tunable parameters for track generation,
+//! physics, and reward shaping. Use [`CarRacingConfig::builder`] for ergonomic
+//! construction; call [`Default::default`] for a standard 1000-step episode.
 
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +55,7 @@ impl Default for CarRacingConfig {
 }
 
 impl CarRacingConfig {
+    /// Returns a builder for configuring a `CarRacingConfig`.
     pub fn builder() -> CarRacingConfigBuilder {
         CarRacingConfigBuilder { inner: CarRacingConfig::default() }
     }
@@ -63,21 +68,25 @@ pub struct CarRacingConfigBuilder {
 }
 
 impl CarRacingConfigBuilder {
+    /// Sets the RNG seed for procedural track generation.
     pub fn seed(mut self, seed: u64) -> Self {
         self.inner.seed = seed;
         self
     }
 
+    /// Sets the number of Bezier control points (more = more complex track).
     pub fn track_n_checkpoints(mut self, n: usize) -> Self {
         self.inner.track_n_checkpoints = n;
         self
     }
 
+    /// Sets the maximum steps per episode before truncation.
     pub fn max_steps(mut self, n: usize) -> Self {
         self.inner.max_steps = n;
         self
     }
 
+    /// Consumes the builder and returns the configured [`CarRacingConfig`].
     pub fn build(self) -> CarRacingConfig {
         self.inner
     }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use rand::Rng;
 use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::env::{BenchEnv, BenchStep};
+use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -31,18 +31,21 @@ impl BenchEnv for ToyEnv {
     type Observation = usize;
     type Action = f64;
 
-    fn reset(&mut self) -> Self::Observation {
+    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
         self.t = 0;
-        0
+        Ok(0)
     }
 
-    fn step(&mut self, action: Self::Action) -> BenchStep<Self::Observation> {
+    fn step(
+        &mut self,
+        action: Self::Action,
+    ) -> Result<BenchStep<Self::Observation>, BenchError> {
         self.t += 1;
-        BenchStep {
+        Ok(BenchStep {
             observation: self.t,
             reward: action + self.offset,
             done: self.t >= 3,
-        }
+        })
     }
 }
 
@@ -180,7 +183,7 @@ fn checkpoint_resume_skips_completed_trials() {
 fn tempdir() -> PathBuf {
     let mut p = std::env::temp_dir();
     let unique = format!(
-        "evorl-benchmarks-test-{}",
+        "rlevo-benchmarks-test-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

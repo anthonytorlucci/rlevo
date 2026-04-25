@@ -14,7 +14,7 @@ use rlevo_core::{
 /// # Usage
 ///
 /// ```rust,ignore
-/// use evorl_envs::wrappers::TimeLimit;
+/// use rlevo_envs::wrappers::TimeLimit;
 ///
 /// let env = CartPole::with_config(CartPoleConfig::default());
 /// let mut timed = TimeLimit::new(env, 500);
