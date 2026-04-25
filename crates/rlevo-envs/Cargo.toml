@@ -74,6 +74,22 @@ name = 'acrobot_random'
 path = 'examples/classic/acrobot_random.rs'
 
 [[example]]
+name = 'k_armed_bandit_random'
+path = 'examples/classic/k_armed_bandit_random.rs'
+
+[[example]]
+name = 'contextual_bandit_random'
+path = 'examples/classic/contextual_bandit_random.rs'
+
+[[example]]
+name = 'non_stationary_bandit_random'
+path = 'examples/classic/non_stationary_bandit_random.rs'
+
+[[example]]
+name = 'adversarial_bandit_random'
+path = 'examples/classic/adversarial_bandit_random.rs'
+
+[[example]]
 name = 'bipedal_walker_random'
 path = 'examples/box2d/bipedal_walker_random.rs'
 required-features = ["box2d"]

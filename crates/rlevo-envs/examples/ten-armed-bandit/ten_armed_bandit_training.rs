@@ -57,9 +57,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_envs::classic::ten_armed_bandit::{
-    TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig,
-};
+use rlevo_envs::classic::{TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig};
 
 /// Number of arms (matches `TenArmedBanditAction::ACTION_COUNT`).
 const NUM_ARMS: usize = 10;

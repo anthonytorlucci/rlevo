@@ -1,7 +1,9 @@
 //! Classic-control environments.
 //!
 //! Five canonical RL benchmarks ported from the Gymnasium catalogue as
-//! native Rust implementations with no Python or C-library dependencies.
+//! native Rust implementations with no Python or C-library dependencies,
+//! plus a generic [`bandit`] family covering the standard Sutton & Barto §2
+//! testbed and three sibling variants.
 //!
 //! | Environment | Action | Obs dim | Terminated by |
 //! |---|---|---|---|
@@ -10,19 +12,29 @@
 //! | [`mountain_car`] | Discrete(3) | 2 | goal position |
 //! | [`mountain_car_continuous`] | Continuous(1) | 2 | goal position |
 //! | [`pendulum`] | Continuous(1) | 3 | never (truncated by wrapper) |
-//! | [`ten_armed_bandit`] | Discrete(10) | 1 | `max_steps` reached |
+//! | [`bandit::k_armed`] | Discrete(K) | 1 | `max_steps` reached |
+//! | [`bandit::contextual`] | Discrete(K) | C | `max_steps` reached |
+//! | [`bandit::non_stationary`] | Discrete(K) | 1 | `max_steps` reached |
+//! | [`bandit::adversarial`] | Discrete(K) | 1 | `max_steps` reached |
 //!
 //! Wrap any env with [`crate::wrappers::TimeLimit`] to impose a step cap.
 pub mod acrobot;
+pub mod bandit;
 pub mod cartpole;
 pub mod mountain_car;
 pub mod mountain_car_continuous;
 pub mod pendulum;
-pub mod ten_armed_bandit;
 
 pub use acrobot::{
     Acrobot, AcrobotAction, AcrobotConfig, AcrobotConfigBuilder, AcrobotDynamicsFn,
     AcrobotObservation, AcrobotState, BookDynamics, NipsDynamics,
+};
+pub use bandit::{
+    AdversarialBandit, AdversarialBanditConfig, ContextualBandit, ContextualBanditConfig,
+    ContextualBanditObservation, ContextualBanditState, KArmedBandit, KArmedBanditAction,
+    KArmedBanditConfig, KArmedBanditObservation, KArmedBanditState, NonStationaryBandit,
+    NonStationaryBanditConfig, TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig,
+    TenArmedBanditObservation, TenArmedBanditState,
 };
 pub use cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleConfigBuilder, CartPoleObservation,
@@ -37,8 +49,4 @@ pub use mountain_car_continuous::{
 };
 pub use pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation, PendulumState, angle_normalize,
-};
-pub use ten_armed_bandit::{
-    TenArmedBandit, TenArmedBanditAction, TenArmedBanditConfig, TenArmedBanditObservation,
-    TenArmedBanditState,
 };
