@@ -1,7 +1,35 @@
 //! Blackjack-v1 environment.
 //!
-//! Infinite deck (draws with replacement). Observation: `(player_sum, dealer_showing, usable_ace)`.
-//! Actions: `Stick` or `Hit`. Episode always terminates — never truncated.
+//! Implements a single-player Blackjack game against a fixed dealer strategy using an infinite
+//! deck (draws with replacement). Episodes always terminate — the environment is never truncated.
+//!
+//! ## Observation space
+//!
+//! `(player_sum, dealer_showing, usable_ace)` — a 3-element tuple represented by
+//! [`BlackjackObservation`].
+//!
+//! ## Action space
+//!
+//! Two discrete actions via [`BlackjackAction`]: `Stick` (0) or `Hit` (1).
+//!
+//! ## Reward
+//!
+//! | Outcome | Reward |
+//! |---------|--------|
+//! | Win     | +1.0   |
+//! | Push    |  0.0   |
+//! | Lose    | -1.0   |
+//! | Natural (Standard, bonus on) | +1.5 |
+//!
+//! ## Rule variants
+//!
+//! Configure via [`BlackjackVariant`]: standard casino rules or the Sutton & Barto Example 5.1
+//! formulation.
+//!
+//! ## RNG behaviour
+//!
+//! The RNG advances continuously across episodes — `reset()` does **not** reseed. Two instances
+//! with the same seed produce identical trajectories.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -34,12 +62,21 @@ fn is_natural(hand: &[u8]) -> bool {
 
 // ── config ────────────────────────────────────────────────────────────────────
 
-/// Rule variant for Blackjack (C1: replaces separate `natural` + `sab` bools).
+/// Rule variant controlling Blackjack reward and terminal logic.
+///
+/// Selects between standard casino rules and the academic formulation from
+/// Sutton & Barto, *Reinforcement Learning: An Introduction*, Example 5.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlackjackVariant {
-    /// Standard casino rules. Set `natural_pays_bonus = true` for the 3:2 natural payout.
+    /// Standard casino rules.
+    ///
+    /// When `natural_pays_bonus` is `true`, a player natural (two-card 21) that beats a
+    /// non-natural dealer hand pays 1.5 instead of 1.0.
     Standard { natural_pays_bonus: bool },
-    /// Strict Sutton & Barto Example 5.1 rules.
+    /// Strict Sutton & Barto (S&B) Example 5.1 rules.
+    ///
+    /// A player natural against a non-natural dealer ends the episode immediately with reward
+    /// +1.0; a dealer natural against a non-natural player ends it with reward −1.0.
     SuttonBarto,
 }
 
@@ -52,11 +89,25 @@ impl Default for BlackjackVariant {
 }
 
 /// Configuration for the [`Blackjack`] environment.
+///
+/// Construct with [`BlackjackConfig::default`] or via the builder returned by
+/// [`BlackjackConfig::builder`].
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::toy_text::blackjack::{BlackjackConfig, BlackjackVariant};
+///
+/// let cfg = BlackjackConfig::builder()
+///     .variant(BlackjackVariant::Standard { natural_pays_bonus: true })
+///     .seed(42)
+///     .build();
+/// ```
 #[derive(Debug, Clone)]
 pub struct BlackjackConfig {
-    /// Rule variant (Standard or Sutton & Barto).
+    /// Rule variant governing reward and natural-hand handling.
     pub variant: BlackjackVariant,
-    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
+    /// Seed used to initialise the RNG when the environment is created. Default: `0`.
     pub seed: u64,
 }
 
@@ -109,11 +160,17 @@ impl BlackjackConfigBuilder {
 
 // ── state ─────────────────────────────────────────────────────────────────────
 
-/// Full internal state. `player_hand` and `dealer_hand` are private (not observed).
+/// Full internal state of a Blackjack game.
+///
+/// The player and dealer hands are stored privately; only the observable
+/// summary fields are exposed to agents via [`BlackjackObservation`].
 #[derive(Debug, Clone)]
 pub struct BlackjackState {
+    /// Current point total for the player's hand (may include a usable-ace bonus of 10).
     pub player_sum: u8,
+    /// The dealer's single face-up card value, in `[1, 10]`.
     pub dealer_showing: u8,
+    /// `true` when the player holds an ace counted as 11 without busting.
     pub usable_ace: bool,
     player_hand: Vec<u8>,
     dealer_hand: Vec<u8>,
@@ -141,10 +198,15 @@ impl State<1> for BlackjackState {
 
 // ── observation ───────────────────────────────────────────────────────────────
 
-/// Partial observation: `(player_sum, dealer_showing, usable_ace)`.
+/// Agent-visible observation: `(player_sum, dealer_showing, usable_ace)`.
+///
+/// The usable-ace field is encoded as `u8` (`1` = usable, `0` = not usable) for
+/// compatibility with numeric pipelines.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlackjackObservation {
+    /// Player's current hand total.
     pub player_sum: u8,
+    /// Dealer's single face-up card, in `[1, 10]`.
     pub dealer_showing: u8,
     /// `1` if the player holds a usable ace, `0` otherwise.
     pub usable_ace: u8,
@@ -158,10 +220,12 @@ impl Observation<1> for BlackjackObservation {
 
 // ── action ────────────────────────────────────────────────────────────────────
 
-/// Two-action Blackjack space.
+/// Two-action Blackjack space: hold the current hand or draw another card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlackjackAction {
+    /// Hold the current hand and trigger the dealer's draw sequence.
     Stick = 0,
+    /// Draw one more card from the infinite deck.
     Hit = 1,
 }
 
@@ -334,6 +398,7 @@ impl Environment<1, 1, 1> for Blackjack {
 }
 
 #[cfg(test)]
+/// Unit tests for [`Blackjack`], covering actions, observations, rewards, and RNG determinism.
 mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
@@ -345,6 +410,7 @@ mod tests {
     }
 
     impl Blackjack {
+        /// Force-sets both hands for deterministic reward testing.
         fn set_hands(&mut self, player_hand: Vec<u8>, dealer_hand: Vec<u8>) {
             let (player_sum, usable_ace) = hand_value(&player_hand);
             let dealer_showing = dealer_hand[0];
@@ -359,11 +425,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the discrete action count matches the Blackjack action space size.
     fn action_count() {
         assert_eq!(BlackjackAction::ACTION_COUNT, 2);
     }
 
     #[test]
+    /// Verifies `from_index` and `to_index` are inverses for all valid action indices.
     fn action_roundtrip() {
         for i in 0..BlackjackAction::ACTION_COUNT {
             assert_eq!(BlackjackAction::from_index(i).to_index(), i);
@@ -371,11 +439,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the observation shape matches the 3-element tuple specification.
     fn obs_shape() {
         assert_eq!(BlackjackObservation::shape(), [3]);
     }
 
     #[test]
+    /// Verifies observation fields are stored and retrieved correctly.
     fn obs_encoding() {
         let obs = BlackjackObservation {
             player_sum: 18,
@@ -388,6 +458,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that a player bust on `Hit` yields reward −1 and terminates the episode.
     fn bust_on_hit_returns_negative_one() {
         // Player at 20 (two 10s), any hit ≥ 2 busts. Try seeds until we get a bust.
         for seed in 0u64..200 {
@@ -406,6 +477,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that a dealer bust on `Stick` yields reward +1 and terminates the episode.
     fn dealer_bust_returns_positive_one() {
         // Player at 18 (9+9), dealer at 16 (10+6) must draw. Find seed where dealer busts.
         for seed in 0u64..200 {
@@ -424,6 +496,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that equal player and dealer sums produce a push (reward 0).
     fn push_on_equal_sums() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -436,6 +509,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the 3:2 natural payout when `natural_pays_bonus` is enabled.
     fn natural_pays_1_5_when_flag_set() {
         let cfg = BlackjackConfig::builder()
             .variant(BlackjackVariant::Standard {
@@ -454,6 +528,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the S&B variant pays +1.0 on a player natural vs non-natural dealer.
     fn sab_player_natural_wins_one() {
         let cfg = BlackjackConfig::builder()
             .variant(BlackjackVariant::SuttonBarto)
@@ -473,6 +548,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the S&B variant charges −1.0 on a dealer natural vs non-natural player.
     fn sab_dealer_natural_costs_one() {
         let cfg = BlackjackConfig::builder()
             .variant(BlackjackVariant::SuttonBarto)
@@ -492,6 +568,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that two environments seeded identically produce the same cumulative reward.
     fn determinism() {
         let cfg = BlackjackConfig {
             variant: BlackjackVariant::default(),

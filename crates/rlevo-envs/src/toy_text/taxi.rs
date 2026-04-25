@@ -1,10 +1,45 @@
 //! Taxi-v3 environment.
 //!
-//! 5×5 grid with hard-coded wall layout. 4 named pickup/dropoff locations (R, G, Y, B).
-//! State id: `((row×5 + col)×5 + passenger_loc)×4 + destination` in `[0, 500)`.
+//! A 5×5 grid-world where a taxi must navigate to a passenger, pick them up, and drop them off
+//! at the correct destination. The grid contains hard-coded east–west walls and four named
+//! pickup/dropoff locations.
 //!
-//! Reward: −1 per step; +20 correct dropoff; −10 illegal pickup/dropoff.
-//! Terminates on correct dropoff. Never truncated (wrap with `TimeLimit` if needed).
+//! ## State space
+//!
+//! 500 discrete states encoded as `((row×5 + col)×5 + passenger_loc)×4 + destination`.
+//!
+//! - **Taxi position**: 5×5 = 25 cells
+//! - **Passenger location**: 0–3 (at a named location) or 4 (in the taxi)
+//! - **Destination**: 0–3 (R, G, Y, B)
+//!
+//! ## Named locations
+//!
+//! | Index | Name | Grid position |
+//! |-------|------|---------------|
+//! | 0     | R    | (0, 0)        |
+//! | 1     | G    | (0, 4)        |
+//! | 2     | Y    | (4, 0)        |
+//! | 3     | B    | (4, 3)        |
+//!
+//! ## Action space
+//!
+//! Six actions via [`TaxiAction`]: `South` (0), `North` (1), `East` (2), `West` (3),
+//! `Pickup` (4), `Dropoff` (5).
+//!
+//! ## Reward
+//!
+//! | Event              | Reward |
+//! |--------------------|--------|
+//! | Movement step      | −1     |
+//! | Correct dropoff    | +20 (terminates) |
+//! | Illegal pickup     | −10    |
+//! | Illegal dropoff    | −10    |
+//!
+//! ## Variants
+//!
+//! - **Rainy mode** (`is_rainy`): 80% intended direction, 10% each perpendicular.
+//! - **Fickle passenger** (`fickle_passenger`): after pickup, the first movement step has a
+//!   30% chance to resample the destination.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -46,13 +81,28 @@ fn has_wall(row: u8, from_col: u8, to_col: u8) -> bool {
 // ── config ────────────────────────────────────────────────────────────────────
 
 /// Configuration for the [`Taxi`] environment.
+///
+/// Use [`TaxiConfig::builder`] to enable optional stochastic modes, or
+/// [`TaxiConfig::default`] for the standard deterministic variant.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::toy_text::taxi::TaxiConfig;
+///
+/// let cfg = TaxiConfig::builder()
+///     .is_rainy(true)
+///     .fickle_passenger(true)
+///     .seed(42)
+///     .build();
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct TaxiConfig {
-    /// Rainy mode: 0.8 intended direction, 0.1 each perpendicular.
+    /// When `true`, movement directions slip: 80% intended, 10% each perpendicular.
     pub is_rainy: bool,
-    /// Fickle passenger: after pickup, first movement triggers 30% destination resample.
+    /// When `true`, the first movement after pickup has a 30% chance to resample the destination.
     pub fickle_passenger: bool,
-    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
+    /// Seed used to initialise the RNG when the environment is created. Default: `0`.
     pub seed: u64,
 }
 
@@ -105,11 +155,13 @@ impl TaxiConfigBuilder {
 /// Full state: taxi position, passenger location, and destination.
 #[derive(Debug, Clone)]
 pub struct TaxiState {
+    /// Taxi row in `[0, 5)`.
     pub taxi_row: u8,
+    /// Taxi column in `[0, 5)`.
     pub taxi_col: u8,
-    /// 0–3 = at named location; 4 = in taxi.
+    /// Passenger location: `0–3` = at named location (index into `LOCS`); `4` = in the taxi.
     pub passenger_loc: u8,
-    /// 0–3 index into [`LOCS`].
+    /// Destination index `0–3` into the named locations array (R, G, Y, B).
     pub destination: u8,
 }
 
@@ -170,9 +222,12 @@ impl State<1> for TaxiState {
 
 // ── observation ───────────────────────────────────────────────────────────────
 
-/// Observation: integer state id in `[0, 500)`.
+/// Agent-visible observation: integer state id in `[0, 500)`.
+///
+/// Encoded as `((taxi_row×5 + taxi_col)×5 + passenger_loc)×4 + destination`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxiObservation {
+    /// Packed state id in the range `[0, 500)`.
     pub state_id: u16,
 }
 
@@ -184,14 +239,23 @@ impl Observation<1> for TaxiObservation {
 
 // ── action ────────────────────────────────────────────────────────────────────
 
-/// Six-action Taxi space.
+/// Six-action Taxi space: four movement directions plus pickup and dropoff.
+///
+/// East–West movement respects the hard-coded grid walls; blocked moves are no-ops that
+/// still cost −1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaxiAction {
+    /// Move one row toward row 4 (south).
     South = 0,
+    /// Move one row toward row 0 (north).
     North = 1,
+    /// Move one column toward col 4 (east), if no wall blocks the move.
     East = 2,
+    /// Move one column toward col 0 (west), if no wall blocks the move.
     West = 3,
+    /// Pick up the passenger if the taxi is at the passenger's named location; costs −10 otherwise.
     Pickup = 4,
+    /// Drop off the passenger if the taxi is at the destination and the passenger is aboard; costs −10 otherwise.
     Dropoff = 5,
 }
 
@@ -261,6 +325,7 @@ pub struct Taxi {
 }
 
 impl Taxi {
+    /// Creates a [`Taxi`] environment with the given configuration.
     pub fn with_config(config: TaxiConfig) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
@@ -387,6 +452,8 @@ impl Environment<1, 1, 1> for Taxi {
 }
 
 #[cfg(test)]
+/// Unit tests for [`Taxi`], covering state encoding, wall collisions, pickup/dropoff rewards,
+/// stochastic modes, and RNG determinism.
 mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
@@ -398,11 +465,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the discrete action count matches the six-action Taxi space.
     fn action_count() {
         assert_eq!(TaxiAction::ACTION_COUNT, 6);
     }
 
     #[test]
+    /// Verifies `from_index` and `to_index` are inverses for all valid action indices.
     fn action_roundtrip() {
         for i in 0..TaxiAction::ACTION_COUNT {
             assert_eq!(TaxiAction::from_index(i).to_index(), i);
@@ -410,11 +479,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the observation shape matches the 500-state space.
     fn obs_shape() {
         assert_eq!(TaxiObservation::shape(), [500]);
     }
 
     #[test]
+    /// Verifies that state-id encoding and decoding are mutual inverses for all 500 states.
     fn state_id_round_trip() {
         // 500 total states; passenger_loc 4 = in-taxi is valid in the encoding.
         for id in 0u16..500 {
@@ -424,6 +495,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that moving into a wall is a no-op and still costs −1.
     fn wall_collision_is_no_op_cost_minus_one() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -442,6 +514,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that a pickup attempt at the wrong cell costs −10.
     fn pickup_at_wrong_location_costs_ten() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -458,6 +531,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies a correct dropoff yields +20 and terminates the episode.
     fn dropoff_terminates_with_plus_twenty() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -475,6 +549,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the rainy-mode slip distribution: 80% intended, 10% each perpendicular.
     fn is_rainy_slip_distribution() {
         let cfg = TaxiConfig::builder().is_rainy(true).seed(17).build();
         let mut env = Taxi::with_config(cfg);
@@ -508,6 +583,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the fickle-passenger mode resamples the destination with ≈30% probability.
     fn fickle_passenger_30pct() {
         let cfg = TaxiConfig::builder()
             .fickle_passenger(true)
@@ -544,6 +620,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that two rainy-mode environments seeded identically produce the same cumulative reward.
     fn determinism() {
         let cfg = TaxiConfig::builder().is_rainy(true).seed(55).build();
         let run = || {

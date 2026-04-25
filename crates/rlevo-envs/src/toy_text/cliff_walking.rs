@@ -1,8 +1,42 @@
 //! CliffWalking-v1 environment.
 //!
-//! 4×12 grid. Start: `(3,0)`. Goal: `(3,11)`. Cliff: `(3, 1..=10)`.
-//! Stepping onto the cliff teleports the agent back to start with reward −100.
-//! All other steps cost −1. Goal step rewards −1 and terminates.
+//! A 4×12 grid-world where the agent navigates from a fixed start to a fixed goal while
+//! avoiding a cliff that lines the bottom row. The environment is deterministic by default;
+//! enable `is_slippery` for stochastic transitions.
+//!
+//! ## Layout
+//!
+//! ```text
+//! o o o o o o o o o o o o
+//! o o o o o o o o o o o o
+//! o o o o o o o o o o o o
+//! S C C C C C C C C C C G   (row 3)
+//! ```
+//!
+//! - **S** — start `(3, 0)`
+//! - **G** — goal `(3, 11)`
+//! - **C** — cliff `(3, 1..=10)`
+//!
+//! ## Reward
+//!
+//! | Event          | Reward |
+//! |----------------|--------|
+//! | Step onto cliff | −100 (teleports to start; episode continues) |
+//! | Any other step  | −1   |
+//! | Goal step       | −1 (terminates) |
+//!
+//! ## Observation space
+//!
+//! Integer state id in `[0, 48)` encoded as `row × 12 + col`.
+//!
+//! ## Action space
+//!
+//! Four discrete directions via [`CliffWalkingAction`]: `Up` (0), `Right` (1), `Down` (2), `Left` (3).
+//!
+//! ## Slippery mode
+//!
+//! When enabled, intended direction succeeds with probability 1/3; each of the two
+//! perpendicular directions occurs with probability 1/3.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -22,12 +56,26 @@ const GOAL: (u8, u8) = (3, 11);
 // ── config ────────────────────────────────────────────────────────────────────
 
 /// Configuration for the [`CliffWalking`] environment.
+///
+/// Build with [`CliffWalkingConfig::default`] for the standard deterministic variant, or use
+/// [`CliffWalkingConfig::builder`] to customise slipperiness and the RNG seed.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_envs::toy_text::cliff_walking::CliffWalkingConfig;
+///
+/// let cfg = CliffWalkingConfig::builder()
+///     .is_slippery(true)
+///     .seed(7)
+///     .build();
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct CliffWalkingConfig {
-    /// When `true`, the agent slips with equal probability to each of the three
-    /// possible directions (`1/3` intended, `1/3` each perpendicular).
+    /// When `true`, intended direction succeeds with probability 1/3; each perpendicular
+    /// direction occurs with probability 1/3.
     pub is_slippery: bool,
-    /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
+    /// Seed used to initialise the RNG when the environment is created. Default: `0`.
     pub seed: u64,
 }
 
@@ -69,10 +117,12 @@ impl CliffWalkingConfigBuilder {
 
 // ── state ─────────────────────────────────────────────────────────────────────
 
-/// Full state: grid position `(row, col)`.
+/// Full state: grid position `(row, col)` in a 4×12 grid.
 #[derive(Debug, Clone)]
 pub struct CliffWalkingState {
+    /// Row index in `[0, 4)`, where row 3 contains the cliff and the goal.
     pub row: u8,
+    /// Column index in `[0, 12)`.
     pub col: u8,
 }
 
@@ -124,9 +174,13 @@ impl State<1> for CliffWalkingState {
 
 // ── observation ───────────────────────────────────────────────────────────────
 
-/// Observation: integer state id in `[0, 48)`.
+/// Agent-visible observation: integer state id in `[0, 48)`.
+///
+/// Encoded as `row × 12 + col`. Convertible to/from [`CliffWalkingState`] via
+/// `TryFrom<u16>` / `From<CliffWalkingState>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CliffWalkingObservation {
+    /// Linear grid index: `row × NCOL + col`.
     pub state_id: u16,
 }
 
@@ -138,12 +192,19 @@ impl Observation<1> for CliffWalkingObservation {
 
 // ── action ────────────────────────────────────────────────────────────────────
 
-/// Four-direction action space.
+/// Four-direction action space for grid navigation.
+///
+/// Movements are clamped at grid boundaries — attempting to leave the grid is a no-op
+/// that still costs −1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliffWalkingAction {
+    /// Move one row toward row 0 (north).
     Up = 0,
+    /// Move one column toward col 11 (east).
     Right = 1,
+    /// Move one row toward row 3 (south).
     Down = 2,
+    /// Move one column toward col 0 (west).
     Left = 3,
 }
 
@@ -216,6 +277,7 @@ pub struct CliffWalking {
 }
 
 impl CliffWalking {
+    /// Creates a [`CliffWalking`] environment with the given configuration.
     pub fn with_config(config: CliffWalkingConfig) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);
         Self {
@@ -301,6 +363,8 @@ impl From<(u8, u8)> for CliffWalkingState {
 }
 
 #[cfg(test)]
+/// Unit tests for [`CliffWalking`], covering state encoding, cliff/goal transitions,
+/// boundary behaviour, slippery distributions, and RNG determinism.
 mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
@@ -312,11 +376,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the discrete action count matches the four-direction action space.
     fn action_count() {
         assert_eq!(CliffWalkingAction::ACTION_COUNT, 4);
     }
 
     #[test]
+    /// Verifies that state-id encoding and decoding are mutual inverses for all 48 states.
     fn state_id_encoding() {
         let total = NROW as u16 * NCOL as u16;
         for id in 0..total {
@@ -326,11 +392,13 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the observation shape matches the 48-cell grid.
     fn obs_shape() {
         assert_eq!(CliffWalkingObservation::shape(), [48]);
     }
 
     #[test]
+    /// Verifies a cliff step teleports to start, costs −100, and does not terminate the episode.
     fn cliff_step_teleports_and_costs_100() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -347,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies stepping onto the goal terminates the episode with reward −1.
     fn goal_step_terminates_with_minus_one() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -360,6 +429,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that attempting to move off the grid boundary is a no-op.
     fn off_grid_stays_in_place() {
         let mut env = make_env();
         env.reset().unwrap();
@@ -375,6 +445,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the optimal (13-step) path yields a total reward of −13.
     fn shortest_path_minus_13() {
         // Optimal: up (1 step) + right×11 + down (1 step) = 13 steps at −1 each = −13.
         let mut env = make_env();
@@ -406,6 +477,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies the slippery-mode slip distribution is approximately uniform (1/3 each direction).
     fn slippery_distribution_matches_1_3() {
         let cfg = CliffWalkingConfig::builder()
             .is_slippery(true)
@@ -439,6 +511,7 @@ mod tests {
     }
 
     #[test]
+    /// Verifies that two slippery environments seeded identically produce the same cumulative reward.
     fn determinism() {
         let cfg = CliffWalkingConfig::builder()
             .is_slippery(true)
