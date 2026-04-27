@@ -11,6 +11,9 @@
 //!   [`ScalarReward`] into a [`BenchEnv`].
 //! - [`suites`] — preset [`Suite`] factories for the canonical envs in
 //!   this crate, ready to feed [`Evaluator::run_suite`].
+//! - [`landscape`] — [`Landscape`](rlevo_benchmarks::agent::Landscape)
+//!   impls for the numerical landscapes in [`crate::landscapes`], for
+//!   use with `rlevo-evolution`'s `FromLandscape` adapter.
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
 //! [`ScalarReward`]: rlevo_core::reward::ScalarReward
@@ -19,6 +22,7 @@
 //! [`Evaluator::run_suite`]: rlevo_benchmarks::evaluator::Evaluator::run_suite
 
 pub mod adapter;
+pub mod landscape;
 pub mod suites;
 
 pub use adapter::BenchAdapter;

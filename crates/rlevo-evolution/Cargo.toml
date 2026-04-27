@@ -20,7 +20,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 approx = { workspace = true }
 criterion = { workspace = true }
-rlevo-envs = { path = "../rlevo-envs" }
+rlevo-envs = { path = "../rlevo-envs", features = ["bench"] }
 
 [[bench]]
 name = "operators"
@@ -29,6 +29,14 @@ harness = false
 [[example]]
 name = "sphere_showcase"
 path = "examples/sphere_showcase.rs"
+
+[[example]]
+name = "ackley_showcase"
+path = "examples/ackley_showcase.rs"
+
+[[example]]
+name = "rastrigin_showcase"
+path = "examples/rastrigin_showcase.rs"
 
 [features]
 default = ["custom-kernels"]

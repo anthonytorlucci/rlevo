@@ -1,10 +1,14 @@
-//! Runs every real-valued strategy in the crate on the Sphere-D10
+//! Runs every real-valued strategy in the crate on the Rastrigin-D10
 //! landscape and prints a convergence summary.
 //!
-//! Run with `cargo run --release -p rlevo-evolution --example sphere_showcase`.
+//! Rastrigin is highly multimodal with a regular grid of local minima
+//! superimposed on a Sphere-like envelope — a harder convergence test
+//! than either Sphere or Ackley.
+//!
+//! Run with `cargo run --release -p rlevo-evolution --example rastrigin_showcase`.
 
 use burn::backend::NdArray;
-use rlevo_envs::landscapes::sphere::Sphere;
+use rlevo_envs::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
@@ -47,13 +51,13 @@ where
 }
 
 fn main() {
-    let landscape = Sphere::new(DIM);
+    let landscape = Rastrigin::new(DIM);
     let (lo, hi) = landscape.bounds();
     #[allow(clippy::cast_possible_truncation)]
     let bounds = (lo as f32, hi as f32);
 
     println!(
-        "Sphere-D{DIM} showcase — {GENS} generations, ndarray backend, seed={SEED}\n\
+        "Rastrigin-D{DIM} showcase — {GENS} generations, ndarray backend, seed={SEED}\n\
          {:-<80}",
         "",
     );

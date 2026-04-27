@@ -20,7 +20,7 @@
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
-use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_benchmarks::agent::{FitnessEvaluable, Landscape};
 
 /// Single-member fitness evaluation.
 ///
@@ -121,6 +121,68 @@ where
     }
 }
 
+/// Adapter from [`Landscape`] to [`BatchFitnessFn<B, Tensor<B, 2>>`].
+///
+/// Use this when the landscape carries its own `evaluate(&[f64]) -> f64`
+/// (Sphere, Ackley, Rastrigin) so the example does not need a separate
+/// `FitnessEvaluable` shim. Each row is pulled to host as `f32`, widened
+/// to `f64`, evaluated, and re-uploaded as a `Tensor<B, 1>` — same
+/// precision caveats as [`FromFitnessEvaluable`] apply.
+#[derive(Debug)]
+pub struct FromLandscape<L> {
+    landscape: L,
+}
+
+impl<L> FromLandscape<L> {
+    /// Builds the adapter from a self-evaluating landscape.
+    pub fn new(landscape: L) -> Self {
+        Self { landscape }
+    }
+
+    /// Returns a reference to the wrapped landscape.
+    pub fn landscape(&self) -> &L {
+        &self.landscape
+    }
+}
+
+impl<L, B> BatchFitnessFn<B, Tensor<B, 2>> for FromLandscape<L>
+where
+    B: Backend,
+    L: Landscape,
+{
+    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &B::Device) -> Tensor<B, 1> {
+        let dims = population.shape().dims;
+        assert_eq!(dims.len(), 2, "population tensor must be rank 2");
+        let pop_size = dims[0];
+        let genome_dim = dims[1];
+
+        let flat = population
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("tensor data must be readable as f32");
+        debug_assert_eq!(flat.len(), pop_size * genome_dim);
+
+        let mut fitness = Vec::with_capacity(pop_size);
+        let mut individual = Vec::with_capacity(genome_dim);
+        for row in 0..pop_size {
+            individual.clear();
+            let start = row * genome_dim;
+            individual.extend(
+                flat[start..start + genome_dim]
+                    .iter()
+                    .map(|&v| f64::from(v)),
+            );
+            let f = self.landscape.evaluate(&individual);
+            #[allow(clippy::cast_possible_truncation)]
+            fitness.push(f as f32);
+        }
+
+        let data = TensorData::new(fitness, [pop_size]);
+        Tensor::<B, 1>::from_data(data, device)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +211,27 @@ mod tests {
         let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
 
         let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness = adapter.evaluate_batch(&pop, &device);
+
+        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        assert_eq!(values.len(), 3);
+        approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(values[2], 9.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn from_landscape_preserves_row_order() {
+        use rlevo_envs::landscapes::sphere::Sphere as EnvsSphere;
+
+        let device = Default::default();
+        let data = TensorData::new(
+            vec![1.0_f32, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0],
+            [3, 3],
+        );
+        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+
+        let mut adapter = FromLandscape::new(EnvsSphere::new(3));
         let fitness = adapter.evaluate_batch(&pop, &device);
 
         let values = fitness.into_data().into_vec::<f32>().unwrap();
