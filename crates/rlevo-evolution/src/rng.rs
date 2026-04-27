@@ -1,14 +1,14 @@
 //! Deterministic seed derivation for strategies.
 //!
-//! The workspace's canonical `SeedStream` lives in `evorl-benchmarks` and
+//! The workspace's canonical `SeedStream` lives in `rlevo-benchmarks` and
 //! fans a base seed out to per-trial sub-seeds via splitmix64. This module
-//! re-implements the same splitmix64 mixer locally so `evorl-evolution`
-//! does not depend on `evorl-benchmarks` transitively — keeping the
+//! re-implements the same splitmix64 mixer locally so `rlevo-evolution`
+//! does not depend on `rlevo-benchmarks` transitively — keeping the
 //! dependency graph a strict DAG.
 //!
 //! The two implementations must stay in lock-step: a base seed fed to this
 //! module's [`seed_stream`] must produce the same bytes as the benchmark
-//! harness's [`SeedStream`](evorl_benchmarks::seed::SeedStream).
+//! harness's [`SeedStream`](rlevo_benchmarks::seed::SeedStream).
 //!
 //! Callers derive sub-seeds by mixing a `base`, a `generation` index, and
 //! a [`SeedPurpose`] so parallel streams (selection, mutation, crossover)

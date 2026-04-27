@@ -53,8 +53,8 @@ use crate::fitness::BatchFitnessFn;
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-/// use evorl_evolution::Strategy;
+/// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
+/// use rlevo_evolution::Strategy;
 /// use rand::{rngs::StdRng, SeedableRng};
 ///
 /// let device = Default::default();
@@ -193,9 +193,9 @@ impl StrategyMetrics {
 /// use burn::backend::NdArray;
 /// use rlevo_benchmarks::agent::FitnessEvaluable;
 /// use rlevo_benchmarks::env::BenchEnv;
-/// use evorl_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-/// use evorl_evolution::fitness::FromFitnessEvaluable;
-/// use evorl_evolution::strategy::EvolutionaryHarness;
+/// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
+/// use rlevo_evolution::fitness::FromFitnessEvaluable;
+/// use rlevo_evolution::strategy::EvolutionaryHarness;
 ///
 /// struct Sphere;
 /// struct SphereFit;

@@ -1,14 +1,32 @@
-//! Zero-sized marker types for genome categories.
+//! Genome category trait and its zero-sized marker types.
 //!
-//! [`GenomeKind`](evorl_core::evolution::GenomeKind) tags genome
-//! representations at the type level so operators can specialize on the
-//! element semantics (real-valued, binary, integer, or tree). Strategies
-//! take a marker type as a const generic to pick the right operator set.
+//! [`GenomeKind`] tags genome representations at the type level so operators
+//! can specialize on the element semantics (real-valued, binary, integer,
+//! or tree). Strategies take a marker type as a const generic to pick the
+//! right operator set.
 //!
 //! The markers themselves carry no data — they exist purely to discriminate
 //! trait impls.
 
-use rlevo_core::evolution::GenomeKind;
+use std::fmt::Debug;
+
+/// Shape-erased genome kind.
+///
+/// `GenomeKind` is a zero-sized marker that strategies parameterize on to
+/// pick operators. Concrete kinds (`Real`, `Binary`, `Integer`, `Tree`,
+/// `Permutation`) live below; new kinds can be added by implementing this
+/// trait on a fresh marker type.
+///
+/// The associated constant [`DIM`](GenomeKind::DIM) records the genome
+/// dimensionality at the type level when it is compile-time known (for
+/// variable-length representations like trees, impls set it to `0`).
+pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
+    /// Compile-time genome dimensionality, or `0` for variable-length kinds.
+    const DIM: usize;
+
+    /// Element type of the genome (typically `f32`, `i32`, or `bool`).
+    type Element: Copy + Debug + Send + Sync + 'static;
+}
 
 /// Real-valued genome (each gene is an `f32`).
 ///

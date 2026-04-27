@@ -8,8 +8,8 @@
 //!   constriction-factor form: `v ← χ·(v + c1·r1·(pbest − x) + c2·r2·(gbest − x))`.
 //!
 //! Both variants use the canonical *global-best* topology. Ring / local
-//! neighbourhoods are out of scope for v1 and land with a future
-//! PSO-variants spec.
+//! neighbourhoods are not currently implemented; only the fully-connected
+//! social structure is exposed.
 //!
 //! # Initialization
 //!
@@ -128,7 +128,7 @@ pub struct PsoState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::pso::{ParticleSwarm, PsoConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 ///
 /// let strategy = ParticleSwarm::<NdArray>::new();
 /// let params = PsoConfig::default_for(32, 10);

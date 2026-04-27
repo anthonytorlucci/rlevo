@@ -197,7 +197,12 @@ impl<B: Backend> DifferentialEvolution<B> {
     }
 
     /// Samples `k` indices from `0..pop_size`, all distinct and all
-    /// different from `self_idx`. Panics if `pop_size <= k`.
+    /// different from `self_idx`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pop_size <= k`, since the rejection loop cannot make
+    /// progress without enough candidates outside `self_idx`.
     fn sample_distinct_excluding(
         self_idx: usize,
         pop_size: usize,

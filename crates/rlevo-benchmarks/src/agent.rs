@@ -7,6 +7,9 @@
 //!   stripped in a `Frozen*Policy` adapter before benchmarking.
 //! - [`FitnessEvaluable`] — optimizer-on-landscape path, used when the
 //!   "environment" is a pure fitness function (Rastrigin, Ackley, MPB).
+//! - [`Landscape`] — self-evaluating numerical landscape; collapses the
+//!   evaluator/landscape split when the landscape *is* the fitness
+//!   function. Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
 
 use rand::Rng;
 
@@ -39,4 +42,20 @@ pub trait FitnessEvaluable {
     type Landscape;
 
     fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
+}
+
+/// Self-evaluating numerical fitness landscape.
+///
+/// Implementors carry both the parameters of the landscape (dimension,
+/// constants) and the scalar `f(x)` evaluation. Use this when the
+/// landscape *is* the fitness function — Sphere, Ackley, Rastrigin — so
+/// callers do not need to define a separate evaluator alongside a marker
+/// landscape type as `FitnessEvaluable` requires.
+///
+/// `rlevo-evolution`'s `FromLandscape` adapter wraps any `Landscape` into
+/// a `BatchFitnessFn<B, Tensor<B, 2>>`, mirroring the row-by-row host
+/// evaluation that `FromFitnessEvaluable` performs.
+pub trait Landscape: Send + Sync {
+    /// Evaluates the landscape at point `x` and returns scalar fitness.
+    fn evaluate(&self, x: &[f64]) -> f64;
 }

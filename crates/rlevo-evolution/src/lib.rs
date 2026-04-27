@@ -1,4 +1,4 @@
-//! Tensor-native classical evolutionary algorithms for `burn-evorl`.
+//! Tensor-native classical evolutionary algorithms for `rlevo`.
 //!
 //! This crate ships the classical EA families — Genetic Algorithm (GA),
 //! Evolution Strategy (ES), Evolutionary Programming (EP), Differential

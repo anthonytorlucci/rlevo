@@ -23,7 +23,6 @@ pub mod action;
 pub mod agent;
 pub mod base;
 pub mod environment;
-pub mod evolution;
 pub mod experience;
 pub mod memory;
 pub mod metrics;

@@ -60,8 +60,9 @@ impl AcoRConfig {
         }
     }
 
-    /// Total number of individuals scored per generation: `k` in gen 0
-    /// (the initial archive evaluation) and `m` thereafter.
+    /// Steady-state offspring count per generation (`m`). Note that
+    /// the very first generation evaluates the full initial archive
+    /// (`archive_size` rows) instead — only generations ≥ 1 score `m`.
     #[must_use]
     pub fn steady_state_pop_size(&self) -> usize {
         self.m
@@ -88,11 +89,17 @@ pub struct AcoRState<B: Backend> {
 
 /// Ant Colony Optimization (continuous domains).
 ///
+/// # Panics
+///
+/// [`Strategy::init`] panics if `params.archive_size < 2` (the σ
+/// computation needs at least two archive solutions to take a pairwise
+/// distance) or if `params.m < 1` (no offspring to draw).
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::aco_r::{AcoRConfig, AntColonyReal};
+/// use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
 ///
 /// let strategy = AntColonyReal::<NdArray>::new();
 /// let params = AcoRConfig::default_for(50, 10, 10);

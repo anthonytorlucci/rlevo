@@ -92,7 +92,7 @@ pub struct CuckooState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::cuckoo::{CuckooConfig, CuckooSearch};
+/// use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
 ///
 /// let strategy = CuckooSearch::<NdArray>::new();
 /// let params = CuckooConfig::default_for(30, 10);

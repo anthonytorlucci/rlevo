@@ -14,7 +14,9 @@
 //!
 //! For each gene, child takes parent A's value with probability `p` and
 //! parent B's otherwise. Pure swap crossover — no blending — so the
-//! distribution is exactly preserved.
+//! distribution is exactly preserved. A binary-genome variant
+//! ([`binary_uniform_crossover`]) operates on `Tensor<B, 2, Int>` with
+//! values in `{0, 1}`.
 
 use burn::tensor::{backend::Backend, Distribution, Int, Tensor};
 
@@ -50,6 +52,10 @@ pub fn blx_alpha<B: Backend>(
 /// Uniform crossover: per-gene Bernoulli swap between parents.
 ///
 /// `p` is the probability of keeping parent A's gene.
+///
+/// # Panics
+///
+/// Panics if the parents do not have matching shapes.
 #[must_use]
 pub fn uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2>,
@@ -72,6 +78,10 @@ pub fn uniform_crossover<B: Backend>(
 ///
 /// For each gene, keep parent A with probability `p`, else parent B.
 /// `parent_a` and `parent_b` must hold values in `{0, 1}`.
+///
+/// # Panics
+///
+/// Panics if the parents do not have matching shapes.
 #[must_use]
 pub fn binary_uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2, Int>,

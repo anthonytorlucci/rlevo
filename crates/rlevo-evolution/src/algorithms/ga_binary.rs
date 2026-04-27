@@ -7,11 +7,9 @@
 //! [`crate::ops::crossover::binary_uniform_crossover`] and
 //! [`crate::ops::mutation::bit_flip_mutation`].
 //!
-//! # Test landscape
-//!
-//! The unit test uses OneMax phrased as minimization
-//! (`cost = D − count_ones(x)`) so the harness's "lower is better"
-//! convention applies uniformly across strategies.
+//! Fitness is treated as cost (lower is better) to match the rest of
+//! the strategies in this crate; benchmarks like OneMax must be phrased
+//! as minimization (`D − count_ones`) before being plugged in.
 
 use std::marker::PhantomData;
 
@@ -43,6 +41,9 @@ pub struct BinaryGaConfig {
 
 impl BinaryGaConfig {
     /// Sensible defaults for small-scale binary optimization.
+    ///
+    /// Mutation rate defaults to `1 / D` (the standard "one expected
+    /// flip per genome" rule from the binary-GA literature).
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -61,7 +62,8 @@ impl BinaryGaConfig {
 pub struct BinaryGaState<B: Backend> {
     /// Current population, shape `(pop_size, D)`.
     pub population: Tensor<B, 2, Int>,
-    /// Host-side fitness cache.
+    /// Host-side fitness cache for the current population. Empty on
+    /// init until the first `tell` call populates it.
     pub fitness: Vec<f32>,
     /// Best-so-far genome.
     pub best_genome: Option<Tensor<B, 2, Int>>,

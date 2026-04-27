@@ -106,7 +106,7 @@ pub struct BatState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::bat::{BatAlgorithm, BatConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
 ///
 /// let strategy = BatAlgorithm::<NdArray>::new();
 /// let params = BatConfig::default_for(32, 10);

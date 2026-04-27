@@ -240,9 +240,18 @@ fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
 
 /// Evaluates a CGP genotype at a set of input rows.
 ///
-/// - `genome` is the host-side integer genotype.
-/// - `inputs` has shape `(n_samples, n_inputs)`.
-/// - Returns `(n_samples,)` predicted outputs as `f32`.
+/// `genome` is the host-side integer genotype (length `params.genome_len()`).
+/// `inputs` is a slice of `n_samples` rows, each of length `params.n_inputs`.
+/// Returns one `f32` output per input row.
+///
+/// Out-of-range input/node indices in the genome are clamped to the
+/// last buffer slot rather than panicking — this keeps fitness
+/// evaluation robust to mutated-but-unrepaired genotypes. Non-finite
+/// node values (e.g., `inf` from divisions or `tan`) collapse to `0.0`.
+///
+/// # Panics
+///
+/// Panics if `genome` is empty (the last gene is the output index).
 #[must_use]
 pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> Vec<f32> {
     let node_count = params.rows * params.cols;

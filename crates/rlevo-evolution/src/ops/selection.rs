@@ -22,7 +22,7 @@ use rand::{Rng, RngExt};
 ///
 /// # Panics
 ///
-/// Panics if `fitness.is_empty()`.
+/// Panics if `fitness.is_empty()` or if `tournament_size < 2`.
 #[must_use]
 pub fn tournament_indices_host(
     fitness: &[f32],
@@ -54,6 +54,11 @@ pub fn tournament_indices_host(
 ///
 /// Convenience wrapper that lifts [`tournament_indices_host`] into a
 /// device gather on the population tensor.
+///
+/// # Panics
+///
+/// Inherits the panic conditions of [`tournament_indices_host`]:
+/// `fitness.is_empty()` or `tournament_size < 2`.
 #[must_use]
 pub fn tournament_select<B: Backend>(
     population: &Tensor<B, 2>,
@@ -90,6 +95,11 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i64> {
 }
 
 /// Gather the `top_k` lowest-fitness rows out of the population.
+///
+/// # Panics
+///
+/// Inherits the panic conditions of [`truncation_indices_host`]:
+/// `fitness.is_empty()` or `top_k > fitness.len()`.
 #[must_use]
 pub fn truncation_select<B: Backend>(
     population: &Tensor<B, 2>,
