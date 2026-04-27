@@ -10,12 +10,11 @@
 //! device memory beyond that. This module reserves the CubeCL-native
 //! replacement path behind the `custom-kernels` feature.
 //!
-//! Landing the real kernel requires first-time integration with
-//! `cubecl 0.9` in `evorl-evolution` (the designs documented in
-//! [`crate::ops::kernels`] are still unwritten) and per-backend
-//! validation on wgpu and the cpu-jit path. None of that blocks the
-//! strategy machinery, so the kernel itself is scheduled as follow-up
-//! work.
+//! Landing the real kernel requires first-time CubeCL integration in
+//! `rlevo-evolution` and per-backend validation on wgpu and the cpu-jit
+//! path. None of that blocks the strategy machinery, so the kernel is
+//! scheduled as follow-up work alongside the operator-level kernels
+//! sketched in [`crate::ops::kernels`].
 //!
 //! # Target interface
 //!
@@ -43,10 +42,10 @@
 //! # Expected impact
 //!
 //! At `N ≥ 128` on wgpu, the pure-tensor path allocates a `(N, N, D)`
-//! tensor — 10 MB at `N = 512, D = 10`. The fused kernel eliminates
-//! that allocation and collapses three launches (diff, β, attraction
-//! sum) into one, with a target of measurable speedup at `N ≥ 128` on
-//! both backends.
+//! tensor — ~10 MB at `N = 512, D = 10` in `f32`. The fused kernel
+//! eliminates that allocation and collapses three launches (pairwise
+//! diff, attractiveness `β`, weighted sum) into one, with a target of
+//! measurable speedup at `N ≥ 128` on both wgpu and ndarray.
 //!
 //! # Fallback
 //!

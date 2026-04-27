@@ -5,8 +5,8 @@
 //! - `(1+1)` — a single parent, a single offspring, 1/5th success-rule
 //!   σ adaptation.
 //! - `(1+λ)` — a single parent, λ offspring per generation; the best
-//!   offspring replaces the parent iff its fitness improves. Also used
-//!   by Cartesian GP (landing in M3).
+//!   offspring replaces the parent iff its fitness improves. The
+//!   underlying mutation/selection loop is also reused by Cartesian GP.
 //! - `(μ,λ)` — μ parents, λ offspring; parents are discarded each
 //!   generation.
 //! - `(μ+λ)` — μ parents, λ offspring; survivors are the μ best of the
@@ -95,8 +95,12 @@ pub struct EsState<B: Backend> {
     /// Parent population. `(μ, D)` for μ-parent variants; `(1, D)` for
     /// (1+1) and (1+λ).
     pub parents: Tensor<B, 2>,
-    /// Per-parent σ values. `(μ,)` shape for log-normal adaptation;
-    /// `(1,)` shape for (1+1)/(1+λ) with shared σ.
+    /// Per-parent σ values.
+    ///
+    /// Shape between generations is `(μ,)` for log-normal adaptation and
+    /// `(1,)` for `(1+1)`/`(1+λ)` with shared σ. Between an `ask` and the
+    /// matching `tell` the tensor is temporarily `(μ + λ,)`: parent σ
+    /// followed by per-offspring σ. See `ask` for the rationale.
     pub sigmas: Tensor<B, 1>,
     /// Parent fitnesses.
     pub parent_fitness: Vec<f32>,
@@ -259,23 +263,13 @@ where
         let mutated = mutated.clamp(lo, hi);
 
         let mut state = state.clone();
-        // Stash the offspring σ values into state so `tell` can promote
-        // the survivors' σ alongside their genomes. We use `parents`
-        // here to sneak the offspring σ through; a proper refactor
-        // would carry a dedicated "pending offspring σ" field, but
-        // storing it on `state.sigmas` keeps the State small (see
-        // strategy.rs invariant about pure ask/tell).
-        // To avoid ambiguity, we actually overwrite sigmas only in
-        // `tell`. We therefore stash the offspring sigmas in a
-        // scratchpad via cloning into `state.sigmas` is NOT correct.
-        // Instead, we leverage the fact that `ask` returns `state` and
-        // `tell` re-derives the σ from the variant-specific rule.
-        // Pragmatically we let `tell` receive the offspring_sigmas via
-        // state.sigmas *only* when the caller keeps it synchronized.
-        // To keep this correct, we attach offspring σ to `state` via
-        // the `sigmas` field: survivors in mu_plus_lambda pull indices
-        // against a union, so we store the concatenation of parent +
-        // offspring σ.
+        // Carry offspring σ to `tell` by appending them to `state.sigmas`.
+        // After this point sigmas has shape `(μ + λ,)`: the first μ entries
+        // are the unchanged parent σ, the last λ are the per-offspring σ.
+        // `tell` slices both halves to align survivor σ with survivor genomes
+        // (`(μ+λ)` selection draws from the union, `(μ,λ)` only from the λ
+        // offspring slice). Folding the offspring σ into the existing field
+        // avoids adding a transient pending-σ field to `EsState`.
         let combined_sigmas = Tensor::cat(vec![state.sigmas.clone(), offspring_sigmas], 0);
         state.sigmas = combined_sigmas;
         (mutated, state)

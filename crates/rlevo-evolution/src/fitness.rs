@@ -61,6 +61,11 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
 ///
 /// - `FE`: Concrete [`FitnessEvaluable`] implementation.
 /// - `L`: Landscape type; must match `FE::Landscape`.
+///
+/// # Panics
+///
+/// `evaluate_batch` panics if the supplied population tensor is not rank
+/// 2, or if its data cannot be read as `f32` (e.g. an integer backend).
 #[derive(Debug)]
 pub struct FromFitnessEvaluable<FE, L> {
     evaluator: FE,
@@ -128,6 +133,11 @@ where
 /// `FitnessEvaluable` shim. Each row is pulled to host as `f32`, widened
 /// to `f64`, evaluated, and re-uploaded as a `Tensor<B, 1>` — same
 /// precision caveats as [`FromFitnessEvaluable`] apply.
+///
+/// # Panics
+///
+/// `evaluate_batch` panics if the supplied population tensor is not rank
+/// 2, or if its data cannot be read as `f32` (e.g. an integer backend).
 #[derive(Debug)]
 pub struct FromLandscape<L> {
     landscape: L,

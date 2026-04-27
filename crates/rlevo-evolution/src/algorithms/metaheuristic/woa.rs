@@ -89,7 +89,7 @@ pub struct WoaState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::woa::{WhaleOptimization, WoaConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 ///
 /// let strategy = WhaleOptimization::<NdArray>::new();
 /// let params = WoaConfig::default_for(32, 10);

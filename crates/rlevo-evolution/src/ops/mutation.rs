@@ -26,6 +26,11 @@ pub fn gaussian_mutation<B: Backend>(
 /// `sigmas` is a `(N,)` tensor holding the σ for each individual; the
 /// noise tensor is multiplied row-wise before being added to the
 /// population.
+///
+/// # Panics
+///
+/// Panics if `sigmas`'s length does not match the population's first
+/// dimension (the `reshape([n, 1])` step requires exactly `n` σ values).
 #[must_use]
 pub fn gaussian_mutation_per_row<B: Backend>(
     population: Tensor<B, 2>,
@@ -62,7 +67,10 @@ pub fn uniform_reset<B: Backend>(
 
 /// Bit-flip mutation on a binary `Tensor<B, 2, Int>` population.
 ///
-/// Each gene is flipped independently with probability `p`.
+/// Each gene is flipped independently with probability `p`. The input
+/// must hold values in `{0, 1}`; the flip is computed arithmetically
+/// as `1 − x` and will produce out-of-range values if that contract is
+/// violated.
 #[must_use]
 pub fn bit_flip_mutation<B: Backend>(
     population: Tensor<B, 2, Int>,

@@ -25,6 +25,12 @@ pub fn generational<B: Backend>(
 /// Elitist replacement: keep the `k` best members of the current
 /// generation and fill the rest from offspring, preserving the best
 /// offspring first.
+///
+/// # Panics
+///
+/// Panics if `k > current_fitness.len()`, or if
+/// `pop_size − k > offspring_fitness.len()` (not enough offspring to
+/// backfill).
 #[must_use]
 pub fn elitist<B: Backend>(
     current_pop: Tensor<B, 2>,
@@ -68,6 +74,12 @@ pub fn elitist<B: Backend>(
 
 /// (μ + λ) replacement: merge the μ parents with the λ offspring and
 /// keep the μ lowest-fitness members overall.
+///
+/// # Panics
+///
+/// Panics if `mu > parent_fitness.len() + offspring_fitness.len()`
+/// (the underlying truncation cannot select more winners than the
+/// combined pool contains).
 #[must_use]
 pub fn mu_plus_lambda<B: Backend>(
     parents: Tensor<B, 2>,
@@ -97,6 +109,10 @@ pub fn mu_plus_lambda<B: Backend>(
 
 /// (μ, λ) replacement: discard parents; keep the μ best of the λ
 /// offspring. Requires `lambda >= mu`.
+///
+/// # Panics
+///
+/// Panics if `mu > offspring_fitness.len()` (i.e. `lambda < mu`).
 #[must_use]
 pub fn mu_comma_lambda<B: Backend>(
     offspring: Tensor<B, 2>,

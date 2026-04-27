@@ -20,8 +20,8 @@
 //! demonstrate that GWO is algorithmically equivalent to a weighted
 //! PSO-like update; it has no novel search mechanism over Kennedy &
 //! Eberhart (1995). Ship it for API completeness — users who expect a
-//! GWO implementation will find one — but prefer CMA-ES or LSHADE (once
-//! they land) for serious work.
+//! GWO implementation will find one — but prefer CMA-ES or LSHADE for
+//! serious work when those are available.
 //!
 //! # References
 //!
@@ -84,11 +84,16 @@ pub struct GwoState<B: Backend> {
 
 /// Grey Wolf Optimizer strategy.
 ///
+/// # Panics
+///
+/// [`Strategy::init`] panics if `params.pop_size < 3`, since the update
+/// rule needs three distinct leaders (`α`, `β`, `δ`).
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::gwo::{GreyWolfOptimizer, GwoConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
 ///
 /// let strategy = GreyWolfOptimizer::<NdArray>::new();
 /// let params = GwoConfig::default_for(32, 10);

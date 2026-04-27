@@ -11,6 +11,9 @@ use burn::tensor::{backend::Backend, Tensor};
 
 /// Returns `fitness - fitness.mean()` divided by the (population) std-dev,
 /// clamped to avoid divide-by-zero when all fitnesses are equal.
+///
+/// The std-dev floor is `1e-8`; degenerate populations (all-equal fitness)
+/// therefore map to a vector of zeros rather than producing NaNs.
 #[must_use]
 pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     let mean = fitness.clone().mean().into_scalar().elem::<f32>();
@@ -31,6 +34,13 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// generations. Implemented host-side because the argsort pathway is
 /// easier to reason about; swap in a tensor-native implementation if this
 /// ever shows up on a profile.
+///
+/// An empty input returns an empty tensor.
+///
+/// # Panics
+///
+/// Panics if `fitness`'s data cannot be read as `f32` (e.g. an integer
+/// backend tensor was passed in).
 #[must_use]
 pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &B::Device) -> Tensor<B, 1> {
     let data = fitness

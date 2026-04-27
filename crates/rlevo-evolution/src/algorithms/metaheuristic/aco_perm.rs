@@ -58,11 +58,17 @@ pub struct AcoPermState<B: Backend> {
 ///
 /// **Not yet implemented** — planned for a future release.
 ///
+/// # Panics
+///
+/// All [`Strategy`] methods except `best` invoke `todo!()`. The struct
+/// is constructible (`new`, `Default`) and useful for declaring
+/// downstream API surface; do not drive it through a harness.
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::aco_perm::{AntColonyPermutation, AcoPermConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::aco_perm::{AntColonyPermutation, AcoPermConfig};
 ///
 /// let strategy = AntColonyPermutation::<NdArray>::new();
 /// let params = AcoPermConfig::default_for(32, 20);

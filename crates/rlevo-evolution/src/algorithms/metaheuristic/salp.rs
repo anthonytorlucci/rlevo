@@ -85,11 +85,16 @@ pub struct SalpState<B: Backend> {
 
 /// Salp Swarm Algorithm strategy.
 ///
+/// # Panics
+///
+/// [`Strategy::init`] panics if `params.pop_size < 2`, since the
+/// leader/follower split requires at least one of each.
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::salp::{SalpConfig, SalpSwarm};
+/// use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 ///
 /// let strategy = SalpSwarm::<NdArray>::new();
 /// let params = SalpConfig::default_for(32, 10);

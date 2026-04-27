@@ -12,9 +12,10 @@
 //! tensor and therefore blows out memory at `N > 128`. This module
 //! enforces that hard cap when the `custom-kernels` feature is off. A
 //! future fused CubeCL kernel
-//! ([`super::kernels::pairwise_attract_cube`], tracked as follow-up
-//! work) streams over the neighbour axis to keep memory at `O(ND)` and
-//! removes the cap.
+//! ([`super::kernels::pairwise_attract_cube`]) is designed to stream
+//! over the neighbour axis and keep memory at `O(ND)`, removing the
+//! cap; until that kernel lands, the pure-tensor path runs even when
+//! the feature is enabled.
 //!
 //! # References
 //!
@@ -87,11 +88,21 @@ pub struct FireflyState<B: Backend> {
 
 /// Firefly Algorithm strategy.
 ///
+/// # Panics
+///
+/// [`Strategy::init`] enforces a `pop_size <= FIREFLY_PURE_TENSOR_CAP`
+/// (= 128) cap when the `custom-kernels` feature is **off**, since the
+/// pure-tensor path materializes an `(N, N, D)` pairwise tensor.
+/// With the feature on the same cap is enforced via `debug_assert!`,
+/// because the fused kernel
+/// [`super::kernels::pairwise_attract_cube`] is still designed-only and
+/// the strategy keeps using the pure-tensor path in the meantime.
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::firefly::{FireflyAlgorithm, FireflyConfig};
+/// use rlevo_evolution::algorithms::metaheuristic::firefly::{FireflyAlgorithm, FireflyConfig};
 ///
 /// let strategy = FireflyAlgorithm::<NdArray>::new();
 /// let params = FireflyConfig::default_for(32, 10);
@@ -113,7 +124,8 @@ impl<B: Backend> FireflyAlgorithm<B> {
 
     /// Pure-tensor `O(N²D)` attraction kernel — always available, even
     /// without the `custom-kernels` feature. The fused CubeCL kernel
-    /// (task C1) slots in at this call site when the feature is on.
+    /// designed in [`super::kernels::pairwise_attract_cube`] slots in at
+    /// this call site once it lands.
     fn pure_tensor_attract(
         positions: &Tensor<B, 2>,
         fitness: &[f32],
@@ -181,18 +193,18 @@ where
         assert!(
             params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
             "Firefly without `custom-kernels` feature caps pop_size at {} to keep the O(N²D) \
-             pairwise tensor bounded; enable `custom-kernels` for larger swarms (task C1)",
+             pairwise tensor bounded; enable `custom-kernels` for larger swarms",
             FIREFLY_PURE_TENSOR_CAP
         );
-        // Even with the kernel feature active, the v1 kernel itself is
-        // a placeholder (task C1) and the pure-tensor path is still in
-        // use. Gate large populations with a debug assert so the
-        // limitation surfaces early in tests while not blocking users
-        // who have the kernel wired in downstream.
+        // Even with the kernel feature active, the fused pairwise-attract
+        // kernel is currently a design placeholder and the pure-tensor
+        // path is still in use. A debug assert surfaces the limitation in
+        // tests without blocking downstream users who have wired in their
+        // own kernel.
         #[cfg(feature = "custom-kernels")]
         debug_assert!(
             params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
-            "Firefly pop_size > {} requires the fused pairwise-attract kernel (task C1); \
+            "Firefly pop_size > {} requires the fused pairwise-attract kernel; \
              the placeholder kernel module still runs the pure-tensor path",
             FIREFLY_PURE_TENSOR_CAP
         );

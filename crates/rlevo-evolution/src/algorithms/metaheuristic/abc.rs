@@ -86,11 +86,17 @@ pub struct AbcState<B: Backend> {
 
 /// Artificial Bee Colony strategy.
 ///
+/// # Panics
+///
+/// [`Strategy::init`] panics if `params.pop_size < 2`, since the
+/// employed-phase neighbour `k ≠ i` cannot be drawn from a colony of
+/// one.
+///
 /// # Example
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::swarm::abc::{AbcConfig, ArtificialBeeColony};
+/// use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 ///
 /// let strategy = ArtificialBeeColony::<NdArray>::new();
 /// let params = AbcConfig::default_for(30, 10);
