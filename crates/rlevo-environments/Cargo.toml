@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 burn = { workspace = true }
-rlevo-core = { path = '../rlevo-core' }
-rlevo-benchmarks = { path = '../rlevo-benchmarks', optional = true }
+rlevo-core = { path = '../rlevo-core', version = "0.1.0" }
+rlevo-benchmarks = { path = '../rlevo-benchmarks', version = "0.1.0", optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 rand_distr = { workspace = true }

@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 burn = { workspace = true }
 cubecl = { workspace = true, optional = true }
-rlevo-core = { path = "../rlevo-core" }
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde = { workspace = true }
