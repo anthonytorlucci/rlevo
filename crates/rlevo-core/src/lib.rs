@@ -23,6 +23,8 @@ pub mod action;
 pub mod agent;
 pub mod base;
 pub mod environment;
+pub mod evaluation;
+pub mod fitness;
 pub mod render;
 pub mod reward;
 pub mod state;

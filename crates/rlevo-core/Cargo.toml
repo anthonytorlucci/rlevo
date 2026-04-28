@@ -11,6 +11,7 @@ repository.workspace = true
 burn = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 rand_distr = {workspace = true }
 

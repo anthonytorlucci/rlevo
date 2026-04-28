@@ -5,10 +5,8 @@
 //! and lifting the bound (e.g. via `BenchReward: Into<f64>`) is deferred
 //! until a non-scalar-reward env actually lands.
 //!
-//! [`EnvironmentError`] is converted to [`BenchError`] via `Display`. The
-//! string preserves the variant name + payload, and keeps `rlevo-benchmarks`
-//! free of an `rlevo-core` runtime dep — the layering documented in
-//! ADR-0001.
+//! [`EnvironmentError`] is preserved as the source of [`BenchError`] (typed
+//! since ADR 0004 moved the bench trait surface into `rlevo-core`).
 //!
 //! # Const generics
 //!
@@ -20,13 +18,13 @@
 //!
 //! [`Environment`]: rlevo_core::environment::Environment
 //! [`ScalarReward`]: rlevo_core::reward::ScalarReward
-//! [`BenchEnv`]: rlevo_benchmarks::env::BenchEnv
+//! [`BenchEnv`]: rlevo_core::evaluation::BenchEnv
 //! [`EnvironmentError`]: rlevo_core::environment::EnvironmentError
 
 use std::marker::PhantomData;
 
-use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::reward::ScalarReward;
 
 /// Object-safe wrapper around a typed [`Environment`].
@@ -37,7 +35,7 @@ use rlevo_core::reward::ScalarReward;
 /// # #[cfg(feature = "bench")] {
 /// use rlevo_envs::bench::BenchAdapter;
 /// use rlevo_envs::classic::{CartPole, CartPoleConfig};
-/// use rlevo_benchmarks::env::BenchEnv;
+/// use rlevo_core::evaluation::BenchEnv;
 ///
 /// let env = CartPole::with_config(CartPoleConfig::default());
 /// let mut adapter = BenchAdapter::new(env);
@@ -86,7 +84,7 @@ where
         let snap = self
             .env
             .reset()
-            .map_err(|e| BenchError::Reset(e.to_string()))?;
+            .map_err(BenchError::Reset)?;
         Ok(snap.observation().clone())
     }
 
@@ -97,7 +95,7 @@ where
         let snap = self
             .env
             .step(action)
-            .map_err(|e| BenchError::Step(e.to_string()))?;
+            .map_err(BenchError::Step)?;
         Ok(BenchStep {
             observation: snap.observation().clone(),
             reward: f64::from(snap.reward().value()),

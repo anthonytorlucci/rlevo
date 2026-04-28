@@ -1,6 +1,6 @@
-//! Inference-only agent interfaces for the benchmark harness.
+//! Inference-only agent interfaces and fitness-evaluation traits.
 //!
-//! Two traits:
+//! Three traits plus the [`Metric`] data type:
 //!
 //! - [`BenchableAgent`] — frozen policies (RL-style) that consume an
 //!   observation and produce an action. RL training/replay state must be
@@ -10,12 +10,29 @@
 //! - [`Landscape`] — self-evaluating numerical landscape; collapses the
 //!   evaluator/landscape split when the landscape *is* the fitness
 //!   function. Consumed by `rlevo-evolution`'s `FromLandscape` adapter.
+//!
+//! [`Metric`] and [`MetricsProvider`] live here because [`BenchableAgent`]
+//! returns `Vec<Metric>` from its optional `emit_metrics` hook; co-locating
+//! them keeps the trait self-contained without a dep on the harness crate.
 
 use rand::Rng;
 
-use crate::metrics::Metric;
+/// Method-specific signal emitted by an agent or aggregator at trial
+/// boundaries.
+#[derive(Debug, Clone)]
+pub enum Metric {
+    Scalar { name: String, value: f64 },
+    Histogram { name: String, values: Vec<f64> },
+    Counter { name: String, count: u64 },
+}
 
-/// Minimal inference interface required by the `Evaluator`.
+/// Trait implemented by agents (and internal collectors) that can report
+/// method-specific metrics at trial boundaries.
+pub trait MetricsProvider {
+    fn emit(&self) -> Vec<Metric>;
+}
+
+/// Minimal inference interface required by an external evaluator.
 ///
 /// Implementors must be deterministic given a fixed RNG state and must not
 /// mutate learnable parameters. Internal RNG state (e.g. for stochastic
@@ -36,7 +53,7 @@ pub trait BenchableAgent<Obs, Act> {
 ///
 /// Used when the benchmark IS the fitness function (e.g. Rastrigin) rather
 /// than a stateful `Environment`. The `Evaluator::run_optimizer_trial` path
-/// consumes this trait.
+/// in `rlevo-benchmarks` consumes this trait.
 pub trait FitnessEvaluable {
     type Individual;
     type Landscape;

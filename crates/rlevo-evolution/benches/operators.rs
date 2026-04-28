@@ -20,7 +20,7 @@ use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-use rlevo_benchmarks::env::BenchEnv;
+use rlevo_core::evaluation::BenchEnv;
 
 type B = NdArray;
 

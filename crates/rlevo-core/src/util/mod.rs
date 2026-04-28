@@ -1,8 +1,9 @@
-//! Shared math helpers used across `rlevo-core` consumers.
+//! Shared utilities used across `rlevo-core` consumers.
 //!
-//! Lifted from the (now-removed) `rlevo-utils` crate per ADR 0003 — the
-//! crate held a single function with zero workspace consumers and was
-//! folded here to remove an empty workspace member.
+//! Currently houses small helpers ([`combinations`]) and the
+//! [`seed`] module's deterministic seed-derivation primitives.
+
+pub mod seed;
 
 /// Returns the binomial coefficient `n choose k` (number of combinations of
 /// `n` items taken `k` at a time).

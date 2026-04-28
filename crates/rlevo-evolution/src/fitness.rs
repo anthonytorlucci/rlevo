@@ -20,7 +20,7 @@
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
-use rlevo_benchmarks::agent::{FitnessEvaluable, Landscape};
+use rlevo_core::fitness::{FitnessEvaluable, Landscape};
 
 /// Single-member fitness evaluation.
 ///
@@ -232,7 +232,12 @@ mod tests {
 
     #[test]
     fn from_landscape_preserves_row_order() {
-        use rlevo_environments::landscapes::sphere::Sphere as EnvsSphere;
+        struct SphereLandscape;
+        impl Landscape for SphereLandscape {
+            fn evaluate(&self, x: &[f64]) -> f64 {
+                x.iter().map(|v| v * v).sum()
+            }
+        }
 
         let device = Default::default();
         let data = TensorData::new(
@@ -241,7 +246,7 @@ mod tests {
         );
         let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
 
-        let mut adapter = FromLandscape::new(EnvsSphere::new(3));
+        let mut adapter = FromLandscape::new(SphereLandscape);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
         let values = fitness.into_data().into_vec::<f32>().unwrap();

@@ -1,10 +1,10 @@
-//! [`Landscape`](rlevo_benchmarks::agent::Landscape) impls for the
+//! [`Landscape`](rlevo_core::fitness::Landscape) impls for the
 //! numerical landscapes in [`crate::landscapes`].
 //!
-//! Feature-gated under `bench` so the trait dependency on
-//! `rlevo-benchmarks` only appears when the harness is in use.
+//! Feature-gated under `bench` so the trait impls compile only when the
+//! harness adapter surface is in use.
 
-use rlevo_benchmarks::agent::Landscape;
+use rlevo_core::fitness::Landscape;
 
 use crate::landscapes::{ackley::Ackley, rastrigin::Rastrigin, sphere::Sphere};
 

@@ -5179,11 +5179,18 @@ dependencies = [
 name = "rlevo"
 version = "0.1.0"
 dependencies = [
+ "approx",
+ "burn",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "rlevo-benchmarks",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
  "rlevo-hybrid",
  "rlevo-reinforcement-learning",
+ "serde",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5197,12 +5204,10 @@ dependencies = [
  "ratatui",
  "rayon",
  "rlevo-core",
- "rlevo-environments",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5214,6 +5219,7 @@ dependencies = [
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "serde",
+ "thiserror 1.0.69",
  "tracing",
 ]
 
@@ -5243,8 +5249,7 @@ dependencies = [
  "cubecl",
  "rand 0.10.1",
  "rand_distr 0.6.0",
- "rlevo-benchmarks",
- "rlevo-environments",
+ "rlevo-core",
  "serde",
  "thiserror 1.0.69",
  "tracing",
@@ -5277,7 +5282,6 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
