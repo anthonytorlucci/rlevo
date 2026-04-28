@@ -25,17 +25,13 @@ Most ERL implementations are Python research prototypes built around flat vector
 
 **Const-generic dimensional safety.** `State<D>`, `Observation<D>`, and `Action<AD>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — a guarantee no existing Rust RL crate provides.
 
-**Unified evolutionary and gradient-based RL.** The `rlevo-evolution`, `rlevo-rl`, and `rlevo-hybrid` crates share the same core trait abstractions, so evolutionary and gradient-based agents run against identical environments and compose naturally in a single training loop.
+**Unified evolutionary and gradient-based RL.** Evolutionary and gradient-based agents share the same core trait abstractions, so they run against identical environments and compose naturally in a single training loop.
 
 **Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU, WGPU, CUDA) swap without touching algorithm code.
 
-## Workspace Crates
+## What's Included
 
-### `rlevo-core`
-Foundational trait definitions used across the entire workspace. Defines the core abstractions: `State`, `Observation`, `Action`, `Environment`, `Snapshot`, `ReplayBuffer`, and reward types. Everything else is built on top of these.
-
-### `rlevo-envs`
-A growing suite of benchmark environments implementing the `Environment` trait.
+### Environments
 
 **Classic Control**
 - `CartPole` — balance a pole on a moving cart
@@ -57,23 +53,7 @@ A growing suite of benchmark environments implementing the `Environment` trait.
 **Grid Worlds**
 - Configurable grid environments with optional memory, keyed doors, and partial observability
 
-### `rlevo-evolution`
-The evolutionary engine. Implements tensor-native genetic algorithms and evolutionary strategies, with custom CubeCL kernels on hot paths and full swarm intelligence coverage.
-
-**Classical Algorithms**
-- Genetic Algorithm (GA) with crossover and mutation operators
-- Evolution Strategies (ES), Evolutionary Programming (EP)
-- Differential Evolution (DE), Cartesian Genetic Programming (CGP)
-
-**Swarm Intelligence**
-- Particle Swarm Optimization (PSO)
-- Ant Colony Optimization (ACO)
-- Firefly, Cuckoo Search, Bat Algorithm
-- Grey Wolf Optimizer (GWO), Artificial Bee Colony (ABC)
-- Whale Optimization Algorithm (WOA), Salp Swarm
-
-### `rlevo-rl`
-Standard deep RL algorithm implementations.
+### Deep RL Algorithms
 
 **Value-Based**
 - **DQN** — Deep Q-Network with experience replay and target network
@@ -89,28 +69,52 @@ Standard deep RL algorithm implementations.
 - **TD3** — Twin Delayed DDPG with target policy smoothing
 - **SAC** — Soft Actor-Critic with automatic entropy tuning
 
-### `rlevo-hybrid`
-Combines gradient-based RL with evolutionary optimization. The integration layer connecting `rlevo-rl` and `rlevo-evolution` for hybrid training strategies.
+### Evolutionary & Swarm Algorithms
 
-### `rlevo-benchmarks`
-A reproducible benchmarking harness with deterministic seeding, checkpoint management, and JSON / TUI reporting. Used to evaluate and compare algorithms across environments.
+**Classical Algorithms**
+- Genetic Algorithm (GA) with crossover and mutation operators
+- Evolution Strategies (ES), Evolutionary Programming (EP)
+- Differential Evolution (DE), Cartesian Genetic Programming (CGP)
 
-### `rlevo-utils`
-Shared math utilities used across the workspace.
+**Swarm Intelligence**
+- Particle Swarm Optimization (PSO)
+- Ant Colony Optimization (ACO)
+- Firefly, Cuckoo Search, Bat Algorithm
+- Grey Wolf Optimizer (GWO), Artificial Bee Colony (ABC)
+- Whale Optimization Algorithm (WOA), Salp Swarm
 
-## Development Status
+### Hybrid RL + Evolution
 
-| Crate | Status |
-| :--- | :--- |
-| `rlevo-core` | Stable — trait API largely settled |
-| `rlevo-envs` | Active — 13+ environments implemented |
-| `rlevo-evolution` | Active — full classical EA + swarm suite |
-| `rlevo-benchmarks` | Active — evaluation harness working |
-| `rlevo-rl` | Active — 8 algorithms implemented (DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC) |
-| `rlevo-hybrid` | Early — integration layer in design |
-| `rlevo-utils` | Minimal — grows with need |
+Hybrid training strategies that combine gradient-based RL with evolutionary search are in active design. See the roadmap for details.
 
 ## Quick Start
+
+```toml
+[dependencies]
+rlevo = "0.1"
+```
+
+```rust
+use rlevo::environments::classic::CartPole;
+use rlevo::core::{Environment, EpisodeStatus};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut env = CartPole::new(false);
+    let snapshot = env.reset()?;
+    println!("Initial observation: {:?}", snapshot.observation());
+
+    loop {
+        // Replace with your policy — here we pick action 0 unconditionally
+        let action = env.sample_action();
+        let snapshot = env.step(action)?;
+
+        if matches!(snapshot.status(), EpisodeStatus::Terminated | EpisodeStatus::Truncated) {
+            break;
+        }
+    }
+    Ok(())
+}
+```
 
 ```bash
 # Build the workspace
@@ -119,12 +123,22 @@ cargo build
 # Run tests
 cargo test
 
-# Run a specific environment example
-cargo run -p rlevo-core --example grid_agent
-
 # Generate documentation
 cargo doc --workspace --no-deps --open
 ```
+
+## Development Status
+
+`rlevo` is **alpha software**. The core trait API is largely settled; algorithm implementations and environments are under active development. Breaking changes may occur before 1.0.
+
+| Area | Status |
+| :--- | :--- |
+| Core trait API | Stable |
+| Environments (13+) | Active |
+| Deep RL algorithms (8) | Active |
+| Evolutionary & swarm algorithms | Active |
+| Benchmarking harness | Active |
+| Hybrid RL + evolution | Early design |
 
 ## Dependencies
 
@@ -134,6 +148,10 @@ cargo doc --workspace --no-deps --open
 - **tracing 0.1** — structured logging
 - **rapier2d / rapier3d** — physics simulation with enhanced determinism
 - **criterion** — benchmarking
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, scope, and how to open a PR.
 
 ## Development
 
