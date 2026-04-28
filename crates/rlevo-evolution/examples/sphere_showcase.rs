@@ -4,7 +4,7 @@
 //! Run with `cargo run --release -p rlevo-evolution --example sphere_showcase`.
 
 use burn::backend::NdArray;
-use rlevo_envs::landscapes::sphere::Sphere;
+use rlevo_environments::landscapes::sphere::Sphere;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};

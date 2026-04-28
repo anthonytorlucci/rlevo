@@ -5180,7 +5180,7 @@ name = "rlevo"
 version = "0.1.0"
 dependencies = [
  "rlevo-core",
- "rlevo-envs",
+ "rlevo-environments",
  "rlevo-evolution",
  "rlevo-hybrid",
  "rlevo-rl",
@@ -5197,7 +5197,7 @@ dependencies = [
  "ratatui",
  "rayon",
  "rlevo-core",
- "rlevo-envs",
+ "rlevo-environments",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5218,7 +5218,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rlevo-envs"
+name = "rlevo-environments"
 version = "0.1.0"
 dependencies = [
  "approx",
@@ -5244,7 +5244,7 @@ dependencies = [
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "rlevo-benchmarks",
- "rlevo-envs",
+ "rlevo-environments",
  "serde",
  "thiserror 1.0.69",
  "tracing",
@@ -5273,7 +5273,7 @@ dependencies = [
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "rlevo-core",
- "rlevo-envs",
+ "rlevo-environments",
  "serde",
  "thiserror 1.0.69",
  "tracing",

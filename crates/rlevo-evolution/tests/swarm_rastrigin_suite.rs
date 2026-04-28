@@ -16,8 +16,8 @@ use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
 
-use rlevo_envs::landscapes::ackley::Ackley;
-use rlevo_envs::landscapes::rastrigin::Rastrigin;
+use rlevo_environments::landscapes::ackley::Ackley;
+use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
 use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};

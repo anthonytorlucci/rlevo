@@ -1,0 +1,252 @@
+# rlevo-environments
+
+Standard benchmark environments and landscapes for the `rlevo` workspace.
+
+This crate provides a collection of reinforcement learning environments ranging from classic tabular problems through continuous-control physics simulations. All environments implement the `rlevo-core` `Environment` trait — a common `reset` / `step` interface that makes them drop-in compatible with every algorithm in `rlevo-deeprl`.
+
+---
+
+## Environments
+
+### Classic Control
+
+Ports of the canonical Gymnasium control tasks implemented in pure Rust.
+
+| Environment | Module | Observation | Action | Notes |
+|---|---|---|---|---|
+| `CartPole` | `classic::CartPole` | 4-D continuous | Discrete(2) | Physics match Gymnasium `CartPole-v1` exactly |
+| `Acrobot` | `classic::Acrobot` | 6-D continuous | Discrete(3) | Sutton two-link dynamics |
+| `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
+| `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
+| `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
+| `TenArmedBandit` | `classic::TenArmedBandit` | — | Discrete(10) | Classic 10-armed bandit; Sutton & Barto |
+
+---
+
+### Toy Text
+
+Tabular MDPs for baseline algorithm validation. Every state is fully observable.
+
+| Environment | Module | State space | Action |
+|---|---|---|---|
+| `FrozenLake` | `toy_text::FrozenLake` | 16 or 64 discrete | Discrete(4) |
+| `CliffWalking` | `toy_text::CliffWalking` | 48 discrete | Discrete(4) |
+| `Taxi` | `toy_text::Taxi` | 500 discrete | Discrete(6) |
+| `Blackjack` | `toy_text::Blackjack` | 32×11×2 discrete | Discrete(2) |
+
+---
+
+### Gridworlds
+
+Twelve partially observable grid environments inspired by [Farama Minigrid](https://minigrid.farama.org). All share a common egocentric 7×7×3 observation and a 7-action discrete space. Physics are implemented once in `grids::core` and reused across every variant.
+
+| Environment | Grid size | Key mechanic |
+|---|---|---|
+| `EmptyEnv` | 6×6 | Reach the goal |
+| `DoorKeyEnv` | 8×8 | Pick up key, unlock door, reach goal |
+| `LavaGapEnv` | 7×7 | Navigate a gap in a lava wall |
+| `FourRoomsEnv` | 19×19 | Long-horizon exploration |
+| `UnlockEnv` | 6×6 | Single lock/key |
+| `UnlockPickupEnv` | 7×7 | Unlock then pick up object |
+| `MemoryEnv` | 5×… | Remember seen target |
+| `MultiRoomEnv` | variable | Chain of rooms |
+| `CrossingEnv` | 11×11 | Navigate obstacles |
+| `DistShiftEnv` | 9×… | Adaption to distribution shift |
+| `DynamicObstaclesEnv` | 6×6 | Moving obstacles |
+| `GoToDoorEnv` | 5×5 | Reach specified door |
+
+---
+
+### Box2D-style Physics
+
+Continuous-control environments powered by [Rapier2D](https://rapier.rs). Enabled by the `box2d` feature (default on).
+
+| Environment | Module | Observation | Action |
+|---|---|---|---|
+| `BipedalWalker` | `box2d::BipedalWalker` | 24-D continuous | Continuous(4) |
+| `LunarLander` | `box2d::LunarLander` | 8-D continuous | Discrete(4) or Continuous(2) |
+| `CarRacing` | `box2d::CarRacing` | 96×96 pixel | Continuous(3) |
+
+---
+
+### Locomotion
+
+MuJoCo-style locomotion environments in pure Rust via [Rapier3D](https://rapier.rs). Enabled by the `locomotion` feature (default on).
+
+| Environment | Module | Notes |
+|---|---|---|
+| `InvertedPendulum` | `locomotion::InvertedPendulum` | 1-D balance |
+| `InvertedDoublePendulum` | `locomotion::InvertedDoublePendulum` | Harder balance; sparser failure |
+| `Reacher` | `locomotion::Reacher` | 2-DOF arm reaching |
+| `Swimmer` | `locomotion::Swimmer` | 3-link swimmer |
+
+---
+
+### Games (planned for v0.2)
+
+`Chess` and `ConnectFour` are planned for a future release. Stub modules exist
+in-source (`src/games/chess/` and `src/games/connect_four.rs`) but do not yet
+implement the `Environment` trait and are hidden from the public API docs.
+
+---
+
+### Optimization Landscapes
+
+Continuous single-objective fitness functions for evaluating evolutionary algorithms.
+
+| Function | Module | Notes |
+|---|---|---|
+| Sphere | `landscapes::sphere` | Convex, unimodal |
+| Ackley | `landscapes::ackley` | Multimodal; exponential traps |
+| Rastrigin | `landscapes::rastrigin` | Highly multimodal |
+
+---
+
+## Quick Start
+
+```rust,no_run
+use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_envs::classic::{CartPole, CartPoleConfig, CartPoleAction};
+use rlevo_envs::wrappers::TimeLimit;
+
+let env = CartPole::with_config(CartPoleConfig::default());
+let mut env = TimeLimit::new(env, 500);
+
+let mut snap = env.reset().expect("reset");
+while !snap.is_done() {
+    snap = env.step(CartPoleAction::Right).expect("step");
+}
+```
+
+Gridworld environments use the shared `GridAction` type:
+
+```rust,no_run
+use rlevo_core::environment::{Environment, Snapshot};
+use rlevo_envs::grids::{EmptyEnv, EmptyConfig};
+use rlevo_envs::grids::core::GridAction;
+
+let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
+let mut snap = env.reset().expect("reset");
+while !snap.is_done() {
+    snap = env.step(GridAction::Forward).expect("step");
+}
+```
+
+---
+
+## Cargo Features
+
+| Feature | Default | Description |
+|---|---|---|
+| `box2d` | yes | Box2D-style physics environments via `rapier2d` |
+| `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
+
+Disable physics environments to shrink compile time:
+
+```toml
+[dependencies]
+rlevo-environments = { path = "…", default-features = false }
+```
+
+---
+
+## Running Examples
+
+```bash
+# Classic control
+cargo run -p rlevo-environments --example cartpole_random
+cargo run -p rlevo-environments --example cartpole_timelimit
+cargo run -p rlevo-environments --example pendulum_random
+cargo run -p rlevo-environments --example mountain_car_random
+cargo run -p rlevo-environments --example mountain_car_continuous_random
+cargo run -p rlevo-environments --example acrobot_random
+
+# Gridworlds
+cargo run -p rlevo-environments --example grid_empty_random
+cargo run -p rlevo-environments --example grid_door_key_scripted
+cargo run -p rlevo-environments --example grid_memory_random
+
+# Bandits
+cargo run -p rlevo-environments --example ten_armed_bandit_training
+
+# Box2D (requires box2d feature, enabled by default)
+cargo run -p rlevo-environments --example bipedal_walker_random
+cargo run -p rlevo-environments --example lunar_lander_discrete_random
+cargo run -p rlevo-environments --example lunar_lander_continuous_random
+cargo run -p rlevo-environments --example car_racing_random
+
+# Locomotion (requires locomotion feature, enabled by default)
+cargo run -p rlevo-environments --example reacher_random
+cargo run -p rlevo-environments --example inverted_double_pendulum_random
+cargo run -p rlevo-environments --example swimmer_random
+```
+
+See [`examples/README.md`](examples/README.md) for patterns, conventions, and how to write new examples.
+
+---
+
+## Design
+
+### Configuration Builder
+
+Every environment ships with a `XyzConfig` struct and a `XyzConfigBuilder` with a fluent API. Defaults match the reference Gymnasium implementation where one exists.
+
+```rust,no_run
+use rlevo_environments::classic::{CartPole, CartPoleConfig};
+
+let env = CartPole::with_config(
+    CartPoleConfig {
+        seed: 42,
+        ..CartPoleConfig::default()
+    }
+);
+```
+
+### Reproducibility
+
+`reset()` re-seeds the environment's internal RNG from `config.seed` so the same seed always produces the same episode trajectory. Pass different seeds across parallel workers to get independent rollouts.
+
+### Wrappers
+
+`wrappers::TimeLimit<E>` wraps any `Environment` and injects a truncation signal after a configurable number of steps. The underlying environment's `Terminated` status is preserved separately from the wrapper's `Truncated` — algorithms that distinguish the two (PPO, SAC) can act on both signals correctly.
+
+### Episode Status
+
+`Snapshot::status()` returns one of three variants:
+
+- `Running` — episode continues
+- `Terminated` — natural episode end (goal reached, fell over, game over)
+- `Truncated` — wall-clock time limit exceeded (`TimeLimit` wrapper)
+
+### Const Generics
+
+State and observation dimensions are encoded as const generics (`State<D>`, `Observation<D>`). Mismatched dimensions produce a compile-time error rather than a runtime panic.
+
+---
+
+## Testing
+
+```bash
+# Unit tests (all environments)
+cargo test -p rlevo-environments
+
+# Gridworld solvability integration tests
+# (scripted optimal policies verify physics correctness)
+cargo test -p rlevo-environments --test grids_solvable
+```
+
+---
+
+## References
+
+- G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba, "OpenAI Gym," arXiv preprint arXiv:1606.01540, Jun. 2016. https://arxiv.org/abs/1606.01540
+- M. Chevalier-Boisvert, B. Dai, M. Towers, R. de Lazcano, L. Willems, S. Lahlou, S. Pal, P. S. Castro, and J. Terry, "Minigrid & Miniworld: Modular & Customizable Reinforcement Learning Environments for Goal-Oriented Tasks," arXiv preprint arXiv:2306.13831, Jun. 2023. https://arxiv.org/abs/2306.13831
+- A. G. Barto, R. S. Sutton, and C. W. Anderson, "Neuronlike adaptive elements that can solve difficult learning control problems," IEEE Transactions on Systems, Man, and Cybernetics, vol. SMC-13, no. 5, pp. 834–846, Sep./Oct. 1983. doi: 10.1109/TSMC.1983.6313077.
+- D. Silver, T. Hubert, J. Schrittwieser, I. Antonoglou, M. Lai, A. Guez, M. Lanctot, L. Sifre, D. Kumaran, T. Graepel, T. P. Lillicrap, K. Simonyan, and D. Hassabis, “Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm,” arXiv preprint arXiv:1712.01815, Dec. 2017. https://arxiv.org/abs/1712.01815
+- J. Leike, M. Martic, V. Krakovna, P. A. Ortega, T. Everitt, A. Lefrancq, L. Orseau, and S. Legg, "AI safety gridworlds," arXiv preprint arXiv:1711.09883, Nov. 2017. https://arxiv.org/abs/1711.09883
+- Rapier physics engine — https://rapier.rs
+- Burn framework — https://burn.dev
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.

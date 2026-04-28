@@ -4,7 +4,7 @@ members = [
     "crates/rlevo",
     "crates/rlevo-benchmarks",
     "crates/rlevo-core",
-    "crates/rlevo-envs",
+    "crates/rlevo-environments",
     "crates/rlevo-evolution",
     "crates/rlevo-hybrid",
     "crates/rlevo-rl",

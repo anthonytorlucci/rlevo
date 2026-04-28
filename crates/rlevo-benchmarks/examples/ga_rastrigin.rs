@@ -19,11 +19,11 @@ use rand_distr::{Distribution, Normal, Uniform};
 use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
 use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
-use rlevo_benchmarks::metrics::ea;
 use rlevo_benchmarks::metrics::Metric;
+use rlevo_benchmarks::metrics::ea;
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
-use rlevo_envs::landscapes::rastrigin::Rastrigin;
+use rlevo_environments::landscapes::rastrigin::Rastrigin;
 
 // --- FitnessEvaluable wiring -------------------------------------------
 
@@ -122,10 +122,7 @@ impl BenchEnv for GaEnv {
         Ok(())
     }
 
-    fn step(
-        &mut self,
-        _action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError> {
+    fn step(&mut self, _action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
         let best = self.evolve();
         self.generation += 1;
         Ok(BenchStep {

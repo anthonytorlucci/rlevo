@@ -7,7 +7,7 @@
 //! Run with `cargo run --release -p rlevo-evolution --example ackley_showcase`.
 
 use burn::backend::NdArray;
-use rlevo_envs::landscapes::ackley::Ackley;
+use rlevo_environments::landscapes::ackley::Ackley;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};

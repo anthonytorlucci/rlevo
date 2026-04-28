@@ -18,7 +18,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_envs::classic::pendulum::{
+use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;

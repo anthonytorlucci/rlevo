@@ -20,10 +20,10 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_envs::classic::pendulum::{
+use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use rlevo_envs::wrappers::TimeLimit;
+use rlevo_environments::wrappers::TimeLimit;
 use rlevo_rl::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
 use rlevo_rl::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};

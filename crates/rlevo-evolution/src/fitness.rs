@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn from_landscape_preserves_row_order() {
-        use rlevo_envs::landscapes::sphere::Sphere as EnvsSphere;
+        use rlevo_environments::landscapes::sphere::Sphere as EnvsSphere;
 
         let device = Default::default();
         let data = TensorData::new(

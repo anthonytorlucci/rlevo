@@ -21,10 +21,10 @@ use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
-use rlevo_envs::classic::pendulum::{
+use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
-use rlevo_envs::wrappers::TimeLimit;
+use rlevo_environments::wrappers::TimeLimit;
 use rlevo_rl::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
 use rlevo_rl::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};

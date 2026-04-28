@@ -17,10 +17,10 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_envs::classic::cartpole::{
+use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
-use rlevo_envs::wrappers::TimeLimit;
+use rlevo_environments::wrappers::TimeLimit;
 use rlevo_rl::algorithms::ppo::policies::{CategoricalPolicyHead, CategoricalPolicyHeadConfig};
 use rlevo_rl::algorithms::ppo::ppo_agent::PpoAgent;
 use rlevo_rl::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;

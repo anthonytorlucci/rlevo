@@ -20,7 +20,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 approx = { workspace = true }
 criterion = { workspace = true }
-rlevo-envs = { path = "../rlevo-envs", features = ["bench"] }
+rlevo-environments = { path = "../rlevo-environments", features = ["bench"] }
 
 [[bench]]
 name = "operators"

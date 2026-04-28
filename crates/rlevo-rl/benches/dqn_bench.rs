@@ -19,7 +19,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_envs::classic::cartpole::{
+use rlevo_environments::classic::cartpole::{
     CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
 };
 use rlevo_rl::algorithms::dqn::dqn_agent::DqnAgent;

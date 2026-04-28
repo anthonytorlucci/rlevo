@@ -23,12 +23,12 @@
 //!
 //! ```rust,no_run
 //! use rlevo::core::environment::Environment;
-//! use rlevo::envs::classic::cartpole::CartPoleEnv;
+//! use rlevo::environments::classic::cartpole::CartPoleEnv;
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
 
 pub use rlevo_core as core;
-pub use rlevo_envs as envs;
+pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_rl as rl;
@@ -72,7 +72,7 @@ pub mod prelude {
 
     // Environment protocol
     pub use rlevo_core::environment::{
-        Environment, EpisodeStatus, EnvironmentError, Snapshot, SnapshotBase,
+        Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
     };
 
     // Reward

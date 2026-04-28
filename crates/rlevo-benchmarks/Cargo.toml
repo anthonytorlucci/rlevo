@@ -21,7 +21,7 @@ crossterm = { version = "0.28", optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
-rlevo-envs = { path = "../rlevo-envs", features = ["bench"] }
+rlevo-environments = { path = "../rlevo-environments", features = ["bench"] }
 tracing-subscriber = { workspace = true }
 
 [features]

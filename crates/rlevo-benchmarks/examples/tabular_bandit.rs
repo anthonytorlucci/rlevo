@@ -20,8 +20,8 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
-use rlevo_envs::bench::suites::ten_armed_bandit_suite;
-use rlevo_envs::classic::{TenArmedBanditAction, TenArmedBanditObservation};
+use rlevo_environments::bench::suites::ten_armed_bandit_suite;
+use rlevo_environments::classic::{TenArmedBanditAction, TenArmedBanditObservation};
 
 /// ε-greedy agent over a fixed Q prior.
 ///
