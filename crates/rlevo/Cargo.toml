@@ -12,11 +12,11 @@ keywords = ["reinforcement-learning", "evolutionary", "deep-learning", "burn", "
 categories = ["science", "algorithms", "simulation"]
 
 [dependencies]
-rlevo-core         = { path = "../rlevo-core",      version = "0.1.0" }
-rlevo-environments = { path = "../rlevo-environments",      version = "0.1.0", default-features = false }
-rlevo-rl           = { path = "../rlevo-rl",        version = "0.1.0" }
-rlevo-evolution    = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
-rlevo-hybrid       = { path = "../rlevo-hybrid",    version = "0.1.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", default-features = false }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.1.0" }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
+rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.1.0" }
 
 [features]
 default = ["box2d", "locomotion", "custom-kernels"]

@@ -31,7 +31,7 @@ pub use rlevo_core as core;
 pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
-pub use rlevo_rl as rl;
+pub use rlevo_reinforcement_learning as rl;
 
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.
 ///

@@ -11,7 +11,7 @@ repository.workspace = true
 burn = { workspace = true }
 rlevo-core = { path = "../rlevo-core" }
 rlevo-evolution = { path = "../rlevo-evolution" }
-rlevo-rl = { path = "../rlevo-rl" }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning" }
 rand = { workspace = true }
 serde = { workspace = true }
 

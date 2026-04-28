@@ -5183,7 +5183,7 @@ dependencies = [
  "rlevo-environments",
  "rlevo-evolution",
  "rlevo-hybrid",
- "rlevo-rl",
+ "rlevo-reinforcement-learning",
 ]
 
 [[package]]
@@ -5259,12 +5259,12 @@ dependencies = [
  "rand 0.10.1",
  "rlevo-core",
  "rlevo-evolution",
- "rlevo-rl",
+ "rlevo-reinforcement-learning",
  "serde",
 ]
 
 [[package]]
-name = "rlevo-rl"
+name = "rlevo-reinforcement-learning"
 version = "0.1.0"
 dependencies = [
  "approx",

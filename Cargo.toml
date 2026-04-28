@@ -7,7 +7,7 @@ members = [
     "crates/rlevo-environments",
     "crates/rlevo-evolution",
     "crates/rlevo-hybrid",
-    "crates/rlevo-rl",
+    "crates/rlevo-reinforcement-learning",
 ]
 
 [workspace.package]
