@@ -25,8 +25,8 @@ use rand::RngExt;
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
-use rlevo_core::memory::ReplayBufferError;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use crate::memory::ReplayBufferError;
+use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;

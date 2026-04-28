@@ -5176,12 +5176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ringbuffer"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57b0b88a509053cbfd535726dcaaceee631313cef981266119527a1d110f6d2b"
-
-[[package]]
 name = "rlevo"
 version = "0.1.0"
 dependencies = [
@@ -5190,7 +5184,6 @@ dependencies = [
  "rlevo-evolution",
  "rlevo-hybrid",
  "rlevo-rl",
- "rlevo-utils",
 ]
 
 [[package]]
@@ -5220,7 +5213,6 @@ dependencies = [
  "burn",
  "rand 0.10.1",
  "rand_distr 0.6.0",
- "ringbuffer",
  "serde",
  "tracing",
 ]
@@ -5286,15 +5278,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "rlevo-utils"
-version = "0.1.0"
-dependencies = [
- "approx",
- "serde",
- "tracing",
 ]
 
 [[package]]

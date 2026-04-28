@@ -26,8 +26,8 @@ use rand::RngExt;
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
-use rlevo_core::memory::ReplayBufferError;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use crate::memory::ReplayBufferError;
+use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::sac::sac_alpha::LogAlpha;
 use crate::algorithms::sac::sac_config::SacTrainingConfig;

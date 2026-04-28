@@ -1,10 +1,11 @@
-//! End-to-end integration tests for `evorl-core`.
+//! End-to-end integration tests across `rlevo-core` and `rlevo-rl`.
 //!
-//! These tests exercise combinations of public items (environment, replay
-//! buffer, metrics) against a small toy `RandomWalkEnv` defined inline. They
-//! can only see the public API — unlike the in-crate `#[cfg(test)]` mocks —
-//! so they double as a smoke test that the crate's public surface is
-//! sufficient to build a working training loop scaffold.
+//! These tests exercise combinations of public items (environment from
+//! `rlevo-core`; replay buffer and metrics from `rlevo-rl`) against a small
+//! toy `RandomWalkEnv` defined inline. They can only see the public API —
+//! unlike the in-crate `#[cfg(test)]` mocks — so they double as a smoke
+//! test that the public surface is sufficient to build a working training
+//! loop scaffold.
 
 use burn::backend::NdArray;
 use burn::tensor::Tensor;
@@ -15,8 +16,8 @@ use rlevo_core::base::{
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
 };
-use rlevo_core::memory::PrioritizedExperienceReplayBuilder;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use rlevo_rl::memory::PrioritizedExperienceReplayBuilder;
+use rlevo_rl::metrics::{AgentStats, PerformanceRecord};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -117,7 +118,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
     }
 }
 
-/// Local scalar reward newtype. Mirrors `evorl_core::reward::WalkReward`
+/// Local scalar reward newtype. Mirrors `rlevo_core::reward::ScalarReward`
 /// but is defined in this crate so we can implement the foreign
 /// `TensorConvertible` trait on it without tripping the orphan rule.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

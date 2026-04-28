@@ -8,8 +8,8 @@
 //! Use [`PrioritizedExperienceReplayBuilder`] to configure and construct the
 //! buffer.
 
-use crate::base::{Action, Observation, Reward, TensorConvertible};
 use crate::experience::{ExperienceTuple, History};
+use rlevo_core::base::{Action, Observation, Reward, TensorConvertible};
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use rand::prelude::IteratorRandom;
@@ -862,8 +862,8 @@ mod sample_batch_tests {
     //! regression.
 
     use super::*;
-    use crate::base::{Action, Observation, Reward, TensorConvertible, TensorConversionError};
     use burn::backend::NdArray;
+    use rlevo_core::base::{Action, Observation, Reward, TensorConversionError, TensorConvertible};
     use burn::tensor::Tensor;
     use serde::{Deserialize, Serialize};
 

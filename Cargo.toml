@@ -8,7 +8,6 @@ members = [
     "crates/rlevo-evolution",
     "crates/rlevo-hybrid",
     "crates/rlevo-rl",
-    "crates/rlevo-utils",
 ]
 
 [workspace.package]

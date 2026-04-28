@@ -20,8 +20,8 @@ use rand::{Rng, RngExt};
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
-use rlevo_core::memory::ReplayBufferError;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use crate::memory::ReplayBufferError;
+use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;

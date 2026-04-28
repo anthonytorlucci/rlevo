@@ -2,12 +2,11 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, replay buffers
+//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, Box2D physics, locomotion
-//! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC
+//! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
 //! - [`hybrid`] — combined evolutionary + RL strategies
-//! - [`utils`] — shared math utilities
 //!
 //! # Quick Start
 //!
@@ -33,7 +32,6 @@ pub use rlevo_envs as envs;
 pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
 pub use rlevo_rl as rl;
-pub use rlevo_utils as utils;
 
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.
 ///

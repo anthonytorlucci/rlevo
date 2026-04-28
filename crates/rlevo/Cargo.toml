@@ -17,7 +17,6 @@ rlevo-envs      = { path = "../rlevo-envs",      version = "0.1.0", default-feat
 rlevo-rl        = { path = "../rlevo-rl",        version = "0.1.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
 rlevo-hybrid    = { path = "../rlevo-hybrid",    version = "0.1.0" }
-rlevo-utils     = { path = "../rlevo-utils",     version = "0.1.0" }
 
 [features]
 default = ["box2d", "locomotion", "custom-kernels"]

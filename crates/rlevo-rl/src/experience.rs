@@ -7,8 +7,8 @@
 //! - [`HistoryRepresentation`] — trait for constructing state summaries from history
 //! - [`SufficientStatistic`] — history summary that satisfies the Markov property
 
-use crate::base::{Action, Observation, Reward};
-use crate::state::MarkovState;
+use rlevo_core::base::{Action, Observation, Reward};
+use rlevo_core::state::MarkovState;
 use std::collections::VecDeque;
 use std::ops::Index;
 

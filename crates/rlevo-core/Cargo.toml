@@ -10,7 +10,6 @@ repository.workspace = true
 [dependencies]
 burn = { workspace = true }
 rand = { workspace = true }
-ringbuffer = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 rand_distr = {workspace = true }

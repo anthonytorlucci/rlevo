@@ -6,7 +6,7 @@
 //! configured cadence, and sync the target network. Per-episode metrics are
 //! accumulated into the agent's [`AgentStats`].
 //!
-//! [`AgentStats`]: evorl_core::metrics::AgentStats
+//! [`AgentStats`]: crate::metrics::AgentStats
 
 use rand::Rng;
 

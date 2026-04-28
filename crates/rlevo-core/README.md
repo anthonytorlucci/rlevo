@@ -177,8 +177,12 @@ impl Environment<1, 1, 1> for MyEnv {
 
 ### Replay Buffer
 
+The prioritized replay buffer lives in `rlevo-rl`, not `rlevo-core`
+(per ADR 0003 — replay/experience/metrics moved to where they are
+consumed):
+
 ```rust
-use rlevo_core::memory::PrioritizedExperienceReplayBuilder;
+use rlevo_rl::memory::PrioritizedExperienceReplayBuilder;
 
 let mut buffer = PrioritizedExperienceReplayBuilder::default()
     .with_capacity(100_000)

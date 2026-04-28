@@ -1,7 +1,7 @@
-//! Deep reinforcement learning algorithms for `burn-evorl`.
+//! Deep reinforcement learning algorithms for `rlevo`.
 //!
 //! Provides implementations of deep RL algorithms that operate over the
-//! `evorl-core` environment and agent abstractions. All neural-network
+//! `rlevo-core` environment and agent abstractions. All neural-network
 //! operations are performed through the
 //! [Burn](https://github.com/tracel-ai/burn) tensor framework.
 //!
@@ -158,4 +158,7 @@ pub mod algorithms {
     }
 }
 
+pub mod experience;
+pub mod memory;
+pub mod metrics;
 pub mod utils;

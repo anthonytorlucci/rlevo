@@ -17,7 +17,7 @@ use rand::Rng;
 
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::EpisodeStatus;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::ppo::losses::{
     approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, normalize_advantages,

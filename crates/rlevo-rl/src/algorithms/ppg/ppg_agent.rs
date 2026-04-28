@@ -28,7 +28,7 @@ use rand::Rng;
 
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::environment::EpisodeStatus;
-use rlevo_core::metrics::{AgentStats, PerformanceRecord};
+use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::ppg::aux_buffer::AuxRolloutBuffer;
 use crate::algorithms::ppg::losses::policy_kl_categorical;
