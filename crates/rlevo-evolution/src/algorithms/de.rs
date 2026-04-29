@@ -161,7 +161,7 @@ pub struct DeState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
+/// use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 ///
 /// let strategy = DifferentialEvolution::<NdArray>::new();
 /// let mut params = DeConfig::default_for(30, 10);

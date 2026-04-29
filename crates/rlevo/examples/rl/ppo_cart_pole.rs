@@ -3,7 +3,7 @@
 //! Usage:
 //!
 //! ```text
-//! cargo run -p evorl-rl --release --example ppo_cart_pole -- \
+//! cargo run -p rlevo-reinforcement-learning --release --example ppo_cart_pole -- \
 //!     --seed 42 --total-timesteps 50000 --num-steps 128 --log-every 4096
 //! ```
 

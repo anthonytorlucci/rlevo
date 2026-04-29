@@ -30,7 +30,7 @@
 //! ## Quick start
 //!
 //! ```no_run
-//! # use rlevo_envs::box2d::car_racing::{CarRacing, CarRacingAction, CarRacingConfig};
+//! # use rlevo_environments::box2d::car_racing::{CarRacing, CarRacingAction, CarRacingConfig};
 //! # use rlevo_core::environment::{Environment, Snapshot};
 //! let mut env = CarRacing::with_config(CarRacingConfig::default());
 //! let _snap = env.reset().unwrap();

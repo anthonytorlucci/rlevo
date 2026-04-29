@@ -33,8 +33,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+//! ```rust
+//! use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = EmptyConfig::new(8, 256, 0);
@@ -87,8 +87,8 @@ impl EmptyConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::empty::EmptyConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::empty::EmptyConfig;
     ///
     /// let cfg = EmptyConfig::new(8, 256, 0);
     /// assert_eq!(cfg.size, 8);
@@ -176,7 +176,7 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 /// # Examples
 ///
 /// ```no_run
-/// use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+/// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
@@ -201,8 +201,8 @@ impl EmptyEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::empty::{EmptyConfig, EmptyEnv};
+    /// ```rust
+    /// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
     ///
     /// let env = EmptyEnv::with_config(
     ///     EmptyConfig::new(8, 256, 0),

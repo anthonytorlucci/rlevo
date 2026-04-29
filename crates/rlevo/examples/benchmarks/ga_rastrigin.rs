@@ -4,7 +4,7 @@
 //!
 //! 1. `FitnessEvaluable` — the "optimizer-on-landscape" trait, implemented
 //!    for a local wrapper around
-//!    `rlevo_envs::landscapes::rastrigin::Rastrigin`.
+//!    `rlevo_environments::landscapes::rastrigin::Rastrigin`.
 //! 2. `BenchEnv` — the GA is itself wrapped as a `BenchEnv` so the full
 //!    `run_suite` path drives it, producing a `BenchmarkReport` with the
 //!    same shape as RL trials.

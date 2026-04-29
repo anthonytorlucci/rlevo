@@ -95,8 +95,8 @@ impl Default for BlackjackVariant {
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::toy_text::blackjack::{BlackjackConfig, BlackjackVariant};
+/// ```rust
+/// use rlevo_environments::toy_text::blackjack::{BlackjackConfig, BlackjackVariant};
 ///
 /// let cfg = BlackjackConfig::builder()
 ///     .variant(BlackjackVariant::Standard { natural_pays_bonus: true })

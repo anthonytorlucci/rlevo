@@ -87,8 +87,8 @@ fn has_wall(row: u8, from_col: u8, to_col: u8) -> bool {
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::toy_text::taxi::TaxiConfig;
+/// ```rust
+/// use rlevo_environments::toy_text::taxi::TaxiConfig;
 ///
 /// let cfg = TaxiConfig::builder()
 ///     .is_rainy(true)

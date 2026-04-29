@@ -30,8 +30,8 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
+//! ```rust
+//! use rlevo_environments::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
@@ -74,8 +74,8 @@ const DOOR_COLOR: Color = Color::Grey;
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::multi_room::MultiRoomConfig;
+/// ```rust
+/// use rlevo_environments::grids::multi_room::MultiRoomConfig;
 ///
 /// let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
 /// assert_eq!(cfg.total_width(), 16);
@@ -99,8 +99,8 @@ impl MultiRoomConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::multi_room::MultiRoomConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::multi_room::MultiRoomConfig;
     ///
     /// let cfg = MultiRoomConfig::new(2, 4, 5, 160, 0);
     /// assert_eq!(cfg.total_width(), 9);
@@ -221,8 +221,8 @@ impl FromStr for MultiRoomConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::multi_room::MultiRoomEnv;
+/// ```rust
+/// use rlevo_environments::grids::multi_room::MultiRoomEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = MultiRoomEnv::new(false);

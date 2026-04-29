@@ -18,7 +18,7 @@
 //!
 //! ```rust
 //! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_envs::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
+//! use rlevo_environments::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
 //!
 //! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default());
 //! let _ = <ContextualBandit<4, 10> as Environment<1, 1, 1>>::reset(&mut env)
@@ -369,8 +369,14 @@ mod tests {
         let device = Default::default();
         for ctx in 0..C {
             let obs = ContextualBanditObservation::<C> { context: ctx };
-            let tensor = <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::to_tensor(&obs, &device);
-            let back = <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+            let tensor =
+                <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::to_tensor(
+                    &obs, &device,
+                );
+            let back =
+                <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(
+                    tensor,
+                )
                 .expect("round-trip should succeed");
             assert_eq!(back.context, ctx);
         }
@@ -382,7 +388,10 @@ mod tests {
         let device = Default::default();
         let data = TD::new(vec![0.0_f32; 2], [2]);
         let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err = <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+        let err =
+            <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::from_tensor(
+                tensor,
+            )
             .expect_err("shape [2] should be rejected");
         assert!(err.message.contains("expected shape"));
     }
@@ -416,14 +425,11 @@ mod tests {
             seed: 1,
         });
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 =
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s1 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
-        let s2 =
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s2 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s2.is_done());
-        let s3 =
-            <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s3 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(s3.is_terminated());
     }
 
@@ -477,9 +483,7 @@ mod tests {
 
     #[test]
     fn fromstr_unknown_key_errors() {
-        let err: String = "wrong=1"
-            .parse::<ContextualBanditConfig>()
-            .unwrap_err();
+        let err: String = "wrong=1".parse::<ContextualBanditConfig>().unwrap_err();
         assert!(err.contains("Unknown ContextualBanditConfig key"));
     }
 }

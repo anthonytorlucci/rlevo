@@ -19,17 +19,17 @@
 //! This environment has **no intrinsic episode limit**. The standard
 //! Gymnasium cap of 200 steps should be added externally:
 //!
-//! ```rust,ignore
-//! use rlevo_envs::{classic::mountain_car::MountainCar, wrappers::TimeLimit};
+//! ```no_run,ignore
+//! use rlevo_environments::{classic::mountain_car::MountainCar, wrappers::TimeLimit};
 //!
 //! let env = TimeLimit::new(MountainCar::new(false), 200);
 //! ```
 //!
 //! ## Quick start
 //!
-//! ```rust,ignore
+//! ```rust
 //! use rlevo_core::environment::Environment;
-//! use rlevo_envs::classic::mountain_car::{MountainCar, MountainCarAction};
+//! use rlevo_environments::classic::mountain_car::{MountainCar, MountainCarAction};
 //!
 //! let mut env = MountainCar::new(false);
 //! let _snap = env.reset().unwrap();
@@ -60,7 +60,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use rlevo_envs::classic::mountain_car::MountainCarConfig;
+/// use rlevo_environments::classic::mountain_car::MountainCarConfig;
 ///
 /// let cfg = MountainCarConfig { seed: 42, ..MountainCarConfig::default() };
 /// assert_eq!(cfg.seed, 42);

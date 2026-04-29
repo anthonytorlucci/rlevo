@@ -1,7 +1,7 @@
 //! Benchmark: sample-average ε-greedy agent on the ten-armed bandit.
 //!
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
-//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-envs`,
+//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
 //! through the [`BenchAdapter`] / [`ten_armed_bandit_suite`] glue exposed
 //! by the `bench` feature.
 //!
@@ -11,9 +11,9 @@
 //! path is exercised here with a non-DL stand-in; a follow-up release
 //! will add the DQN adapter once the underlying trait impls land.
 //!
-//! [`TenArmedBandit`]: rlevo_envs::classic::TenArmedBandit
-//! [`BenchAdapter`]: rlevo_envs::bench::BenchAdapter
-//! [`ten_armed_bandit_suite`]: rlevo_envs::bench::suites::ten_armed_bandit_suite
+//! [`TenArmedBandit`]: rlevo_environments::classic::TenArmedBandit
+//! [`BenchAdapter`]: rlevo_environments::bench::BenchAdapter
+//! [`ten_armed_bandit_suite`]: rlevo_environments::bench::suites::ten_armed_bandit_suite
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};

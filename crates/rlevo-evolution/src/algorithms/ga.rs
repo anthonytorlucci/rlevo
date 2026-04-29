@@ -117,7 +117,7 @@ pub struct GaState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::ga::{
+/// use rlevo_evolution::algorithms::ga::{
 ///     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 /// };
 ///

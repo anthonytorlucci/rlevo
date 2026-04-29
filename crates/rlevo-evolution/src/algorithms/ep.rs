@@ -87,7 +87,7 @@ pub struct EpState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
+/// use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 ///
 /// let strategy = EvolutionaryProgramming::<NdArray>::new();
 /// let params = EpConfig::default_for(30, 10);

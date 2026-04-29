@@ -155,7 +155,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// rewards are finite. Catches silent regressions (NaN quantiles, loss
 /// numerical blow-up, etc.). Marked `#[ignore]` because running it alongside
 /// other training tests perturbs Burn's global ndarray RNG; exercise with
-/// `cargo test -p evorl-rl --test qrdqn_integration -- --ignored
+/// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration -- --ignored
 /// --test-threads=1`.
 #[test]
 #[ignore = "perturbs global Burn RNG; run with --test-threads=1"]
@@ -231,7 +231,7 @@ fn qrdqn_cart_pole_reaches_50() {
 /// Full acceptance target: ≥ 195 on CartPole-v1 in ≤ 500k
 /// steps at seed 42. Ignored by default — too expensive for regular CI.
 /// Run with:
-/// `cargo test -p evorl-rl --test qrdqn_integration --release --
+/// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration --release --
 ///      --ignored qrdqn_solves_cart_pole_ndarray_seed_42`.
 #[test]
 #[ignore = "long-running acceptance target; ~500k steps on ndarray CPU"]

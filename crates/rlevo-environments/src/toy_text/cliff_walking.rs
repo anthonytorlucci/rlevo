@@ -62,8 +62,8 @@ const GOAL: (u8, u8) = (3, 11);
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::toy_text::cliff_walking::CliffWalkingConfig;
+/// ```rust
+/// use rlevo_environments::toy_text::cliff_walking::CliffWalkingConfig;
 ///
 /// let cfg = CliffWalkingConfig::builder()
 ///     .is_slippery(true)

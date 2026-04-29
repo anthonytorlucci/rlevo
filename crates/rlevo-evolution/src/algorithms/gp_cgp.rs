@@ -127,7 +127,7 @@ pub struct CgpState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::gp_cgp::{CartesianGeneticProgramming, CgpConfig};
+/// use rlevo_evolution::algorithms::gp_cgp::{CartesianGeneticProgramming, CgpConfig};
 ///
 /// let strategy = CartesianGeneticProgramming::<NdArray>::new();
 /// let params = CgpConfig::default_for(1);

@@ -10,7 +10,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example pendulum_random
+//! cargo run -p rlevo-environments --example pendulum_random
 //! ```
 
 use rand::SeedableRng;

@@ -1,7 +1,7 @@
-//! End-to-end integration tests across `rlevo-core` and `rlevo-rl`.
+//! End-to-end integration tests across `rlevo-core` and `rlevo-reinforcement-learning`.
 //!
 //! These tests exercise combinations of public items (environment from
-//! `rlevo-core`; replay buffer and metrics from `rlevo-rl`) against a small
+//! `rlevo-core`; replay buffer and metrics from `rlevo-reinforcement-learning`) against a small
 //! toy `RandomWalkEnv` defined inline. They can only see the public API —
 //! unlike the in-crate `#[cfg(test)]` mocks — so they double as a smoke
 //! test that the public surface is sufficient to build a working training

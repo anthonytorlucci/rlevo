@@ -7,7 +7,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example contextual_bandit_random
+//! cargo run -p rlevo-environments --example contextual_bandit_random
 //! ```
 
 use rand::SeedableRng;

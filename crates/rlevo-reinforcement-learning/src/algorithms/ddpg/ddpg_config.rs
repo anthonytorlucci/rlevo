@@ -63,8 +63,8 @@ impl Default for DdpgTrainingConfig {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use evorl_rl::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
+/// ```rust
+/// use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
 ///
 /// let cfg = DdpgTrainingConfigBuilder::new()
 ///     .batch_size(128)

@@ -1,6 +1,6 @@
 //! End-to-end integration tests for the DQN agent.
 //!
-//! These tests wire [`DqnAgent`] against real `evorl-envs` environments and
+//! These tests wire [`DqnAgent`] against real `rlevo-environments` environments and
 //! assert learning behaviour. They intentionally use modest step budgets so
 //! `cargo test` remains tractable; the longer macro-bench targets live in
 //! `benches/dqn_bench.rs`.
@@ -123,7 +123,6 @@ type Be = Autodiff<NdArray>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {
-    use burn::tensor::backend::Backend;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
     let config = DqnTrainingConfigBuilder::new()
@@ -174,7 +173,7 @@ fn dqn_cart_pole_reaches_100() {
 /// thread. Marked `#[ignore]` because Burn's ndarray backend keeps a
 /// *global* RNG — running alongside other tests via the default
 /// multi-threaded runner poisons that global state. Run explicitly with
-/// `cargo test -p evorl-rl --test dqn_integration dqn_reproducibility
+/// `cargo test -p rlevo-reinforcement-learning --test dqn_integration dqn_reproducibility
 /// -- --ignored --test-threads=1`.
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]

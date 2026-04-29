@@ -122,7 +122,7 @@ pub struct EsState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
+/// use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 ///
 /// let strategy = EvolutionStrategy::<NdArray>::new();
 /// let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);

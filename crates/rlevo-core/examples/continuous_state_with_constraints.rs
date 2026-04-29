@@ -2,7 +2,7 @@
 //!
 //! `RobotPose` models a 2D robot in a 1000 mm × 1000 mm workspace with orientation
 //! bounded to [−180°, 180°]. Construction validates constraints via `RobotPose::new`
-//! (returns `Option`), mirroring the builder pattern used throughout `evorl-envs`.
+//! (returns `Option`), mirroring the builder pattern used throughout `rlevo-environments`.
 
 use rlevo_core::base::{Observation, State};
 use serde::{Deserialize, Serialize};

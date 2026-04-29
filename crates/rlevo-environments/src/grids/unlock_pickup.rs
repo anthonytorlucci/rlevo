@@ -27,8 +27,8 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
+//! ```rust
+//! use rlevo_environments::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = UnlockPickupConfig::new(7, 196, 0);
@@ -71,8 +71,8 @@ const BOX_COLOR: Color = Color::Purple;
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::unlock_pickup::UnlockPickupConfig;
+/// ```rust
+/// use rlevo_environments::grids::unlock_pickup::UnlockPickupConfig;
 ///
 /// let cfg = UnlockPickupConfig::new(7, 196, 0);
 /// assert_eq!(cfg.size, 7);
@@ -95,8 +95,8 @@ impl UnlockPickupConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::unlock_pickup::UnlockPickupConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::unlock_pickup::UnlockPickupConfig;
     ///
     /// let cfg = UnlockPickupConfig::new(9, 324, 42);
     /// assert_eq!(cfg.seed, 42);
@@ -171,8 +171,8 @@ impl FromStr for UnlockPickupConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::unlock_pickup::UnlockPickupEnv;
+/// ```rust
+/// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = UnlockPickupEnv::new(false);

@@ -34,8 +34,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+//! ```rust
+//! use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
@@ -117,8 +117,8 @@ const MIN_SIZE: usize = 7;
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingKind};
+/// ```rust
+/// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingKind};
 ///
 /// let cfg = CrossingConfig::new(9, 324, 0, CrossingKind::Wall);
 /// assert_eq!(cfg.size, 9);
@@ -150,8 +150,8 @@ impl CrossingConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingKind};
+    /// ```rust
+    /// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingKind};
     ///
     /// let cfg = CrossingConfig::new(7, 196, 0, CrossingKind::Lava);
     /// ```
@@ -227,8 +227,8 @@ impl FromStr for CrossingConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+/// ```rust
+/// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = CrossingEnv::with_config(
@@ -255,8 +255,8 @@ impl CrossingEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
+    /// ```rust
+    /// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
     ///
     /// let env = CrossingEnv::with_config(
     ///     CrossingConfig::new(9, 324, 42, CrossingKind::Wall),

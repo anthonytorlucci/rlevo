@@ -1,4 +1,4 @@
-# rlevo-envs Examples
+# rlevo-environments Examples
 
 Standalone examples demonstrating `rlevo-environments` environments. Each example runs independently and serves as a smoke test for the corresponding environment.
 

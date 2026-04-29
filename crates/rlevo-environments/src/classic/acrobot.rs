@@ -23,8 +23,8 @@
 //!
 //! ## Quick start
 //!
-//! ```no_run
-//! use rlevo_envs::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
+//! ```no_run,ignore
+//! use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
 //! use rlevo_core::environment::Environment;
 //!
 //! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
@@ -172,8 +172,8 @@ fn scale4(a: [f32; 4], s: f32) -> [f32; 4] {
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::classic::acrobot::AcrobotConfig;
+/// ```rust
+/// use rlevo_environments::classic::acrobot::AcrobotConfig;
 ///
 /// let cfg = AcrobotConfig::builder()
 ///     .gravity(9.81)
@@ -478,8 +478,8 @@ impl DiscreteAction<1> for AcrobotAction {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
+/// ```rust,ignore
+/// use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());

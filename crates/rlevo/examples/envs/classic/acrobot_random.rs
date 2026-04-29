@@ -9,7 +9,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example acrobot_random
+//! cargo run -p rlevo-environments --example acrobot_random
 //! ```
 
 use rand::SeedableRng;

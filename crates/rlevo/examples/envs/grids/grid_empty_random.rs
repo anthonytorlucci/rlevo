@@ -8,7 +8,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example grid_empty_random
+//! cargo run -p rlevo-environments --example grid_empty_random
 //! ```
 
 use rlevo_core::action::DiscreteAction;

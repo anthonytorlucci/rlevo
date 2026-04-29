@@ -5,6 +5,6 @@
 //! population-based evolutionary agents, with a shared surface for
 //! `act` / `learn` / checkpoint operations.
 //!
-//! Concrete algorithm implementations currently live in the `rlevo-rl` and
+//! Concrete algorithm implementations currently live in the `rlevo-reinforcement-learning` and
 //! `rlevo-evolution` crates. They will migrate behind the traits defined
 //! here once the API stabilizes.

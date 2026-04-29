@@ -1,4 +1,4 @@
-//! Renderers for `rlevo-envs` environments.
+//! Renderers for `rlevo-environments` environments.
 //!
 //! The primary renderer is [`ascii::AsciiRenderer`], which produces
 //! `String` frames for classic-control and toy-text environments.

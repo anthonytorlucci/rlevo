@@ -24,7 +24,7 @@
 //!
 //! ```rust
 //! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_envs::classic::{
+//! use rlevo_environments::classic::{
 //!     AdversarialBandit, AdversarialBanditConfig, KArmedBanditAction,
 //! };
 //!
@@ -283,10 +283,8 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env =
-            AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default());
-        let snap =
-            <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
+        let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default());
+        let snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
     }
@@ -364,19 +362,18 @@ mod tests {
             amplitude: 1.0,
         });
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 =
-            <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s1 = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
         let _ = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        let s3 =
-            <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s3 = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(s3.is_terminated());
     }
 
     #[test]
     fn fromstr_kv_with_period_and_amplitude() {
-        let c: AdversarialBanditConfig =
-            "max_steps=200,seed=9,period=12,amplitude=0.5".parse().unwrap();
+        let c: AdversarialBanditConfig = "max_steps=200,seed=9,period=12,amplitude=0.5"
+            .parse()
+            .unwrap();
         assert_eq!(c.max_steps, 200);
         assert_eq!(c.seed, 9);
         assert_eq!(c.period, 12);
@@ -385,9 +382,7 @@ mod tests {
 
     #[test]
     fn fromstr_unknown_key_errors() {
-        let err: String = "wrong=1"
-            .parse::<AdversarialBanditConfig>()
-            .unwrap_err();
+        let err: String = "wrong=1".parse::<AdversarialBanditConfig>().unwrap_err();
         assert!(err.contains("Unknown AdversarialBanditConfig key"));
     }
 }

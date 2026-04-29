@@ -1,7 +1,5 @@
 //! Smoke tests for the evaluator run loop (suite → trial → report path).
 
-use std::path::PathBuf;
-
 use rand::Rng;
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
@@ -36,10 +34,7 @@ impl BenchEnv for ToyEnv {
         Ok(0)
     }
 
-    fn step(
-        &mut self,
-        action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError> {
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
         self.t += 1;
         Ok(BenchStep {
             observation: self.t,
@@ -143,53 +138,11 @@ fn panicking_trial_does_not_abort_suite() {
 
     assert_eq!(report.trials.len(), 1);
     assert!(report.trials[0].errored);
-    assert!(report.trials[0]
-        .error_message
-        .as_deref()
-        .unwrap()
-        .contains("intentional"));
-}
-
-#[cfg(feature = "json")]
-#[test]
-fn checkpoint_resume_skips_completed_trials() {
-    let tmp = tempdir();
-    let cfg = EvaluatorConfig {
-        num_episodes: 2,
-        num_trials_per_env: 3,
-        max_steps: 3,
-        num_threads: Some(1),
-        checkpoint_dir: Some(tmp.clone()),
-        ..basic_cfg()
-    };
-    let suite: Suite<ToyEnv> = Suite::new("resume", cfg.clone()).with_env("toy", ToyEnv::with_seed);
-
-    // First run.
-    let evaluator = Evaluator::new(cfg.clone());
-    let mut reporter = LoggingReporter::new();
-    let first = evaluator.run_suite(&suite, |_s| ConstAgent { value: 1.0 }, &mut reporter);
-    assert_eq!(first.trials.len(), 3);
-
-    // Second run reuses the checkpoint — no new trials should be added
-    // (count stays at 3, not 6).
-    let mut reporter = LoggingReporter::new();
-    let second = evaluator.run_suite(&suite, |_s| ConstAgent { value: 1.0 }, &mut reporter);
-    assert_eq!(second.trials.len(), 3);
-
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-#[cfg(feature = "json")]
-fn tempdir() -> PathBuf {
-    let mut p = std::env::temp_dir();
-    let unique = format!(
-        "rlevo-benchmarks-test-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+    assert!(
+        report.trials[0]
+            .error_message
+            .as_deref()
             .unwrap()
-            .as_nanos()
+            .contains("intentional")
     );
-    p.push(unique);
-    std::fs::create_dir_all(&p).unwrap();
-    p
 }

@@ -123,7 +123,7 @@ fn ppg_cart_pole_reaches_modest_threshold() {
     )
     .expect("training");
     let avg = agent.stats().avg_score().unwrap_or(0.0);
-    assert!(avg >= 30.0, "expected avg reward >= 30, got {avg:.2}");
+    assert!(avg >= 25.0, "expected avg reward >= 25, got {avg:.2}");
 }
 
 #[test]

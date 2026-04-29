@@ -16,14 +16,14 @@ implementation details follow
 Discrete env (CartPole, Acrobot, ...):
 
 ```bash
-cargo run -p evorl-rl --release --example ppo_cart_pole -- \
+cargo run -p rlevo-reinforcement-learning --release --example ppo_cart_pole -- \
   --seed 42 --total-timesteps 50000 --num-steps 128 --log-every 4096
 ```
 
 Continuous env (Pendulum, MountainCarContinuous, ...):
 
 ```bash
-cargo run -p evorl-rl --release --example ppo_pendulum -- \
+cargo run -p rlevo-reinforcement-learning --release --example ppo_pendulum -- \
   --seed 42 --total-timesteps 100000 --num-steps 2048 --log-every 4096
 ```
 
@@ -77,6 +77,6 @@ critical subset):
 
 The trait surface is deliberately scoped to this module rather than promoted
 to a crate-level "stochastic policy" abstraction: each algorithm in
-`evorl-rl` currently owns its model trait (`DqnModel`, `C51Model`, ...).
+`rlevo-reinforcement-learning` currently owns its model trait (`DqnModel`, `C51Model`, ...).
 Cross-algorithm refactoring waits until SAC/PPG drive a concrete second
 consumer.

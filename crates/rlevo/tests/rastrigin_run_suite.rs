@@ -1,7 +1,7 @@
 //! Rastrigin-D10 convergence via the benchmark harness.
 //!
 //! This test verifies that each real-valued strategy plugs into
-//! `evorl_benchmarks::Evaluator::run_suite` end-to-end. We assert that
+//! `rlevo_benchmarks::Evaluator::run_suite` end-to-end. We assert that
 //! the final best-fitness across trials is well below a random-search
 //! baseline; precise convergence targets belong to per-strategy tests
 //! in the `algorithms` module.

@@ -3,7 +3,7 @@
 //! Usage:
 //!
 //! ```text
-//! cargo run -p evorl-rl --release --example ddpg_pendulum -- \
+//! cargo run -p rlevo-reinforcement-learning --release --example ddpg_pendulum -- \
 //!     --seed 42 --total-timesteps 100000 --log-every 5000
 //! ```
 

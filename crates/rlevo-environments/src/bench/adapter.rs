@@ -31,10 +31,10 @@ use rlevo_core::reward::ScalarReward;
 ///
 /// # Example
 ///
-/// ```
+/// ```rust
 /// # #[cfg(feature = "bench")] {
-/// use rlevo_envs::bench::BenchAdapter;
-/// use rlevo_envs::classic::{CartPole, CartPoleConfig};
+/// use rlevo_environments::bench::BenchAdapter;
+/// use rlevo_environments::classic::{CartPole, CartPoleConfig};
 /// use rlevo_core::evaluation::BenchEnv;
 ///
 /// let env = CartPole::with_config(CartPoleConfig::default());
@@ -81,21 +81,12 @@ where
     type Action = E::ActionType;
 
     fn reset(&mut self) -> Result<Self::Observation, BenchError> {
-        let snap = self
-            .env
-            .reset()
-            .map_err(BenchError::Reset)?;
+        let snap = self.env.reset().map_err(BenchError::Reset)?;
         Ok(snap.observation().clone())
     }
 
-    fn step(
-        &mut self,
-        action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError> {
-        let snap = self
-            .env
-            .step(action)
-            .map_err(BenchError::Step)?;
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
+        let snap = self.env.step(action).map_err(BenchError::Step)?;
         Ok(BenchStep {
             observation: snap.observation().clone(),
             reward: f64::from(snap.reward().value()),

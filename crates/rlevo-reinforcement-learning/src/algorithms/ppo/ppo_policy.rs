@@ -4,7 +4,7 @@
 //! Modelled on [`C51Model`](crate::algorithms::c51::c51_model::C51Model): the
 //! trait is deliberately scoped to this module rather than being promoted to a
 //! crate-level "stochastic policy" trait. Each existing algorithm in
-//! `evorl-rl` owns its model trait (`DqnModel`, `C51Model`, `QrDqnModel`);
+//! `rlevo-reinforcement-learning` owns its model trait (`DqnModel`, `C51Model`, `QrDqnModel`);
 //! cross-algo abstraction waits until SAC/PPG drive a concrete second consumer.
 //!
 //! # Associated `ActionTensor`

@@ -90,8 +90,8 @@ impl Default for SacTrainingConfig {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use evorl_rl::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+/// ```rust
+/// use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
 ///
 /// let cfg = SacTrainingConfigBuilder::new()
 ///     .batch_size(128)

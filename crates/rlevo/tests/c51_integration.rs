@@ -151,7 +151,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// rewards are finite. Catches silent regressions (NaN logits, projection
 /// numerical blow-up, etc.). Marked `#[ignore]` because running it alongside
 /// other training tests perturbs Burn's global ndarray RNG; exercise with
-/// `cargo test -p evorl-rl --test c51_integration -- --ignored
+/// `cargo test -p rlevo --test c51_integration -- --ignored
 /// --test-threads=1`.
 #[test]
 #[ignore = "perturbs global Burn RNG; run with --test-threads=1"]

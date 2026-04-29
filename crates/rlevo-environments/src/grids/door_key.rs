@@ -38,8 +38,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+//! ```rust
+//! use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DoorKeyConfig::new(5, 100, 0);
@@ -84,8 +84,8 @@ const DOOR_COLOR: Color = Color::Yellow;
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::grids::door_key::DoorKeyConfig;
+/// ```rust
+/// use rlevo_environments::grids::door_key::DoorKeyConfig;
 ///
 /// let cfg = DoorKeyConfig::new(7, 196, 0);
 /// assert_eq!(cfg.size, 7);
@@ -110,8 +110,8 @@ impl DoorKeyConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::door_key::DoorKeyConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::door_key::DoorKeyConfig;
     ///
     /// let cfg = DoorKeyConfig::new(5, 100, 42);
     /// ```
@@ -187,8 +187,8 @@ impl FromStr for DoorKeyConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+/// ```rust
+/// use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DoorKeyEnv::with_config(
@@ -215,8 +215,8 @@ impl DoorKeyEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
+    /// ```rust
+    /// use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
     ///
     /// let env = DoorKeyEnv::with_config(
     ///     DoorKeyConfig::new(7, 196, 99),

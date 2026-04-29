@@ -29,9 +29,9 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
-//! use rlevo_envs::grids::core::color::Color;
+//! ```rust
+//! use rlevo_environments::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
+//! use rlevo_environments::grids::core::color::Color;
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = GoToDoorConfig::new(6, 100, 0, Color::Red);
@@ -77,8 +77,8 @@ const MIN_SIZE: usize = 5;
 /// # Examples
 ///
 /// ```no_run
-/// use rlevo_envs::grids::go_to_door::Mission;
-/// use rlevo_envs::grids::core::color::Color;
+/// use rlevo_environments::grids::go_to_door::Mission;
+/// use rlevo_environments::grids::core::color::Color;
 ///
 /// let m = Mission::new(Color::Blue);
 /// assert!(m.describe().contains("Blue"));
@@ -108,8 +108,8 @@ impl Mission {
 /// # Examples
 ///
 /// ```no_run
-/// use rlevo_envs::grids::go_to_door::GoToDoorConfig;
-/// use rlevo_envs::grids::core::color::Color;
+/// use rlevo_environments::grids::go_to_door::GoToDoorConfig;
+/// use rlevo_environments::grids::core::color::Color;
 ///
 /// let cfg = GoToDoorConfig::new(6, 100, 0, Color::Green);
 /// assert_eq!(cfg.size, 6);
@@ -131,9 +131,9 @@ impl GoToDoorConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::go_to_door::GoToDoorConfig;
-    /// use rlevo_envs::grids::core::color::Color;
+    /// ```rust
+    /// use rlevo_environments::grids::go_to_door::GoToDoorConfig;
+    /// use rlevo_environments::grids::core::color::Color;
     ///
     /// let cfg = GoToDoorConfig::new(8, 200, 42, Color::Blue);
     /// assert_eq!(cfg.seed, 42);
@@ -224,8 +224,8 @@ impl FromStr for GoToDoorConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::go_to_door::GoToDoorEnv;
+/// ```rust
+/// use rlevo_environments::grids::go_to_door::GoToDoorEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = GoToDoorEnv::new(false);

@@ -79,7 +79,7 @@ pub struct BinaryGaState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use evorl_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
+/// use rlevo_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 ///
 /// let strategy = BinaryGeneticAlgorithm::<NdArray>::new();
 /// let params = BinaryGaConfig::default_for(32, 16);

@@ -13,8 +13,8 @@ use rlevo_core::{
 ///
 /// # Usage
 ///
-/// ```rust,ignore
-/// use rlevo_envs::wrappers::TimeLimit;
+/// ```no_run,ignore
+/// use rlevo_environments::wrappers::TimeLimit;
 ///
 /// let env = CartPole::with_config(CartPoleConfig::default());
 /// let mut timed = TimeLimit::new(env, 500);

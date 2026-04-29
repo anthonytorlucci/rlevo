@@ -1,6 +1,6 @@
 # Categorical DQN (C51)
 
-`evorl-rl`'s C51 implementation learns a **discrete return distribution**
+`rlevo-reinforcement-learning`'s C51 implementation learns a **discrete return distribution**
 over a fixed atom support instead of a scalar Q-value. It reuses the DQN
 scaffolding (ε-greedy schedule, replay buffer, target-network sync, Adam
 optimizer) and adds:
@@ -52,14 +52,14 @@ See `examples/c51_cart_pole.rs` for a runnable implementation.
 ## Running the example
 
 ```bash
-cargo run -p evorl-rl --release --example c51_cart_pole -- \
+cargo run -p rlevo-reinforcement-learning --release --example c51_cart_pole -- \
     --seed 42 --total-timesteps 50000 --log-every 1000 --num-atoms 51
 ```
 
 ## Tests
 
 ```bash
-cargo test -p evorl-rl --release --test c51_integration
+cargo test -p rlevo-reinforcement-learning --release --test c51_integration
 ```
 
 ## References
