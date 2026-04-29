@@ -1,0 +1,33 @@
+[package]
+name = 'rlevo-environments'
+version.workspace = true
+authors.workspace = true
+description = "RL benchmark environments and landscapes for rlevo (internal crate — use `rlevo` for the full API)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+rlevo-core = { path = '../rlevo-core', version = "0.1.0" }
+rlevo-benchmarks = { path = '../rlevo-benchmarks', version = "0.1.0", optional = true }
+rand = { workspace = true }
+serde = { workspace = true }
+rand_distr = { workspace = true }
+rapier2d = { workspace = true, optional = true }
+rapier3d = { workspace = true, optional = true }
+nalgebra = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+
+[features]
+default = ["box2d", "locomotion"]
+# Box2D-style physics environments (rapier2d)
+box2d = ["dep:rapier2d"]
+# MuJoCo-style locomotion environments (rapier3d)
+locomotion = ["dep:rapier3d", "dep:nalgebra"]
+# `BenchAdapter` and preset `Suite` factories for the `rlevo-benchmarks` harness.
+# Off by default to keep the base envs dep cone (rayon, tracing, serde_json) lean.
+bench = ["dep:rlevo-benchmarks"]
+

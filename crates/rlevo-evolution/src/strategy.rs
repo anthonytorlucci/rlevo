@@ -27,7 +27,7 @@
 //!
 //! [`EvolutionaryHarness`] glues a strategy to any
 //! [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) and implements
-//! [`BenchEnv`](rlevo_benchmarks::env::BenchEnv), so the benchmark
+//! [`BenchEnv`](rlevo_core::evaluation::BenchEnv), so the benchmark
 //! evaluator drives it just like an RL environment.
 
 use std::fmt::Debug;
@@ -37,7 +37,7 @@ use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
+use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 
 use crate::fitness::BatchFitnessFn;
 
@@ -191,8 +191,8 @@ impl StrategyMetrics {
 ///
 /// ```no_run
 /// use burn::backend::NdArray;
-/// use rlevo_benchmarks::agent::FitnessEvaluable;
-/// use rlevo_benchmarks::env::BenchEnv;
+/// use rlevo_core::fitness::FitnessEvaluable;
+/// use rlevo_core::evaluation::BenchEnv;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::fitness::FromFitnessEvaluable;
 /// use rlevo_evolution::strategy::EvolutionaryHarness;

@@ -7,8 +7,8 @@
 //! directly.
 //!
 //! ```
-//! use evorl_core::base::Reward;
-//! use evorl_core::reward::ScalarReward;
+//! use rlevo_core::base::Reward;
+//! use rlevo_core::reward::ScalarReward;
 //!
 //! let total = ScalarReward::new(1.5) + ScalarReward::new(-0.5);
 //! assert_eq!(f32::from(total), 1.0);

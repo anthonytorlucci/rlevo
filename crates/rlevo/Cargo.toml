@@ -12,21 +12,180 @@ keywords = ["reinforcement-learning", "evolutionary", "deep-learning", "burn", "
 categories = ["science", "algorithms", "simulation"]
 
 [dependencies]
-rlevo-core      = { path = "../rlevo-core",      version = "0.1.0" }
-rlevo-envs      = { path = "../rlevo-envs",      version = "0.1.0", default-features = false }
-rlevo-rl        = { path = "../rlevo-rl",        version = "0.1.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", default-features = false }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.1.0" }
 rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
-rlevo-hybrid    = { path = "../rlevo-hybrid",    version = "0.1.0" }
-rlevo-utils     = { path = "../rlevo-utils",     version = "0.1.0" }
+rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.1.0" }
+
+[dev-dependencies]
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
+approx = { workspace = true }
+burn = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
 default = ["box2d", "locomotion", "custom-kernels"]
 # Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
-box2d = ["rlevo-envs/box2d"]
+box2d = ["rlevo-environments/box2d"]
 # MuJoCo-inspired locomotion environments via Rapier3D
-locomotion = ["rlevo-envs/locomotion"]
+locomotion = ["rlevo-environments/locomotion"]
 # Custom CubeCL GPU kernels for evolutionary algorithm hot paths
 custom-kernels = ["rlevo-evolution/custom-kernels"]
 
 [lints]
 workspace = true
+
+# Examples — gridworlds
+[[example]]
+name = "grid_empty_random"
+path = "examples/envs/grids/grid_empty_random.rs"
+
+[[example]]
+name = "grid_door_key_scripted"
+path = "examples/envs/grids/grid_door_key_scripted.rs"
+
+[[example]]
+name = "grid_memory_random"
+path = "examples/envs/grids/grid_memory_random.rs"
+
+# Examples — classic control
+[[example]]
+name = "cartpole_random"
+path = "examples/envs/classic/cartpole_random.rs"
+
+[[example]]
+name = "cartpole_timelimit"
+path = "examples/envs/classic/cartpole_timelimit.rs"
+
+[[example]]
+name = "mountain_car_random"
+path = "examples/envs/classic/mountain_car_random.rs"
+
+[[example]]
+name = "mountain_car_continuous_random"
+path = "examples/envs/classic/mountain_car_continuous_random.rs"
+
+[[example]]
+name = "pendulum_random"
+path = "examples/envs/classic/pendulum_random.rs"
+
+[[example]]
+name = "acrobot_random"
+path = "examples/envs/classic/acrobot_random.rs"
+
+[[example]]
+name = "k_armed_bandit_random"
+path = "examples/envs/classic/k_armed_bandit_random.rs"
+
+[[example]]
+name = "contextual_bandit_random"
+path = "examples/envs/classic/contextual_bandit_random.rs"
+
+[[example]]
+name = "non_stationary_bandit_random"
+path = "examples/envs/classic/non_stationary_bandit_random.rs"
+
+[[example]]
+name = "adversarial_bandit_random"
+path = "examples/envs/classic/adversarial_bandit_random.rs"
+
+# Examples — Box2D
+[[example]]
+name = "bipedal_walker_random"
+path = "examples/envs/box2d/bipedal_walker_random.rs"
+required-features = ["box2d"]
+
+[[example]]
+name = "lunar_lander_discrete_random"
+path = "examples/envs/box2d/lunar_lander_discrete_random.rs"
+required-features = ["box2d"]
+
+[[example]]
+name = "lunar_lander_continuous_random"
+path = "examples/envs/box2d/lunar_lander_continuous_random.rs"
+required-features = ["box2d"]
+
+[[example]]
+name = "car_racing_random"
+path = "examples/envs/box2d/car_racing_random.rs"
+required-features = ["box2d"]
+
+# Examples — locomotion
+[[example]]
+name = "reacher_random"
+path = "examples/envs/locomotion/reacher_random.rs"
+required-features = ["locomotion"]
+
+[[example]]
+name = "inverted_double_pendulum_random"
+path = "examples/envs/locomotion/inverted_double_pendulum_random.rs"
+required-features = ["locomotion"]
+
+[[example]]
+name = "swimmer_random"
+path = "examples/envs/locomotion/swimmer_random.rs"
+required-features = ["locomotion"]
+
+# Examples — evolution showcases
+[[example]]
+name = "sphere_showcase"
+path = "examples/evo/sphere_showcase.rs"
+
+[[example]]
+name = "ackley_showcase"
+path = "examples/evo/ackley_showcase.rs"
+
+[[example]]
+name = "rastrigin_showcase"
+path = "examples/evo/rastrigin_showcase.rs"
+
+# Examples — RL algorithms
+[[example]]
+name = "dqn_cart_pole"
+path = "examples/rl/dqn_cart_pole.rs"
+
+[[example]]
+name = "c51_cart_pole"
+path = "examples/rl/c51_cart_pole.rs"
+
+[[example]]
+name = "qrdqn_cart_pole"
+path = "examples/rl/qrdqn_cart_pole.rs"
+
+[[example]]
+name = "ppo_cart_pole"
+path = "examples/rl/ppo_cart_pole.rs"
+
+[[example]]
+name = "ppo_pendulum"
+path = "examples/rl/ppo_pendulum.rs"
+
+[[example]]
+name = "ppg_cart_pole"
+path = "examples/rl/ppg_cart_pole.rs"
+
+[[example]]
+name = "ddpg_pendulum"
+path = "examples/rl/ddpg_pendulum.rs"
+
+[[example]]
+name = "td3_pendulum"
+path = "examples/rl/td3_pendulum.rs"
+
+[[example]]
+name = "sac_pendulum"
+path = "examples/rl/sac_pendulum.rs"
+
+# Examples — benchmarks harness
+[[example]]
+name = "ga_rastrigin"
+path = "examples/benchmarks/ga_rastrigin.rs"
+
+[[example]]
+name = "tabular_bandit"
+path = "examples/benchmarks/tabular_bandit.rs"

@@ -1,18 +1,13 @@
 //! Metric primitives and aggregators.
+//!
+//! [`Metric`] and [`MetricsProvider`] live in `rlevo_core::fitness`
+//! (per ADR 0004) so the [`BenchableAgent`](rlevo_core::fitness::BenchableAgent)
+//! trait stays self-contained. They are re-exported here for ergonomic
+//! access alongside the harness-specific aggregators in [`core`], [`ea`],
+//! and [`rl`].
 
 pub mod core;
 pub mod ea;
 pub mod rl;
 
-#[derive(Debug, Clone)]
-pub enum Metric {
-    Scalar { name: String, value: f64 },
-    Histogram { name: String, values: Vec<f64> },
-    Counter { name: String, count: u64 },
-}
-
-/// Trait implemented by agents (and internal collectors) that can report
-/// method-specific metrics at trial boundaries.
-pub trait MetricsProvider {
-    fn emit(&self) -> Vec<Metric>;
-}
+pub use rlevo_core::fitness::{Metric, MetricsProvider};

@@ -1,0 +1,62 @@
+[package]
+name = "rlevo-reinforcement-learning"
+version.workspace = true
+authors.workspace = true
+description = "Deep reinforcement learning algorithms for rlevo (internal crate — use `rlevo` for the full API)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+burn = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+
+[dev-dependencies]
+approx = { workspace = true }
+criterion = { workspace = true }
+rlevo-environments = { path = "../rlevo-environments", default-features = false }
+
+[[bench]]
+name = "dqn_bench"
+path = "benches/dqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "c51_bench"
+path = "benches/c51_bench.rs"
+harness = false
+
+[[bench]]
+name = "qrdqn_bench"
+path = "benches/qrdqn_bench.rs"
+harness = false
+
+[[bench]]
+name = "ppo_bench"
+path = "benches/ppo_bench.rs"
+harness = false
+
+[[bench]]
+name = "ppg_bench"
+path = "benches/ppg_bench.rs"
+harness = false
+
+[[bench]]
+name = "ddpg_bench"
+path = "benches/ddpg_bench.rs"
+harness = false
+
+[[bench]]
+name = "td3_bench"
+path = "benches/td3_bench.rs"
+harness = false
+
+[[bench]]
+name = "sac_bench"
+path = "benches/sac_bench.rs"
+harness = false

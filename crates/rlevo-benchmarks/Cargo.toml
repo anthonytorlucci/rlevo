@@ -8,7 +8,7 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
-rlevo-core = { path = "../rlevo-core" }
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
 rayon = "1"
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -21,8 +21,6 @@ crossterm = { version = "0.28", optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
-rlevo-envs = { path = "../rlevo-envs", features = ["bench"] }
-tracing-subscriber = { workspace = true }
 
 [features]
 default = ["json"]

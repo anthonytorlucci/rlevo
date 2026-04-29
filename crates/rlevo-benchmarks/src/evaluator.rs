@@ -10,13 +10,14 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
-use crate::agent::BenchableAgent;
+use rlevo_core::evaluation::BenchEnv;
+use rlevo_core::fitness::BenchableAgent;
+use rlevo_core::util::seed::SeedStream;
+
 use crate::checkpoint;
-use crate::env::BenchEnv;
 use crate::metrics::core::core_metrics;
 use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
 use crate::reporter::Reporter;
-use crate::seed::SeedStream;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
 #[derive(Debug, Clone)]

@@ -2,12 +2,11 @@
 //!
 //! # Modules
 //!
-//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, replay buffers
+//! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
 //! - [`envs`] — benchmark environments: classic control, gridworlds, Box2D physics, locomotion
-//! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC
+//! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
 //! - [`hybrid`] — combined evolutionary + RL strategies
-//! - [`utils`] — shared math utilities
 //!
 //! # Quick Start
 //!
@@ -24,16 +23,15 @@
 //!
 //! ```rust,no_run
 //! use rlevo::core::environment::Environment;
-//! use rlevo::envs::classic::cartpole::CartPoleEnv;
+//! use rlevo::environments::classic::cartpole::CartPoleEnv;
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
 
 pub use rlevo_core as core;
-pub use rlevo_envs as envs;
+pub use rlevo_environments as envs;
 pub use rlevo_evolution as evo;
 pub use rlevo_hybrid as hybrid;
-pub use rlevo_rl as rl;
-pub use rlevo_utils as utils;
+pub use rlevo_reinforcement_learning as rl;
 
 /// The most commonly used traits and types, importable with `use rlevo::prelude::*`.
 ///
@@ -74,7 +72,7 @@ pub mod prelude {
 
     // Environment protocol
     pub use rlevo_core::environment::{
-        Environment, EpisodeStatus, EnvironmentError, Snapshot, SnapshotBase,
+        Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
     };
 
     // Reward

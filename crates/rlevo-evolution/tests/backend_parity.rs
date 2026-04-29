@@ -34,7 +34,7 @@
 //! concurrently.
 
 use burn::backend::{NdArray, Wgpu};
-use rlevo_benchmarks::agent::FitnessEvaluable;
+use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };

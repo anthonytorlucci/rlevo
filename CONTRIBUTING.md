@@ -1,12 +1,12 @@
-# Contributing to burn-evorl
+# Contributing to rlevo
 
-Thank you for your interest in `burn-evorl`. This is an early-stage, solo side project — contributions are welcome, but please read this document carefully before opening a pull request. The scope is intentionally narrow right now so the project can grow sustainably.
+Thank you for your interest in `rlevo`. This is an early-stage, solo side project — contributions are welcome, but please read this document carefully before opening a pull request. The scope is intentionally narrow right now so the project can grow sustainably.
 
 ---
 
 ## Project Status
 
-`burn-evorl` is **alpha software**. Core APIs are still being designed and are subject to breaking changes without notice. The maintainer is a single developer working on this in spare time. Because of that, the capacity to review, merge, and maintain contributions is limited.
+`rlevo` is **alpha software**. Core APIs are still being designed and are subject to breaking changes without notice. The maintainer is a single developer working on this in spare time. Because of that, the capacity to review, merge, and maintain contributions is limited.
 
 This is not a discouragement — it is transparency. A smaller number of high-quality, well-scoped contributions is far more valuable here than a large influx of changes that stall in review.
 
@@ -16,7 +16,7 @@ This is not a discouragement — it is transparency. A smaller number of high-qu
 
 To keep the review burden manageable during the alpha phase, contributions are currently scoped to:
 
-- **New examples** — clear, self-contained examples in `crates/evorl-*/examples/` that demonstrate existing functionality
+- **New examples** — clear, self-contained examples that demonstrate existing functionality
 - **Bug fixes** — small, focused fixes with a clear description of the problem and a regression test
 - **Documentation corrections** — typos, broken links, misleading doc comments
 
@@ -37,7 +37,7 @@ If you have an idea that falls outside the current scope, please open an issue t
 ## Before You Open a PR
 
 1. **Open an issue first** for anything beyond a one-line typo fix. Describe what you want to change and why. This avoids wasted effort if the direction does not fit the current roadmap.
-2. **Read the codebase.** Skim `CLAUDE.md` for an overview of the workspace structure, key traits, and conventions.
+2. **Read the codebase.** Skim `CLAUDE.md` for an overview of key traits and conventions.
 3. **Keep it small.** One PR, one concern. If a fix naturally grows into a refactor, stop and discuss.
 4. **Verify it builds and tests pass.**
 

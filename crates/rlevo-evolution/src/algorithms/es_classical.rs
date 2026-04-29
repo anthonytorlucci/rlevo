@@ -461,7 +461,7 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::NdArray;
-    use rlevo_benchmarks::agent::FitnessEvaluable;
+    use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = NdArray;
 
     struct Sphere;
