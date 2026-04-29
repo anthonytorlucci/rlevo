@@ -95,7 +95,7 @@ rlevo = "0.1"
 ```
 
 ```rust
-use rlevo::environments::classic::CartPole;
+use rlevo::envs::classic::CartPole;
 use rlevo::core::{Environment, EpisodeStatus};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -152,6 +152,12 @@ cargo doc --workspace --no-deps --open
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, scope, and how to open a PR.
+
+## Ethics and Security
+
+`rlevo` is training infrastructure — the objectives you encode and the policies you deploy carry real consequences. See [ETHICS_AND_AI.md](ETHICS_AND_AI.md) for our commitments around reward function transparency, emergent behavior, and responsible distribution of trained policies.
+
+To report a security vulnerability privately, see [SECURITY.md](SECURITY.md).
 
 ## Development
 
