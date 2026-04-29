@@ -25,8 +25,8 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
+//! ```rust
+//! use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = LavaGapConfig::new(5, 100, 0);
@@ -67,8 +67,8 @@ const MIN_SIZE: usize = 5;
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::lava_gap::LavaGapConfig;
+/// ```rust
+/// use rlevo_environments::grids::lava_gap::LavaGapConfig;
 ///
 /// let cfg = LavaGapConfig::new(7, 200, 42);
 /// assert_eq!(cfg.size, 7);
@@ -90,8 +90,8 @@ impl LavaGapConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::lava_gap::LavaGapConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::lava_gap::LavaGapConfig;
     ///
     /// let cfg = LavaGapConfig::new(5, 100, 0);
     /// assert_eq!(cfg.max_steps, 100);
@@ -165,8 +165,8 @@ impl FromStr for LavaGapConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::lava_gap::LavaGapEnv;
+/// ```rust
+/// use rlevo_environments::grids::lava_gap::LavaGapEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = LavaGapEnv::new(false);

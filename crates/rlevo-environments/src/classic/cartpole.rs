@@ -20,9 +20,9 @@
 //!
 //! ## Quick start
 //!
-//! ```rust,ignore
-//! use rlevo_envs::classic::{CartPole, CartPoleConfig, CartPoleAction};
-//! use rlevo_envs::wrappers::TimeLimit;
+//! ```no_run,ignore
+//! use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
+//! use rlevo_environments::wrappers::TimeLimit;
 //! use rlevo_core::environment::Environment;
 //!
 //! let env = CartPole::with_config(CartPoleConfig::default());
@@ -65,8 +65,8 @@ pub enum Integrator {
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::classic::cartpole::CartPoleConfig;
+/// ```rust
+/// use rlevo_environments::classic::cartpole::CartPoleConfig;
 ///
 /// let cfg = CartPoleConfig::builder()
 ///     .gravity(9.81)

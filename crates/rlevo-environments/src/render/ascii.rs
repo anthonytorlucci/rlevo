@@ -14,8 +14,8 @@ pub trait AsciiRenderable {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use rlevo_envs::render::AsciiRenderer;
+/// ```no_run,ignore
+/// use rlevo_environments::render::AsciiRenderer;
 /// use rlevo_core::render::Renderer;
 ///
 /// let renderer = AsciiRenderer;

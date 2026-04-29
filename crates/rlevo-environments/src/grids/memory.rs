@@ -35,8 +35,8 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::memory::{MemoryConfig, MemoryEnv};
+//! ```rust
+//! use rlevo_environments::grids::memory::{MemoryConfig, MemoryEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = MemoryConfig::new(140, 0, false);
@@ -83,8 +83,8 @@ const DISTRACTOR_COLOR: Color = Color::Red;
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::memory::MemoryConfig;
+/// ```run
+/// use rlevo_environments::grids::memory::MemoryConfig;
 ///
 /// let cfg = MemoryConfig::new(140, 42, true);
 /// assert!(cfg.swap_fork);
@@ -107,8 +107,8 @@ impl MemoryConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::memory::MemoryConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::memory::MemoryConfig;
     ///
     /// let cfg = MemoryConfig::new(140, 0, false);
     /// assert_eq!(cfg.max_steps, 140);
@@ -188,8 +188,8 @@ impl FromStr for MemoryConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::memory::MemoryEnv;
+/// ```rust
+/// use rlevo_environments::grids::memory::MemoryEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = MemoryEnv::new(false);

@@ -26,8 +26,8 @@
 //!
 //! # Examples
 //!
-//! ```no_run
-//! use rlevo_envs::grids::unlock::{UnlockConfig, UnlockEnv};
+//! ```rust
+//! use rlevo_environments::grids::unlock::{UnlockConfig, UnlockEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = UnlockConfig::new(5, 200, 0);
@@ -69,8 +69,8 @@ const DOOR_COLOR: Color = Color::Yellow;
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::unlock::UnlockConfig;
+/// ```rust
+/// use rlevo_environments::grids::unlock::UnlockConfig;
 ///
 /// let cfg = UnlockConfig::new(5, 200, 0);
 /// assert_eq!(cfg.size, 5);
@@ -90,8 +90,8 @@ impl UnlockConfig {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::unlock::UnlockConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::unlock::UnlockConfig;
     ///
     /// let cfg = UnlockConfig::new(6, 288, 42);
     /// assert_eq!(cfg.seed, 42);
@@ -167,8 +167,8 @@ impl FromStr for UnlockConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::unlock::UnlockEnv;
+/// ```rust
+/// use rlevo_environments::grids::unlock::UnlockEnv;
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = UnlockEnv::new(false);

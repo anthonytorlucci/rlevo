@@ -9,8 +9,8 @@
 //!
 //! ```rust
 //! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_envs::grids::core::GridAction;
-//! use rlevo_envs::grids::{EmptyConfig, EmptyEnv};
+//! use rlevo_environments::grids::core::GridAction;
+//! use rlevo_environments::grids::{EmptyConfig, EmptyEnv};
 //!
 //! let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
 //! env.reset().expect("reset");

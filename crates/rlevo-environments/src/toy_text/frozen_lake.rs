@@ -152,8 +152,8 @@ impl Default for RewardSchedule {
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::toy_text::frozen_lake::{FrozenLakeConfig, FrozenMapSpec, FrozenPreset};
+/// ```rust
+/// use rlevo_environments::toy_text::frozen_lake::{FrozenLakeConfig, FrozenMapSpec, FrozenPreset};
 ///
 /// let cfg = FrozenLakeConfig::builder()
 ///     .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))

@@ -28,7 +28,7 @@
 //! ## Quick start
 //!
 //! ```no_run
-//! # use rlevo_envs::box2d::lunar_lander::{
+//! # use rlevo_environments::box2d::lunar_lander::{
 //! #     LunarLanderDiscrete, LunarLanderDiscreteAction, LunarLanderConfig,
 //! # };
 //! # use rlevo_core::environment::{Environment, Snapshot};

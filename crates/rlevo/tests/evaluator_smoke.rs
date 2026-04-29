@@ -1,7 +1,5 @@
 //! Smoke tests for the evaluator run loop (suite → trial → report path).
 
-use std::path::PathBuf;
-
 use rand::Rng;
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::env::{BenchEnv, BenchError, BenchStep};
@@ -36,10 +34,7 @@ impl BenchEnv for ToyEnv {
         Ok(0)
     }
 
-    fn step(
-        &mut self,
-        action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError> {
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
         self.t += 1;
         Ok(BenchStep {
             observation: self.t,
@@ -143,11 +138,13 @@ fn panicking_trial_does_not_abort_suite() {
 
     assert_eq!(report.trials.len(), 1);
     assert!(report.trials[0].errored);
-    assert!(report.trials[0]
-        .error_message
-        .as_deref()
-        .unwrap()
-        .contains("intentional"));
+    assert!(
+        report.trials[0]
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("intentional")
+    );
 }
 
 #[cfg(feature = "json")]

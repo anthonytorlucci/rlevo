@@ -37,8 +37,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+//! ```rust
+//! use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DistShiftConfig::new(DistShiftVariant::Two, 100, 0);
@@ -120,8 +120,8 @@ const HEIGHT: usize = 7;
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
+/// ```rust
+/// use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
 ///
 /// let cfg = DistShiftConfig::new(DistShiftVariant::Two, 150, 7);
 /// assert_eq!(cfg.max_steps, 150);
@@ -145,8 +145,8 @@ impl DistShiftConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
+    /// ```rust
+    /// use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftVariant};
     ///
     /// let cfg = DistShiftConfig::new(DistShiftVariant::One, 100, 0);
     /// ```
@@ -218,8 +218,8 @@ impl FromStr for DistShiftConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+/// ```rust
+/// use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DistShiftEnv::with_config(
@@ -246,8 +246,8 @@ impl DistShiftEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
+    /// ```rust
+    /// use rlevo_environments::grids::dist_shift::{DistShiftConfig, DistShiftEnv, DistShiftVariant};
     ///
     /// let env = DistShiftEnv::with_config(
     ///     DistShiftConfig::new(DistShiftVariant::Two, 100, 42),

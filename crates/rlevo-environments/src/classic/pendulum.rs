@@ -17,9 +17,9 @@
 //!
 //! ## Quick start
 //!
-//! ```rust,ignore
-//! use rlevo_envs::classic::{Pendulum, PendulumConfig, PendulumAction};
-//! use rlevo_envs::wrappers::TimeLimit;
+//! ```no_run,ignore
+//! use rlevo_environments::classic::{Pendulum, PendulumConfig, PendulumAction};
+//! use rlevo_environments::wrappers::TimeLimit;
 //! use rlevo_core::environment::Environment;
 //!
 //! let env = Pendulum::with_config(PendulumConfig::default());
@@ -72,7 +72,7 @@ impl std::error::Error for InvalidActionError {}
 /// # Examples
 ///
 /// ```
-/// use rlevo_envs::classic::pendulum::PendulumConfig;
+/// use rlevo_environments::classic::pendulum::PendulumConfig;
 ///
 /// let cfg = PendulumConfig { g: 9.81, seed: 42, ..PendulumConfig::default() };
 /// assert!((cfg.g - 9.81).abs() < 1e-5);

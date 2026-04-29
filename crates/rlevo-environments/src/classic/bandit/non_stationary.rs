@@ -16,7 +16,7 @@
 //!
 //! ```rust
 //! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_envs::classic::{
+//! use rlevo_environments::classic::{
 //!     KArmedBanditAction, NonStationaryBandit, NonStationaryBanditConfig,
 //! };
 //!
@@ -271,8 +271,7 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env =
-            NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default());
+        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default());
         let snap =
             <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
@@ -287,12 +286,10 @@ mod tests {
             sigma_walk: 0.01,
         });
         let action = KArmedBanditAction::<K>::from_index(0);
-        let s1 =
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s1 = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
         let _ = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
-        let s3 =
-            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        let s3 = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(s3.is_terminated());
     }
 
@@ -358,8 +355,7 @@ mod tests {
 
     #[test]
     fn fromstr_kv_with_sigma_walk() {
-        let c: NonStationaryBanditConfig =
-            "max_steps=200,seed=9,sigma_walk=0.05".parse().unwrap();
+        let c: NonStationaryBanditConfig = "max_steps=200,seed=9,sigma_walk=0.05".parse().unwrap();
         assert_eq!(c.max_steps, 200);
         assert_eq!(c.seed, 9);
         assert!((c.sigma_walk - 0.05).abs() < 1e-6);
@@ -367,9 +363,7 @@ mod tests {
 
     #[test]
     fn fromstr_unknown_key_errors() {
-        let err: String = "wrong=1"
-            .parse::<NonStationaryBanditConfig>()
-            .unwrap_err();
+        let err: String = "wrong=1".parse::<NonStationaryBanditConfig>().unwrap_err();
         assert!(err.contains("Unknown NonStationaryBanditConfig key"));
     }
 }

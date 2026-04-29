@@ -123,7 +123,6 @@ type Be = Autodiff<NdArray>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {
-    use burn::tensor::backend::Backend;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
     let config = DqnTrainingConfigBuilder::new()

@@ -44,8 +44,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+//! ```rust
+//! use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
@@ -92,8 +92,8 @@ const COLLISION_REWARD: f32 = -1.0;
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::grids::dynamic_obstacles::DynamicObstaclesConfig;
+/// ```rust
+/// use rlevo_environments::grids::dynamic_obstacles::DynamicObstaclesConfig;
 ///
 /// let cfg = DynamicObstaclesConfig::new(8, 3, 256, 0);
 /// assert_eq!(cfg.num_obstacles, 3);
@@ -123,8 +123,8 @@ impl DynamicObstaclesConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::dynamic_obstacles::DynamicObstaclesConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::dynamic_obstacles::DynamicObstaclesConfig;
     ///
     /// let cfg = DynamicObstaclesConfig::new(6, 1, 144, 42);
     /// ```
@@ -212,8 +212,8 @@ impl FromStr for DynamicObstaclesConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+/// ```rust
+/// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = DynamicObstaclesEnv::with_config(
@@ -241,8 +241,8 @@ impl DynamicObstaclesEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
+    /// ```run
+    /// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
     ///
     /// let env = DynamicObstaclesEnv::with_config(
     ///     DynamicObstaclesConfig::new(8, 4, 256, 99),

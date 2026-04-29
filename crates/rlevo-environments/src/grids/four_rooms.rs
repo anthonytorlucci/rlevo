@@ -39,8 +39,8 @@
 //!
 //! ## Example
 //!
-//! ```no_run
-//! use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+//! ```rust
+//! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
 //! use rlevo_core::environment::Environment;
 //!
 //! let cfg = FourRoomsConfig::new(11, 484, 0);
@@ -82,8 +82,8 @@ const MIN_SIZE: usize = 11;
 ///
 /// # Examples
 ///
-/// ```
-/// use rlevo_envs::grids::four_rooms::FourRoomsConfig;
+/// ```rust
+/// use rlevo_environments::grids::four_rooms::FourRoomsConfig;
 ///
 /// let cfg = FourRoomsConfig::new(11, 484, 0);
 /// assert_eq!(cfg.size, 11);
@@ -108,8 +108,8 @@ impl FourRoomsConfig {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use rlevo_envs::grids::four_rooms::FourRoomsConfig;
+    /// ```rust
+    /// use rlevo_environments::grids::four_rooms::FourRoomsConfig;
     ///
     /// let cfg = FourRoomsConfig::new(11, 484, 7);
     /// ```
@@ -189,8 +189,8 @@ impl FromStr for FourRoomsConfig {
 ///
 /// # Examples
 ///
-/// ```no_run
-/// use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+/// ```rust
+/// use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
 /// use rlevo_core::environment::Environment;
 ///
 /// let mut env = FourRoomsEnv::with_config(
@@ -217,8 +217,8 @@ impl FourRoomsEnv {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use rlevo_envs::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+    /// ```rust
+    /// use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
     ///
     /// let env = FourRoomsEnv::with_config(
     ///     FourRoomsConfig::new(11, 484, 0),

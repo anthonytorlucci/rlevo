@@ -23,17 +23,17 @@
 //! This environment has **no intrinsic episode limit**. The standard
 //! Gymnasium cap of 999 steps should be added externally:
 //!
-//! ```rust,ignore
-//! use rlevo_envs::{classic::mountain_car_continuous::MountainCarContinuous, wrappers::TimeLimit};
+//! ```no_run,ignore
+//! use rlevo_environments::{classic::mountain_car_continuous::MountainCarContinuous, wrappers::TimeLimit};
 //!
 //! let env = TimeLimit::new(MountainCarContinuous::new(false), 999);
 //! ```
 //!
 //! ## Quick start
 //!
-//! ```rust,ignore
+//! ```rust
 //! use rlevo_core::environment::Environment;
-//! use rlevo_envs::classic::mountain_car_continuous::{
+//! use rlevo_environments::classic::mountain_car_continuous::{
 //!     MountainCarContinuous, MountainCarContinuousAction,
 //! };
 //!
@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use rlevo_envs::classic::mountain_car_continuous::MountainCarContinuousAction;
+/// use rlevo_environments::classic::mountain_car_continuous::MountainCarContinuousAction;
 ///
 /// let err = MountainCarContinuousAction::new(2.0).unwrap_err();
 /// assert!(err.to_string().contains("not in"));
@@ -104,7 +104,7 @@ pub const REWARD_GOAL: &str = "goal";
 /// # Examples
 ///
 /// ```
-/// use rlevo_envs::classic::mountain_car_continuous::MountainCarContinuousConfig;
+/// use rlevo_environments::classic::mountain_car_continuous::MountainCarContinuousConfig;
 ///
 /// let cfg = MountainCarContinuousConfig { seed: 42, ..MountainCarContinuousConfig::default() };
 /// assert_eq!(cfg.seed, 42);

@@ -27,8 +27,8 @@
 //!
 //! ## Quick start
 //!
-//! ```no_run
-//! # use rlevo_envs::box2d::bipedal_walker::{
+//! ```rust
+//! # use rlevo_environments::box2d::bipedal_walker::{
 //! #     BipedalWalker, BipedalWalkerAction, BipedalWalkerConfig, BipedalTerrain,
 //! # };
 //! # use rlevo_core::environment::{Environment, Snapshot};

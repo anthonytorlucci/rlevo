@@ -14,7 +14,7 @@
 //!
 //! ```rust
 //! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_envs::classic::{KArmedBandit, KArmedBanditAction};
+//! use rlevo_environments::classic::{KArmedBandit, KArmedBanditAction};
 //!
 //! let mut env: KArmedBandit<10> =
 //!     <KArmedBandit<10> as Environment<1, 1, 1>>::new(false);
@@ -143,7 +143,7 @@ impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
 ///
 /// ```rust
 /// use rlevo_core::action::DiscreteAction;
-/// use rlevo_envs::classic::KArmedBanditAction;
+/// use rlevo_environments::classic::KArmedBanditAction;
 ///
 /// let a = KArmedBanditAction::<10>::new(5).expect("5 is in range");
 /// assert_eq!(a.arm(), 5);
@@ -309,7 +309,7 @@ impl FromStr for KArmedBanditConfig {
     ///
     /// ```rust
     /// use std::str::FromStr;
-    /// use rlevo_envs::classic::KArmedBanditConfig;
+    /// use rlevo_environments::classic::KArmedBanditConfig;
     ///
     /// let c: KArmedBanditConfig = "500".parse().unwrap();
     /// assert_eq!(c.max_steps, 500);
@@ -612,9 +612,8 @@ mod tests {
         let device = Default::default();
         let data = TD::new(vec![0.0_f32, 1.0_f32], [2]);
         let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let err =
-            <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-                .expect_err("shape [2] should be rejected");
+        let err = <KArmedBanditAction<K> as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+            .expect_err("shape [2] should be rejected");
         assert!(err.message.contains("expected shape"));
     }
 
