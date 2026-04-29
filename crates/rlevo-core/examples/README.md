@@ -21,16 +21,16 @@ orientation clamped to [−180°, 180°]. Demonstrates the builder/validator pat
 reward-shaping helpers (`distance_to`, `normalize_orientation`).
 
 ```bash
-cargo run -p evorl-core --example continuous_state_with_constraints --release
+cargo run -p rlevo-core --example continuous_state_with_constraints --release
 ```
 
 ### `grid_agent.rs`
 
-Minimal egocentric grid agent mirroring the Minigrid-style environments in `evorl-envs`.
+Minimal egocentric grid agent mirroring the Minigrid-style environments in `rlevo-environments`.
 Shows how to wire `State`, `Observation`, and `TensorConvertible` together, implement
 `DiscreteAction` with index round-trips, and compose independent sub-dimensions with
 `MultiDiscreteAction`.
 
 ```bash
-cargo run -p evorl-core --example grid_agent
+cargo run -p rlevo-core --example grid_agent
 ```

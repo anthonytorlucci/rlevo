@@ -5,7 +5,7 @@
 //! custom CubeCL kernel work scoped in `ops/kernels/mod.rs`. Kernels
 //! should strictly beat the pure-tensor baseline at `pop_size ≥ 256`.
 //!
-//! Run with `cargo bench -p evorl-evolution`. Pass
+//! Run with `cargo bench -p rlevo-evolution`. Pass
 //! `--save-baseline pre-kernel` before landing kernels and
 //! `--baseline pre-kernel` afterwards to get a side-by-side report.
 

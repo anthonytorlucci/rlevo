@@ -80,7 +80,7 @@
 //!
 //! When implementing these:
 //!
-//! 1. Add `cubecl` to `evorl-evolution`'s dependencies (gated on the
+//! 1. Add `cubecl` to `rlevo-evolution`'s dependencies (gated on the
 //!    `custom-kernels` feature).
 //! 2. Use `#[cube(launch_unchecked)]` with Burn's `backend::custom` API
 //!    to plug into the `Backend` trait.

@@ -1,6 +1,6 @@
 //! Micro and macro benchmarks for the DQN agent.
 //!
-//! Only the micro benches run by default (`cargo bench -p evorl-rl --bench
+//! Only the micro benches run by default (`cargo bench -p rlevo-reinforcement-learning --bench
 //! dqn_bench`). The CartPole reward-curve reproduction macro bench is gated
 //! behind the `macro` env var and is compared against
 //! `tests/baselines/dqn_cartpole.csv`.

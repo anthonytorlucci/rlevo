@@ -1,8 +1,8 @@
 # Deep Q-Network (DQN)
 
-`evorl-rl`'s DQN implementation follows the Nature-style Q-learning algorithm
+`rlevo-reinforcement-learning`'s DQN implementation follows the Nature-style Q-learning algorithm
 with an optional Double-DQN target path. It is the anchor algorithm for the
-`evorl-rl` crate — later algorithms (C51, QR-DQN, PPO, ...) reuse the trait
+`rlevo-reinforcement-learning` crate — later algorithms (C51, QR-DQN, PPO, ...) reuse the trait
 surface and example scaffolding introduced here.
 
 ## Modules
@@ -51,7 +51,7 @@ See `examples/dqn_cart_pole.rs` for a complete `ModuleVisitor` /
 ## Running the example
 
 ```bash
-cargo run -p evorl-rl --release --example dqn_cart_pole -- \
+cargo run -p rlevo-reinforcement-learning --release --example dqn_cart_pole -- \
     --seed 42 --total-timesteps 50000 --log-every 1000
 ```
 
@@ -61,14 +61,14 @@ steps and past 180 within 30k. Reference curve: `tests/baselines/dqn_cartpole.cs
 ## Tests
 
 ```bash
-cargo test -p evorl-rl --release --test dqn_integration
+cargo test -p rlevo-reinforcement-learning --release --test dqn_integration
 ```
 
 Two reproducibility/smoke tests are gated behind `#[ignore]` because they
 perturb Burn's global ndarray RNG when run in parallel. Exercise them with:
 
 ```bash
-cargo test -p evorl-rl --release --test dqn_integration -- \
+cargo test -p rlevo-reinforcement-learning --release --test dqn_integration -- \
     --ignored --test-threads=1
 ```
 

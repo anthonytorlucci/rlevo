@@ -9,7 +9,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example mountain_car_continuous_random
+//! cargo run -p rlevo-environments --example mountain_car_continuous_random
 //! ```
 
 use rand::SeedableRng;

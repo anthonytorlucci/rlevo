@@ -10,8 +10,8 @@
 //! that sets [`MemoryConfig::swap_fork`]:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example grid_memory_random
-//! cargo run -p rlevo-envs --example grid_memory_random -- swap=true
+//! cargo run -p rlevo-environments --example grid_memory_random
+//! cargo run -p rlevo-environments --example grid_memory_random -- swap=true
 //! ```
 
 use rlevo_core::action::DiscreteAction;

@@ -114,8 +114,8 @@ impl Default for DqnTrainingConfig {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use evorl_rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+/// ```rust
+/// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 ///
 /// // Default configuration.
 /// let cfg = DqnTrainingConfigBuilder::new().build();

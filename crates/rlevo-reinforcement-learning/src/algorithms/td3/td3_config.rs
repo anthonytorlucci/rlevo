@@ -77,8 +77,8 @@ impl Default for Td3TrainingConfig {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use evorl_rl::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+/// ```rust
+/// use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
 ///
 /// let cfg = Td3TrainingConfigBuilder::new()
 ///     .batch_size(128)

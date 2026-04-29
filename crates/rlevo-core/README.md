@@ -99,7 +99,7 @@ Minimal trait surface that `rlevo-evolution` builds on:
 |---|---|
 | `Fitness` | Scalar fitness score: `worst()`, `is_finite()`, `as_f32()`. Blanket impls for `f32` and `f64`. Convention: **higher is better**. |
 | `GenomeKind` | Zero-sized marker with `const DIM: usize` and associated `Element` type; lets evolutionary strategies select operators at compile time. |
-| `MultiFitness` | Multi-objective fitness: `objectives() -> &[f32]`. Pareto/NSGA machinery lives in `evorl-evolution`. |
+| `MultiFitness` | Multi-objective fitness: `objectives() -> &[f32]`. Pareto/NSGA machinery lives in `rlevo-evolution`. |
 
 ### `metrics` — Performance Tracking
 
@@ -112,7 +112,7 @@ Minimal trait surface that `rlevo-evolution` builds on:
 
 Placeholder module reserved for a future unified agent trait hierarchy
 (`act` / `learn` / checkpoint). Empty in v0.1.0 — concrete algorithms currently
-live in `evorl-rl` and `rlevo-evolution` and will migrate behind these traits
+live in `rlevo-reinforcement-learning` and `rlevo-evolution` and will migrate behind these traits
 once the API stabilizes.
 
 ### `render` — Rendering Abstractions

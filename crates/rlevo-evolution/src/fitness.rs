@@ -10,7 +10,7 @@
 //!   is the hot path — strategies call it once per generation.
 //!
 //! The [`FromFitnessEvaluable`] adapter bridges
-//! `evorl-benchmarks::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>`
+//! `rlevo-benchmarks::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>`
 //! into a [`BatchFitnessFn`] over `Tensor<B, 2>`. It pulls each row to
 //! host, evaluates on the CPU, then stacks the results back onto the
 //! device. That is the straightforward (and only) path for fitness

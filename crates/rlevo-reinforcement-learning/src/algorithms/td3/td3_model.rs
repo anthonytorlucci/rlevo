@@ -5,7 +5,7 @@
 //! policy mapping observations to continuous actions, and a continuous Q
 //! critic scoring `(obs, action)` pairs. Both traits live in
 //! [`crate::algorithms::ddpg::ddpg_model`]; this module re-exports them so
-//! TD3 implementors can `use evorl_rl::algorithms::td3::td3_model::*` without
+//! TD3 implementors can `use rlevo_reinforcement_learning::algorithms::td3::td3_model::*` without
 //! leaking the DDPG path into their code.
 //!
 //! The TD3 agent instantiates the [`ContinuousQ`] trait twice (one per

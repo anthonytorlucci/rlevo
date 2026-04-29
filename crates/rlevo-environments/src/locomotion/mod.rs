@@ -4,7 +4,7 @@
 //! suite, ported to the pure-Rust [`rapier3d`] physics engine. Enable with:
 //!
 //! ```toml
-//! rlevo-envs = { features = ["locomotion"] }
+//! rlevo-environments = { features = ["locomotion"] }
 //! ```
 //!
 //! ## Physics note

@@ -2,7 +2,7 @@
 //! through a minimal egocentric grid agent.
 //!
 //! The model here mirrors the architecture of the Minigrid-style environments in
-//! `rlevo-envs::grids`:
+//! `rlevo-environments::grids`:
 //!
 //! - The agent has a **facing direction** — it turns and then steps forward rather
 //!   than moving in absolute coordinates.
@@ -100,7 +100,7 @@ impl Facing {
 ///
 /// Grid bounds are not exposed — they belong to the environment state and are
 /// invisible to the agent, matching the pattern used in the Minigrid ports in
-/// `evorl-envs`.
+/// `rlevo-environments`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct AgentObservation {
     /// Column (x-axis, zero-based).
@@ -194,7 +194,7 @@ impl State<1> for AgentState {
 
 /// Egocentric movement: turn left, turn right, or step forward.
 ///
-/// Mirrors the movement subset of `GridAction` in `evorl-envs::grids`. The
+/// Mirrors the movement subset of `GridAction` in `rlevo-environments::grids`. The
 /// agent never specifies an absolute direction — it rotates relative to its
 /// current facing, then steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

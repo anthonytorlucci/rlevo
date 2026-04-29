@@ -10,7 +10,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example cartpole_random
+//! cargo run -p rlevo-environments --example cartpole_random
 //! ```
 
 use rand::SeedableRng;

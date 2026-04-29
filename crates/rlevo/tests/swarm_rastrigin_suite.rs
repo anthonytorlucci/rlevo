@@ -1,5 +1,5 @@
 //! Every shipping swarm strategy drives
-//! `evorl_benchmarks::Evaluator::run_suite` end-to-end on Rastrigin-D10
+//! `rlevo_benchmarks::Evaluator::run_suite` end-to-end on Rastrigin-D10
 //! and Ackley-D10.
 //!
 //! Mirrors the `rastrigin_run_suite.rs` pattern: assert each strategy

@@ -1,7 +1,7 @@
 //! Benchmark: sample-average ε-greedy agent on the ten-armed bandit.
 //!
 //! Demonstrates the harness path (`Suite` → `Evaluator::run_suite` →
-//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-envs`,
+//! `BenchmarkReport`) running against [`TenArmedBandit`] from `rlevo-environments`,
 //! through the [`BenchAdapter`] / [`ten_armed_bandit_suite`] glue exposed
 //! by the `bench` feature.
 //!

@@ -9,7 +9,7 @@
 //! Run with:
 //!
 //! ```bash
-//! cargo run -p rlevo-envs --example grid_door_key_scripted
+//! cargo run -p rlevo-environments --example grid_door_key_scripted
 //! ```
 
 use rlevo_core::environment::{Environment, Snapshot};
