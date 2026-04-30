@@ -15,7 +15,7 @@
 //! rlevo = "0.1"
 //! ```
 //!
-//! ```rust,no_run
+//! ```rust
 //! use rlevo::prelude::*;
 //! ```
 //!
@@ -23,7 +23,7 @@
 //!
 //! ```rust,no_run
 //! use rlevo::core::environment::Environment;
-//! use rlevo::environments::classic::cartpole::CartPoleEnv;
+//! use rlevo::envs::classic::cartpole::CartPole;
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
 
