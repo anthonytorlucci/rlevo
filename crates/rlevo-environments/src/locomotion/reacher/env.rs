@@ -1,298 +1,26 @@
-//! # Reacher-v5 (Rapier3D-backed)
-//!
-//! # Physics note
-//!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
-//! action dimensionality, reward structure, and termination conditions match
-//! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
-//! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
-//! without retuning.**
-//!
-//! ## Layout
-//!
-//! A planar 2-link arm in the xy-plane with zero gravity. The shoulder is a
-//! fixed anchor at the world origin; the elbow connects `link1` (length 0.1)
-//! to `link2` (length 0.11). A small `target` body is placed at a random
-//! position in a disk of radius 0.2 at each reset; the agent must reach it
-//! with the fingertip.
-//!
-//! * Shoulder: revolute impulse joint about world-z, root → link1.
-//! * Elbow:    revolute impulse joint about world-z, link1 → link2.
-//! * Planar constraint: both links have `enabled_translations(true, true, false)`
-//!   and `enabled_rotations(false, false, true)`.
-//! * Action: `Box(-1, 1, (2,))` — shoulder/elbow torque targets; applied as
-//!   `action · gear` with `gear = [200, 200]` (Gymnasium XML).
-//! * Observation (10-dim):
-//!   `[cos θ₁, cos θ₂, sin θ₁, sin θ₂, target_x, target_y, θ̇₁, θ̇₂,
-//!     (finger − target)_x, (finger − target)_y]`.
-//!   θ₂ is the **relative** elbow angle (link2 − link1), wrapped to `(-π, π]`.
-//! * Reward: `reward_distance + reward_control` with
-//!   `reward_distance = −‖finger − target‖` and
-//!   `reward_control  = −0.1 · ‖action‖²`; both components ≤ 0.
-//! * Termination: never (`TerminationMode::Never`).
-//! * Truncation: `max_steps = 50`.
-//!
-//! ## Fingertip convention
-//!
-//! Rapier's `capsule_x(half_len, r)` places the capsule symmetric about the
-//! body origin, so `link2`'s tip sits at body-local `(+link2_length/2, 0, 0)`.
-//! Gymnasium's phrasing `link2_rotation * [link2_length, 0, 0]` is a
-//! shorthand — the geometrically correct offset is `link2_length/2`.
-//!
-//! ## Divergence from Gymnasium-v5 dynamics
-//!
-//! Gymnasium's reacher XML stabilises the tiny-inertia links via MuJoCo joint
-//! `armature` and `damping`, neither of which has a direct Rapier equivalent.
-//! With literal gear `[200, 200]` and per-link mass `0.0356`, a **random-policy
-//! rollout** drives the arm into highly non-physical velocities and distances;
-//! trained / clipped policies stay in a reasonable regime. This is the
-//! top-level "Physics note" in concrete form: reward values will not transfer
-//! without retuning (e.g. lowering `gear`, raising `link_mass`, or scaling
-//! `ctrl_cost_weight`).
+//! Reacher environment implementation.
 
 use std::marker::PhantomData;
 
-use burn::prelude::{Backend, Tensor};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
-use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
-use serde::{Deserialize, Serialize};
 
-use super::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
-use super::common::{Gear, LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+
+use super::action::ReacherAction;
+use super::config::ReacherConfig;
+use super::observation::ReacherObservation;
+use super::state::ReacherState;
 
 /// Reward-component key: `−‖finger − target‖` (≤ 0).
 pub const METADATA_KEY_REWARD_DISTANCE: &str = "reward_distance";
 /// Reward-component key: `−0.1 · ‖action‖²` (≤ 0).
 pub const METADATA_KEY_REWARD_CONTROL: &str = "reward_control";
-
-// ─── Config ───────────────────────────────────────────────────────────────
-
-/// Environment configuration for [`Reacher`].
-///
-/// Defaults match the Gymnasium v5 reacher XML: gear `[200, 200]`, dt 0.01,
-/// frame_skip 2 (env dt = 0.02), reset noise 0.1, ctrl-cost weight 0.1,
-/// target-disk radius 0.2, truncation at 50.
-#[derive(Debug, Clone)]
-pub struct ReacherConfig {
-    pub seed: u64,
-    pub gear: Gear<2>,
-    pub dt: f32,
-    pub frame_skip: u32,
-    pub reset_noise_scale: f32,
-    pub max_steps: usize,
-    pub action_clip: (f32, f32),
-    pub ctrl_cost_weight: f32,
-    pub link1_length: f32,
-    pub link2_length: f32,
-    pub link_radius: f32,
-    pub link_mass: f32,
-    pub target_disk_radius: f32,
-}
-
-impl Default for ReacherConfig {
-    fn default() -> Self {
-        Self {
-            seed: 0,
-            gear: Gear::new([200.0, 200.0]),
-            dt: 0.01,
-            frame_skip: 2,
-            reset_noise_scale: 0.1,
-            max_steps: 50,
-            action_clip: (-1.0, 1.0),
-            ctrl_cost_weight: 0.1,
-            link1_length: 0.10,
-            link2_length: 0.11,
-            link_radius: 0.01,
-            link_mass: 0.0356,
-            target_disk_radius: 0.2,
-        }
-    }
-}
-
-// ─── Action ──────────────────────────────────────────────────────────────
-
-/// 2D continuous action — `[shoulder, elbow]` torque targets in
-/// pre-gear units. Bounds: `[-1.0, 1.0]` per element.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ReacherAction(pub [f32; 2]);
-
-impl ReacherAction {
-    #[must_use]
-    pub const fn new(shoulder: f32, elbow: f32) -> Self {
-        Self([shoulder, elbow])
-    }
-}
-
-impl Action<1> for ReacherAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite() && v.abs() <= 1.0)
-    }
-}
-
-impl ContinuousAction<1> for ReacherAction {
-    fn as_slice(&self) -> &[f32] {
-        &self.0
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-    }
-
-    fn from_slice(values: &[f32]) -> Self {
-        Self([values[0], values[1]])
-    }
-
-    fn random() -> Self {
-        Self([
-            rand::random::<f32>() * 2.0 - 1.0,
-            rand::random::<f32>() * 2.0 - 1.0,
-        ])
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for ReacherAction {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 2 {
-            return Err(TensorConversionError {
-                message: format!("expected 2 action elements, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0], slice[1]]))
-    }
-}
-
-// ─── Observation ─────────────────────────────────────────────────────────
-
-/// 10-dim observation. Layout:
-/// `[cos θ₁, cos θ₂, sin θ₁, sin θ₂, target_x, target_y, θ̇₁, θ̇₂,
-///   (finger − target)_x, (finger − target)_y]`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ReacherObservation(pub [f32; 10]);
-
-impl ReacherObservation {
-    #[must_use]
-    pub const fn theta1_cos(&self) -> f32 {
-        self.0[0]
-    }
-    #[must_use]
-    pub const fn theta2_cos(&self) -> f32 {
-        self.0[1]
-    }
-    #[must_use]
-    pub const fn theta1_sin(&self) -> f32 {
-        self.0[2]
-    }
-    #[must_use]
-    pub const fn theta2_sin(&self) -> f32 {
-        self.0[3]
-    }
-    #[must_use]
-    pub const fn target_xy(&self) -> [f32; 2] {
-        [self.0[4], self.0[5]]
-    }
-    #[must_use]
-    pub const fn theta1_dot(&self) -> f32 {
-        self.0[6]
-    }
-    #[must_use]
-    pub const fn theta2_dot(&self) -> f32 {
-        self.0[7]
-    }
-    #[must_use]
-    pub const fn finger_minus_target_xy(&self) -> [f32; 2] {
-        [self.0[8], self.0[9]]
-    }
-
-    #[must_use]
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite())
-    }
-}
-
-impl Default for ReacherObservation {
-    fn default() -> Self {
-        Self([0.0; 10])
-    }
-}
-
-impl Observation<1> for ReacherObservation {
-    fn shape() -> [usize; 1] {
-        [10]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 10 {
-            return Err(TensorConversionError {
-                message: format!("expected 10 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut arr = [0.0f32; 10];
-        arr.copy_from_slice(slice);
-        Ok(Self(arr))
-    }
-}
-
-// ─── State ───────────────────────────────────────────────────────────────
-
-/// Physics state for [`Reacher`] — body + joint handles plus the cached
-/// target position and last observation. The non-`Clone` world lives on the
-/// env struct directly.
-#[derive(Debug, Clone)]
-pub struct ReacherState {
-    pub link1: RigidBodyHandle,
-    pub link2: RigidBodyHandle,
-    pub target: RigidBodyHandle,
-    pub shoulder: ImpulseJointHandle,
-    pub elbow: ImpulseJointHandle,
-    pub target_xy: [f32; 2],
-    pub last_obs: ReacherObservation,
-}
-
-impl State<1> for ReacherState {
-    type Observation = ReacherObservation;
-
-    fn shape() -> [usize; 1] {
-        [10]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> ReacherObservation {
-        self.last_obs
-    }
-}
-
-// ─── Environment ─────────────────────────────────────────────────────────
 
 /// Reacher — a 2-link planar arm whose fingertip must reach a randomly
 /// placed target. Generic in the physics backend; v1 only implements
@@ -568,6 +296,8 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::base::Action;
+    use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
     fn cfg(seed: u64) -> ReacherConfig {

@@ -1,61 +1,22 @@
-//! # InvertedDoublePendulum-v5 (Rapier3D-backed)
-//!
-//! # Physics note
-//!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
-//! action dimensionality, reward structure, and termination conditions match
-//! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
-//! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
-//! without retuning.**
-//!
-//! ## Layout
-//!
-//! Cart on a 1D slider plus **two chained poles**, both revolute-y. The agent
-//! applies horizontal force to the cart to keep the tip of the upper pole as
-//! close as possible to `y_tip = 2` (Gymnasium's convention, which maps to our
-//! world-z axis). The pendulum is structurally identical to the shipped
-//! [`super::inverted_pendulum`] with a second pole chained on top.
-//!
-//! * Cart: dynamic body, x-only translation, rotations locked.
-//! * Pole1: dynamic capsule, revolute-y joint to cart. Mass from collider density.
-//! * Pole2: dynamic capsule, revolute-y joint to pole1's top. Mass from density.
-//! * Action: `Box(-1, 1, (1,))` — force target, scaled by `gear = [100]`.
-//! * Observation (9-dim):
-//!   `[cart_x, sin θ₁, sin θ₂, cos θ₁, cos θ₂, cart_vx, θ̇₁, θ̇₂, F_ext_x]`.
-//!   θ₂ is the **relative** elbow angle (pole2 world − pole1 world), wrapped.
-//! * Reward:
-//!   `alive_bonus − 0.01·x_tip² − (y_tip − 2)² − 1e-3·|ω₁| − 5e-3·|ω₂|`,
-//!   with `alive_bonus = 10.0` while healthy and `0` otherwise.
-//! * Termination: `y_tip ≤ 1.0`, or non-finite state.
-//! * Truncation: `max_steps = 1000`.
-//!
-//! ## Divergence from Gymnasium
-//!
-//! * `constraint_force_x` (`obs[8]`) is approximated by reading Rapier's
-//!   aggregated contact force on pole2 (`Rapier3DBackend::contact_force`).
-//!   MuJoCo's equivalent `cfrc_inv[0]` is a joint reaction force computed in
-//!   generalised coordinates. Signs and rough magnitudes follow the same
-//!   dynamics; absolute values will differ.
-//! * `ω₂` is reported as world-frame angular velocity (not relative to pole1),
-//!   matching MuJoCo's `qvel` for the second hinge — i.e. it is the body's
-//!   absolute rate, not the rate of the relative joint angle.
+//! InvertedDoublePendulum environment implementation.
 
 use std::marker::PhantomData;
 
-use burn::prelude::{Backend, Tensor};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
-use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
-use serde::{Deserialize, Serialize};
 
-use super::backend::{LocomotionBackend, Pose, Rapier3DBackend, Rapier3DWorld};
-use super::common::{Gear, HealthyCheck, LocomotionSnapshot, TerminationMode, wrap_to_pi};
+use crate::locomotion::backend::{LocomotionBackend, Pose, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
+
+use super::action::InvertedDoublePendulumAction;
+use super::config::InvertedDoublePendulumConfig;
+use super::observation::InvertedDoublePendulumObservation;
+use super::state::InvertedDoublePendulumState;
 
 /// Reward-component key: alive bonus (`+10` while healthy, `0` otherwise).
 pub const METADATA_KEY_ALIVE: &str = "alive";
@@ -63,248 +24,6 @@ pub const METADATA_KEY_ALIVE: &str = "alive";
 pub const METADATA_KEY_DISTANCE: &str = "distance";
 /// Reward-component key: angular-velocity penalty `−1e-3·|ω₁| − 5e-3·|ω₂|`.
 pub const METADATA_KEY_VELOCITY: &str = "velocity";
-
-// ─── Config ───────────────────────────────────────────────────────────────
-
-/// Environment configuration for [`InvertedDoublePendulum`].
-///
-/// Defaults match the Gymnasium v5 XML: gear 100, dt 0.01, frame_skip 1,
-/// reset noise 0.1, truncation at 1000, termination on `y_tip ≤ 1.0`.
-#[derive(Debug, Clone)]
-pub struct InvertedDoublePendulumConfig {
-    pub seed: u64,
-    pub gear: Gear<1>,
-    pub dt: f32,
-    pub frame_skip: u32,
-    /// Gate on the tip's world-z (Gymnasium's `y_tip`). Default
-    /// `z_range = Some((1.0, ∞))`.
-    pub healthy: HealthyCheck,
-    pub termination: TerminationMode,
-    pub reset_noise_scale: f32,
-    pub max_steps: usize,
-    pub action_clip: (f32, f32),
-    // Physical geometry
-    pub cart_mass: f32,
-    pub pole_mass: f32,
-    /// Total length of one pole (capsule length = 2 · pole_half = `pole_length`).
-    pub pole_length: f32,
-    pub pole_radius: f32,
-    pub cart_half_extents: [f32; 3],
-    pub gravity: f32,
-    // Reward weights
-    pub alive_reward: f32,
-    pub x_tip_weight: f32,
-    pub y_tip_target: f32,
-    pub omega1_weight: f32,
-    pub omega2_weight: f32,
-}
-
-impl Default for InvertedDoublePendulumConfig {
-    fn default() -> Self {
-        Self {
-            seed: 0,
-            gear: Gear::new([100.0]),
-            dt: 0.01,
-            frame_skip: 1,
-            healthy: HealthyCheck {
-                z_range: Some((1.0, f32::INFINITY)),
-                ..HealthyCheck::none()
-            },
-            termination: TerminationMode::OnUnhealthy,
-            reset_noise_scale: 0.1,
-            max_steps: 1000,
-            action_clip: (-1.0, 1.0),
-            cart_mass: 10.0,
-            pole_mass: 0.5,
-            pole_length: 0.6,
-            pole_radius: 0.045,
-            cart_half_extents: [0.15, 0.05, 0.05],
-            gravity: -9.81,
-            alive_reward: 10.0,
-            x_tip_weight: 0.01,
-            y_tip_target: 2.0,
-            omega1_weight: 1e-3,
-            omega2_weight: 5e-3,
-        }
-    }
-}
-
-// ─── Action ──────────────────────────────────────────────────────────────
-
-/// 1D continuous action — horizontal force target on the cart, in pre-gear
-/// units. Bounds: `[-1.0, 1.0]`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct InvertedDoublePendulumAction(pub [f32; 1]);
-
-impl InvertedDoublePendulumAction {
-    #[must_use]
-    pub const fn new(force: f32) -> Self {
-        Self([force])
-    }
-}
-
-impl Action<1> for InvertedDoublePendulumAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.0[0].is_finite() && self.0[0].abs() <= 1.0
-    }
-}
-
-impl ContinuousAction<1> for InvertedDoublePendulumAction {
-    fn as_slice(&self) -> &[f32] {
-        &self.0
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max)])
-    }
-
-    fn from_slice(values: &[f32]) -> Self {
-        Self([values[0]])
-    }
-
-    fn random() -> Self {
-        Self([rand::random::<f32>() * 2.0 - 1.0])
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedDoublePendulumAction {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 1 {
-            return Err(TensorConversionError {
-                message: format!("expected 1 action element, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0]]))
-    }
-}
-
-// ─── Observation ─────────────────────────────────────────────────────────
-
-/// 9-dim observation: `[cart_x, sin θ₁, sin θ₂, cos θ₁, cos θ₂, cart_vx,
-/// θ̇₁, θ̇₂, constraint_force_x]`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct InvertedDoublePendulumObservation(pub [f32; 9]);
-
-impl InvertedDoublePendulumObservation {
-    #[must_use]
-    pub const fn cart_position(&self) -> f32 {
-        self.0[0]
-    }
-    #[must_use]
-    pub const fn sin_theta1(&self) -> f32 {
-        self.0[1]
-    }
-    #[must_use]
-    pub const fn sin_theta2(&self) -> f32 {
-        self.0[2]
-    }
-    #[must_use]
-    pub const fn cos_theta1(&self) -> f32 {
-        self.0[3]
-    }
-    #[must_use]
-    pub const fn cos_theta2(&self) -> f32 {
-        self.0[4]
-    }
-    #[must_use]
-    pub const fn cart_velocity(&self) -> f32 {
-        self.0[5]
-    }
-    #[must_use]
-    pub const fn theta1_dot(&self) -> f32 {
-        self.0[6]
-    }
-    #[must_use]
-    pub const fn theta2_dot(&self) -> f32 {
-        self.0[7]
-    }
-    #[must_use]
-    pub const fn constraint_force_x(&self) -> f32 {
-        self.0[8]
-    }
-
-    #[must_use]
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite())
-    }
-}
-
-impl Default for InvertedDoublePendulumObservation {
-    fn default() -> Self {
-        Self([0.0; 9])
-    }
-}
-
-impl Observation<1> for InvertedDoublePendulumObservation {
-    fn shape() -> [usize; 1] {
-        [9]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedDoublePendulumObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 9 {
-            return Err(TensorConversionError {
-                message: format!("expected 9 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut out = [0.0f32; 9];
-        out.copy_from_slice(slice);
-        Ok(Self(out))
-    }
-}
-
-// ─── State ───────────────────────────────────────────────────────────────
-
-/// Physics state: body/joint handles plus the last observation. The world
-/// itself (non-`Clone`) lives on [`InvertedDoublePendulum`].
-#[derive(Debug, Clone)]
-pub struct InvertedDoublePendulumState {
-    pub cart: RigidBodyHandle,
-    pub pole1: RigidBodyHandle,
-    pub pole2: RigidBodyHandle,
-    pub joint1: ImpulseJointHandle,
-    pub joint2: ImpulseJointHandle,
-    pub last_obs: InvertedDoublePendulumObservation,
-}
-
-impl State<1> for InvertedDoublePendulumState {
-    type Observation = InvertedDoublePendulumObservation;
-
-    fn shape() -> [usize; 1] {
-        [9]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> InvertedDoublePendulumObservation {
-        self.last_obs
-    }
-}
-
-// ─── Environment ─────────────────────────────────────────────────────────
 
 /// InvertedDoublePendulum — cart-pole-pole balance in 3D. Cart slides along
 /// world-x; the two poles rotate about world-y joints (cart→pole1, pole1→pole2).
@@ -599,8 +318,6 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
     }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
 /// Extract the y-axis rotation angle from a pose whose body is DOF-gated to
 /// revolute-y. Quaternion stored as `[w, x, y, z]`.
 fn pole_y_angle(pose: &Pose) -> f32 {
@@ -630,6 +347,9 @@ fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::action::ContinuousAction;
+    use rlevo_core::base::Action;
+    use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
     fn deterministic_cfg() -> InvertedDoublePendulumConfig {

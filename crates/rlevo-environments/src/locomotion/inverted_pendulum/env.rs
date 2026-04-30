@@ -1,249 +1,23 @@
-//! # InvertedPendulum-v5 (Rapier3D-backed)
-//!
-//! # Physics note
-//!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
-//! action dimensionality, reward structure, and termination conditions match
-//! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
-//! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
-//! without retuning.**
-//!
-//! ## Layout
-//!
-//! * Cart: dynamic body restricted to translation along the world-x axis.
-//!   Rotations and y/z translations are locked via rapier3d's per-axis DOF
-//!   gate, so the body behaves like a single-DOF slider.
-//! * Pole: dynamic capsule attached to the cart by a revolute impulse joint
-//!   about the world-y axis. Gravity pulls it down; the agent's job is to
-//!   balance it upright by sliding the cart.
-//! * Action: `Box(-3, 3, (1,))` — force target; applied as `action · gear`
-//!   with `gear = [100]` (Gymnasium XML) directly to the cart.
-//! * Observation: `[cart_x, pole_angle, cart_vx, pole_angvel_y]` (4-dim).
-//! * Reward: `+1.0` per step while the pole is healthy; `0.0` otherwise.
-//! * Termination: `|pole_angle| >= 0.2 rad`, or non-finite state.
-//! * Truncation: `max_steps = 1000`.
+//! InvertedPendulum environment implementation.
 
 use std::marker::PhantomData;
 
-use burn::prelude::{Backend, Tensor};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
-use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
-use serde::{Deserialize, Serialize};
 
-use super::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
-use super::common::{Gear, HealthyCheck, LocomotionSnapshot, TerminationMode, wrap_to_pi};
+use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
+
+use super::action::InvertedPendulumAction;
+use super::config::InvertedPendulumConfig;
+use super::observation::InvertedPendulumObservation;
+use super::state::InvertedPendulumState;
 
 /// Reward-component metadata key: `+1` if alive at this step, `0` otherwise.
 pub const METADATA_KEY_ALIVE: &str = "alive";
-
-// ─── Config ───────────────────────────────────────────────────────────────
-
-/// Environment configuration for [`InvertedPendulum`].
-///
-/// Defaults match the Gymnasium v5 XML (gear 100, dt 0.01, frame_skip 1,
-/// healthy-angle band `(-0.2, 0.2)`, reset noise 0.01, truncation at 1000).
-#[derive(Debug, Clone)]
-pub struct InvertedPendulumConfig {
-    pub seed: u64,
-    pub gear: Gear<1>,
-    pub dt: f32,
-    pub frame_skip: u32,
-    pub healthy: HealthyCheck,
-    pub termination: TerminationMode,
-    pub reset_noise_scale: f32,
-    pub max_steps: usize,
-    pub action_clip: (f32, f32),
-    // Physical geometry
-    pub cart_mass: f32,
-    pub pole_mass: f32,
-    pub pole_length: f32,
-    pub pole_radius: f32,
-    pub cart_half_extents: [f32; 3],
-    pub gravity: f32,
-}
-
-impl Default for InvertedPendulumConfig {
-    fn default() -> Self {
-        Self {
-            seed: 0,
-            gear: Gear::new([100.0]),
-            dt: 0.01,
-            frame_skip: 1,
-            healthy: HealthyCheck {
-                angle_range: Some((-0.2, 0.2)),
-                ..HealthyCheck::none()
-            },
-            termination: TerminationMode::OnUnhealthy,
-            reset_noise_scale: 0.01,
-            max_steps: 1000,
-            action_clip: (-3.0, 3.0),
-            cart_mass: 10.0,
-            pole_mass: 1.0,
-            pole_length: 0.6,
-            pole_radius: 0.05,
-            cart_half_extents: [0.15, 0.05, 0.05],
-            gravity: -9.81,
-        }
-    }
-}
-
-// ─── Action ──────────────────────────────────────────────────────────────
-
-/// 1D continuous action — horizontal force target on the cart, in Gymnasium's
-/// pre-gear units. Bounds: `[-3.0, 3.0]`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct InvertedPendulumAction(pub [f32; 1]);
-
-impl InvertedPendulumAction {
-    /// Construct from a scalar convenience.
-    #[must_use]
-    pub const fn new(force: f32) -> Self {
-        Self([force])
-    }
-}
-
-impl Action<1> for InvertedPendulumAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.0[0].is_finite() && self.0[0].abs() <= 3.0
-    }
-}
-
-impl ContinuousAction<1> for InvertedPendulumAction {
-    fn as_slice(&self) -> &[f32] {
-        &self.0
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max)])
-    }
-
-    fn from_slice(values: &[f32]) -> Self {
-        Self([values[0]])
-    }
-
-    fn random() -> Self {
-        Self([rand::random::<f32>() * 6.0 - 3.0])
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 1 {
-            return Err(TensorConversionError {
-                message: format!("expected 1 action element, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0]]))
-    }
-}
-
-// ─── Observation ─────────────────────────────────────────────────────────
-
-/// 4-dim observation: `[cart_x, pole_angle, cart_vx, pole_angvel_y]`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct InvertedPendulumObservation(pub [f32; 4]);
-
-impl InvertedPendulumObservation {
-    #[must_use]
-    pub const fn cart_position(&self) -> f32 {
-        self.0[0]
-    }
-    #[must_use]
-    pub const fn pole_angle(&self) -> f32 {
-        self.0[1]
-    }
-    #[must_use]
-    pub const fn cart_velocity(&self) -> f32 {
-        self.0[2]
-    }
-    #[must_use]
-    pub const fn pole_angular_velocity(&self) -> f32 {
-        self.0[3]
-    }
-
-    #[must_use]
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite())
-    }
-}
-
-impl Default for InvertedPendulumObservation {
-    fn default() -> Self {
-        Self([0.0; 4])
-    }
-}
-
-impl Observation<1> for InvertedPendulumObservation {
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 4 {
-            return Err(TensorConversionError {
-                message: format!("expected 4 observation elements, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0], slice[1], slice[2], slice[3]]))
-    }
-}
-
-// ─── State ───────────────────────────────────────────────────────────────
-
-/// Physics state for [`InvertedPendulum`] — keeps body handles and the last
-/// observation, not the (non-`Clone`) world itself.
-#[derive(Debug, Clone)]
-pub struct InvertedPendulumState {
-    pub cart: RigidBodyHandle,
-    pub pole: RigidBodyHandle,
-    pub joint: ImpulseJointHandle,
-    pub last_obs: InvertedPendulumObservation,
-}
-
-impl State<1> for InvertedPendulumState {
-    type Observation = InvertedPendulumObservation;
-
-    fn shape() -> [usize; 1] {
-        [4]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> InvertedPendulumObservation {
-        self.last_obs
-    }
-}
-
-// ─── Environment ─────────────────────────────────────────────────────────
 
 /// InvertedPendulum — cart-pole balance in 3D, with the cart restricted to
 /// the world-x axis and the pole free to rotate about the world-y axis.
@@ -465,8 +239,6 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
 fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
     config.cart_half_extents[2]
 }
@@ -474,6 +246,9 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::action::ContinuousAction;
+    use rlevo_core::base::Action;
+    use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
     #[test]
