@@ -6,6 +6,8 @@ description = "Deep reinforcement learning algorithms for rlevo (internal crate 
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
