@@ -179,6 +179,7 @@ where
         let a = 2.0 * (1.0 - (t / max_t).min(1.0));
 
         let mut update = Tensor::<B, 2>::zeros([pop_size, genome_dim], device);
+        #[allow(clippy::cast_sign_loss)]
         for k in 0..3 {
             B::seed(
                 device,
@@ -211,6 +212,7 @@ where
             let a_mat = r1.mul_scalar(2.0 * a).sub_scalar(a);
             let c_mat = r2.mul_scalar(2.0);
 
+            #[allow(clippy::single_range_in_vec_init)]
             let leader_row = leaders.clone().slice([k..k + 1]);
             let leader_exp = leader_row.expand([pop_size, genome_dim]);
             let d_k = (c_mat.mul(leader_exp.clone()) - state.pack.clone()).abs();
@@ -222,7 +224,7 @@ where
         let new_pack = new_pack.clamp(lo, hi);
 
         let mut next = state.clone();
-        next.pack = new_pack.clone();
+        next.pack.clone_from(&new_pack);
         (new_pack, next)
     }
 
@@ -235,8 +237,8 @@ where
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
-        state.fitness = fitness_host.clone();
-        state.pack = population.clone();
+        state.fitness.clone_from(&fitness_host);
+        state.pack.clone_from(&population);
         let best_idx = argmin(&fitness_host);
         if fitness_host[best_idx] < state.best_fitness {
             state.best_fitness = fitness_host[best_idx];

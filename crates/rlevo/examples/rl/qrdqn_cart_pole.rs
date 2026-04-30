@@ -1,4 +1,4 @@
-//! QR-DQN (Quantile Regression DQN) on CartPole with Burn's ndarray backend.
+//! QR-DQN (Quantile Regression DQN) on `CartPole` with Burn's ndarray backend.
 //!
 //! Usage:
 //!
@@ -72,9 +72,10 @@ impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
         inner.forward_impl(observations)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -118,7 +119,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,

@@ -1,4 +1,4 @@
-//! Random-agent smoke test for BipedalWalker.
+//! Random-agent smoke test for `BipedalWalker`.
 
 use rand::RngExt;
 use rand::SeedableRng;

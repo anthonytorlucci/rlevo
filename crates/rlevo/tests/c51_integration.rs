@@ -1,7 +1,7 @@
 //! End-to-end integration tests for the C51 (Categorical DQN) agent.
 //!
 //! Follows the shape of `dqn_integration.rs`: modest step budgets on
-//! CartPole for `cargo test` throughput, with a couple of heavier
+//! `CartPole` for `cargo test` throughput, with a couple of heavier
 //! reproducibility checks gated behind `#[ignore]` because Burn's ndarray
 //! backend shares a global RNG.
 
@@ -67,9 +67,10 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
     ) -> Tensor<B::InnerBackend, 3> {
         inner.forward_impl(observations)
     }
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -102,7 +103,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         })
     }
 }
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut c = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,
@@ -202,7 +203,7 @@ fn c51_reproducibility_ndarray() {
     }
 }
 
-/// CartPole target: after 30k steps the 100-episode moving average should
+/// `CartPole` target: after 30k steps the 100-episode moving average should
 /// comfortably clear 100. This is the distributional counterpart to the DQN
 /// integration test; the modest budget keeps CI fast while still catching
 /// wholesale training failures.

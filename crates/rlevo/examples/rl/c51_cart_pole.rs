@@ -1,4 +1,4 @@
-//! C51 (Categorical DQN) on CartPole with Burn's ndarray backend.
+//! C51 (Categorical DQN) on `CartPole` with Burn's ndarray backend.
 //!
 //! Usage:
 //!
@@ -71,9 +71,10 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
         inner.forward_impl(observations)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -117,7 +118,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,

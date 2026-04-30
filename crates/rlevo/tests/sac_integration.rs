@@ -228,6 +228,7 @@ impl<B: Backend> StochasticActor<B> {
         (mean, log_std)
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let action_dim = mean.dims()[1];
@@ -311,9 +312,10 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
     ) -> Tensor<B::InnerBackend, 1> {
         inner.forward_impl(obs, act)
     }
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -346,7 +348,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         })
     }
 }
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut c = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,

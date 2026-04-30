@@ -34,7 +34,7 @@
 //!
 //! # Custom kernels
 //!
-//! The [`kernels`] submodule ships fused CubeCL kernels for two
+//! The [`kernels`] submodule ships fused `CubeCL` kernels for two
 //! operator paths where the pure-tensor decomposition is measurably
 //! wasteful: the pairwise-attract inner loop used by
 //! [`firefly`] and the Lévy-flight sampling used by

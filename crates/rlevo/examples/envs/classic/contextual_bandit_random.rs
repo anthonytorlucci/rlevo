@@ -22,6 +22,7 @@ const K: usize = 10;
 const NUM_STEPS: usize = 1000;
 const SEED: u64 = 42;
 
+#[allow(clippy::cast_precision_loss)]
 fn main() {
     let cfg = ContextualBanditConfig {
         max_steps: NUM_STEPS,

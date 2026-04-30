@@ -149,12 +149,12 @@ fn bench_learn(c: &mut Criterion) {
 
     let mut snap = env.reset().expect("reset");
     for _ in 0..2_000 {
-        let obs = snap.observation().clone();
+        let obs = *snap.observation();
         let action = agent.act(&obs, &mut rng);
-        let next = env.step(action.clone()).expect("step");
+        let next = env.step(action).expect("step");
         let r: f32 = (*next.reward()).into();
         let done = next.is_done();
-        agent.remember(obs, &action, r, next.observation().clone(), done);
+        agent.remember(obs, &action, r, *next.observation(), done);
         agent.on_env_step();
         snap = if done {
             env.reset().expect("reset")

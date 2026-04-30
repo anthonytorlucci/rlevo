@@ -69,6 +69,7 @@ fn parse_swap_arg() -> Option<bool> {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn print_summary(rewards: &[f32], successes: usize) {
     let n = rewards.len() as f32;
     let mean = rewards.iter().sum::<f32>() / n;

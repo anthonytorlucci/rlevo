@@ -10,7 +10,7 @@
 //! device memory beyond that. This module reserves the CubeCL-native
 //! replacement path behind the `custom-kernels` feature.
 //!
-//! Landing the real kernel requires first-time CubeCL integration in
+//! Landing the real kernel requires first-time `CubeCL` integration in
 //! `rlevo-evolution` and per-backend validation on wgpu and the cpu-jit
 //! path. None of that blocks the strategy machinery, so the kernel is
 //! scheduled as follow-up work alongside the operator-level kernels

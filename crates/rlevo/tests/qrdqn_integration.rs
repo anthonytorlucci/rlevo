@@ -2,7 +2,7 @@
 //! agent.
 //!
 //! Mirrors the shape of `c51_integration.rs`: modest step budgets on
-//! CartPole for `cargo test` throughput, with heavier reproducibility
+//! `CartPole` for `cargo test` throughput, with heavier reproducibility
 //! checks gated behind `#[ignore]` because Burn's ndarray backend shares a
 //! global RNG.
 
@@ -68,9 +68,10 @@ impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
     ) -> Tensor<B::InnerBackend, 3> {
         inner.forward_impl(observations)
     }
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -103,7 +104,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         })
     }
 }
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut c = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,
@@ -210,7 +211,7 @@ fn qrdqn_reproducibility_ndarray() {
     }
 }
 
-/// CartPole target: after 20k steps the 100-episode moving average should
+/// `CartPole` target: after 20k steps the 100-episode moving average should
 /// clear 50 — a rough "is it training?" sanity check tuned for the
 /// smaller quantile count used in CI. A stricter 195-at-500k-steps test
 /// lives behind `#[ignore]` below for manual validation.

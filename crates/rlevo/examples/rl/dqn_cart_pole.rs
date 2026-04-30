@@ -1,4 +1,4 @@
-//! DQN on CartPole with Burn's ndarray backend.
+//! DQN on `CartPole` with Burn's ndarray backend.
 //!
 //! Usage:
 //!
@@ -30,7 +30,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 // Model
 // ---------------------------------------------------------------------------
 
-/// Two-hidden-layer MLP that maps `[batch, 4]` CartPole observations to
+/// Two-hidden-layer MLP that maps `[batch, 4]` `CartPole` observations to
 /// `[batch, 2]` Q-values.
 #[derive(Module, Debug)]
 pub struct DqnMlp<B: Backend> {
@@ -67,9 +67,10 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         inner.forward_impl(observations)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -113,7 +114,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,

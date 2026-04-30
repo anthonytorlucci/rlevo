@@ -24,6 +24,7 @@ use rlevo_environments::wrappers::TimeLimit;
 const NUM_EPISODES: usize = 100;
 const TIME_LIMIT: usize = 500;
 
+#[allow(clippy::cast_precision_loss)]
 fn main() {
     let cfg = AcrobotConfig::default();
 
@@ -123,6 +124,7 @@ fn main() {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn print_stats(label: &str, values: &[f32]) {
     let n = values.len() as f32;
     let mean = values.iter().sum::<f32>() / n;

@@ -63,9 +63,10 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         inner.forward_impl(observations)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -105,7 +106,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,
@@ -148,7 +149,7 @@ fn fresh_agent(seed: u64) -> Agent {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// CartPole target: after 30k steps with a 2x64 MLP, the 100-episode moving
+/// `CartPole` target: after 30k steps with a 2x64 MLP, the 100-episode moving
 /// average should comfortably exceed 100. The smoke run during development
 /// reached ~183 on seed=42; we assert a conservative floor of 100.
 #[test]

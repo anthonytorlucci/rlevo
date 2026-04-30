@@ -17,6 +17,7 @@ struct ToyEnv {
 }
 
 impl ToyEnv {
+    #[allow(clippy::cast_precision_loss)]
     fn with_seed(seed: u64) -> Self {
         Self {
             offset: (seed % 7) as f64,

@@ -36,7 +36,7 @@ const MAX_GENS: usize = 120;
 
 struct Passive;
 impl BenchableAgent<(), ()> for Passive {
-    fn act(&mut self, _: &(), _: &mut dyn Rng) {}
+    fn act(&mut self, (): &(), _: &mut dyn Rng) {}
 }
 
 struct RastriginFit;
@@ -93,8 +93,7 @@ where
         .map(|t| {
             t.episodes
                 .last()
-                .map(|e| -e.return_value / steps)
-                .unwrap_or(f64::INFINITY)
+                .map_or(f64::INFINITY, |e| -e.return_value / steps)
         })
         .collect();
     #[allow(clippy::cast_precision_loss)]

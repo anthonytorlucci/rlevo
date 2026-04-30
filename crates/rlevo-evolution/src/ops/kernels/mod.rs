@@ -1,4 +1,4 @@
-//! Custom CubeCL kernels for hot-path operators.
+//! Custom `CubeCL` kernels for hot-path operators.
 //!
 //! This module is a **design placeholder**. The current release ships
 //! only the pure-tensor operator baselines in [`crate::ops::selection`],
@@ -10,9 +10,9 @@
 //!
 //! # Why kernels aren't in the current release
 //!
-//! Three operator paths were identified where a fused CubeCL kernel
+//! Three operator paths were identified where a fused `CubeCL` kernel
 //! would eliminate multi-launch overhead. Landing real kernels requires
-//! non-trivial CubeCL integration (`cubecl 0.9` ships with Burn 0.20.1)
+//! non-trivial `CubeCL` integration (`cubecl 0.9` ships with Burn 0.20.1)
 //! and device-specific validation on wgpu. None of that work blocks the
 //! core strategy machinery, so it was deferred to keep the release
 //! shippable.
@@ -85,7 +85,7 @@
 //! 2. Use `#[cube(launch_unchecked)]` with Burn's `backend::custom` API
 //!    to plug into the `Backend` trait.
 //! 3. Provide a pure-tensor fallback (which is the current
-//!    implementation) for backends that don't support CubeCL.
+//!    implementation) for backends that don't support `CubeCL`.
 //! 4. Expose a toggle at the operator level so benchmarks can A/B
 //!    the two paths.
 

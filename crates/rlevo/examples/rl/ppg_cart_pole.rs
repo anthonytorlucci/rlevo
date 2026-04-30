@@ -1,9 +1,9 @@
-//! Phasic Policy Gradient (PPG, discrete) on CartPole with Burn's ndarray
+//! Phasic Policy Gradient (PPG, discrete) on `CartPole` with Burn's ndarray
 //! backend.
 //!
-//! v1 scope note: CartPole parity with PPO is the v1 target. PPG's sample
+//! v1 scope note: `CartPole` parity with PPO is the v1 target. PPG's sample
 //! efficiency advantages are specific to Procgen-style CNN encoders +
-//! vectorised envs; on CartPole this example should converge *similarly* to
+//! vectorised envs; on `CartPole` this example should converge *similarly* to
 //! PPO (not dramatically faster). Shipping it here validates that PPO's
 //! `RolloutBuffer`, `PpoValue`, and `losses::*` abstractions generalise to a
 //! second on-policy algorithm.
@@ -93,12 +93,12 @@ fn parse_args() -> CliArgs {
         match flag.as_str() {
             "--seed" => seed = args.next().and_then(|v| v.parse().ok()).expect("u64"),
             "--total-timesteps" => {
-                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize")
+                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize");
             }
             "--num-steps" => num_steps = args.next().and_then(|v| v.parse().ok()).expect("usize"),
             "--log-every" => log_every = args.next().and_then(|v| v.parse().ok()).expect("usize"),
             "--n-iteration" => {
-                n_iteration = args.next().and_then(|v| v.parse().ok()).expect("usize")
+                n_iteration = args.next().and_then(|v| v.parse().ok()).expect("usize");
             }
             "--e-aux" => e_aux = args.next().and_then(|v| v.parse().ok()).expect("usize"),
             "--beta-clone" => beta_clone = args.next().and_then(|v| v.parse().ok()).expect("f32"),

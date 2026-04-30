@@ -320,16 +320,10 @@ mod tests {
     use super::*;
     use crate::action::DiscreteAction;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
     pub struct MockObservation {
         /// The agent's current position in the range [0, 6]
         position: i32,
-    }
-
-    impl Default for MockObservation {
-        fn default() -> Self {
-            Self { position: 0 }
-        }
     }
 
     impl Observation<1> for MockObservation {
@@ -354,7 +348,7 @@ mod tests {
 
         /// Check if position is within valid bounds
         fn is_in_bounds(position: i32) -> bool {
-            position >= 0 && position <= 6
+            (0..=6).contains(&position)
         }
     }
 
@@ -731,7 +725,7 @@ mod tests {
         let snapshot = SnapshotBase::running(observation, ScalarReward(42.5));
 
         // RewardType implements Into<f32>
-        let reward_as_f32: f32 = snapshot.reward().clone().into();
+        let reward_as_f32: f32 = (*snapshot.reward()).into();
         assert_eq!(reward_as_f32, 42.5);
     }
 

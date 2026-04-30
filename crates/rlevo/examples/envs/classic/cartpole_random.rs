@@ -24,6 +24,7 @@ use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig, Cart
 const NUM_EPISODES: usize = 200;
 const MAX_STEPS: usize = 500;
 
+#[allow(clippy::cast_precision_loss)]
 fn main() {
     let cfg = CartPoleConfig::default();
 
@@ -119,6 +120,7 @@ fn main() {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn print_stats(label: &str, values: &[f32]) {
     let n = values.len() as f32;
     let mean = values.iter().sum::<f32>() / n;

@@ -72,6 +72,7 @@ mod tests {
     type TestBackend = NdArray;
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn z_score_zero_mean_unit_std() {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([1.0f32, 2.0, 3.0, 4.0, 5.0], &device);

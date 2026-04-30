@@ -3,7 +3,7 @@
 //! # Modules
 //!
 //! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
-//! - [`envs`] — benchmark environments: classic control, gridworlds, Box2D physics, locomotion
+//! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
 //! - [`hybrid`] — combined evolutionary + RL strategies

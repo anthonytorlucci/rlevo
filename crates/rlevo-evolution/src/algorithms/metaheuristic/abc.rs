@@ -116,6 +116,7 @@ impl<B: Backend> ArtificialBeeColony<B> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_candidates(
         targets: &[usize],
         neighbors: &[usize],
@@ -256,6 +257,7 @@ where
         (candidates, next)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn tell(
         &self,
         params: &AbcConfig,
@@ -271,7 +273,7 @@ where
 
         // First tell: population is the initial colony being scored.
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             let best_idx = argmin(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -312,6 +314,7 @@ where
         // into `state.colony`, or `pop + cand_idx` pointing into a
         // stacked tensor `[state.colony; candidates]`.
         let stacked = Tensor::cat(vec![state.colony.clone(), candidates.clone()], 0);
+        #[allow(clippy::cast_possible_wrap)]
         let mut rs: Vec<i64> = (0..pop).map(|i| i as i64).collect();
         let mut new_fitness = state.fitness.clone();
         for t in 0..pop {
@@ -350,6 +353,7 @@ where
                 &device,
             );
             // Overwrite those rows via gather-trick.
+            #[allow(clippy::cast_possible_wrap)]
             let mut rs2: Vec<i64> = (0..pop).map(|i| i as i64).collect();
             for (k, &scout) in scouts.iter().enumerate() {
                 #[allow(clippy::cast_possible_wrap)]

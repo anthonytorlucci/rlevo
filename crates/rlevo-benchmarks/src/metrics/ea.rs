@@ -12,6 +12,7 @@ pub const FITNESS_VARIANCE: &str = "ea/fitness_variance";
 
 /// Mean pairwise Euclidean distance between individuals.
 #[must_use]
+#[allow(clippy::cast_precision_loss)]
 pub fn population_diversity(population: &[Vec<f64>]) -> f64 {
     let n = population.len();
     if n < 2 {

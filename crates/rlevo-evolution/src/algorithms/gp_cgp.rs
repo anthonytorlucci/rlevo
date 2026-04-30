@@ -12,7 +12,7 @@
 //! mutation and no crossover. This module re-implements just that
 //! engine directly — not via [`crate::algorithms::es_classical`] — so
 //! the mutation logic can be specialized to the CGP genome semantics
-//! (constrained feed-forward connections, function_id range, …).
+//! (constrained feed-forward connections, `function_id` range, …).
 //!
 //! # Function set
 //!
@@ -23,7 +23,7 @@
 //! | 0 | add | 2 | `a + b` |
 //! | 1 | sub | 2 | `a − b` |
 //! | 2 | mul | 2 | `a · b` |
-//! | 3 | protected_div | 2 | `a / b` (or `a` if `|b| < ε`) |
+//! | 3 | `protected_div` | 2 | `a / b` (or `a` if `|b| < ε`) |
 //! | 4 | sin | 1 | `sin(a)` |
 //! | 5 | cos | 1 | `cos(a)` |
 //! | 6 | tanh | 1 | `tanh(a)` |
@@ -152,6 +152,7 @@ impl<B: Backend> CartesianGeneticProgramming<B> {
         let mut genome = Vec::with_capacity(params.genome_len());
         for col in 0..params.cols {
             for _row in 0..params.rows {
+                #[allow(clippy::cast_possible_wrap)]
                 let func = rng.random_range(0..NUM_FUNCTIONS as i64);
                 let (inp0, inp1) = sample_input_pair(col, params, rng);
                 genome.push(func);
@@ -209,7 +210,7 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
 fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
     let genes_per_node = CgpConfig::GENES_PER_NODE;
     let node_genes = params.rows * params.cols * genes_per_node;
-    for gene_idx in 0..genome.len() {
+    for (gene_idx, gene) in genome.iter_mut().enumerate() {
         if rng.random::<f32>() >= params.mutation_rate {
             continue;
         }
@@ -221,18 +222,18 @@ fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
                 // function
                 #[allow(clippy::cast_possible_wrap)]
                 {
-                    genome[gene_idx] = rng.random_range(0..NUM_FUNCTIONS as i64);
+                    *gene = rng.random_range(0..NUM_FUNCTIONS as i64);
                 }
             } else {
                 let (new0, new1) = sample_input_pair(col, params, rng);
-                genome[gene_idx] = if within == 1 { new0 } else { new1 };
+                *gene = if within == 1 { new0 } else { new1 };
             }
         } else {
             // output gene
             let max_node_idx = params.n_inputs + params.rows * params.cols;
             #[allow(clippy::cast_possible_wrap)]
             {
-                genome[gene_idx] = rng.random_range(0..max_node_idx as i64);
+                *gene = rng.random_range(0..max_node_idx as i64);
             }
         }
     }
@@ -256,6 +257,7 @@ fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
 pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> Vec<f32> {
     let node_count = params.rows * params.cols;
     let n_inputs = params.n_inputs;
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let output_idx = genome[genome.len() - 1] as usize;
 
     let mut outputs = Vec::with_capacity(inputs.len());
@@ -267,11 +269,11 @@ pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> 
         }
         for node in 0..node_count {
             let base = node * 3;
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let func = genome[base] as usize;
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let a_idx = genome[base + 1] as usize;
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let b_idx = genome[base + 2] as usize;
             let a = buf[a_idx.min(buf.len() - 1)];
             let b = buf[b_idx.min(buf.len() - 1)];

@@ -709,8 +709,8 @@ mod tests {
 
         impl MultiDiscreteAction<3> for LargeMultiAction {
             fn from_indices(indices: [usize; 3]) -> Self {
-                for i in 0..3 {
-                    assert!(indices[i] < 5, "Index {} out of bounds", i);
+                for (i, &idx) in indices.iter().enumerate() {
+                    assert!(idx < 5, "Index {} out of bounds", i);
                 }
                 LargeMultiAction(indices)
             }
@@ -838,7 +838,7 @@ mod tests {
             let action = ContinuousActionTest::random();
             assert!(action.is_valid());
             for &value in action.as_slice() {
-                assert!(value >= -1.0 && value <= 1.0);
+                assert!((-1.0..=1.0).contains(&value));
                 assert!(value.is_finite());
             }
         }
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn test_discrete_action_clone_and_debug() {
         let action = SimpleDiscreteAction::Left;
-        let cloned = action.clone();
+        let cloned = action;
         assert_eq!(action, cloned);
 
         let debug_str = format!("{:?}", action);
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn test_multidiscrete_action_clone_and_debug() {
         let action = MultiActionTest::from_indices([1, 2]);
-        let cloned = action.clone();
+        let cloned = action;
         assert_eq!(action, cloned);
 
         let debug_str = format!("{:?}", action);

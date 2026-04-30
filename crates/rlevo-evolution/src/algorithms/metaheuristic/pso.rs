@@ -249,7 +249,7 @@ where
         let new_positions = (state.positions.clone() + new_velocities.clone()).clamp(lo, hi);
 
         let mut next = state.clone();
-        next.positions = new_positions.clone();
+        next.positions.clone_from(&new_positions);
         next.velocities = new_velocities;
         (new_positions, next)
     }
@@ -267,8 +267,8 @@ where
 
         // First tell: seed personal-bests.
         if state.personal_best_fitness.is_empty() {
-            state.personal_best = population.clone();
-            state.personal_best_fitness = fitness_host.clone();
+            state.personal_best.clone_from(&population);
+            state.personal_best_fitness.clone_from(&fitness_host);
             let best_idx = argmin(&fitness_host);
             state.global_best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -311,7 +311,7 @@ where
             .personal_best
             .clone()
             .mask_where(mask, population.clone());
-        state.personal_best_fitness = new_pbest_fit.clone();
+        state.personal_best_fitness.clone_from(&new_pbest_fit);
 
         // Update global best from the new personal bests.
         let best_idx = argmin(&new_pbest_fit);

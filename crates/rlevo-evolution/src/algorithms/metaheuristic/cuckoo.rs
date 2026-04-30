@@ -116,27 +116,28 @@ impl<B: Backend> CuckooSearch<B> {
     fn mantegna_sigma_u(beta: f32) -> f32 {
         // Γ(1 + β) · sin(π·β/2)  /  ( Γ((1+β)/2) · β · 2^((β-1)/2) ) ) ^ (1/β)
         let num = gamma(1.0 + beta) * ((PI * beta) / 2.0).sin();
-        let den = gamma((1.0 + beta) / 2.0) * beta * 2f32.powf((beta - 1.0) / 2.0);
+        let den = gamma(f32::midpoint(1.0, beta)) * beta * 2f32.powf((beta - 1.0) / 2.0);
         (num / den).powf(1.0 / beta)
     }
 }
 
 /// Lanczos approximation for `Γ(z)` on positive reals. Only used
 /// host-side in [`CuckooSearch`] and [`super::bat`] for small constants.
+#[allow(clippy::many_single_char_names)]
 fn gamma(z: f32) -> f32 {
     // 5-term Lanczos coefficients (g = 7). Enough for `z ∈ [0.5, 5]`
     // which covers the Lévy-flight parameter range.
     let g = 7.0_f32;
     let p: [f32; 9] = [
         0.999_999_999_999_809_93,
-        676.520_368_121_885_1,
-        -1_259.139_216_722_402_8,
-        771.323_428_777_653_13,
-        -176.615_029_162_140_59,
-        12.507_343_278_686_905,
-        -0.138_571_095_265_720_12,
-        9.984_369_578_019_572e-6,
-        1.505_632_735_149_311_6e-7,
+        676.520_4,
+        -1_259.139_2,
+        771.323_4,
+        -176.615_04,
+        12.507_343,
+        -0.138_571_1,
+        9.984_369e-6,
+        1.505_632_7e-7,
     ];
     if z < 0.5 {
         return PI / ((PI * z).sin() * gamma(1.0 - z));
@@ -144,7 +145,9 @@ fn gamma(z: f32) -> f32 {
     let z = z - 1.0;
     let mut x = p[0];
     for (i, &coef) in p.iter().enumerate().skip(1) {
-        x += coef / (z + i as f32);
+        #[allow(clippy::cast_precision_loss)]
+        let i_f32 = i as f32;
+        x += coef / (z + i_f32);
     }
     let t = z + g + 0.5;
     (2.0 * PI).sqrt() * t.powf(z + 0.5) * (-t).exp() * x
@@ -209,7 +212,7 @@ where
         let new_nests = (state.nests.clone() + step_tensor.mul_scalar(params.alpha)).clamp(lo, hi);
 
         let mut next = state.clone();
-        next.nests = new_nests.clone();
+        next.nests.clone_from(&new_nests);
         (new_nests, next)
     }
 
@@ -227,7 +230,7 @@ where
         let d = params.genome_dim;
 
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             let best_idx = argmin(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -248,6 +251,7 @@ where
         }
 
         // Greedy accept per slot.
+        #[allow(clippy::cast_possible_wrap)]
         let mut rs: Vec<i64> = (0..pop).map(|i| i as i64).collect();
         let mut new_fitness = state.fitness.clone();
         for i in 0..pop {
@@ -266,8 +270,7 @@ where
 
         // Abandon worst `p_a · pop` nests — reinit with uniform sample;
         // mark fitness +∞ so next ask's Lévy proposal always lands.
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
         let n_abandon = (params.p_a * pop as f32) as usize;
         if n_abandon > 0 {
             let mut rank: Vec<usize> = (0..pop).collect();
@@ -280,6 +283,7 @@ where
                 Distribution::Uniform(f64::from(lo), f64::from(hi)),
                 &device,
             );
+            #[allow(clippy::cast_possible_wrap)]
             let mut rs2: Vec<i64> = (0..pop).map(|i| i as i64).collect();
             for (k, &slot) in worst.iter().enumerate() {
                 #[allow(clippy::cast_possible_wrap)]

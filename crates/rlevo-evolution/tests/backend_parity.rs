@@ -13,7 +13,7 @@
 //! the pure-tensor operators compose correctly on both backends and
 //! each drives GA to a non-trivial optimum on Sphere-D10. Bit-level
 //! backend-parity would require routing a single host RNG through both
-//! backends, which CubeCL doesn't currently expose; landing a custom
+//! backends, which `CubeCL` doesn't currently expose; landing a custom
 //! kernel (follow-up work, see `ops/kernels/mod.rs`) is the natural
 //! path to change that.
 //!

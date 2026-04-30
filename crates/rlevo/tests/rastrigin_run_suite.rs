@@ -42,7 +42,7 @@ impl FitnessEvaluable for Minimizer {
 
 struct Passive;
 impl BenchableAgent<(), ()> for Passive {
-    fn act(&mut self, _: &(), _: &mut dyn Rng) {}
+    fn act(&mut self, (): &(), _: &mut dyn Rng) {}
 }
 
 fn ga_factory(
@@ -160,13 +160,13 @@ where
         .map(|t| {
             t.episodes
                 .last()
-                .map(|e| -e.return_value / steps)
-                .unwrap_or(f64::INFINITY)
+                .map_or(f64::INFINITY, |e| -e.return_value / steps)
         })
         .collect()
 }
 
 #[test]
+#[allow(clippy::cast_precision_loss)]
 fn all_strategies_improve_on_rastrigin_via_run_suite() {
     // Baseline: uniform-random-search mean best-cost over 80 × 64 draws
     // on Rastrigin-D10 is roughly 80-120; we assert each strategy

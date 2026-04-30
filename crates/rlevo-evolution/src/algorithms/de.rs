@@ -18,7 +18,7 @@
 //!
 //! # Hot path
 //!
-//! A fused CubeCL kernel for trial-vector construction is tracked as
+//! A fused `CubeCL` kernel for trial-vector construction is tracked as
 //! follow-up work (see [`crate::ops::kernels`]). Until then this module
 //! uses host-sampled indices and composes the update from primitive
 //! tensor ops.
@@ -66,7 +66,7 @@ pub enum DeVariant {
     /// best, so the population concentrates quickly. Prone to
     /// **premature convergence** on landscapes where the current best
     /// is far from the global optimum; on Sphere-D10 with 500 gens this
-    /// variant stalls around `best_fitness ≈ 1` while Rand1Bin reaches
+    /// variant stalls around `best_fitness ≈ 1` while `Rand1Bin` reaches
     /// `< 1e-20`.
     Best1Bin,
     /// `x_i + F · (x_{best} − x_i) + F · (x_{r1} − x_{r2})`, binomial.
@@ -93,8 +93,7 @@ impl DeVariant {
     const fn random_indices(self) -> usize {
         match self {
             DeVariant::Rand1Bin | DeVariant::Rand1Exp => 3,
-            DeVariant::Best1Bin => 2,
-            DeVariant::CurrentToBest1Bin => 2,
+            DeVariant::Best1Bin | DeVariant::CurrentToBest1Bin => 2,
             DeVariant::Rand2Bin => 5,
         }
     }
@@ -123,7 +122,7 @@ pub struct DeConfig {
 }
 
 impl DeConfig {
-    /// Default configuration (Rand1Bin, F = 0.5, CR = 0.9) for a given
+    /// Default configuration (`Rand1Bin`, F = 0.5, CR = 0.9) for a given
     /// dimensionality.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
@@ -244,6 +243,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines, clippy::many_single_char_names)]
     fn ask(
         &self,
         params: &DeConfig,
@@ -298,6 +298,7 @@ where
                 a + (b - c).mul_scalar(f)
             }
             DeVariant::Best1Bin => {
+                #[allow(clippy::single_range_in_vec_init)]
                 let best = state
                     .population
                     .clone()
@@ -308,6 +309,7 @@ where
                 best + (b - c).mul_scalar(f)
             }
             DeVariant::CurrentToBest1Bin => {
+                #[allow(clippy::single_range_in_vec_init)]
                 let best = state
                     .population
                     .clone()
@@ -388,7 +390,7 @@ where
 
         // First `tell`: stash fitness for the initial population.
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             state.best_index = argmin(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &trial, &fitness_host);
@@ -428,7 +430,7 @@ where
             .mask_where(mask_bool, trial.clone());
 
         state.population = next_pop;
-        state.fitness = new_fit.clone();
+        state.fitness.clone_from(&new_fit);
         state.best_index = argmin(&new_fit);
         state.generation += 1;
         update_best(&mut state, &trial, &fitness_host);

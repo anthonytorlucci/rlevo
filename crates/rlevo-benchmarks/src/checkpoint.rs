@@ -31,6 +31,8 @@ pub fn completed_keys(report: &BenchmarkReport) -> HashSet<TrialKey> {
 }
 
 #[cfg(feature = "json")]
+/// # Errors
+/// Returns an error if the file cannot be read or if deserialization fails.
 pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
     if !path.exists() {
         return Ok(None);
@@ -42,12 +44,14 @@ pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
 }
 
 #[cfg(feature = "json")]
+/// # Errors
+/// Returns an error if the file cannot be written or if serialization fails.
 pub fn save(path: &Path, report: &BenchmarkReport) -> std::io::Result<()> {
     use std::io::Write;
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("ckpt.json.tmp");
     {

@@ -1,4 +1,4 @@
-//! Random-agent smoke test for LunarLander (discrete variant).
+//! Random-agent smoke test for `LunarLander` (discrete variant).
 
 use rand::RngExt;
 use rand::SeedableRng;

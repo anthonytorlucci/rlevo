@@ -353,6 +353,10 @@ where
     ///
     /// Inherent shape (infallible). The [`BenchEnv`] trait impl wraps this
     /// in `Ok(...)`. See [`Self::reset`] for the rationale.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`reset`](Self::reset) has not been called first.
     pub fn step(&mut self, _action: ()) -> BenchStep<()> {
         let state = self
             .state
