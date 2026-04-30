@@ -128,6 +128,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn empty_inputs_are_safe() {
         assert_eq!(mean(&[]), 0.0);
         assert_eq!(median(&[]), 0.0);

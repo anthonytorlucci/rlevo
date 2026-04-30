@@ -167,6 +167,7 @@ where
 
 #[test]
 #[allow(clippy::cast_precision_loss)]
+#[allow(clippy::similar_names)]
 fn all_strategies_improve_on_rastrigin_via_run_suite() {
     // Baseline: uniform-random-search mean best-cost over 80 × 64 draws
     // on Rastrigin-D10 is roughly 80-120; we assert each strategy

@@ -504,6 +504,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn harness_runs_one_generation() {
         let device = Default::default();
         let strategy = Constant;

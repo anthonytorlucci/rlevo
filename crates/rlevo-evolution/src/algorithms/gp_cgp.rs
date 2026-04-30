@@ -455,6 +455,7 @@ mod tests {
     }
 
     impl SymRegression {
+        #[allow(clippy::cast_precision_loss)]
         fn new(params: CgpConfig) -> Self {
             let xs: Vec<f32> = (0..20).map(|i| -1.0 + 2.0 * (i as f32) / 19.0).collect();
             let ys: Vec<f32> = xs.iter().map(|x| x * x + 1.0).collect();
@@ -463,6 +464,7 @@ mod tests {
     }
 
     impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2, Int>> for SymRegression {
+        #[allow(clippy::cast_precision_loss)]
         fn evaluate_batch(
             &mut self,
             population: &Tensor<B, 2, Int>,
@@ -489,6 +491,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn cgp_reduces_error_on_square_plus_one() {
         let device = Default::default();
         let params = CgpConfig::default_for(1);

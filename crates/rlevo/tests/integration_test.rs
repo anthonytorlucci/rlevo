@@ -240,6 +240,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn full_episode_loop_reaches_goal() {
     let mut env = RandomWalkEnv::new(false);
 

@@ -186,6 +186,7 @@ fn qrdqn_short_run_produces_finite_rewards() {
 /// counterparts — Burn's ndarray backend uses a process-global RNG.
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
+#[allow(clippy::float_cmp)]
 fn qrdqn_reproducibility_ndarray() {
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {

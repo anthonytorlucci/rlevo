@@ -34,6 +34,7 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn bench_tournament(c: &mut Criterion) {
     let mut group = c.benchmark_group("tournament_select");
     let device = Default::default();

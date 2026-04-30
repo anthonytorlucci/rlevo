@@ -178,6 +178,7 @@ fn dqn_cart_pole_reaches_100() {
 /// -- --ignored --test-threads=1`.
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
+#[allow(clippy::float_cmp)]
 fn dqn_reproducibility_ndarray() {
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
