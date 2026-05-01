@@ -16,10 +16,6 @@
 //! retuning. Treat these environments as MuJoCo-inspired testbeds for
 //! in-workspace RL research, not as a Gymnasium-parity port.
 //!
-//! For a future MuJoCo-parity path, the `mujoco-ffi` cargo feature is
-//! reserved. Enabling it today triggers a `compile_error!` pointing at the
-//! deferred spec; see [`backend::mujoco_ffi`] once that work lands.
-//!
 //! ## Envs
 //!
 //! | Env | Action dim | Obs dim (default) | Terminates? |

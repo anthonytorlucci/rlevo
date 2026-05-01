@@ -265,7 +265,7 @@ where
         let genome_dim = params.genome_dim;
 
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             let best_idx = argmin(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -287,6 +287,7 @@ where
 
         // Acceptance: accept candidate `i` iff `pending_accept[i]` AND
         // candidate's fitness is no worse than current.
+        #[allow(clippy::cast_possible_wrap)]
         let mut rs: Vec<i64> = (0..pop).map(|i| i as i64).collect();
         let mut new_fitness = state.fitness.clone();
         #[allow(clippy::cast_precision_loss)]

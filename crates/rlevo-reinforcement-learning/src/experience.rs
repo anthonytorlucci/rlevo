@@ -268,8 +268,7 @@ mod tests {
     /// Test multiple experience tuples with reward accumulation
     #[test]
     fn test_multiple_experience_tuples() {
-        let experiences = vec![
-            ExperienceTuple {
+        let experiences = [ExperienceTuple {
                 observation: TestObs,
                 action: TestAct,
                 reward: TestReward(5.0),
@@ -289,8 +288,7 @@ mod tests {
                 reward: TestReward(15.0),
                 next_observation: TestObs,
                 is_done: false,
-            },
-        ];
+            }];
 
         let total_reward = experiences
             .iter()

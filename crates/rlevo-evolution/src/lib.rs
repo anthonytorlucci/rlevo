@@ -3,13 +3,13 @@
 //! This crate ships the classical EA families — Genetic Algorithm (GA),
 //! Evolution Strategy (ES), Evolutionary Programming (EP), Differential
 //! Evolution (DE), and Cartesian Genetic Programming (CGP) — on top of the
-//! Burn tensor abstraction, with GPU acceleration via custom CubeCL kernels
+//! Burn tensor abstraction, with GPU acceleration via custom `CubeCL` kernels
 //! on hot paths.
 //!
 //! # Surface area
 //!
-//! - [`strategy`] — the central [`Strategy`](strategy::Strategy) trait and
-//!   the [`EvolutionaryHarness`](strategy::EvolutionaryHarness) adapter that
+//! - [`strategy`] — the central [`Strategy`] trait and
+//!   the [`EvolutionaryHarness`] adapter that
 //!   wraps any strategy into `rlevo-benchmarks::BenchEnv`.
 //! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
 //!   `Tree`) that parameterize the operator set.

@@ -85,7 +85,7 @@ fn parse_args() -> CliArgs {
         match flag.as_str() {
             "--seed" => seed = args.next().and_then(|v| v.parse().ok()).expect("u64"),
             "--total-timesteps" => {
-                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize")
+                total_timesteps = args.next().and_then(|v| v.parse().ok()).expect("usize");
             }
             "--num-steps" => num_steps = args.next().and_then(|v| v.parse().ok()).expect("usize"),
             "--log-every" => log_every = args.next().and_then(|v| v.parse().ok()).expect("usize"),

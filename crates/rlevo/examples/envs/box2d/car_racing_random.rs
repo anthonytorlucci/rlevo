@@ -1,4 +1,4 @@
-//! Random-agent smoke test for CarRacing.
+//! Random-agent smoke test for `CarRacing`.
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;

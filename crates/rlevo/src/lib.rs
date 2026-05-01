@@ -1,9 +1,9 @@
-//! Evolutionary Deep Reinforcement Learning built on the [Burn](https://github.com/tracel-ai/burn) framework.
+//! Deep Reinforcement Learning with Evolutionary Optimization built on the [Burn](https://github.com/tracel-ai/burn) framework.
 //!
 //! # Modules
 //!
 //! - [`core`] — foundational traits: `Environment`, `State`, `Action`, `Reward`, `TensorConvertible`
-//! - [`envs`] — benchmark environments: classic control, gridworlds, Box2D physics, locomotion
+//! - [`envs`] — benchmark environments: classic control, gridworlds, `Box2D` physics, locomotion
 //! - [`rl`] — deep RL algorithms: DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3, SAC (and the replay buffer / experience / metrics modules they consume)
 //! - [`evo`] — evolutionary algorithms: GA, ES, EP, DE, CGP with GPU kernels
 //! - [`hybrid`] — combined evolutionary + RL strategies
@@ -15,7 +15,7 @@
 //! rlevo = "0.1"
 //! ```
 //!
-//! ```rust,no_run
+//! ```rust
 //! use rlevo::prelude::*;
 //! ```
 //!
@@ -23,7 +23,7 @@
 //!
 //! ```rust,no_run
 //! use rlevo::core::environment::Environment;
-//! use rlevo::environments::classic::cartpole::CartPoleEnv;
+//! use rlevo::envs::classic::cartpole::CartPole;
 //! use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
 //! ```
 

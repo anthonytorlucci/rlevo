@@ -184,7 +184,7 @@ impl FromStr for MemoryConfig {
 /// policy must maintain an internal memory of what it observed.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

@@ -2,7 +2,7 @@
 //! backend.
 //!
 //! The numbers these benches produce are the reference point for the
-//! custom CubeCL kernel work scoped in `ops/kernels/mod.rs`. Kernels
+//! custom `CubeCL` kernel work scoped in `ops/kernels/mod.rs`. Kernels
 //! should strictly beat the pure-tensor baseline at `pop_size ≥ 256`.
 //!
 //! Run with `cargo bench -p rlevo-evolution`. Pass
@@ -20,8 +20,6 @@ use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-use rlevo_core::evaluation::BenchEnv;
-
 type B = NdArray;
 
 struct ZeroFitness;
@@ -36,6 +34,7 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn bench_tournament(c: &mut Criterion) {
     let mut group = c.benchmark_group("tournament_select");
     let device = Default::default();
@@ -73,7 +72,7 @@ fn bench_de_generation(c: &mut Criterion) {
                         params.clone(),
                         ZeroFitness,
                         11,
-                        device.clone(),
+                        device,
                         1_000,
                     );
                     harness.reset();

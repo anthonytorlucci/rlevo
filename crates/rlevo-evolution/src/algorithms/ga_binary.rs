@@ -8,7 +8,7 @@
 //! [`crate::ops::mutation::bit_flip_mutation`].
 //!
 //! Fitness is treated as cost (lower is better) to match the rest of
-//! the strategies in this crate; benchmarks like OneMax must be phrased
+//! the strategies in this crate; benchmarks like `OneMax` must be phrased
 //! as minimization (`D − count_ones`) before being plugged in.
 
 use std::marker::PhantomData;
@@ -49,6 +49,7 @@ impl BinaryGaConfig {
         Self {
             pop_size,
             genome_dim,
+            #[allow(clippy::cast_precision_loss)]
             mutation_rate: 1.0 / genome_dim as f32,
             crossover_p: 0.5,
             tournament_size: 2,
@@ -207,7 +208,7 @@ where
 
         // First `tell`: initial population just evaluated.
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &offspring, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -241,17 +242,17 @@ where
         let next_pop = Tensor::cat(vec![elites, kept_off], 0);
         let mut next_fit = Vec::with_capacity(pop_size);
         for i in elite_idx {
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             next_fit.push(state.fitness[i as usize]);
         }
         for i in off_keep_idx {
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             next_fit.push(fitness_host[i as usize]);
         }
 
         update_best(&mut state, &next_pop, &next_fit);
         state.population = next_pop;
-        state.fitness = next_fit.clone();
+        state.fitness.clone_from(&next_fit);
         state.generation += 1;
         let m = StrategyMetrics::from_host_fitness(state.generation, &next_fit, state.best_fitness);
         state.best_fitness = m.best_fitness_ever;
@@ -296,7 +297,7 @@ mod tests {
     use burn::backend::NdArray;
     type TestBackend = NdArray;
 
-    /// OneMax phrased as minimization: `cost = D − count_ones`.
+    /// `OneMax` phrased as minimization: `cost = D − count_ones`.
     struct OneMaxCost {
         dim: usize,
     }

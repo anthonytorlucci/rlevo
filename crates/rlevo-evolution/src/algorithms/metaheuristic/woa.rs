@@ -135,6 +135,7 @@ where
         }
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn ask(
         &self,
         params: &WoaConfig,
@@ -244,7 +245,7 @@ where
         let new_positions = new_positions.clamp(lo, hi);
 
         let mut next = state.clone();
-        next.positions = new_positions.clone();
+        next.positions.clone_from(&new_positions);
         (new_positions, next)
     }
 
@@ -257,8 +258,8 @@ where
         _rng: &mut dyn Rng,
     ) -> (WoaState<B>, StrategyMetrics) {
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
-        state.fitness = fitness_host.clone();
-        state.positions = population.clone();
+        state.fitness.clone_from(&fitness_host);
+        state.positions.clone_from(&population);
         let best_idx = argmin(&fitness_host);
         if fitness_host[best_idx] < state.best_fitness {
             state.best_fitness = fitness_host[best_idx];

@@ -127,7 +127,7 @@ const MIN_SIZE: usize = 7;
 pub struct CrossingConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
-    /// Must be at least [`MIN_SIZE`] (7). The interior playable area is
+    /// Must be at least `7`. The interior playable area is
     /// `(size - 2) × (size - 2)`.
     pub size: usize,
     /// Maximum number of steps before the episode is truncated.

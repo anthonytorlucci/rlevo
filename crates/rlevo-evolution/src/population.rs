@@ -71,6 +71,10 @@ impl<B: Backend> Population<B, Real> {
     }
 
     /// Borrows the backing real-valued tensor.
+    ///
+    /// # Panics
+    ///
+    /// Never panics for a correctly constructed `Population<B, Real>`.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2> {
         self.tensor_real
@@ -79,6 +83,10 @@ impl<B: Backend> Population<B, Real> {
     }
 
     /// Consumes the wrapper and returns the owned tensor.
+    ///
+    /// # Panics
+    ///
+    /// Never panics for a correctly constructed `Population<B, Real>`.
     #[must_use]
     pub fn into_tensor(self) -> Tensor<B, 2> {
         self.tensor_real
@@ -106,6 +114,10 @@ impl<B: Backend> Population<B, Binary> {
     }
 
     /// Borrows the backing integer tensor holding 0/1 values.
+    ///
+    /// # Panics
+    ///
+    /// Never panics for a correctly constructed `Population<B, Binary>`.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int
@@ -134,6 +146,10 @@ impl<B: Backend> Population<B, Integer> {
     }
 
     /// Borrows the backing integer tensor.
+    ///
+    /// # Panics
+    ///
+    /// Never panics for a correctly constructed `Population<B, Integer>`.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int

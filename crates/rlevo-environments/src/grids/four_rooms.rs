@@ -92,7 +92,7 @@ const MIN_SIZE: usize = 11;
 pub struct FourRoomsConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
-    /// Must be **odd** and at least [`MIN_SIZE`] (11). The interior cross sits
+    /// Must be **odd** and at least `11`. The interior cross sits
     /// at column and row `size / 2`; openings are at `±3` from that centre.
     pub size: usize,
     /// Maximum number of steps before the episode is truncated.

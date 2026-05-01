@@ -163,7 +163,7 @@ impl FromStr for UnlockConfig {
 /// exhausted first.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

@@ -36,7 +36,7 @@ pub fn elitist<B: Backend>(
     current_pop: Tensor<B, 2>,
     current_fitness: &[f32],
     offspring_pop: Tensor<B, 2>,
-    offspring_fitness: Vec<f32>,
+    offspring_fitness: &[f32],
     k: usize,
     device: &B::Device,
 ) -> (Tensor<B, 2>, Vec<f32>) {
@@ -44,12 +44,11 @@ pub fn elitist<B: Backend>(
     assert!(k <= pop_size, "elite count must be <= population size");
     let elite_idx = truncation_indices_host(current_fitness, k);
     let elites = current_pop
-        .clone()
         .select(0, Tensor::<B, 1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), device));
 
     let n_offspring_to_keep = pop_size - k;
-    let offspring_keep_idx = truncation_indices_host(&offspring_fitness, n_offspring_to_keep);
-    let kept_offspring = offspring_pop.clone().select(
+    let offspring_keep_idx = truncation_indices_host(offspring_fitness, n_offspring_to_keep);
+    let kept_offspring = offspring_pop.select(
         0,
         Tensor::<B, 1, Int>::from_data(
             TensorData::new(offspring_keep_idx.clone(), [n_offspring_to_keep]),
@@ -61,11 +60,11 @@ pub fn elitist<B: Backend>(
 
     let mut combined_fitness = Vec::with_capacity(pop_size);
     for i in elite_idx {
-        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         combined_fitness.push(current_fitness[i as usize]);
     }
     for i in offspring_keep_idx {
-        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         combined_fitness.push(offspring_fitness[i as usize]);
     }
 
@@ -99,7 +98,7 @@ pub fn mu_plus_lambda<B: Backend>(
     let next_fitness: Vec<f32> = winners
         .iter()
         .map(|&i| {
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             combined_fitness[i as usize]
         })
         .collect();
@@ -128,7 +127,7 @@ pub fn mu_comma_lambda<B: Backend>(
     let next_fitness: Vec<f32> = winners
         .iter()
         .map(|&i| {
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             offspring_fitness[i as usize]
         })
         .collect();

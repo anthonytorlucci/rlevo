@@ -39,6 +39,7 @@ impl Observation<1> for WalkObservation {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
+    #[allow(clippy::cast_precision_loss)]
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
         Tensor::from_floats([self.position as f32], device)
     }
@@ -108,6 +109,7 @@ impl DiscreteAction<1> for WalkAction {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
+    #[allow(clippy::cast_precision_loss)]
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
         Tensor::from_floats([self.to_index() as f32], device)
     }
@@ -238,6 +240,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn full_episode_loop_reaches_goal() {
     let mut env = RandomWalkEnv::new(false);
 

@@ -6,6 +6,8 @@ description = "Benchmarking harness for rlevo (internal crate — use `rlevo` fo
 license.workspace = true
 edition.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 rlevo-core = { path = "../rlevo-core", version = "0.1.0" }

@@ -121,7 +121,7 @@ impl FromStr for EmptyConfig {
     ///
     /// Accepts positional values (`"5"`, `"5,100"`, `"5,100,42"`) and
     /// `key=value` pairs (`"size=5,max_steps=100,seed=42"`). Unknown keys
-    /// and sizes below [`MIN_SIZE`] produce an error.
+    /// and sizes below the minimum produce an error.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (i, raw) in s.trim().split(',').map(str::trim).enumerate() {

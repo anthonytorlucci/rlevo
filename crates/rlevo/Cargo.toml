@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 repository.workspace = true
 documentation = "https://docs.rs/rlevo"
 readme = "../../README.md"
-keywords = ["reinforcement-learning", "evolutionary", "deep-learning", "burn", "neural-network"]
-categories = ["science", "algorithms", "simulation"]
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 rlevo-core = { path = "../rlevo-core", version = "0.1.0" }

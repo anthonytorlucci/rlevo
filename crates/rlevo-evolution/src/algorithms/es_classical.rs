@@ -275,6 +275,7 @@ where
         (mutated, state)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn tell(
         &self,
         params: &EsConfig,
@@ -288,7 +289,7 @@ where
         // First `tell` after `init`: offspring here is actually the
         // initial parent population evaluated.
         if state.parent_fitness.is_empty() {
-            state.parent_fitness = fitness_host.clone();
+            state.parent_fitness.clone_from(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &offspring, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -313,7 +314,9 @@ where
         // state.sigmas currently holds parent σ concatenated with
         // offspring σ, per `ask`'s scratchpad trick.
         let lambda = params.kind.population_size();
+        #[allow(clippy::single_range_in_vec_init)]
         let parent_sigmas = state.sigmas.clone().slice([0..mu]);
+        #[allow(clippy::single_range_in_vec_init)]
         let offspring_sigmas = state.sigmas.clone().slice([mu..(mu + lambda)]);
 
         match params.kind {
@@ -325,11 +328,11 @@ where
                 state.window_len += 1;
                 if success {
                     state.successes_in_window += 1;
-                    state.parents = offspring.clone();
+                    state.parents.clone_from(&offspring);
                     state.parent_fitness = vec![offspring_fit];
                 }
                 // Rechenberg 1/5-rule every 10 · D generations.
-                #[allow(clippy::cast_precision_loss)]
+                #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
                 let window = 10_u32.saturating_mul(params.genome_dim as u32).max(1);
                 if state.window_len >= window {
                     #[allow(clippy::cast_precision_loss)]
@@ -356,7 +359,9 @@ where
                 let best_off_idx = argmin(&fitness_host);
                 let best_off_fit = fitness_host[best_off_idx];
                 if best_off_fit < state.parent_fitness[0] {
-                    state.parents = offspring.clone().slice([best_off_idx..best_off_idx + 1]);
+                    #[allow(clippy::single_range_in_vec_init)]
+                    let best_row = offspring.clone().slice([best_off_idx..best_off_idx + 1]);
+                    state.parents = best_row;
                     state.parent_fitness = vec![best_off_fit];
                 }
                 state.sigmas = parent_sigmas;

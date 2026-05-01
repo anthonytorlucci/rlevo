@@ -44,10 +44,10 @@ impl JsonReporter {
     }
 
     fn write_document(&self) -> io::Result<()> {
-        if let Some(parent) = self.output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = self.output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         let report = self
             .last_report

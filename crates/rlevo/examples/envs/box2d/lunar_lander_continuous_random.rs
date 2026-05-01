@@ -1,4 +1,4 @@
-//! Random-agent smoke test for LunarLander (continuous variant).
+//! Random-agent smoke test for `LunarLander` (continuous variant).
 
 use rand::RngExt;
 use rand::SeedableRng;

@@ -1,8 +1,7 @@
 //! Physics backend abstraction for locomotion environments.
 //!
 //! Locomotion environments are generic over a [`LocomotionBackend`]. v1 ships
-//! only [`Rapier3DBackend`]; a future `mujoco-ffi` backend is reserved behind
-//! a cargo feature (see [`mujoco_ffi`]).
+//! only [`Rapier3DBackend`].
 //!
 //! The trait is deliberately narrow: it exposes just enough to step physics,
 //! read poses/velocities, drive joint torques, and pull per-body contact

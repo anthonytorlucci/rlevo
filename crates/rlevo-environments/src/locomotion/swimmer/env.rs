@@ -1,371 +1,27 @@
-//! # Swimmer-v5 (Rapier3D-backed)
-//!
-//! # Physics note
-//!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
-//! action dimensionality, reward structure, and termination conditions match
-//! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
-//! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
-//! without retuning.**
-//!
-//! ## Layout
-//!
-//! Three cylindrical segments chained in series (front → middle → tail),
-//! constrained to the world xy-plane with gravity disabled. Two revolute-z
-//! impulse joints actuate the chain; per-segment viscous drag substitutes for
-//! MuJoCo's native fluid model.
-//!
-//! * Segment shape: capsule along body-x, length `0.1`, radius `0.05`, mass
-//!   `≈0.0471` (density ≈60 kg/m³ derived from capsule volume). The capsule
-//!   stands in for Gymnasium's cylinder — drag depends on COM velocity only,
-//!   not collider geometry.
-//! * Planar constraint: every segment has `enabled_translations(true, true, false)`
-//!   and `enabled_rotations(false, false, true)`, so motion is confined to the
-//!   xy-plane and rotations to about-z.
-//! * Front ↔ Middle: revolute-z impulse joint, anchor `(+0.05, 0, 0)` on
-//!   segment0's back, anchor `(−0.05, 0, 0)` on segment1's front.
-//! * Middle ↔ Tail:  revolute-z impulse joint, anchor `(+0.05, 0, 0)` on
-//!   segment1's back, anchor `(−0.05, 0, 0)` on segment2's front.
-//! * Action: `Box(-1, 1, (2,))` — joint torque targets; applied as
-//!   `action · gear` with `gear = [150, 150]` (Gymnasium XML).
-//! * Observation (8-dim):
-//!   `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
-//!     ω_body, joint1_dot, joint2_dot]` — matches `qpos[2:5]` + `qvel` from
-//!   Gymnasium.
-//! * Reward: `forward − ctrl` with `forward = 1.0 · vx_com` and
-//!   `ctrl = 1e-4 · ‖action‖²`.
-//! * Termination: never (`TerminationMode::Never` implicitly; swimmer has no
-//!   healthy gate).
-//! * Truncation: `max_steps = 1000`.
-//!
-//! ## Viscous drag
-//!
-//! Rapier has no native fluid solver. Each segment accrues a drag force
-//! `F = −k · v · ‖v‖` before every physics substep, where `k` is
-//! `drag_coefficient` (default `0.1`). The env owns its own `frame_skip`
-//! loop so drag is applied on every substep, not once per env step; this is
-//! required for numerical stability and to match the Gymnasium frame_skip
-//! semantics. If/when a second locomotion env needs viscous drag, the pattern
-//! can be promoted to a backend-level hook.
-//!
-//! ## Divergence from Gymnasium
-//!
-//! Reward structure and observation layout match Gymnasium v5. Physics
-//! parameters diverge where Rapier's reduced-coordinate multibody solver
-//! cannot integrate the MuJoCo-native XML at the Gymnasium substep.
-//! Specifically (see [`SwimmerConfig::default`] for full reasoning):
-//!
-//! * **Joints are in `MultibodyJointSet`, not `ImpulseJointSet`.** A
-//!   free-floating serial chain with no grounded reference is a stiff
-//!   problem for the PGS impulse solver; multibody's Featherstone-style
-//!   reduced-coordinate integration keeps the chain conservative.
-//! * **`gear = [5, 5]`** instead of Gymnasium's `[150, 150]`. At full gear
-//!   the joint angular acceleration (τ/I ≈ 7 500 rad/s²) violates the joint
-//!   constraint faster than the solver can resolve it.
-//! * **Smaller substep:** `dt = 0.005`, `frame_skip = 8` → env dt 0.04 still
-//!   matches Gymnasium; the integration step is halved to keep per-step
-//!   Δω tractable.
-//! * **`segment_mass = 0.947 kg`** from MuJoCo's body density (1000 kg/m³)
-//!   applied to the capsule volume; using 0.0471 kg (as Gymnasium-derived
-//!   calculations sometimes produce by crossing body density with MuJoCo's
-//!   fluid `<option density>`) gives negligible inertia.
-//! * **Linear angular drag** `τ = −k_ang · ω`, not quadratic. Explicit
-//!   Euler on quadratic drag overshoots past zero at high |ω| and
-//!   diverges within a substep; linear drag is unconditionally stable.
-//! * **Capsules, not cylinders** (`capsule_x`, not `cylinder`). The drag
-//!   model depends on COM velocity only, not collider geometry.
-//!
-//! Cumulative effect: observation shape, action shape, reward structure and
-//! termination conditions match Gymnasium v5 exactly; absolute reward
-//! values, peak velocities, and learned policies will not transfer.
+//! Swimmer environment implementation.
 
 use std::marker::PhantomData;
 
-use burn::prelude::{Backend, Tensor};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
-use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
-use serde::{Deserialize, Serialize};
 
-use super::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
-use super::common::{Gear, LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
+
+use super::action::SwimmerAction;
+use super::config::SwimmerConfig;
+use super::observation::SwimmerObservation;
+use super::state::SwimmerState;
 
 /// Reward-component key: `forward_reward_weight · vx_com` (≥ 0 when swimming
 /// forward, ≤ 0 when drifting backward).
 pub const METADATA_KEY_FORWARD: &str = "forward";
 /// Reward-component key: `−ctrl_cost_weight · ‖action‖²` (≤ 0).
 pub const METADATA_KEY_CTRL: &str = "ctrl";
-
-// ─── Config ───────────────────────────────────────────────────────────────
-
-/// Environment configuration for [`Swimmer`].
-///
-/// Defaults match the Gymnasium v5 swimmer XML: gear `[150, 150]`, dt 0.01,
-/// frame_skip 4 (env dt = 0.04), reset noise 0.1, forward-reward weight 1.0,
-/// ctrl-cost weight 1e-4, drag coefficient 0.1, truncation at 1000.
-#[derive(Debug, Clone)]
-pub struct SwimmerConfig {
-    pub seed: u64,
-    pub gear: Gear<2>,
-    pub dt: f32,
-    pub frame_skip: u32,
-    pub reset_noise_scale: f32,
-    pub max_steps: usize,
-    pub action_clip: (f32, f32),
-    pub forward_reward_weight: f32,
-    pub ctrl_cost_weight: f32,
-    /// Per-segment viscous linear-drag coefficient: `F = −k · v · ‖v‖`.
-    pub drag_coefficient: f32,
-    /// Per-segment viscous angular-drag coefficient: `τ = −k_ang · ω · |ω|`.
-    /// Rapier-only addition to stand in for MuJoCo's fluid viscosity term,
-    /// which otherwise lets the chain spin unboundedly under actuator
-    /// torques in a zero-gravity free-floating setup.
-    pub angular_drag_coefficient: f32,
-    pub segment_length: f32,
-    pub segment_radius: f32,
-    pub segment_mass: f32,
-}
-
-impl Default for SwimmerConfig {
-    fn default() -> Self {
-        // Three knobs diverge from the Gymnasium XML so Rapier's
-        // reduced-coordinate multibody solver stays integrable:
-        //
-        // * `segment_mass = 0.947` uses MuJoCo's default *body* density
-        //   (1000 kg/m³) applied to the capsule volume π·r²·(2·half + (4/3)·r).
-        //   A figure of 0.0471 kg would cross body density with fluid density
-        //   (`<option density>`); the XML uses body density 1000.
-        //
-        // * `gear = [30, 30]` is one fifth of Gymnasium's `[150, 150]`.
-        //   At full gear the angular acceleration (α ≈ τ/I ≈ 7 500 rad/s²)
-        //   produces ~75 rad/s per substep at dt=0.01 — a rotation rate
-        //   that violates the joint constraints faster than PGS can
-        //   resolve them, and the multibody state diverges to NaN within
-        //   a handful of env steps. The fifth-scale gear keeps dynamics
-        //   inside the solver's stable regime.
-        //
-        // * `angular_drag_coefficient = 0.1` adds a quadratic angular-drag
-        //   term `τ_drag = −k_ang · ω · |ω|` per segment. MuJoCo's swimmer
-        //   effectively caps segment spin via fluid viscosity; with only
-        //   linear drag, sustained actuation spins the chain up unboundedly
-        //   (since no kinetic-energy sink exists about the joint axis) and
-        //   the solver still diverges at gear=30 within ~50 steps.
-        //
-        // The module-level "absolute reward values will NOT transfer"
-        // disclaimer covers these divergences.
-        Self {
-            seed: 0,
-            gear: Gear::new([5.0, 5.0]),
-            dt: 0.005,
-            frame_skip: 8,
-            reset_noise_scale: 0.1,
-            max_steps: 1000,
-            action_clip: (-1.0, 1.0),
-            forward_reward_weight: 1.0,
-            ctrl_cost_weight: 1e-4,
-            drag_coefficient: 0.1,
-            angular_drag_coefficient: 0.2,
-            segment_length: 0.1,
-            segment_radius: 0.05,
-            segment_mass: 0.947,
-        }
-    }
-}
-
-// ─── Action ──────────────────────────────────────────────────────────────
-
-/// 2D continuous action — `[joint1, joint2]` torque targets in pre-gear
-/// units. Bounds: `[-1.0, 1.0]` per element.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct SwimmerAction(pub [f32; 2]);
-
-impl SwimmerAction {
-    #[must_use]
-    pub const fn new(joint1: f32, joint2: f32) -> Self {
-        Self([joint1, joint2])
-    }
-}
-
-impl Action<1> for SwimmerAction {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite() && v.abs() <= 1.0)
-    }
-}
-
-impl ContinuousAction<1> for SwimmerAction {
-    fn as_slice(&self) -> &[f32] {
-        &self.0
-    }
-
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
-    }
-
-    fn from_slice(values: &[f32]) -> Self {
-        Self([values[0], values[1]])
-    }
-
-    fn random() -> Self {
-        Self([
-            rand::random::<f32>() * 2.0 - 1.0,
-            rand::random::<f32>() * 2.0 - 1.0,
-        ])
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for SwimmerAction {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 action tensor: {e:?}"),
-        })?;
-        if slice.len() != 2 {
-            return Err(TensorConversionError {
-                message: format!("expected 2 action elements, got {}", slice.len()),
-            });
-        }
-        Ok(Self([slice[0], slice[1]]))
-    }
-}
-
-// ─── Observation ─────────────────────────────────────────────────────────
-
-/// 8-dim observation. Layout matches Gymnasium's `qpos[2:5]` + `qvel`:
-/// `[body_angle, joint1_angle, joint2_angle, vx_com, vy_com,
-///   ω_body, joint1_dot, joint2_dot]`.
-///
-/// * `body_angle` — absolute z-rotation of segment0 (wrapped to `(-π, π]`).
-/// * `joint{1,2}_angle` — **relative** angle between adjacent segments
-///   (child − parent in world-z), wrapped.
-/// * `vx_com, vy_com, ω_body` — segment0's linear/angular velocity.
-/// * `joint{k}_dot` — relative angular rate `ω_child − ω_parent`.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct SwimmerObservation(pub [f32; 8]);
-
-impl SwimmerObservation {
-    #[must_use]
-    pub const fn body_angle(&self) -> f32 {
-        self.0[0]
-    }
-    #[must_use]
-    pub const fn joint1_angle(&self) -> f32 {
-        self.0[1]
-    }
-    #[must_use]
-    pub const fn joint2_angle(&self) -> f32 {
-        self.0[2]
-    }
-    #[must_use]
-    pub const fn vx_com(&self) -> f32 {
-        self.0[3]
-    }
-    #[must_use]
-    pub const fn vy_com(&self) -> f32 {
-        self.0[4]
-    }
-    #[must_use]
-    pub const fn omega_body(&self) -> f32 {
-        self.0[5]
-    }
-    #[must_use]
-    pub const fn joint1_dot(&self) -> f32 {
-        self.0[6]
-    }
-    #[must_use]
-    pub const fn joint2_dot(&self) -> f32 {
-        self.0[7]
-    }
-
-    #[must_use]
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|v| v.is_finite())
-    }
-}
-
-impl Default for SwimmerObservation {
-    fn default() -> Self {
-        Self([0.0; 8])
-    }
-}
-
-impl Observation<1> for SwimmerObservation {
-    fn shape() -> [usize; 1] {
-        [8]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for SwimmerObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
-    }
-
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let data = tensor.into_data();
-        let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {
-            message: format!("expected f32 observation tensor: {e:?}"),
-        })?;
-        if slice.len() != 8 {
-            return Err(TensorConversionError {
-                message: format!("expected 8 observation elements, got {}", slice.len()),
-            });
-        }
-        let mut arr = [0.0f32; 8];
-        arr.copy_from_slice(slice);
-        Ok(Self(arr))
-    }
-}
-
-// ─── State ───────────────────────────────────────────────────────────────
-
-/// Physics state — body + joint handles plus the last observation. The
-/// non-`Clone` world lives on the env struct directly.
-///
-/// The two revolute-z joints live in Rapier's `MultibodyJointSet` (not the
-/// impulse set): a free-floating serial chain with no grounded reference is
-/// a stiff problem for the PGS impulse solver, which injects kinetic energy
-/// when constraint drift is corrected aggressively. The Featherstone-style
-/// multibody solver parameterises the chain in reduced coordinates
-/// (analogous to MuJoCo's generalised coordinates) and stays conservative.
-#[derive(Debug, Clone)]
-pub struct SwimmerState {
-    pub segment0: RigidBodyHandle,
-    pub segment1: RigidBodyHandle,
-    pub segment2: RigidBodyHandle,
-    pub joint1: MultibodyJointHandle,
-    pub joint2: MultibodyJointHandle,
-    pub last_obs: SwimmerObservation,
-}
-
-impl State<1> for SwimmerState {
-    type Observation = SwimmerObservation;
-
-    fn shape() -> [usize; 1] {
-        [8]
-    }
-
-    fn is_valid(&self) -> bool {
-        self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> SwimmerObservation {
-        self.last_obs
-    }
-}
-
-// ─── Environment ─────────────────────────────────────────────────────────
 
 /// Swimmer — a 3-segment planar swimmer with viscous drag. Generic in the
 /// physics backend; v1 only implements `B = Rapier3DBackend`.
@@ -603,10 +259,10 @@ impl Swimmer<Rapier3DBackend> {
     /// Drag is applied *every* substep because Rapier clears external-force
     /// accumulators after each `step_once`. The actuator torque, in contrast,
     /// is applied once per env step at the top of `Environment::step` — same
-    /// convention as [`super::reacher::Reacher`] and
-    /// [`super::inverted_double_pendulum::InvertedDoublePendulum`]. Applying
-    /// it per-substep under Rapier's PGS solver over-drives the low-inertia
-    /// chain and NaNs out.
+    /// convention as [`crate::locomotion::reacher::Reacher`] and
+    /// [`crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum`].
+    /// Applying it per-substep under Rapier's PGS solver over-drives the
+    /// low-inertia chain and NaNs out.
     fn step_physics(&mut self) {
         let substeps = self.config.frame_skip.max(1);
         for _ in 0..substeps {
@@ -693,8 +349,6 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
 /// Extract the z-axis rotation angle from a pose whose body is DOF-gated to
 /// revolute-z. Quaternion stored as `[w, x, y, z]`.
 fn segment_z_angle(orientation: [f32; 4]) -> f32 {
@@ -705,6 +359,8 @@ fn segment_z_angle(orientation: [f32; 4]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::base::Action;
+    use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
     fn cfg(seed: u64) -> SwimmerConfig {
@@ -738,6 +394,7 @@ mod tests {
 
     #[test]
     fn action_clip_at_boundaries() {
+        use rlevo_core::action::ContinuousAction;
         let a = SwimmerAction::new(10.0, -10.0).clip(-1.0, 1.0);
         assert_eq!(a.0, [1.0, -1.0]);
     }

@@ -54,6 +54,7 @@ fn roll_out(env: &mut EmptyEnv) -> (f32, bool) {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn print_summary(rewards: &[f32], successes: usize) {
     let n = rewards.len() as f32;
     let mean = rewards.iter().sum::<f32>() / n;

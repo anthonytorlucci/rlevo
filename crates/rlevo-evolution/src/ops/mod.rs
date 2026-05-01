@@ -8,7 +8,7 @@
 //! - [`replacement`] — survivor selection (generational, elitist,
 //!   (μ+λ), (μ,λ)).
 //!
-//! The [`kernels`] submodule houses custom CubeCL fused kernels (empty
+//! The [`kernels`] submodule houses custom `CubeCL` fused kernels (empty
 //! for now; see the `custom-kernels` crate feature).
 //!
 //! All operator functions take an explicit `&mut dyn RngCore` and a

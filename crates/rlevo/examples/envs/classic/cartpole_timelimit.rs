@@ -1,4 +1,4 @@
-//! CartPole with [`TimeLimit`] wrapper demonstrating truncation vs termination.
+//! `CartPole` with [`TimeLimit`] wrapper demonstrating truncation vs termination.
 //!
 //! Uses `TimeLimit::new(env, 500)` so episodes that survive 500 steps end
 //! with `is_truncated() == true`, while episodes where the pole falls end
@@ -24,6 +24,7 @@ use rlevo_environments::wrappers::TimeLimit;
 const NUM_EPISODES: usize = 100;
 const TIME_LIMIT: usize = 500;
 
+#[allow(clippy::cast_precision_loss)]
 fn main() {
     let cfg = CartPoleConfig::default();
 
@@ -124,6 +125,7 @@ fn main() {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn print_stats(label: &str, values: &[f32]) {
     let n = values.len() as f32;
     let mean = values.iter().sum::<f32>() / n;

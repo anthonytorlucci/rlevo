@@ -191,7 +191,7 @@ where
 
         // First `tell`: evaluated the initial parents.
         if state.parent_fitness.is_empty() {
-            state.parent_fitness = fitness_host.clone();
+            state.parent_fitness.clone_from(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &offspring, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -259,7 +259,7 @@ where
         let next_fitness: Vec<f32> = survivor_idx
             .iter()
             .map(|&i| {
-                #[allow(clippy::cast_sign_loss)]
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                 combined_fit[i as usize]
             })
             .collect();

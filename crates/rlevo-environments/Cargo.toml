@@ -6,6 +6,8 @@ description = "RL benchmark environments and landscapes for rlevo (internal crat
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
@@ -16,7 +18,6 @@ serde = { workspace = true }
 rand_distr = { workspace = true }
 rapier2d = { workspace = true, optional = true }
 rapier3d = { workspace = true, optional = true }
-nalgebra = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -26,7 +27,7 @@ default = ["box2d", "locomotion"]
 # Box2D-style physics environments (rapier2d)
 box2d = ["dep:rapier2d"]
 # MuJoCo-style locomotion environments (rapier3d)
-locomotion = ["dep:rapier3d", "dep:nalgebra"]
+locomotion = ["dep:rapier3d"]
 # `BenchAdapter` and preset `Suite` factories for the `rlevo-benchmarks` harness.
 # Off by default to keep the base envs dep cone (rayon, tracing, serde_json) lean.
 bench = ["dep:rlevo-benchmarks"]

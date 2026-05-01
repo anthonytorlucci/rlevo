@@ -6,6 +6,8 @@ description = "Core traits and types for rlevo (internal crate — use `rlevo` f
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }

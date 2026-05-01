@@ -11,7 +11,7 @@
 //! implementation materializes an `(N, N, D)` pairwise-difference
 //! tensor and therefore blows out memory at `N > 128`. This module
 //! enforces that hard cap when the `custom-kernels` feature is off. A
-//! future fused CubeCL kernel
+//! future fused `CubeCL` kernel
 //! ([`super::kernels::pairwise_attract_cube`]) is designed to stream
 //! over the neighbour axis and keep memory at `O(ND)`, removing the
 //! cap; until that kernel lands, the pure-tensor path runs even when
@@ -30,7 +30,7 @@ use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
 /// Hard cap for the pure-tensor `O(N²D)` Firefly path. Exceeding this
-/// without the fused CubeCL kernel would allocate a cubic tensor on
+/// without the fused `CubeCL` kernel would allocate a cubic tensor on
 /// device; the kernel path removes the cap.
 pub const FIREFLY_PURE_TENSOR_CAP: usize = 128;
 
@@ -123,7 +123,7 @@ impl<B: Backend> FireflyAlgorithm<B> {
     }
 
     /// Pure-tensor `O(N²D)` attraction kernel — always available, even
-    /// without the `custom-kernels` feature. The fused CubeCL kernel
+    /// without the `custom-kernels` feature. The fused `CubeCL` kernel
     /// designed in [`super::kernels::pairwise_attract_cube`] slots in at
     /// this call site once it lands.
     fn pure_tensor_attract(
@@ -204,9 +204,8 @@ where
         #[cfg(feature = "custom-kernels")]
         debug_assert!(
             params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
-            "Firefly pop_size > {} requires the fused pairwise-attract kernel; \
-             the placeholder kernel module still runs the pure-tensor path",
-            FIREFLY_PURE_TENSOR_CAP
+            "Firefly pop_size > {FIREFLY_PURE_TENSOR_CAP} requires the fused pairwise-attract kernel; \
+             the placeholder kernel module still runs the pure-tensor path"
         );
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
@@ -254,7 +253,7 @@ where
         let new_positions = (state.positions.clone() + delta).clamp(lo, hi);
 
         let mut next = state.clone();
-        next.positions = new_positions.clone();
+        next.positions.clone_from(&new_positions);
         (new_positions, next)
     }
 
@@ -268,8 +267,8 @@ where
     ) -> (FireflyState<B>, StrategyMetrics) {
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
         let device = population.device();
-        state.fitness = fitness_host.clone();
-        state.positions = population.clone();
+        state.fitness.clone_from(&fitness_host);
+        state.positions.clone_from(&population);
 
         let best_idx = argmin(&fitness_host);
         if fitness_host[best_idx] < state.best_fitness {

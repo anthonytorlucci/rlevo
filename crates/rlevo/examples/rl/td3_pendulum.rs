@@ -75,9 +75,10 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
         inner.forward_impl(obs)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, ActorMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -125,9 +126,10 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
         inner.forward_impl(obs, act)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
@@ -171,7 +173,7 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     }
 }
 
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
+fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: std::marker::PhantomData,

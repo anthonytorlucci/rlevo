@@ -102,7 +102,7 @@ const COLLISION_REWARD: f32 = -1.0;
 pub struct DynamicObstaclesConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
-    /// Must be at least [`MIN_SIZE`] (5).
+    /// Must be at least `5`.
     pub size: usize,
     /// Number of ball obstacles to spawn in random interior cells.
     ///

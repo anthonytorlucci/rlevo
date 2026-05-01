@@ -62,6 +62,10 @@ impl Evaluator {
     ///
     /// `agent_factory` is called once per trial with the derived agent seed;
     /// it is the implementor's contract to initialize the agent deterministically.
+    ///
+    /// # Panics
+    /// Panics if the rayon thread pool cannot be built.
+    #[allow(clippy::too_many_lines)]
     pub fn run_suite<E, A, R, FA>(
         &self,
         suite: &Suite<E>,

@@ -1,4 +1,4 @@
-//! Custom CubeCL kernels for swarm-algorithm hot paths.
+//! Custom `CubeCL` kernels for swarm-algorithm hot paths.
 //!
 //! Two kernels live here, both gated behind the crate-level
 //! `custom-kernels` feature:

@@ -161,7 +161,7 @@ impl FromStr for LavaGapConfig {
 /// Stepping into lava ends the episode immediately with reward `0.0`.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

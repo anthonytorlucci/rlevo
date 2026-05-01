@@ -26,8 +26,8 @@
 //! # The harness adapter
 //!
 //! [`EvolutionaryHarness`] glues a strategy to any
-//! [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) and implements
-//! [`BenchEnv`](rlevo_core::evaluation::BenchEnv), so the benchmark
+//! [`BatchFitnessFn`] and implements
+//! [`BenchEnv`], so the benchmark
 //! evaluator drives it just like an RL environment.
 
 use std::fmt::Debug;
@@ -353,6 +353,10 @@ where
     ///
     /// Inherent shape (infallible). The [`BenchEnv`] trait impl wraps this
     /// in `Ok(...)`. See [`Self::reset`] for the rationale.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`reset`](Self::reset) has not been called first.
     pub fn step(&mut self, _action: ()) -> BenchStep<()> {
         let state = self
             .state
@@ -500,6 +504,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn harness_runs_one_generation() {
         let device = Default::default();
         let strategy = Constant;

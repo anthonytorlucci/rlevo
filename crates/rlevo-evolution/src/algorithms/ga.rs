@@ -156,12 +156,12 @@ impl<B: Backend> GeneticAlgorithm<B> {
         let range = f64::from(hi - lo);
         let lo_f = f64::from(lo);
         B::seed(device, rng.next_u64());
-        let u = Tensor::<B, 2>::random(
+        
+        Tensor::<B, 2>::random(
             [params.pop_size, params.genome_dim],
             burn::tensor::Distribution::Uniform(lo_f, lo_f + range),
             device,
-        );
-        u
+        )
     }
 }
 
@@ -273,7 +273,7 @@ where
 
         // First `tell` after `init`: cache fitness for the seed population.
         if state.fitness.is_empty() {
-            state.fitness = fitness_host.clone();
+            state.fitness.clone_from(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &population, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -297,7 +297,7 @@ where
                 state.population.clone(),
                 &state.fitness,
                 population.clone(),
-                fitness_host.clone(),
+                &fitness_host,
                 elitism_k,
                 &device,
             ),
@@ -305,7 +305,7 @@ where
 
         update_best(&mut state, &next_pop, &next_fitness);
         state.population = next_pop;
-        state.fitness = next_fitness.clone();
+        state.fitness.clone_from(&next_fitness);
         state.generation += 1;
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &next_fitness, state.best_fitness);

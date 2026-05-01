@@ -98,29 +98,28 @@ mod tests {
 
     #[test]
     fn real_has_f32_element() {
-        let _x: <Real as GenomeKind>::Element = 0.0_f32;
+        let _: <Real as GenomeKind>::Element = 0.0_f32;
     }
 
     #[test]
     fn binary_has_i32_element() {
-        let _x: <Binary as GenomeKind>::Element = 1_i32;
+        let _: <Binary as GenomeKind>::Element = 1_i32;
     }
 
     #[test]
     fn integer_has_i32_element() {
-        let _x: <Integer as GenomeKind>::Element = 5_i32;
+        let _: <Integer as GenomeKind>::Element = 5_i32;
     }
 
     #[test]
     fn permutation_has_i32_element() {
-        let _x: <Permutation as GenomeKind>::Element = 7_i32;
+        let _: <Permutation as GenomeKind>::Element = 7_i32;
     }
 
     #[test]
     fn markers_are_debug() {
         let _ = format!(
-            "{:?} {:?} {:?} {:?} {:?}",
-            Real, Binary, Integer, Tree, Permutation
+            "{Real:?} {Binary:?} {Integer:?} {Tree:?} {Permutation:?}"
         );
     }
 }

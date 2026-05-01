@@ -1,4 +1,4 @@
-//! Ant Colony Optimization for continuous domains (ACO_R).
+//! Ant Colony Optimization for continuous domains (`ACO_R`).
 //!
 //! Socha & Dorigo's 2008 extension of ACO to real-valued search spaces.
 //! The colony maintains an **archive** of the `k` best solutions seen
@@ -168,6 +168,7 @@ where
         }
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn ask(
         &self,
         params: &AcoRConfig,
