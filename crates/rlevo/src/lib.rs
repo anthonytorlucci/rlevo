@@ -1,4 +1,4 @@
-//! Evolutionary Deep Reinforcement Learning built on the [Burn](https://github.com/tracel-ai/burn) framework.
+//! Deep Reinforcement Learning with Evolutionary Optimization built on the [Burn](https://github.com/tracel-ai/burn) framework.
 //!
 //! # Modules
 //!
