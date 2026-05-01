@@ -7,7 +7,7 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 /// 96×96×3 pixel observation for CarRacing.
 ///
 /// Pixel values are `u8` in `[0, 255]` (row-major, RGB).
-/// When converted to tensors via [`TensorConvertible`], values are
+/// When converted to tensors via [`TensorConvertible`](rlevo_core::base::TensorConvertible), values are
 /// normalised to `[0.0, 1.0]`.
 #[derive(Clone)]
 pub struct CarRacingObservation {

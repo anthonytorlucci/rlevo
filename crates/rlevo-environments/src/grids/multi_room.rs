@@ -217,7 +217,7 @@ impl FromStr for MultiRoomConfig {
 /// making this suitable for testing long-horizon planning and credit assignment.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

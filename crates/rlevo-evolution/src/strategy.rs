@@ -26,8 +26,8 @@
 //! # The harness adapter
 //!
 //! [`EvolutionaryHarness`] glues a strategy to any
-//! [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) and implements
-//! [`BenchEnv`](rlevo_core::evaluation::BenchEnv), so the benchmark
+//! [`BatchFitnessFn`] and implements
+//! [`BenchEnv`], so the benchmark
 //! evaluator drives it just like an RL environment.
 
 use std::fmt::Debug;

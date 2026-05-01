@@ -10,7 +10,7 @@
 //!
 //! # Swarm / nature-inspired metaheuristics
 //!
-//! - [`swarm`] — PSO, `ACO_R`, ABC, GWO, WOA, CS, FA, BA, SSA.
+//! - [`metaheuristic`] — PSO, `ACO_R`, ABC, GWO, WOA, CS, FA, BA, SSA.
 
 pub mod de;
 pub mod ep;

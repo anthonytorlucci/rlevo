@@ -8,8 +8,8 @@
 //!
 //! # Surface area
 //!
-//! - [`strategy`] — the central [`Strategy`](strategy::Strategy) trait and
-//!   the [`EvolutionaryHarness`](strategy::EvolutionaryHarness) adapter that
+//! - [`strategy`] — the central [`Strategy`] trait and
+//!   the [`EvolutionaryHarness`] adapter that
 //!   wraps any strategy into `rlevo-benchmarks::BenchEnv`.
 //! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
 //!   `Tree`) that parameterize the operator set.

@@ -220,7 +220,7 @@ impl FromStr for GoToDoorConfig {
 /// reset to build instruction-conditioned policies.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

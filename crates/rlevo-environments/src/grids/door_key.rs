@@ -94,7 +94,7 @@ const DOOR_COLOR: Color = Color::Yellow;
 pub struct DoorKeyConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
-    /// Must be at least [`MIN_SIZE`] (5). The interior split column is
+    /// Must be at least `5`. The interior split column is
     /// `size / 2`; both sub-rooms are `(size / 2 - 1)` cells wide.
     pub size: usize,
     /// Maximum number of steps before the episode is truncated.

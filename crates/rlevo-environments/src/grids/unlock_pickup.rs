@@ -167,7 +167,7 @@ impl FromStr for UnlockPickupConfig {
 /// is carrying the box; the episode times out if the step budget runs out.
 ///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
-/// [`GridObservation`] / [`GridAction`] / [`ScalarReward`].
+/// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
 /// # Examples
 ///

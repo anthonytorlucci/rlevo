@@ -179,11 +179,11 @@ pub trait DiscreteAction<const D: usize>: Action<D> {
 /// # Dimensionality
 ///
 /// The const generic `D` specifies the number of dimensions. Each dimension
-/// can have a different cardinality, defined by [`action_space()`](MultiDiscreteAction::action_space).
+/// can have a different cardinality, defined by [`shape()`](Action::shape).
 ///
 /// The total number of action combinations is the product of all dimension sizes:
 /// ```text
-/// total_actions = ∏ action_space()[i]
+/// total_actions = ∏ shape()[i]
 /// ```
 ///
 /// # Caution: Combinatorial Explosion
@@ -194,7 +194,7 @@ pub trait DiscreteAction<const D: usize>: Action<D> {
 pub trait MultiDiscreteAction<const D: usize>: Action<D> {
     /// Constructs an action from multi-dimensional indices.
     ///
-    /// Each index must be in the range `[0, action_space()[i])` for dimension `i`.
+    /// Each index must be in the range `[0, shape()[i])` for dimension `i`.
     ///
     /// # Panics
     ///
@@ -203,7 +203,7 @@ pub trait MultiDiscreteAction<const D: usize>: Action<D> {
 
     /// Converts this action to its multi-dimensional index representation.
     ///
-    /// The returned array must satisfy: each element `i` is in `[0, action_space()[i])`.
+    /// The returned array must satisfy: each element `i` is in `[0, shape()[i])`.
     /// This method must be the inverse of [`from_indices()`](MultiDiscreteAction::from_indices).
     fn to_indices(&self) -> [usize; D];
 
