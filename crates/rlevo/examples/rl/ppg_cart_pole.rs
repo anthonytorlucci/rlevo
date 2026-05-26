@@ -1,4 +1,4 @@
-//! Phasic Policy Gradient (PPG, discrete) on `CartPole` with Burn's ndarray
+//! Phasic Policy Gradient (PPG, discrete) on `CartPole` with Burn's flex
 //! backend.
 //!
 //! v1 scope note: `CartPole` parity with PPO is the v1 target. PPG's sample

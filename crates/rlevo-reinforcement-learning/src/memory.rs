@@ -855,7 +855,7 @@ mod sample_batch_tests {
     //! End-to-end regression tests for [`PrioritizedExperienceReplay::sample_batch`].
     //!
     //! These tests actually call `sample_batch` against a concrete backend
-    //! (Burn's ndarray) and verify the produced tensors have the batched
+    //! (Burn's flex) and verify the produced tensors have the batched
     //! shapes `[batch, ...]`. Before the BD/BAD generics landed, the
     //! function panicked at runtime because it tried to stack rank-`D`
     //! tensors into a rank-`D` output, so this suite guards against that

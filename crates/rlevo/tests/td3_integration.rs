@@ -456,7 +456,7 @@ fn td3_delayed_update_skips_actor_step() {
 }
 
 /// Pendulum macro-smoke: 500k steps, checks the moving average is finite
-/// and better than the zero-torque baseline. Gated — Burn's ndarray backend
+/// and better than the zero-torque baseline. Gated — Burn's Flex backend
 /// shares a global RNG with other tests so this runs at `--test-threads=1`.
 #[test]
 #[ignore = "macro run (~500k Pendulum steps); --test-threads=1 for isolated Burn RNG"]

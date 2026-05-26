@@ -1,4 +1,4 @@
-//! QR-DQN (Quantile Regression DQN) on `CartPole` with Burn's ndarray backend.
+//! QR-DQN (Quantile Regression DQN) on `CartPole` with Burn's Flex backend.
 //!
 //! Usage:
 //!

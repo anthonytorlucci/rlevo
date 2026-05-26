@@ -123,7 +123,7 @@ fn cfg() -> EvaluatorConfig {
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 17,
-        // Single-threaded: Burn ndarray seeds via a process-wide mutex,
+        // Single-threaded: Burn Flex seeds via a process-wide mutex,
         // so parallel trials race on seeding and produce non-reproducible
         // trajectories. Forcing one thread is the simplest honest option.
         num_threads: Some(1),

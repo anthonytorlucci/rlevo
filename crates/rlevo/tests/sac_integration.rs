@@ -549,7 +549,7 @@ fn sac_alpha_frozen_when_autotune_disabled() {
 }
 
 /// Pendulum macro-smoke: gated at 500k steps, `--test-threads=1` so the
-/// ndarray backend's global RNG stays isolated.
+/// Flex backend global RNG stays isolated.
 #[test]
 #[ignore = "macro run (~500k Pendulum steps); --test-threads=1 for isolated Burn RNG"]
 fn sac_pendulum_smoke() {
@@ -605,11 +605,11 @@ fn sac_pendulum_smoke() {
 }
 
 /// Seeded reproducibility: two identical runs on the same seed must produce
-/// bit-equal metrics. Gated — shares the ndarray backend's global RNG with
+/// bit-equal metrics. Gated — shares the Flex backend's global RNG with
 /// other tests.
 #[test]
 #[ignore = "reproducibility run; --test-threads=1 for isolated Burn RNG"]
-fn sac_reproducibility_ndarray() {
+fn sac_reproducibility_flex() {
     fn run_once() -> f32 {
         let seed: u64 = 42;
         let device = Default::default();

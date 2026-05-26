@@ -3,7 +3,7 @@
 //! Two-layer MLP with `tanh` activations (matching CleanRL's discrete PPO
 //! default) followed by a softmax over `num_actions` logits. Sampling is
 //! done via **Gumbel-max on CPU** so the RNG is explicitly threaded and
-//! bitwise-reproducible under the ndarray backend.
+//! bitwise-reproducible under the Flex backend.
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
@@ -89,7 +89,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         let log_probs = log_softmax(logits.clone(), 1);
 
         // CPU-side Gumbel-max sampling for bitwise reproducibility under
-        // ndarray. We read the logits data (cheap clone: ref-counted in Burn),
+        // flex. We read the logits data (cheap clone: ref-counted in Burn),
         // add Gumbel(0,1) noise, argmax per row.
         let logits_data = logits.clone().into_data().convert::<f32>();
         let logits_slice = logits_data

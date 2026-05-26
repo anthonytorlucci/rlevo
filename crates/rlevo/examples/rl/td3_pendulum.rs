@@ -1,4 +1,4 @@
-//! TD3 on Pendulum-v1 with Burn's ndarray backend.
+//! TD3 on Pendulum-v1 with Burn's Flex backend.
 //!
 //! CLI mirrors `ddpg_pendulum` so the two agents can be A/B'd by simply
 //! swapping the example name:

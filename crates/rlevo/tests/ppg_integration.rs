@@ -193,7 +193,7 @@ fn ppg_aux_phase_actually_runs() {
 }
 
 #[test]
-#[ignore = "perturbs Burn's global ndarray RNG; run with --test-threads=1"]
+#[ignore = "perturbs Burn's global Flex RNG; run with --test-threads=1"]
 fn ppg_short_run_produces_finite_rewards() {
     let seed: u64 = 7;
     let total = 2_048_usize;
@@ -222,7 +222,7 @@ fn ppg_short_run_produces_finite_rewards() {
 }
 
 #[test]
-#[ignore = "macro convergence; ~2-5 min on ndarray"]
+#[ignore = "macro convergence; ~2-5 min on Flex"]
 fn ppg_cart_pole_reaches_475() {
     let seed: u64 = 42;
     let total = 400_000_usize;

@@ -1,4 +1,4 @@
-//! PPO (continuous, tanh-Gaussian head) on Pendulum with Burn's ndarray backend.
+//! PPO (continuous, tanh-Gaussian head) on Pendulum with Burn's Flex backend.
 //!
 //! Usage:
 //!

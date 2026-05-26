@@ -5,7 +5,7 @@
 //! - `ppo_pendulum_improves_over_random` (continuous)
 //!
 //! Heavier parity checks behind `#[ignore]` follow the DQN/C51 convention:
-//! Burn's ndarray backend shares a global RNG, so reproducibility tests must
+//! Burn's Flex backend shares a global RNG, so reproducibility tests must
 //! run with `--test-threads=1`.
 
 use burn::backend::{Autodiff, Flex};
@@ -129,7 +129,7 @@ fn ppo_cart_pole_reaches_100() {
 }
 
 #[test]
-#[ignore = "perturbs Burn's global ndarray RNG; run with --test-threads=1"]
+#[ignore = "perturbs Burn's global Flex RNG; run with --test-threads=1"]
 fn ppo_short_run_produces_finite_rewards() {
     let seed: u64 = 7;
     let total = 2_048_usize;
@@ -197,7 +197,7 @@ fn make_pendulum_agent(
 }
 
 #[test]
-#[ignore = "~30s on ndarray; run with --ignored for macro checks"]
+#[ignore = "~30s on Flex; run with --ignored for macro checks"]
 fn ppo_pendulum_improves_over_random() {
     let seed: u64 = 42;
     let total = 30_000_usize;

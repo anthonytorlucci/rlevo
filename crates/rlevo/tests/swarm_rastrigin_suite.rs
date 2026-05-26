@@ -64,7 +64,7 @@ fn cfg() -> EvaluatorConfig {
         max_steps: MAX_GENS,
         base_seed: 29,
         // Single-threaded — see rastrigin_run_suite.rs for the
-        // ndarray-RNG-mutex rationale.
+        // Flex-RNG-mutex rationale.
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,

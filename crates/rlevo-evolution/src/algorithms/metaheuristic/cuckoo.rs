@@ -18,7 +18,7 @@
 //! # Numerical parity caveat
 //!
 //! The fractional power `|v|^(1/β)` is FMA-reorder-sensitive — wgpu
-//! reductions can drift ~`1e-3` relative from ndarray on the same seed.
+//! reductions can drift ~`1e-3` relative from flex on the same seed.
 //! The backend-parity test relaxes tolerance for CS accordingly.
 //!
 //! # References

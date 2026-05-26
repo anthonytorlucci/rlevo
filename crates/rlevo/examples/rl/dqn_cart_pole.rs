@@ -1,4 +1,4 @@
-//! DQN on `CartPole` with Burn's ndarray backend.
+//! DQN on `CartPole` with Burn's Flex backend.
 //!
 //! Usage:
 //!

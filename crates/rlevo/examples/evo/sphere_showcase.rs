@@ -53,7 +53,7 @@ fn main() {
     let bounds = (lo as f32, hi as f32);
 
     println!(
-        "Sphere-D{DIM} showcase — {GENS} generations, ndarray backend, seed={SEED}\n\
+        "Sphere-D{DIM} showcase — {GENS} generations, Flex backend, seed={SEED}\n\
          {:-<80}",
         "",
     );

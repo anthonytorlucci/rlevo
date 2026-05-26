@@ -56,7 +56,7 @@ fn main() {
     let bounds = (lo as f32, hi as f32);
 
     println!(
-        "Ackley-D{DIM} showcase — {GENS} generations, ndarray backend, seed={SEED}\n\
+        "Ackley-D{DIM} showcase — {GENS} generations, Flex backend, seed={SEED}\n\
          {:-<80}",
         "",
     );

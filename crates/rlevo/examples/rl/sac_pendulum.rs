@@ -1,4 +1,4 @@
-//! SAC on Pendulum-v1 with Burn's ndarray backend.
+//! SAC on Pendulum-v1 with Burn's Flex backend.
 //!
 //! CLI mirrors `td3_pendulum` so the two agents can be A/B'd by swapping the
 //! example name:

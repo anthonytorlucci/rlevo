@@ -1,4 +1,4 @@
-//! C51 (Categorical DQN) on `CartPole` with Burn's ndarray backend.
+//! C51 (Categorical DQN) on `CartPole` with Burn's Flex backend.
 //!
 //! Usage:
 //!

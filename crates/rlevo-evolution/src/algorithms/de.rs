@@ -518,7 +518,7 @@ mod tests {
 
     /// All five DE variants converge on Sphere-D10 within budget.
     ///
-    /// The Burn ndarray backend seeds its RNG through a process-wide
+    /// The Burn Flex backend seeds its RNG through a process-wide
     /// mutex, so separate `#[test]` functions that call `Tensor::random`
     /// race on seeding and produce non-deterministic trajectories. This
     /// single test runs the variants sequentially inside one function

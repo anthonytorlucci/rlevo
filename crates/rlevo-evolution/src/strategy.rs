@@ -230,7 +230,7 @@ impl StrategyMetrics {
 /// # Determinism and parallel execution
 ///
 /// Burn backends seed their tensor RNG through process-global state —
-/// the `ndarray` backend uses a `Mutex<Option<FlexRng>>`, the
+/// the `flex` backend uses a `Mutex<Option<FlexRng>>`, the
 /// `wgpu` backend a per-device seeded stream. When multiple harness
 /// instances run in parallel threads (e.g.
 /// `Evaluator::run_suite` with the default rayon pool), their

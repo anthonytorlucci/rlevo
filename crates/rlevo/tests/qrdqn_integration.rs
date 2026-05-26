@@ -3,7 +3,7 @@
 //!
 //! Mirrors the shape of `c51_integration.rs`: modest step budgets on
 //! `CartPole` for `cargo test` throughput, with heavier reproducibility
-//! checks gated behind `#[ignore]` because Burn's ndarray backend shares a
+//! checks gated behind `#[ignore]` because Burn's Flex backend shares a
 //! global RNG.
 
 use std::collections::HashMap;
@@ -127,7 +127,7 @@ fn fresh_agent(seed: u64) -> Agent {
     // QR-DQN's quantile Huber loss uses a `(batch, N, N)` broadcast — one
     // factor of `N` slower per learn step than C51's categorical loss. Use
     // a smaller quantile count than C51 to keep the integration test's
-    // wall-clock on ndarray practical for CI.
+    // wall-clock on Flex practical for CI.
     let num_quantiles = 21;
     let config = QrDqnTrainingConfigBuilder::new()
         .batch_size(64)
@@ -155,7 +155,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// Smoke test: a short run completes, the buffer populates, and episode
 /// rewards are finite. Catches silent regressions (NaN quantiles, loss
 /// numerical blow-up, etc.). Marked `#[ignore]` because running it alongside
-/// other training tests perturbs Burn's global ndarray RNG; exercise with
+/// other training tests perturbs Burn's global Flex RNG; exercise with
 /// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration -- --ignored
 /// --test-threads=1`.
 #[test]
@@ -183,11 +183,11 @@ fn qrdqn_short_run_produces_finite_rewards() {
 
 /// Reproducibility smoke test: two seeded back-to-back runs produce identical
 /// reward sequences. Marked `#[ignore]` for the same reason as the DQN/C51
-/// counterparts — Burn's ndarray backend uses a process-global RNG.
+/// counterparts — Burn's Flex backend uses a process-global RNG.
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
 #[allow(clippy::float_cmp)]
-fn qrdqn_reproducibility_ndarray() {
+fn qrdqn_reproducibility_flex() {
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
@@ -234,10 +234,10 @@ fn qrdqn_cart_pole_reaches_50() {
 /// steps at seed 42. Ignored by default — too expensive for regular CI.
 /// Run with:
 /// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration --release --
-///      --ignored qrdqn_solves_cart_pole_ndarray_seed_42`.
+///      --ignored qrdqn_solves_cart_pole_flex_seed_42`.
 #[test]
-#[ignore = "long-running acceptance target; ~500k steps on ndarray CPU"]
-fn qrdqn_solves_cart_pole_ndarray_seed_42() {
+#[ignore = "long-running acceptance target; ~500k steps on Flex CPU"]
+fn qrdqn_solves_cart_pole_flex_seed_42() {
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,

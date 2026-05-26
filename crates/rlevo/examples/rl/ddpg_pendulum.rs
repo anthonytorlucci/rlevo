@@ -1,4 +1,4 @@
-//! DDPG on Pendulum-v1 with Burn's ndarray backend.
+//! DDPG on Pendulum-v1 with Burn's Flex backend.
 //!
 //! Usage:
 //!

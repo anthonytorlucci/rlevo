@@ -1,8 +1,8 @@
 //! Cross-backend parity for the pure-tensor operator baselines.
 //!
 //! A `1e-4` relative-tolerance match of `best_fitness_ever` between
-//! ndarray and wgpu on Sphere-D10 is untestable in practice: the two
-//! backends use independent RNG streams (ndarray = splitmix-seeded
+//! flex and wgpu on Sphere-D10 is untestable in practice: the two
+//! backends use independent RNG streams (flex = splitmix-seeded
 //! `FlexRng`; wgpu = per-device compute-pipeline seeded stream) so
 //! even when the same host seed is supplied, tensor `random()` calls
 //! produce different bytes. The strategies therefore take different
@@ -21,14 +21,14 @@
 //!
 //! Even when the RNG disparity is set aside, the wgpu backend does not
 //! guarantee bit-identical reductions because workgroup ordering is
-//! implementation-dependent. The ndarray backend is still expected to
+//! implementation-dependent. The Flex backend is still expected to
 //! be bit-deterministic; that contract is enforced by
 //! `tests/determinism.rs`.
 //!
 //! # Single test, serial execution
 //!
 //! Both backends seed their internal RNG through process-global state
-//! (`Mutex<Option<FlexRng>>` for ndarray; per-device seed for
+//! (`Mutex<Option<FlexRng>>` for flex; per-device seed for
 //! wgpu). To keep the two runs comparable, this file contains exactly
 //! one `#[test]` function so nothing else in the test binary runs
 //! concurrently.
@@ -119,19 +119,19 @@ where
 }
 
 #[test]
-fn wgpu_matches_ndarray_on_sphere_d10() {
+fn wgpu_matches_flex_on_sphere_d10() {
     const SEED: u64 = 999;
     const GENS: usize = 400;
 
-    // Run ndarray first so the host seed state is deterministic; wgpu
+    // Run flex first so the host seed state is deterministic; wgpu
     // has its own per-device stream and doesn't disturb it.
-    let ndarray_ga = run_sphere_ga::<Flex>(SEED, GENS, Default::default());
-    let ndarray_pso = run_sphere_pso::<Flex>(SEED, GENS, Default::default());
+    let flex_ga = run_sphere_ga::<Flex>(SEED, GENS, Default::default());
+    let flex_pso = run_sphere_pso::<Flex>(SEED, GENS, Default::default());
 
     // Initializing a wgpu device can fail on CI machines without a GPU
     // or without system-level wgpu support. Treat initialization
     // failure as "skip" rather than an outright test failure — the
-    // ndarray run still validates the operators, and the parity
+    // Flex run still validates the operators, and the parity
     // assertion is only meaningful when the device actually exists.
     let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
     let wgpu_ga = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device.clone());
@@ -143,12 +143,12 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
     // x ~ U(-5.12, 5.12) is ~87), so any final value under 1.0
     // proves the operator chain works on both backends.
     assert!(
-        ndarray_ga.is_finite() && wgpu_ga.is_finite(),
-        "non-finite GA result: ndarray={ndarray_ga}, wgpu={wgpu_ga}",
+        flex_ga.is_finite() && wgpu_ga.is_finite(),
+        "non-finite GA result: flex={flex_ga}, wgpu={wgpu_ga}",
     );
     assert!(
-        ndarray_ga < 1.0,
-        "ndarray GA did not converge on Sphere-D10: {ndarray_ga}",
+        flex_ga < 1.0,
+        "Flex GA did not converge on Sphere-D10: {flex_ga}",
     );
     assert!(
         wgpu_ga < 1.0,
@@ -162,12 +162,12 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
     // because PSO with the default inertia schedule converges faster
     // than BLX-α GA on Sphere.
     assert!(
-        ndarray_pso.is_finite() && wgpu_pso.is_finite(),
-        "non-finite PSO result: ndarray={ndarray_pso}, wgpu={wgpu_pso}",
+        flex_pso.is_finite() && wgpu_pso.is_finite(),
+        "non-finite PSO result: flex={flex_pso}, wgpu={wgpu_pso}",
     );
     assert!(
-        ndarray_pso < 1e-2,
-        "ndarray PSO did not converge on Sphere-D10: {ndarray_pso}",
+        flex_pso < 1e-2,
+        "Flex PSO did not converge on Sphere-D10: {flex_pso}",
     );
     assert!(
         wgpu_pso < 1e-2,

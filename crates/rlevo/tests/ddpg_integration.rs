@@ -386,7 +386,7 @@ fn ddpg_solves_linear_1d_continuous() {
 
 /// Pendulum smoke test: 50k steps with small networks, verifies training runs
 /// without crashing and produces a reward above the zero-torque baseline.
-/// Gated — Burn's ndarray backend shares a global RNG with other tests so
+/// Gated — Burn's Flex backend shares a global RNG with other tests so
 /// this runs at `--test-threads=1`.
 #[test]
 #[ignore = "smoke run (~50k Pendulum steps); --test-threads=1 for isolated Burn RNG"]

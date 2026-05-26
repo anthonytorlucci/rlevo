@@ -1,4 +1,4 @@
-//! Baseline micro-benchmarks for hot-path operators on the ndarray
+//! Baseline micro-benchmarks for hot-path operators on the flex
 //! backend.
 //!
 //! The numbers these benches produce are the reference point for the

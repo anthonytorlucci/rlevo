@@ -1,4 +1,4 @@
-//! PPO (discrete, categorical head) on `CartPole` with Burn's ndarray backend.
+//! PPO (discrete, categorical head) on `CartPole` with Burn's Flex backend.
 //!
 //! Usage:
 //!
