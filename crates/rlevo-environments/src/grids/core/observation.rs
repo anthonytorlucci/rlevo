@@ -55,7 +55,7 @@ impl Observation<3> for GridObservation {
 }
 
 impl<B: Backend> TensorConvertible<3, B> for GridObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 3> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 3> {
         let mut flat = Vec::with_capacity(VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS);
         for row in &self.view {
             for cell in row {
@@ -81,7 +81,7 @@ impl<B: Backend> TensorConvertible<3, B> for GridObservation {
     /// `[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]` or the backend fails to
     /// materialize its data.
     fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS] {
             return Err(TensorConversionError {
                 message: format!(
@@ -165,8 +165,8 @@ mod tests {
 
     #[test]
     fn view_round_trips_through_tensor() {
-        use burn::backend::NdArray;
-        type TestBackend = NdArray;
+        use burn::backend::Flex;
+        type TestBackend = Flex;
         let device = Default::default();
 
         let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
@@ -187,9 +187,9 @@ mod tests {
 
     #[test]
     fn from_tensor_rejects_wrong_shape() {
-        use burn::backend::NdArray;
+        use burn::backend::Flex;
         use burn::tensor::TensorData as TD;
-        type TestBackend = NdArray;
+        type TestBackend = Flex;
         let device = Default::default();
 
         let flat = vec![0.0f32; VIEW_SIZE * VIEW_SIZE * 2];

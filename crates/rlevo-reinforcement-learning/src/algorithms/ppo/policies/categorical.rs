@@ -29,7 +29,7 @@ impl CategoricalPolicyHeadConfig {
     /// Constructs the module on `device` using Burn's default initializer.
     /// CleanRL's orthogonal-init detail is a deferred follow-up; users who
     /// want it can post-process the module via a `ModuleMapper`.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> CategoricalPolicyHead<B> {
+    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CategoricalPolicyHead<B> {
         CategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -154,7 +154,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::ActionTensor {
         assert_eq!(
             flat.len(),
@@ -184,12 +184,12 @@ pub fn discrete_action_from_row<const AD: usize, A: rlevo_core::action::Discrete
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, NdArray};
+    use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = Autodiff<NdArray>;
+    type B = Autodiff<Flex>;
 
     #[test]
     fn categorical_logprob_consistency() {

@@ -52,7 +52,7 @@ pub struct SquashedGaussianPolicyHeadConfig {
 
 impl SquashedGaussianPolicyHeadConfig {
     /// Constructs the module on `device`.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> SquashedGaussianPolicyHead<B> {
+    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SquashedGaussianPolicyHead<B> {
         SquashedGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -212,7 +212,7 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedGaussianPol
 pub fn standard_normal_tensor<B: Backend, R: rand::Rng + ?Sized>(
     rows: usize,
     cols: usize,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
     rng: &mut R,
 ) -> Tensor<B, 2> {
     use rand_distr::{Distribution, StandardNormal};
@@ -228,13 +228,13 @@ pub fn standard_normal_tensor<B: Backend, R: rand::Rng + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, NdArray};
+    use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = Autodiff<NdArray>;
-    type BI = NdArray;
+    type B = Autodiff<Flex>;
+    type BI = Flex;
 
     /// Pin μ=0, log_std=0, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
     /// Hand-rolled reference:

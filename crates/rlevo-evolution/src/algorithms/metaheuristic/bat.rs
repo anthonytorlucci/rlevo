@@ -105,10 +105,10 @@ pub struct BatState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::bat::{BatAlgorithm, BatConfig};
 ///
-/// let strategy = BatAlgorithm::<NdArray>::new();
+/// let strategy = BatAlgorithm::<Flex>::new();
 /// let params = BatConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -135,7 +135,7 @@ where
     type State = BatState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &B::Device) -> BatState<B> {
+    fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> BatState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let positions = Tensor::<B, 2>::random(
@@ -162,7 +162,7 @@ where
         params: &BatConfig,
         state: &BatState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, BatState<B>) {
         if state.fitness.is_empty() {
             // Evaluate the initial colony first; the velocity update is
@@ -355,10 +355,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

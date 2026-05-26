@@ -95,16 +95,16 @@ pub fn project_distribution<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type B = NdArray;
+    type B = Flex;
 
     fn make_support(
         v_min: f32,
         v_max: f32,
         n: usize,
-        device: &<B as Backend>::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 1> {
         let delta = (v_max - v_min) / (n as f32 - 1.0);
         let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
@@ -124,7 +124,7 @@ mod tests {
         // With reward = 0, γ = 1, done = 0 and a support that passes through
         // every atom, each atom maps to itself — the projection is the
         // identity on the input probabilities.
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let next_probs = Tensor::<B, 2>::from_data(
             TensorData::new(vec![0.5_f32, 0.3, 0.2], vec![1, 3]),
             &device,
@@ -146,7 +146,7 @@ mod tests {
         //   support = [-1, 0, 1], reward = 0.5, done = 1 → Tz ≡ 0.5 ∀ z_i
         //   b = 1.5 → mass evenly split between atoms 1 and 2, independent of
         //   next_probs.
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let next_probs = Tensor::<B, 2>::from_data(
             TensorData::new(vec![0.1_f32, 0.4, 0.5], vec![1, 3]),
             &device,
@@ -174,7 +174,7 @@ mod tests {
     fn projection_clamps_above_support() {
         // reward ≫ v_max ⇒ Tz clamps at v_max for every atom ⇒ all mass at
         // the top atom.
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let next_probs =
             Tensor::<B, 2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
@@ -192,7 +192,7 @@ mod tests {
     fn projection_preserves_total_mass() {
         // Arbitrary batch, random-ish probabilities normalised to 1: rows of
         // the projection should still sum to ≈1.
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let batch = 4;
         let n = 5;
         let next_probs_raw: Vec<f32> = (0..batch * n).map(|i| 1.0 + (i as f32) * 0.1).collect();

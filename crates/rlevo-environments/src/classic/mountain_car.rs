@@ -370,12 +370,12 @@ impl crate::render::AsciiRenderable for MountainCar {
 // ---------------------------------------------------------------------------
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         burn::tensor::Tensor::from_floats(self.to_array(), device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [2] {
             return Err(TensorConversionError {
                 message: format!("expected shape [2], got {dims:?}"),
@@ -395,14 +395,14 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarO
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         let mut one_hot = [0.0_f32; 3];
         one_hot[self.to_index()] = 1.0;
         burn::tensor::Tensor::from_floats(one_hot, device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [3] {
             return Err(TensorConversionError {
                 message: format!("expected shape [3], got {dims:?}"),

@@ -174,7 +174,7 @@ impl Error for TensorConversionError {}
 /// [`State::is_valid`] / [`Action::is_valid`]).
 pub trait TensorConvertible<const D: usize, B: Backend>: Sized {
     /// Converts `self` into a tensor on `device`.
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, D>;
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, D>;
 
     /// Reconstructs a value from a tensor.
     ///

@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -40,7 +40,7 @@ struct QrDqnMlp<B: Backend> {
 }
 
 impl<B: Backend> QrDqnMlp<B> {
-    fn new(num_quantiles: usize, device: &B::Device) -> Self {
+    fn new(num_quantiles: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -118,7 +118,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
     target.map(&mut m)
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {

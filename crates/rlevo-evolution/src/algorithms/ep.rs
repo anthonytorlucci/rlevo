@@ -86,10 +86,10 @@ pub struct EpState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 ///
-/// let strategy = EvolutionaryProgramming::<NdArray>::new();
+/// let strategy = EvolutionaryProgramming::<Flex>::new();
 /// let params = EpConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -116,7 +116,7 @@ where
     type State = EpState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &B::Device) -> EpState<B> {
+    fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let parents = Tensor::<B, 2>::random(
@@ -143,7 +143,7 @@ where
         params: &EpConfig,
         state: &EpState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, EpState<B>) {
         // First call: evaluate the initial parents.
         if state.parent_fitness.is_empty() {
@@ -310,9 +310,9 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

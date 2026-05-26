@@ -562,10 +562,10 @@ where
 mod tests {
     use super::*;
 
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type BI = NdArray;
+    type BI = Flex;
 
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {

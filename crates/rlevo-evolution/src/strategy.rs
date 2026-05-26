@@ -52,17 +52,17 @@ use crate::fitness::BatchFitnessFn;
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rlevo_evolution::Strategy;
 /// use rand::{rngs::StdRng, SeedableRng};
 ///
 /// let device = Default::default();
-/// let strategy = GeneticAlgorithm::<NdArray>::new();
+/// let strategy = GeneticAlgorithm::<Flex>::new();
 /// let params = GaConfig::default_for(64, 10);
 /// let mut rng = StdRng::seed_from_u64(0);
 /// let state = strategy.init(&params, &mut rng, &device);
-/// assert_eq!(state.population.shape().dims, vec![64, 10]);
+/// assert_eq!(state.population.dims(), [64, 10]);
 /// ```
 ///
 /// # Type Parameters
@@ -94,7 +94,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// Samples the initial population, primes adaptive quantities, and
     /// sets the generation counter to zero.
-    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self::State;
 
     /// Propose the next population.
     ///
@@ -108,7 +108,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
         params: &Self::Params,
         state: &Self::State,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Self::Genome, Self::State);
 
     /// Consume fitness values and produce the next state.
@@ -190,7 +190,7 @@ impl StrategyMetrics {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_core::fitness::FitnessEvaluable;
 /// use rlevo_core::evaluation::BenchEnv;
 /// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
@@ -208,8 +208,8 @@ impl StrategyMetrics {
 /// }
 ///
 /// let device = Default::default();
-/// let mut harness = EvolutionaryHarness::<NdArray, _, _>::new(
-///     GeneticAlgorithm::<NdArray>::new(),
+/// let mut harness = EvolutionaryHarness::<Flex, _, _>::new(
+///     GeneticAlgorithm::<Flex>::new(),
 ///     GaConfig::default_for(32, 5),
 ///     FromFitnessEvaluable::new(SphereFit, Sphere),
 ///     0, device, 100,
@@ -230,7 +230,7 @@ impl StrategyMetrics {
 /// # Determinism and parallel execution
 ///
 /// Burn backends seed their tensor RNG through process-global state —
-/// the `ndarray` backend uses a `Mutex<Option<NdArrayRng>>`, the
+/// the `ndarray` backend uses a `Mutex<Option<FlexRng>>`, the
 /// `wgpu` backend a per-device seeded stream. When multiple harness
 /// instances run in parallel threads (e.g.
 /// `Evaluator::run_suite` with the default rayon pool), their
@@ -413,9 +413,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     /// Trivial strategy for unit-testing the harness plumbing: it
     /// ignores `ask`/`tell` semantics and always reports the same best
@@ -444,7 +444,7 @@ mod tests {
             &self,
             params: &Params,
             _: &mut dyn Rng,
-            device: &<TestBackend as Backend>::Device,
+            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
         ) -> State {
             let _ = device;
             let _ = params;
@@ -459,7 +459,7 @@ mod tests {
             params: &Params,
             state: &State,
             _: &mut dyn Rng,
-            device: &<TestBackend as Backend>::Device,
+            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
         ) -> (Tensor<TestBackend, 2>, State) {
             let data = TensorData::new(
                 vec![0.0f32; params.pop_size * params.dim],
@@ -495,9 +495,9 @@ mod tests {
         fn evaluate_batch(
             &mut self,
             population: &Tensor<B, 2>,
-            device: &B::Device,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
         ) -> Tensor<B, 1> {
-            let n = population.shape().dims[0];
+            let n = population.dims()[0];
             let data = TensorData::new(vec![42.0f32; n], [n]);
             Tensor::<B, 1>::from_data(data, device)
         }

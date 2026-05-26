@@ -33,7 +33,7 @@ pub struct PpgCategoricalPolicyHeadConfig {
 
 impl PpgCategoricalPolicyHeadConfig {
     /// Constructs the module on `device` using Burn's default initializer.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> PpgCategoricalPolicyHead<B> {
+    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> PpgCategoricalPolicyHead<B> {
         PpgCategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -158,7 +158,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::ActionTensor {
         assert_eq!(
             flat.len(),
@@ -174,12 +174,12 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, NdArray};
+    use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = Autodiff<NdArray>;
+    type B = Autodiff<Flex>;
 
     fn head() -> PpgCategoricalPolicyHead<B> {
         let device = Default::default();
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn ppg_categorical_round_trips_action_rows() {
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let a1d: Tensor<B, 1, Int> =
             Tensor::from_data(TensorData::new(vec![0_i64, 2, 1], vec![3]), &device);
         let a2d: Tensor<B, 2, Int> = a1d.unsqueeze_dim::<2>(1);

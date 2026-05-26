@@ -9,7 +9,7 @@
 //! `--save-baseline pre-kernel` before landing kernels and
 //! `--baseline pre-kernel` afterwards to get a side-by-side report.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Distribution, Tensor, backend::Backend as _};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::SeedableRng;
@@ -20,16 +20,16 @@ use rlevo_evolution::fitness::BatchFitnessFn;
 use rlevo_evolution::ops::selection::tournament_select;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-type B = NdArray;
+type B = Flex;
 
 struct ZeroFitness;
 impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
     fn evaluate_batch(
         &mut self,
         population: &Tensor<B, 2>,
-        device: &<B as burn::tensor::backend::Backend>::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 1> {
-        let n = population.shape().dims[0];
+        let n = population.dims()[0];
         Tensor::<B, 1>::zeros([n], device)
     }
 }
@@ -56,7 +56,7 @@ fn bench_de_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("de_one_generation");
     group.sample_size(10);
     for &pop_size in &[64_usize, 256, 1024] {
-        let device: <B as burn::tensor::backend::Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         B::seed(&device, 42);
         let mut params = DeConfig::default_for(pop_size, 10);
         params.variant = DeVariant::Rand1Bin;

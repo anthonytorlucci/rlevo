@@ -126,10 +126,10 @@ pub struct CgpState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::gp_cgp::{CartesianGeneticProgramming, CgpConfig};
 ///
-/// let strategy = CartesianGeneticProgramming::<NdArray>::new();
+/// let strategy = CartesianGeneticProgramming::<Flex>::new();
 /// let params = CgpConfig::default_for(1);
 /// assert!(params.genome_len() > 0);
 /// let _ = strategy;
@@ -171,8 +171,11 @@ impl<B: Backend> CartesianGeneticProgramming<B> {
         genome
             .clone()
             .into_data()
-            .into_vec::<i64>()
+            .into_vec::<i32>()
             .unwrap_or_default()
+            .into_iter()
+            .map(i64::from)
+            .collect()
     }
 }
 
@@ -310,7 +313,7 @@ where
     type State = CgpState<B>;
     type Genome = Tensor<B, 2, Int>;
 
-    fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &B::Device) -> CgpState<B> {
+    fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CgpState<B> {
         let genome_vec = Self::sample_initial_genome(params, rng);
         let parent = Tensor::<B, 2, Int>::from_data(
             TensorData::new(genome_vec, [1, params.genome_len()]),
@@ -330,7 +333,7 @@ where
         params: &CgpConfig,
         state: &CgpState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2, Int>, CgpState<B>) {
         // First call: evaluate the parent as "offspring" of size 1.
         if !state.parent_fitness.is_finite() {
@@ -350,8 +353,11 @@ where
             mutate_genome(&mut child, params, &mut mut_rng);
             offspring_genomes.extend(child);
         }
+        #[allow(clippy::cast_possible_truncation)]
+        let offspring_genomes_i32: Vec<i32> =
+            offspring_genomes.into_iter().map(|v| v as i32).collect();
         let offspring = Tensor::<B, 2, Int>::from_data(
-            TensorData::new(offspring_genomes, [params.lambda, params.genome_len()]),
+            TensorData::new(offspring_genomes_i32, [params.lambda, params.genome_len()]),
             device,
         );
         (offspring, state.clone())
@@ -392,9 +398,9 @@ where
         let best_off_fit = fitness_host[best_off_idx];
         if best_off_fit <= state.parent_fitness {
             let device = offspring.device();
-            #[allow(clippy::cast_possible_wrap)]
+            #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
             let idx = Tensor::<B, 1, Int>::from_data(
-                TensorData::new(vec![best_off_idx as i64], [1]),
+                TensorData::new(vec![best_off_idx as i32], [1]),
                 &device,
             );
             state.parent = offspring.clone().select(0, idx);
@@ -431,9 +437,9 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
     }
     if best_f < state.best_fitness {
         let device = pop.device();
-        #[allow(clippy::cast_possible_wrap)]
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
         let idx =
-            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
+            Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i32], [1]), &device);
         state.best_genome = Some(pop.clone().select(0, idx));
         state.best_fitness = best_f;
     }
@@ -444,8 +450,8 @@ mod tests {
     use super::*;
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
-    type TestBackend = NdArray;
+    use burn::backend::Flex;
+    type TestBackend = Flex;
 
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].
     struct SymRegression {
@@ -468,10 +474,17 @@ mod tests {
         fn evaluate_batch(
             &mut self,
             population: &Tensor<B, 2, Int>,
-            device: &B::Device,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
         ) -> Tensor<B, 1> {
-            let pop_size = population.shape().dims[0];
-            let data = population.clone().into_data().into_vec::<i64>().unwrap();
+            let pop_size = population.dims()[0];
+            let data: Vec<i64> = population
+                .clone()
+                .into_data()
+                .into_vec::<i32>()
+                .unwrap()
+                .into_iter()
+                .map(i64::from)
+                .collect();
             let gl = self.params.genome_len();
             let inputs: Vec<Vec<f32>> = self.xs.iter().map(|&x| vec![x]).collect();
             let mut fitness = Vec::with_capacity(pop_size);

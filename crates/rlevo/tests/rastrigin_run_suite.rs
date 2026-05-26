@@ -8,7 +8,7 @@
 
 use std::sync::atomic::AtomicU32;
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rand::Rng;
 use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
 use rlevo_benchmarks::env::BenchEnv;
@@ -26,7 +26,7 @@ use rlevo_evolution::algorithms::ga::{
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 const DIM: usize = 10;
 const MAX_GENS: usize = 80;

@@ -6,7 +6,7 @@
 //!
 //! The wrapper exists so operators and strategies have a single shape
 //! contract to validate against (they check `pop_size` and `genome_dim`
-//! rather than repeatedly interrogating `tensor.shape().dims`).
+//! rather than repeatedly interrogating `tensor.dims()`).
 
 use std::marker::PhantomData;
 
@@ -59,7 +59,7 @@ impl<B: Backend> Population<B, Real> {
     /// Panics if the tensor is not rank 2.
     #[must_use]
     pub fn new_real(tensor: Tensor<B, 2>) -> Self {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
@@ -102,7 +102,7 @@ impl<B: Backend> Population<B, Binary> {
     /// Panics if the tensor is not rank 2.
     #[must_use]
     pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Self {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
@@ -134,7 +134,7 @@ impl<B: Backend> Population<B, Integer> {
     /// Panics if the tensor is not rank 2.
     #[must_use]
     pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Self {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
@@ -161,9 +161,9 @@ impl<B: Backend> Population<B, Integer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn real_population_reports_shape() {
@@ -173,7 +173,7 @@ mod tests {
         let pop = Population::<TestBackend, Real>::new_real(tensor);
         assert_eq!(pop.pop_size(), 2);
         assert_eq!(pop.genome_dim(), 2);
-        assert_eq!(pop.tensor().shape().dims, vec![2, 2]);
+        assert_eq!(pop.tensor().dims(), [2, 2]);
     }
 
     #[test]

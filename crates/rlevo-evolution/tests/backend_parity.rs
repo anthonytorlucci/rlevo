@@ -3,7 +3,7 @@
 //! A `1e-4` relative-tolerance match of `best_fitness_ever` between
 //! ndarray and wgpu on Sphere-D10 is untestable in practice: the two
 //! backends use independent RNG streams (ndarray = splitmix-seeded
-//! `NdArrayRng`; wgpu = per-device compute-pipeline seeded stream) so
+//! `FlexRng`; wgpu = per-device compute-pipeline seeded stream) so
 //! even when the same host seed is supplied, tensor `random()` calls
 //! produce different bytes. The strategies therefore take different
 //! trajectories and end at different points — both small, neither a
@@ -28,12 +28,12 @@
 //! # Single test, serial execution
 //!
 //! Both backends seed their internal RNG through process-global state
-//! (`Mutex<Option<NdArrayRng>>` for ndarray; per-device seed for
+//! (`Mutex<Option<FlexRng>>` for ndarray; per-device seed for
 //! wgpu). To keep the two runs comparable, this file contains exactly
 //! one `#[test]` function so nothing else in the test binary runs
 //! concurrently.
 
-use burn::backend::{NdArray, Wgpu};
+use burn::backend::{Flex, Wgpu};
 use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
@@ -125,8 +125,8 @@ fn wgpu_matches_ndarray_on_sphere_d10() {
 
     // Run ndarray first so the host seed state is deterministic; wgpu
     // has its own per-device stream and doesn't disturb it.
-    let ndarray_ga = run_sphere_ga::<NdArray>(SEED, GENS, Default::default());
-    let ndarray_pso = run_sphere_pso::<NdArray>(SEED, GENS, Default::default());
+    let ndarray_ga = run_sphere_ga::<Flex>(SEED, GENS, Default::default());
+    let ndarray_pso = run_sphere_pso::<Flex>(SEED, GENS, Default::default());
 
     // Initializing a wgpu device can fail on CI machines without a GPU
     // or without system-level wgpu support. Treat initialization

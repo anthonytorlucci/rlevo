@@ -78,11 +78,11 @@ where
 mod tests {
     use super::*;
 
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = NdArray;
+    type B = Flex;
 
     #[test]
     fn zero_policy_noise_reduces_to_action_clip() {

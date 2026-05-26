@@ -16,7 +16,7 @@
 //!     --n-iteration 32 --e-aux 6 --beta-clone 1.0
 //! ```
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::Tensor;
@@ -47,7 +47,7 @@ pub struct ValueMlp<B: Backend> {
 }
 
 impl<B: Backend> ValueMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -68,7 +68,7 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 
 struct CliArgs {
     seed: u64,

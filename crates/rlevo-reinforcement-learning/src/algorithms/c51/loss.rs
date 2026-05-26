@@ -33,14 +33,14 @@ pub fn categorical_cross_entropy<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
     use burn::tensor::activation;
 
-    type B = NdArray;
+    type B = Flex;
 
     fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
-        let device = <B as Backend>::Device::default();
+        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 

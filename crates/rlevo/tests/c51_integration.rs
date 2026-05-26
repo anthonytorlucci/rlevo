@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -39,7 +39,7 @@ struct C51Mlp<B: Backend> {
 }
 
 impl<B: Backend> C51Mlp<B> {
-    fn new(num_atoms: usize, device: &B::Device) -> Self {
+    fn new(num_atoms: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -117,7 +117,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
     target.map(&mut m)
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {

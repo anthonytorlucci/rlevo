@@ -8,7 +8,7 @@
 //! `algorithms::swarm::*` modules. ACO-Permutation is excluded because
 //! its module is a `todo!()` stub.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rand::Rng;
 use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
 use rlevo_benchmarks::env::BenchEnv;
@@ -30,7 +30,7 @@ use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConf
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-type B = NdArray;
+type B = Flex;
 const DIM: usize = 10;
 const MAX_GENS: usize = 120;
 

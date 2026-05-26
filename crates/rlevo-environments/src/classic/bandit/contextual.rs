@@ -108,7 +108,7 @@ impl<const C: usize> State<1> for ContextualBanditState<C> {
 
 impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {
     /// One-hot encoding of the current context as a rank-1 tensor of length `C`.
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         let mut one_hot = [0.0_f32; C];
         one_hot[self.context] = 1.0;
         Tensor::from_floats(one_hot, device)
@@ -120,7 +120,7 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
     ///
     /// Returns [`TensorConversionError`] if the tensor shape is not `[C]`.
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [C] {
             return Err(TensorConversionError {
                 message: format!("expected shape [{C}], got {dims:?}"),
@@ -360,7 +360,7 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::Snapshot;
 
-    type TestBackend = burn::backend::NdArray;
+    type TestBackend = burn::backend::Flex;
     const C: usize = 4;
     const K: usize = 10;
 

@@ -47,7 +47,7 @@ pub struct TanhGaussianPolicyHeadConfig {
 
 impl TanhGaussianPolicyHeadConfig {
     /// Constructs the module on `device`.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> TanhGaussianPolicyHead<B> {
+    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> TanhGaussianPolicyHead<B> {
         let log_std_vec: Vec<f32> = vec![self.log_std_init; self.action_dim];
         let log_std: Tensor<B, 1> =
             Tensor::from_data(TensorData::new(log_std_vec, vec![self.action_dim]), device);
@@ -180,7 +180,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::ActionTensor {
         let action_dim = flat.len() / n_rows.max(1);
         Tensor::<B, 2>::from_data(
@@ -208,12 +208,12 @@ pub fn continuous_action_from_row<const AD: usize, A: rlevo_core::action::Contin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, NdArray};
+    use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = Autodiff<NdArray>;
+    type B = Autodiff<Flex>;
 
     #[test]
     fn gaussian_logprob_consistency_between_sample_and_evaluate() {

@@ -24,14 +24,14 @@
 //! cargo run -p rlevo-core --example grid_agent
 //! ```
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo_core::action::{DiscreteAction, MultiDiscreteAction};
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// Concrete backend used for tensor demonstrations in `main`.
-type DemoBackend = NdArray;
+type DemoBackend = Flex;
 
 // ─── Facing ──────────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ impl Observation<1> for AgentObservation {
 
 impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         let data = TensorData::new(
             vec![self.x as f32, self.y as f32, f32::from(self.facing.to_u8())],
             [3],
@@ -129,7 +129,7 @@ impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims[0] != 3 {
             return Err(TensorConversionError {
                 message: format!("expected shape [3], got {dims:?}"),
@@ -370,7 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AgentObservation::shape()
     );
 
-    let device: <DemoBackend as Backend>::Device = Default::default();
+    let device: <DemoBackend as burn::tensor::backend::BackendTypes>::Device = Default::default();
     let tensor = <AgentObservation as TensorConvertible<1, DemoBackend>>::to_tensor(&obs, &device);
     println!(
         "tensor                       = {:?}",

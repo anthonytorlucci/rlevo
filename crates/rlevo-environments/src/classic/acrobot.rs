@@ -652,12 +652,12 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
 // ---------------------------------------------------------------------------
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObservation {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         burn::tensor::Tensor::from_floats(self.to_array(), device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [6] {
             return Err(TensorConversionError {
                 message: format!("expected shape [6], got {dims:?}"),
@@ -681,14 +681,14 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObser
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotAction {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         let mut one_hot = [0.0_f32; 3];
         one_hot[self.to_index()] = 1.0;
         burn::tensor::Tensor::from_floats(one_hot, device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [3] {
             return Err(TensorConversionError {
                 message: format!("expected shape [3], got {dims:?}"),

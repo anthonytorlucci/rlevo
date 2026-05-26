@@ -98,10 +98,10 @@ pub struct AcoRState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
 ///
-/// let strategy = AntColonyReal::<NdArray>::new();
+/// let strategy = AntColonyReal::<Flex>::new();
 /// let params = AcoRConfig::default_for(50, 10, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -148,7 +148,7 @@ where
     type State = AcoRState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &B::Device) -> AcoRState<B> {
+    fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AcoRState<B> {
         assert!(params.archive_size >= 2, "ACO_R requires archive_size >= 2");
         assert!(params.m >= 1, "ACO_R requires m >= 1");
         let (lo, hi) = params.bounds;
@@ -174,7 +174,7 @@ where
         params: &AcoRConfig,
         state: &AcoRState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, AcoRState<B>) {
         // First call: evaluate the initial archive.
         if state.archive_fitness.is_empty() {
@@ -330,10 +330,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

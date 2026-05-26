@@ -88,10 +88,10 @@ pub struct WoaState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
 ///
-/// let strategy = WhaleOptimization::<NdArray>::new();
+/// let strategy = WhaleOptimization::<Flex>::new();
 /// let params = WoaConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -118,7 +118,7 @@ where
     type State = WoaState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &B::Device) -> WoaState<B> {
+    fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> WoaState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let positions = Tensor::<B, 2>::random(
@@ -141,7 +141,7 @@ where
         params: &WoaConfig,
         state: &WoaState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, WoaState<B>) {
         // First call: evaluate initial whales so `tell` can record fitness.
         if state.fitness.is_empty() {
@@ -303,10 +303,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

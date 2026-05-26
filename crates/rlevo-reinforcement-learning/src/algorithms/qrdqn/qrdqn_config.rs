@@ -86,7 +86,7 @@ pub struct QrDqnTrainingConfig {
 impl QrDqnTrainingConfig {
     /// Builds the quantile-midpoint tensor `[(i + 0.5) / N]_{i=0..N-1}` on
     /// the requested backend and device. Shape: `(num_quantiles,)`.
-    pub fn quantile_taus<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1> {
+    pub fn quantile_taus<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         let n = self.num_quantiles;
         let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();
         Tensor::from_data(TensorData::new(data, vec![n]), device)
@@ -227,9 +227,9 @@ impl QrDqnTrainingConfigBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
 
-    type B = NdArray;
+    type B = Flex;
 
     #[test]
     fn defaults_are_200_quantiles_with_kappa_1() {
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn taus_midpoints_match_dabney_eq_9_for_n_4() {
         // N = 4 ⇒ τ_i = (i + 0.5) / 4 ⇒ {0.125, 0.375, 0.625, 0.875}.
-        let device: <B as Backend>::Device = Default::default();
+        let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let cfg = QrDqnTrainingConfigBuilder::new().num_quantiles(4).build();
         let taus: Tensor<B, 1> = cfg.quantile_taus::<B>(&device);
         let v: Vec<f32> = taus.into_data().convert::<f32>().into_vec::<f32>().unwrap();

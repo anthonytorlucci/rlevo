@@ -159,10 +159,10 @@ pub struct DeState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 ///
-/// let strategy = DifferentialEvolution::<NdArray>::new();
+/// let strategy = DifferentialEvolution::<Flex>::new();
 /// let mut params = DeConfig::default_for(30, 10);
 /// params.variant = DeVariant::Rand1Bin;
 /// let _ = (strategy, params);
@@ -184,7 +184,7 @@ impl<B: Backend> DifferentialEvolution<B> {
     fn sample_initial_population(
         params: &DeConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
@@ -231,7 +231,7 @@ where
     type State = DeState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &B::Device) -> DeState<B> {
+    fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> DeState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         DeState {
             population,
@@ -249,7 +249,7 @@ where
         params: &DeConfig,
         state: &DeState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, DeState<B>) {
         // First call: evaluate the initial population.
         if state.fitness.is_empty() {
@@ -420,7 +420,7 @@ where
         let mask_int =
             Tensor::<B, 1, Int>::from_data(TensorData::new(replace_mask, [pop_size]), &device);
         let mask_bool_row = mask_int.equal_elem(1);
-        let genome_dim = state.population.shape().dims[1];
+        let genome_dim = state.population.dims()[1];
         let mask_bool = mask_bool_row
             .unsqueeze_dim::<2>(1)
             .expand([pop_size, genome_dim]);
@@ -480,9 +480,9 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

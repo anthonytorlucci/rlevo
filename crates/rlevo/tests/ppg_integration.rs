@@ -4,7 +4,7 @@
 //! 50k-step budget with lax thresholds; heavier macro-convergence and
 //! reproducibility checks live behind `#[ignore]`.
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::Tensor;
@@ -35,7 +35,7 @@ struct ValueMlp<B: Backend> {
 }
 
 impl<B: Backend> ValueMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -56,7 +56,7 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 
 fn make_cart_pole_agent(
     seed: u64,

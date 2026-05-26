@@ -95,7 +95,7 @@ impl Display for KArmedBanditState {
 
 impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
     /// Encodes the stateless bandit state as a 1-D tensor `[0.0]`.
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         Tensor::from_floats([0.0_f32; 1], device)
     }
 
@@ -106,7 +106,7 @@ impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
     ///
     /// Returns [`TensorConversionError`] if the tensor shape is not `[1]`.
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [1] {
             return Err(TensorConversionError {
                 message: format!("expected shape [1], got {dims:?}"),
@@ -226,7 +226,7 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
 
 impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
     /// One-hot encoding of the selected arm as a rank-1 tensor of length `K`.
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         let mut one_hot = [0.0_f32; K];
         one_hot[self.selected_arm] = 1.0;
         Tensor::from_floats(one_hot, device)
@@ -239,7 +239,7 @@ impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<
     /// Returns [`TensorConversionError`] if the tensor shape is not `[K]` or
     /// the argmax falls outside the valid arm range.
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [K] {
             return Err(TensorConversionError {
                 message: format!("expected shape [{K}], got {dims:?}"),
@@ -537,7 +537,7 @@ mod tests {
     use super::*;
     use rlevo_core::environment::Snapshot;
 
-    type TestBackend = burn::backend::NdArray;
+    type TestBackend = burn::backend::Flex;
     const K: usize = 10;
 
     #[test]

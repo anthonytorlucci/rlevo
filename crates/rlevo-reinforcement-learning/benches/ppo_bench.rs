@@ -2,15 +2,16 @@
 //! per-iteration throughput: GAE, advantage normalisation, and the
 //! clipped surrogate objective.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use rlevo_reinforcement_learning::algorithms::ppo::losses::{
     clipped_surrogate, normalize_advantages,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::rollout::compute_gae;
 
-type B = NdArray;
+type B = Flex;
 
 fn synthetic_trajectory(n: usize) -> (Vec<f32>, Vec<f32>, Vec<bool>, Vec<bool>) {
     let mut rewards = Vec::with_capacity(n);
@@ -49,7 +50,7 @@ fn bench_compute_gae(c: &mut Criterion) {
 
 fn bench_advantage_norm(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppo_advantage_norm");
-    let device: <B as burn::tensor::backend::Backend>::Device = Default::default();
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     for &n in &[64_usize, 256, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             let data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.01 - 5.0).collect();
@@ -65,7 +66,7 @@ fn bench_advantage_norm(c: &mut Criterion) {
 
 fn bench_clipped_surrogate(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppo_clipped_surrogate");
-    let device: <B as burn::tensor::backend::Backend>::Device = Default::default();
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     for &n in &[64_usize, 256, 1024] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             let new_lp: Tensor<B, 1> =

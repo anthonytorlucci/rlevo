@@ -92,10 +92,10 @@ pub struct GwoState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConfig};
 ///
-/// let strategy = GreyWolfOptimizer::<NdArray>::new();
+/// let strategy = GreyWolfOptimizer::<Flex>::new();
 /// let params = GwoConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -113,7 +113,7 @@ impl<B: Backend> GreyWolfOptimizer<B> {
         }
     }
 
-    fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2> {
+    fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         Tensor::<B, 2>::random(
@@ -132,7 +132,7 @@ where
     type State = GwoState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &B::Device) -> GwoState<B> {
+    fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GwoState<B> {
         assert!(params.pop_size >= 3, "GWO requires pop_size >= 3");
         let pack = Self::sample_initial(params, rng, device);
         GwoState {
@@ -149,7 +149,7 @@ where
         params: &GwoConfig,
         state: &GwoState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, GwoState<B>) {
         // First call: evaluate initial pack so `tell` can rank it.
         if state.fitness.is_empty() {
@@ -317,10 +317,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

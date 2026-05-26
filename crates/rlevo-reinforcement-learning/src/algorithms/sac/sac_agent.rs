@@ -673,7 +673,7 @@ where
 fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
     rows: usize,
     cols: usize,
-    device: &BB::Device,
+    device: &<BB as burn::tensor::backend::BackendTypes>::Device,
     rng: &mut R,
 ) -> Tensor<BB, DAB> {
     use rand_distr::{Distribution, StandardNormal};
@@ -689,9 +689,9 @@ fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
 
-    type BI = NdArray;
+    type BI = Flex;
 
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {

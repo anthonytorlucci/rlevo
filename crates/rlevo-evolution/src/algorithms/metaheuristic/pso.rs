@@ -127,10 +127,10 @@ pub struct PsoState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 ///
-/// let strategy = ParticleSwarm::<NdArray>::new();
+/// let strategy = ParticleSwarm::<Flex>::new();
 /// let params = PsoConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -148,7 +148,7 @@ impl<B: Backend> ParticleSwarm<B> {
         }
     }
 
-    fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2> {
+    fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         Tensor::<B, 2>::random(
@@ -167,7 +167,7 @@ where
     type State = PsoState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &B::Device) -> PsoState<B> {
+    fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> PsoState<B> {
         let positions = Self::sample_positions(params, rng, device);
         let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
         let personal_best = positions.clone();
@@ -188,7 +188,7 @@ where
         params: &PsoConfig,
         state: &PsoState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, PsoState<B>) {
         // First call: evaluate the initial positions so `tell` can
         // populate personal_best_fitness / global_best.
@@ -361,10 +361,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

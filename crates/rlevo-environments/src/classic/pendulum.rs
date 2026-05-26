@@ -418,12 +418,12 @@ impl crate::render::AsciiRenderable for Pendulum {
 // ---------------------------------------------------------------------------
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObservation {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         burn::tensor::Tensor::from_floats(self.to_array(), device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [3] {
             return Err(TensorConversionError {
                 message: format!("expected shape [3], got {dims:?}"),
@@ -444,12 +444,12 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObse
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumAction {
-    fn to_tensor(&self, device: &B::Device) -> burn::tensor::Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
         burn::tensor::Tensor::from_floats([self.0], device)
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let dims = tensor.shape().dims;
+        let dims = tensor.dims();
         if dims.as_slice() != [1] {
             return Err(TensorConversionError {
                 message: format!("expected shape [1], got {dims:?}"),

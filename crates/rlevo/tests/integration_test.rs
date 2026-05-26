@@ -7,7 +7,7 @@
 //! test that the public surface is sufficient to build a working training
 //! loop scaffold.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::Tensor;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
@@ -40,7 +40,7 @@ impl Observation<1> for WalkObservation {
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         Tensor::from_floats([self.position as f32], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -110,7 +110,7 @@ impl DiscreteAction<1> for WalkAction {
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         Tensor::from_floats([self.to_index() as f32], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -146,7 +146,7 @@ impl From<WalkReward> for f32 {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         Tensor::from_floats([self.0], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -265,7 +265,7 @@ fn full_episode_loop_reaches_goal() {
 
 #[test]
 fn replay_buffer_sample_batch_tensor_shapes() {
-    type B = NdArray;
+    type B = Flex;
     let device = Default::default();
 
     let mut buffer =
@@ -305,11 +305,11 @@ fn replay_buffer_sample_batch_tensor_shapes() {
         .sample_batch::<2, 2, B>(8, &device)
         .expect("sample_batch");
 
-    assert_eq!(batch.observations.shape().dims, [8, 1]);
-    assert_eq!(batch.actions.shape().dims, [8, 1]);
-    assert_eq!(batch.rewards.shape().dims, [8]);
-    assert_eq!(batch.next_observations.shape().dims, [8, 1]);
-    assert_eq!(batch.dones.shape().dims, [8]);
+    assert_eq!(batch.observations.dims(), [8, 1]);
+    assert_eq!(batch.actions.dims(), [8, 1]);
+    assert_eq!(batch.rewards.dims(), [8]);
+    assert_eq!(batch.next_observations.dims(), [8, 1]);
+    assert_eq!(batch.dones.dims(), [8]);
 }
 
 #[derive(Debug, Clone, Copy)]

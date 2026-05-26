@@ -29,7 +29,7 @@ pub fn tournament_indices_host(
     tournament_size: usize,
     n_winners: usize,
     rng: &mut dyn Rng,
-) -> Vec<i64> {
+) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
     assert!(tournament_size >= 2, "tournament size must be >= 2");
     let pop_size = fitness.len();
@@ -44,8 +44,8 @@ pub fn tournament_indices_host(
                 best_idx = idx;
             }
         }
-        #[allow(clippy::cast_possible_wrap)]
-        winners.push(best_idx as i64);
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        winners.push(best_idx as i32);
     }
     winners
 }
@@ -66,7 +66,7 @@ pub fn tournament_select<B: Backend>(
     tournament_size: usize,
     n_winners: usize,
     rng: &mut dyn Rng,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let winners = tournament_indices_host(fitness, tournament_size, n_winners, rng);
     let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [n_winners]), device);
@@ -80,17 +80,17 @@ pub fn tournament_select<B: Backend>(
 ///
 /// Panics if `top_k > fitness.len()` or `fitness.is_empty()`.
 #[must_use]
-pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i64> {
+pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
     assert!(top_k <= fitness.len(), "top_k must be <= population size");
     let mut indexed: Vec<(usize, f32)> = fitness.iter().copied().enumerate().collect();
     indexed
         .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     indexed
         .into_iter()
         .take(top_k)
-        .map(|(i, _)| i as i64)
+        .map(|(i, _)| i as i32)
         .collect()
 }
 
@@ -105,7 +105,7 @@ pub fn truncation_select<B: Backend>(
     population: &Tensor<B, 2>,
     fitness: &[f32],
     top_k: usize,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let winners = truncation_indices_host(fitness, top_k);
     let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [top_k]), device);
@@ -115,11 +115,11 @@ pub fn truncation_select<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn tournament_prefers_better_fitness_in_expectation() {
@@ -155,6 +155,6 @@ mod tests {
         let fitness = [10.0_f32, 0.0, 10.0];
         let mut rng = StdRng::seed_from_u64(2);
         let parents = tournament_select(&pop, &fitness, 2, 4, &mut rng, &device);
-        assert_eq!(parents.shape().dims, vec![4, 2]);
+        assert_eq!(parents.dims(), [4, 2]);
     }
 }

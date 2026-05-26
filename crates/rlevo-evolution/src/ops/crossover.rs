@@ -30,11 +30,11 @@ pub fn blx_alpha<B: Backend>(
     parent_a: Tensor<B, 2>,
     parent_b: Tensor<B, 2>,
     alpha: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     assert_eq!(
-        parent_a.shape().dims,
-        parent_b.shape().dims,
+        parent_a.dims(),
+        parent_b.dims(),
         "BLX-α: parents must have identical shapes"
     );
     let shape = parent_a.shape();
@@ -61,11 +61,11 @@ pub fn uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2>,
     parent_b: Tensor<B, 2>,
     p: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     assert_eq!(
-        parent_a.shape().dims,
-        parent_b.shape().dims,
+        parent_a.dims(),
+        parent_b.dims(),
         "uniform crossover: parents must have identical shapes"
     );
     let shape = parent_a.shape();
@@ -87,11 +87,11 @@ pub fn binary_uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2, Int>,
     parent_b: Tensor<B, 2, Int>,
     p: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2, Int> {
     assert_eq!(
-        parent_a.shape().dims,
-        parent_b.shape().dims,
+        parent_a.dims(),
+        parent_b.dims(),
         "binary uniform crossover: parents must have identical shapes"
     );
     let shape = parent_a.shape();
@@ -103,15 +103,15 @@ pub fn binary_uniform_crossover<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{ndarray::NdArrayDevice, NdArray};
+    use burn::backend::{flex::FlexDevice, Flex};
     use burn::tensor::TensorData;
     #[allow(unused_imports)]
     use burn::tensor::backend::Backend as _;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn blx_alpha_lies_between_bounds() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 13);
         let a = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![0.0_f32, 0.0, 0.0, 0.0], [2, 2]),
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn uniform_all_from_a_when_p_is_one() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 5);
         let a = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![7.0_f32, 7.0, 7.0, 7.0], [2, 2]),
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn uniform_all_from_b_when_p_is_zero() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 5);
         let a = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![7.0_f32, 7.0, 7.0, 7.0], [2, 2]),

@@ -67,10 +67,10 @@ pub struct AcoPermState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::aco_perm::{AntColonyPermutation, AcoPermConfig};
 ///
-/// let strategy = AntColonyPermutation::<NdArray>::new();
+/// let strategy = AntColonyPermutation::<Flex>::new();
 /// let params = AcoPermConfig::default_for(32, 20);
 /// let _ = (strategy, params);
 /// ```
@@ -98,7 +98,7 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
         &self,
         _params: &AcoPermConfig,
         _rng: &mut dyn Rng,
-        _device: &B::Device,
+        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> AcoPermState<B> {
         todo!(
             "permutation ACO is not yet implemented; \
@@ -111,7 +111,7 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
         _params: &AcoPermConfig,
         _state: &AcoPermState<B>,
         _rng: &mut dyn Rng,
-        _device: &B::Device,
+        _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Self::Genome, AcoPermState<B>) {
         todo!("permutation ACO is not yet implemented")
     }
@@ -135,9 +135,9 @@ impl<B: Backend> Strategy<B> for AntColonyPermutation<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn stub_is_constructible() {

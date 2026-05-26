@@ -38,7 +38,7 @@ pub trait FitnessFn<G>: Send {
 /// individual at row `i` of `population`.
 pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// Evaluates every member of `population` and stacks fitnesses.
-    fn evaluate_batch(&mut self, population: &G, device: &B::Device) -> Tensor<B, 1>;
+    fn evaluate_batch(&mut self, population: &G, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1>;
 }
 
 /// Adapter from `FitnessEvaluable` to [`BatchFitnessFn<B, Tensor<B, 2>>`].
@@ -93,8 +93,8 @@ where
     FE: FitnessEvaluable<Individual = Vec<f64>, Landscape = L> + Send,
     L: Send + Sync,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &B::Device) -> Tensor<B, 1> {
-        let dims = population.shape().dims;
+    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+        let dims = population.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         let pop_size = dims[0];
         let genome_dim = dims[1];
@@ -160,8 +160,8 @@ where
     B: Backend,
     L: Landscape,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &B::Device) -> Tensor<B, 1> {
-        let dims = population.shape().dims;
+    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+        let dims = population.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         let pop_size = dims[0];
         let genome_dim = dims[1];
@@ -196,8 +196,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
-    type TestBackend = NdArray;
+    use burn::backend::Flex;
+    type TestBackend = Flex;
 
     #[derive(Debug, Clone, Copy)]
     struct Sphere;
