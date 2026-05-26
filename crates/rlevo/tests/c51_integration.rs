@@ -2,12 +2,12 @@
 //!
 //! Follows the shape of `dqn_integration.rs`: modest step budgets on
 //! `CartPole` for `cargo test` throughput, with a couple of heavier
-//! reproducibility checks gated behind `#[ignore]` because Burn's ndarray
+//! reproducibility checks gated behind `#[ignore]` because Burn's flex
 //! backend shares a global RNG.
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -39,7 +39,7 @@ struct C51Mlp<B: Backend> {
 }
 
 impl<B: Backend> C51Mlp<B> {
-    fn new(num_atoms: usize, device: &B::Device) -> Self {
+    fn new(num_atoms: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -117,7 +117,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
     target.map(&mut m)
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {
@@ -151,7 +151,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// Smoke test: a short run completes, the buffer populates, and episode
 /// rewards are finite. Catches silent regressions (NaN logits, projection
 /// numerical blow-up, etc.). Marked `#[ignore]` because running it alongside
-/// other training tests perturbs Burn's global ndarray RNG; exercise with
+/// other training tests perturbs Burn's global Flex RNG; exercise with
 /// `cargo test -p rlevo --test c51_integration -- --ignored
 /// --test-threads=1`.
 #[test]
@@ -175,11 +175,11 @@ fn c51_short_run_produces_finite_rewards() {
 
 /// Reproducibility smoke test: two seeded back-to-back runs produce identical
 /// reward sequences. Marked `#[ignore]` for the same reason as the DQN
-/// counterpart — Burn's ndarray backend uses a process-global RNG.
+/// counterpart — Burn's Flex backend uses a process-global RNG.
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
 #[allow(clippy::float_cmp)]
-fn c51_reproducibility_ndarray() {
+fn c51_reproducibility_flex() {
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,

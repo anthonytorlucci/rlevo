@@ -4,7 +4,7 @@
 //! only the pure-tensor operator baselines in [`crate::ops::selection`],
 //! [`crate::ops::crossover`], and [`crate::ops::mutation`]. Those
 //! compose from Burn tensor primitives and run on every backend Burn
-//! supports (ndarray, wgpu, …) with no extra work. The `custom-kernels`
+//! supports (flex, wgpu, …) with no extra work. The `custom-kernels`
 //! Cargo feature exists so downstream crates can pin the future ABI
 //! when kernels land.
 //!

@@ -121,7 +121,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
     pub fn gather_minibatch<const DO: usize, const DB: usize>(
         &self,
         indices: &[usize],
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, DB>, Tensor<B, 1>)
     where
         O: Observation<DO> + TensorConvertible<DO, B>,
@@ -166,7 +166,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
 mod tests {
     use super::*;
     use rlevo_core::base::TensorConversionError;
-    type Be = burn::backend::NdArray;
+    type Be = burn::backend::Flex;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
     struct TestObs([f32; 2]);
@@ -178,7 +178,7 @@ mod tests {
     }
 
     impl<Bk: burn::tensor::backend::Backend> TensorConvertible<1, Bk> for TestObs {
-        fn to_tensor(&self, device: &Bk::Device) -> Tensor<Bk, 1> {
+        fn to_tensor(&self, device: &<Bk as burn::tensor::backend::BackendTypes>::Device) -> Tensor<Bk, 1> {
             Tensor::from_floats(self.0, device)
         }
         fn from_tensor(_t: Tensor<Bk, 1>) -> Result<Self, TensorConversionError> {
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn gather_minibatch_shapes() {
-        let device: <Be as burn::tensor::backend::Backend>::Device = Default::default();
+        let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let mut buf: AuxRolloutBuffer<Be, TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
         push(&mut buf, 3);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn gather_minibatch_preserves_row_values() {
-        let device: <Be as burn::tensor::backend::Backend>::Device = Default::default();
+        let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let mut buf: AuxRolloutBuffer<Be, TestObs> = AuxRolloutBuffer::new();
         push(&mut buf, 3);
         let (_, r) = buf.gather_minibatch::<1, 2>(&[0, 1, 2], &device);

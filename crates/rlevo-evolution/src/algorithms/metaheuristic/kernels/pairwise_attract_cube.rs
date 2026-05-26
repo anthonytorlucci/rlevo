@@ -45,7 +45,7 @@
 //! tensor — ~10 MB at `N = 512, D = 10` in `f32`. The fused kernel
 //! eliminates that allocation and collapses three launches (pairwise
 //! diff, attractiveness `β`, weighted sum) into one, with a target of
-//! measurable speedup at `N ≥ 128` on both wgpu and ndarray.
+//! measurable speedup at `N ≥ 128` on both wgpu and flex.
 //!
 //! # Fallback
 //!

@@ -38,7 +38,7 @@ pub fn elitist<B: Backend>(
     offspring_pop: Tensor<B, 2>,
     offspring_fitness: &[f32],
     k: usize,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> (Tensor<B, 2>, Vec<f32>) {
     let pop_size = current_fitness.len();
     assert!(k <= pop_size, "elite count must be <= population size");
@@ -86,7 +86,7 @@ pub fn mu_plus_lambda<B: Backend>(
     offspring: Tensor<B, 2>,
     offspring_fitness: &[f32],
     mu: usize,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> (Tensor<B, 2>, Vec<f32>) {
     let combined = Tensor::cat(vec![parents, offspring], 0);
     let combined_fitness: Vec<f32> = parent_fitness
@@ -117,7 +117,7 @@ pub fn mu_comma_lambda<B: Backend>(
     offspring: Tensor<B, 2>,
     offspring_fitness: &[f32],
     mu: usize,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> (Tensor<B, 2>, Vec<f32>) {
     assert!(
         mu <= offspring_fitness.len(),
@@ -138,8 +138,8 @@ pub fn mu_comma_lambda<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
-    type TestBackend = NdArray;
+    use burn::backend::Flex;
+    type TestBackend = Flex;
 
     #[test]
     fn generational_discards_current() {
@@ -207,7 +207,7 @@ mod tests {
             2,
             &device,
         );
-        assert_eq!(next.shape().dims, vec![2, 2]);
+        assert_eq!(next.dims(), [2, 2]);
         let mut fs = f;
         fs.sort_by(|a, b| a.partial_cmp(b).unwrap());
         approx::assert_relative_eq!(fs[0], 1.0, epsilon = 1e-6);

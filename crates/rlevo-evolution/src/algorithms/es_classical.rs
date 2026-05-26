@@ -121,10 +121,10 @@ pub struct EsState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 ///
-/// let strategy = EvolutionStrategy::<NdArray>::new();
+/// let strategy = EvolutionStrategy::<Flex>::new();
 /// let params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -152,7 +152,7 @@ impl<B: Backend> EvolutionStrategy<B> {
     fn sample_initial_parents(
         params: &EsConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let mu = Self::mu(params.kind);
         let (lo, hi) = params.bounds;
@@ -178,7 +178,7 @@ where
     type State = EsState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &B::Device) -> EsState<B> {
+    fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EsState<B> {
         let (parents, sigmas) = Self::sample_initial_parents(params, rng, device);
         EsState {
             parents,
@@ -197,7 +197,7 @@ where
         params: &EsConfig,
         state: &EsState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, EsState<B>) {
         // First call: evaluate the initial parents as the "offspring"
         // so fitness is populated in the subsequent `tell`.
@@ -465,9 +465,9 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn mu_plus_lambda_converges_on_sphere_d10() {
         // Convergence on Sphere (D=10) to best_fitness < 1e-6 within
-        // budget on ndarray. We allow a generous budget because the
+        // budget on Flex. We allow a generous budget because the
         // classical ES is slower than CMA-ES; the goal is to verify
         // convergence direction, not to optimize hyperparameters.
         let best = run_es(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10, 1500, 42);

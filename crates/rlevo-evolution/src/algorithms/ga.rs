@@ -116,12 +116,12 @@ pub struct GaState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ga::{
 ///     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 /// };
 ///
-/// let strategy = GeneticAlgorithm::<NdArray>::new();
+/// let strategy = GeneticAlgorithm::<Flex>::new();
 /// let params = GaConfig {
 ///     pop_size: 64,
 ///     genome_dim: 10,
@@ -150,7 +150,7 @@ impl<B: Backend> GeneticAlgorithm<B> {
     fn sample_initial_population(
         params: &GaConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
         let range = f64::from(hi - lo);
@@ -173,7 +173,7 @@ where
     type State = GaState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &B::Device) -> GaState<B> {
+    fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GaState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         GaState {
             population,
@@ -189,7 +189,7 @@ where
         params: &GaConfig,
         state: &GaState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, GaState<B>) {
         // On the first call, state.fitness is empty; the harness has not
         // evaluated anyone yet. Return the initial population unchanged.
@@ -350,10 +350,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

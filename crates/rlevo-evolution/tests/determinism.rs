@@ -1,19 +1,19 @@
 //! Determinism integration test.
 //!
-//! On the ndarray backend, running a strategy twice with the same
+//! On the Flex backend, running a strategy twice with the same
 //! `base_seed` must produce a bit-identical fitness trajectory.
 //!
 //! # Why this file runs a single test
 //!
-//! The Burn ndarray backend seeds its RNG through a process-wide
-//! `Mutex<Option<NdArrayRng>>`. Multiple tests that race on that mutex
+//! The Burn Flex backend seeds its RNG through a process-wide
+//! `Mutex<Option<FlexRng>>`. Multiple tests that race on that mutex
 //! will interleave `Tensor::random` draws and destroy bit-equality. This
 //! file therefore contains exactly one `#[test]` function so the cargo
 //! runner cannot execute anything in parallel with it — within the
 //! single test body, the two runs are strictly sequential and compare
 //! byte-for-byte.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rlevo_core::fitness::FitnessEvaluable;
 
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
@@ -32,7 +32,7 @@ use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConf
 use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-type B = NdArray;
+type B = Flex;
 
 struct Sphere;
 struct SphereFit;

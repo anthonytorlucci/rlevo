@@ -427,7 +427,7 @@ impl Default for ChessState {
 //     /// - Plane 118: No-progress count (normalized)
 //     ///
 //     /// All planes are from the perspective of the current player to move.
-//     fn to_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 3> {
+//     fn to_tensor<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 3> {
 //         let mut data = Vec::with_capacity(self.numel());
 
 //         // Planes 0-111: Historical positions (8 time steps × 14 planes)
@@ -677,9 +677,9 @@ impl Default for ChessState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn test_state_creation() {

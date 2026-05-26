@@ -209,7 +209,7 @@ where
     /// allocating on demand over storing a cached copy per backend flavour.
     fn build_support<BK: burn::tensor::backend::Backend>(
         &self,
-        device: &BK::Device,
+        device: &<BK as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<BK, 1> {
         let n = self.config.num_atoms;
         let delta = self.config.delta_z();

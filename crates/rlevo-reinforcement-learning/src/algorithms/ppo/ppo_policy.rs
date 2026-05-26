@@ -93,7 +93,7 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::ActionTensor;
 
     /// Transforms one action row from the buffer representation (the

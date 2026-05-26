@@ -73,19 +73,19 @@ pub fn quantile_huber_loss<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type B = NdArray;
+    type B = Flex;
 
     fn tensor_1d(data: Vec<f32>) -> Tensor<B, 1> {
-        let device = <B as Backend>::Device::default();
+        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
         let n = data.len();
         Tensor::from_data(TensorData::new(data, vec![n]), &device)
     }
 
     fn tensor_2d(data: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
-        let device = <B as Backend>::Device::default();
+        let device = <B as burn::tensor::backend::BackendTypes>::Device::default();
         Tensor::from_data(TensorData::new(data, vec![rows, cols]), &device)
     }
 

@@ -101,10 +101,10 @@ pub struct FireflyState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::firefly::{FireflyAlgorithm, FireflyConfig};
 ///
-/// let strategy = FireflyAlgorithm::<NdArray>::new();
+/// let strategy = FireflyAlgorithm::<Flex>::new();
 /// let params = FireflyConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -132,11 +132,11 @@ impl<B: Backend> FireflyAlgorithm<B> {
         beta0: f32,
         gamma: f32,
         alpha: f32,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
         noise_seed: u64,
     ) -> Tensor<B, 2> {
         let pop = fitness.len();
-        let shape = positions.shape().dims;
+        let shape = positions.dims();
         let d = shape[1];
 
         // Pairwise squared distances via (x·x^T + ||x||² - 2x·x^T).
@@ -187,7 +187,7 @@ where
         &self,
         params: &FireflyConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> FireflyState<B> {
         #[cfg(not(feature = "custom-kernels"))]
         assert!(
@@ -228,7 +228,7 @@ where
         params: &FireflyConfig,
         state: &FireflyState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, FireflyState<B>) {
         if state.fitness.is_empty() {
             return (state.positions.clone(), state.clone());
@@ -312,10 +312,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

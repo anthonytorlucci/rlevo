@@ -8,7 +8,7 @@
 
 use std::sync::atomic::AtomicU32;
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rand::Rng;
 use rlevo_benchmarks::agent::{BenchableAgent, FitnessEvaluable};
 use rlevo_benchmarks::env::BenchEnv;
@@ -26,7 +26,7 @@ use rlevo_evolution::algorithms::ga::{
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 const DIM: usize = 10;
 const MAX_GENS: usize = 80;
@@ -123,7 +123,7 @@ fn cfg() -> EvaluatorConfig {
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 17,
-        // Single-threaded: Burn ndarray seeds via a process-wide mutex,
+        // Single-threaded: Burn Flex seeds via a process-wide mutex,
         // so parallel trials race on seeding and produce non-reproducible
         // trajectories. Forcing one thread is the simplest honest option.
         num_threads: Some(1),

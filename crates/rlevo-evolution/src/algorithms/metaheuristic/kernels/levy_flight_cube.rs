@@ -31,7 +31,7 @@
 //!
 //! The fractional-power step `|v|^(1/β)` is FMA-reorder-sensitive
 //! enough that wgpu reductions drift ~`1e-3` relative from the
-//! ndarray path on identical seeds (`tests/backend_parity.rs` pins
+//! flex path on identical seeds (`tests/backend_parity.rs` pins
 //! the cross-backend tolerance). The fusion win here is only "save
 //! two launches per generation"; unless profiling shows those launches
 //! dominate, the host-sampled path is both faster to ship and easier

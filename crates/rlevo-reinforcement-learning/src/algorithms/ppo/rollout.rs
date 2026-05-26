@@ -167,7 +167,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     }
 
     /// Builds a 1-D float tensor indexed by `indices`, on `device`.
-    pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &B::Device) -> Tensor<B, 1> {
+    pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
         let n = gathered.len();
         Tensor::<B, 1>::from_data(TensorData::new(gathered, vec![n]), device)
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn buffer_push_and_indices() {
-        type B = burn::backend::NdArray;
+        type B = burn::backend::Flex;
         let mut buf: RolloutBuffer<B, [f32; 2]> = RolloutBuffer::new(4, 1);
         buf.push_step([0.0, 0.0], &[0.0], 0.0, 0.0, 1.0, EpisodeStatus::Running);
         buf.push_step([1.0, 1.0], &[1.0], -0.1, 0.1, 1.0, EpisodeStatus::Running);
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn gather_action_flat_rows_concatenate() {
-        type B = burn::backend::NdArray;
+        type B = burn::backend::Flex;
         let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 2);
         buf.push_step([0.0], &[1.0, 2.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
         buf.push_step([0.0], &[3.0, 4.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);

@@ -69,7 +69,7 @@ impl Observation<1> for SwimmerObservation {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for SwimmerObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
         Tensor::from_floats(self.0, device)
     }
 

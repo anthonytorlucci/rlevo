@@ -8,18 +8,18 @@
 //! - `aux_value_loss_path` — the aux-phase value-target MSE (same kernel as
 //!   PPO's unclipped value loss, benchmarked here at aux-phase-shaped sizes).
 
-use burn::backend::NdArray;
-use burn::tensor::backend::Backend;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use rlevo_reinforcement_learning::algorithms::ppg::losses::policy_kl_categorical;
 use rlevo_reinforcement_learning::algorithms::ppo::losses::unclipped_value_loss;
 
-type B = NdArray;
+type B = Flex;
 
 fn bench_policy_kl_categorical(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppg_policy_kl_categorical");
-    let device: <B as Backend>::Device = Default::default();
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     for &(batch, num_actions) in &[(64_usize, 2_usize), (256, 2), (1024, 2), (256, 18)] {
         let id = format!("batch{batch}_actions{num_actions}");
         group.bench_with_input(
@@ -42,7 +42,7 @@ fn bench_policy_kl_categorical(c: &mut Criterion) {
 
 fn bench_aux_value_loss(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppg_aux_value_loss_mse");
-    let device: <B as Backend>::Device = Default::default();
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     for &n in &[256_usize, 1024, 4096] {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             let v: Tensor<B, 1> =

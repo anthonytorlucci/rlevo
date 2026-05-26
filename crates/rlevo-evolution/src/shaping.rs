@@ -17,7 +17,7 @@ use burn::tensor::{backend::Backend, Tensor};
 #[must_use]
 pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     let mean = fitness.clone().mean().into_scalar().elem::<f32>();
-    let n = fitness.shape().dims[0];
+    let n = fitness.dims()[0];
     #[allow(clippy::cast_precision_loss)]
     let n_f = n.max(1) as f32;
     let centered = fitness - mean;
@@ -42,7 +42,7 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// Panics if `fitness`'s data cannot be read as `f32` (e.g. an integer
 /// backend tensor was passed in).
 #[must_use]
-pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &B::Device) -> Tensor<B, 1> {
+pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
     let data = fitness
         .into_data()
         .into_vec::<f32>()
@@ -68,8 +68,8 @@ pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &B::Device) -> T
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
-    type TestBackend = NdArray;
+    use burn::backend::Flex;
+    type TestBackend = Flex;
 
     #[test]
     #[allow(clippy::cast_precision_loss)]

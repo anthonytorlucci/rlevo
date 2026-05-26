@@ -34,13 +34,13 @@ pub fn policy_kl_categorical<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::{ElementConversion, TensorData};
 
-    type Be = NdArray;
+    type Be = Flex;
 
     fn t2(data: &[f32], rows: usize, cols: usize) -> Tensor<Be, 2> {
-        let device: <Be as Backend>::Device = Default::default();
+        let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
         Tensor::<Be, 2>::from_data(TensorData::new(data.to_vec(), vec![rows, cols]), &device)
     }
 

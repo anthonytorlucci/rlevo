@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
@@ -41,7 +41,7 @@ impl<B: Backend> ActorMlp<B> {
         hidden: usize,
         action_dim: usize,
         scale: f32,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
@@ -84,7 +84,7 @@ struct CriticMlp<B: Backend> {
 }
 
 impl<B: Backend> CriticMlp<B> {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -159,7 +159,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M 
     target.map(&mut m)
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 type Agent =
     DdpgAgent<Be, ActorMlp<Be>, CriticMlp<Be>, PendulumObservation, PendulumAction, 1, 2, 1, 2>;
 

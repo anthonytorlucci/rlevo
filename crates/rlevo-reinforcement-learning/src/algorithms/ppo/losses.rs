@@ -117,10 +117,10 @@ fn max_elem<B: Backend>(a: Tensor<B, 1>, b: Tensor<B, 1>) -> Tensor<B, 1> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use burn::tensor::TensorData;
 
-    type B = NdArray;
+    type B = Flex;
 
     fn t1(data: &[f32]) -> Tensor<B, 1> {
         let device = Default::default();

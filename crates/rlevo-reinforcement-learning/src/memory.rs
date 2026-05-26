@@ -279,7 +279,7 @@ where
     pub fn sample_batch<const BD: usize, const BAD: usize, B: Backend>(
         &self,
         batch_size: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Result<TrainingBatch<BD, BAD, B>, ReplayBufferError>
     where
         O: TensorConvertible<D, B>,
@@ -855,14 +855,14 @@ mod sample_batch_tests {
     //! End-to-end regression tests for [`PrioritizedExperienceReplay::sample_batch`].
     //!
     //! These tests actually call `sample_batch` against a concrete backend
-    //! (Burn's ndarray) and verify the produced tensors have the batched
+    //! (Burn's flex) and verify the produced tensors have the batched
     //! shapes `[batch, ...]`. Before the BD/BAD generics landed, the
     //! function panicked at runtime because it tried to stack rank-`D`
     //! tensors into a rank-`D` output, so this suite guards against that
     //! regression.
 
     use super::*;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::base::{Action, Observation, Reward, TensorConversionError, TensorConvertible};
     use burn::tensor::Tensor;
     use serde::{Deserialize, Serialize};
@@ -877,7 +877,7 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Obs {
-        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
             Tensor::from_floats([self.0, self.1, self.2], device)
         }
         fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -898,7 +898,7 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Act {
-        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
             let mut one_hot = [0.0_f32; 2];
             one_hot[self.0 as usize] = 1.0;
             Tensor::from_floats(one_hot, device)
@@ -931,7 +931,7 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Rew {
-        fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
             Tensor::from_floats([self.0], device)
         }
         fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -939,7 +939,7 @@ mod sample_batch_tests {
         }
     }
 
-    type Be = NdArray;
+    type Be = Flex;
 
     fn populated(n: usize) -> PrioritizedExperienceReplay<1, 1, Obs, Act, Rew> {
         let mut per = PrioritizedExperienceReplayBuilder::<1, 1, Obs, Act, Rew>::new()
@@ -967,11 +967,11 @@ mod sample_batch_tests {
         let batch = per
             .sample_batch::<2, 2, Be>(8, &device)
             .expect("sample_batch");
-        assert_eq!(batch.observations.shape().dims, [8, 3]);
-        assert_eq!(batch.next_observations.shape().dims, [8, 3]);
-        assert_eq!(batch.actions.shape().dims, [8, 2]);
-        assert_eq!(batch.rewards.shape().dims, [8]);
-        assert_eq!(batch.dones.shape().dims, [8]);
+        assert_eq!(batch.observations.dims(), [8, 3]);
+        assert_eq!(batch.next_observations.dims(), [8, 3]);
+        assert_eq!(batch.actions.dims(), [8, 2]);
+        assert_eq!(batch.rewards.dims(), [8]);
+        assert_eq!(batch.dones.dims(), [8]);
     }
 
     #[test]

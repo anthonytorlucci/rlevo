@@ -79,10 +79,10 @@ pub struct BinaryGaState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 ///
-/// let strategy = BinaryGeneticAlgorithm::<NdArray>::new();
+/// let strategy = BinaryGeneticAlgorithm::<Flex>::new();
 /// let params = BinaryGaConfig::default_for(32, 16);
 /// let _ = (strategy, params);
 /// ```
@@ -103,7 +103,7 @@ impl<B: Backend> BinaryGeneticAlgorithm<B> {
     fn sample_initial_population(
         params: &BinaryGaConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2, Int> {
         B::seed(device, rng.next_u64());
         let u = Tensor::<B, 2>::random(
@@ -127,7 +127,7 @@ where
         &self,
         params: &BinaryGaConfig,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> BinaryGaState<B> {
         BinaryGaState {
             population: Self::sample_initial_population(params, rng, device),
@@ -143,7 +143,7 @@ where
         params: &BinaryGaConfig,
         state: &BinaryGaState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2, Int>, BinaryGaState<B>) {
         if state.fitness.is_empty() {
             return (state.population.clone(), state.clone());
@@ -294,8 +294,8 @@ mod tests {
     use super::*;
     use crate::fitness::BatchFitnessFn;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
-    type TestBackend = NdArray;
+    use burn::backend::Flex;
+    type TestBackend = Flex;
 
     /// `OneMax` phrased as minimization: `cost = D − count_ones`.
     struct OneMaxCost {
@@ -306,14 +306,14 @@ mod tests {
         fn evaluate_batch(
             &mut self,
             population: &Tensor<B, 2, Int>,
-            device: &B::Device,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
         ) -> Tensor<B, 1> {
-            let dims = population.shape().dims;
+            let dims = population.dims();
             let pop_size = dims[0];
             let data = population
                 .clone()
                 .into_data()
-                .into_vec::<i64>()
+                .into_vec::<i32>()
                 .unwrap_or_default();
             let mut fitness = Vec::with_capacity(pop_size);
             for row in 0..pop_size {

@@ -93,10 +93,10 @@ pub struct SalpState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 ///
-/// let strategy = SalpSwarm::<NdArray>::new();
+/// let strategy = SalpSwarm::<Flex>::new();
 /// let params = SalpConfig::default_for(32, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -123,7 +123,7 @@ where
     type State = SalpState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &B::Device) -> SalpState<B> {
+    fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
         assert!(params.pop_size >= 2, "SSA requires pop_size >= 2");
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
@@ -146,7 +146,7 @@ where
         params: &SalpConfig,
         state: &SalpState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, SalpState<B>) {
         if state.fitness.is_empty() {
             return (state.positions.clone(), state.clone());
@@ -273,10 +273,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

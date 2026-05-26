@@ -3,7 +3,7 @@
 //! Two-layer MLP with `tanh` activations (matching CleanRL's discrete PPO
 //! default) followed by a softmax over `num_actions` logits. Sampling is
 //! done via **Gumbel-max on CPU** so the RNG is explicitly threaded and
-//! bitwise-reproducible under the ndarray backend.
+//! bitwise-reproducible under the Flex backend.
 
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
@@ -29,7 +29,7 @@ impl CategoricalPolicyHeadConfig {
     /// Constructs the module on `device` using Burn's default initializer.
     /// CleanRL's orthogonal-init detail is a deferred follow-up; users who
     /// want it can post-process the module via a `ModuleMapper`.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> CategoricalPolicyHead<B> {
+    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CategoricalPolicyHead<B> {
         CategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -89,7 +89,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         let log_probs = log_softmax(logits.clone(), 1);
 
         // CPU-side Gumbel-max sampling for bitwise reproducibility under
-        // ndarray. We read the logits data (cheap clone: ref-counted in Burn),
+        // flex. We read the logits data (cheap clone: ref-counted in Burn),
         // add Gumbel(0,1) noise, argmax per row.
         let logits_data = logits.clone().into_data().convert::<f32>();
         let logits_slice = logits_data
@@ -154,7 +154,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::ActionTensor {
         assert_eq!(
             flat.len(),
@@ -184,12 +184,12 @@ pub fn discrete_action_from_row<const AD: usize, A: rlevo_core::action::Discrete
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{Autodiff, NdArray};
+    use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
-    type B = Autodiff<NdArray>;
+    type B = Autodiff<Flex>;
 
     #[test]
     fn categorical_logprob_consistency() {

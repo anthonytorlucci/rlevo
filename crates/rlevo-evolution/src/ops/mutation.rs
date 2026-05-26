@@ -14,7 +14,7 @@ use burn::tensor::{backend::Backend, Distribution, Int, Tensor};
 pub fn gaussian_mutation<B: Backend>(
     population: Tensor<B, 2>,
     sigma: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let shape = population.shape();
     let noise = Tensor::<B, 2>::random(shape, Distribution::Normal(0.0, 1.0), device);
@@ -35,11 +35,10 @@ pub fn gaussian_mutation<B: Backend>(
 pub fn gaussian_mutation_per_row<B: Backend>(
     population: Tensor<B, 2>,
     sigmas: Tensor<B, 1>,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let shape = population.shape();
-    let n = shape.dims[0];
-    let d = shape.dims[1];
+    let [n, d] = population.dims();
     let noise = Tensor::<B, 2>::random(shape, Distribution::Normal(0.0, 1.0), device);
     let sigmas_2d = sigmas.reshape([n, 1]).expand([n, d]);
     population + noise * sigmas_2d
@@ -55,7 +54,7 @@ pub fn uniform_reset<B: Backend>(
     lo: f32,
     hi: f32,
     p: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let shape = population.shape();
     let noise =
@@ -75,7 +74,7 @@ pub fn uniform_reset<B: Backend>(
 pub fn bit_flip_mutation<B: Backend>(
     population: Tensor<B, 2, Int>,
     p: f32,
-    device: &B::Device,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2, Int> {
     let shape = population.shape();
     let coin = Tensor::<B, 2>::random(shape.clone(), Distribution::Uniform(0.0, 1.0), device);
@@ -89,17 +88,17 @@ pub fn bit_flip_mutation<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::NdArray;
-    use burn::backend::ndarray::NdArrayDevice;
+    use burn::backend::Flex;
+    use burn::backend::flex::FlexDevice;
     #[allow(unused_imports)]
     use burn::tensor::backend::Backend as _;
     use burn::tensor::TensorData;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     #[test]
     fn gaussian_with_zero_sigma_is_identity() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 3);
         let input = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]),
@@ -115,19 +114,19 @@ mod tests {
 
     #[test]
     fn gaussian_preserves_shape() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 3);
         let input = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![0.0_f32; 12], [3, 4]),
             &device,
         );
         let out = gaussian_mutation(input, 1.0, &device);
-        assert_eq!(out.shape().dims, vec![3, 4]);
+        assert_eq!(out.dims(), [3, 4]);
     }
 
     #[test]
     fn per_row_applies_distinct_sigmas() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 4);
         let input = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![0.0_f32; 4], [2, 2]),
@@ -146,7 +145,7 @@ mod tests {
 
     #[test]
     fn uniform_reset_with_p_zero_is_identity() {
-        let device: NdArrayDevice = Default::default();
+        let device: FlexDevice = Default::default();
         TestBackend::seed(&device, 9);
         let input = Tensor::<TestBackend, 2>::from_data(
             TensorData::new(vec![3.0_f32, 4.0, 5.0, 6.0], [2, 2]),

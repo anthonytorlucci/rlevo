@@ -7,7 +7,7 @@
 //!
 //! Run with `cargo run --release -p rlevo-evolution --example rastrigin_showcase`.
 
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
@@ -18,7 +18,7 @@ use rlevo_evolution::algorithms::ga::{
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
-type B = NdArray;
+type B = Flex;
 
 const DIM: usize = 10;
 const GENS: usize = 500;
@@ -30,7 +30,7 @@ where
     S::Params: std::fmt::Debug,
     F: BatchFitnessFn<B, S::Genome>,
     B: burn::tensor::backend::Backend,
-    <B as burn::tensor::backend::Backend>::Device: Clone + Default,
+    <B as burn::tensor::backend::BackendTypes>::Device: Clone + Default,
 {
     let device = Default::default();
     let mut harness =
@@ -57,7 +57,7 @@ fn main() {
     let bounds = (lo as f32, hi as f32);
 
     println!(
-        "Rastrigin-D{DIM} showcase — {GENS} generations, ndarray backend, seed={SEED}\n\
+        "Rastrigin-D{DIM} showcase — {GENS} generations, Flex backend, seed={SEED}\n\
          {:-<80}",
         "",
     );

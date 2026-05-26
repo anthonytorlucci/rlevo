@@ -18,7 +18,7 @@
 //! # Numerical parity caveat
 //!
 //! The fractional power `|v|^(1/β)` is FMA-reorder-sensitive — wgpu
-//! reductions can drift ~`1e-3` relative from ndarray on the same seed.
+//! reductions can drift ~`1e-3` relative from flex on the same seed.
 //! The backend-parity test relaxes tolerance for CS accordingly.
 //!
 //! # References
@@ -91,10 +91,10 @@ pub struct CuckooState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::cuckoo::{CuckooConfig, CuckooSearch};
 ///
-/// let strategy = CuckooSearch::<NdArray>::new();
+/// let strategy = CuckooSearch::<Flex>::new();
 /// let params = CuckooConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -161,7 +161,7 @@ where
     type State = CuckooState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &B::Device) -> CuckooState<B> {
+    fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
         let nests = Tensor::<B, 2>::random(
@@ -183,7 +183,7 @@ where
         params: &CuckooConfig,
         state: &CuckooState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, CuckooState<B>) {
         if state.fitness.is_empty() {
             return (state.nests.clone(), state.clone());
@@ -341,10 +341,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

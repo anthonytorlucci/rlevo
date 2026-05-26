@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
@@ -36,7 +36,7 @@ struct DqnMlp<B: Backend> {
 }
 
 impl<B: Backend> DqnMlp<B> {
-    fn new(device: &B::Device) -> Self {
+    fn new(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),
@@ -120,7 +120,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
     target.map(&mut mapper)
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 fn fresh_agent(seed: u64) -> Agent {
@@ -165,13 +165,13 @@ fn dqn_cart_pole_reaches_100() {
     let avg = agent.stats().avg_score().unwrap_or(0.0);
     // The acceptance target is >= 100 within 200k steps; this test trains
     // for 30k to keep CI fast. The smoke/reproducibility tests are
-    // `#[ignore]` so they don't compete for Burn's global ndarray RNG.
+    // `#[ignore]` so they don't compete for Burn's global Flex RNG.
     assert!(avg >= 100.0, "expected avg reward >= 100, got {avg:.2}");
 }
 
 /// Reproducibility smoke test: two back-to-back runs from the same seed
 /// produce identical reward sequences when run sequentially in the same
-/// thread. Marked `#[ignore]` because Burn's ndarray backend keeps a
+/// thread. Marked `#[ignore]` because Burn's Flex backend keeps a
 /// *global* RNG — running alongside other tests via the default
 /// multi-threaded runner poisons that global state. Run explicitly with
 /// `cargo test -p rlevo-reinforcement-learning --test dqn_integration dqn_reproducibility
@@ -179,7 +179,7 @@ fn dqn_cart_pole_reaches_100() {
 #[test]
 #[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
 #[allow(clippy::float_cmp)]
-fn dqn_reproducibility_ndarray() {
+fn dqn_reproducibility_flex() {
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
@@ -207,7 +207,7 @@ fn dqn_reproducibility_ndarray() {
 /// Smoke test: a short run completes with finite rewards and a populated
 /// buffer. Protects against silent regressions that would NaN-out. Marked
 /// `#[ignore]` because running it alongside `dqn_cart_pole_reaches_100`
-/// perturbs Burn's global ndarray RNG; run with `-- --ignored
+/// perturbs Burn's global Flex RNG; run with `-- --ignored
 /// --test-threads=1` to exercise it.
 #[test]
 #[ignore = "perturbs global Burn RNG; run with --test-threads=1"]

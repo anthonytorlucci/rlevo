@@ -95,10 +95,10 @@ pub struct AbcState<B: Backend> {
 /// # Example
 ///
 /// ```no_run
-/// use burn::backend::NdArray;
+/// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 ///
-/// let strategy = ArtificialBeeColony::<NdArray>::new();
+/// let strategy = ArtificialBeeColony::<Flex>::new();
 /// let params = AbcConfig::default_for(30, 10);
 /// let _ = (strategy, params);
 /// ```
@@ -125,7 +125,7 @@ impl<B: Backend> ArtificialBeeColony<B> {
         colony: &Tensor<B, 2>,
         pop_size: usize,
         genome_dim: usize,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
         // Base = copy of targets' rows (we only modify one dim each).
         #[allow(clippy::cast_possible_wrap)]
@@ -170,7 +170,7 @@ where
     type State = AbcState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &B::Device) -> AbcState<B> {
+    fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AbcState<B> {
         assert!(params.pop_size >= 2, "ABC requires pop_size >= 2");
         let (lo, hi) = params.bounds;
         B::seed(device, rng.next_u64());
@@ -195,7 +195,7 @@ where
         params: &AbcConfig,
         state: &AbcState<B>,
         rng: &mut dyn Rng,
-        device: &B::Device,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, AbcState<B>) {
         if state.fitness.is_empty() {
             return (state.colony.clone(), state.clone());
@@ -414,10 +414,10 @@ mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
-    use burn::backend::NdArray;
+    use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
-    type TestBackend = NdArray;
+    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;

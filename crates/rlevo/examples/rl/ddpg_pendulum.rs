@@ -1,4 +1,4 @@
-//! DDPG on Pendulum-v1 with Burn's ndarray backend.
+//! DDPG on Pendulum-v1 with Burn's Flex backend.
 //!
 //! Usage:
 //!
@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
@@ -44,7 +44,7 @@ pub struct ActorMlp<B: Backend> {
 }
 
 impl<B: Backend> ActorMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, hidden: usize, action_dim: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         // Pendulum action range is [-2, 2], so scale=2, bias=0.
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
@@ -98,7 +98,7 @@ pub struct CriticMlp<B: Backend> {
 }
 
 impl<B: Backend> CriticMlp<B> {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -192,7 +192,7 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 // CLI + main
 // ---------------------------------------------------------------------------
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 
 struct CliArgs {
     seed: u64,

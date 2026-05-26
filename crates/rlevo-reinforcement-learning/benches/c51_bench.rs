@@ -4,21 +4,20 @@
 //! a regression that turns the linear scatter-add into a quadratic broadcast
 //! is easy to spot in the output.
 
-use burn::backend::NdArray;
-use burn::tensor::backend::Backend;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
 use rlevo_reinforcement_learning::algorithms::c51::projection::project_distribution;
 
-type Be = NdArray;
+type Be = Flex;
 
 fn make_support(
     v_min: f32,
     v_max: f32,
     n: usize,
-    device: &<Be as Backend>::Device,
+    device: &<Be as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<Be, 1> {
     let delta = (v_max - v_min) / (n as f32 - 1.0);
     let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
@@ -26,7 +25,7 @@ fn make_support(
 }
 
 fn bench_projection(c: &mut Criterion) {
-    let device: <Be as Backend>::Device = Default::default();
+    let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
     let v_min = -10.0_f32;
     let v_max = 10.0_f32;
 

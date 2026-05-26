@@ -5,10 +5,10 @@
 //! - `ppo_pendulum_improves_over_random` (continuous)
 //!
 //! Heavier parity checks behind `#[ignore]` follow the DQN/C51 convention:
-//! Burn's ndarray backend shares a global RNG, so reproducibility tests must
+//! Burn's Flex backend shares a global RNG, so reproducibility tests must
 //! run with `--test-threads=1`.
 
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::Tensor;
@@ -46,7 +46,7 @@ struct ValueMlp<B: Backend> {
 }
 
 impl<B: Backend> ValueMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, device: &B::Device) -> Self {
+    fn new(obs_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -67,7 +67,7 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-type Be = Autodiff<NdArray>;
+type Be = Autodiff<Flex>;
 
 // ---------------------------------------------------------------------------
 // Discrete: CartPole
@@ -129,7 +129,7 @@ fn ppo_cart_pole_reaches_100() {
 }
 
 #[test]
-#[ignore = "perturbs Burn's global ndarray RNG; run with --test-threads=1"]
+#[ignore = "perturbs Burn's global Flex RNG; run with --test-threads=1"]
 fn ppo_short_run_produces_finite_rewards() {
     let seed: u64 = 7;
     let total = 2_048_usize;
@@ -197,7 +197,7 @@ fn make_pendulum_agent(
 }
 
 #[test]
-#[ignore = "~30s on ndarray; run with --ignored for macro checks"]
+#[ignore = "~30s on Flex; run with --ignored for macro checks"]
 fn ppo_pendulum_improves_over_random() {
     let seed: u64 = 42;
     let total = 30_000_usize;
