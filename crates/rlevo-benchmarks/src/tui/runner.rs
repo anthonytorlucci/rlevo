@@ -260,6 +260,12 @@ pub fn apply_event(state: &mut AppState, event: TuiEvent) {
         TuiEvent::EpisodeEnd { trial: _, episode } => {
             state.record_episode_end(episode.episode_idx, episode.return_value);
         }
+        TuiEvent::EpisodeReturn {
+            return_value,
+            length: _,
+        } => {
+            state.record_episode_return(return_value);
+        }
         TuiEvent::TrialEnd { .. } => {
             // No-op: the trial aggregate is summarised at suite end.
         }
@@ -440,6 +446,24 @@ mod tests {
             env_name: env.to_string(),
             trial_seed: 7,
         }
+    }
+
+    #[test]
+    fn apply_event_records_episode_return_into_reward_ring() {
+        let mut state = AppState::default();
+        apply_event(
+            &mut state,
+            TuiEvent::EpisodeReturn {
+                return_value: 12.5,
+                length: 64,
+            },
+        );
+        assert_eq!(state.reward_ring.back().copied(), Some(12.5));
+        assert_eq!(state.status.last_return, Some(12.5));
+        assert!(
+            state.status.episode.is_none(),
+            "non-harness writer must not populate the episode counter"
+        );
     }
 
     #[test]

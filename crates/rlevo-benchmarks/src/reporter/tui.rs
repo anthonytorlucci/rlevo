@@ -42,6 +42,21 @@ pub enum TuiEvent {
         /// Final episode record (return, length, index).
         episode: EpisodeRecord,
     },
+    /// Episode terminated outside the benchmarks harness. Carries only the
+    /// return and length — no `TrialInfo`, no `EpisodeRecord`. Emitted by
+    /// non-harness env wrappers (e.g.,
+    /// [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) so a raw
+    /// `Environment` driver (PPO's `train_discrete`, future EA loops) can
+    /// populate the reward sparkline without synthesising harness-only
+    /// types. The render thread folds the return into the same
+    /// `reward_ring` that `EpisodeEnd` writes to.
+    EpisodeReturn {
+        /// Sum of per-step rewards across the just-terminated episode.
+        return_value: f64,
+        /// Step count of the just-terminated episode. Unused by the live
+        /// tier today; carried for Milestone-4's `EpisodeRecord` writer.
+        length: u32,
+    },
     /// Trial terminated. Carries the aggregated [`TrialReport`].
     TrialEnd {
         /// Identifies the trial.
@@ -153,6 +168,19 @@ impl TuiHandle {
             .is_ok()
     }
 
+    /// Best-effort episode-return push. Used by non-harness env wrappers
+    /// (e.g., [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) on episode
+    /// termination. Same lossy semantics as [`Self::try_push_frame`].
+    #[must_use = "the return value indicates whether the render thread is still listening"]
+    pub fn try_push_episode_return(&self, return_value: f64, length: u32) -> bool {
+        self.tx
+            .send(TuiEvent::EpisodeReturn {
+                return_value,
+                length,
+            })
+            .is_ok()
+    }
+
     /// Build a [`TuiReporter`] sharing the same channel as this handle.
     /// Use this to plug the reporter into [`Evaluator::run_suite`] while
     /// retaining clones of the handle for [`RenderTap`].
@@ -247,6 +275,32 @@ mod tests {
         drop(rx);
         assert!(
             !handle.try_push_frame(0, make_frame("x")),
+            "should fail cleanly after receiver drop"
+        );
+    }
+
+    #[test]
+    fn handle_pushes_episode_return_event() {
+        let (handle, rx) = TuiHandle::channel();
+        assert!(handle.try_push_episode_return(42.5, 17));
+        match rx.try_recv().expect("expected a queued event") {
+            TuiEvent::EpisodeReturn {
+                return_value,
+                length,
+            } => {
+                assert!((return_value - 42.5).abs() < f64::EPSILON);
+                assert_eq!(length, 17);
+            }
+            other => panic!("expected EpisodeReturn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_push_episode_return_returns_false_when_receiver_dropped() {
+        let (handle, rx) = TuiHandle::channel();
+        drop(rx);
+        assert!(
+            !handle.try_push_episode_return(1.0, 1),
             "should fail cleanly after receiver drop"
         );
     }

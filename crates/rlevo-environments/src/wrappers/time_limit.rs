@@ -1,6 +1,7 @@
 use rlevo_core::{
     base::{Observation, Reward},
     environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    render::{AsciiRenderable, StyledFrame},
 };
 
 /// Wraps an environment and truncates episodes after `max_steps` steps.
@@ -108,6 +109,23 @@ where
             snap.status = EpisodeStatus::Truncated;
         }
         Ok(snap)
+    }
+}
+
+/// Forward [`AsciiRenderable`] through to the wrapped env so wrappers that
+/// require it (e.g. `rlevo_benchmarks::env_wrappers::TuiEnvTap`) can compose
+/// with `TimeLimit<E>` whenever `E` is itself renderable. Mirrors the
+/// forwarding impl on `BenchAdapter`.
+impl<E> AsciiRenderable for TimeLimit<E>
+where
+    E: AsciiRenderable,
+{
+    fn render_ascii(&self) -> String {
+        self.inner.render_ascii()
+    }
+
+    fn render_styled(&self) -> StyledFrame {
+        self.inner.render_styled()
     }
 }
 

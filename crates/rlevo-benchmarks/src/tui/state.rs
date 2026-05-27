@@ -204,6 +204,22 @@ impl AppState {
         self.status.episode = Some((episode_idx, total));
     }
 
+    /// Record an episode return from a non-harness producer.
+    ///
+    /// Equivalent to [`Self::record_episode_end`] except `status.episode`
+    /// is left untouched — non-harness producers (e.g.
+    /// [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) have no notion of
+    /// "episode N of total", and writing `(N, N+1)` per call would create a
+    /// running counter that contradicts the harness-supplied total when the
+    /// two paths coexist.
+    pub fn record_episode_return(&mut self, return_value: f64) {
+        if self.reward_ring.len() == self.reward_history {
+            self.reward_ring.pop_front();
+        }
+        self.reward_ring.push_back(return_value);
+        self.status.last_return = Some(return_value);
+    }
+
     /// Record a trial-start boundary: clears the frame slot and records the
     /// env name. Does not clear the reward ring — the user wants to see the
     /// reward trajectory continue across consecutive trials of the same
@@ -303,6 +319,51 @@ mod tests {
         // Oldest retained sample should be the 4th push (i = 3).
         let v: Vec<f64> = state.reward_ring.iter().copied().collect();
         assert_eq!(v, vec![3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn record_episode_return_appends_without_touching_episode_counter() {
+        let mut state = AppState::new(4, PanelMode::Auto);
+        state.record_episode_return(1.5);
+        state.record_episode_return(-2.0);
+
+        assert_eq!(state.reward_ring.len(), 2);
+        assert_eq!(state.reward_ring.front().copied(), Some(1.5));
+        assert_eq!(state.reward_ring.back().copied(), Some(-2.0));
+        assert_eq!(state.status.last_return, Some(-2.0));
+        assert!(
+            state.status.episode.is_none(),
+            "non-harness writer must not invent an episode counter"
+        );
+    }
+
+    /// Ring boundedness on the non-harness writer: same eviction policy
+    /// as `record_episode_end` so sparkline rendering is identical.
+    #[test]
+    fn record_episode_return_evicts_oldest_at_capacity() {
+        let mut state = AppState::new(3, PanelMode::Auto);
+        for i in 0..6_i32 {
+            state.record_episode_return(f64::from(i));
+        }
+        let v: Vec<f64> = state.reward_ring.iter().copied().collect();
+        assert_eq!(v, vec![3.0, 4.0, 5.0]);
+    }
+
+    /// When the harness has already populated `status.episode`, a
+    /// non-harness writer must not clobber it. Confirms the harness and
+    /// non-harness paths can coexist without one rewriting the other's
+    /// counter (relevant when an EA loop fans out to both paths).
+    #[test]
+    fn record_episode_return_preserves_harness_episode_counter() {
+        let mut state = AppState::default();
+        state.mark_suite_start("smoke", 10);
+        state.record_episode_end(3, 1.0);
+        state.record_episode_return(2.0);
+
+        let (idx, total) = state.status.episode.expect("harness counter set");
+        assert_eq!(idx, 3, "harness episode index must not change");
+        assert_eq!(total, 10, "harness episode total must not change");
+        assert_eq!(state.status.last_return, Some(2.0));
     }
 
     #[test]

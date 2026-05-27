@@ -1,6 +1,7 @@
 //! Live TUI dashboard wrapping a PPO training run on [`CartPole`].
 //!
-//! Demonstrates Milestone-3's metric and log panels end-to-end:
+//! Demonstrates the full live tier end-to-end on a non-harness training
+//! loop:
 //!
 //! 1. [`TuiRunner::start`] enters raw mode + alt screen and spawns the
 //!    render thread.
@@ -8,30 +9,29 @@
 //!    every `tracing::info!` PPO emits during training feeds the live
 //!    dashboard's metric sparklines and scrolling log panel through the
 //!    same channel.
-//! 3. PPO calls
+//! 3. The env (`CartPole` → `TimeLimit` → [`TuiEnvTap`]) is wrapped in a
+//!    frame + episode-return emitter so the env panel and reward
+//!    sparkline light up from a raw `Environment` driver — no
+//!    benchmarks-harness `Suite`/`Evaluator` flow required.
+//! 4. PPO calls
 //!    [`train_discrete`](rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete)
-//!    directly — the full `Environment` trait path, not the
-//!    benchmarks-harness `Suite`/`Evaluator` flow.
-//! 4. [`TuiRunner::shutdown`] joins the render thread and restores the
+//!    directly against the wrapped env.
+//! 5. [`TuiRunner::shutdown`] joins the render thread and restores the
 //!    terminal.
 //!
 //! # Which panels light up
 //!
+//! - **Env panel** — per-step `StyledFrame`s pushed by [`TuiEnvTap`].
+//! - **Reward sparkline** — `EpisodeReturn` events pushed by
+//!   [`TuiEnvTap`] on each episode termination (CartPole both
+//!   `Terminated` from pole failure and `Truncated` from the
+//!   `TimeLimit`).
 //! - **`policy_loss` / `entropy` / `approx_kl` sparklines** — PPO emits
 //!   these as structured fields at every `log_every` interval; the
 //!   canonical-metric registry in `rlevo-benchmarks::tui::log_layer`
 //!   routes them into the dashboard.
 //! - **Log panel** — every PPO "training progress" line scrolls in,
 //!   styled by level.
-//! - **Reward sparkline** — *empty.* M2's reward panel reads from
-//!   `EpisodeEnd` events on the [`Reporter`] surface; this example
-//!   bypasses the benchmarks harness, so no `EpisodeEnd` events flow.
-//!   PPO's `avg_reward` field is a string (Display-formatted), so the
-//!   canonical-metric registry intentionally ignores it.
-//! - **Env panel** — *empty (shows "waiting for first frame…").*
-//!   `RenderTap` wraps a [`BenchEnv`]; PPO drives the full `Environment`
-//!   trait directly, with no benchmarks layer to tap into. Wrapping the
-//!   env in a frame-emitter is its own work, deferred.
 //! - **`best_fitness` sparkline** — *empty.* This is an EA-only signal.
 //!
 //! # Run with
@@ -43,8 +43,7 @@
 //! The `--release` matters: PPO's training loop is unusable at debug
 //! speed.
 //!
-//! [`Reporter`]: rlevo_benchmarks::reporter::Reporter
-//! [`BenchEnv`]: rlevo_core::evaluation::BenchEnv
+//! [`TuiEnvTap`]: rlevo_benchmarks::env_wrappers::TuiEnvTap
 
 use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
@@ -59,6 +58,7 @@ use rand::rngs::StdRng;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use rlevo_benchmarks::env_wrappers::TuiEnvTap;
 use rlevo_benchmarks::tui::{TuiCaptureLayer, TuiConfig, TuiRunner};
 
 use rlevo_environments::classic::cartpole::{
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    stdout fmt layer — alt-screen + stdout would corrupt the
     //    dashboard. All log content goes to the TUI log panel.
     tracing_subscriber::registry()
-        .with(TuiCaptureLayer::new(handle))
+        .with(TuiCaptureLayer::new(handle.clone()))
         .try_init()?;
 
     // 3. PPO setup — same shape as the non-TUI `ppo_cart_pole` example.
@@ -143,7 +143,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed: SEED,
         ..CartPoleConfig::default()
     });
-    let mut env = TimeLimit::new(base_env, EPISODE_TIME_LIMIT);
+    let timed = TimeLimit::new(base_env, EPISODE_TIME_LIMIT);
+    // Wrap the env so per-step frames and episode returns reach the
+    // dashboard through the same channel as the tracing-driven metric
+    // sparklines. Without this, env panel + reward sparkline stay empty.
+    let mut env: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(timed, handle);
 
     let policy: CategoricalPolicyHead<Be> = CategoricalPolicyHeadConfig {
         obs_dim: OBS_DIM,
