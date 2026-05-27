@@ -33,24 +33,98 @@ use super::replay::{EpisodeIndex, OpenWarning, RecordedRun};
 /// Tunables for the emitter. Defaults match the umbrella spec's "single
 /// self-contained file" output (§9): no external assets, every payload
 /// inlined.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EmitConfig {
     /// Soft upper bound on the emitted file size in bytes. Emission
     /// still completes if exceeded, but the outcome carries a
     /// `size_warning` flag so the caller can surface a downsample hint.
-    /// Default mirrors `rollout-and-replay` §5: 10 MB.
+    /// Default mirrors `rollout-and-replay` §5: 10 MB. `0` means
+    /// "use the built-in default".
     pub size_warn_bytes: u64,
     /// Optional title rendered in the placeholder header. `None`
     /// defaults to the manifest's `run_id`.
     pub title: Option<String>,
+    /// Optional prebuilt Leptos/WASM client assets (M5.1). When
+    /// `Some`, the emitter inlines the WASM blob, the wasm-bindgen
+    /// JS shim, and the bundled CSS, and replaces the placeholder
+    /// body with the `<div id="rlevo-app"></div>` mount point. When
+    /// `None`, the M5 placeholder body ships unchanged.
+    pub client_assets: Option<ClientAssets>,
 }
 
-impl Default for EmitConfig {
-    fn default() -> Self {
-        Self {
-            size_warn_bytes: 10 * 1024 * 1024,
-            title: None,
+impl EmitConfig {
+    fn resolved_size_warn(&self) -> u64 {
+        if self.size_warn_bytes == 0 {
+            10 * 1024 * 1024
+        } else {
+            self.size_warn_bytes
         }
+    }
+}
+
+/// Prebuilt Leptos/WASM client assets bundled by `trunk build --release`.
+/// The caller is responsible for producing these; see the
+/// `rlevo-benchmarks-report-client` README for the build flow.
+#[derive(Debug, Clone)]
+pub struct ClientAssets {
+    /// The wasm-bindgen module's JavaScript shim (`*_bg.js` or `index.js`
+    /// content). Wired up to load the WASM blob from an inline data URI.
+    pub js_shim: String,
+    /// Raw bytes of the WASM module. Inlined as a base64 `<script>` block
+    /// the JS shim fetches at runtime.
+    pub wasm: Vec<u8>,
+    /// Optional CSS bundled by the client crate. Merged into the
+    /// emitter's `<style>` block; pass an empty string to inherit
+    /// the default M5 CSS only.
+    pub css: String,
+}
+
+impl ClientAssets {
+    /// Load assets from a `trunk build` output directory. The directory
+    /// must contain exactly one `.wasm` file, one `.js` file, and at
+    /// most one `.css` file. Filenames are read by extension so trunk's
+    /// `filehash` mode is fine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if the directory cannot be listed, if
+    /// the expected file count does not match, or if any read fails.
+    pub fn from_trunk_dist(dir: &Path) -> io::Result<Self> {
+        let mut wasm_path: Option<PathBuf> = None;
+        let mut js_path: Option<PathBuf> = None;
+        let mut css_path: Option<PathBuf> = None;
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            match ext {
+                "wasm" => wasm_path = Some(path),
+                "js" => js_path = Some(path),
+                "css" => css_path = Some(path),
+                _ => {}
+            }
+        }
+        let wasm_path = wasm_path.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no .wasm file in {}", dir.display()),
+            )
+        })?;
+        let js_path = js_path.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no .js file in {}", dir.display()),
+            )
+        })?;
+        let wasm = fs::read(&wasm_path)?;
+        let js_shim = fs::read_to_string(&js_path)?;
+        let css = match css_path {
+            Some(p) => fs::read_to_string(&p)?,
+            None => String::new(),
+        };
+        Ok(Self { js_shim, wasm, css })
     }
 }
 
@@ -112,7 +186,11 @@ pub fn emit_static_html(
 
     let mut body = String::with_capacity(64 * 1024);
     write_html_head(&mut body, run, config);
-    write_placeholder_body(&mut body, run, config);
+    if config.client_assets.is_some() {
+        write_client_mount(&mut body);
+    } else {
+        write_placeholder_body(&mut body, run, config);
+    }
 
     push_script_json(&mut body, "rlevo-manifest", &manifest_json);
     push_script_json(&mut body, "rlevo-warnings", &warnings_json);
@@ -137,6 +215,10 @@ pub fn emit_static_html(
     let index_json = serde_json::to_string(&episode_metas).map_err(EmitError::ManifestJson)?;
     push_script_json(&mut body, "rlevo-episode-index", &index_json);
 
+    if let Some(assets) = config.client_assets.as_ref() {
+        push_client_bundle(&mut body, assets);
+    }
+
     body.push_str("</body>\n</html>\n");
 
     let parent = out_path.parent().unwrap_or_else(|| Path::new("."));
@@ -155,9 +237,63 @@ pub fn emit_static_html(
     Ok(EmitOutcome {
         episode_count: u32::try_from(run.episodes().len()).unwrap_or(u32::MAX),
         bytes_written,
-        size_warning: bytes_written > config.size_warn_bytes,
+        size_warning: bytes_written > config.resolved_size_warn(),
     })
 }
+
+fn write_client_mount(out: &mut String) {
+    out.push_str("<div id=\"rlevo-app\">\n");
+    out.push_str("<noscript><p>This report requires JavaScript to render the\n");
+    out.push_str("rlevo client. Without JS the data is still inlined below in\n");
+    out.push_str("script blocks — see the rlevo-benchmarks `report` docs.</p></noscript>\n");
+    out.push_str("</div>\n");
+}
+
+fn push_client_bundle(out: &mut String, assets: &ClientAssets) {
+    if !assets.css.is_empty() {
+        out.push_str("<style>\n");
+        out.push_str(&assets.css);
+        out.push_str("\n</style>\n");
+    }
+    let wasm_b64 = B64.encode(&assets.wasm);
+    let _ = writeln!(
+        out,
+        "<script type=\"application/octet-stream\" id=\"rlevo-client-wasm\">"
+    );
+    out.push_str(&wasm_b64);
+    out.push_str("\n</script>\n");
+
+    // Inline the wasm-bindgen module shim as a base64 data: URL so its
+    // `export default` semantics survive (inline <script type="module">
+    // blocks can't import from named files, but they CAN import from
+    // data URLs).
+    let shim_b64 = B64.encode(assets.js_shim.as_bytes());
+    out.push_str("<script type=\"application/octet-stream\" id=\"rlevo-client-shim\">\n");
+    out.push_str(&shim_b64);
+    out.push_str("\n</script>\n");
+
+    out.push_str("<script type=\"module\">\n");
+    out.push_str(BOOTSTRAP);
+    out.push_str("\n</script>\n");
+}
+
+const BOOTSTRAP: &str = r#"
+const decodeB64 = (id) => {
+    const el = document.getElementById(id);
+    if (!el) throw new Error("missing inlined script " + id);
+    const b64 = el.textContent.trim();
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+};
+const wasmBytes = decodeB64("rlevo-client-wasm");
+const shimBytes = decodeB64("rlevo-client-shim");
+const shimText = new TextDecoder().decode(shimBytes);
+const shimUrl = "data:text/javascript;base64," + btoa(unescape(encodeURIComponent(shimText)));
+const shim = await import(shimUrl);
+await shim.default({ module_or_path: wasmBytes });
+"#;
 
 fn tmp_path(out_path: &Path) -> PathBuf {
     let mut name = out_path
@@ -418,7 +554,7 @@ mod tests {
         let out = dir.path().join("index.html");
         let cfg = EmitConfig {
             size_warn_bytes: 1,
-            title: None,
+            ..EmitConfig::default()
         };
         let outcome = emit_static_html(&run, &out, &cfg).unwrap();
         assert!(outcome.size_warning, "expected size warning at 1-byte cap");
@@ -470,5 +606,71 @@ mod tests {
         let chunk = &body[start..end];
         assert!(!chunk.contains("</script>"));
         assert!(chunk.contains("<\\/script>"));
+    }
+
+    #[test]
+    fn emit_with_client_assets_replaces_placeholder_and_inlines_bundle() {
+        let dir = tempdir().unwrap();
+        let run_dir = write_run(dir.path());
+        let run = RecordedRun::open(&run_dir).unwrap();
+        let out = dir.path().join("index.html");
+
+        let cfg = EmitConfig {
+            client_assets: Some(ClientAssets {
+                js_shim: "export default async () => {};\n".to_string(),
+                wasm: b"\x00asm\x01\x00\x00\x00".to_vec(),
+                css: "#rlevo-app { color: rebeccapurple; }".to_string(),
+            }),
+            ..EmitConfig::default()
+        };
+        emit_static_html(&run, &out, &cfg).unwrap();
+        let body = fs::read_to_string(&out).unwrap();
+
+        // Client mount + bundle present.
+        assert!(body.contains("id=\"rlevo-app\""), "mount div missing");
+        assert!(
+            body.contains("id=\"rlevo-client-wasm\""),
+            "wasm payload script missing"
+        );
+        assert!(
+            body.contains("id=\"rlevo-client-shim\""),
+            "shim payload script missing"
+        );
+        assert!(
+            body.contains("rebeccapurple"),
+            "bundled CSS not inlined"
+        );
+        // Placeholder body (episode table) should be GONE when client
+        // assets are supplied.
+        assert!(
+            !body.contains("class=\"rlevo-episodes\""),
+            "placeholder episode table should not ship when client mounts"
+        );
+        // Data payloads (manifest + per-episode) must still ship — the
+        // client reads them.
+        assert!(body.contains("id=\"rlevo-manifest\""));
+        assert!(body.contains("id=\"rlevo-episode-000000\""));
+    }
+
+    #[test]
+    fn from_trunk_dist_picks_up_wasm_js_css_by_extension() {
+        let dir = tempdir().unwrap();
+        let dist = dir.path().join("dist");
+        fs::create_dir(&dist).unwrap();
+        fs::write(dist.join("rlevo-abc123.wasm"), b"\x00asm\x01\x00\x00\x00").unwrap();
+        fs::write(dist.join("rlevo-abc123.js"), "export default () => {};\n").unwrap();
+        fs::write(dist.join("rlevo-abc123.css"), "body { color: red; }").unwrap();
+
+        let assets = ClientAssets::from_trunk_dist(&dist).unwrap();
+        assert_eq!(assets.wasm.len(), 8);
+        assert!(assets.js_shim.contains("export default"));
+        assert!(assets.css.contains("color: red"));
+    }
+
+    #[test]
+    fn from_trunk_dist_errors_when_wasm_missing() {
+        let dir = tempdir().unwrap();
+        let res = ClientAssets::from_trunk_dist(dir.path());
+        assert!(res.is_err());
     }
 }

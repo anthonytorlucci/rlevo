@@ -11,7 +11,7 @@ pub mod html;
 pub mod replay;
 
 #[cfg(feature = "report")]
-pub use html::{EmitConfig, EmitError, EmitOutcome, emit_static_html};
+pub use html::{ClientAssets, EmitConfig, EmitError, EmitOutcome, emit_static_html};
 #[cfg(feature = "report")]
 pub use replay::{EpisodeIndex, OpenError, OpenWarning, RecordedRun};
 

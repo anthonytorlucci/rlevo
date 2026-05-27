@@ -153,7 +153,32 @@ runs/<run_id>/index.html
 | `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
 | `export-report` (binary) | CLI front-end: `cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>`. |
 
-M5 ships the **data-transport skeleton**: per-family playback adapters, convergence plots, and the Leptos/WASM client that consumes the inlined payloads land in subsequent milestones. The data contract — the four `<script>` block ids above — is stable as of `FORMAT_VERSION = 1`.
+M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is stable as of `FORMAT_VERSION = 1`.
+
+### Optional Leptos/WASM client (Milestone 5.1)
+
+The [`rlevo-benchmarks-report-client`](../rlevo-benchmarks-report-client/) sibling crate compiles to a Leptos/WASM client that decodes the inlined payloads and renders an interactive manifest header + episode table. Building it requires the `wasm32-unknown-unknown` rustup target and the `trunk` CLI; see the sibling crate's README for the build flow.
+
+When the client artefacts are available, pass them through `EmitConfig`:
+
+```rust
+use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
+
+let run = RecordedRun::open("runs/<run_id>")?;
+let assets = ClientAssets::from_trunk_dist(
+    std::path::Path::new("crates/rlevo-benchmarks-report-client/dist")
+)?;
+emit_static_html(
+    &run,
+    std::path::Path::new("runs/<run_id>/index.html"),
+    &EmitConfig {
+        client_assets: Some(assets),
+        ..EmitConfig::default()
+    },
+)?;
+```
+
+The emitter replaces the M5 placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the M5 placeholder body ships unchanged.
 
 ### `checkpoint` — Resume Support
 
