@@ -10,9 +10,12 @@
 //! See `projects/rlevo/specs/2026-05-26-env-vis/rlevo-viz-overview.md`
 //! §8 for the wire format and §10 for the writer state machine.
 
+pub mod env_tap;
 pub mod manifest;
 pub mod schema;
 pub mod writer;
+
+pub use env_tap::RecordingTap;
 
 pub use manifest::RunManifest;
 pub use schema::{
