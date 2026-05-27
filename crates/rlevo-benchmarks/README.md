@@ -107,6 +107,30 @@ The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_star
 | `LoggingReporter` | always | Emits structured `tracing::info!` events |
 | `JsonReporter` | `json` | Buffers events; writes a single JSON document atomically at suite end |
 | `TuiReporter` | `tui` | Sends `TuiEvent` values over an mpsc channel for terminal-UI consumption |
+| `RecordingReporter` | `record` | Drives the on-disk `EpisodeRecord` writer; pairs with `RecordingTap` + `RecordingLayer` |
+| `MultiReporter` | always | Fans the event stream out to a `Vec<Box<dyn Reporter>>` in insertion order |
+
+### `record` — On-Disk Per-Episode Recording (Milestone 4)
+
+The `record` module emits per-episode files plus a run manifest under `runs/<run_id>/`:
+
+```
+runs/<run_id>/
+  ├── episode_000000.rec   ← 16-byte preamble + EpisodeRecordHeader + length-prefixed RecordChunks
+  ├── episode_000001.rec
+  ├── ...
+  └── run.toml             ← RunManifest (seed, env_family, hyperparameters, …)
+```
+
+Three producers share one `Arc<Mutex<dyn RecordSink>>`:
+
+| Producer | Role |
+|----------|------|
+| `RecordingTap<E>` | Wraps `Environment`; emits per-step `FrameRecord` (subject to `frame_stride`) + closes the episode on `Snapshot::is_done` |
+| `RecordingReporter` | Drives the suite lifecycle; finalises `run.toml` at `on_suite_end`. Two modes: with or without per-episode signals |
+| `RecordingLayer` | `tracing_subscriber::Layer` that captures canonical metric fields (matches the `tui::log_layer` registry) |
+
+Encoding: bincode 2.x with `bincode::config::standard()`. `FORMAT_VERSION` is stamped into every `EpisodeRecordHeader`; loaders refuse mismatched versions.
 
 ### `checkpoint` — Resume Support
 
@@ -119,7 +143,8 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 | Feature | Default | Enables |
 |---------|---------|---------|
 | `json` | yes | `JsonReporter`, checkpoint load/save (`serde` + `serde_json`) |
-| `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`) |
+| `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`), `tracing_subscriber` integration |
+| `record` | no | `record` module: per-episode files + `RunManifest` (`bincode` + `toml` + `time`) |
 
 ---
 
