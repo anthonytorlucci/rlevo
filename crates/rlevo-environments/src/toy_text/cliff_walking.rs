@@ -362,6 +362,84 @@ impl From<(u8, u8)> for CliffWalkingState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for CliffWalking {
+    fn render_ascii(&self) -> String {
+        let mut out = String::with_capacity((NCOL as usize) * 2 * NROW as usize);
+        for row in 0..NROW {
+            for col in 0..NCOL {
+                out.push(cell_char(row, col, self.state.row, self.state.col));
+                out.push(' ');
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        use crate::render::palette::{
+            AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER,
+        };
+        use crate::render::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+        let mut lines = Vec::with_capacity(NROW as usize);
+        for row in 0..NROW {
+            let mut spans: Vec<StyledSpan> = Vec::new();
+            let mut current_style = SpanStyle::default();
+            let mut current_text = String::new();
+            for col in 0..NCOL {
+                let ch = cell_char(row, col, self.state.row, self.state.col);
+                let style = match ch {
+                    '@' => SpanStyle::default()
+                        .fg(AGENT_FG)
+                        .with_modifier(AGENT_MODIFIER),
+                    'C' => SpanStyle::default()
+                        .fg(HAZARD_FG)
+                        .with_modifier(HAZARD_MODIFIER),
+                    'G' => SpanStyle::default()
+                        .fg(GOAL_FG)
+                        .with_modifier(GOAL_MODIFIER),
+                    'S' => SpanStyle::default()
+                        .fg(Color::Yellow)
+                        .with_modifier(Modifier::BOLD),
+                    _ => SpanStyle::default(),
+                };
+                if style != current_style && !current_text.is_empty() {
+                    spans.push(StyledSpan::new(
+                        std::mem::take(&mut current_text),
+                        current_style,
+                    ));
+                }
+                current_style = style;
+                current_text.push(ch);
+                current_text.push(' ');
+            }
+            if !current_text.is_empty() {
+                spans.push(StyledSpan::new(current_text, current_style));
+            }
+            lines.push(StyledLine::from_spans(spans));
+        }
+        StyledFrame { lines }
+    }
+}
+
+fn cell_char(row: u8, col: u8, agent_row: u8, agent_col: u8) -> char {
+    if row == agent_row && col == agent_col {
+        '@'
+    } else if (row, col) == GOAL {
+        'G'
+    } else if (row, col) == START {
+        'S'
+    } else if is_cliff(row, col) {
+        'C'
+    } else {
+        '.'
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`CliffWalking`], covering state encoding, cliff/goal transitions,
 /// boundary behaviour, slippery distributions, and RNG determinism.
@@ -532,5 +610,65 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        let plain_no_trailing: String = plain.lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(styled.plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, GOAL_FG, HAZARD_FG};
+
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        env.reset().unwrap();
+        let styled = env.render_styled();
+
+        let mut found_agent = false;
+        let mut found_goal = false;
+        let mut found_cliff = false;
+        for line in &styled.lines {
+            for span in &line.spans {
+                if span.text.starts_with('@') {
+                    assert_eq!(span.style.fg, Some(AGENT_FG));
+                    found_agent = true;
+                }
+                if span.text.starts_with('G') {
+                    assert_eq!(span.style.fg, Some(GOAL_FG));
+                    found_goal = true;
+                }
+                if span.text.starts_with('C') {
+                    assert_eq!(span.style.fg, Some(HAZARD_FG));
+                    found_cliff = true;
+                }
+            }
+        }
+        assert!(found_agent, "agent glyph @ not found in styled output");
+        assert!(found_goal, "goal glyph G not found in styled output");
+        assert!(found_cliff, "cliff glyph C not found in styled output");
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

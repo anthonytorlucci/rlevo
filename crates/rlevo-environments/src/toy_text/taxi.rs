@@ -451,6 +451,170 @@ impl Environment<1, 1, 1> for Taxi {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+const LOC_LABELS: [char; 4] = ['R', 'G', 'Y', 'B'];
+
+impl crate::render::AsciiRenderable for Taxi {
+    fn render_ascii(&self) -> String {
+        let mut out = String::new();
+        let pass_loc = self.state.passenger_loc;
+        let dest = self.state.destination as usize;
+        let taxi = (self.state.taxi_row, self.state.taxi_col);
+
+        let header = format!(
+            "Taxi  pass={}  dest={}\n",
+            passenger_label(pass_loc),
+            LOC_LABELS[dest]
+        );
+        out.push_str(&header);
+
+        for row in 0..5u8 {
+            for col in 0..5u8 {
+                out.push(taxi_cell_char(row, col, taxi, pass_loc, dest));
+                if col + 1 < 5 {
+                    out.push(if has_wall(row, col, col + 1) { '|' } else { ' ' });
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        use crate::render::palette::{
+            AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, WALL_FG,
+        };
+        use crate::render::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+        let pass_loc = self.state.passenger_loc;
+        let dest = self.state.destination as usize;
+        let taxi = (self.state.taxi_row, self.state.taxi_col);
+
+        let mut lines: Vec<StyledLine> = Vec::with_capacity(6);
+
+        // Label line — `Taxi` styled as agent.
+        let header_label_style = SpanStyle::default()
+            .fg(AGENT_FG)
+            .with_modifier(AGENT_MODIFIER);
+        let header_rest = format!(
+            "  pass={}  dest={}",
+            passenger_label(pass_loc),
+            LOC_LABELS[dest]
+        );
+        lines.push(StyledLine::from_spans(vec![
+            StyledSpan::new("Taxi", header_label_style),
+            StyledSpan::raw(header_rest),
+        ]));
+
+        let agent_style = SpanStyle::default()
+            .fg(AGENT_FG)
+            .with_modifier(AGENT_MODIFIER);
+        let dest_style = SpanStyle::default()
+            .fg(GOAL_FG)
+            .with_modifier(GOAL_MODIFIER);
+        let passenger_style = SpanStyle::default()
+            .fg(Color::Yellow)
+            .with_modifier(Modifier::BOLD);
+        let wall_style = SpanStyle::default().fg(WALL_FG);
+
+        for row in 0..5u8 {
+            let mut spans: Vec<StyledSpan> = Vec::new();
+            let mut current_style = SpanStyle::default();
+            let mut current_text = String::new();
+
+            for col in 0..5u8 {
+                let ch = taxi_cell_char(row, col, taxi, pass_loc, dest);
+                let style = if ch == 'T' {
+                    agent_style
+                } else if ch == 'P' {
+                    passenger_style
+                } else if ch == 'D' {
+                    dest_style
+                } else {
+                    SpanStyle::default()
+                };
+                push_styled(&mut spans, &mut current_style, &mut current_text, ch, style);
+
+                if col + 1 < 5 {
+                    let sep_ch = if has_wall(row, col, col + 1) { '|' } else { ' ' };
+                    let sep_style = if sep_ch == '|' {
+                        wall_style
+                    } else {
+                        SpanStyle::default()
+                    };
+                    push_styled(
+                        &mut spans,
+                        &mut current_style,
+                        &mut current_text,
+                        sep_ch,
+                        sep_style,
+                    );
+                }
+            }
+            if !current_text.is_empty() {
+                spans.push(StyledSpan::new(current_text, current_style));
+            }
+            lines.push(StyledLine::from_spans(spans));
+        }
+        StyledFrame { lines }
+    }
+}
+
+fn push_styled(
+    spans: &mut Vec<crate::render::StyledSpan>,
+    current_style: &mut crate::render::SpanStyle,
+    current_text: &mut String,
+    ch: char,
+    style: crate::render::SpanStyle,
+) {
+    if style != *current_style && !current_text.is_empty() {
+        spans.push(crate::render::StyledSpan::new(
+            std::mem::take(current_text),
+            *current_style,
+        ));
+    }
+    *current_style = style;
+    current_text.push(ch);
+}
+
+fn taxi_cell_char(
+    row: u8,
+    col: u8,
+    taxi: (u8, u8),
+    pass_loc: u8,
+    dest: usize,
+) -> char {
+    if (row, col) == taxi {
+        return 'T';
+    }
+    // Passenger glyph appears at its named location when not in taxi.
+    if pass_loc < 4 && LOCS[pass_loc as usize] == (row, col) {
+        return 'P';
+    }
+    if LOCS[dest] == (row, col) {
+        return 'D';
+    }
+    for (idx, &loc) in LOCS.iter().enumerate() {
+        if loc == (row, col) {
+            return LOC_LABELS[idx];
+        }
+    }
+    '.'
+}
+
+fn passenger_label(pass_loc: u8) -> &'static str {
+    match pass_loc {
+        0 => "R",
+        1 => "G",
+        2 => "Y",
+        3 => "B",
+        _ => "in-taxi",
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`Taxi`], covering state encoding, wall collisions, pickup/dropoff rewards,
 /// stochastic modes, and RNG determinism.
@@ -640,5 +804,81 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = Taxi::with_config(TaxiConfig::default());
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        let plain_no_trailing: String = plain.lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(styled.plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, WALL_FG};
+
+        let mut env = Taxi::with_config(TaxiConfig::default());
+        env.reset().unwrap();
+        // Pin a state with a guaranteed-visible destination (LOCS[1] = (0,4))
+        // while the taxi sits at (2, 2) and the passenger waits at LOCS[0].
+        env.state = TaxiState {
+            taxi_row: 2,
+            taxi_col: 2,
+            passenger_loc: 0,
+            destination: 1,
+        };
+        let styled = env.render_styled();
+
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Taxi")
+            .expect("Taxi label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+
+        let mut found_taxi_glyph = false;
+        let mut found_dest = false;
+        let mut found_wall = false;
+        for line in styled.lines.iter().skip(1) {
+            for span in &line.spans {
+                if span.text.contains('T') {
+                    assert_eq!(span.style.fg, Some(AGENT_FG));
+                    found_taxi_glyph = true;
+                }
+                if span.text.contains('D') {
+                    assert_eq!(span.style.fg, Some(GOAL_FG));
+                    found_dest = true;
+                }
+                if span.text.contains('|') {
+                    assert_eq!(span.style.fg, Some(WALL_FG));
+                    found_wall = true;
+                }
+            }
+        }
+        assert!(found_taxi_glyph, "taxi T glyph not styled");
+        assert!(found_dest, "destination D glyph not styled");
+        assert!(found_wall, "wall | glyph not styled");
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = Taxi::with_config(TaxiConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

@@ -397,6 +397,42 @@ impl Environment<1, 1, 1> for Blackjack {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for Blackjack {
+    fn render_ascii(&self) -> String {
+        let ace = if self.state.usable_ace { "A" } else { "" };
+        format!(
+            "Blackjack  player={}{ace}  dealer_showing={}",
+            self.state.player_sum, self.state.dealer_showing
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+        use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+        const LABEL: &str = "Blackjack";
+        let line = self.render_ascii();
+        let label_style = SpanStyle::default()
+            .fg(AGENT_FG)
+            .with_modifier(AGENT_MODIFIER);
+        let styled_line = if let Some(rest) = line.strip_prefix(LABEL) {
+            StyledLine::from_spans(vec![
+                StyledSpan::new(LABEL, label_style),
+                StyledSpan::raw(rest.to_string()),
+            ])
+        } else {
+            StyledLine::unstyled(line)
+        };
+        StyledFrame {
+            lines: vec![styled_line],
+        }
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`Blackjack`], covering actions, observations, rewards, and RNG determinism.
 mod tests {
@@ -601,5 +637,49 @@ mod tests {
             (a - b).abs() < 1e-5,
             "same seed must give same rewards; got {a} vs {b}"
         );
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Blackjack")
+            .expect("Blackjack label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }
