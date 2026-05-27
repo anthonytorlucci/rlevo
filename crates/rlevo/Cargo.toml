@@ -36,6 +36,8 @@ box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
 # Custom CubeCL GPU kernels for evolutionary algorithm hot paths
 custom-kernels = ["rlevo-evolution/custom-kernels"]
+# Live ratatui TUI dashboard for `rlevo-benchmarks` runs (Milestone 2).
+viz-tui = ["rlevo-benchmarks/tui"]
 
 [lints]
 workspace = true
@@ -189,3 +191,9 @@ path = "examples/benchmarks/ga_rastrigin.rs"
 [[example]]
 name = "tabular_bandit"
 path = "examples/benchmarks/tabular_bandit.rs"
+
+# Examples — live TUI dashboard
+[[example]]
+name = "tui_cartpole"
+path = "examples/viz/tui_cartpole.rs"
+required-features = ["viz-tui"]
