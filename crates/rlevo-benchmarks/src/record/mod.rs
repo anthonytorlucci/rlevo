@@ -10,9 +10,13 @@
 //! See `projects/rlevo/specs/2026-05-26-env-vis/rlevo-viz-overview.md`
 //! §8 for the wire format and §10 for the writer state machine.
 
+pub mod manifest;
 pub mod schema;
+pub mod writer;
 
+pub use manifest::RunManifest;
 pub use schema::{
     EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload, FrameRecord,
-    MetricSample, RunId, bincode_config, default_frame_stride,
+    Hyperparameters, MetricSample, RunId, bincode_config, default_frame_stride,
 };
+pub use writer::{InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, read_episode_record};
