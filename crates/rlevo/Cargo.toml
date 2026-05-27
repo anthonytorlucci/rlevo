@@ -226,3 +226,23 @@ required-features = ["viz-record", "viz-report"]
 name = "report_cartpole_with_client"
 path = "examples/viz/report_cartpole_with_client.rs"
 required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "record_grids"
+path = "examples/viz/record_grids.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "record_toy_text"
+path = "examples/viz/record_toy_text.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_grids_with_client"
+path = "examples/viz/report_grids_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "report_toy_text_with_client"
+path = "examples/viz/report_toy_text_with_client.rs"
+required-features = ["viz-record", "viz-report"]
