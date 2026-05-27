@@ -39,6 +39,7 @@
 pub mod landscapes {
     pub mod ackley;
     pub mod rastrigin;
+    pub mod render;
     pub mod sphere;
 }
 #[cfg(feature = "bench")]
