@@ -59,13 +59,41 @@ field-type drift fails the host test suite.
 `src/app.rs` is the Leptos app: manifest header + warnings banner +
 interactive episode table + per-episode detail pane.
 
-## M5.1 vs M6+
+## M6 — per-family playback adapters
 
-M5.1 ships the **data-binding skeleton**: the client mounts, decodes,
-and renders all four inlined block types end-to-end. It deliberately
-ships a generic episode-table UI rather than per-family playback —
-those adapters land in M6+ (classic/grids/toy-text first, then
-box2d/landscapes/locomotion).
+M5.1 shipped a static frame dump; **M6** turns the per-episode detail
+pane into a true playback surface:
+
+- **Timeline scrubber** (`<input type="range">`) drives a `frame_idx`
+  Leptos signal across `record.frames`.
+- **Play / Pause / Restart** with **1× / 2× / 5× / 10×** speed buttons.
+  The play loop runs a single `set_interval_with_handle`; it auto-pauses
+  at the terminal frame, and `on_cleanup` clears the handle whenever the
+  selected episode changes.
+- **Per-frame readout**: `frame i/N · step N · reward ±X.XXX`.
+- **Styled-frame HTML rendering** (`src/styled.rs`): wire-mirror
+  `StyledFrame` → `<pre>` + colour-classed `<span>`s. Pair every colour
+  with a hue-redundant signal (`font-weight: 700` for BOLD, CSS
+  `currentColor` swap for REVERSED) so a B/W screenshot still conveys
+  agent / goal / hazard meaning.
+- **Family dispatch** off `manifest.env_family` (`src/adapters/mod.rs`):
+  - `Classic` (CartPole / MountainCar / Pendulum / Acrobot).
+  - `Grids` (Minigrid-style envs — agent heading glyphs, walls, goals, hazards).
+  - `ToyText` (FrozenLake, CliffWalking, Taxi, Blackjack — tile grid + agent).
+  - Other families fall through to a **generic adapter** that still
+    renders the styled frame and surfaces a "bespoke adapter lands in
+    M7" banner.
+
+The umbrella crate ships paired examples for every covered family:
+`record_cartpole` / `record_grids` / `record_toy_text` produce
+recordings; `report_cartpole_with_client` / `report_grids_with_client` /
+`report_toy_text_with_client` wrap them into single-file HTML reports.
+
+## Deferred to M7+
+
+- Box2d, landscapes, locomotion per-family adapters.
+- Rich `FamilyPayload` variants (joint angles, body transforms).
+- Convergence plots, population/lineage panels (M8).
 
 ## Standalone development
 
