@@ -295,7 +295,7 @@ impl Observation<1> for CartPoleObservation {
 // ---------------------------------------------------------------------------
 
 /// Discrete action for [`CartPole`]: push left or push right.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CartPoleAction {
     /// Apply force in the negative-x direction.
     Left,

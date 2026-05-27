@@ -100,6 +100,20 @@ where
     }
 }
 
+impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
+    for RecordingTap<E, D, SD, AD>
+where
+    E: AsciiRenderable,
+{
+    fn render_ascii(&self) -> String {
+        self.inner.render_ascii()
+    }
+
+    fn render_styled(&self) -> rlevo_core::render::StyledFrame {
+        self.inner.render_styled()
+    }
+}
+
 impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
 where
     E: Environment<D, SD, AD> + AsciiRenderable,

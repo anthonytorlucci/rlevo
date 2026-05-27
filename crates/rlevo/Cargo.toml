@@ -204,3 +204,13 @@ required-features = ["viz-tui"]
 name = "tui_ppo_cartpole"
 path = "examples/viz/tui_ppo_cartpole.rs"
 required-features = ["viz-tui"]
+
+[[example]]
+name = "record_cartpole"
+path = "examples/viz/record_cartpole.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "record_ppo_cartpole"
+path = "examples/viz/record_ppo_cartpole.rs"
+required-features = ["viz-tui", "viz-record"]

@@ -26,7 +26,7 @@
 //! [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
 
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-use rlevo_core::render::AsciiRenderable;
+use rlevo_core::render::{AsciiRenderable, StyledFrame};
 
 use crate::reporter::tui::TuiHandle;
 
@@ -93,6 +93,19 @@ where
             .field("episode_length", &self.episode_length)
             .field("inner", &self.inner)
             .finish()
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
+    for TuiEnvTap<E, D, SD, AD>
+where
+    E: AsciiRenderable,
+{
+    fn render_ascii(&self) -> String {
+        self.inner.render_ascii()
+    }
+    fn render_styled(&self) -> StyledFrame {
+        self.inner.render_styled()
     }
 }
 
