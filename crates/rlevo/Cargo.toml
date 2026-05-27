@@ -216,3 +216,8 @@ required-features = ["viz-tui", "viz-record"]
 name = "record_ppo_cartpole"
 path = "examples/viz/record_ppo_cartpole.rs"
 required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_cartpole"
+path = "examples/viz/report_cartpole.rs"
+required-features = ["viz-record", "viz-report"]
