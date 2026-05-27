@@ -443,7 +443,7 @@ impl Observation<1> for FrozenLakeObservation {
 /// Four-direction action space matching Gymnasium's FrozenLake ordering.
 ///
 /// Movements are clamped at grid boundaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FrozenLakeAction {
     /// Move one column toward col 0 (west).
     Left = 0,
