@@ -55,9 +55,9 @@ pub struct CapturedLogLine {
 /// How the env panel should be rendered.
 ///
 /// Locomotion envs do not implement `AsciiRenderable` (per ADR 0008), so
-/// the live TUI cannot draw them. The placeholder mode is caller-set this
-/// milestone; automatic family detection waits for the `EnvFamily` enum
-/// that will land alongside `EpisodeRecord` in Milestone 4.
+/// the live TUI cannot draw them. Set manually for tests, or via
+/// [`TuiConfig::with_env_family`](crate::tui::runner::TuiConfig::with_env_family)
+/// for runs with the `record` feature enabled.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PanelMode {
     /// Render the latest captured [`StyledFrame`]; show a "waiting for

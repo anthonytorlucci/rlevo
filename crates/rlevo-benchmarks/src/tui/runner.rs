@@ -82,6 +82,27 @@ impl Default for TuiConfig {
     }
 }
 
+impl TuiConfig {
+    /// Pick a [`PanelMode`] based on the run's environment family.
+    /// Locomotion gets [`PanelMode::LocomotionPlaceholder`] since
+    /// those envs have no `AsciiRenderable` impl; everything else
+    /// stays on [`PanelMode::Auto`].
+    ///
+    /// Only available with the `record` feature; this is the canonical
+    /// way to apply the `EnvFamily` classification from the record
+    /// schema to a TUI run.
+    #[cfg(feature = "record")]
+    #[must_use]
+    pub fn with_env_family(mut self, family: crate::record::EnvFamily) -> Self {
+        self.panel_mode = if matches!(family, crate::record::EnvFamily::Locomotion) {
+            PanelMode::LocomotionPlaceholder
+        } else {
+            PanelMode::Auto
+        };
+        self
+    }
+}
+
 /// Errors emitted by the runner lifecycle.
 #[derive(Debug, thiserror::Error)]
 pub enum TuiError {
@@ -445,6 +466,32 @@ mod tests {
             },
             env_name: env.to_string(),
             trial_seed: 7,
+        }
+    }
+
+    #[cfg(feature = "record")]
+    #[test]
+    fn with_env_family_locomotion_sets_placeholder() {
+        let cfg = TuiConfig::default().with_env_family(crate::record::EnvFamily::Locomotion);
+        assert_eq!(cfg.panel_mode, PanelMode::LocomotionPlaceholder);
+    }
+
+    #[cfg(feature = "record")]
+    #[test]
+    fn with_env_family_non_locomotion_stays_auto() {
+        for family in [
+            crate::record::EnvFamily::Classic,
+            crate::record::EnvFamily::Grids,
+            crate::record::EnvFamily::ToyText,
+            crate::record::EnvFamily::Box2d,
+            crate::record::EnvFamily::Landscapes,
+        ] {
+            let cfg = TuiConfig::default().with_env_family(family);
+            assert_eq!(
+                cfg.panel_mode,
+                PanelMode::Auto,
+                "family {family:?} should remain Auto"
+            );
         }
     }
 
