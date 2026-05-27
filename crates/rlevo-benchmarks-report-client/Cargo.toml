@@ -1,0 +1,53 @@
+[package]
+name = "rlevo-benchmarks-report-client"
+version.workspace = true
+authors.workspace = true
+description = "Leptos/WASM client for the rlevo-benchmarks static-HTML report (Milestone 5.1)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8", features = ["csr"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+serde = { workspace = true }
+serde_json = "1"
+bincode = { version = "2", features = ["serde"] }
+base64 = "0.22"
+thiserror = { workspace = true }
+# The client mirrors the rlevo-core::render::styled types in wire.rs
+# rather than depending on rlevo-core directly. rlevo-core pulls in burn
+# (→ rand → getrandom) which doesn't WASM-build without extra feature
+# gating. The cross-crate compat test in rlevo-benchmarks guards drift.
+
+# wasm32 target needs the `wasm_js` backend for getrandom, transitively
+# pulled in via leptos's uuid dep.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Window",
+]
+
+[dev-dependencies]
+# Native unit tests for the wire-types module; cdylib tests stay
+# out of scope for M5.1.
+serde_json = "1"
+
+[lints]
+# Leptos generates code that fights the workspace's pedantic-clippy
+# set; explicitly opt back in but allow the noisier categories.
+workspace = true

@@ -1,0 +1,143 @@
+//! Read the four `<script>` blocks the emitter inlines into
+//! `index.html`. Decode JSON payloads with `serde_json`; decode the
+//! base64 episode payloads with the standard alphabet, then hand them
+//! to [`crate::wire::decode_episode_record`].
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
+use serde::Deserialize;
+use thiserror::Error;
+use web_sys::wasm_bindgen::JsCast;
+
+use crate::wire::{DecodeError, EpisodeRecord, RunManifest, decode_episode_record};
+
+/// Summary metadata produced by the emitter alongside the raw `.rec`
+/// payloads. Matches the `EpisodeMeta` struct in
+/// `rlevo-benchmarks/src/report/html.rs`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EpisodeMeta {
+    pub episode: u32,
+    pub frame_count: u32,
+    pub episode_reward: f64,
+    pub length: u32,
+    pub script_id: String,
+}
+
+/// JSON wire form for an `OpenWarning`. Field names match the emitter
+/// side (`rlevo-benchmarks::report::html::warnings_to_json`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WarningEntry {
+    pub kind: String,
+    pub manifest_count: Option<u32>,
+    pub found_count: Option<u32>,
+}
+
+#[derive(Debug, Error)]
+pub enum InlineError {
+    #[error("missing script element with id `{0}`")]
+    MissingScript(String),
+    #[error("script element `{id}` could not be downcast to HtmlElement")]
+    WrongElementType { id: String },
+    #[error("json decode of `{id}` failed: {source}")]
+    Json {
+        id: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("base64 decode failed: {0}")]
+    Base64(String),
+    #[error("bincode decode of `{id}` failed: {source}")]
+    Wire {
+        id: String,
+        #[source]
+        source: DecodeError,
+    },
+}
+
+fn script_text(id: &str) -> Result<String, InlineError> {
+    let window = web_sys::window().ok_or_else(|| InlineError::MissingScript("window".into()))?;
+    let doc = window
+        .document()
+        .ok_or_else(|| InlineError::MissingScript("document".into()))?;
+    let el = doc
+        .get_element_by_id(id)
+        .ok_or_else(|| InlineError::MissingScript(id.into()))?;
+    let html: web_sys::HtmlElement = el
+        .dyn_into()
+        .map_err(|_| InlineError::WrongElementType { id: id.into() })?;
+    Ok(html.inner_text())
+}
+
+/// Read and JSON-decode `<script id="rlevo-manifest">`.
+///
+/// # Errors
+///
+/// Returns [`InlineError::MissingScript`] if the script tag is not in
+/// the document, or [`InlineError::Json`] if its content is not a
+/// valid `RunManifest`.
+pub fn read_manifest() -> Result<RunManifest, InlineError> {
+    let id = "rlevo-manifest";
+    let text = script_text(id)?;
+    serde_json::from_str(text.trim()).map_err(|e| InlineError::Json {
+        id: id.into(),
+        source: e,
+    })
+}
+
+/// Read `<script id="rlevo-warnings">`. Returns an empty vec when the
+/// script tag is missing (graceful degradation for legacy emitters).
+///
+/// # Errors
+///
+/// Returns [`InlineError::Json`] if the script content is malformed.
+pub fn read_warnings() -> Result<Vec<WarningEntry>, InlineError> {
+    let id = "rlevo-warnings";
+    let text = match script_text(id) {
+        Ok(t) => t,
+        Err(InlineError::MissingScript(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    serde_json::from_str(text.trim()).map_err(|e| InlineError::Json {
+        id: id.into(),
+        source: e,
+    })
+}
+
+/// Read `<script id="rlevo-episode-index">` — the summary metadata
+/// every emitted episode carries.
+///
+/// # Errors
+///
+/// Returns [`InlineError::MissingScript`] if the index is absent or
+/// [`InlineError::Json`] if it is malformed.
+pub fn read_episode_index() -> Result<Vec<EpisodeMeta>, InlineError> {
+    let id = "rlevo-episode-index";
+    let text = script_text(id)?;
+    serde_json::from_str(text.trim()).map_err(|e| InlineError::Json {
+        id: id.into(),
+        source: e,
+    })
+}
+
+/// Read a single base64 episode block, decode it, and run the bincode
+/// pass via [`decode_episode_record`].
+///
+/// # Errors
+///
+/// Returns [`InlineError::MissingScript`] for missing script tags,
+/// [`InlineError::Base64`] for malformed base64 payloads, or
+/// [`InlineError::Wire`] for bincode failures.
+pub fn read_episode_record(script_id: &str) -> Result<EpisodeRecord, InlineError> {
+    let text = script_text(script_id)?;
+    let trimmed: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let bytes = B64
+        .decode(&trimmed)
+        .map_err(|e| InlineError::Base64(format!("{script_id}: {e}")))?;
+    decode_episode_record(&bytes).map_err(|e| InlineError::Wire {
+        id: script_id.into(),
+        source: e,
+    })
+}

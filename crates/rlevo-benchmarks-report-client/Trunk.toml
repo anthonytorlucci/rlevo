@@ -1,0 +1,5 @@
+[build]
+target = "index.html"
+release = true
+dist = "dist"
+filehash = false

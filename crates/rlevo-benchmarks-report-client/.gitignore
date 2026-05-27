@@ -1,0 +1,3 @@
+# Trunk build output — produced via `trunk build --release`. Not
+# checked in; the host emitter loads these at example-run time.
+dist/
