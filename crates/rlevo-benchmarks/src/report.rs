@@ -9,7 +9,7 @@ use crate::suite::TrialKey;
 
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct EpisodeRecord {
+pub struct EpisodeSummary {
     pub episode_idx: usize,
     pub return_value: f64,
     pub length: usize,
@@ -21,7 +21,7 @@ pub struct TrialReport {
     pub key: TrialKey,
     pub env_name: String,
     pub trial_seed: u64,
-    pub episodes: Vec<EpisodeRecord>,
+    pub episodes: Vec<EpisodeSummary>,
     /// Flattened scalar metrics (name -> value). Histograms and counters
     /// land in `histograms` / `counters`.
     pub scalars: BTreeMap<String, f64>,

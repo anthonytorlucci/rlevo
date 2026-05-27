@@ -434,7 +434,7 @@ mod tests {
     use ratatui::buffer::Cell;
     use rlevo_core::render::{StyledFrame, StyledLine, StyledSpan};
 
-    use crate::report::EpisodeRecord;
+    use crate::report::EpisodeSummary;
     use crate::suite::{SuiteInfo, TrialInfo, TrialKey};
 
     fn trial_info(env: &str) -> TrialInfo {
@@ -473,7 +473,7 @@ mod tests {
             &mut state,
             TuiEvent::EpisodeEnd {
                 trial: trial_info("cartpole"),
-                episode: EpisodeRecord {
+                episode: EpisodeSummary {
                     episode_idx: 4,
                     return_value: 195.0,
                     length: 200,

@@ -19,7 +19,7 @@ Suite<E>
         │         │
         │    BenchableAgent::act
         │         │
-        │    EpisodeRecord (return, length)
+        │    EpisodeSummary (return, length)
         │         │
         │    TrialReport  ◄── core_metrics / ea_metrics / agent emit_metrics
         │
@@ -94,7 +94,7 @@ Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram
 
 | Item | Description |
 |------|-------------|
-| `EpisodeRecord` | Per-episode `(episode_idx, return_value, length)` |
+| `EpisodeSummary` | Per-episode `(episode_idx, return_value, length)` |
 | `TrialReport` | Aggregated per-trial result with scalar/histogram/counter BTreeMaps and error state |
 | `BenchmarkReport` | Suite-level result; `finalize()` marks the run complete |
 

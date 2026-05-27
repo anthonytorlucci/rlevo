@@ -22,7 +22,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use rlevo_core::render::StyledFrame;
 
-use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
@@ -40,10 +40,10 @@ pub enum TuiEvent {
         /// Identifies the trial the episode belongs to.
         trial: TrialInfo,
         /// Final episode record (return, length, index).
-        episode: EpisodeRecord,
+        episode: EpisodeSummary,
     },
     /// Episode terminated outside the benchmarks harness. Carries only the
-    /// return and length — no `TrialInfo`, no `EpisodeRecord`. Emitted by
+    /// return and length — no `TrialInfo`, no `EpisodeSummary`. Emitted by
     /// non-harness env wrappers (e.g.,
     /// [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) so a raw
     /// `Environment` driver (PPO's `train_discrete`, future EA loops) can
@@ -226,7 +226,7 @@ impl Reporter for TuiReporter {
         let _ = self.tx.send(TuiEvent::TrialStart(trial.clone()));
     }
 
-    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeRecord) {
+    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
         let _ = self.tx.send(TuiEvent::EpisodeEnd {
             trial: trial.clone(),
             episode: ep.clone(),

@@ -16,7 +16,7 @@ use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
 use crate::metrics::core::core_metrics;
-use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
@@ -268,7 +268,7 @@ where
             }
         }
 
-        let rec = EpisodeRecord {
+        let rec = EpisodeSummary {
             episode_idx,
             return_value: total_reward,
             length,
