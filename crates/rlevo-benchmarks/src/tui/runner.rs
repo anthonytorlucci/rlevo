@@ -144,6 +144,36 @@ impl TuiRunner {
         self.handle.clone()
     }
 
+    /// Block the current thread until the user presses any key.
+    ///
+    /// Use after the run completes so the final dashboard state stays
+    /// visible while the user reviews it; pair with [`Self::shutdown`]
+    /// to restore the terminal afterward.
+    ///
+    /// The render thread keeps drawing in the background, so the
+    /// dashboard continues to refresh while this waits. Non-key
+    /// crossterm events (resize, paste, mouse) are consumed silently
+    /// and the wait continues.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TuiError::Io`] if crossterm's event source fails.
+    pub fn wait_for_keypress(&self) -> Result<(), TuiError> {
+        loop {
+            // Short poll so the loop stays responsive to a manual
+            // shutdown signal (e.g. another thread flipping the flag)
+            // without burning CPU.
+            if crossterm::event::poll(Duration::from_millis(100))? {
+                if let crossterm::event::Event::Key(_) = crossterm::event::read()? {
+                    return Ok(());
+                }
+            }
+            if self.shutdown.load(Ordering::Acquire) {
+                return Ok(());
+            }
+        }
+    }
+
     /// Signal the render thread to exit, join it, and surface any
     /// terminal I/O error that occurred during the loop.
     ///
@@ -365,7 +395,7 @@ pub fn format_status(status: &StatusLine) -> String {
         parts.push(format!("last return: {r:.2}"));
     }
     if status.finished {
-        parts.push("finished".to_string());
+        parts.push("finished — press any key to exit".to_string());
     }
     if parts.is_empty() {
         "waiting…".to_string()
@@ -530,7 +560,12 @@ mod tests {
             finished: true,
             ..Default::default()
         };
-        assert!(format_status(&s).contains("finished"));
+        let out = format_status(&s);
+        assert!(out.contains("finished"));
+        assert!(
+            out.contains("press any key to exit"),
+            "finished status should hint at the dismissal key: {out:?}"
+        );
     }
 
     /// End-to-end-ish: drive a render loop against a `TestBackend`,

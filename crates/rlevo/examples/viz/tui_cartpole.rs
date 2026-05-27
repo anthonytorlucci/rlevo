@@ -104,10 +104,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let evaluator = Evaluator::new(cfg);
     let _report = evaluator.run_suite(&suite, |_| RandomCartPoleAgent::new(), &mut reporter);
 
-    // Linger briefly so the final reward sparkline and "finished" status
-    // are visible before the terminal restores.
-    thread::sleep(Duration::from_secs(2));
-
+    // Hold the dashboard open until the user dismisses it — the final
+    // reward sparkline, episode count, and "finished" status are
+    // worth studying before the terminal restores. The status line
+    // displays the dismissal hint.
+    runner.wait_for_keypress()?;
     runner.shutdown()?;
     Ok(())
 }

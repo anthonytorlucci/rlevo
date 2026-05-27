@@ -46,9 +46,6 @@
 //! [`Reporter`]: rlevo_benchmarks::reporter::Reporter
 //! [`BenchEnv`]: rlevo_core::evaluation::BenchEnv
 
-use std::thread;
-use std::time::Duration;
-
 use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
@@ -191,9 +188,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         LOG_EVERY,
     )?;
 
-    // 5. Linger so the final state is readable before the terminal
-    //    restores.
-    thread::sleep(Duration::from_secs(2));
+    // 5. Hold the dashboard open until the user dismisses it — the
+    //    final metric trajectories and log tail are the whole point.
+    //    The status line shows the dismissal hint.
+    runner.wait_for_keypress()?;
 
     runner.shutdown()?;
     Ok(())
