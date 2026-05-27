@@ -12,10 +12,12 @@
 
 pub mod env_tap;
 pub mod manifest;
+pub mod reporter;
 pub mod schema;
 pub mod writer;
 
 pub use env_tap::RecordingTap;
+pub use reporter::{RecordingReporter, empty_hyperparameters};
 
 pub use manifest::RunManifest;
 pub use schema::{
