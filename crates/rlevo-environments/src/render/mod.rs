@@ -1,16 +1,13 @@
-//! Renderers for `rlevo-environments` environments.
+//! Re-exports of the render surface defined in [`rlevo_core::render`].
 //!
-//! The primary renderer is [`ascii::AsciiRenderer`], which produces
-//! `String` frames for classic-control and toy-text environments.
-//! Use [`rlevo_core::render::NullRenderer`] when rendering is not needed.
-//!
-//! Environments may also implement the [`AsciiRenderable::render_styled`]
-//! method to expose a colour-aware projection consumed by the live TUI and
-//! the static-HTML report tiers. See [`styled`] for the data types and
-//! [`palette`] for the project-wide semantic colour constants.
-pub mod ascii;
-pub mod palette;
-pub mod styled;
+//! Concrete `AsciiRenderable` impls live in this crate (one per env), but
+//! the trait, the [`StyledFrame`] type set, and the semantic palette all
+//! live in `rlevo-core` so that `rlevo-benchmarks` can consume them
+//! without a circular package dep. The module is preserved at this path so
+//! existing per-env imports (`use rlevo_environments::render::*`) keep
+//! working without change.
 
-pub use ascii::{AsciiRenderable, AsciiRenderer};
-pub use styled::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
+pub use rlevo_core::render::{
+    ascii, palette, styled, AsciiRenderable, AsciiRenderer, Color, Modifier, SpanStyle,
+    StyledFrame, StyledLine, StyledSpan,
+};

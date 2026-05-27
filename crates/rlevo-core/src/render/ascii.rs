@@ -1,6 +1,12 @@
-use rlevo_core::render::Renderer;
+//! Plain-text rendering surface for environments.
+//!
+//! The [`AsciiRenderable`] trait lives in `rlevo-core` so that
+//! `rlevo-benchmarks` (the host of the live `ratatui` TUI) can bound on it
+//! without depending on `rlevo-environments` — a circular package dep that
+//! Cargo rejects. Concrete env impls still live in `rlevo-environments` and
+//! are unaffected (the trait being in core just removes a coupling).
 
-use super::styled::StyledFrame;
+use super::{Renderer, StyledFrame};
 
 /// An environment that can render itself as an ASCII string.
 ///
@@ -44,8 +50,7 @@ pub trait AsciiRenderable {
 /// # Example
 ///
 /// ```no_run,ignore
-/// use rlevo_environments::render::AsciiRenderer;
-/// use rlevo_core::render::Renderer;
+/// use rlevo_core::render::{AsciiRenderable, AsciiRenderer, Renderer};
 ///
 /// let renderer = AsciiRenderer;
 /// let frame: String = renderer.render(&my_env);

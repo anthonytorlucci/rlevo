@@ -1,11 +1,11 @@
 //! Styled-output primitives consumed by the live TUI and report tiers.
 //!
-//! These types form the second projection of [`AsciiRenderable`](super::AsciiRenderable):
-//! `render_ascii` returns a plain `String` for logs, snapshot tests, and
-//! `EpisodeRecord.ascii`, while `render_styled` returns a [`StyledFrame`]
-//! carrying foreground/background colour and modifier hints. The type set is
-//! intentionally a small subset of the ratatui vocabulary so that
-//! `rlevo-environments` ships zero terminal-side dependencies — the
+//! These types form the second projection of `AsciiRenderable` (defined in
+//! `rlevo-environments`): the plain method returns a `String` for logs,
+//! snapshot tests, and `EpisodeRecord.ascii`, while the styled method returns
+//! a [`StyledFrame`] carrying foreground/background colour and modifier hints.
+//! The type set is intentionally a small subset of the ratatui vocabulary so
+//! that `rlevo-core` ships zero terminal-side dependencies — the
 //! `From<StyledFrame>` conversion into ratatui types lives in
 //! `rlevo-benchmarks::tui` (behind the `tui` feature), and the report tier
 //! deserialises [`StyledFrame`] from `EpisodeRecord`.
@@ -292,6 +292,14 @@ impl Modifier {
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.0 == 0
+    }
+
+    /// Raw bit value. Intended for renderer-side bit translation (e.g.,
+    /// mapping into `ratatui::style::Modifier`) — not part of the public
+    /// styling contract.
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.0
     }
 }
 

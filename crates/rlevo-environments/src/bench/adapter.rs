@@ -25,6 +25,7 @@ use std::marker::PhantomData;
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+use rlevo_core::render::{AsciiRenderable, StyledFrame};
 use rlevo_core::reward::ScalarReward;
 
 /// Object-safe wrapper around a typed [`Environment`].
@@ -92,5 +93,24 @@ where
             reward: f64::from(snap.reward().value()),
             done: snap.is_done(),
         })
+    }
+}
+
+/// Forward [`AsciiRenderable`] through to the wrapped env. Required so
+/// [`RenderTap`] can wrap a [`BenchAdapter`] without callers having to
+/// rebuild a per-env wrapper for every styled output.
+///
+/// [`RenderTap`]: rlevo_benchmarks::env_wrappers::RenderTap
+impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
+    for BenchAdapter<E, D, SD, AD>
+where
+    E: AsciiRenderable,
+{
+    fn render_ascii(&self) -> String {
+        self.env.render_ascii()
+    }
+
+    fn render_styled(&self) -> StyledFrame {
+        self.env.render_styled()
     }
 }
