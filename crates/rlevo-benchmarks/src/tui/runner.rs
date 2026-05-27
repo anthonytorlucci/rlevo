@@ -48,8 +48,10 @@ use ratatui::style::{Modifier as RatModifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::reporter::tui::{TuiEvent, TuiHandle};
-use crate::tui::panels::{EnvPanel, RewardSparkline};
-use crate::tui::state::{AppState, DEFAULT_REWARD_HISTORY, PanelMode, StatusLine};
+use crate::tui::panels::{EnvPanel, LogPanel, MetricSparkline, RewardSparkline};
+use crate::tui::state::{
+    AppState, CapturedLogLine, DEFAULT_LOG_HISTORY, DEFAULT_REWARD_HISTORY, PanelMode, StatusLine,
+};
 
 /// Default render tick. 60 ms ≈ 16 fps — fast enough that the env panel
 /// reads as smooth motion, slow enough that the render thread spends
@@ -61,8 +63,10 @@ pub const DEFAULT_TICK_MS: u64 = 60;
 pub struct TuiConfig {
     /// Maximum delay between forced redraws.
     pub tick_ms: u64,
-    /// Cap on the reward ring [`AppState`] keeps.
+    /// Cap on the reward ring and every per-name metric ring.
     pub reward_history: usize,
+    /// Cap on the scrolling log ring.
+    pub log_history: usize,
     /// Whether to render captured frames or the locomotion placeholder.
     pub panel_mode: PanelMode,
 }
@@ -72,6 +76,7 @@ impl Default for TuiConfig {
         Self {
             tick_ms: DEFAULT_TICK_MS,
             reward_history: DEFAULT_REWARD_HISTORY,
+            log_history: DEFAULT_LOG_HISTORY,
             panel_mode: PanelMode::default(),
         }
     }
@@ -117,7 +122,8 @@ impl TuiRunner {
             .name("rlevo-tui-render".to_string())
             .spawn(move || {
                 let mut term = terminal;
-                let mut state = AppState::new(cfg.reward_history, cfg.panel_mode);
+                let mut state =
+                    AppState::with_history(cfg.reward_history, cfg.log_history, cfg.panel_mode);
                 let result = render_loop(&mut term, &mut state, &rx, &thread_shutdown, cfg.tick_ms);
                 // Always restore — even if render_loop returned an error
                 // we want the terminal usable for the user's last words.
@@ -233,33 +239,103 @@ pub fn apply_event(state: &mut AppState, event: TuiEvent) {
         TuiEvent::Frame { step: _, frame } => {
             state.push_frame(frame);
         }
+        TuiEvent::MetricUpdate { name, value } => {
+            state.record_metric(name, value);
+        }
+        TuiEvent::LogLine {
+            level,
+            target,
+            message,
+        } => {
+            state.record_log(CapturedLogLine {
+                level,
+                target,
+                message,
+            });
+        }
     }
 }
+
+/// Canonical metric names rendered in the right-hand column under the
+/// reward sparkline, in display order. The reward panel always sits on
+/// top; the four entries here fill the rows beneath it.
+///
+/// Editing this constant rearranges the live dashboard without touching
+/// layout math or widget construction — the loop in [`draw_dashboard`]
+/// reads it verbatim.
+pub const DASHBOARD_METRICS: &[&str] = &[
+    "policy_loss",
+    "entropy",
+    "approx_kl",
+    "best_fitness",
+];
+
+/// Total height (in cells) of the log block, including its border.
+const LOG_BLOCK_HEIGHT: u16 = 10;
 
 /// Compose the dashboard layout for one tick.
 pub fn draw_dashboard(frame: &mut Frame<'_>, state: &AppState) {
     let area = frame.area();
 
-    // Vertical split: panels above, single-line status at the bottom.
-    let [top, status] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
-        .areas::<2>(area);
+    // Outer vertical: panels above, log strip, single-line status.
+    let [top, logs_area, status_area] = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(LOG_BLOCK_HEIGHT),
+        Constraint::Length(1),
+    ])
+    .areas::<3>(area);
 
-    // Horizontal split inside the top row: env panel + reward sparkline.
-    let [env_area, reward_area] =
+    // Top section split horizontally into env (60%) and metrics (40%).
+    let [env_area, metrics_area] =
         Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
             .areas::<2>(top);
 
-    let env_block = Block::default().borders(Borders::ALL).title("Env");
-    let env_inner = env_block.inner(env_area);
-    frame.render_widget(env_block, env_area);
-    frame.render_widget(EnvPanel::new(state), env_inner);
+    render_env_block(frame, state, env_area);
+    render_metrics_column(frame, state, metrics_area);
+    render_log_block(frame, state, logs_area);
+    frame.render_widget(status_paragraph(&state.status), status_area);
+}
 
-    let reward_block = Block::default().borders(Borders::ALL).title("Reward");
-    let reward_inner = reward_block.inner(reward_area);
-    frame.render_widget(reward_block, reward_area);
-    frame.render_widget(RewardSparkline::new(state), reward_inner);
+/// Bordered env panel + its inner content.
+fn render_env_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title("Env");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(EnvPanel::new(state), inner);
+}
 
-    frame.render_widget(status_paragraph(&state.status), status);
+/// Bordered metrics column: reward sparkline plus one `MetricSparkline`
+/// per entry in [`DASHBOARD_METRICS`]. Each occupies a single row;
+/// remaining vertical space is left blank (filler row).
+fn render_metrics_column(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title("Metrics");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // One Length(1) per sparkline plus a Min(0) filler so the column
+    // remains stable when metrics arrive out of order.
+    let constraints: Vec<Constraint> =
+        std::iter::repeat_n(Constraint::Length(1), 1 + DASHBOARD_METRICS.len())
+            .chain(std::iter::once(Constraint::Min(0)))
+            .collect();
+    let rects = Layout::vertical(constraints).split(inner);
+
+    if let Some(reward_row) = rects.first() {
+        frame.render_widget(RewardSparkline::new(state), *reward_row);
+    }
+    for (i, name) in DASHBOARD_METRICS.iter().enumerate() {
+        if let Some(row) = rects.get(i + 1) {
+            frame.render_widget(MetricSparkline::from_name(state, name), *row);
+        }
+    }
+}
+
+/// Bordered log block + its inner [`LogPanel`].
+fn render_log_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title("Logs");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(LogPanel::new(state), inner);
 }
 
 fn status_paragraph(status: &StatusLine) -> Paragraph<'static> {
@@ -303,9 +379,13 @@ pub fn format_status(status: &StatusLine) -> String {
 #[doc(hidden)]
 #[must_use]
 pub fn dashboard_env_rect(total: Rect) -> Rect {
-    let [top, _status] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
-        .areas::<2>(total);
-    let [env, _reward] =
+    let [top, _logs, _status] = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(LOG_BLOCK_HEIGHT),
+        Constraint::Length(1),
+    ])
+    .areas::<3>(total);
+    let [env, _metrics] =
         Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
             .areas::<2>(top);
     env
@@ -377,6 +457,38 @@ mod tests {
     }
 
     #[test]
+    fn apply_event_metric_update_lands_in_named_ring() {
+        let mut state = AppState::default();
+        apply_event(
+            &mut state,
+            TuiEvent::MetricUpdate {
+                name: "policy_loss".to_string(),
+                value: 0.25,
+            },
+        );
+        let ring = state.metric_rings.get("policy_loss").expect("ring created");
+        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![0.25]);
+    }
+
+    #[test]
+    fn apply_event_log_line_appends_to_log_ring() {
+        let mut state = AppState::default();
+        apply_event(
+            &mut state,
+            TuiEvent::LogLine {
+                level: tracing::Level::WARN,
+                target: "rlevo_rl::ppo".to_string(),
+                message: "kl spike".to_string(),
+            },
+        );
+        assert_eq!(state.log_ring.len(), 1);
+        let line = state.log_ring.front().unwrap();
+        assert_eq!(line.level, tracing::Level::WARN);
+        assert_eq!(line.target, "rlevo_rl::ppo");
+        assert_eq!(line.message, "kl spike");
+    }
+
+    #[test]
     fn apply_event_trial_start_clears_frame_keeps_rewards() {
         let mut state = AppState::default();
         state.push_frame(StyledFrame::unstyled("stale".into()));
@@ -422,7 +534,8 @@ mod tests {
     }
 
     /// End-to-end-ish: drive a render loop against a `TestBackend`,
-    /// confirm both panels and the status line write content.
+    /// confirm every M3 panel writes content and the status line still
+    /// surfaces the run metadata.
     #[test]
     fn draw_dashboard_populates_all_panels() {
         let backend = TestBackend::new(80, 24);
@@ -434,6 +547,18 @@ mod tests {
         state.record_episode_end(0, 1.0);
         state.record_episode_end(1, 5.0);
         state.push_frame(StyledFrame::unstyled("env-glyphs".to_string()));
+
+        // Feed each M3 metric panel a sample so its sparkline lights up
+        // rather than the "no data yet" placeholder.
+        for name in DASHBOARD_METRICS {
+            state.record_metric(*name, 0.5);
+            state.record_metric(*name, 0.4);
+        }
+        state.record_log(CapturedLogLine {
+            level: tracing::Level::INFO,
+            target: "rlevo_rl".to_string(),
+            message: "training step".to_string(),
+        });
 
         terminal
             .draw(|f| draw_dashboard(f, &state))
@@ -447,11 +572,25 @@ mod tests {
             .map(Cell::symbol)
             .collect();
 
+        // M2 panels still render.
         assert!(text.contains("Env"), "env block title missing: {text:?}");
-        assert!(text.contains("Reward"), "reward block title missing");
         assert!(text.contains("env-glyphs"), "env frame contents missing");
         assert!(text.contains("smoke"), "status suite missing");
         assert!(text.contains("cartpole"), "status env missing");
+
+        // M3 additions.
+        assert!(text.contains("Metrics"), "metrics block title missing");
+        assert!(text.contains("Logs"), "logs block title missing");
+        for name in DASHBOARD_METRICS {
+            assert!(
+                text.contains(name),
+                "metric label {name:?} missing in dashboard"
+            );
+        }
+        assert!(
+            text.contains("training step"),
+            "log message missing from log panel"
+        );
     }
 
     /// `render_loop` exits when the shutdown flag flips, regardless of
@@ -519,10 +658,12 @@ mod tests {
     fn dashboard_env_rect_carves_top_left_sixty_percent() {
         let total = Rect::new(0, 0, 80, 24);
         let env = dashboard_env_rect(total);
-        // Top row, leftmost; width ≈ 48 (60% of 80), height = 23 (top minus 1-line status).
+        // Top row, leftmost. Width ≈ 48 (60% of 80). Height is the total
+        // minus the log block (LOG_BLOCK_HEIGHT) minus the 1-row status.
+        let expected_height = 24 - i32::from(LOG_BLOCK_HEIGHT) - 1;
         assert_eq!(env.x, 0);
         assert_eq!(env.y, 0);
-        assert_eq!(env.height, 23);
+        assert_eq!(i32::from(env.height), expected_height);
         assert!((47..=49).contains(&env.width), "env width was {}", env.width);
     }
 }

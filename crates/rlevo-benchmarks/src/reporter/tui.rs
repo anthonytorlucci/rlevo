@@ -63,6 +63,30 @@ pub enum TuiEvent {
         /// Captured styled frame.
         frame: StyledFrame,
     },
+    /// One scalar metric sample extracted from a structured tracing event
+    /// by [`TuiCaptureLayer`]. The render thread appends the value to the
+    /// per-name ring in [`AppState`](crate::tui::state::AppState).
+    ///
+    /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
+    MetricUpdate {
+        /// Canonical metric name — see the registry in
+        /// [`crate::tui::log_layer`] for the wiring contract.
+        name: String,
+        /// Sample value coerced to `f64` regardless of the source field's
+        /// type (`f64` / `i64` / `u64`).
+        value: f64,
+    },
+    /// One tracing event captured for the scrolling log panel. Carries
+    /// level + target so the panel can style ERROR / WARN lines per the
+    /// accessibility contract.
+    LogLine {
+        /// Severity. Drives panel styling.
+        level: tracing::Level,
+        /// Originating module / target string.
+        target: String,
+        /// Formatted message body (the literal `tracing::*!` argument).
+        message: String,
+    },
 }
 
 /// Lightweight producer the rollout side uses to emit per-step frames.
@@ -96,6 +120,37 @@ impl TuiHandle {
     #[must_use = "the return value indicates whether the render thread is still listening"]
     pub fn try_push_frame(&self, step: u32, frame: StyledFrame) -> bool {
         self.tx.send(TuiEvent::Frame { step, frame }).is_ok()
+    }
+
+    /// Best-effort metric push. Used by [`TuiCaptureLayer`] when a known
+    /// numeric field arrives on a tracing event. Same lossy semantics as
+    /// [`Self::try_push_frame`].
+    ///
+    /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
+    #[must_use = "the return value indicates whether the render thread is still listening"]
+    pub fn try_push_metric(&self, name: String, value: f64) -> bool {
+        self.tx.send(TuiEvent::MetricUpdate { name, value }).is_ok()
+    }
+
+    /// Best-effort log push. Used by [`TuiCaptureLayer`] for every tracing
+    /// event the subscriber sees. Same lossy semantics as
+    /// [`Self::try_push_frame`].
+    ///
+    /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
+    #[must_use = "the return value indicates whether the render thread is still listening"]
+    pub fn try_push_log(
+        &self,
+        level: tracing::Level,
+        target: String,
+        message: String,
+    ) -> bool {
+        self.tx
+            .send(TuiEvent::LogLine {
+                level,
+                target,
+                message,
+            })
+            .is_ok()
     }
 
     /// Build a [`TuiReporter`] sharing the same channel as this handle.

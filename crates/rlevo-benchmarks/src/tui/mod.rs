@@ -13,8 +13,11 @@
 //! gated behind this feature on the `rlevo-benchmarks` crate.
 
 pub mod convert;
+pub mod log_layer;
 pub mod panels;
 pub mod runner;
 pub mod state;
+pub mod theme;
 
+pub use log_layer::{TuiCaptureLayer, CANONICAL_METRICS};
 pub use runner::{TuiConfig, TuiError, TuiRunner, DEFAULT_TICK_MS};

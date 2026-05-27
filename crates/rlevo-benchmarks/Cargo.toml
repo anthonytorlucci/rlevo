@@ -20,6 +20,7 @@ serde = { workspace = true, optional = true }
 serde_json = { version = "1", optional = true }
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -27,7 +28,7 @@ approx = { workspace = true }
 [features]
 default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
-tui = ["dep:ratatui", "dep:crossterm"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
 
 [lints]
 workspace = true

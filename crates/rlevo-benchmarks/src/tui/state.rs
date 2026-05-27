@@ -22,13 +22,35 @@
 //! [`TuiReporter`]: crate::reporter::tui::TuiReporter
 //! [`TuiEvent`]: crate::reporter::tui::TuiEvent
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use rlevo_core::render::StyledFrame;
 
 /// Default cap on the reward ring buffer. Chosen to match the spec's
 /// default sparkline width allowance; widgets crop further as needed.
 pub const DEFAULT_REWARD_HISTORY: usize = 256;
+
+/// Default cap on the scrolling log ring buffer. Sized for ~10 KB of
+/// recent log lines, generous for a typical 100-step PPO run while still
+/// bounded so a runaway log source can't grow memory without limit.
+pub const DEFAULT_LOG_HISTORY: usize = 100;
+
+/// One captured tracing event held by the log panel.
+///
+/// Distinct from the [`crate::reporter::tui::TuiEvent::LogLine`] enum
+/// variant because the variant is a wire-format payload, while this is
+/// the stored-on-the-render-thread representation. Identical fields
+/// today; kept separate so the storage shape can evolve (e.g., add a
+/// `timestamp`) without touching the channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapturedLogLine {
+    /// Severity. Drives panel styling (ERROR → HAZARD; WARN → Yellow).
+    pub level: tracing::Level,
+    /// Originating module / target string.
+    pub target: String,
+    /// Formatted message body.
+    pub message: String,
+}
 
 /// How the env panel should be rendered.
 ///
@@ -70,8 +92,19 @@ pub struct AppState {
     /// Bounded ring of episode returns, oldest-first. Cap is
     /// [`Self::reward_history`].
     pub reward_ring: VecDeque<f64>,
-    /// Maximum number of returns retained in `reward_ring`.
+    /// One bounded ring per named metric, keyed by the metric name from
+    /// [`crate::tui::log_layer::CANONICAL_METRICS`]. Each ring honours
+    /// the same [`Self::reward_history`] cap so all sparklines share a
+    /// visible window length.
+    pub metric_rings: HashMap<String, VecDeque<f64>>,
+    /// Bounded ring of recent log lines, oldest-first. Cap is
+    /// [`Self::log_history`].
+    pub log_ring: VecDeque<CapturedLogLine>,
+    /// Maximum number of returns retained in `reward_ring` and in each
+    /// `metric_rings` entry.
     pub reward_history: usize,
+    /// Maximum number of log lines retained in `log_ring`.
+    pub log_history: usize,
     /// Selected env-panel render mode.
     pub panel_mode: PanelMode,
     /// Summary surfaced in the bottom status row.
@@ -80,21 +113,43 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        Self::new(DEFAULT_REWARD_HISTORY, PanelMode::default())
+        Self::with_history(
+            DEFAULT_REWARD_HISTORY,
+            DEFAULT_LOG_HISTORY,
+            PanelMode::default(),
+        )
     }
 }
 
 impl AppState {
     /// Construct a fresh state with the supplied reward-ring cap and panel
-    /// mode. A zero `reward_history` is silently clamped to 1 so the ring
-    /// can still hold the most recent return.
+    /// mode. Log history defaults to [`DEFAULT_LOG_HISTORY`]; use
+    /// [`Self::with_history`] for full control.
+    ///
+    /// A zero `reward_history` is silently clamped to 1 so the ring can
+    /// still hold the most recent return.
     #[must_use]
     pub fn new(reward_history: usize, panel_mode: PanelMode) -> Self {
-        let cap = reward_history.max(1);
+        Self::with_history(reward_history, DEFAULT_LOG_HISTORY, panel_mode)
+    }
+
+    /// Construct a fresh state with explicit caps for both rings. A zero
+    /// `reward_history` or `log_history` is silently clamped to 1.
+    #[must_use]
+    pub fn with_history(
+        reward_history: usize,
+        log_history: usize,
+        panel_mode: PanelMode,
+    ) -> Self {
+        let reward_cap = reward_history.max(1);
+        let log_cap = log_history.max(1);
         Self {
             frame: None,
-            reward_ring: VecDeque::with_capacity(cap),
-            reward_history: cap,
+            reward_ring: VecDeque::with_capacity(reward_cap),
+            metric_rings: HashMap::new(),
+            log_ring: VecDeque::with_capacity(log_cap),
+            reward_history: reward_cap,
+            log_history: log_cap,
             panel_mode,
             status: StatusLine::default(),
         }
@@ -106,6 +161,31 @@ impl AppState {
     /// render ticks collapse to the last one without intermediate work.
     pub fn push_frame(&mut self, frame: StyledFrame) {
         self.frame = Some(frame);
+    }
+
+    /// Record one named metric sample. Creates the per-name ring on first
+    /// call; subsequent calls evict the oldest sample at capacity.
+    ///
+    /// The cap is [`Self::reward_history`] — shared across all metric
+    /// rings so every sparkline shows the same visible window length.
+    pub fn record_metric(&mut self, name: impl Into<String>, value: f64) {
+        let cap = self.reward_history;
+        let ring = self
+            .metric_rings
+            .entry(name.into())
+            .or_insert_with(|| VecDeque::with_capacity(cap));
+        if ring.len() == cap {
+            ring.pop_front();
+        }
+        ring.push_back(value);
+    }
+
+    /// Append one captured log line, evicting the oldest at capacity.
+    pub fn record_log(&mut self, line: CapturedLogLine) {
+        if self.log_ring.len() == self.log_history {
+            self.log_ring.pop_front();
+        }
+        self.log_ring.push_back(line);
     }
 
     /// Record an episode return and update the status line.
@@ -170,7 +250,10 @@ mod tests {
         let state = AppState::default();
         assert!(state.frame.is_none());
         assert!(state.reward_ring.is_empty());
+        assert!(state.metric_rings.is_empty());
+        assert!(state.log_ring.is_empty());
         assert_eq!(state.reward_history, DEFAULT_REWARD_HISTORY);
+        assert_eq!(state.log_history, DEFAULT_LOG_HISTORY);
         assert_eq!(state.panel_mode, PanelMode::Auto);
         assert_eq!(state.status, StatusLine::default());
     }
@@ -179,6 +262,12 @@ mod tests {
     fn zero_history_is_clamped_to_one() {
         let state = AppState::new(0, PanelMode::Auto);
         assert_eq!(state.reward_history, 1);
+    }
+
+    #[test]
+    fn zero_log_history_is_clamped_to_one() {
+        let state = AppState::with_history(8, 0, PanelMode::Auto);
+        assert_eq!(state.log_history, 1);
     }
 
     #[test]
@@ -258,5 +347,102 @@ mod tests {
         let (idx, total) = state.status.episode.unwrap();
         assert_eq!(idx, 3);
         assert_eq!(total, 50, "suite total must not be overwritten by per-episode updates");
+    }
+
+    #[test]
+    fn record_metric_creates_ring_on_first_sample() {
+        let mut state = AppState::new(4, PanelMode::Auto);
+        state.record_metric("policy_loss", 0.5);
+        let ring = state.metric_rings.get("policy_loss").expect("ring created");
+        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![0.5]);
+    }
+
+    #[test]
+    fn record_metric_appends_in_order() {
+        let mut state = AppState::new(4, PanelMode::Auto);
+        for v in [0.5, 0.4, 0.3] {
+            state.record_metric("policy_loss", v);
+        }
+        let ring = &state.metric_rings["policy_loss"];
+        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![0.5, 0.4, 0.3]);
+    }
+
+    /// Each metric name gets its own ring, all bounded by the same
+    /// `reward_history` cap.
+    #[test]
+    fn record_metric_rings_are_independent_per_name() {
+        let mut state = AppState::new(8, PanelMode::Auto);
+        state.record_metric("policy_loss", 0.5);
+        state.record_metric("entropy", 1.2);
+        state.record_metric("policy_loss", 0.4);
+
+        let losses = &state.metric_rings["policy_loss"];
+        let entropies = &state.metric_rings["entropy"];
+        assert_eq!(losses.iter().copied().collect::<Vec<_>>(), vec![0.5, 0.4]);
+        assert_eq!(entropies.iter().copied().collect::<Vec<_>>(), vec![1.2]);
+    }
+
+    /// Each metric ring honours `reward_history` independently; once at
+    /// capacity, the oldest sample for *that name* evicts.
+    #[test]
+    fn record_metric_evicts_oldest_at_capacity_per_name() {
+        let mut state = AppState::new(3, PanelMode::Auto);
+        for i in 0..6_i32 {
+            state.record_metric("loss", f64::from(i));
+        }
+        let ring = &state.metric_rings["loss"];
+        assert_eq!(ring.len(), 3);
+        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![3.0, 4.0, 5.0]);
+    }
+
+    fn log_line(level: tracing::Level, msg: &str) -> CapturedLogLine {
+        CapturedLogLine {
+            level,
+            target: "test".to_string(),
+            message: msg.to_string(),
+        }
+    }
+
+    #[test]
+    fn record_log_appends_in_order() {
+        let mut state = AppState::with_history(8, 4, PanelMode::Auto);
+        state.record_log(log_line(tracing::Level::INFO, "first"));
+        state.record_log(log_line(tracing::Level::WARN, "second"));
+        let collected: Vec<_> = state
+            .log_ring
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
+        assert_eq!(collected, vec!["first", "second"]);
+    }
+
+    /// Once the log ring is full, the oldest line is evicted.
+    #[test]
+    fn record_log_evicts_oldest_at_capacity() {
+        let mut state = AppState::with_history(8, 3, PanelMode::Auto);
+        for i in 0..6 {
+            state.record_log(log_line(tracing::Level::INFO, &format!("line {i}")));
+        }
+        assert_eq!(state.log_ring.len(), 3);
+        let collected: Vec<_> = state
+            .log_ring
+            .iter()
+            .map(|l| l.message.clone())
+            .collect();
+        assert_eq!(collected, vec!["line 3", "line 4", "line 5"]);
+    }
+
+    #[test]
+    fn record_log_preserves_level_and_target() {
+        let mut state = AppState::default();
+        state.record_log(CapturedLogLine {
+            level: tracing::Level::ERROR,
+            target: "rlevo_rl::ppo".to_string(),
+            message: "exploded".to_string(),
+        });
+        let line = state.log_ring.front().unwrap();
+        assert_eq!(line.level, tracing::Level::ERROR);
+        assert_eq!(line.target, "rlevo_rl::ppo");
+        assert_eq!(line.message, "exploded");
     }
 }
