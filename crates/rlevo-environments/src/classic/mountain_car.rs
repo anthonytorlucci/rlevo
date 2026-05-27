@@ -351,7 +351,7 @@ impl Environment<1, 1, 1> for MountainCar {
 
 impl crate::render::AsciiRenderable for MountainCar {
     fn render_ascii(&self) -> String {
-        let width = 60_usize;
+        let width = 40_usize;
         let span = self.config.max_pos - self.config.min_pos;
         let frac = ((self.state.position - self.config.min_pos) / span).clamp(0.0, 1.0);
         let col = (frac * (width as f32 - 1.0)) as usize;
@@ -363,6 +363,53 @@ impl crate::render::AsciiRenderable for MountainCar {
             self.state.position, self.state.velocity, self.steps
         )
     }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![style_mountain_car_line(&line)],
+        }
+    }
+}
+
+/// Convert one `render_ascii` line into a styled line.
+///
+/// Splits the line into spans: brackets and track dots take [`WALL_FG`],
+/// the agent glyph `A` takes [`AGENT_FG`] with [`AGENT_MODIFIER`], and the
+/// trailing numeric annotations are emitted unstyled.
+fn style_mountain_car_line(line: &str) -> crate::render::StyledLine {
+    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+
+    let wall_style = SpanStyle::default().fg(WALL_FG);
+    let agent_style = SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER);
+
+    let Some(close_idx) = line.find(']') else {
+        return StyledLine::unstyled(line);
+    };
+    let track_segment = &line[..=close_idx];
+    let suffix = &line[close_idx + 1..];
+
+    let Some(agent_col) = track_segment.find('A') else {
+        return StyledLine::unstyled(line);
+    };
+
+    let mut spans = Vec::with_capacity(4);
+    spans.push(StyledSpan::new(
+        track_segment[..agent_col].to_string(),
+        wall_style,
+    ));
+    spans.push(StyledSpan::new("A", agent_style));
+    spans.push(StyledSpan::new(
+        track_segment[agent_col + 1..].to_string(),
+        wall_style,
+    ));
+    if !suffix.is_empty() {
+        spans.push(StyledSpan::raw(suffix.to_string()));
+    }
+    StyledLine::from_spans(spans)
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +568,59 @@ mod tests {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
             assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+        }
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let line = &styled.lines[0];
+
+        let agent_span = line
+            .spans
+            .iter()
+            .find(|s| s.text == "A")
+            .expect("agent glyph span present");
+        assert_eq!(agent_span.style.fg, Some(AGENT_FG));
+        assert!(agent_span.style.modifier.contains(AGENT_MODIFIER));
+
+        let bracket_span = line
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('['))
+            .expect("track-opening span present");
+        assert_eq!(bracket_span.style.fg, Some(WALL_FG));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
         }
     }
 }

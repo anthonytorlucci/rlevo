@@ -1,13 +1,42 @@
 use rlevo_core::render::Renderer;
 
+use super::styled::StyledFrame;
+
 /// An environment that can render itself as an ASCII string.
 ///
 /// Implement this for each environment that wants text output. The
-/// [`AsciiRenderer`] delegates to this method and returns the `String`
-/// as its `Frame`.
+/// [`AsciiRenderer`] delegates to [`render_ascii`](Self::render_ascii) and
+/// returns the `String` as its `Frame`.
+///
+/// # Two projections
+///
+/// Two methods, two consumers:
+///
+/// - [`render_ascii`](Self::render_ascii) returns a plain `String` for logs,
+///   snapshot tests, grep-friendly output, and `EpisodeRecord.ascii`. Every
+///   implementor must provide it.
+/// - [`render_styled`](Self::render_styled) returns a
+///   [`StyledFrame`] carrying colour and modifier hints
+///   for the live `ratatui` TUI and the static-HTML report tier. The default
+///   impl wraps the plain text as a single unstyled span, so existing
+///   implementors continue to compile without changes.
+///
+/// Override `render_styled` only when the env benefits from colour cues.
+/// Use the project palette constants in [`super::palette`] rather than raw
+/// [`super::Color`] values so that the accessibility contract (hue-redundant
+/// signalling for hazard/goal semantics) is preserved.
 pub trait AsciiRenderable {
     /// Produce a text representation of the current environment state.
     fn render_ascii(&self) -> String;
+
+    /// Produce a styled projection of the current environment state.
+    ///
+    /// The default implementation wraps `render_ascii` as a single unstyled
+    /// span per line — sufficient for envs that ship only the plain
+    /// projection. Envs that want colour override this method directly.
+    fn render_styled(&self) -> StyledFrame {
+        StyledFrame::unstyled(self.render_ascii())
+    }
 }
 
 /// A renderer that produces ASCII `String` frames.
