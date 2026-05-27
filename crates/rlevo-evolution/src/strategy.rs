@@ -378,6 +378,22 @@ where
         // `return_value` not per-step rewards, so a pure "last best"
         // signal would be lost.
         let reward = -f64::from(metrics.best_fitness_ever);
+        // Structured per-generation event. Picked up by the
+        // canonical-metric registry in
+        // `rlevo-benchmarks::tui::log_layer::CANONICAL_METRICS` so the
+        // live TUI's fitness sparkline lights up without coupling this
+        // crate to the dashboard. Field names match the registry
+        // verbatim; renaming any of them requires a paired update on
+        // the benchmarks side.
+        tracing::info!(
+            generation = metrics.generation,
+            population_size = metrics.population_size,
+            best_fitness = f64::from(metrics.best_fitness),
+            mean_fitness = f64::from(metrics.mean_fitness),
+            worst_fitness = f64::from(metrics.worst_fitness),
+            best_fitness_ever = f64::from(metrics.best_fitness_ever),
+            "evolution generation",
+        );
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
         BenchStep {
