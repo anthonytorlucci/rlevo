@@ -20,3 +20,5 @@ pub mod car_racing;
 pub mod lunar_lander;
 #[cfg(feature = "box2d")]
 pub mod physics;
+#[cfg(feature = "box2d")]
+pub mod render;
