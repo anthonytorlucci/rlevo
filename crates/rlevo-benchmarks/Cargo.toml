@@ -40,5 +40,10 @@ record = ["dep:bincode", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subsc
 # and `serde_json` for the manifest JSON payload.
 report = ["record", "dep:base64", "dep:serde_json"]
 
+[[bin]]
+name = "export-report"
+path = "src/bin/export_report.rs"
+required-features = ["report"]
+
 [lints]
 workspace = true
