@@ -132,6 +132,29 @@ Three producers share one `Arc<Mutex<dyn RecordSink>>`:
 
 Encoding: bincode 2.x with `bincode::config::standard()`. `FORMAT_VERSION` is stamped into every `EpisodeRecordHeader`; loaders refuse mismatched versions.
 
+### `report` — Static-HTML Report Emitter (Milestone 5)
+
+The `report` module loads a recording emitted by `record` and serialises it into a single self-contained `index.html`:
+
+```
+runs/<run_id>/index.html
+  ├── <style>...</style>                                ← inlined CSS
+  ├── placeholder body (manifest header + episode table)
+  ├── <script id="rlevo-manifest">{...}</script>        ← JSON manifest
+  ├── <script id="rlevo-warnings">[...]</script>        ← non-fatal load warnings
+  ├── <script id="rlevo-episode-NNNNNN">BASE64</script> ← raw .rec bytes per episode
+  └── <script id="rlevo-episode-index">[...]</script>   ← episode summary metadata
+```
+
+| Item | Role |
+|------|------|
+| `RecordedRun::open(dir)` | Loads `run.toml` + every `episode_*.rec`. Synthesises a manifest if missing; surfaces truncation as `OpenWarning`s. |
+| `EpisodeIndex` | Per-episode summary: number, source path, frame count, episode reward, length, decoded frames + metric samples. |
+| `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
+| `export-report` (binary) | CLI front-end: `cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>`. |
+
+M5 ships the **data-transport skeleton**: per-family playback adapters, convergence plots, and the Leptos/WASM client that consumes the inlined payloads land in subsequent milestones. The data contract — the four `<script>` block ids above — is stable as of `FORMAT_VERSION = 1`.
+
 ### `checkpoint` — Resume Support
 
 When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` saves an atomic checkpoint after each trial and skips already-completed `TrialKey`s on resume. Without the `json` feature the checkpoint functions are zero-cost stubs.
@@ -145,6 +168,7 @@ When `checkpoint_dir` is set and the `json` feature is enabled, `Evaluator` save
 | `json` | yes | `JsonReporter`, checkpoint load/save (`serde` + `serde_json`) |
 | `tui` | no | `TuiReporter`, `TuiEvent` (`ratatui` + `crossterm`), `tracing_subscriber` integration |
 | `record` | no | `record` module: per-episode files + `RunManifest` (`bincode` + `toml` + `time`) |
+| `report` | no | `report` module: random-access loader + static-HTML emitter (`base64` + `serde_json`). Implies `record`. |
 
 ---
 
