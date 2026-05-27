@@ -12,7 +12,121 @@ body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 64rem; marg
 .rlevo-episodes tr.selected td { background: rgba(80, 140, 220, 0.18); font-weight: 600; }
 .rlevo-episodes td.numeric { font-variant-numeric: tabular-nums; }
 .rlevo-detail { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(127,127,127,0.4); border-radius: 0.5rem; }
-.rlevo-detail pre { background: rgba(127,127,127,0.10); padding: 0.5rem; border-radius: 0.25rem; overflow-x: auto; white-space: pre; font-family: ui-monospace, monospace; font-size: 0.9rem; }
 .rlevo-detail .metric-row { font-variant-numeric: tabular-nums; }
 .rlevo-error { color: #c0392b; border: 1px solid #c0392b; padding: 0.5rem 1rem; border-radius: 0.5rem; }
 code { font-family: ui-monospace, monospace; }
+
+/* --- Playback panel (M6) --------------------------------------------- */
+.rlevo-playback { display: flex; flex-direction: column; gap: 0.75rem; }
+.rlevo-playback .controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.rlevo-playback .controls button {
+    font: inherit; cursor: pointer;
+    padding: 0.25rem 0.75rem; border-radius: 0.375rem;
+    border: 1px solid rgba(127,127,127,0.5);
+    background: rgba(127,127,127,0.08);
+    color: inherit;
+}
+.rlevo-playback .controls button:hover { background: rgba(127,127,127,0.18); }
+.rlevo-playback .controls button[aria-pressed="true"] { background: rgba(80,140,220,0.22); border-color: rgba(80,140,220,0.6); }
+.rlevo-playback .scrubber { flex: 1; min-width: 12rem; }
+.rlevo-playback .readout { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; opacity: 0.85; }
+.rlevo-playback .speed-group { display: inline-flex; gap: 0.25rem; }
+
+/* --- Styled frame (rendered inside the playback panel) --------------- */
+.rlevo-styled {
+    background: rgba(127,127,127,0.10);
+    padding: 0.5rem; border-radius: 0.25rem;
+    overflow-x: auto; white-space: pre;
+    font-family: ui-monospace, monospace; font-size: 0.95rem;
+    line-height: 1.1;
+    margin: 0;
+}
+
+/* --- Family adapter framing ----------------------------------------- */
+figure.rlevo-family-classic,
+figure.rlevo-family-grids,
+figure.rlevo-family-toy_text,
+figure.rlevo-family-fallback { margin: 0; }
+figure.rlevo-family-classic .legend,
+figure.rlevo-family-grids .legend,
+figure.rlevo-family-toy_text .legend,
+figure.rlevo-family-fallback .legend {
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+    opacity: 0.85;
+}
+.rlevo-legend-key { display: inline-block; margin-right: 0.75rem; }
+.rlevo-legend-glyph {
+    display: inline-block; min-width: 1.2em; text-align: center;
+    font-family: ui-monospace, monospace; font-weight: 700;
+    padding: 0 0.2em;
+}
+
+/* --- Semantic palette (foreground) ---------------------------------- */
+.rlevo-fg-black        { color: #000; }
+.rlevo-fg-red          { color: #c0392b; }
+.rlevo-fg-green        { color: #27ae60; }
+.rlevo-fg-yellow       { color: #d4a017; }
+.rlevo-fg-blue         { color: #2980b9; }
+.rlevo-fg-magenta      { color: #8e44ad; }
+.rlevo-fg-cyan         { color: #16a085; }
+.rlevo-fg-gray         { color: #95a5a6; }
+.rlevo-fg-darkgray     { color: #5a6268; }
+.rlevo-fg-white        { color: #f5f5f5; }
+.rlevo-fg-lightred     { color: #e74c3c; }
+.rlevo-fg-lightgreen   { color: #2ecc71; }
+.rlevo-fg-lightyellow  { color: #f1c40f; }
+.rlevo-fg-lightblue    { color: #3498db; }
+.rlevo-fg-lightmagenta { color: #9b59b6; }
+.rlevo-fg-lightcyan    { color: #1abc9c; }
+
+/* Background variants (used rarely; mostly via REVERSED swap) */
+.rlevo-bg-black        { background-color: #000; }
+.rlevo-bg-red          { background-color: #c0392b; }
+.rlevo-bg-green        { background-color: #27ae60; }
+.rlevo-bg-yellow       { background-color: #d4a017; }
+.rlevo-bg-blue         { background-color: #2980b9; }
+.rlevo-bg-magenta      { background-color: #8e44ad; }
+.rlevo-bg-cyan         { background-color: #16a085; }
+.rlevo-bg-gray         { background-color: #95a5a6; }
+.rlevo-bg-darkgray     { background-color: #5a6268; }
+.rlevo-bg-white        { background-color: #f5f5f5; }
+.rlevo-bg-lightred     { background-color: #e74c3c; }
+.rlevo-bg-lightgreen   { background-color: #2ecc71; }
+.rlevo-bg-lightyellow  { background-color: #f1c40f; }
+.rlevo-bg-lightblue    { background-color: #3498db; }
+.rlevo-bg-lightmagenta { background-color: #9b59b6; }
+.rlevo-bg-lightcyan    { background-color: #1abc9c; }
+
+@media (prefers-color-scheme: dark) {
+    /* Lift mid-luma hues for dark backgrounds. */
+    .rlevo-fg-black     { color: #888; }
+    .rlevo-fg-darkgray  { color: #9aa5ab; }
+    .rlevo-fg-gray      { color: #b8c0c4; }
+    .rlevo-fg-blue      { color: #5dade2; }
+    .rlevo-fg-red       { color: #ec7063; }
+    .rlevo-fg-magenta   { color: #bb8fce; }
+    .rlevo-fg-cyan      { color: #48c9b0; }
+    .rlevo-fg-green     { color: #58d68d; }
+    .rlevo-fg-white     { color: #fafafa; }
+}
+
+/* --- Modifier classes (hue-redundant per the project a11y contract) - */
+.rlevo-mod-bold       { font-weight: 700; }
+.rlevo-mod-dim        { opacity: 0.6; }
+.rlevo-mod-italic     { font-style: italic; }
+.rlevo-mod-underlined { text-decoration: underline; }
+/* REVERSED: paint the span as a coloured block. The background takes
+   the span's currentColor (the foreground we set above), and the glyph
+   inverts to the canvas background — `canvas` keyword in light mode is
+   white, in dark mode it's the dark canvas. */
+.rlevo-mod-reversed {
+    background-color: currentColor;
+    color: #fff;          /* fallback for older browsers */
+    color: canvas;
+    padding: 0 0.1em;
+    border-radius: 0.15em;
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-mod-reversed { color: #1a1a1a; }
+}

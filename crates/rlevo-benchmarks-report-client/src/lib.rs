@@ -13,8 +13,11 @@
 //! M5.1 ships the data-decode + minimal-render path. Per-family
 //! playback adapters and convergence plots land in M6+.
 
+pub mod adapters;
 pub mod app;
 pub mod inline_data;
+pub mod playback;
+pub mod styled;
 pub mod wire;
 
 use wasm_bindgen::prelude::*;

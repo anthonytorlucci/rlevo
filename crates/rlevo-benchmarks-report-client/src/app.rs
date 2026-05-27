@@ -1,7 +1,10 @@
-//! Minimal Leptos application that renders the M5 inlined-payload
-//! data. Per the M5.1 scope split, this is the "data binding works"
-//! checkpoint; per-family playback adapters and convergence plots
-//! land in M6+.
+//! Top-level Leptos application.
+//!
+//! M5.1 shipped the data-binding skeleton (manifest, warnings, episode
+//! table, static frame dump). M6 replaces the static detail dump with a
+//! per-family [`crate::playback::playback_panel`] that owns scrubber +
+//! play/pause + speed controls; family dispatch happens off
+//! `manifest.env_family`.
 
 use leptos::prelude::*;
 
@@ -9,11 +12,13 @@ use crate::inline_data::{
     EpisodeMeta, InlineError, WarningEntry, read_episode_index, read_episode_record, read_manifest,
     read_warnings,
 };
-use crate::wire::{EpisodeRecord, RunManifest};
+use crate::playback::playback_panel;
+use crate::wire::{EnvFamily, EpisodeRecord, RunManifest};
 
 #[component]
 pub fn App() -> impl IntoView {
     let manifest = read_manifest();
+    let family: Option<EnvFamily> = manifest.as_ref().ok().map(|m| m.env_family);
     let episodes = read_episode_index().unwrap_or_default();
     let warnings = read_warnings().unwrap_or_default();
 
@@ -50,7 +55,14 @@ pub fn App() -> impl IntoView {
             <h2>"Selected episode"</h2>
             <div class="rlevo-detail">
                 {move || match (selected_meta.get(), selected_record.get()) {
-                    (Some(meta), Some(Ok(rec))) => detail_view(&meta, &rec).into_any(),
+                    (Some(meta), Some(Ok(rec))) => {
+                        let fam = family.unwrap_or(EnvFamily::Classic);
+                        let episode_no = meta.episode;
+                        view! {
+                            <h3>{"Episode "}{episode_no.to_string()}</h3>
+                            {playback_panel(fam, rec)}
+                        }.into_any()
+                    },
                     (_, Some(Err(e))) => view! { <p class="rlevo-error">"decode error: " {e}</p> }.into_any(),
                     _ => view! { <p>"no episode selected"</p> }.into_any(),
                 }}
@@ -153,44 +165,7 @@ fn episode_row(
     }
 }
 
-fn detail_view(meta: &EpisodeMeta, rec: &EpisodeRecord) -> impl IntoView {
-    let episode = meta.episode;
-    let preview_count = rec.frames.len().min(5);
-    let frame_blocks: Vec<_> = rec
-        .frames
-        .iter()
-        .take(preview_count)
-        .map(|f| {
-            let step = f.step;
-            let reward = format!("{:+.3}", f.reward);
-            let ascii = f.ascii.clone().unwrap_or_else(|| "(no ascii)".into());
-            view! {
-                <div>
-                    <p class="metric-row">{"step "}{step.to_string()}{" — reward "}{reward}</p>
-                    <pre>{ascii}</pre>
-                </div>
-            }
-        })
-        .collect();
-    let metric_rows: Vec<_> = rec
-        .metrics
-        .iter()
-        .take(10)
-        .map(|m| {
-            let label = format!("{} (step {}) = {:.6}", m.name, m.step, m.value);
-            view! { <li class="metric-row">{label}</li> }
-        })
-        .collect();
-    let total_frames = rec.frames.len();
-    view! {
-        <h3>{"Episode "}{episode.to_string()}</h3>
-        <p>{"showing first "}{preview_count.to_string()}{" of "}{total_frames.to_string()}{" frames"}</p>
-        {frame_blocks}
-        <h4>"Metric samples"</h4>
-        <ul>{metric_rows}</ul>
-    }
-}
-
-// Suppress unused-import lint on the helper alias.
+// Keep the type alive in the module so `read_episode_record`'s error
+// type stays public via `inline_data::InlineError`.
 #[allow(dead_code)]
 fn _typecheck_inline_error(_: InlineError) {}
