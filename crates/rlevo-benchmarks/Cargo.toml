@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3", optional = true, default-features = fals
 bincode = { version = "2", optional = true, features = ["serde"] }
 toml = { version = "0.8", optional = true }
 time = { version = "0.3", optional = true, features = ["formatting", "macros"] }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -34,6 +35,10 @@ default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
 tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
 record = ["dep:bincode", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subscriber"]
+# Static-HTML report emitter: random-access loader + single-file inliner
+# (Milestone 5). Builds on `record`; adds `base64` for payload inlining
+# and `serde_json` for the manifest JSON payload.
+report = ["record", "dep:base64", "dep:serde_json"]
 
 [lints]
 workspace = true

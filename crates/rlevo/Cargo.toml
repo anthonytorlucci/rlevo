@@ -40,6 +40,8 @@ custom-kernels = ["rlevo-evolution/custom-kernels"]
 viz-tui = ["rlevo-benchmarks/tui"]
 # On-disk per-episode recording for `rlevo-benchmarks` runs (Milestone 4).
 viz-record = ["rlevo-benchmarks/record"]
+# Static-HTML report emitter consuming the M4 record format (Milestone 5).
+viz-report = ["rlevo-benchmarks/report"]
 
 [lints]
 workspace = true

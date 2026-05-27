@@ -1,7 +1,19 @@
-//! Report records produced by the `Evaluator`.
+//! Report records produced by the `Evaluator`, plus the post-run
+//! random-access loader and static-HTML emitter behind the `report`
+//! feature (Milestone 5).
 //!
 //! `Metric` is not directly serializable here; the JSON reporter flattens
 //! metrics into plain key/value maps at serialization time.
+
+#[cfg(feature = "report")]
+pub mod html;
+#[cfg(feature = "report")]
+pub mod replay;
+
+#[cfg(feature = "report")]
+pub use html::{EmitConfig, EmitError, EmitOutcome, emit_static_html};
+#[cfg(feature = "report")]
+pub use replay::{EpisodeIndex, OpenError, OpenWarning, RecordedRun};
 
 use std::collections::BTreeMap;
 
