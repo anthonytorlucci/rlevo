@@ -6,6 +6,8 @@
 //! drives those traits to produce reports.
 
 pub mod checkpoint;
+#[cfg(feature = "tui")]
+pub mod env_wrappers;
 pub mod evaluator;
 pub mod metrics;
 pub mod report;
@@ -13,6 +15,8 @@ pub mod reporter;
 #[doc(hidden)]
 pub mod storage;
 pub mod suite;
+#[cfg(feature = "tui")]
+pub mod tui;
 
 /// Backward-compatible alias for the relocated environment trait surface.
 pub mod env {
