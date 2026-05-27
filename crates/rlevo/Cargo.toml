@@ -38,6 +38,8 @@ locomotion = ["rlevo-environments/locomotion"]
 custom-kernels = ["rlevo-evolution/custom-kernels"]
 # Live ratatui TUI dashboard for `rlevo-benchmarks` runs (Milestone 2).
 viz-tui = ["rlevo-benchmarks/tui"]
+# On-disk per-episode recording for `rlevo-benchmarks` runs (Milestone 4).
+viz-record = ["rlevo-benchmarks/record"]
 
 [lints]
 workspace = true

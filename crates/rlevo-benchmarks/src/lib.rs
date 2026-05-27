@@ -10,6 +10,8 @@ pub mod checkpoint;
 pub mod env_wrappers;
 pub mod evaluator;
 pub mod metrics;
+#[cfg(feature = "record")]
+pub mod record;
 pub mod report;
 pub mod reporter;
 #[doc(hidden)]

@@ -21,14 +21,19 @@ serde_json = { version = "1", optional = true }
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["registry", "std"] }
+bincode = { version = "2", optional = true, features = ["serde"] }
+toml = { version = "0.8", optional = true }
+time = { version = "0.3", optional = true, features = ["formatting", "macros"] }
 
 [dev-dependencies]
 approx = { workspace = true }
+tempfile = "3"
 
 [features]
 default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
 tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
+record = ["dep:bincode", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subscriber"]
 
 [lints]
 workspace = true
