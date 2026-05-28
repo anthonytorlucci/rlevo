@@ -438,6 +438,82 @@ impl Environment<1, 1, 1> for BipedalWalker {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for BipedalWalker {
+    fn render_ascii(&self) -> String {
+        let bodies = self.collect_bodies();
+        let viewport = self.viewport();
+        super::super::render::render_box2d_ascii(
+            "Walker",
+            &bodies,
+            viewport,
+            Some(GROUND_Y),
+            self.steps,
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let bodies = self.collect_bodies();
+        let viewport = self.viewport();
+        super::super::render::render_box2d_styled(
+            "Walker",
+            &bodies,
+            viewport,
+            Some(GROUND_Y),
+            self.steps,
+        )
+    }
+}
+
+impl BipedalWalker {
+    /// Render-time view: gather hull + leg positions and the hull angle.
+    fn collect_bodies(&self) -> Vec<super::super::render::Bodyish> {
+        use super::super::render::Bodyish;
+
+        let mut bodies = Vec::with_capacity(5);
+        if let Some(hull) = self.world.bodies().get(self.state.hull_handle) {
+            let p = hull.translation();
+            bodies.push(Bodyish::Agent {
+                x: p.x,
+                y: p.y,
+                angle_rad: hull.rotation().angle(),
+            });
+        }
+        for handle in [
+            self.state.leg1_upper_handle,
+            self.state.leg1_lower_handle,
+            self.state.leg2_upper_handle,
+            self.state.leg2_lower_handle,
+        ] {
+            if let Some(seg) = self.world.bodies().get(handle) {
+                let p = seg.translation();
+                bodies.push(Bodyish::Dynamic { x: p.x, y: p.y });
+            }
+        }
+        bodies
+    }
+
+    /// 10-unit-wide viewport horizontally centred on the hull; vertical
+    /// span fixed so the rendered scene shows the ground line plus ~3 m
+    /// of headroom above the hull.
+    fn viewport(&self) -> super::super::render::Viewport {
+        let hull_x = self
+            .world
+            .bodies()
+            .get(self.state.hull_handle)
+            .map_or(0.0, |b| b.translation().x);
+        super::super::render::Viewport {
+            x_min: hull_x - 5.0,
+            x_max: hull_x + 5.0,
+            y_min: GROUND_Y - 0.5,
+            y_max: GROUND_Y + 3.5,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,5 +596,47 @@ mod tests {
         let mut env = BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain));
         let snap = env.reset().unwrap();
         assert!(snap.observation().is_finite());
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        env.reset().unwrap();
+        let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Walker")
+            .expect("Walker label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

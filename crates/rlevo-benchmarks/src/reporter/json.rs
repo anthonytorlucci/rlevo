@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
@@ -68,7 +68,7 @@ impl Reporter for JsonReporter {
 
     fn on_trial_start(&mut self, _trial: &TrialInfo) {}
 
-    fn on_episode_end(&mut self, _trial: &TrialInfo, _ep: &EpisodeRecord) {}
+    fn on_episode_end(&mut self, _trial: &TrialInfo, _ep: &EpisodeSummary) {}
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {}
 

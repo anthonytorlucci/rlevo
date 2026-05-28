@@ -295,7 +295,7 @@ impl Observation<1> for CartPoleObservation {
 // ---------------------------------------------------------------------------
 
 /// Discrete action for [`CartPole`]: push left or push right.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CartPoleAction {
     /// Apply force in the negative-x direction.
     Left,
@@ -510,7 +510,7 @@ impl Environment<1, 1, 1> for CartPole {
 
 impl crate::render::AsciiRenderable for CartPole {
     fn render_ascii(&self) -> String {
-        let width = 60_usize;
+        let width = 50_usize;
         let cart_frac = (self.state.x / self.config.x_threshold * 0.5 + 0.5).clamp(0.0, 1.0);
         let cart_col = (cart_frac * (width as f32 - 1.0)) as usize;
         let mut track = vec!['-'; width];
@@ -519,6 +519,52 @@ impl crate::render::AsciiRenderable for CartPole {
         let angle_deg = self.state.theta.to_degrees();
         format!("[{track_str}]  θ={angle_deg:.1}°  step={}", self.steps)
     }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![style_cartpole_line(&line)],
+        }
+    }
+}
+
+/// Style one `render_ascii` line for [`CartPole`].
+///
+/// The cart glyph `#` carries [`AGENT_FG`] with [`AGENT_MODIFIER`]; the
+/// brackets and dashes carry [`WALL_FG`]; numeric annotations are unstyled.
+fn style_cartpole_line(line: &str) -> crate::render::StyledLine {
+    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+
+    let wall_style = SpanStyle::default().fg(WALL_FG);
+    let agent_style = SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER);
+
+    let Some(close_idx) = line.find(']') else {
+        return StyledLine::unstyled(line);
+    };
+    let track_segment = &line[..=close_idx];
+    let suffix = &line[close_idx + 1..];
+
+    let Some(cart_col) = track_segment.find('#') else {
+        return StyledLine::unstyled(line);
+    };
+
+    let mut spans = Vec::with_capacity(4);
+    spans.push(StyledSpan::new(
+        track_segment[..cart_col].to_string(),
+        wall_style,
+    ));
+    spans.push(StyledSpan::new("#", agent_style));
+    spans.push(StyledSpan::new(
+        track_segment[cart_col + 1..].to_string(),
+        wall_style,
+    ));
+    if !suffix.is_empty() {
+        spans.push(StyledSpan::raw(suffix.to_string()));
+    }
+    StyledLine::from_spans(spans)
 }
 
 // ---------------------------------------------------------------------------
@@ -772,5 +818,58 @@ mod tests {
         assert!((cfg.gravity - 9.81).abs() < 1e-6);
         assert!((cfg.masscart - 2.0).abs() < 1e-6);
         assert_eq!(cfg.seed, 99);
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CartPole::new(false);
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+
+        let mut env = CartPole::new(false);
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let line = &styled.lines[0];
+
+        let cart_span = line
+            .spans
+            .iter()
+            .find(|s| s.text == "#")
+            .expect("cart glyph span present");
+        assert_eq!(cart_span.style.fg, Some(AGENT_FG));
+        assert!(cart_span.style.modifier.contains(AGENT_MODIFIER));
+
+        let bracket_span = line
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('['))
+            .expect("track-opening span present");
+        assert_eq!(bracket_span.style.fg, Some(WALL_FG));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CartPole::new(false);
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

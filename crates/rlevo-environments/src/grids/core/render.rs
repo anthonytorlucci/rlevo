@@ -1,13 +1,17 @@
 //! Minimal ASCII renderer for grid environments.
 //!
 //! This is intentionally pure: callers pass a `(Grid, AgentState)` pair
-//! and receive a `String`. No terminal control sequences, no curses, no
-//! blocking IO — printing is the caller's responsibility.
+//! and receive a `String` or `StyledFrame`. No terminal control sequences,
+//! no curses, no blocking IO — printing is the caller's responsibility.
 
 use super::agent::AgentState;
 use super::direction::Direction;
 use super::entity::{DoorState, Entity};
 use super::grid::Grid;
+use crate::render::palette::{
+    AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER, WALL_FG,
+};
+use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
 
 /// Render the grid and the agent's position to a multi-line ASCII string.
 #[must_use]
@@ -30,6 +34,82 @@ pub fn render_ascii(grid: &Grid, agent: &AgentState) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Render the grid and the agent's position into a [`StyledFrame`].
+///
+/// The output's glyphs are identical to [`render_ascii`] — projecting each
+/// styled line back to a plain string via `StyledFrame::plain_text` yields
+/// the same characters in the same order. The styling rules are:
+///
+/// - **walls (`#`)** carry `WALL_FG` so they fade into the background;
+/// - **goal (`G`)** carries `GOAL_FG | GOAL_MODIFIER`;
+/// - **lava / hazard (`L`)** carries `HAZARD_FG | HAZARD_MODIFIER` — the
+///   `REVERSED` modifier ensures the cell flashes as a solid block, giving
+///   a hue-redundant signal for deuteranopic users (paired with red/green
+///   goal–hazard glyphs);
+/// - **agent (`< > ^ v`)** carries `AGENT_FG | AGENT_MODIFIER`;
+/// - **interactive entities (doors, keys, balls, boxes) and empty cells**
+///   are emitted unstyled — entity colour is preserved in the
+///   `family_payload` channel of `FrameRecord` and rendered by the report
+///   tier rather than collapsing it into a single ANSI cell here.
+#[must_use]
+pub fn render_styled(grid: &Grid, agent: &AgentState) -> StyledFrame {
+    #[allow(clippy::cast_possible_wrap)]
+    let height = grid.height() as i32;
+    #[allow(clippy::cast_possible_wrap)]
+    let width = grid.width() as i32;
+
+    let mut lines = Vec::with_capacity(grid.height());
+    for y in 0..height {
+        let mut spans: Vec<StyledSpan> = Vec::new();
+        let mut current_style = SpanStyle::default();
+        let mut current_text = String::with_capacity(grid.width() * 2);
+        for x in 0..width {
+            let (ch, style) = if x == agent.x && y == agent.y {
+                (agent_char(agent), agent_style())
+            } else {
+                glyph_for_entity(grid.get(x, y))
+            };
+            if style != current_style && !current_text.is_empty() {
+                spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+            }
+            current_style = style;
+            current_text.push(ch);
+            current_text.push(' ');
+        }
+        if !current_text.is_empty() {
+            spans.push(StyledSpan::new(current_text, current_style));
+        }
+        lines.push(StyledLine::from_spans(spans));
+    }
+    StyledFrame { lines }
+}
+
+fn agent_style() -> SpanStyle {
+    SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER)
+}
+
+fn glyph_for_entity(e: Entity) -> (char, SpanStyle) {
+    let ch = entity_char(e);
+    let style = match e {
+        Entity::Wall => SpanStyle::default().fg(WALL_FG),
+        Entity::Goal => SpanStyle::default()
+            .fg(GOAL_FG)
+            .with_modifier(GOAL_MODIFIER),
+        Entity::Lava => SpanStyle::default()
+            .fg(HAZARD_FG)
+            .with_modifier(HAZARD_MODIFIER),
+        Entity::Empty
+        | Entity::Floor
+        | Entity::Door(_, _)
+        | Entity::Key(_)
+        | Entity::Ball(_)
+        | Entity::Box(_) => SpanStyle::default(),
+    };
+    (ch, style)
 }
 
 const fn agent_char(agent: &AgentState) -> char {
@@ -88,5 +168,71 @@ mod tests {
         assert!(s.contains('L'));
         assert!(s.contains('k'));
         assert!(s.contains('*'));
+    }
+
+    #[test]
+    fn render_styled_matches_render_ascii() {
+        let mut g = Grid::new(5, 3);
+        g.draw_walls();
+        g.set(2, 1, Entity::Goal);
+        let agent = AgentState::new(1, 1, Direction::North);
+
+        let plain = render_ascii(&g, &agent);
+        let styled = render_styled(&g, &agent);
+        assert_eq!(styled.plain_text(), plain.trim_end_matches('\n'));
+    }
+
+    #[test]
+    fn render_styled_classifies_glyphs_by_palette() {
+        let mut g = Grid::new(5, 1);
+        g.set(0, 0, Entity::Wall);
+        g.set(1, 0, Entity::Goal);
+        g.set(2, 0, Entity::Lava);
+        g.set(3, 0, Entity::Empty);
+        g.set(4, 0, Entity::Key(Color::Red));
+        let agent = AgentState::new(100, 100, Direction::East); // off-grid
+
+        let styled = render_styled(&g, &agent);
+        assert_eq!(styled.lines.len(), 1);
+
+        let wall = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('#'))
+            .expect("wall span present");
+        assert_eq!(wall.style.fg, Some(WALL_FG));
+
+        let goal = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('G'))
+            .expect("goal span present");
+        assert_eq!(goal.style.fg, Some(GOAL_FG));
+        assert!(goal.style.modifier.contains(GOAL_MODIFIER));
+
+        let lava = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('L'))
+            .expect("lava span present");
+        assert_eq!(lava.style.fg, Some(HAZARD_FG));
+        assert!(lava.style.modifier.contains(HAZARD_MODIFIER));
+    }
+
+    #[test]
+    fn render_styled_agent_glyph_uses_agent_palette() {
+        let mut g = Grid::new(3, 3);
+        g.draw_walls();
+        let agent = AgentState::new(1, 1, Direction::East);
+
+        let styled = render_styled(&g, &agent);
+        let agent_span = styled
+            .lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.text.starts_with('>'))
+            .expect("agent glyph span present");
+        assert_eq!(agent_span.style.fg, Some(AGENT_FG));
+        assert!(agent_span.style.modifier.contains(AGENT_MODIFIER));
     }
 }

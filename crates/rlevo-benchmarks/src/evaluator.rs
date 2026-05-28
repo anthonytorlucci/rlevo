@@ -16,7 +16,7 @@ use rlevo_core::util::seed::SeedStream;
 
 use crate::checkpoint;
 use crate::metrics::core::core_metrics;
-use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
@@ -268,7 +268,7 @@ where
             }
         }
 
-        let rec = EpisodeRecord {
+        let rec = EpisodeSummary {
             episode_idx,
             return_value: total_reward,
             length,
@@ -300,5 +300,351 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         s.clone()
     } else {
         "unknown panic".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Stub-based unit tests for `Evaluator::run_suite`.
+    //!
+    //! A minimal `StubEnv` and `StubAgent` replace real environments so the
+    //! evaluator logic is exercised without pulling in `rlevo-environments`
+    //! as a dev-dependency (which would drag in the full physics crate tree).
+
+    use std::sync::{Arc, Mutex};
+
+    use rand::Rng;
+
+    use rlevo_core::environment::EnvironmentError;
+    use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+    use rlevo_core::fitness::BenchableAgent;
+
+    use super::{Evaluator, EvaluatorConfig};
+    use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
+    use crate::reporter::Reporter;
+    use crate::suite::{Suite, SuiteInfo, TrialInfo};
+
+    // ── Stub env ─────────────────────────────────────────────────────────────
+
+    struct StubEnv {
+        /// Return `done = true` once this many steps have been taken.
+        steps_until_done: usize,
+        reset_fails: bool,
+        step_fails: bool,
+        steps_taken: usize,
+    }
+
+    impl StubEnv {
+        fn new(steps_until_done: usize) -> Self {
+            Self {
+                steps_until_done,
+                reset_fails: false,
+                step_fails: false,
+                steps_taken: 0,
+            }
+        }
+    }
+
+    impl BenchEnv for StubEnv {
+        type Observation = u32;
+        type Action = ();
+
+        fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+            if self.reset_fails {
+                return Err(BenchError::Reset(EnvironmentError::InvalidAction(
+                    "stub reset fail".into(),
+                )));
+            }
+            self.steps_taken = 0;
+            Ok(0)
+        }
+
+        fn step(&mut self, _action: ()) -> Result<BenchStep<Self::Observation>, BenchError> {
+            if self.step_fails {
+                return Err(BenchError::Step(EnvironmentError::InvalidAction(
+                    "stub step fail".into(),
+                )));
+            }
+            self.steps_taken += 1;
+            let done = self.steps_taken >= self.steps_until_done;
+            Ok(BenchStep {
+                observation: self.steps_taken as u32,
+                reward: 1.0,
+                done,
+            })
+        }
+    }
+
+    // ── Stub agent ───────────────────────────────────────────────────────────
+
+    struct StubAgent;
+
+    impl BenchableAgent<u32, ()> for StubAgent {
+        fn act(&mut self, _obs: &u32, _rng: &mut dyn Rng) {}
+    }
+
+    // ── Spy reporter ─────────────────────────────────────────────────────────
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Event {
+        SuiteStart,
+        TrialStart,
+        EpisodeEnd,
+        TrialEnd,
+        SuiteEnd,
+    }
+
+    struct SpyReporter {
+        log: Arc<Mutex<Vec<Event>>>,
+    }
+
+    impl SpyReporter {
+        fn new() -> (Self, Arc<Mutex<Vec<Event>>>) {
+            let log = Arc::new(Mutex::new(Vec::new()));
+            (Self { log: Arc::clone(&log) }, log)
+        }
+    }
+
+    impl Reporter for SpyReporter {
+        fn on_suite_start(&mut self, _: &SuiteInfo) {
+            self.log.lock().unwrap().push(Event::SuiteStart);
+        }
+        fn on_trial_start(&mut self, _: &TrialInfo) {
+            self.log.lock().unwrap().push(Event::TrialStart);
+        }
+        fn on_episode_end(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
+            self.log.lock().unwrap().push(Event::EpisodeEnd);
+        }
+        fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {
+            self.log.lock().unwrap().push(Event::TrialEnd);
+        }
+        fn on_suite_end(&mut self, _: &BenchmarkReport) {
+            self.log.lock().unwrap().push(Event::SuiteEnd);
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn single_thread_cfg(num_episodes: usize, max_steps: usize) -> EvaluatorConfig {
+        EvaluatorConfig {
+            num_episodes,
+            num_trials_per_env: 1,
+            max_steps,
+            base_seed: 42,
+            num_threads: Some(1),
+            checkpoint_dir: None,
+            fail_fast: false,
+            success_threshold: None,
+        }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn one_trial_per_env_in_report() {
+        let cfg = single_thread_cfg(1, 10);
+        let suite = Suite::new("s", cfg.clone())
+            .with_env("e1", |_| StubEnv::new(3))
+            .with_env("e2", |_| StubEnv::new(3));
+
+        let (mut reporter, _log) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert_eq!(report.trials.len(), 2);
+    }
+
+    #[test]
+    fn report_is_finalized_after_run() {
+        let cfg = single_thread_cfg(1, 5);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(2));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert!(!report.in_progress);
+    }
+
+    #[test]
+    fn reporter_callback_order_suite_wraps_trials() {
+        let cfg = single_thread_cfg(2, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(3));
+
+        let (mut reporter, log) = SpyReporter::new();
+        Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let events = log.lock().unwrap().clone();
+        assert_eq!(events.first().unwrap(), &Event::SuiteStart);
+        assert_eq!(events.last().unwrap(), &Event::SuiteEnd);
+
+        let trial_start = events.iter().position(|e| e == &Event::TrialStart).unwrap();
+        let trial_end = events.iter().rposition(|e| e == &Event::TrialEnd).unwrap();
+        assert!(trial_start < trial_end);
+    }
+
+    #[test]
+    fn on_episode_end_fires_once_per_episode() {
+        let cfg = single_thread_cfg(3, 20);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(5));
+
+        let (mut reporter, log) = SpyReporter::new();
+        Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let episode_count = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| *e == &Event::EpisodeEnd)
+            .count();
+        assert_eq!(episode_count, 3);
+    }
+
+    #[test]
+    fn episode_return_equals_steps_taken() {
+        // StubEnv rewards 1.0 per step and signals done after `steps_until_done`.
+        let cfg = single_thread_cfg(4, 100);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(7));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let trial = &report.trials[0];
+        assert_eq!(trial.episodes.len(), 4);
+        for ep in &trial.episodes {
+            assert!((ep.return_value - 7.0).abs() < f64::EPSILON);
+            assert_eq!(ep.length, 7);
+        }
+    }
+
+    #[test]
+    fn max_steps_truncates_non_terminating_episode() {
+        let cfg = EvaluatorConfig {
+            num_episodes: 1,
+            max_steps: 4,
+            num_trials_per_env: 1,
+            base_seed: 0,
+            num_threads: Some(1),
+            checkpoint_dir: None,
+            fail_fast: false,
+            success_threshold: None,
+        };
+        // done triggers at step 1000 — the evaluator must stop at max_steps=4.
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(1000));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let ep = &report.trials[0].episodes[0];
+        assert_eq!(ep.length, 4);
+        assert!((ep.return_value - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn reset_error_marks_trial_errored() {
+        let cfg = single_thread_cfg(5, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+            let mut env = StubEnv::new(3);
+            env.reset_fails = true;
+            env
+        });
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert!(report.trials[0].errored);
+        assert!(report.trials[0].error_message.is_some());
+    }
+
+    #[test]
+    fn step_error_marks_trial_errored() {
+        let cfg = single_thread_cfg(5, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| {
+            let mut env = StubEnv::new(3);
+            env.step_fails = true;
+            env
+        });
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert!(report.trials[0].errored);
+        assert!(report.trials[0].error_message.is_some());
+    }
+
+    #[test]
+    fn panic_in_env_is_caught_not_propagated() {
+        struct PanickingEnv;
+        impl BenchEnv for PanickingEnv {
+            type Observation = u32;
+            type Action = ();
+            fn reset(&mut self) -> Result<u32, BenchError> {
+                Ok(0)
+            }
+            fn step(&mut self, _: ()) -> Result<BenchStep<u32>, BenchError> {
+                panic!("deliberate evaluator test panic");
+            }
+        }
+
+        let cfg = single_thread_cfg(1, 10);
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| PanickingEnv);
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        assert!(report.trials[0].errored);
+        assert!(report.trials[0]
+            .error_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("deliberate evaluator test panic"));
+    }
+
+    #[test]
+    fn trials_are_sorted_by_env_then_trial_index() {
+        let cfg = EvaluatorConfig {
+            num_episodes: 1,
+            num_trials_per_env: 2,
+            max_steps: 5,
+            base_seed: 0,
+            num_threads: Some(1),
+            checkpoint_dir: None,
+            fail_fast: false,
+            success_threshold: None,
+        };
+        let suite = Suite::new("s", cfg.clone())
+            .with_env("e0", |_| StubEnv::new(3))
+            .with_env("e1", |_| StubEnv::new(3));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        let keys: Vec<(usize, usize)> = report
+            .trials
+            .iter()
+            .map(|t| (t.key.env_idx, t.key.trial_idx))
+            .collect();
+        let mut expected = keys.clone();
+        expected.sort();
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn success_threshold_lands_in_trial_metrics() {
+        let cfg = EvaluatorConfig {
+            num_episodes: 5,
+            num_trials_per_env: 1,
+            max_steps: 10,
+            base_seed: 0,
+            num_threads: Some(1),
+            checkpoint_dir: None,
+            fail_fast: false,
+            success_threshold: Some(3.0), // StubEnv returns 5.0 per episode
+        };
+        let suite = Suite::new("s", cfg.clone()).with_env("e", |_| StubEnv::new(5));
+
+        let (mut reporter, _) = SpyReporter::new();
+        let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
+
+        // core_metrics emits "success_rate" when a threshold is set.
+        assert!(report.trials[0].scalars.contains_key("success_rate"));
     }
 }

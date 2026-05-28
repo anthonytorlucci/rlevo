@@ -711,6 +711,50 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotActio
 }
 
 // ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for Acrobot {
+    fn render_ascii(&self) -> String {
+        let theta1_deg = self.state.theta1.to_degrees();
+        let theta2_deg = self.state.theta2.to_degrees();
+        format!(
+            "Acrobot  θ1={:>6.1}°  θ̇1={:>5.2}  θ2={:>6.1}°  θ̇2={:>5.2}  step={}",
+            theta1_deg, self.state.theta1_dot, theta2_deg, self.state.theta2_dot, self.steps
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![style_label_line(&line, "Acrobot")],
+        }
+    }
+}
+
+/// Style a single-line classic-control render whose first token is a label.
+///
+/// Used by single-line renders (Acrobot, Pendulum) where there is no
+/// glyph-level visualisation — the label itself acts as the agent marker.
+fn style_label_line(line: &str, label: &str) -> crate::render::StyledLine {
+    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+
+    let agent_style = SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER);
+
+    if let Some(rest) = line.strip_prefix(label) {
+        StyledLine::from_spans(vec![
+            StyledSpan::new(label, agent_style),
+            StyledSpan::raw(rest.to_string()),
+        ])
+    } else {
+        StyledLine::unstyled(line)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -866,6 +910,50 @@ mod tests {
             assert_eq!(*snap.reward(), ScalarReward(-1.0));
         } else {
             assert_eq!(*snap.reward(), ScalarReward(0.0));
+        }
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Acrobot")
+            .expect("Acrobot label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
         }
     }
 }

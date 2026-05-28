@@ -432,6 +432,191 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl LunarLanderCore {
+    fn collect_bodies(&self) -> Vec<super::super::render::Bodyish> {
+        use super::super::render::Bodyish;
+
+        let mut bodies = Vec::with_capacity(3);
+        let world = &self.world;
+        if let Some(lander) = world.bodies().get(self.state.lander_handle) {
+            let p = lander.translation();
+            bodies.push(Bodyish::Agent {
+                x: p.x,
+                y: p.y,
+                angle_rad: lander.rotation().angle(),
+            });
+        }
+        for handle in [self.state.leg1_handle, self.state.leg2_handle] {
+            if let Some(leg) = world.bodies().get(handle) {
+                let p = leg.translation();
+                bodies.push(Bodyish::Dynamic { x: p.x, y: p.y });
+            }
+        }
+        bodies
+    }
+}
+
+fn lander_viewport() -> super::super::render::Viewport {
+    // Matches the world bounds the env uses for out-of-bounds termination.
+    super::super::render::Viewport {
+        x_min: 0.0,
+        x_max: 20.0,
+        y_min: 0.0,
+        y_max: 13.3,
+    }
+}
+
+const LANDER_GROUND_Y: f32 = 0.1;
+
+impl crate::render::AsciiRenderable for LunarLanderDiscrete {
+    fn render_ascii(&self) -> String {
+        super::super::render::render_box2d_ascii(
+            "Lander",
+            &self.core.collect_bodies(),
+            lander_viewport(),
+            Some(LANDER_GROUND_Y),
+            self.core.steps,
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        super::super::render::render_box2d_styled(
+            "Lander",
+            &self.core.collect_bodies(),
+            lander_viewport(),
+            Some(LANDER_GROUND_Y),
+            self.core.steps,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Report-tier payload — Box2D bodies for the lander, legs, and helipad
+// ground.
+// ---------------------------------------------------------------------------
+
+impl LunarLanderCore {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        use rlevo_core::render::{Box2dSnapshot, BodyKind, Point2, RigidBody2D};
+
+        let view = lander_viewport();
+        let world = &self.world;
+
+        let mut bodies: Vec<RigidBody2D> = Vec::with_capacity(4);
+
+        // Hull (lander): cuboid with half-extents LANDER_W/2 × LANDER_H/2.
+        if let Some(hull) = world.bodies().get(self.state.lander_handle) {
+            let p = hull.translation();
+            let hw = LANDER_W * 0.5;
+            let hh = LANDER_H * 0.5;
+            bodies.push(RigidBody2D {
+                vertices: vec![
+                    Point2::new(-hw, -hh),
+                    Point2::new(hw, -hh),
+                    Point2::new(hw, hh),
+                    Point2::new(-hw, hh),
+                ],
+                position: Point2::new(p.x, p.y),
+                rotation_rad: hull.rotation().angle(),
+                kind: BodyKind::Hull,
+            });
+        }
+        // Legs: cuboid 0.05 × 0.3 half-extents.
+        for handle in [self.state.leg1_handle, self.state.leg2_handle] {
+            if let Some(leg) = world.bodies().get(handle) {
+                let p = leg.translation();
+                bodies.push(RigidBody2D {
+                    vertices: vec![
+                        Point2::new(-0.05, -0.3),
+                        Point2::new(0.05, -0.3),
+                        Point2::new(0.05, 0.3),
+                        Point2::new(-0.05, 0.3),
+                    ],
+                    position: Point2::new(p.x, p.y),
+                    rotation_rad: leg.rotation().angle(),
+                    kind: BodyKind::Leg,
+                });
+            }
+        }
+        // Ground: a thin slab at y = 0 spanning the viewport. Half-height
+        // tuned so it reads as a ground line even with rounded corners.
+        bodies.push(RigidBody2D {
+            vertices: vec![
+                Point2::new(-VIEWPORT_W / SCALE / 2.0, -LANDER_GROUND_Y),
+                Point2::new(VIEWPORT_W / SCALE / 2.0, -LANDER_GROUND_Y),
+                Point2::new(VIEWPORT_W / SCALE / 2.0, LANDER_GROUND_Y),
+                Point2::new(-VIEWPORT_W / SCALE / 2.0, LANDER_GROUND_Y),
+            ],
+            position: Point2::new(VIEWPORT_W / SCALE / 2.0, 0.0),
+            rotation_rad: 0.0,
+            kind: BodyKind::Ground,
+        });
+
+        // Contacts — surfaced from the leg flags; the location is each
+        // leg's foot.
+        let mut contacts: Vec<Point2> = Vec::new();
+        if self.state.leg1_contact
+            && let Some(leg) = world.bodies().get(self.state.leg1_handle)
+        {
+            let p = leg.translation();
+            contacts.push(Point2::new(p.x, p.y - 0.3));
+        }
+        if self.state.leg2_contact
+            && let Some(leg) = world.bodies().get(self.state.leg2_handle)
+        {
+            let p = leg.translation();
+            contacts.push(Point2::new(p.x, p.y - 0.3));
+        }
+
+        Box2dSnapshot {
+            world_bounds: (
+                Point2::new(view.x_min, view.y_min),
+                Point2::new(view.x_max, view.y_max),
+            ),
+            bodies,
+            contacts,
+        }
+    }
+}
+
+impl rlevo_core::render::Box2dPayloadSource for LunarLanderDiscrete {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        self.core.box2d_snapshot()
+    }
+}
+
+impl rlevo_core::render::Box2dPayloadSource for LunarLanderContinuous {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        self.core.box2d_snapshot()
+    }
+}
+
+impl crate::render::AsciiRenderable for LunarLanderContinuous {
+    fn render_ascii(&self) -> String {
+        super::super::render::render_box2d_ascii(
+            "Lander",
+            &self.core.collect_bodies(),
+            lander_viewport(),
+            Some(LANDER_GROUND_Y),
+            self.core.steps,
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        super::super::render::render_box2d_styled(
+            "Lander",
+            &self.core.collect_bodies(),
+            lander_viewport(),
+            Some(LANDER_GROUND_Y),
+            self.core.steps,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::snapshot::METADATA_KEY_SHAPING;
@@ -525,5 +710,47 @@ mod tests {
         };
 
         assert_eq!(run(&actions), run(&actions));
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default());
+        env.reset().unwrap();
+        let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default());
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Lander")
+            .expect("Lander label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

@@ -443,7 +443,7 @@ impl Observation<1> for FrozenLakeObservation {
 /// Four-direction action space matching Gymnasium's FrozenLake ordering.
 ///
 /// Movements are clamped at grid boundaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FrozenLakeAction {
     /// Move one column toward col 0 (west).
     Left = 0,
@@ -638,6 +638,104 @@ impl Environment<1, 1, 1> for FrozenLake {
                 ScalarReward(self.config.reward_schedule.frozen),
             )),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for FrozenLake {
+    fn render_ascii(&self) -> String {
+        let mut out = String::with_capacity(self.map.tiles.len() * 2);
+        for (idx, tile) in self.map.tiles.iter().enumerate() {
+            let row = idx / self.map.ncol;
+            let col = idx % self.map.ncol;
+            let on_agent = row as u8 == self.state.row && col as u8 == self.state.col;
+            let ch = if on_agent { '@' } else { tile_char(*tile) };
+            out.push(ch);
+            out.push(' ');
+            if col + 1 == self.map.ncol {
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        use crate::render::palette::{
+            AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER,
+        };
+        use crate::render::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+        let mut lines = Vec::with_capacity(self.map.nrow);
+        let mut spans: Vec<StyledSpan> = Vec::new();
+        let mut current_style = SpanStyle::default();
+        let mut current_text = String::new();
+        for (idx, tile) in self.map.tiles.iter().enumerate() {
+            let row = idx / self.map.ncol;
+            let col = idx % self.map.ncol;
+            let on_agent = row as u8 == self.state.row && col as u8 == self.state.col;
+            let (ch, style) = if on_agent {
+                (
+                    '@',
+                    SpanStyle::default()
+                        .fg(AGENT_FG)
+                        .with_modifier(AGENT_MODIFIER),
+                )
+            } else {
+                match *tile {
+                    Tile::Hole => (
+                        'H',
+                        SpanStyle::default()
+                            .fg(HAZARD_FG)
+                            .with_modifier(HAZARD_MODIFIER),
+                    ),
+                    Tile::Goal => (
+                        'G',
+                        SpanStyle::default()
+                            .fg(GOAL_FG)
+                            .with_modifier(GOAL_MODIFIER),
+                    ),
+                    Tile::Start => (
+                        'S',
+                        SpanStyle::default()
+                            .fg(Color::Yellow)
+                            .with_modifier(Modifier::BOLD),
+                    ),
+                    Tile::Frozen => ('F', SpanStyle::default()),
+                }
+            };
+            if style != current_style && !current_text.is_empty() {
+                spans.push(StyledSpan::new(
+                    std::mem::take(&mut current_text),
+                    current_style,
+                ));
+            }
+            current_style = style;
+            current_text.push(ch);
+            current_text.push(' ');
+            if col + 1 == self.map.ncol {
+                if !current_text.is_empty() {
+                    spans.push(StyledSpan::new(
+                        std::mem::take(&mut current_text),
+                        current_style,
+                    ));
+                }
+                lines.push(StyledLine::from_spans(std::mem::take(&mut spans)));
+                current_style = SpanStyle::default();
+            }
+        }
+        StyledFrame { lines }
+    }
+}
+
+const fn tile_char(t: Tile) -> char {
+    match t {
+        Tile::Start => 'S',
+        Tile::Frozen => 'F',
+        Tile::Hole => 'H',
+        Tile::Goal => 'G',
     }
 }
 
@@ -871,5 +969,70 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = FrozenLake::with_config(FrozenLakeConfig::default()).unwrap();
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        // Each map row produces one styled line; the plain output has a
+        // trailing newline per row, so compare against the un-trailing form.
+        let plain_no_trailing: String = plain
+            .lines()
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(styled.plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, GOAL_FG, HAZARD_FG};
+
+        let mut env = FrozenLake::with_config(FrozenLakeConfig::default()).unwrap();
+        env.reset().unwrap();
+        let styled = env.render_styled();
+
+        let mut found_agent = false;
+        let mut found_goal = false;
+        let mut found_hole = false;
+        for line in &styled.lines {
+            for span in &line.spans {
+                if span.text.starts_with('@') {
+                    assert_eq!(span.style.fg, Some(AGENT_FG));
+                    found_agent = true;
+                }
+                if span.text.starts_with('G') {
+                    assert_eq!(span.style.fg, Some(GOAL_FG));
+                    found_goal = true;
+                }
+                if span.text.starts_with('H') {
+                    assert_eq!(span.style.fg, Some(HAZARD_FG));
+                    found_hole = true;
+                }
+            }
+        }
+        assert!(found_agent, "agent glyph @ not found in styled output");
+        assert!(found_goal, "goal glyph G not found in styled output");
+        assert!(found_hole, "hole glyph H not found in default 4x4 map");
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = FrozenLake::with_config(FrozenLakeConfig::default()).unwrap();
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

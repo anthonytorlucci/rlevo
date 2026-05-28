@@ -314,6 +314,16 @@ impl DistShiftEnv {
     }
 }
 
+impl crate::render::AsciiRenderable for DistShiftEnv {
+    fn render_ascii(&self) -> String {
+        render_ascii(&self.state.grid, &self.state.agent)
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        super::core::render::render_styled(&self.state.grid, &self.state.agent)
+    }
+}
+
 impl Display for DistShiftEnv {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(

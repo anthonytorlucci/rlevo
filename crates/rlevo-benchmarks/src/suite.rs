@@ -76,3 +76,86 @@ pub struct TrialInfo {
     pub env_name: String,
     pub trial_seed: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Suite, SuiteInfo, TrialKey};
+    use crate::evaluator::EvaluatorConfig;
+
+    fn minimal_config() -> EvaluatorConfig {
+        EvaluatorConfig {
+            num_episodes: 1,
+            num_trials_per_env: 1,
+            max_steps: 10,
+            base_seed: 0,
+            num_threads: None,
+            checkpoint_dir: None,
+            fail_fast: false,
+            success_threshold: None,
+        }
+    }
+
+    #[test]
+    fn new_suite_is_empty() {
+        let suite: Suite<()> = Suite::new("my-suite", minimal_config());
+        assert_eq!(suite.name, "my-suite");
+        assert!(suite.envs.is_empty());
+    }
+
+    #[test]
+    fn with_env_appends_names_in_order() {
+        let suite: Suite<u32> = Suite::new("s", minimal_config())
+            .with_env("alpha", |_seed| 1_u32)
+            .with_env("beta", |_seed| 2_u32);
+
+        let names: Vec<&str> = suite.envs.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn factory_receives_the_seed() {
+        let suite: Suite<u64> = Suite::new("s", minimal_config())
+            .with_env("seeded", |seed| seed);
+
+        let (_, factory) = &suite.envs[0];
+        assert_eq!(factory(42), 42);
+        assert_eq!(factory(99), 99);
+    }
+
+    #[test]
+    fn debug_impl_lists_env_names() {
+        let suite: Suite<u32> = Suite::new("s", minimal_config())
+            .with_env("env-a", |_| 0_u32);
+        let debug = format!("{suite:?}");
+        assert!(debug.contains("Suite"));
+        assert!(debug.contains("env-a"));
+    }
+
+    #[test]
+    fn suite_info_round_trip() {
+        let info = SuiteInfo {
+            name: "s".into(),
+            env_names: vec!["e1".into(), "e2".into()],
+            num_trials_per_env: 3,
+        };
+        assert_eq!(info.env_names.len(), 2);
+        assert_eq!(info.num_trials_per_env, 3);
+    }
+
+    #[test]
+    fn trial_key_equality_and_hash() {
+        use std::collections::HashSet;
+
+        let k1 = TrialKey { env_idx: 0, trial_idx: 1 };
+        let k2 = TrialKey { env_idx: 0, trial_idx: 1 };
+        let k3 = TrialKey { env_idx: 1, trial_idx: 0 };
+
+        assert_eq!(k1, k2);
+        assert_ne!(k1, k3);
+
+        let mut set = HashSet::new();
+        set.insert(k1);
+        assert!(set.contains(&k2));
+        assert!(!set.contains(&k3));
+    }
+}

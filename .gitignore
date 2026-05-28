@@ -20,3 +20,5 @@ target
 .env
 .claude
 CLAUDE.md
+# Recorded benchmark runs (M4+) — example output, not source.
+runs/

@@ -303,6 +303,79 @@ impl Environment<3, 3, 1> for CarRacing {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for CarRacing {
+    fn render_ascii(&self) -> String {
+        let bodies = self.collect_bodies();
+        let viewport = self.viewport();
+        super::super::render::render_box2d_ascii(
+            "Car",
+            &bodies,
+            viewport,
+            None,
+            self.steps,
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let bodies = self.collect_bodies();
+        let viewport = self.viewport();
+        super::super::render::render_box2d_styled(
+            "Car",
+            &bodies,
+            viewport,
+            None,
+            self.steps,
+        )
+    }
+}
+
+impl CarRacing {
+    fn collect_bodies(&self) -> Vec<super::super::render::Bodyish> {
+        use super::super::render::Bodyish;
+
+        let mut bodies = Vec::with_capacity(5);
+        if let Some(car) = self.world.bodies().get(self.state.car_handle) {
+            let p = car.translation();
+            bodies.push(Bodyish::Agent {
+                x: p.x,
+                y: p.y,
+                angle_rad: car.rotation().angle(),
+            });
+        }
+        for handle in self.state.wheel_handles {
+            if let Some(wheel) = self.world.bodies().get(handle) {
+                let p = wheel.translation();
+                bodies.push(Bodyish::Dynamic { x: p.x, y: p.y });
+            }
+        }
+        bodies
+    }
+
+    /// Camera-following viewport: 20-unit-wide window centred on the car.
+    /// Track tile geometry is not rendered in the library tier; the report
+    /// tier owns full track rendering via `FamilyPayload::Box2D`.
+    fn viewport(&self) -> super::super::render::Viewport {
+        let (cx, cy) = self
+            .world
+            .bodies()
+            .get(self.state.car_handle)
+            .map_or((0.0, 0.0), |b| {
+                let p = b.translation();
+                (p.x, p.y)
+            });
+        super::super::render::Viewport {
+            x_min: cx - 10.0,
+            x_max: cx + 10.0,
+            y_min: cy - 6.65,
+            y_max: cy + 6.65,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,5 +469,47 @@ mod tests {
             (a - b).abs() < 1e-4,
             "determinism: same seed + actions must give same reward sum"
         );
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        env.reset().unwrap();
+        let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text == "Car")
+            .expect("Car label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

@@ -270,6 +270,28 @@ impl<const K: usize> Environment<1, 1, 1> for AdversarialBandit<K> {
 }
 
 // ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl<const K: usize> crate::render::AsciiRenderable for AdversarialBandit<K> {
+    fn render_ascii(&self) -> String {
+        let rewards: Vec<f32> = (0..K).map(|a| self.reward_at(a, self.steps)).collect();
+        let (best_arm, best_reward) = super::k_armed::argmax(&rewards);
+        format!(
+            "Adversarial (K={K})  best_arm={best_arm} (r={best_reward:.2})  period={}  amp={:.2}  step={}/{}",
+            self.config.period, self.config.amplitude, self.steps, self.config.max_steps
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![super::k_armed::style_bandit_line(&line)],
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -384,5 +406,46 @@ mod tests {
     fn fromstr_unknown_key_errors() {
         let err: String = "wrong=1".parse::<AdversarialBanditConfig>().unwrap_err();
         assert!(err.contains("Unknown AdversarialBanditConfig key"));
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let env: AdversarialBandit<10> = AdversarialBandit::with_seed(7);
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let env: AdversarialBandit<10> = AdversarialBandit::with_seed(7);
+        let styled = env.render_styled();
+        let label = styled.lines[0]
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with("Adversarial"))
+            .expect("Adversarial label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let env: AdversarialBandit<10> = AdversarialBandit::with_seed(7);
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
+        }
     }
 }

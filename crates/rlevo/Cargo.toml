@@ -36,6 +36,12 @@ box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
 # Custom CubeCL GPU kernels for evolutionary algorithm hot paths
 custom-kernels = ["rlevo-evolution/custom-kernels"]
+# Live ratatui TUI dashboard for `rlevo-benchmarks` runs (Milestone 2).
+viz-tui = ["rlevo-benchmarks/tui"]
+# On-disk per-episode recording for `rlevo-benchmarks` runs (Milestone 4).
+viz-record = ["rlevo-benchmarks/record"]
+# Static-HTML report emitter consuming the M4 record format (Milestone 5).
+viz-report = ["rlevo-benchmarks/report"]
 
 [lints]
 workspace = true
@@ -189,3 +195,94 @@ path = "examples/benchmarks/ga_rastrigin.rs"
 [[example]]
 name = "tabular_bandit"
 path = "examples/benchmarks/tabular_bandit.rs"
+
+# Examples — live TUI dashboard
+[[example]]
+name = "tui_ppo_cartpole"
+path = "examples/viz/tui_ppo_cartpole.rs"
+required-features = ["viz-tui"]
+
+[[example]]
+name = "record_cartpole"
+path = "examples/viz/record_cartpole.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "record_ppo_cartpole"
+path = "examples/viz/record_ppo_cartpole.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_cartpole"
+path = "examples/viz/report_cartpole.rs"
+required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "report_cartpole_with_client"
+path = "examples/viz/report_cartpole_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "record_grids"
+path = "examples/viz/record_grids.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "record_toy_text"
+path = "examples/viz/record_toy_text.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_grids_with_client"
+path = "examples/viz/report_grids_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "report_toy_text_with_client"
+path = "examples/viz/report_toy_text_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# M7 — landscapes
+[[example]]
+name = "record_sphere_landscape"
+path = "examples/viz/record_sphere_landscape.rs"
+required-features = ["viz-record"]
+
+[[example]]
+name = "report_sphere_landscape_with_client"
+path = "examples/viz/report_sphere_landscape_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# M7 — locomotion
+[[example]]
+name = "record_inverted_pendulum"
+path = "examples/viz/record_inverted_pendulum.rs"
+required-features = ["locomotion", "viz-record"]
+
+[[example]]
+name = "report_inverted_pendulum_with_client"
+path = "examples/viz/report_inverted_pendulum_with_client.rs"
+required-features = ["locomotion", "viz-record", "viz-report"]
+
+# M7 — box2d
+[[example]]
+name = "record_lunar_lander"
+path = "examples/viz/record_lunar_lander.rs"
+required-features = ["box2d", "viz-record"]
+
+[[example]]
+name = "report_lunar_lander_with_client"
+path = "examples/viz/report_lunar_lander_with_client.rs"
+required-features = ["box2d", "viz-record", "viz-report"]
+
+# M8 — convergence plots
+[[example]]
+name = "report_ppo_cartpole_with_client"
+path = "examples/viz/report_ppo_cartpole_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# M8.1 — population panels (EA box plot / selection-pressure indicator)
+[[example]]
+name = "record_evolution_sphere_with_client"
+path = "examples/viz/record_evolution_sphere_with_client.rs"
+required-features = ["viz-record", "viz-report"]

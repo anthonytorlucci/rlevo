@@ -2,7 +2,7 @@
 
 use tracing::info;
 
-use crate::report::{BenchmarkReport, EpisodeRecord, TrialReport};
+use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
@@ -38,7 +38,7 @@ impl Reporter for LoggingReporter {
         );
     }
 
-    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeRecord) {
+    fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary) {
         info!(
             target: "rlevo_benchmarks",
             env = %trial.env_name,

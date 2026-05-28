@@ -481,6 +481,74 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarC
 }
 
 // ---------------------------------------------------------------------------
+// ASCII renderer
+// ---------------------------------------------------------------------------
+
+impl crate::render::AsciiRenderable for MountainCarContinuous {
+    fn render_ascii(&self) -> String {
+        let width = 40_usize;
+        let span = self.config.max_pos - self.config.min_pos;
+        let frac = ((self.state.position - self.config.min_pos) / span).clamp(0.0, 1.0);
+        let col = (frac * (width as f32 - 1.0)) as usize;
+        let mut track = vec!['.'; width];
+        track[col] = 'A';
+        let track_str: String = track.iter().collect();
+        format!(
+            "[{track_str}]  pos={:.3}  vel={:.4}  step={}",
+            self.state.position, self.state.velocity, self.steps
+        )
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![style_track_line(&line, 'A')],
+        }
+    }
+}
+
+/// Style a `[track]  suffix` style line where a single glyph marks the agent.
+///
+/// Reused by track-style renders (MountainCar, MountainCarContinuous,
+/// CartPole). The portion before `]` is treated as the track; the matched
+/// `agent_glyph` carries `AGENT_FG | AGENT_MODIFIER`; everything else
+/// inside the brackets carries `WALL_FG`; the suffix is unstyled.
+fn style_track_line(line: &str, agent_glyph: char) -> crate::render::StyledLine {
+    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+
+    let wall_style = SpanStyle::default().fg(WALL_FG);
+    let agent_style = SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER);
+
+    let Some(close_idx) = line.find(']') else {
+        return StyledLine::unstyled(line);
+    };
+    let track_segment = &line[..=close_idx];
+    let suffix = &line[close_idx + 1..];
+
+    let Some(agent_col) = track_segment.find(agent_glyph) else {
+        return StyledLine::unstyled(line);
+    };
+
+    let mut spans = Vec::with_capacity(4);
+    spans.push(StyledSpan::new(
+        track_segment[..agent_col].to_string(),
+        wall_style,
+    ));
+    spans.push(StyledSpan::new(agent_glyph.to_string(), agent_style));
+    spans.push(StyledSpan::new(
+        track_segment[agent_col + 1..].to_string(),
+        wall_style,
+    ));
+    if !suffix.is_empty() {
+        spans.push(StyledSpan::raw(suffix.to_string()));
+    }
+    StyledLine::from_spans(spans)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -585,6 +653,59 @@ mod tests {
             let sa = a.step(act).unwrap();
             let sb = b.step(act).unwrap();
             assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+        }
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        let styled = env.render_styled();
+        let line = &styled.lines[0];
+
+        let agent = line
+            .spans
+            .iter()
+            .find(|s| s.text == "A")
+            .expect("agent glyph span present");
+        assert_eq!(agent.style.fg, Some(AGENT_FG));
+        assert!(agent.style.modifier.contains(AGENT_MODIFIER));
+
+        let bracket = line
+            .spans
+            .iter()
+            .find(|s| s.text.starts_with('['))
+            .expect("track-opening span present");
+        assert_eq!(bracket.style.fg, Some(WALL_FG));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let mut env = default_env();
+        env.reset().unwrap();
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
         }
     }
 }

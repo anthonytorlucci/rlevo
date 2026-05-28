@@ -2,9 +2,10 @@
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::Action;
+use serde::{Deserialize, Serialize};
 
 /// Actions available to a grid agent. Matches Minigrid's canonical 7-action set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GridAction {
     /// Rotate 90° counter-clockwise.

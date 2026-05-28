@@ -2,17 +2,23 @@
 //!
 //! The trait surface (`BenchEnv`, `BenchError`, `BenchStep`,
 //! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives
-//! in `rlevo-core` (per ADR 0004). This crate provides the runner that
+//! in `rlevo-core` (shared trait surface). This crate provides the runner that
 //! drives those traits to produce reports.
 
 pub mod checkpoint;
+#[cfg(feature = "tui")]
+pub mod env_wrappers;
 pub mod evaluator;
 pub mod metrics;
+#[cfg(feature = "record")]
+pub mod record;
 pub mod report;
 pub mod reporter;
 #[doc(hidden)]
 pub mod storage;
 pub mod suite;
+#[cfg(feature = "tui")]
+pub mod tui;
 
 /// Backward-compatible alias for the relocated environment trait surface.
 pub mod env {

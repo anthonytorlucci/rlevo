@@ -411,6 +411,37 @@ impl crate::render::AsciiRenderable for Pendulum {
             angle_deg, self.state.theta_dot, self.steps
         )
     }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        let line = self.render_ascii();
+        crate::render::StyledFrame {
+            lines: vec![style_pendulum_line(&line)],
+        }
+    }
+}
+
+/// Style one `render_ascii` line for [`Pendulum`].
+///
+/// The leading "Pendulum" label is treated as the agent (no bob glyph is
+/// rendered today) and carries [`AGENT_FG`] with [`AGENT_MODIFIER`]. The
+/// numeric annotations remain unstyled.
+fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
+    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+
+    const LABEL: &str = "Pendulum";
+    let agent_style = SpanStyle::default()
+        .fg(AGENT_FG)
+        .with_modifier(AGENT_MODIFIER);
+
+    if let Some(rest) = line.strip_prefix(LABEL) {
+        StyledLine::from_spans(vec![
+            StyledSpan::new(LABEL, agent_style),
+            StyledSpan::raw(rest.to_string()),
+        ])
+    } else {
+        StyledLine::unstyled(line)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +606,48 @@ mod tests {
             let sa = a.step(action).unwrap();
             let sb = b.step(action).unwrap();
             assert_eq!(sa.observation().to_array(), sb.observation().to_array());
+        }
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        use crate::render::AsciiRenderable;
+
+        let env = Pendulum::new(false);
+        let plain = env.render_ascii();
+        let styled = env.render_styled();
+        assert_eq!(styled.lines.len(), 1);
+        assert_eq!(styled.plain_text(), plain);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::AsciiRenderable;
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
+
+        let env = Pendulum::new(false);
+        let styled = env.render_styled();
+        let line = &styled.lines[0];
+        let label = line
+            .spans
+            .iter()
+            .find(|s| s.text == "Pendulum")
+            .expect("Pendulum label span present");
+        assert_eq!(label.style.fg, Some(AGENT_FG));
+        assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_within_width_budget() {
+        use crate::render::AsciiRenderable;
+
+        let env = Pendulum::new(false);
+        for line in env.render_ascii().lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 cols: {line:?} ({} chars)",
+                line.chars().count()
+            );
         }
     }
 }

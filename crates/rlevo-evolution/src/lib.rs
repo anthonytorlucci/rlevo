@@ -27,10 +27,12 @@
 pub mod algorithms;
 pub mod fitness;
 pub mod genome;
+pub mod observer;
 pub mod ops;
 pub mod population;
 pub mod rng;
 pub mod shaping;
 pub mod strategy;
 
+pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};

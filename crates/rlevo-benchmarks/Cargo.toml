@@ -11,6 +11,9 @@ categories.workspace = true
 
 [dependencies]
 rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+# Population observer trait — only pulled in with the `record` feature
+# so non-recording builds do not link burn through this crate.
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", optional = true, default-features = false }
 rayon = "1"
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -20,14 +23,34 @@ serde = { workspace = true, optional = true }
 serde_json = { version = "1", optional = true }
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["registry", "std"] }
+bincode = { version = "2", optional = true, features = ["serde"] }
+toml = { version = "0.8", optional = true }
+time = { version = "0.3", optional = true, features = ["formatting", "macros"] }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+tempfile = "3"
+# Cross-crate compatibility test only: guards the wire-format mirror in
+# the report client against schema drift. The client itself is not a
+# build-time dep of any production crate.
+rlevo-benchmarks-report-client = { path = "../rlevo-benchmarks-report-client", version = "0.1.0" }
 
 [features]
 default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
-tui = ["dep:ratatui", "dep:crossterm"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
+record = ["dep:bincode", "dep:toml", "dep:time", "dep:serde", "dep:tracing-subscriber", "dep:rlevo-evolution"]
+# Static-HTML report emitter: random-access loader + single-file inliner
+# (Milestone 5). Builds on `record`; adds `base64` for payload inlining
+# and `serde_json` for the manifest JSON payload.
+report = ["record", "dep:base64", "dep:serde_json"]
+
+[[bin]]
+name = "export-report"
+path = "src/bin/export_report.rs"
+required-features = ["report"]
 
 [lints]
 workspace = true
