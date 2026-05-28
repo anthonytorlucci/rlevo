@@ -40,6 +40,7 @@ use rand::{Rng, SeedableRng};
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 
 use crate::fitness::BatchFitnessFn;
+use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 
 /// Central evolutionary-strategy abstraction.
 ///
@@ -257,6 +258,7 @@ where
     generation: usize,
     max_generations: usize,
     latest_metrics: Option<StrategyMetrics>,
+    observer: Option<SharedPopulationObserver>,
     _backend: PhantomData<B>,
 }
 
@@ -305,8 +307,28 @@ where
             generation: 0,
             max_generations,
             latest_metrics: None,
+            observer: None,
             _backend: PhantomData,
         }
+    }
+
+    /// Attach a per-generation [`PopulationObserver`].
+    ///
+    /// Used by the M8.1 report producer
+    /// (`rlevo_benchmarks::record::PopulationReporter`) to capture the
+    /// full population vector. The observer fires once per
+    /// [`step`](Self::step) call, after the canonical
+    /// `tracing::info!("evolution generation", …)` event.
+    ///
+    /// Attaching an observer adds one device→host transfer of the
+    /// fitness tensor per generation; runs without an observer pay
+    /// nothing.
+    ///
+    /// [`PopulationObserver`]: crate::observer::PopulationObserver
+    #[must_use]
+    pub fn with_observer(mut self, observer: SharedPopulationObserver) -> Self {
+        self.observer = Some(observer);
+        self
     }
 
     /// Snapshot of the most recent generation's metrics, if any.
@@ -366,6 +388,15 @@ where
             self.strategy
                 .ask(&self.params, &state, &mut self.rng, &self.device);
         let fitness = self.fitness_fn.evaluate_batch(&population, &self.device);
+        // Mirror the fitness tensor to host only if someone's actually
+        // listening — the device→host transfer is the expensive part.
+        let snapshot_fitness: Option<Vec<f32>> = self.observer.as_ref().map(|_| {
+            fitness
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .unwrap_or_default()
+        });
         let (new_state, metrics) =
             self.strategy
                 .tell(&self.params, population, fitness, state, &mut self.rng);
@@ -394,6 +425,28 @@ where
             best_fitness_ever = f64::from(metrics.best_fitness_ever),
             "evolution generation",
         );
+        if let (Some(observer), Some(fitnesses)) =
+            (self.observer.as_ref(), snapshot_fitness)
+        {
+            let best_index = fitnesses
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map_or(0, |(i, _)| u32::try_from(i).unwrap_or(0));
+            let snapshot = PopulationSnapshot {
+                generation: u32::try_from(metrics.generation).unwrap_or(u32::MAX),
+                fitnesses,
+                diversity: None,
+                best_index,
+                best_genome_digest: None,
+                parents_of_best: Vec::new(),
+            };
+            if let Ok(mut guard) = observer.lock() {
+                guard.on_population(snapshot);
+            }
+        }
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
         BenchStep {
@@ -570,5 +623,90 @@ mod tests {
         approx::assert_relative_eq!(m.mean_fitness, 2.75, epsilon = 1e-6);
         // best_fitness_ever = min(prior=4.0, current=1.0)
         approx::assert_relative_eq!(m.best_fitness_ever, 1.0, epsilon = 1e-6);
+    }
+
+    /// Per-individual fitness = `1.0 / (i + 1)` so the best (smallest)
+    /// is always at index `pop_size - 1` — a deterministic shape the
+    /// observer test can pin against.
+    struct RankedFitness;
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for RankedFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let values: Vec<f32> = (0..n).map(|i| 1.0 / (i as f32 + 1.0)).collect();
+            let data = TensorData::new(values, [n]);
+            Tensor::<B, 1>::from_data(data, device)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CountingObserver {
+        snapshots: Vec<PopulationSnapshot>,
+    }
+
+    impl crate::observer::PopulationObserver for CountingObserver {
+        fn on_population(&mut self, snapshot: PopulationSnapshot) {
+            self.snapshots.push(snapshot);
+        }
+    }
+
+    #[test]
+    fn harness_fires_observer_per_generation() {
+        use std::sync::{Arc, Mutex};
+        let device = Default::default();
+        let observer = Arc::new(Mutex::new(CountingObserver::default()));
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            Constant,
+            Params {
+                pop_size: 5,
+                dim: 2,
+            },
+            RankedFitness,
+            1,
+            device,
+            3,
+        )
+        .with_observer(observer.clone() as SharedPopulationObserver);
+        harness.reset();
+        for _ in 0..3 {
+            harness.step(());
+        }
+        let guard = observer.lock().unwrap();
+        assert_eq!(guard.snapshots.len(), 3);
+        // pop_size = 5, ranked fitness = [1/1, 1/2, 1/3, 1/4, 1/5]; best
+        // (smallest) is the last element.
+        assert_eq!(guard.snapshots[0].fitnesses.len(), 5);
+        assert_eq!(guard.snapshots[0].best_index, 4);
+        assert_eq!(guard.snapshots[2].generation, 3);
+        // M8.1 leaves these fields empty / None — see observer.rs docs.
+        assert!(guard.snapshots[0].diversity.is_none());
+        assert!(guard.snapshots[0].best_genome_digest.is_none());
+        assert!(guard.snapshots[0].parents_of_best.is_empty());
+    }
+
+    #[test]
+    fn harness_without_observer_skips_host_transfer() {
+        // Smoke: no observer attached → step() still works, no panic,
+        // no transfer cost. Observability is verified above; here we
+        // just want the no-observer path to remain functional.
+        let device = Default::default();
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            Constant,
+            Params {
+                pop_size: 3,
+                dim: 1,
+            },
+            RankedFitness,
+            1,
+            device,
+            1,
+        );
+        harness.reset();
+        let step = harness.step(());
+        assert!(step.done);
     }
 }

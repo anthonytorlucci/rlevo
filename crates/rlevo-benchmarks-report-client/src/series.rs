@@ -140,7 +140,7 @@ mod tests {
     fn record(frames: Vec<FrameRecord>, metrics: Vec<MetricSample>) -> EpisodeRecord {
         EpisodeRecord {
             header: EpisodeRecordHeader {
-                format_version: 2,
+                format_version: 3,
                 run_id: RunId("x".into()),
                 seed: 0,
                 env_family: EnvFamily::Classic,
@@ -148,6 +148,7 @@ mod tests {
             },
             frames,
             metrics,
+            population_samples: Vec::new(),
         }
     }
 

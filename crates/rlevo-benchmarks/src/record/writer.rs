@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use super::manifest::RunManifest;
 use super::schema::{
     EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FrameRecord, MetricSample,
-    RunId, bincode_config, default_frame_stride,
+    PopulationSample, RunId, bincode_config, default_frame_stride,
 };
 
 /// Per-run configuration: the writer materialises this once at the
@@ -70,13 +70,22 @@ pub trait RecordSink: Send + 'static {
     fn on_metric(&mut self, sample: MetricSample);
     fn on_episode_end(&mut self, return_value: f64, length: u32);
     fn on_run_end(&mut self, manifest: RunManifest);
+    /// Push one population snapshot. EA producers call this once per
+    /// generation; RL producers never call it. Default no-op so impls
+    /// outside the EA path don't need a stub.
+    fn on_population_sample(&mut self, _sample: PopulationSample) {}
 }
 
 /// One framed chunk in the per-episode wire stream.
+///
+/// **Variant ordering is wire-format-stable** — `Frame` and `Metrics`
+/// keep tags 0 and 1 so v1/v2 records still decode under v3. The new
+/// `Population` variant lands at tag 2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum RecordChunk {
     Frame(FrameRecord),
     Metrics(Vec<MetricSample>),
+    Population(PopulationSample),
 }
 
 /// On-disk implementation of [`RecordSink`]. Opens one file per
@@ -247,6 +256,17 @@ impl RecordSink for RecordWriter {
         self.pending_metrics.push(sample);
     }
 
+    fn on_population_sample(&mut self, sample: PopulationSample) {
+        let Some(current) = self.current.as_mut() else {
+            return;
+        };
+        if let Err(e) =
+            write_chunk_raw(&mut current.writer, &RecordChunk::Population(sample))
+        {
+            tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "failed to write population chunk");
+        }
+    }
+
     fn on_episode_end(&mut self, _return_value: f64, _length: u32) {
         let Some(mut current) = self.current.take() else {
             return;
@@ -311,16 +331,19 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
 
     let mut frames = Vec::new();
     let mut metrics = Vec::new();
+    let mut population_samples = Vec::new();
     while let Some(chunk) = read_chunk::<RecordChunk, _>(&mut f)? {
         match chunk {
             RecordChunk::Frame(fr) => frames.push(fr),
             RecordChunk::Metrics(ms) => metrics.extend(ms),
+            RecordChunk::Population(ps) => population_samples.push(ps),
         }
     }
     Ok(EpisodeRecord {
         header,
         frames,
         metrics,
+        population_samples,
     })
 }
 
@@ -376,6 +399,7 @@ impl RecordSink for InMemoryRecordSink {
                 },
                 frames: Vec::new(),
                 metrics: Vec::new(),
+                population_samples: Vec::new(),
             },
         );
     }
@@ -391,6 +415,13 @@ impl RecordSink for InMemoryRecordSink {
             && let Some(ep) = self.episodes.get_mut(&idx)
         {
             ep.metrics.push(sample);
+        }
+    }
+    fn on_population_sample(&mut self, sample: PopulationSample) {
+        if let Some(idx) = self.current
+            && let Some(ep) = self.episodes.get_mut(&idx)
+        {
+            ep.population_samples.push(sample);
         }
     }
     fn on_episode_end(&mut self, _return_value: f64, _length: u32) {
@@ -562,5 +593,54 @@ mod tests {
         assert_eq!(ep.frames.len(), 1);
         assert_eq!(ep.metrics.len(), 1);
         assert_eq!(ep.metrics[0].name, "entropy");
+    }
+
+    fn population_sample(generation: u32) -> PopulationSample {
+        PopulationSample {
+            generation,
+            fitnesses: vec![0.1, 0.2, 0.3, 0.4],
+            diversity: Some(0.5),
+            best_index: 0,
+            best_genome_digest: None,
+            parents_of_best: Vec::new(),
+            inner_rl_returns: None,
+        }
+    }
+
+    #[test]
+    fn record_writer_persists_population_samples() {
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Landscapes,
+            seed: 3,
+            run_id: Some(RunId("pop-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+        w.on_episode_start(0);
+        w.on_frame(frame(0, 0.0));
+        w.on_population_sample(population_sample(0));
+        w.on_population_sample(population_sample(1));
+        w.on_episode_end(0.0, 1);
+        w.on_run_end(w.manifest_template());
+
+        let decoded =
+            read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
+        assert_eq!(decoded.population_samples.len(), 2);
+        assert_eq!(decoded.population_samples[0].generation, 0);
+        assert_eq!(decoded.population_samples[1].generation, 1);
+        assert_eq!(decoded.population_samples[0].fitnesses.len(), 4);
+    }
+
+    #[test]
+    fn in_memory_sink_collects_population_samples() {
+        let mut sink = InMemoryRecordSink::new();
+        sink.on_episode_start(0);
+        sink.on_population_sample(population_sample(0));
+        sink.on_population_sample(population_sample(1));
+        sink.on_episode_end(0.0, 0);
+        let ep = &sink.episodes[&0];
+        assert_eq!(ep.population_samples.len(), 2);
+        assert_eq!(ep.population_samples[1].generation, 1);
     }
 }

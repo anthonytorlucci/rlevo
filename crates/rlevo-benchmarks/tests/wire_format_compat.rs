@@ -18,7 +18,7 @@ use rlevo_benchmarks::record::{
     FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload,
     FrameRecord as NativeFrame, Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
-    RunId as NativeRunId, bincode_config,
+    PopulationSample as NativePopulationSample, RunId as NativeRunId, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
@@ -26,6 +26,7 @@ use rlevo_core::render::{
     StyledSpan,
 };
 
+#[allow(clippy::too_many_lines)]
 fn populated_native_record() -> NativeRecord {
     NativeRecord {
         header: NativeHeader {
@@ -123,6 +124,26 @@ fn populated_native_record() -> NativeRecord {
                 value: 0.6789,
             },
         ],
+        population_samples: vec![
+            NativePopulationSample {
+                generation: 0,
+                fitnesses: vec![0.5, 0.4, 0.3, 0.2, 0.1],
+                diversity: Some(0.42),
+                best_index: 4,
+                best_genome_digest: Some([9u8; 16]),
+                parents_of_best: vec![[1u8; 16], [2u8; 16]],
+                inner_rl_returns: None,
+            },
+            NativePopulationSample {
+                generation: 1,
+                fitnesses: vec![0.4, 0.35, 0.25, 0.2, 0.05],
+                diversity: Some(0.38),
+                best_index: 4,
+                best_genome_digest: None,
+                parents_of_best: Vec::new(),
+                inner_rl_returns: Some(vec![10.0, 11.5, 12.25, 9.75, 13.0]),
+            },
+        ],
     }
 }
 
@@ -177,6 +198,23 @@ fn native_encode_decodes_via_client_wire_types() {
         assert_eq!(m.name, n.name);
         assert!((m.value - n.value).abs() < 1e-9);
     }
+    assert_eq!(mirrored.population_samples.len(), native.population_samples.len());
+    for (m, n) in mirrored
+        .population_samples
+        .iter()
+        .zip(native.population_samples.iter())
+    {
+        assert_eq!(m.generation, n.generation);
+        assert_eq!(m.fitnesses.len(), n.fitnesses.len());
+        for (a, b) in m.fitnesses.iter().zip(n.fitnesses.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+        assert_eq!(m.diversity.is_some(), n.diversity.is_some());
+        assert_eq!(m.best_index, n.best_index);
+        assert_eq!(m.best_genome_digest, n.best_genome_digest);
+        assert_eq!(m.parents_of_best, n.parents_of_best);
+        assert_eq!(m.inner_rl_returns.is_some(), n.inner_rl_returns.is_some());
+    }
 }
 
 #[test]
@@ -226,9 +264,28 @@ fn client_decode_episode_record_walks_full_wire_stream() {
     bytes.extend_from_slice(&u32::try_from(metrics_payload.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&metrics_payload);
 
+    for sample in &native.population_samples {
+        let chunk = client::RecordChunk::Population(client::PopulationSample {
+            generation: sample.generation,
+            fitnesses: sample.fitnesses.clone(),
+            diversity: sample.diversity,
+            best_index: sample.best_index,
+            best_genome_digest: sample.best_genome_digest,
+            parents_of_best: sample.parents_of_best.clone(),
+            inner_rl_returns: sample.inner_rl_returns.clone(),
+        });
+        let payload =
+            bincode::serde::encode_to_vec(&chunk, client::bincode_config()).unwrap();
+        bytes.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(&payload);
+    }
+
     let decoded = client::decode_episode_record(&bytes).expect("client decoder accepts native bytes");
     assert_eq!(decoded.frames.len(), native.frames.len());
     assert_eq!(decoded.metrics.len(), 2);
+    assert_eq!(decoded.population_samples.len(), native.population_samples.len());
+    assert_eq!(decoded.population_samples[0].generation, 0);
+    assert_eq!(decoded.population_samples[1].generation, 1);
     assert_eq!(decoded.header.seed, 11);
     // Spot-check that the rich-payload variants survived the wire.
     assert!(matches!(

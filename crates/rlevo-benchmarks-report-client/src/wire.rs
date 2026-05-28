@@ -135,7 +135,7 @@ pub struct Locomotion2DPayload {
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
-pub const FORMAT_VERSION: u16 = 2;
+pub const FORMAT_VERSION: u16 = 3;
 
 /// Oldest on-disk version this client still decodes — M6 files
 /// (`format_version = 1`) remain readable.
@@ -195,11 +195,30 @@ pub struct MetricSample {
     pub value: f64,
 }
 
+/// One per-generation snapshot of an EA population. Mirror of
+/// `rlevo_benchmarks::record::PopulationSample`. Carried by
+/// `RecordChunk::Population` in v3+ records.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PopulationSample {
+    pub generation: u32,
+    pub fitnesses: Vec<f32>,
+    pub diversity: Option<f32>,
+    pub best_index: u32,
+    pub best_genome_digest: Option<[u8; 16]>,
+    pub parents_of_best: Vec<[u8; 16]>,
+    pub inner_rl_returns: Option<Vec<f32>>,
+}
+
 /// Length-prefixed wire-format chunk written by the M4 record writer.
+///
+/// **Variant ordering is wire-format-stable** — `Frame` and `Metrics`
+/// keep tags 0 and 1; v3 (M8.1) appends `Population` at tag 2. v1/v2
+/// records contain no `Population` chunks so they decode cleanly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordChunk {
     Frame(FrameRecord),
     Metrics(Vec<MetricSample>),
+    Population(PopulationSample),
 }
 
 /// In-memory aggregate of one decoded `.rec` file.
@@ -208,6 +227,8 @@ pub struct EpisodeRecord {
     pub header: EpisodeRecordHeader,
     pub frames: Vec<FrameRecord>,
     pub metrics: Vec<MetricSample>,
+    #[serde(default)]
+    pub population_samples: Vec<PopulationSample>,
 }
 
 pub type Hyperparameters = BTreeMap<String, String>;
@@ -253,16 +274,19 @@ pub fn decode_episode_record(bytes: &[u8]) -> Result<EpisodeRecord, DecodeError>
 
     let mut frames = Vec::new();
     let mut metrics = Vec::new();
+    let mut population_samples = Vec::new();
     while let Some(chunk) = read_chunk::<RecordChunk>(bytes, &mut cursor)? {
         match chunk {
             RecordChunk::Frame(fr) => frames.push(fr),
             RecordChunk::Metrics(ms) => metrics.extend(ms),
+            RecordChunk::Population(ps) => population_samples.push(ps),
         }
     }
     Ok(EpisodeRecord {
         header,
         frames,
         metrics,
+        population_samples,
     })
 }
 

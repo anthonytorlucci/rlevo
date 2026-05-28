@@ -6475,6 +6475,7 @@ dependencies = [
  "rayon",
  "rlevo-benchmarks-report-client",
  "rlevo-core",
+ "rlevo-evolution",
  "serde",
  "serde_json",
  "tempfile",

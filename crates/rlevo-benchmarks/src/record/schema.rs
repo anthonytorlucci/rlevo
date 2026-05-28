@@ -26,7 +26,12 @@ use serde::{Deserialize, Serialize};
 /// (`Landscape2D`, `Box2dBodies`, `Locomotion2D`). M6-era records
 /// (`format_version = 1`) decode cleanly under v2 because the only
 /// variant the v1 writer ever emitted (`Ascii`) keeps tag index 0.
-pub const FORMAT_VERSION: u16 = 2;
+///
+/// **M8.1 (v3)**: adds [`PopulationSample`] carried by a new
+/// `RecordChunk::Population` variant (bincode tag 2). v1/v2 records
+/// decode cleanly because the new chunk tag never appears in v1/v2
+/// streams.
+pub const FORMAT_VERSION: u16 = 3;
 
 /// Oldest on-disk format version this loader still accepts. The M7
 /// schema is backwards-compatible with v1 records — see
@@ -222,6 +227,32 @@ pub struct MetricSample {
     pub value: f64,
 }
 
+/// One per-generation snapshot of an evolutionary-algorithm population.
+///
+/// Carried by `RecordChunk::Population` in the on-disk stream
+/// (`FORMAT_VERSION = 3` and later). RL-only runs never emit this
+/// chunk; EA runs emit one per call to `RecordSink::on_population_sample`,
+/// typically once per generation.
+///
+/// **M8.1 wire fields**:
+///
+/// - `parents_of_best` is emitted empty until a Strategy-side lineage
+///   trait extension lands (M8.2). The field is present so the schema
+///   does not need a further bump when the lineage DAG renders.
+/// - `inner_rl_returns` is `None` from pure-EA producers; populated by
+///   a future hybrid driver to feed the `(inner_rl_return, fitness)`
+///   scatter panel (M8.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PopulationSample {
+    pub generation: u32,
+    pub fitnesses: Vec<f32>,
+    pub diversity: Option<f32>,
+    pub best_index: u32,
+    pub best_genome_digest: Option<[u8; 16]>,
+    pub parents_of_best: Vec<[u8; 16]>,
+    pub inner_rl_returns: Option<Vec<f32>>,
+}
+
 /// In-memory aggregate of one on-disk episode file. Used by tests and
 /// the slim M4 decoder helper; the streaming writer never materialises
 /// this whole struct in memory during normal recording.
@@ -230,6 +261,8 @@ pub struct EpisodeRecord {
     pub header: EpisodeRecordHeader,
     pub frames: Vec<FrameRecord>,
     pub metrics: Vec<MetricSample>,
+    #[serde(default)]
+    pub population_samples: Vec<PopulationSample>,
 }
 
 /// Free-form hyperparameter map captured in the run manifest. Per-algorithm
@@ -243,8 +276,8 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_two_and_min_supported_is_one() {
-        assert_eq!(FORMAT_VERSION, 2);
+    fn format_version_is_three_and_min_supported_is_one() {
+        assert_eq!(FORMAT_VERSION, 3);
         assert_eq!(MIN_SUPPORTED_VERSION, 1);
     }
 
@@ -383,10 +416,32 @@ mod tests {
             header: sample_header(),
             frames: vec![sample_frame(), sample_frame()],
             metrics: vec![sample_metric()],
+            population_samples: vec![sample_population()],
         };
         let bytes = bincode::serde::encode_to_vec(&rec, bincode_config()).unwrap();
         let (decoded, _): (EpisodeRecord, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
         assert_eq!(rec, decoded);
+    }
+
+    fn sample_population() -> PopulationSample {
+        PopulationSample {
+            generation: 4,
+            fitnesses: vec![0.5, 0.4, 0.3, 0.6, 0.8],
+            diversity: Some(0.12),
+            best_index: 2,
+            best_genome_digest: Some([7u8; 16]),
+            parents_of_best: vec![[3u8; 16], [11u8; 16]],
+            inner_rl_returns: None,
+        }
+    }
+
+    #[test]
+    fn population_sample_round_trip() {
+        let p = sample_population();
+        let bytes = bincode::serde::encode_to_vec(&p, bincode_config()).unwrap();
+        let (decoded, _): (PopulationSample, usize) =
+            bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+        assert_eq!(p, decoded);
     }
 }
