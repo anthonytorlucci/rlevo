@@ -80,19 +80,74 @@ pane into a true playback surface:
   - `Classic` (CartPole / MountainCar / Pendulum / Acrobot).
   - `Grids` (Minigrid-style envs — agent heading glyphs, walls, goals, hazards).
   - `ToyText` (FrozenLake, CliffWalking, Taxi, Blackjack — tile grid + agent).
-  - Other families fall through to a **generic adapter** that still
-    renders the styled frame and surfaces a "bespoke adapter lands in
-    M7" banner.
+  - Box2d / Landscapes / Locomotion ship M7 SVG adapters — see below.
+  - Any future family hits the generic fallback adapter until a
+    dedicated one lands.
 
 The umbrella crate ships paired examples for every covered family:
 `record_cartpole` / `record_grids` / `record_toy_text` produce
 recordings; `report_cartpole_with_client` / `report_grids_with_client` /
 `report_toy_text_with_client` wrap them into single-file HTML reports.
 
-## Deferred to M7+
+## M7 — per-family SVG adapters for box2d, landscapes, locomotion
 
-- Box2d, landscapes, locomotion per-family adapters.
-- Rich `FamilyPayload` variants (joint angles, body transforms).
+M7 lights up the report tier for the three remaining 2D families. The
+wire format bumps to **`FORMAT_VERSION = 2`** — M6 records (version 1)
+still decode through the same loader because `FamilyPayload::Ascii`
+stays at bincode tag 0, so the v1 tag layout is preserved.
+
+- **`Landscape2D`** payload — search-domain bounds, current candidate,
+  best-so-far, capped trail, landscape label. The
+  `adapters/landscape.rs` SVG renders a bounded rectangle background +
+  trail polyline + current-position disk + best-so-far cross-ring.
+  Heatmap is deferred to M7.1 — only the candidate dynamics ship in M7.
+- **`Locomotion2D`** payload — **the canonical view for the family**,
+  since locomotion envs do not implement `AsciiRenderable` per
+  ADR-0008. The `adapters/locomotion.rs` SVG renders a sagittal-plane
+  stick figure: bones, joint disks, ground line, optional CoM cross,
+  contact rings. Auto-fits the viewport with a minimum half-range so a
+  static pose still renders visibly.
+- **`Box2dBodies`** payload — per-body polygon transforms keyed off the
+  `BodyKind` discriminant (hull / wheel / leg / wing / ground / goal /
+  other), plus contact points. The `adapters/box2d.rs` SVG transforms
+  each body's local-frame vertices into world space via the captured
+  `(position, rotation_rad)` pose.
+
+Per the project accessibility contract, every colour pairs with a
+distinct shape / stroke style (joints filled disks, CoM cross, contacts
+open rings, ground dashed, trail dim-dashed), so a black-and-white
+screenshot of the report still reads.
+
+### Producer-side opt-in
+
+Envs become payload sources by implementing one of:
+
+- `rlevo_core::render::Landscape2DPayloadSource`
+- `rlevo_core::render::Box2dPayloadSource`
+- `rlevo_core::render::Locomotion2DPayloadSource`
+
+`RecordingTap` then exposes per-family convenience constructors —
+`with_landscape_payload(env, sink)` / `with_box2d_payload(env, sink)` /
+`with_locomotion_payload(env, sink)` — that wire the snapshot into
+every captured frame. Locomotion routes through a new
+`RecordingTap::new_headless` constructor that drops the
+`AsciiRenderable` bound; ASCII / styled fields ship as `None` and the
+M7 SVG is the only rendering pathway.
+
+The umbrella crate ships paired M7 examples:
+
+- `record_sphere_landscape` / `report_sphere_landscape_with_client`
+  (writes via `RecordSink` directly — landscapes are pure fitness
+  functions, not Environments).
+- `record_inverted_pendulum` / `report_inverted_pendulum_with_client`.
+- `record_lunar_lander` / `report_lunar_lander_with_client`.
+
+## Deferred to M7.1+
+
+- Landscape heatmap background (sampled per known label client-side).
+- BipedalWalker / CarRacing / Swimmer / Reacher / DoublePendulum
+  examples — fall out structurally from the shared `Box2dBodies` /
+  `Locomotion2D` SVG renderer, but no dedicated examples ship in M7.
 - Convergence plots, population/lineage panels (M8).
 
 ## Standalone development
