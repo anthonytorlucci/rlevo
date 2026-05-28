@@ -21,11 +21,29 @@
 use std::sync::{Arc, Mutex};
 
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
-use rlevo_core::render::AsciiRenderable;
+use rlevo_core::render::{
+    AsciiRenderable, Box2dPayloadSource, Landscape2DPayloadSource, Locomotion2DPayloadSource,
+    StyledFrame,
+};
 use serde::Serialize;
 
-use super::schema::{FamilyPayload, FrameRecord};
+use super::schema::{
+    Box2dPayload, FamilyPayload, FrameRecord, Landscape2DPayload, Locomotion2DPayload,
+};
 use super::writer::RecordSink;
+
+/// Boxed extractor that turns the wrapped env into a [`FamilyPayload`]
+/// at every frame. Default constructions return [`FamilyPayload::Ascii`]
+/// — callers opt in to richer payloads via
+/// [`RecordingTap::with_payload_extractor`] or one of the per-family
+/// convenience constructors.
+pub type PayloadExtractor<E> = Box<dyn Fn(&E) -> FamilyPayload + Send + Sync>;
+
+/// Boxed extractor for the optional ASCII / styled rendering. Returns
+/// `None` for envs that do not implement [`AsciiRenderable`] — the M7
+/// `locomotion` family is the canonical example.
+pub type AsciiExtractor<E> = Box<dyn Fn(&E) -> Option<String> + Send + Sync>;
+pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Sync>;
 
 /// Wraps an [`Environment`] and pushes a [`FrameRecord`] after every
 /// successful `reset` / `step`, calling [`RecordSink::on_episode_start`]
@@ -39,6 +57,9 @@ use super::writer::RecordSink;
 pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
+    payload_extractor: PayloadExtractor<E>,
+    ascii_extractor: AsciiExtractor<E>,
+    styled_extractor: StyledExtractor<E>,
     step: u32,
     episode_idx: u32,
     episode_return: f64,
@@ -46,12 +67,62 @@ pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     started: bool,
 }
 
-impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD> {
-    /// Wrap `inner`, routing every per-step record to `sink`.
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: AsciiRenderable,
+{
+    /// Wrap `inner`, routing every per-step record to `sink`. Frames
+    /// ship with `FamilyPayload::Ascii` plus an `ascii` + `styled`
+    /// projection from the env's [`AsciiRenderable`] surface — call
+    /// [`with_payload_extractor`](Self::with_payload_extractor) or one
+    /// of the per-family `with_*_payload` constructors to capture
+    /// richer payloads instead. For locomotion envs (which deliberately
+    /// have no [`AsciiRenderable`] per ADR-0008) use
+    /// [`with_locomotion_payload`](Self::with_locomotion_payload) — it
+    /// goes through [`new_headless`](Self::new_headless) and ships
+    /// `ascii = None` / `styled = None`.
     pub fn new(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::with_payload_extractor(inner, sink, |_| FamilyPayload::Ascii)
+    }
+
+    /// Wrap `inner` with a custom payload extractor. The closure runs
+    /// once per captured frame and is responsible for projecting the
+    /// env's state into a [`FamilyPayload`] variant. ASCII / styled
+    /// extraction defaults to the env's [`AsciiRenderable`] impl.
+    pub fn with_payload_extractor<F>(inner: E, sink: Arc<Mutex<dyn RecordSink>>, extractor: F) -> Self
+    where
+        F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
+    {
         Self {
             inner,
             sink,
+            payload_extractor: Box::new(extractor),
+            ascii_extractor: Box::new(|e: &E| Some(e.render_ascii())),
+            styled_extractor: Box::new(|e: &E| Some(e.render_styled())),
+            step: 0,
+            episode_idx: 0,
+            episode_return: 0.0,
+            episode_length: 0,
+            started: false,
+        }
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD> {
+    /// Headless constructor — does **not** require [`AsciiRenderable`]
+    /// on `E`. Frames ship with `ascii = None` and `styled = None`;
+    /// the family payload is the only rendering surface. Intended for
+    /// the `locomotion` family per ADR-0008.
+    pub fn new_headless<F>(inner: E, sink: Arc<Mutex<dyn RecordSink>>, payload: F) -> Self
+    where
+        F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
+    {
+        Self {
+            inner,
+            sink,
+            payload_extractor: Box::new(payload),
+            ascii_extractor: Box::new(|_: &E| None),
+            styled_extractor: Box::new(|_: &E| None),
             step: 0,
             episode_idx: 0,
             episode_return: 0.0,
@@ -82,6 +153,52 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
     }
 }
 
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: AsciiRenderable + Landscape2DPayloadSource + 'static,
+{
+    /// Convenience constructor for `landscapes` envs: extracts a
+    /// [`Landscape2DPayload`] per frame via [`Landscape2DPayloadSource`].
+    /// Landscape envs implement [`AsciiRenderable`], so the static-frame
+    /// ascii / styled projection is captured alongside the rich payload.
+    pub fn with_landscape_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::with_payload_extractor(inner, sink, |e| {
+            FamilyPayload::Landscape2D(Landscape2DPayload::from(e.landscape2d_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: AsciiRenderable + Box2dPayloadSource + 'static,
+{
+    /// Convenience constructor for `box2d` envs: extracts a
+    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. Box2D envs
+    /// implement [`AsciiRenderable`], so the static-frame ascii / styled
+    /// projection is captured alongside the rich payload.
+    pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::with_payload_extractor(inner, sink, |e| {
+            FamilyPayload::Box2dBodies(Box2dPayload::from(e.box2d_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: Locomotion2DPayloadSource + 'static,
+{
+    /// Convenience constructor for `locomotion` envs: extracts a
+    /// [`Locomotion2DPayload`] per frame via [`Locomotion2DPayloadSource`].
+    /// This is locomotion's only rendering pathway in the report tier.
+    /// Uses [`new_headless`](Self::new_headless) because locomotion envs
+    /// do not implement [`AsciiRenderable`] per ADR-0008.
+    pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))
+        })
+    }
+}
+
 impl<E, const D: usize, const SD: usize, const AD: usize> std::fmt::Debug
     for RecordingTap<E, D, SD, AD>
 where
@@ -91,6 +208,7 @@ where
         f.debug_struct("RecordingTap")
             .field("inner", &self.inner)
             .field("sink", &"Arc<Mutex<dyn RecordSink>>")
+            .field("payload_extractor", &"Box<dyn Fn>")
             .field("step", &self.step)
             .field("episode_idx", &self.episode_idx)
             .field("episode_return", &self.episode_return)
@@ -116,17 +234,20 @@ where
 
 impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
 where
-    E: Environment<D, SD, AD> + AsciiRenderable,
+    E: Environment<D, SD, AD>,
     E::ActionType: Serialize,
 {
     fn capture_frame(&mut self, action_bytes: Vec<u8>, reward: f32) {
+        let payload = (self.payload_extractor)(&self.inner);
+        let ascii = (self.ascii_extractor)(&self.inner);
+        let styled = (self.styled_extractor)(&self.inner);
         let record = FrameRecord {
             step: self.step,
             action: action_bytes,
             reward,
-            ascii: Some(self.inner.render_ascii()),
-            styled: Some(self.inner.render_styled()),
-            family_payload: FamilyPayload::Ascii,
+            ascii,
+            styled,
+            family_payload: payload,
         };
         if let Ok(mut sink) = self.sink.lock() {
             sink.on_frame(record);
@@ -137,7 +258,7 @@ where
 impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
     for RecordingTap<E, D, SD, AD>
 where
-    E: Environment<D, SD, AD> + AsciiRenderable,
+    E: Environment<D, SD, AD>,
     E::ActionType: Serialize + Clone,
 {
     type StateType = E::StateType;
@@ -158,7 +279,9 @@ where
             fn on_episode_end(&mut self, _: f64, _: u32) {}
             fn on_run_end(&mut self, _: super::manifest::RunManifest) {}
         }
-        Self::new(E::new(render), Arc::new(Mutex::new(NullSink)))
+        Self::new_headless(E::new(render), Arc::new(Mutex::new(NullSink)), |_| {
+            FamilyPayload::Ascii
+        })
     }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -419,5 +542,54 @@ mod tests {
         let tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
         let inner = tap.into_inner();
         assert_eq!(inner.render_ascii(), "pos=0");
+    }
+
+    #[test]
+    fn default_constructor_emits_ascii_payload() {
+        let (probe, sink) = sink_handle();
+        let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
+        let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
+        tap.reset().unwrap();
+        let probe = probe.lock().unwrap();
+        let ep = &probe.episodes[&0];
+        assert!(matches!(
+            ep.frames[0].family_payload,
+            crate::record::FamilyPayload::Ascii
+        ));
+    }
+
+    #[test]
+    fn custom_payload_extractor_lands_on_each_frame() {
+        use rlevo_core::render::{Landscape2DSnapshot, Point2};
+
+        use crate::record::{FamilyPayload, Landscape2DPayload};
+
+        let (probe, sink) = sink_handle();
+        let env = StubEnv::new(0.5, Termination::TerminateAt(2));
+        let mut tap: RecordingTap<_, 1, 1, 1> =
+            RecordingTap::with_payload_extractor(env, sink, |stub| {
+                FamilyPayload::Landscape2D(Landscape2DPayload::from(Landscape2DSnapshot {
+                    bounds_x: (-1.0, 1.0),
+                    bounds_y: (-1.0, 1.0),
+                    current: Point2::new(f32::from(i16::try_from(stub.pos).unwrap_or(0)), 0.0),
+                    best: None,
+                    trail: vec![],
+                    label: "stub".into(),
+                }))
+            });
+        tap.reset().unwrap();
+        tap.step(StubAction(0)).unwrap();
+        tap.step(StubAction(0)).unwrap();
+
+        let probe = probe.lock().unwrap();
+        let ep = &probe.episodes[&0];
+        for frame in &ep.frames {
+            match &frame.family_payload {
+                FamilyPayload::Landscape2D(p) => {
+                    assert_eq!(p.label, "stub");
+                }
+                other => panic!("expected Landscape2D, got {other:?}"),
+            }
+        }
     }
 }
