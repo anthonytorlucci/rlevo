@@ -3,6 +3,8 @@
 //! base64 episode payloads with the standard alphabet, then hand them
 //! to [`crate::wire::decode_episode_record`].
 
+use std::sync::OnceLock;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde::Deserialize;
@@ -139,5 +141,29 @@ pub fn read_episode_record(script_id: &str) -> Result<EpisodeRecord, InlineError
     decode_episode_record(&bytes).map_err(|e| InlineError::Wire {
         id: script_id.into(),
         source: e,
+    })
+}
+
+/// Cached batch decode of every episode block referenced in the index.
+///
+/// The M8 convergence panel needs the full per-episode reward / length
+/// trajectory plus the concatenated metric stream. The cache means the
+/// reactive panel re-render does not re-decode the underlying bincode
+/// payloads — `OnceLock` initialises on the first call and every
+/// subsequent call returns the same `&'static Vec`. Per-record decode
+/// failures are skipped so a single malformed episode does not blank
+/// the whole panel.
+#[must_use]
+pub fn read_all_episode_records() -> &'static Vec<EpisodeRecord> {
+    static CACHE: OnceLock<Vec<EpisodeRecord>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let index = match read_episode_index() {
+            Ok(v) => v,
+            Err(_) => return Vec::new(),
+        };
+        index
+            .iter()
+            .filter_map(|m| read_episode_record(&m.script_id).ok())
+            .collect()
     })
 }

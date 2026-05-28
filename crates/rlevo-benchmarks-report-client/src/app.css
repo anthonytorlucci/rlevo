@@ -296,3 +296,45 @@ svg.rlevo-svg-locomotion { max-width: 36rem; }
     .rlevo-locomotion-contact { stroke: #f1c40f; }
     .rlevo-locomotion-com line { stroke: #ec7063; }
 }
+
+/* --- Convergence panel (M8) ----------------------------------------- */
+.rlevo-convergence { margin-top: 1.5rem; }
+.rlevo-convergence h2 { margin-bottom: 0.5rem; }
+.rlevo-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    gap: 1rem;
+}
+figure.rlevo-chart-card {
+    margin: 0;
+    padding: 0.75rem;
+    border: 1px solid rgba(127,127,127,0.4);
+    border-radius: 0.5rem;
+    background: rgba(127,127,127,0.04);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+figure.rlevo-chart-card figcaption {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.rlevo-chart-y {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+.rlevo-chart-stack { display: flex; flex-direction: column; gap: 0.25rem; }
+.rlevo-chart-no-data {
+    font-style: italic;
+    opacity: 0.6;
+    margin: 0.5rem 0;
+}
+figure.rlevo-chart-empty { opacity: 0.7; }
+/* leptos-chartistry emits inline-styled SVG; the wrapper border-radius
+   keeps the chart visually framed without overriding its internal
+   colour palette. */
+.rlevo-chart-card svg { width: 100%; height: auto; }
+@media (prefers-color-scheme: dark) {
+    figure.rlevo-chart-card { background: rgba(255,255,255,0.04); }
+}
