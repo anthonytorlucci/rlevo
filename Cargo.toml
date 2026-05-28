@@ -50,6 +50,9 @@ rapier2d = { version = "0.32", features = ["enhanced-determinism"] }
 # Physics (MuJoCo-style locomotion environments)
 rapier3d = { version = "0.32", features = ["enhanced-determinism"] }
 
+# Synchronisation
+parking_lot = "0.12"
+
 # Testing
 approx = "0.5"
 

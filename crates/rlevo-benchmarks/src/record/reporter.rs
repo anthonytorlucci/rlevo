@@ -16,7 +16,9 @@
 //! is preferred when composing.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
@@ -94,10 +96,8 @@ impl Reporter for RecordingReporter {
     fn on_suite_start(&mut self, _suite: &SuiteInfo) {}
 
     fn on_trial_start(&mut self, _trial: &TrialInfo) {
-        if self.drive_episode_lifecycle
-            && let Ok(mut sink) = self.sink.lock()
-        {
-            sink.on_episode_start(0);
+        if self.drive_episode_lifecycle {
+            self.sink.lock().on_episode_start(0);
         }
     }
 
@@ -105,26 +105,23 @@ impl Reporter for RecordingReporter {
         if !self.drive_episode_lifecycle {
             return;
         }
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_episode_end(
-                ep.return_value,
-                u32::try_from(ep.length).unwrap_or(u32::MAX),
-            );
-            // Open the next episode file straight away. The writer
-            // tolerates a stray on_episode_start when the trial ends,
-            // since the next call rotates the file cleanly.
-            sink.on_episode_start(
-                u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX),
-            );
-        }
+        let mut sink = self.sink.lock();
+        sink.on_episode_end(
+            ep.return_value,
+            u32::try_from(ep.length).unwrap_or(u32::MAX),
+        );
+        // Open the next episode file straight away. The writer
+        // tolerates a stray on_episode_start when the trial ends,
+        // since the next call rotates the file cleanly.
+        sink.on_episode_start(
+            u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX),
+        );
     }
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {}
 
     fn on_suite_end(&mut self, _report: &BenchmarkReport) {
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_run_end(self.manifest.clone());
-        }
+        self.sink.lock().on_run_end(self.manifest.clone());
     }
 }
 
@@ -196,7 +193,7 @@ mod tests {
         r.on_trial_end(&trial(), &trep());
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         // on_trial_start opens ep 0; on_episode_end (×3) closes and re-opens for
         // the next idx → episodes 0, 1, 2, 3 all reach on_episode_start.
         assert!(probe.episodes.contains_key(&0));
@@ -225,7 +222,7 @@ mod tests {
         );
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.episodes.is_empty(), "no on_episode_start should fire");
         assert!(probe.current.is_none(), "no on_episode_end should fire");
         assert_eq!(probe.manifests.len(), 1);
@@ -241,7 +238,7 @@ mod tests {
 
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert_eq!(probe.manifests.len(), 1);
         assert_eq!(
             probe.manifests[0].hyperparameters.get("lr"),
@@ -264,7 +261,7 @@ mod tests {
             fn on_suite_start(&mut self, _: &SuiteInfo) {}
             fn on_trial_start(&mut self, _: &TrialInfo) {}
             fn on_episode_end(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
-                *self.shared.lock().unwrap() += 1;
+                *self.shared.lock() += 1;
             }
             fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
             fn on_suite_end(&mut self, _: &BenchmarkReport) {}
@@ -294,9 +291,9 @@ mod tests {
         );
         multi.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
-        assert_eq!(*counter.lock().unwrap(), 1);
+        assert_eq!(*counter.lock(), 1);
     }
 }

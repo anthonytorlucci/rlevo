@@ -14,7 +14,9 @@
 
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use tracing::Subscriber;
 use tracing::field::{Field, Visit};
@@ -89,9 +91,7 @@ where
             let prev = self.step.fetch_add(1, Ordering::Relaxed);
             u32::try_from(prev).unwrap_or(u32::MAX)
         });
-        let Ok(mut sink) = self.sink.lock() else {
-            return;
-        };
+        let mut sink = self.sink.lock();
         for (name, value) in visitor.metrics {
             sink.on_metric(MetricSample {
                 step: event_step,
@@ -164,7 +164,7 @@ mod tests {
         let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
         let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
         // Open an episode so MetricSamples land somewhere.
-        probe.lock().unwrap().on_episode_start(0);
+        probe.lock().on_episode_start(0);
         let subscriber = tracing_subscriber::registry().with(RecordingLayer::new(dyn_sink));
         let _guard = subscriber.set_default();
         f();
@@ -183,7 +183,7 @@ mod tests {
         let probe = with_layer(|| {
             tracing::info!(policy_loss = 0.5_f64, "ppo update");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.metrics.len(), 1);
         assert_eq!(ep.metrics[0].name, "policy_loss");
@@ -200,7 +200,7 @@ mod tests {
                 "ppo update",
             );
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.metrics.len(), 3);
         let names: Vec<_> = ep.metrics.iter().map(|m| m.name.clone()).collect();
@@ -214,7 +214,7 @@ mod tests {
         let probe = with_layer(|| {
             tracing::info!(batch_size = 64_u64, "training step");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert!(ep.metrics.is_empty());
     }
@@ -224,7 +224,7 @@ mod tests {
         let probe = with_layer(|| {
             tracing::info!(step = 1024_u64, entropy = 0.7_f64, "labelled");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.metrics.len(), 1);
         assert_eq!(ep.metrics[0].step, 1024);
@@ -237,7 +237,7 @@ mod tests {
             tracing::info!(policy_loss = 0.2_f64, "e2");
             tracing::info!(policy_loss = 0.3_f64, "e3");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.metrics.len(), 3);
         let steps: Vec<u32> = ep.metrics.iter().map(|m| m.step).collect();
@@ -249,7 +249,7 @@ mod tests {
         let probe = with_layer(|| {
             tracing::info!(entropy = 3_i64, "edge");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.metrics.len(), 1);
         assert!((ep.metrics[0].value - 3.0).abs() < f64::EPSILON);
@@ -261,7 +261,7 @@ mod tests {
             tracing::info!("just a message");
             tracing::warn!("with a level");
         });
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert!(
             ep.metrics.is_empty(),

@@ -64,7 +64,7 @@ impl RecordingConfig {
 /// layer) all push into. Implementations buffer / write as they like.
 ///
 /// `Send + 'static` so producers can hold the sink behind
-/// `Arc<Mutex<dyn RecordSink>>` across rayon worker threads.
+/// `Arc<parking_lot::Mutex<dyn RecordSink>>` across rayon worker threads.
 pub trait RecordSink: Send + 'static {
     fn on_episode_start(&mut self, episode_idx: u32);
     fn on_frame(&mut self, frame: FrameRecord);
