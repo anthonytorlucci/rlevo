@@ -279,3 +279,9 @@ required-features = ["box2d", "viz-record"]
 name = "report_lunar_lander_with_client"
 path = "examples/viz/report_lunar_lander_with_client.rs"
 required-features = ["box2d", "viz-record", "viz-report"]
+
+# M8 — convergence plots
+[[example]]
+name = "report_ppo_cartpole_with_client"
+path = "examples/viz/report_ppo_cartpole_with_client.rs"
+required-features = ["viz-record", "viz-report"]
