@@ -11,7 +11,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 
-use crate::wire::{DecodeError, EpisodeRecord, RunManifest, decode_episode_record};
+use crate::wire::{DecodeError, EpisodeRecord, PopulationSample, RunManifest, decode_episode_record};
 
 /// Summary metadata produced by the emitter alongside the raw `.rec`
 /// payloads. Matches the `EpisodeMeta` struct in
@@ -164,6 +164,25 @@ pub fn read_all_episode_records() -> &'static Vec<EpisodeRecord> {
         index
             .iter()
             .filter_map(|m| read_episode_record(&m.script_id).ok())
+            .collect()
+    })
+}
+
+/// Cached flat list of every population sample across every episode in
+/// the run.
+///
+/// Concatenated in episode-then-emission order — for a typical EA run
+/// there is one episode with one sample per generation, so the result
+/// is effectively the per-generation snapshot stream. Used by the M8.1
+/// Population section; RL-only runs return an empty slice and the
+/// section suppresses cleanly.
+#[must_use]
+pub fn read_all_population_samples() -> &'static Vec<PopulationSample> {
+    static CACHE: OnceLock<Vec<PopulationSample>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        read_all_episode_records()
+            .iter()
+            .flat_map(|r| r.population_samples.iter().cloned())
             .collect()
     })
 }

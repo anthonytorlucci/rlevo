@@ -8,10 +8,11 @@
 
 use leptos::prelude::*;
 
-use crate::charts::convergence_panel_view;
+use crate::charts::{convergence_panel_view, population_panel_view};
 use crate::inline_data::{
-    EpisodeMeta, InlineError, WarningEntry, read_all_episode_records, read_episode_index,
-    read_episode_record, read_manifest, read_warnings,
+    EpisodeMeta, InlineError, WarningEntry, read_all_episode_records,
+    read_all_population_samples, read_episode_index, read_episode_record, read_manifest,
+    read_warnings,
 };
 use crate::playback::playback_panel;
 use crate::wire::{EnvFamily, EpisodeRecord, RunManifest};
@@ -54,6 +55,7 @@ pub fn App() -> impl IntoView {
             <h2>"Episodes"</h2>
             {episode_table(episodes, selected, set_selected)}
             {convergence_panel_view(read_all_episode_records(), family.unwrap_or(EnvFamily::Classic))}
+            {population_panel_view(read_all_population_samples())}
             <h2>"Selected episode"</h2>
             <div class="rlevo-detail">
                 {move || match (selected_meta.get(), selected_record.get()) {
