@@ -1,4 +1,4 @@
-//! On-disk record types written by the M4 recording surface.
+//! On-disk record types written by the recording surface.
 //!
 //! Encoding: bincode 2.x with the explicit
 //! [`bincode::config::standard()`] configuration locked at write time
@@ -22,18 +22,18 @@ use serde::{Deserialize, Serialize};
 /// any value in [[`MIN_SUPPORTED_VERSION`], [`FORMAT_VERSION`]]] and
 /// refuses anything outside that range.
 ///
-/// **M7 (v2)**: adds rich [`FamilyPayload`] variants
-/// (`Landscape2D`, `Box2dBodies`, `Locomotion2D`). M6-era records
-/// (`format_version = 1`) decode cleanly under v2 because the only
-/// variant the v1 writer ever emitted (`Ascii`) keeps tag index 0.
+/// **v2**: adds rich [`FamilyPayload`] variants (`Landscape2D`,
+/// `Box2dBodies`, `Locomotion2D`) for SVG-tier rendering. v1 records
+/// (styled-text-only) decode cleanly under v2 because the only variant
+/// the v1 writer ever emitted (`Ascii`) keeps tag index 0.
 ///
-/// **M8.1 (v3)**: adds [`PopulationSample`] carried by a new
-/// `RecordChunk::Population` variant (bincode tag 2). v1/v2 records
-/// decode cleanly because the new chunk tag never appears in v1/v2
-/// streams.
+/// **v3**: adds [`PopulationSample`] carried by a new
+/// `RecordChunk::Population` variant (bincode tag 2) so EA runs can
+/// record per-generation population snapshots. v1/v2 records decode
+/// cleanly because the new chunk tag never appears in older streams.
 pub const FORMAT_VERSION: u16 = 3;
 
-/// Oldest on-disk format version this loader still accepts. The M7
+/// Oldest on-disk format version this loader still accepts. The
 /// schema is backwards-compatible with v1 records — see
 /// [`FORMAT_VERSION`].
 pub const MIN_SUPPORTED_VERSION: u16 = 1;
@@ -111,14 +111,15 @@ pub const fn default_frame_stride(family: EnvFamily) -> u16 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FamilyPayload {
-    /// Plain-text / styled-text rendering — the M6 default.
+    /// Plain-text / styled-text rendering — the default for ASCII-able
+    /// envs.
     Ascii,
-    /// M7+: landscape (search-space) projection for `landscapes` envs.
+    /// Landscape (search-space) projection for `landscapes` envs (v2+).
     Landscape2D(Landscape2DPayload),
-    /// M7+: rigid-body world for `box2d` envs.
+    /// Rigid-body world for `box2d` envs (v2+).
     Box2dBodies(Box2dPayload),
-    /// M7+: sagittal-plane stick figure for `locomotion` envs —
-    /// their canonical view (no ASCII path).
+    /// Sagittal-plane stick figure for `locomotion` envs — their
+    /// canonical view, since locomotion has no ASCII path (v2+).
     Locomotion2D(Locomotion2DPayload),
 }
 
@@ -234,14 +235,14 @@ pub struct MetricSample {
 /// chunk; EA runs emit one per call to `RecordSink::on_population_sample`,
 /// typically once per generation.
 ///
-/// **M8.1 wire fields**:
+/// **Wire fields not yet fully populated**:
 ///
 /// - `parents_of_best` is emitted empty until a Strategy-side lineage
-///   trait extension lands (M8.2). The field is present so the schema
-///   does not need a further bump when the lineage DAG renders.
+///   trait extension lands. The field is present so the schema does not
+///   need a further bump when the lineage DAG renders.
 /// - `inner_rl_returns` is `None` from pure-EA producers; populated by
-///   a future hybrid driver to feed the `(inner_rl_return, fitness)`
-///   scatter panel (M8.2).
+///   a future hybrid driver to feed an `(inner_rl_return, fitness)`
+///   scatter panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PopulationSample {
     pub generation: u32,
@@ -254,7 +255,7 @@ pub struct PopulationSample {
 }
 
 /// In-memory aggregate of one on-disk episode file. Used by tests and
-/// the slim M4 decoder helper; the streaming writer never materialises
+/// the slim record-file decoder helper; the streaming writer never materialises
 /// this whole struct in memory during normal recording.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EpisodeRecord {

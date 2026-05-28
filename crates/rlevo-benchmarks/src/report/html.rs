@@ -2,10 +2,10 @@
 //! self-contained `index.html` file with the manifest + every episode
 //! payload inlined as `<script>` blocks.
 //!
-//! M5 ships the data-transport contract and a placeholder body. The
-//! Leptos/WASM client that consumes these inlined blocks lands in a
-//! follow-on milestone; per-family playback adapters and convergence
-//! plots land in M6+ (umbrella spec §9).
+//! When no client assets are passed in, the emitter writes the data
+//! payloads plus a static placeholder body. Pass [`ClientAssets`] to
+//! mount the bundled Leptos/WASM report client (interactive scrubber,
+//! per-family adapters, convergence + population panels).
 //!
 //! Wire layout produced inside the HTML:
 //!
@@ -44,11 +44,11 @@ pub struct EmitConfig {
     /// Optional title rendered in the placeholder header. `None`
     /// defaults to the manifest's `run_id`.
     pub title: Option<String>,
-    /// Optional prebuilt Leptos/WASM client assets (M5.1). When
-    /// `Some`, the emitter inlines the WASM blob, the wasm-bindgen
-    /// JS shim, and the bundled CSS, and replaces the placeholder
-    /// body with the `<div id="rlevo-app"></div>` mount point. When
-    /// `None`, the M5 placeholder body ships unchanged.
+    /// Optional prebuilt Leptos/WASM client assets. When `Some`, the
+    /// emitter inlines the WASM blob, the wasm-bindgen JS shim, and the
+    /// bundled CSS, and replaces the placeholder body with the
+    /// `<div id="rlevo-app"></div>` mount point. When `None`, the
+    /// static placeholder body ships unchanged.
     pub client_assets: Option<ClientAssets>,
 }
 
@@ -75,7 +75,7 @@ pub struct ClientAssets {
     pub wasm: Vec<u8>,
     /// Optional CSS bundled by the client crate. Merged into the
     /// emitter's `<style>` block; pass an empty string to inherit
-    /// the default M5 CSS only.
+    /// the emitter's default CSS only.
     pub css: String,
 }
 
@@ -317,7 +317,7 @@ fn write_html_head(out: &mut String, run: &RecordedRun, config: &EmitConfig) {
     out.push_str(
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
     );
-    out.push_str("<meta name=\"generator\" content=\"rlevo-benchmarks/report (M5)\">\n");
+    out.push_str("<meta name=\"generator\" content=\"rlevo-benchmarks/report\">\n");
     let _ = writeln!(out, "<title>rlevo report — {escaped_title}</title>");
     out.push_str("<style>\n");
     out.push_str(EMBEDDED_CSS);
@@ -355,10 +355,11 @@ fn write_placeholder_body(out: &mut String, run: &RecordedRun, config: &EmitConf
     out.push_str("</header>\n");
     out.push_str("<main class=\"rlevo-main\">\n");
     out.push_str(
-        "<p>The per-family playback adapters, convergence plots, and timeline scrubber\n\
-         land in Milestones 6&ndash;8. The Leptos/WASM client that consumes the inlined\n\
-         payloads ships in M5.1. The data is already embedded in this file &mdash; this\n\
-         is the skeleton.</p>\n",
+        "<p>Static placeholder body. The per-family playback adapters, convergence\n\
+         plots, and timeline scrubber are provided by the Leptos/WASM report client;\n\
+         build it with `trunk build --release` in `crates/rlevo-benchmarks-report-client`\n\
+         and pass the resulting assets via `EmitConfig::client_assets` to mount the\n\
+         interactive viewer. The run data is already embedded in this file.</p>\n",
     );
     out.push_str("<h2>Episodes</h2>\n<table class=\"rlevo-episodes\">\n<thead><tr>");
     out.push_str(

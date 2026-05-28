@@ -1,6 +1,7 @@
 //! Genetic-algorithm Sphere-D2 run → static-HTML report that mounts
-//! the M8.1 Leptos/WASM client with **population panels** alongside
-//! the M8 convergence section.
+//! the Leptos/WASM client with **EA population panels** (per-generation
+//! box plot, diversity trace, selection-pressure indicator) alongside
+//! the RL-style convergence section (fitness aggregates).
 //!
 //! Two producers feed the same shared sink:
 //!
@@ -28,10 +29,10 @@
 //!     --features viz-record,viz-report --release
 //! ```
 //!
-//! Opening the emitted `index.html` shows the M6/M7 playback pane plus
-//! the M8 Convergence section (fitness aggregates) plus the **new M8.1
-//! Population section** (per-generation box plot, selection-pressure
-//! indicator).
+//! Opening the emitted `index.html` shows the interactive playback pane
+//! (landscape SVG over generations) plus the Convergence section
+//! (fitness aggregates) plus the **Population section** (per-generation
+//! box plot, selection-pressure indicator).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -165,7 +166,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("warning: {w:?}");
     }
 
-    // M8.1 smoke: confirm the .rec stream picked up Population chunks
+    // Smoke check: confirm the .rec stream picked up Population chunks
     // by re-reading episode 0 directly. The report emitter base64-inlines
     // raw bytes (population samples ride along), but `RecordedRun` only
     // surfaces frames + metrics, so this read is the easiest place to

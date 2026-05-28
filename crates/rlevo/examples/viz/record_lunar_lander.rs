@@ -1,4 +1,5 @@
-//! [`LunarLanderDiscrete`] recording with the M7 **box2d** payload.
+//! [`LunarLanderDiscrete`] recording with the rich **box2d** payload
+//! (rigid-body polygons for the report-tier SVG adapter).
 //!
 //! Uses [`RecordingTap::with_box2d_payload`] — the lander, both legs,
 //! and the ground slab project as [`RigidBody2D`] polygons with typed

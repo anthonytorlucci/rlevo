@@ -1,4 +1,4 @@
-//! M8.1 producer: adapts a [`PopulationObserver`] to push
+//! EA-population producer: adapts a [`PopulationObserver`] to push
 //! [`PopulationSample`] chunks into a shared [`RecordSink`].
 //!
 //! Wiring:
@@ -12,9 +12,9 @@
 //! ```
 //!
 //! The producer is intentionally thin — the trait-to-chunk
-//! translation is a 1:1 field copy plus the M8.1 `inner_rl_returns =
-//! None` default. A future hybrid driver attaches a separate observer
-//! that fills `inner_rl_returns`.
+//! translation is a 1:1 field copy plus an `inner_rl_returns = None`
+//! default. A future hybrid driver attaches a separate observer that
+//! fills `inner_rl_returns`.
 //!
 //! [`PopulationObserver`]: rlevo_evolution::PopulationObserver
 
@@ -25,7 +25,7 @@ use rlevo_evolution::{PopulationObserver, PopulationSnapshot};
 use super::schema::PopulationSample;
 use super::writer::RecordSink;
 
-/// Forwards EA population snapshots into the M4 recording sink.
+/// Forwards EA population snapshots into the on-disk recording sink.
 ///
 /// Construct one per recording run and pass via
 /// [`EvolutionaryHarness::with_observer`](rlevo_evolution::EvolutionaryHarness::with_observer).

@@ -1,7 +1,7 @@
 //! Headless [`CartPole`] harness run that records to disk and then
-//! emits a single self-contained `index.html` report (Milestone 5).
+//! emits a single self-contained `index.html` report.
 //!
-//! Demonstrates the M5 emitter pipeline end-to-end:
+//! Demonstrates the static-HTML emitter pipeline end-to-end:
 //!
 //! 1. The harness wraps each `CartPole` in [`RecordingTap`] inside
 //!    [`BenchAdapter`], pushing per-step frames into a shared

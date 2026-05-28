@@ -61,8 +61,7 @@ pub const CANONICAL_METRICS: &[&str] = &[
     "entropy",
     "approx_kl",
     "clip_frac",
-    // Evolution training stats (emitted by `EvolutionaryHarness` once the
-    // M3 one-liner lands; see plan §"Files modified").
+    // Evolution training stats emitted by `EvolutionaryHarness`.
     "best_fitness",
     "mean_fitness",
     "worst_fitness",

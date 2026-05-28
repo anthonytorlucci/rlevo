@@ -146,7 +146,7 @@ pub fn read_episode_record(script_id: &str) -> Result<EpisodeRecord, InlineError
 
 /// Cached batch decode of every episode block referenced in the index.
 ///
-/// The M8 convergence panel needs the full per-episode reward / length
+/// The RL convergence panel needs the full per-episode reward / length
 /// trajectory plus the concatenated metric stream. The cache means the
 /// reactive panel re-render does not re-decode the underlying bincode
 /// payloads — `OnceLock` initialises on the first call and every
@@ -173,7 +173,7 @@ pub fn read_all_episode_records() -> &'static Vec<EpisodeRecord> {
 ///
 /// Concatenated in episode-then-emission order — for a typical EA run
 /// there is one episode with one sample per generation, so the result
-/// is effectively the per-generation snapshot stream. Used by the M8.1
+/// is effectively the per-generation snapshot stream. Used by the EA
 /// Population section; RL-only runs return an empty slice and the
 /// section suppresses cleanly.
 #[must_use]

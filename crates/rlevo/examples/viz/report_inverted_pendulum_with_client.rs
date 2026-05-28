@@ -1,9 +1,10 @@
 //! [`InvertedPendulum`] recording → static-HTML report that mounts the
-//! M5.1 client with the **M7 locomotion adapter** (Milestone 7).
+//! Leptos/WASM client with the **locomotion SVG adapter** (sagittal-plane
+//! stick figure).
 //!
-//! Locomotion is the canonical use case for M7: there is no ASCII path
-//! (ADR-0008), so the sagittal-plane SVG is the only rendering of the
-//! env in the entire stack.
+//! Locomotion is the canonical use case for the rich SVG payload:
+//! locomotion envs have no `AsciiRenderable` impl, so the sagittal-plane
+//! SVG is the only rendering of the env anywhere in the stack.
 //!
 //! ```bash
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release

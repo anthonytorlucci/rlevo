@@ -1,4 +1,4 @@
-//! Leptos/WASM client for the rlevo static-HTML report (Milestone 5.1).
+//! Leptos/WASM client for the rlevo static-HTML report.
 //!
 //! On load the client reads four `<script>` blocks embedded by the
 //! `rlevo-benchmarks::report::html` emitter:
@@ -10,8 +10,9 @@
 //!   raw `.rec` bytes (16-byte preamble + bincode header + length-prefixed
 //!   `RecordChunk`s, all `bincode::config::standard()`).
 //!
-//! M5.1 ships the data-decode + minimal-render path. Per-family
-//! playback adapters and convergence plots land in M6+.
+//! The client decodes those blocks, then dispatches per-family playback
+//! adapters (interactive scrubber + styled-frame / SVG rendering) and
+//! draws convergence + population chart panels.
 
 pub mod adapters;
 pub mod app;

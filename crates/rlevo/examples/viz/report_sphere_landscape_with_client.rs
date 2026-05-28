@@ -1,6 +1,7 @@
 //! Synthesised Sphere-landscape hill-climber recording → static-HTML
-//! report that mounts the M5.1 Leptos/WASM client with the **M7
-//! landscape adapter** (Milestone 7).
+//! report that mounts the Leptos/WASM report client with the **landscape
+//! SVG adapter** (search-space projection: trail polyline + current
+//! candidate marker + best-so-far marker).
 //!
 //! Build flow mirrors `report_cartpole_with_client`:
 //!
@@ -12,7 +13,7 @@
 //! ```
 //!
 //! Opening the emitted `index.html` shows the manifest, episode table,
-//! and the M7 landscape SVG: bounded search domain + current candidate
+//! and the landscape SVG: bounded search domain + current candidate
 //! marker + best-so-far + trail polyline.
 
 use std::path::PathBuf;

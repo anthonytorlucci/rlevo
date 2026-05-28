@@ -1,5 +1,6 @@
 //! Headless [`CartPole`] harness recording → static-HTML report that
-//! mounts the M5.1 Leptos/WASM client (Milestone 5.1).
+//! mounts the Leptos/WASM report client (interactive scrubber + episode
+//! table + manifest panel).
 //!
 //! Two-step build flow:
 //!

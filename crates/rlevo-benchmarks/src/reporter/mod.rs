@@ -26,7 +26,7 @@ pub trait Reporter: Send {
 /// Fans a single stream of reporter events out to multiple sinks in
 /// insertion order. Used when an execution must drive both a live
 /// reporter (e.g. `TuiReporter`) and a recording reporter
-/// (Milestone 4 `RecordingReporter`) from the same suite run.
+/// (e.g. `RecordingReporter`) from the same suite run.
 pub struct MultiReporter {
     reporters: Vec<Box<dyn Reporter>>,
 }

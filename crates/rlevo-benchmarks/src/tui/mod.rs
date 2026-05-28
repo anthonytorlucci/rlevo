@@ -1,11 +1,9 @@
 //! Live `ratatui` TUI for benchmark runs (feature `tui`).
 //!
 //! This module wires the styled environment output defined in
-//! [`rlevo_core::render`] up to a terminal dashboard. Milestone 2 of the
-//! visualisation roadmap (see `projects/rlevo/specs/2026-05-26-env-vis/`
-//! in the project vault) lands the skeleton — frame conversion, runner
-//! lifecycle, env panel + reward sparkline. Later milestones add the
-//! loss / fitness / log panels and the on-disk record format.
+//! [`rlevo_core::render`] up to a terminal dashboard with an env panel,
+//! reward sparkline, metric sparklines (loss / entropy / `approx_kl`),
+//! and a scrolling log panel fed by `tracing`.
 //!
 //! Production crates (`rlevo-core`, `rlevo-environments`,
 //! `rlevo-reinforcement-learning`, `rlevo-evolution`, `rlevo-hybrid`)

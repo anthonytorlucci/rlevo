@@ -54,7 +54,7 @@ pub struct CapturedLogLine {
 
 /// How the env panel should be rendered.
 ///
-/// Locomotion envs do not implement `AsciiRenderable` (per ADR 0008), so
+/// Locomotion envs do not implement `AsciiRenderable`, so
 /// the live TUI cannot draw them. Set manually for tests, or via
 /// [`TuiConfig::with_env_family`](crate::tui::runner::TuiConfig::with_env_family)
 /// for runs with the `record` feature enabled.

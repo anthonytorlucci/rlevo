@@ -7,7 +7,7 @@
 //!    "agent" or "hazard" style call into this module rather than mixing
 //!    palette constants with conversion functions at every site.
 //! 2. Map per-metric and per-log-level names onto distinct colours so the
-//!    M3 sparklines and the scrolling log panel read at a glance.
+//!    metric sparklines and the scrolling log panel read at a glance.
 //!
 //! # Accessibility
 //!
@@ -56,7 +56,7 @@ pub fn best_style() -> RatStyle {
 
 /// Per-metric colour picker. Unknown names fall back to
 /// [`agent_style`] so a previously-unsupported algorithm still renders
-/// readably; M3's `CANONICAL_METRICS` registry enumerates the names
+/// readably; the `CANONICAL_METRICS` registry enumerates the names
 /// known today.
 ///
 /// Hue redundancy: the metric sparkline always renders a textual label
@@ -76,8 +76,8 @@ pub fn metric_style(name: &str) -> RatStyle {
         "mean_fitness" => RatStyle::default().fg(RatColor::LightGreen),
         "worst_fitness" => RatStyle::default().fg(RatColor::DarkGray),
         // "reward" is intentionally not enumerated — it falls through
-        // here and shares the agent style M2 picked for the reward
-        // sparkline. Unknown metric names get the same readable default.
+        // here and shares the agent style of the reward sparkline.
+        // Unknown metric names get the same readable default.
         _ => agent_style(),
     }
 }

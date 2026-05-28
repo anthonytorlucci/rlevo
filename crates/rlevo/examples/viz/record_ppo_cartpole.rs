@@ -1,13 +1,13 @@
-//! PPO + live TUI + on-disk recording on [`CartPole`]. The full M3.5 /
-//! M4 composition demonstrated end-to-end.
+//! PPO + live TUI + on-disk recording on [`CartPole`]. The full
+//! env-wrapper + recording composition demonstrated end-to-end.
 //!
 //! Composition map:
 //!
 //! ```text
 //!   CartPole
 //!     └─ TimeLimit
-//!         └─ TuiEnvTap   (M3.5 — frames + episode returns to live TUI)
-//!             └─ RecordingTap (M4 — frame + metric stream to disk)
+//!         └─ TuiEnvTap   (frames + episode returns to live TUI)
+//!             └─ RecordingTap (frame + metric stream to disk)
 //!                 ↓
 //!              train_discrete
 //! ```

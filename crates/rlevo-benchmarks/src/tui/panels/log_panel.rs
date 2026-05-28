@@ -6,8 +6,8 @@
 //! `REVERSED`) and WARN carries `BOLD`, so severity is readable under
 //! any colour-vision condition.
 //!
-//! No keyboard scrolling this milestone — `M2`'s "read-only" stance
-//! extends here. The user always sees the tail of the ring.
+//! No keyboard scrolling — the panel is read-only and the user always
+//! sees the tail of the ring.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;

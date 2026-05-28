@@ -495,7 +495,7 @@ impl crate::render::AsciiRenderable for LunarLanderDiscrete {
 }
 
 // ---------------------------------------------------------------------------
-// M7 report-tier payload — Box2D bodies for the lander, legs, and helipad
+// Report-tier payload — Box2D bodies for the lander, legs, and helipad
 // ground.
 // ---------------------------------------------------------------------------
 

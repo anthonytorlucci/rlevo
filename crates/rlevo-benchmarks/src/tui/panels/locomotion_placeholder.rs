@@ -1,11 +1,9 @@
 //! Static placeholder shown when the wrapped env can't render in the
-//! library tier (locomotion envs per ADR 0008).
+//! library tier (locomotion envs have no `AsciiRenderable` impl).
 //!
-//! The text matches the umbrella spec
-//! `projects/rlevo/specs/2026-05-26-env-vis/rlevo-viz-overview.md` §7
-//! verbatim. The placeholder is caller-set via
-//! [`PanelMode::LocomotionPlaceholder`](crate::tui::state::PanelMode) —
-//! family auto-detection waits for the `EnvFamily` enum landing in M4.
+//! The placeholder is caller-set via
+//! [`PanelMode::LocomotionPlaceholder`](crate::tui::state::PanelMode);
+//! family auto-detection is left to the caller.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};

@@ -1,9 +1,9 @@
-//! Harness-driven [`EmptyEnv`] (grids family) run that writes M4
+//! Harness-driven [`EmptyEnv`] (grids family) run that writes
 //! per-episode `.rec` files alongside the live TUI dashboard.
 //!
 //! Mirrors `record_cartpole.rs` for the grids family — the on-disk
 //! manifest carries `EnvFamily::Grids`, and the resulting run replays
-//! through the M6 grids playback adapter.
+//! through the grids playback adapter in the report client.
 //!
 //! # Run with
 //!
@@ -12,7 +12,8 @@
 //!   --features viz-tui,viz-record
 //! ```
 //!
-//! Then ship the run through the M6 emitter via `report_grids_with_client`.
+//! Then ship the run through the static-HTML emitter via
+//! `report_grids_with_client`.
 
 use std::sync::{Arc, Mutex};
 use std::thread;

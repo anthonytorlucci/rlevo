@@ -1,5 +1,6 @@
 //! [`LunarLanderDiscrete`] recording → static-HTML report mounting the
-//! M5.1 client with the **M7 box2d adapter** (Milestone 7).
+//! Leptos/WASM client with the **box2d SVG adapter** (rigid-body
+//! polygons: lander, legs, helipad).
 //!
 //! ```bash
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release

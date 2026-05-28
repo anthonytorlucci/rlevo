@@ -71,7 +71,7 @@ pub struct Modifier(pub u8);
 
 // ---- /styled mirror ---------------------------------------------------
 
-// ---- Mirror of rlevo_core::render::payload (M7 rich payloads). --------
+// ---- Mirror of rlevo_core::render::payload (rich per-family payloads). --
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point2 {
@@ -137,8 +137,8 @@ pub struct Locomotion2DPayload {
 /// Current wire-format version this client crate writes/expects.
 pub const FORMAT_VERSION: u16 = 3;
 
-/// Oldest on-disk version this client still decodes — M6 files
-/// (`format_version = 1`) remain readable.
+/// Oldest on-disk version this client still decodes — v1 files (the
+/// original styled-text-only format) remain readable.
 pub const MIN_SUPPORTED_VERSION: u16 = 1;
 
 #[must_use]
@@ -209,11 +209,12 @@ pub struct PopulationSample {
     pub inner_rl_returns: Option<Vec<f32>>,
 }
 
-/// Length-prefixed wire-format chunk written by the M4 record writer.
+/// Length-prefixed wire-format chunk written by the on-disk record writer.
 ///
 /// **Variant ordering is wire-format-stable** — `Frame` and `Metrics`
-/// keep tags 0 and 1; v3 (M8.1) appends `Population` at tag 2. v1/v2
-/// records contain no `Population` chunks so they decode cleanly.
+/// keep tags 0 and 1; v3 appends `Population` at tag 2 to carry EA
+/// per-generation snapshots. v1/v2 records contain no `Population`
+/// chunks so they decode cleanly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordChunk {
     Frame(FrameRecord),
@@ -248,8 +249,8 @@ pub struct RunManifest {
 }
 
 /// Decode the raw bytes of a single `episode_*.rec` file produced by
-/// the M4 writer. Tolerates truncated tails by stopping cleanly at
-/// the last whole chunk.
+/// the on-disk record writer. Tolerates truncated tails by stopping
+/// cleanly at the last whole chunk.
 ///
 /// # Errors
 ///

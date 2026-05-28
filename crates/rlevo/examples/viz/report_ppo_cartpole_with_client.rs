@@ -1,11 +1,11 @@
 //! Headless PPO training on [`CartPole`] → static-HTML report that
-//! mounts the M8 Leptos/WASM client with **convergence plots**.
+//! mounts the Leptos/WASM report client with **RL convergence plots**.
 //!
 //! Unlike [`report_cartpole_with_client`] (which uses a random-action
 //! agent under the harness and therefore records zero `MetricSample`s),
 //! this example wires the PPO training loop directly so the on-disk
 //! record carries the full RL metric stream — `policy_loss` /
-//! `value_loss` / `entropy` / `approx_kl` / `clip_frac` — and the M8
+//! `value_loss` / `entropy` / `approx_kl` / `clip_frac` — and the
 //! convergence panel surfaces them as line charts alongside the derived
 //! per-episode reward / length curves.
 //!
@@ -14,11 +14,11 @@
 //! ```text
 //!   CartPole
 //!     └─ TimeLimit
-//!         └─ RecordingTap   (M4 — frame + metric stream to disk)
+//!         └─ RecordingTap   (frame + metric stream to disk)
 //!             ↓
 //!          train_discrete
 //!             ↑ tracing::info!(policy_loss = …, value_loss = …, …)
-//!             └─ RecordingLayer (M4 — captures canonical metrics)
+//!             └─ RecordingLayer (captures canonical RL metrics)
 //! ```
 //!
 //! Two-step build flow:

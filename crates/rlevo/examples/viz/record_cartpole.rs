@@ -1,7 +1,7 @@
 //! Harness-driven [`CartPole`] run that records per-episode files to
 //! disk alongside the live TUI dashboard.
 //!
-//! Demonstrates the M4 composition for benchmark flows:
+//! Demonstrates the on-disk recording composition for benchmark flows:
 //!
 //! 1. A shared [`RecordWriter`] sits behind an
 //!    `Arc<Mutex<dyn RecordSink>>` that is handed to both producers.

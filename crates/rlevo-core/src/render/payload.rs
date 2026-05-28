@@ -1,4 +1,4 @@
-//! Per-family structured-rendering surfaces for the M7 report tier.
+//! Per-family structured-rendering surfaces for the rich report tier.
 //!
 //! The library and live (TUI) tiers consume [`AsciiRenderable`] /
 //! `StyledFrame`; the report tier consumes a richer per-family payload
@@ -15,7 +15,7 @@
 //! 3. Three opt-in **payload-source** traits — one per family — that an
 //!    env implements when it wants the recording layer to capture the
 //!    richer payload. Each trait has a single method; envs that do not
-//!    implement them keep the M6 behaviour (`FamilyPayload::Ascii`).
+//!    implement them fall back to the default `FamilyPayload::Ascii`.
 //!
 //! Wire-format conversion (snapshot → `FamilyPayload`) lives in
 //! `rlevo-benchmarks::record` so the wire layer stays owned by the
@@ -130,8 +130,8 @@ pub trait Box2dPayloadSource {
 /// Sagittal-plane projection of a locomotion env, captured at one frame.
 ///
 /// **This is locomotion's canonical view** — locomotion envs do not
-/// implement [`AsciiRenderable`] per ADR-0008, so this payload is the
-/// only rendering pathway in the whole stack.
+/// implement [`AsciiRenderable`], so this payload is the only
+/// rendering pathway in the whole stack.
 ///
 /// `joints[i]` is the i-th joint position; `bones[k] = (a, b)` means
 /// joint `a` connects to joint `b` with a rigid bone. `ground_y` is the

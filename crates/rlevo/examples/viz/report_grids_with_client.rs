@@ -2,7 +2,8 @@
 //! report that mounts the Leptos/WASM client. Mirrors
 //! `report_cartpole_with_client.rs` for the grids family — the emitted
 //! HTML's manifest carries `EnvFamily::Grids`, which the client uses to
-//! dispatch the M6 grids playback adapter.
+//! dispatch the interactive grids playback adapter (scrubber +
+//! play/pause + styled-frame rendering).
 //!
 //! # Run with
 //!

@@ -18,8 +18,8 @@
 //! # Default theme
 //!
 //! This module ships a single default theme. Theme pluggability
-//! (light/dark/colorblind variants) is on the roadmap but out of scope for
-//! Milestone 1; design choices here should not block it.
+//! (light/dark/colorblind variants) is on the roadmap; the current
+//! design choices here are intended not to block that work.
 
 use super::styled::{Color, Modifier};
 

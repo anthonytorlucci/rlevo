@@ -1,4 +1,4 @@
-//! Per-family playback adapters for the M6 report tier.
+//! Per-family playback adapters for the static-HTML report tier.
 //!
 //! Each adapter wraps the shared [`crate::styled::styled_frame_view`]
 //! with family-specific framing and a glyph/colour legend. The legend
@@ -22,8 +22,8 @@ use crate::wire::{EnvFamily, FrameRecord};
 #[must_use]
 pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
     // `EnvFamily` is `#[non_exhaustive]`; the wildcard arm catches future
-    // variants the wire mirror grows. Today (post-M7) every known family
-    // has a dedicated adapter, so the wildcard is structural future-proofing.
+    // variants the wire mirror grows. Today every known family has a
+    // dedicated adapter, so the wildcard is structural future-proofing.
     #[allow(unreachable_patterns)]
     match family {
         EnvFamily::Classic => classic::render(frame),

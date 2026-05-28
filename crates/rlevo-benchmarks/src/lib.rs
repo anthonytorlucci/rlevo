@@ -2,7 +2,7 @@
 //!
 //! The trait surface (`BenchEnv`, `BenchError`, `BenchStep`,
 //! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives
-//! in `rlevo-core` (per ADR 0004). This crate provides the runner that
+//! in `rlevo-core` (shared trait surface). This crate provides the runner that
 //! drives those traits to produce reports.
 
 pub mod checkpoint;

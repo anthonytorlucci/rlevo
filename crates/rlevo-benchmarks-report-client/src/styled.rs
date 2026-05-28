@@ -1,4 +1,4 @@
-//! `StyledFrame` → HTML rendering for the M6 playback adapters.
+//! `StyledFrame` → HTML rendering for the per-family playback adapters.
 //!
 //! Translates the wire-mirror [`StyledFrame`] / [`StyledLine`] /
 //! [`StyledSpan`] types into a single `<pre class="rlevo-styled">` block

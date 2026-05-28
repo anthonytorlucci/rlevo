@@ -33,8 +33,8 @@ pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Landscape2D(payload) => view_with_payload(payload),
         _ => {
-            // Wire format permits an Ascii fallback per the M7
-            // backwards-compatibility contract — surface that case
+            // Wire format permits an Ascii fallback for backwards
+            // compatibility with older recordings — surface that case
             // through the styled path with the family banner.
             super::fallback::render(crate::wire::EnvFamily::Landscapes, frame)
         }
@@ -136,7 +136,7 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
                     " recent trail"
                 </span>
                 <span class="rlevo-legend-key">
-                    <em>"heatmap deferred to M7.1 — only the candidate dynamics ship in M7"</em>
+                    <em>"heatmap deferred — only candidate dynamics ship today"</em>
                 </span>
             </figcaption>
         </figure>

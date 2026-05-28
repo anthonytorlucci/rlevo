@@ -1,7 +1,6 @@
-//! Fallback adapter for families that don't have a bespoke renderer
-//! yet (box2d, locomotion, landscapes — landing in M7). Renders the
-//! styled projection if available, otherwise plain ASCII, plus a
-//! banner explaining the limitation.
+//! Fallback adapter for any env family without a bespoke renderer.
+//! Renders the styled projection if available, otherwise plain ASCII,
+//! plus a banner explaining the limitation.
 
 use leptos::prelude::*;
 
@@ -12,7 +11,7 @@ use crate::wire::{EnvFamily, FrameRecord};
 /// adapter yet.
 #[must_use]
 pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
-    let banner = format!("family {family:?} renders via the generic adapter — bespoke adapter lands in M7");
+    let banner = format!("family {family:?} renders via the generic adapter — no bespoke adapter is available");
     view! {
         <figure class="rlevo-family-fallback">
             {frame_body(frame)}

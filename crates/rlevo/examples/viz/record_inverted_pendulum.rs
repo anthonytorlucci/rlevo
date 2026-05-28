@@ -1,6 +1,7 @@
-//! [`InvertedPendulum`] recording with the M7 **locomotion** payload —
-//! the family's canonical view, since locomotion envs do not implement
-//! [`AsciiRenderable`] per ADR-0008.
+//! [`InvertedPendulum`] recording with the rich **locomotion** payload
+//! (sagittal-plane joint topology). This is the family's canonical view
+//! because locomotion envs do not implement [`AsciiRenderable`] — the
+//! SVG produced from this payload is their only rendering pathway.
 //!
 //! Uses [`RecordingTap::with_locomotion_payload`] which goes through
 //! [`RecordingTap::new_headless`] (no ASCII / styled capture; the

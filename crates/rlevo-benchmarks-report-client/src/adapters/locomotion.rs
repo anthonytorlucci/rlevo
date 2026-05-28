@@ -1,8 +1,8 @@
 //! Locomotion adapter — the **canonical view** for the family.
 //!
-//! Per ADR-0008 locomotion envs do not implement [`AsciiRenderable`];
-//! their only rendering pathway in the entire stack is this M7 SVG
-//! adapter consuming [`FamilyPayload::Locomotion2D`].
+//! Locomotion envs do not implement [`AsciiRenderable`]; their only
+//! rendering pathway in the entire stack is this SVG adapter consuming
+//! [`FamilyPayload::Locomotion2D`].
 //!
 //! The frame is rendered as a sagittal-plane stick figure:
 //!

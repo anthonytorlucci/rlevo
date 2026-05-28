@@ -1,5 +1,6 @@
 //! Synthesised hill-climber over the `Sphere` landscape, written
-//! directly through the [`RecordSink`] surface (Milestone 7).
+//! directly through the [`RecordSink`] surface with the rich
+//! `Landscape2D` payload.
 //!
 //! Landscapes are pure fitness evaluators — they have no environment
 //! state of their own — so this example bypasses [`RecordingTap`] and
@@ -10,7 +11,7 @@
 //!
 //! The frame payload is [`FamilyPayload::Landscape2D`] carrying the
 //! search bounds, current candidate, best-so-far, and a capped trail
-//! of recent positions — exactly what the M7 client landscape adapter
+//! of recent positions — exactly what the client's landscape SVG adapter
 //! consumes.
 //!
 //! ```bash

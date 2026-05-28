@@ -314,7 +314,7 @@ where
 
     /// Attach a per-generation [`PopulationObserver`].
     ///
-    /// Used by the M8.1 report producer
+    /// Used by the EA-population recorder
     /// (`rlevo_benchmarks::record::PopulationReporter`) to capture the
     /// full population vector. The observer fires once per
     /// [`step`](Self::step) call, after the canonical

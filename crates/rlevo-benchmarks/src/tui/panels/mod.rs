@@ -8,8 +8,8 @@
 //!
 //! Panel ordering and layout (the rectangles each panel renders into)
 //! belong to the runner, not to individual panels. This keeps the
-//! widgets reusable when M3 adds the gradient-norm / fitness / log
-//! panels and the layout changes shape.
+//! widgets reusable as panels (gradient-norm / fitness / log / etc.)
+//! are added or rearranged.
 
 pub mod env_panel;
 pub mod locomotion_placeholder;

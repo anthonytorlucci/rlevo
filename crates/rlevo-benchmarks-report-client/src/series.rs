@@ -1,4 +1,4 @@
-//! Pure-Rust series-extraction helpers for the M8 convergence panel.
+//! Pure-Rust series-extraction helpers for the RL convergence panel.
 //!
 //! These transform decoded [`EpisodeRecord`]s into `(x, y)` arrays that
 //! the [`crate::charts`] module feeds into `leptos-chartistry`. No DOM,
@@ -112,7 +112,7 @@ pub fn rolling_mean(samples: &[(u32, f64)], window: usize) -> Vec<(u32, f64)> {
 }
 
 // ---------------------------------------------------------------------------
-// M8.1 — population-panel series extraction.
+// EA population-panel series extraction.
 // ---------------------------------------------------------------------------
 
 /// Per-generation summary statistics for the Population box plot.

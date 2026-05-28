@@ -40,7 +40,7 @@ use super::writer::RecordSink;
 pub type PayloadExtractor<E> = Box<dyn Fn(&E) -> FamilyPayload + Send + Sync>;
 
 /// Boxed extractor for the optional ASCII / styled rendering. Returns
-/// `None` for envs that do not implement [`AsciiRenderable`] — the M7
+/// `None` for envs that do not implement [`AsciiRenderable`] — the
 /// `locomotion` family is the canonical example.
 pub type AsciiExtractor<E> = Box<dyn Fn(&E) -> Option<String> + Send + Sync>;
 pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Sync>;
@@ -77,7 +77,7 @@ where
     /// [`with_payload_extractor`](Self::with_payload_extractor) or one
     /// of the per-family `with_*_payload` constructors to capture
     /// richer payloads instead. For locomotion envs (which deliberately
-    /// have no [`AsciiRenderable`] per ADR-0008) use
+    /// have no [`AsciiRenderable`] impl) use
     /// [`with_locomotion_payload`](Self::with_locomotion_payload) — it
     /// goes through [`new_headless`](Self::new_headless) and ships
     /// `ascii = None` / `styled = None`.
@@ -112,7 +112,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD,
     /// Headless constructor — does **not** require [`AsciiRenderable`]
     /// on `E`. Frames ship with `ascii = None` and `styled = None`;
     /// the family payload is the only rendering surface. Intended for
-    /// the `locomotion` family per ADR-0008.
+    /// the `locomotion` family (no `AsciiRenderable` impl).
     pub fn new_headless<F>(inner: E, sink: Arc<Mutex<dyn RecordSink>>, payload: F) -> Self
     where
         F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
@@ -191,7 +191,7 @@ where
     /// [`Locomotion2DPayload`] per frame via [`Locomotion2DPayloadSource`].
     /// This is locomotion's only rendering pathway in the report tier.
     /// Uses [`new_headless`](Self::new_headless) because locomotion envs
-    /// do not implement [`AsciiRenderable`] per ADR-0008.
+    /// do not implement [`AsciiRenderable`].
     pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))

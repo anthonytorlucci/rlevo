@@ -1,11 +1,11 @@
-//! Random-access loader over an on-disk M4 recording.
+//! Random-access loader over an on-disk recording.
 //!
 //! `RecordedRun::open(dir)` reads a `runs/<run_id>/` directory:
 //!
 //! * the `run.toml` manifest if present (synthesised from the first
 //!   episode header when missing — incomplete-run tolerance per
 //!   `rollout-and-replay` §2),
-//! * every `episode_*.rec` file in numeric order, decoded via the M4
+//! * every `episode_*.rec` file in numeric order, decoded via the
 //!   [`read_episode_record`] helper (truncation-tolerant: a partially
 //!   written trailing episode contributes whatever whole frames it
 //!   held).
@@ -39,12 +39,11 @@ pub struct EpisodeIndex {
     /// Maximum step index seen in the frame stream, plus one. Mirrors
     /// the manifest's per-episode length semantics.
     pub length: u32,
-    /// Encoded frame stream as read off disk. Eager in M5; a future
-    /// milestone can swap this for a lazy region map per
-    /// `rollout-and-replay` §3.
+    /// Encoded frame stream as read off disk. Eagerly loaded today; a
+    /// future iteration can swap this for a lazy region map.
     pub frames: Vec<crate::record::FrameRecord>,
     /// Per-episode metric samples (PPO loss series, EA fitness, etc.)
-    /// already split out from the M4 wire format.
+    /// already split out from the on-disk wire format.
     pub metrics: Vec<MetricSample>,
 }
 

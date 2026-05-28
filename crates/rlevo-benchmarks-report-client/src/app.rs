@@ -1,9 +1,8 @@
 //! Top-level Leptos application.
 //!
-//! M5.1 shipped the data-binding skeleton (manifest, warnings, episode
-//! table, static frame dump). M6 replaces the static detail dump with a
-//! per-family [`crate::playback::playback_panel`] that owns scrubber +
-//! play/pause + speed controls; family dispatch happens off
+//! Owns the page layout: manifest panel, warnings, episode table, and
+//! the per-family [`crate::playback::playback_panel`] that provides the
+//! scrubber + play/pause + speed controls. Family dispatch happens off
 //! `manifest.env_family`.
 
 use leptos::prelude::*;

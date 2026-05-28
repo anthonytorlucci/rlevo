@@ -1,5 +1,6 @@
 //! Streaming writer for per-episode record files plus a slim decoder
-//! sufficient for round-trip tests. The full report-tier loader is M5.
+//! sufficient for round-trip tests. The full report-tier loader lives
+//! in [`super::super::report::replay`].
 //!
 //! Wire layout per `episode_<N>.rec`:
 //!
@@ -300,8 +301,8 @@ impl RecordSink for RecordWriter {
     }
 }
 
-/// Slim decoder used by tests and the M4 round-trip path. The full
-/// random-access loader is M5.
+/// Slim decoder used by tests and the in-process round-trip path. The
+/// full random-access loader lives in [`super::super::report::replay`].
 ///
 /// # Errors
 ///

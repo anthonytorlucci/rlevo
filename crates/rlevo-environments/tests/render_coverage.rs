@@ -1,10 +1,10 @@
 //! Cross-family regression guard for `AsciiRenderable` coverage.
 //!
-//! Milestone 1 brought every public env in the five in-scope 2D families
-//! (classic, grids, toy_text, landscapes, box2d) into [`AsciiRenderable`]
-//! coverage. This integration test enumerates one representative env per
-//! family — and one of every box2d variant since they share no parent
-//! type — and asserts the rendering contract:
+//! Every public env in the five in-scope 2D families (classic, grids,
+//! toy_text, landscapes, box2d) implements [`AsciiRenderable`]. This
+//! integration test enumerates one representative env per family — and
+//! one of every box2d variant since they share no parent type — and
+//! asserts the rendering contract:
 //!
 //! 1. `render_ascii()` returns at least one non-empty line;
 //! 2. every plain line fits within the 80-column budget;
@@ -15,8 +15,8 @@
 //! When an existing env's render changes shape, this test catches the
 //! drift without having to re-read every per-env unit test.
 //!
-//! Locomotion is intentionally absent — per ADR 0008 locomotion ships no
-//! library-tier ASCII renderer; the report tier owns it via
+//! Locomotion is intentionally absent — locomotion envs have no
+//! library-tier ASCII renderer; the report tier owns them via
 //! `FamilyPayload::Locomotion2D`.
 
 use rlevo_core::environment::Environment;

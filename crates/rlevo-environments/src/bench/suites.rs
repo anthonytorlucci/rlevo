@@ -4,7 +4,7 @@
 //! per-trial seed. Stitching multiple suites of different env types is a
 //! v0.1 limitation — [`Suite<E>`] is monomorphic, so a heterogeneous
 //! "all of classic control" suite needs a `Box<dyn BenchEnv<…>>` design
-//! (deferred; tracked in the follow-up to ADR-0001).
+//! (deferred).
 //!
 //! [`Suite`]: rlevo_benchmarks::suite::Suite
 //! [`Suite<E>`]: rlevo_benchmarks::suite::Suite

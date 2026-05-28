@@ -209,7 +209,7 @@ fn pretty_metric_title(name: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// M8.1 — Population panel (box plot + diversity trace + selection pressure).
+// EA Population panel (box plot + diversity trace + selection pressure).
 //
 // `leptos-chartistry` 0.2.3 ships `Line` and `Bar` only — no box plot, no
 // scatter, no area-band primitive. The box plot is hand-rolled SVG so the
@@ -417,7 +417,7 @@ pub fn population_box_view(
     .into_any()
 }
 
-/// Compose the M8.1 Population section: box plot + diversity trace +
+/// Compose the EA Population section: box plot + diversity trace +
 /// selection-pressure indicator. Section suppresses entirely when no
 /// population samples are present.
 #[must_use]

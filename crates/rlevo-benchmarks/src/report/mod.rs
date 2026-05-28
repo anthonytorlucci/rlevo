@@ -1,6 +1,6 @@
 //! Report records produced by the `Evaluator`, plus the post-run
 //! random-access loader and static-HTML emitter behind the `report`
-//! feature (Milestone 5).
+//! feature.
 //!
 //! `Metric` is not directly serializable here; the JSON reporter flattens
 //! metrics into plain key/value maps at serialization time.

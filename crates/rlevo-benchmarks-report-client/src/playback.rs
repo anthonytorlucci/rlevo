@@ -1,4 +1,4 @@
-//! Per-episode playback panel: scrubber + play/pause + speed (M6).
+//! Per-episode playback panel: scrubber + play/pause + speed.
 //!
 //! `PlaybackPanel` is invoked anew each time the parent's selected
 //! episode changes — fresh `frame_idx` / `playing` / `speed` signals are
@@ -48,7 +48,7 @@ pub fn play_interval_ms(speed: u32) -> u64 {
 
 const SPEEDS: &[u32] = &[1, 2, 5, 10];
 
-/// Render the M6 playback panel for one episode.
+/// Render the interactive playback panel for one episode.
 pub fn playback_panel(family: EnvFamily, record: EpisodeRecord) -> AnyView {
     let frame_count = record.frames.len();
 

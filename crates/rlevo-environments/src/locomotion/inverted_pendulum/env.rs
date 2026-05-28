@@ -244,7 +244,7 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// M7 report-tier payload — sagittal-plane projection.
+// Report-tier payload — sagittal-plane projection.
 //
 // Joint 0 = cart centre; joint 1 = pole tip. The bone connects them.
 // Both points project onto the (x, z) plane: x forward, z up.

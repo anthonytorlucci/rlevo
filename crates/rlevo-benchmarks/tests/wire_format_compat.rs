@@ -1,4 +1,4 @@
-//! Cross-crate guard for the M5.1 wire-format mirror.
+//! Cross-crate guard for the report-client wire-format mirror.
 //!
 //! `rlevo-benchmarks-report-client/src/wire.rs` redeclares the bincode
 //! record types so the client can decode `.rec` payloads in the
