@@ -23,7 +23,8 @@ pub use tracing_layer::RecordingLayer;
 
 pub use manifest::RunManifest;
 pub use schema::{
-    EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload, FrameRecord,
-    Hyperparameters, MetricSample, RunId, bincode_config, default_frame_stride,
+    Box2dPayload, EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload,
+    FrameRecord, Hyperparameters, Landscape2DPayload, Locomotion2DPayload, MIN_SUPPORTED_VERSION,
+    MetricSample, RunId, bincode_config, default_frame_stride,
 };
 pub use writer::{InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, read_episode_record};

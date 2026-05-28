@@ -294,10 +294,15 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
     let mut preamble = [0u8; 16];
     f.read_exact(&mut preamble)?;
     let version = u16::from_le_bytes([preamble[0], preamble[1]]);
-    if version != FORMAT_VERSION {
+    if !(crate::record::schema::MIN_SUPPORTED_VERSION..=FORMAT_VERSION).contains(&version) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("format version mismatch: file={version} crate={FORMAT_VERSION}"),
+            format!(
+                "format version unsupported: file={version} \
+                 supported={min}..={max}",
+                min = crate::record::schema::MIN_SUPPORTED_VERSION,
+                max = FORMAT_VERSION
+            ),
         ));
     }
 

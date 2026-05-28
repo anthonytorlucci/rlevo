@@ -71,7 +71,75 @@ pub struct Modifier(pub u8);
 
 // ---- /styled mirror ---------------------------------------------------
 
-pub const FORMAT_VERSION: u16 = 1;
+// ---- Mirror of rlevo_core::render::payload (M7 rich payloads). --------
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Point2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Point2 {
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum BodyKind {
+    Hull,
+    Wheel,
+    Leg,
+    Wing,
+    Ground,
+    Goal,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RigidBody2D {
+    pub vertices: Vec<Point2>,
+    pub position: Point2,
+    pub rotation_rad: f32,
+    pub kind: BodyKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Landscape2DPayload {
+    pub bounds_x: (f32, f32),
+    pub bounds_y: (f32, f32),
+    pub current: Point2,
+    pub best: Option<Point2>,
+    pub trail: Vec<Point2>,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Box2dPayload {
+    pub world_bounds: (Point2, Point2),
+    pub bodies: Vec<RigidBody2D>,
+    pub contacts: Vec<Point2>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Locomotion2DPayload {
+    pub joints: Vec<Point2>,
+    pub bones: Vec<(u32, u32)>,
+    pub ground_y: f32,
+    pub com: Option<Point2>,
+    pub contacts: Vec<Point2>,
+}
+
+// ---- /payload mirror --------------------------------------------------
+
+/// Current wire-format version this client crate writes/expects.
+pub const FORMAT_VERSION: u16 = 2;
+
+/// Oldest on-disk version this client still decodes — M6 files
+/// (`format_version = 1`) remain readable.
+pub const MIN_SUPPORTED_VERSION: u16 = 1;
 
 #[must_use]
 pub fn bincode_config() -> bincode::config::Configuration {
@@ -92,10 +160,13 @@ pub enum EnvFamily {
     Landscapes,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FamilyPayload {
     Ascii,
+    Landscape2D(Landscape2DPayload),
+    Box2dBodies(Box2dPayload),
+    Locomotion2D(Locomotion2DPayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,7 +242,7 @@ pub fn decode_episode_record(bytes: &[u8]) -> Result<EpisodeRecord, DecodeError>
         return Err(DecodeError::Truncated("preamble"));
     }
     let version = u16::from_le_bytes([bytes[0], bytes[1]]);
-    if version != FORMAT_VERSION {
+    if !(MIN_SUPPORTED_VERSION..=FORMAT_VERSION).contains(&version) {
         return Err(DecodeError::VersionMismatch {
             file: version,
             client: FORMAT_VERSION,

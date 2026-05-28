@@ -12,13 +12,26 @@
 
 use std::collections::BTreeMap;
 
-use rlevo_core::render::StyledFrame;
+use rlevo_core::render::{
+    Box2dSnapshot, Landscape2DSnapshot, Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame,
+};
 use serde::{Deserialize, Serialize};
 
 /// Bumps on any breaking change to the on-disk schema. The writer
-/// stamps this into every [`EpisodeRecordHeader`]; the loader refuses
-/// values it does not know.
-pub const FORMAT_VERSION: u16 = 1;
+/// stamps this into every [`EpisodeRecordHeader`]; the loader accepts
+/// any value in [[`MIN_SUPPORTED_VERSION`], [`FORMAT_VERSION`]]] and
+/// refuses anything outside that range.
+///
+/// **M7 (v2)**: adds rich [`FamilyPayload`] variants
+/// (`Landscape2D`, `Box2dBodies`, `Locomotion2D`). M6-era records
+/// (`format_version = 1`) decode cleanly under v2 because the only
+/// variant the v1 writer ever emitted (`Ascii`) keeps tag index 0.
+pub const FORMAT_VERSION: u16 = 2;
+
+/// Oldest on-disk format version this loader still accepts. The M7
+/// schema is backwards-compatible with v1 records — see
+/// [`FORMAT_VERSION`].
+pub const MIN_SUPPORTED_VERSION: u16 = 1;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -85,13 +98,95 @@ pub const fn default_frame_stride(family: EnvFamily) -> u16 {
     }
 }
 
-/// Per-family rich payload. M4 ships ASCII only; richer variants
-/// (locomotion joint angles, `Box2D` body transforms) land in M6+.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Per-family rich payload.
+///
+/// **Variant ordering is wire-format-stable** — new variants append at
+/// the end so existing bincode tags keep decoding. `Ascii` stays at
+/// tag 0 because v1 records exclusively carry that variant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FamilyPayload {
+    /// Plain-text / styled-text rendering — the M6 default.
     Ascii,
+    /// M7+: landscape (search-space) projection for `landscapes` envs.
+    Landscape2D(Landscape2DPayload),
+    /// M7+: rigid-body world for `box2d` envs.
+    Box2dBodies(Box2dPayload),
+    /// M7+: sagittal-plane stick figure for `locomotion` envs —
+    /// their canonical view (no ASCII path).
+    Locomotion2D(Locomotion2DPayload),
 }
+
+// ---------------------------------------------------------------------------
+// Per-family rich payload structs.
+//
+// These are bincode-stable mirrors of the snapshot types in
+// `rlevo_core::render::payload` plus serde derives. They live here so
+// the wire layer stays owned by `rlevo-benchmarks`; the core crate has
+// no bincode dependency.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Landscape2DPayload {
+    pub bounds_x: (f32, f32),
+    pub bounds_y: (f32, f32),
+    pub current: Point2,
+    pub best: Option<Point2>,
+    pub trail: Vec<Point2>,
+    pub label: String,
+}
+
+impl From<Landscape2DSnapshot> for Landscape2DPayload {
+    fn from(s: Landscape2DSnapshot) -> Self {
+        Self {
+            bounds_x: s.bounds_x,
+            bounds_y: s.bounds_y,
+            current: s.current,
+            best: s.best,
+            trail: s.trail,
+            label: s.label,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Box2dPayload {
+    pub world_bounds: (Point2, Point2),
+    pub bodies: Vec<RigidBody2D>,
+    pub contacts: Vec<Point2>,
+}
+
+impl From<Box2dSnapshot> for Box2dPayload {
+    fn from(s: Box2dSnapshot) -> Self {
+        Self {
+            world_bounds: s.world_bounds,
+            bodies: s.bodies,
+            contacts: s.contacts,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Locomotion2DPayload {
+    pub joints: Vec<Point2>,
+    pub bones: Vec<(u32, u32)>,
+    pub ground_y: f32,
+    pub com: Option<Point2>,
+    pub contacts: Vec<Point2>,
+}
+
+impl From<Locomotion2DSnapshot> for Locomotion2DPayload {
+    fn from(s: Locomotion2DSnapshot) -> Self {
+        Self {
+            joints: s.joints,
+            bones: s.bones,
+            ground_y: s.ground_y,
+            com: s.com,
+            contacts: s.contacts,
+        }
+    }
+}
+
 
 /// Header written at the start of every `episode_*.rec` file. Carries
 /// run-level identification + the format-version stamp the loader uses
@@ -148,8 +243,42 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_one() {
-        assert_eq!(FORMAT_VERSION, 1);
+    fn format_version_is_two_and_min_supported_is_one() {
+        assert_eq!(FORMAT_VERSION, 2);
+        assert_eq!(MIN_SUPPORTED_VERSION, 1);
+    }
+
+    #[test]
+    fn family_payload_round_trips_each_rich_variant() {
+        let cases = [
+            FamilyPayload::Ascii,
+            FamilyPayload::Landscape2D(Landscape2DPayload {
+                bounds_x: (-1.0, 1.0),
+                bounds_y: (-1.0, 1.0),
+                current: Point2::new(0.1, 0.2),
+                best: None,
+                trail: vec![],
+                label: "sphere".into(),
+            }),
+            FamilyPayload::Box2dBodies(Box2dPayload {
+                world_bounds: (Point2::new(-1.0, -1.0), Point2::new(1.0, 1.0)),
+                bodies: vec![],
+                contacts: vec![],
+            }),
+            FamilyPayload::Locomotion2D(Locomotion2DPayload {
+                joints: vec![],
+                bones: vec![],
+                ground_y: 0.0,
+                com: None,
+                contacts: vec![],
+            }),
+        ];
+        for c in &cases {
+            let bytes = bincode::serde::encode_to_vec(c, bincode_config()).unwrap();
+            let (decoded, _): (FamilyPayload, usize) =
+                bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+            assert_eq!(c, &decoded);
+        }
     }
 
     #[test]
