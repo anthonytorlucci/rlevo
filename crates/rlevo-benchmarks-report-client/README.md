@@ -142,13 +142,76 @@ The umbrella crate ships paired M7 examples:
 - `record_inverted_pendulum` / `report_inverted_pendulum_with_client`.
 - `record_lunar_lander` / `report_lunar_lander_with_client`.
 
-## Deferred to M7.1+
+## M8 — convergence plots
 
-- Landscape heatmap background (sampled per known label client-side).
-- BipedalWalker / CarRacing / Swimmer / Reacher / DoublePendulum
+M8 lights up the report tier's training-diagnostic surface: a new
+**Convergence** section between the episode table and the per-episode
+playback pane renders per-run scalar charts via
+[`leptos-chartistry`](https://docs.rs/leptos-chartistry) (pure-Rust
+SVG, no JS interop per umbrella spec §3 constraint #6). Wire format is
+unchanged — every panel below consumes data already in the M4-era
+record (`MetricSample` stream, per-frame rewards).
+
+Panel inventory (default visible):
+
+- **Episode reward** — sum of `frame.reward` per episode, raw + rolling
+  mean (N=50, shrinks to `max(1, len/4)` for short runs).
+- **Episode length** — `frames.len()` per episode, same window.
+- **Policy loss / Value loss / Loss** — `MetricSample` series, rolling
+  mean (N=20). RL-only — absent on harness records that ship without
+  `RecordingLayer`.
+- **Policy entropy / Approx KL / Clip fraction** — same N=20 window.
+- **Best / Mean / Worst fitness / Best fitness (ever)** — EA-only; per
+  generation, no smoothing (already aggregated).
+
+Empty panels suppress entirely, so a CartPole harness recording shows
+just the two derived panels and a PPO recording shows the full RL
+suite. EA runs naturally hide the RL panels and surface the
+`*_fitness` series.
+
+The raw / smoothed pair pairs **line width** (1.0 / 2.5) with colour so
+a B/W screenshot still distinguishes the two — the project's
+hue-redundant a11y contract. Dark-mode override blocks in `app.css`
+keep mid-luma hues legible on dark canvases.
+
+### Loading and caching
+
+`src/inline_data.rs::read_all_episode_records()` decodes every episode
+block referenced by the index on first call and caches the result in a
+`OnceLock` so panel re-renders are zero-cost. Per-record decode
+failures are skipped so a single malformed episode does not blank the
+panel grid.
+
+### New umbrella example
+
+`record_ppo_cartpole_with_client` runs a headless 12 k-step PPO
+training cycle on CartPole, wiring `RecordingTap` for frames and
+`RecordingLayer` for the canonical metric stream, then emits the
+single-file report in one shot — the natural M8 demo because it
+exercises every RL canonical metric in `CANONICAL_METRICS`.
+
+## Deferred to M8.1+
+
+- **Population / lineage panels** ([`evolution-population`](../../docs/specs.md) §3) —
+  needs `PopulationSample` in the schema (`FORMAT_VERSION = 3` bump) +
+  a `PopulationReporter` producer + EA-loop observer instrumentation.
+  Box plot, diversity trace, lineage DAG, selection-pressure indicator
+  all wait on that infrastructure.
+- **Hybrid scatter** — depends on `PopulationSample` plus a per-individual
+  `inner_rl_return` field.
+- **Multi-seed aggregation** — `run_group` field on `MetricSample::aux`
+  + cross-record loading + ±std band rendering.
+- **Static SVG export per panel** — `leptos-chartistry` is already
+  SVG-native; the toolbar export button + page-level tile export are
+  M8.2 polish.
+- **Axis-mode toggle** (`step | episode | wallclock`), **panel reorder**,
+  **`localStorage` layout persistence**, **hover crosshair with raw
+  values**, **downsampling for >10 k-sample series** — all M8.2.
+- **Landscape heatmap background** — sampled per known label
+  client-side; M7.1.
+- **BipedalWalker / CarRacing / Swimmer / Reacher / DoublePendulum**
   examples — fall out structurally from the shared `Box2dBodies` /
-  `Locomotion2D` SVG renderer, but no dedicated examples ship in M7.
-- Convergence plots, population/lineage panels (M8).
+  `Locomotion2D` SVG renderer; M7.1.
 
 ## Standalone development
 
