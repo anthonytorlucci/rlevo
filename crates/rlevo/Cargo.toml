@@ -246,3 +246,36 @@ required-features = ["viz-record", "viz-report"]
 name = "report_toy_text_with_client"
 path = "examples/viz/report_toy_text_with_client.rs"
 required-features = ["viz-record", "viz-report"]
+
+# M7 — landscapes
+[[example]]
+name = "record_sphere_landscape"
+path = "examples/viz/record_sphere_landscape.rs"
+required-features = ["viz-record"]
+
+[[example]]
+name = "report_sphere_landscape_with_client"
+path = "examples/viz/report_sphere_landscape_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# M7 — locomotion
+[[example]]
+name = "record_inverted_pendulum"
+path = "examples/viz/record_inverted_pendulum.rs"
+required-features = ["locomotion", "viz-record"]
+
+[[example]]
+name = "report_inverted_pendulum_with_client"
+path = "examples/viz/report_inverted_pendulum_with_client.rs"
+required-features = ["locomotion", "viz-record", "viz-report"]
+
+# M7 — box2d
+[[example]]
+name = "record_lunar_lander"
+path = "examples/viz/record_lunar_lander.rs"
+required-features = ["box2d", "viz-record"]
+
+[[example]]
+name = "report_lunar_lander_with_client"
+path = "examples/viz/report_lunar_lander_with_client.rs"
+required-features = ["box2d", "viz-record", "viz-report"]

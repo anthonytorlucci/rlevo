@@ -6,9 +6,12 @@
 //! of the report still conveys agent / goal / hazard meaning — per the
 //! project's hue-redundant accessibility contract.
 
+pub mod box2d;
 pub mod classic;
 pub mod fallback;
 pub mod grids;
+pub mod landscape;
+pub mod locomotion;
 pub mod toy_text;
 
 use leptos::prelude::*;
@@ -18,12 +21,17 @@ use crate::wire::{EnvFamily, FrameRecord};
 /// Dispatch one [`FrameRecord`] to the family-specific renderer.
 #[must_use]
 pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
+    // `EnvFamily` is `#[non_exhaustive]`; the wildcard arm catches future
+    // variants the wire mirror grows. Today (post-M7) every known family
+    // has a dedicated adapter, so the wildcard is structural future-proofing.
+    #[allow(unreachable_patterns)]
     match family {
         EnvFamily::Classic => classic::render(frame),
         EnvFamily::Grids => grids::render(frame),
         EnvFamily::ToyText => toy_text::render(frame),
-        // box2d / locomotion / landscapes land in M7. Until then they
-        // get the generic styled-frame surface plus a banner.
+        EnvFamily::Landscapes => landscape::render(frame),
+        EnvFamily::Locomotion => locomotion::render(frame),
+        EnvFamily::Box2d => box2d::render(frame),
         _ => fallback::render(family, frame),
     }
 }

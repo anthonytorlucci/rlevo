@@ -494,6 +494,107 @@ impl crate::render::AsciiRenderable for LunarLanderDiscrete {
     }
 }
 
+// ---------------------------------------------------------------------------
+// M7 report-tier payload — Box2D bodies for the lander, legs, and helipad
+// ground.
+// ---------------------------------------------------------------------------
+
+impl LunarLanderCore {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        use rlevo_core::render::{Box2dSnapshot, BodyKind, Point2, RigidBody2D};
+
+        let view = lander_viewport();
+        let world = &self.world;
+
+        let mut bodies: Vec<RigidBody2D> = Vec::with_capacity(4);
+
+        // Hull (lander): cuboid with half-extents LANDER_W/2 × LANDER_H/2.
+        if let Some(hull) = world.bodies().get(self.state.lander_handle) {
+            let p = hull.translation();
+            let hw = LANDER_W * 0.5;
+            let hh = LANDER_H * 0.5;
+            bodies.push(RigidBody2D {
+                vertices: vec![
+                    Point2::new(-hw, -hh),
+                    Point2::new(hw, -hh),
+                    Point2::new(hw, hh),
+                    Point2::new(-hw, hh),
+                ],
+                position: Point2::new(p.x, p.y),
+                rotation_rad: hull.rotation().angle(),
+                kind: BodyKind::Hull,
+            });
+        }
+        // Legs: cuboid 0.05 × 0.3 half-extents.
+        for handle in [self.state.leg1_handle, self.state.leg2_handle] {
+            if let Some(leg) = world.bodies().get(handle) {
+                let p = leg.translation();
+                bodies.push(RigidBody2D {
+                    vertices: vec![
+                        Point2::new(-0.05, -0.3),
+                        Point2::new(0.05, -0.3),
+                        Point2::new(0.05, 0.3),
+                        Point2::new(-0.05, 0.3),
+                    ],
+                    position: Point2::new(p.x, p.y),
+                    rotation_rad: leg.rotation().angle(),
+                    kind: BodyKind::Leg,
+                });
+            }
+        }
+        // Ground: a thin slab at y = 0 spanning the viewport. Half-height
+        // tuned so it reads as a ground line even with rounded corners.
+        bodies.push(RigidBody2D {
+            vertices: vec![
+                Point2::new(-VIEWPORT_W / SCALE / 2.0, -LANDER_GROUND_Y),
+                Point2::new(VIEWPORT_W / SCALE / 2.0, -LANDER_GROUND_Y),
+                Point2::new(VIEWPORT_W / SCALE / 2.0, LANDER_GROUND_Y),
+                Point2::new(-VIEWPORT_W / SCALE / 2.0, LANDER_GROUND_Y),
+            ],
+            position: Point2::new(VIEWPORT_W / SCALE / 2.0, 0.0),
+            rotation_rad: 0.0,
+            kind: BodyKind::Ground,
+        });
+
+        // Contacts — surfaced from the leg flags; the location is each
+        // leg's foot.
+        let mut contacts: Vec<Point2> = Vec::new();
+        if self.state.leg1_contact
+            && let Some(leg) = world.bodies().get(self.state.leg1_handle)
+        {
+            let p = leg.translation();
+            contacts.push(Point2::new(p.x, p.y - 0.3));
+        }
+        if self.state.leg2_contact
+            && let Some(leg) = world.bodies().get(self.state.leg2_handle)
+        {
+            let p = leg.translation();
+            contacts.push(Point2::new(p.x, p.y - 0.3));
+        }
+
+        Box2dSnapshot {
+            world_bounds: (
+                Point2::new(view.x_min, view.y_min),
+                Point2::new(view.x_max, view.y_max),
+            ),
+            bodies,
+            contacts,
+        }
+    }
+}
+
+impl rlevo_core::render::Box2dPayloadSource for LunarLanderDiscrete {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        self.core.box2d_snapshot()
+    }
+}
+
+impl rlevo_core::render::Box2dPayloadSource for LunarLanderContinuous {
+    fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
+        self.core.box2d_snapshot()
+    }
+}
+
 impl crate::render::AsciiRenderable for LunarLanderContinuous {
     fn render_ascii(&self) -> String {
         super::super::render::render_box2d_ascii(

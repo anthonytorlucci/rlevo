@@ -243,6 +243,45 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
     config.cart_half_extents[2]
 }
 
+// ---------------------------------------------------------------------------
+// M7 report-tier payload — sagittal-plane projection.
+//
+// Joint 0 = cart centre; joint 1 = pole tip. The bone connects them.
+// Both points project onto the (x, z) plane: x forward, z up.
+// `ground_y` is z = 0 — the floor plane the cart rests on.
+// ---------------------------------------------------------------------------
+
+impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3DBackend> {
+    fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
+        use rlevo_core::render::{Locomotion2DSnapshot, Point2};
+
+        let cart_pose = Rapier3DBackend::get_pose(&self.world, self.state.cart);
+        let pole_pose = Rapier3DBackend::get_pose(&self.world, self.state.pole);
+
+        // Pole tip lies at the far end of the pole body from the joint.
+        // The pole's centre is at pole_pose.position; its half-length axis
+        // points along the body's local +z, rotated into world frame.
+        // For the sagittal projection we approximate the tip with
+        // 2*(pole_centre - cart_centre) + cart_centre, which gives the
+        // correct visual stick figure for the small-angle regime this env
+        // operates in.
+        let cx = cart_pose.position[0];
+        let cz = cart_pose.position[2];
+        let px = pole_pose.position[0];
+        let pz = pole_pose.position[2];
+        let tip_x = cx + 2.0 * (px - cx);
+        let tip_z = cz + 2.0 * (pz - cz);
+
+        Locomotion2DSnapshot {
+            joints: vec![Point2::new(cx, cz), Point2::new(tip_x, tip_z)],
+            bones: vec![(0, 1)],
+            ground_y: 0.0,
+            com: Some(Point2::new(px, pz)),
+            contacts: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
