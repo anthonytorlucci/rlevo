@@ -15,8 +15,10 @@
 
 pub mod adapters;
 pub mod app;
+pub mod charts;
 pub mod inline_data;
 pub mod playback;
+pub mod series;
 pub mod styled;
 pub mod wire;
 
