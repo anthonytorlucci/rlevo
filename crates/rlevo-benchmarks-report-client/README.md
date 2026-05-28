@@ -190,15 +190,92 @@ training cycle on CartPole, wiring `RecordingTap` for frames and
 single-file report in one shot — the natural M8 demo because it
 exercises every RL canonical metric in `CANONICAL_METRICS`.
 
-## Deferred to M8.1+
+## M8.1 — population panels
 
-- **Population / lineage panels** ([`evolution-population`](../../docs/specs.md) §3) —
-  needs `PopulationSample` in the schema (`FORMAT_VERSION = 3` bump) +
-  a `PopulationReporter` producer + EA-loop observer instrumentation.
-  Box plot, diversity trace, lineage DAG, selection-pressure indicator
-  all wait on that infrastructure.
-- **Hybrid scatter** — depends on `PopulationSample` plus a per-individual
-  `inner_rl_return` field.
+M8.1 closes the EA-side half of the M8 spec row: a new **Population**
+section lands between the M8 Convergence section and the per-episode
+playback pane. Wire format bumps to **`FORMAT_VERSION = 3`** to carry a
+new [`PopulationSample`](../rlevo-benchmarks/src/record/schema.rs) chunk
+(bincode tag 2). v1 and v2 records continue to decode through the v3
+loader because the new chunk tag never appears in older streams.
+
+Panel inventory (rendered when `population_samples` is non-empty in
+the run):
+
+- **Fitness distribution per generation** — hand-rolled SVG box plot
+  ([`leptos-chartistry`](https://docs.rs/leptos-chartistry) 0.2 ships
+  only `Line` and `Bar`, no box-plot primitive). Per generation: filled
+  `[Q1, Q3]` rectangle, horizontal median tick, vertical whiskers
+  clipped at the Tukey 1.5×IQR fence, outliers as small open circles.
+  Three overlay polylines (best / median / worst) pair colour with
+  distinct dash patterns (`solid` / `4 2` / `1 3`) so the trio is
+  distinguishable in a B/W screenshot — the project's hue-redundant
+  a11y contract.
+- **Diversity trace** — `(generation, diversity)` scalar series, one
+  point per sample that carries a diversity value. Suppressed when no
+  sample provides one (M8.1 emits `None` from the harness — see
+  M8.2 deferral below).
+- **Selection-pressure indicator** — `best / median` ratio per
+  generation, skipping zero-median degeneracy. Reuses the M8
+  `line_chart_view`.
+
+### Producer surface
+
+[`rlevo_evolution::PopulationObserver`](../rlevo-evolution/src/observer.rs)
+is the EA-side hook the report producer attaches to. Wiring:
+
+```text
+EvolutionaryHarness::new(...)
+    .with_observer(reporter.clone())
+                  ↓ on_population(snapshot)        (per generation,
+PopulationReporter                                  post-Strategy::tell)
+    ↓ sink.lock().on_population_sample(sample)
+Arc<Mutex<dyn RecordSink>>                          → RecordChunk::Population
+                                                      → .rec stream
+```
+
+`PopulationReporter` is shipped from
+[`rlevo_benchmarks::record::population_reporter`](../rlevo-benchmarks/src/record/population_reporter.rs).
+The harness pays the device→host transfer of the fitness tensor only
+when an observer is attached; observerless runs are unchanged.
+
+### New umbrella example
+
+`record_evolution_sphere_with_client` runs a 50-generation GA on
+Sphere-D2 with the `PopulationReporter` observer attached **and**
+`RecordingLayer` capturing the canonical EA metrics (`best_fitness` /
+`mean_fitness` / `worst_fitness` / `best_fitness_ever`). Per generation
+it also emits one Landscape2D frame showing the best-so-far position,
+so the M6/M7 playback surface populates alongside the new Population
+section. End-to-end: 50 frames + 200 metrics + 50 population samples
+per run.
+
+### Loading and caching
+
+`src/inline_data.rs::read_all_population_samples()` walks the cached
+episode records (`read_all_episode_records`) and concatenates every
+record's `population_samples` vector behind its own `OnceLock`. RL-only
+runs return an empty slice and the Population section `view!`'s out to
+an empty span — non-EA reports add nothing to the rendered tree.
+
+## Deferred to M8.2+
+
+- **Lineage DAG** ([`evolution-population`](../../docs/specs.md) §3.3) —
+  requires per-Strategy parent tracking. `Strategy::tell` returns
+  `(State, StrategyMetrics)` with no parent map; threading parent
+  indices through GA + CMA-ES + replacement strategies is its own
+  multi-step effort. The schema field `parents_of_best` is already in
+  place; the panel renders only when non-empty across generations.
+- **Hybrid scatter** ([`evolution-population`](../../docs/specs.md) §4.1) —
+  depends on a production `rlevo-hybrid` driver (`crates/rlevo-hybrid/src/lib.rs`
+  is a skeleton). The schema field `inner_rl_returns` is in place;
+  the panel renders only when non-empty.
+- **Diversity computation** — `PopulationSnapshot::diversity` is
+  emitted as `None` from `EvolutionaryHarness` because the harness has
+  no strategy-agnostic geometry over the population tensor. A
+  `Strategy::diversity(state) -> Option<f32>` extension is the
+  natural M8.2 follow-up; until it lands the diversity panel
+  suppresses cleanly.
 - **Multi-seed aggregation** — `run_group` field on `MetricSample::aux`
   + cross-record loading + ±std band rendering.
 - **Static SVG export per panel** — `leptos-chartistry` is already
@@ -207,6 +284,11 @@ exercises every RL canonical metric in `CANONICAL_METRICS`.
 - **Axis-mode toggle** (`step | episode | wallclock`), **panel reorder**,
   **`localStorage` layout persistence**, **hover crosshair with raw
   values**, **downsampling for >10 k-sample series** — all M8.2.
+- **Strip-plot overlay** on the box plot (always-on in M8.1; toggle UI
+  is M8.2 polish).
+- **Threshold horizontal-rule annotations** on the diversity +
+  selection-pressure traces — chartistry exposes no annotation
+  primitive; CSS-overlay treatment is M8.2.
 - **Landscape heatmap background** — sampled per known label
   client-side; M7.1.
 - **BipedalWalker / CarRacing / Swimmer / Reacher / DoublePendulum**
