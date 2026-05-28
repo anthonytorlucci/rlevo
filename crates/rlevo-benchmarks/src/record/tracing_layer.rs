@@ -1,11 +1,11 @@
 //! [`RecordingLayer`] — a `tracing` Layer that pushes
 //! [`MetricSample`]s into a [`RecordSink`].
 //!
-//! Mirrors [`TuiCaptureLayer`](crate::tui::log_layer::TuiCaptureLayer)
+//! Counterpart to [`TuiCaptureLayer`](crate::tui::log_layer::TuiCaptureLayer)
 //! but writes to the record-side sink instead of the TUI channel.
-//! Subscribes to the same `CANONICAL_METRICS` field-name registry so a
-//! single algorithm `tracing::info!(...)` call lights up both the live
-//! sparklines and the on-disk metrics stream.
+//! Both layers share the [`crate::metrics_registry::CANONICAL_METRICS`]
+//! registry so a single algorithm `tracing::info!(...)` call lights up
+//! both the live sparklines and the on-disk metrics stream.
 //!
 //! Step coordinate: an `AtomicU64` increments on every captured event.
 //! When the emitting algorithm includes a numeric `step` field on the
@@ -25,27 +25,7 @@ use tracing_subscriber::layer::{Context, Layer};
 use super::schema::MetricSample;
 use super::writer::RecordSink;
 
-/// Field names this layer extracts as metric samples. Mirrors
-/// `tui::log_layer::CANONICAL_METRICS` exactly — adding a name in one
-/// place should add it to the other so the two surfaces stay in sync.
-pub const CANONICAL_METRICS: &[&str] = &[
-    "policy_loss",
-    "value_loss",
-    "loss",
-    "entropy",
-    "approx_kl",
-    "clip_frac",
-    "best_fitness",
-    "mean_fitness",
-    "worst_fitness",
-    "best_fitness_ever",
-];
-
-/// `true` if `name` is a recognised metric field.
-#[must_use]
-pub fn is_canonical_metric(name: &str) -> bool {
-    CANONICAL_METRICS.contains(&name)
-}
+pub use crate::metrics_registry::{CANONICAL_METRICS, is_canonical_metric};
 
 /// `tracing_subscriber::Layer` that captures canonical metric fields
 /// into the on-disk record stream.

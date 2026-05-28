@@ -43,36 +43,7 @@ use tracing_subscriber::layer::{Context, Layer};
 
 use crate::reporter::tui::TuiHandle;
 
-/// Field names the Layer extracts as metric samples. Anything outside
-/// this list still lands in the log panel via the message capture, but
-/// does not produce a [`TuiEvent::MetricUpdate`].
-///
-/// Update this constant when a new algorithm starts emitting a metric
-/// the TUI should chart. Adding a name here is the *only* change needed
-/// — the panel side reads the same registry to decide which sparklines
-/// to draw.
-///
-/// [`TuiEvent::MetricUpdate`]: crate::reporter::tui::TuiEvent::MetricUpdate
-pub const CANONICAL_METRICS: &[&str] = &[
-    // RL training stats
-    "policy_loss",
-    "value_loss",
-    "loss",
-    "entropy",
-    "approx_kl",
-    "clip_frac",
-    // Evolution training stats emitted by `EvolutionaryHarness`.
-    "best_fitness",
-    "mean_fitness",
-    "worst_fitness",
-    "best_fitness_ever",
-];
-
-/// `true` if `name` is one of the recognised metric field names.
-#[must_use]
-pub fn is_canonical_metric(name: &str) -> bool {
-    CANONICAL_METRICS.contains(&name)
-}
+pub use crate::metrics_registry::{CANONICAL_METRICS, is_canonical_metric};
 
 /// `tracing_subscriber::Layer` that captures events for the live TUI.
 ///

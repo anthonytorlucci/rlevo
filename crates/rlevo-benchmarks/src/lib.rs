@@ -8,6 +8,7 @@
 pub mod checkpoint;
 #[cfg(feature = "tui")]
 pub mod env_wrappers;
+pub mod metrics_registry;
 pub mod evaluator;
 pub mod metrics;
 #[cfg(feature = "record")]
