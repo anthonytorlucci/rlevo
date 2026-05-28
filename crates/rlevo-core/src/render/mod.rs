@@ -11,9 +11,14 @@
 
 pub mod ascii;
 pub mod palette;
+pub mod payload;
 pub mod styled;
 
 pub use ascii::{AsciiRenderable, AsciiRenderer};
+pub use payload::{
+    Box2dPayloadSource, Box2dSnapshot, BodyKind, Landscape2DPayloadSource, Landscape2DSnapshot,
+    Locomotion2DPayloadSource, Locomotion2DSnapshot, Point2, RigidBody2D,
+};
 pub use styled::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
 
 /// A renderer for environment `E`.
