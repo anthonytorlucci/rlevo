@@ -210,6 +210,8 @@ where
             .field("inner", &self.inner)
             .field("sink", &"Arc<Mutex<dyn RecordSink>>")
             .field("payload_extractor", &"Box<dyn Fn>")
+            .field("ascii_extractor", &"Box<dyn Fn>")
+            .field("styled_extractor", &"Box<dyn Fn>")
             .field("step", &self.step)
             .field("episode_idx", &self.episode_idx)
             .field("episode_return", &self.episode_return)
