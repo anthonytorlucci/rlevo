@@ -198,11 +198,6 @@ path = "examples/benchmarks/tabular_bandit.rs"
 
 # Examples — live TUI dashboard
 [[example]]
-name = "tui_cartpole"
-path = "examples/viz/tui_cartpole.rs"
-required-features = ["viz-tui"]
-
-[[example]]
 name = "tui_ppo_cartpole"
 path = "examples/viz/tui_ppo_cartpole.rs"
 required-features = ["viz-tui"]
