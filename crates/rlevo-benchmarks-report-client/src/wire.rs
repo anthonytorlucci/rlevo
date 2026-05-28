@@ -135,11 +135,15 @@ pub struct Locomotion2DPayload {
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
+// Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
+// the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
+// catch drift at compile time.
 pub const FORMAT_VERSION: u16 = 3;
 
-/// Oldest on-disk version this client still decodes — v1 files (the
-/// original styled-text-only format) remain readable.
-pub const MIN_SUPPORTED_VERSION: u16 = 1;
+/// Oldest on-disk version this client accepts. Equal to
+/// [`FORMAT_VERSION`] — no backward compatibility before first release.
+// Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
+pub const MIN_SUPPORTED_VERSION: u16 = 3;
 
 #[must_use]
 pub fn bincode_config() -> bincode::config::Configuration {
@@ -211,10 +215,8 @@ pub struct PopulationSample {
 
 /// Length-prefixed wire-format chunk written by the on-disk record writer.
 ///
-/// **Variant ordering is wire-format-stable** — `Frame` and `Metrics`
-/// keep tags 0 and 1; v3 appends `Population` at tag 2 to carry EA
-/// per-generation snapshots. v1/v2 records contain no `Population`
-/// chunks so they decode cleanly.
+/// **Variant ordering is wire-format-stable** — new variants append at
+/// the end so existing bincode tags keep decoding. `Population` is at tag 2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordChunk {
     Frame(FrameRecord),
@@ -264,7 +266,7 @@ pub fn decode_episode_record(bytes: &[u8]) -> Result<EpisodeRecord, DecodeError>
         return Err(DecodeError::Truncated("preamble"));
     }
     let version = u16::from_le_bytes([bytes[0], bytes[1]]);
-    if !(MIN_SUPPORTED_VERSION..=FORMAT_VERSION).contains(&version) {
+    if version != FORMAT_VERSION {
         return Err(DecodeError::VersionMismatch {
             file: version,
             client: FORMAT_VERSION,

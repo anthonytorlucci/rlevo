@@ -147,10 +147,17 @@ fn populated_native_record() -> NativeRecord {
     }
 }
 
-#[test]
-fn format_version_constants_agree() {
-    assert_eq!(NATIVE_VERSION, client::FORMAT_VERSION);
-}
+// Compile-time guard: if either constant is bumped without updating the
+// other, this fires before any test is run.
+const _: () = assert!(
+    NATIVE_VERSION == client::FORMAT_VERSION,
+    "FORMAT_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
+);
+const _: () = assert!(
+    rlevo_benchmarks::record::MIN_SUPPORTED_VERSION
+        == client::MIN_SUPPORTED_VERSION,
+    "MIN_SUPPORTED_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
+);
 
 #[test]
 fn native_encode_decodes_via_client_wire_types() {

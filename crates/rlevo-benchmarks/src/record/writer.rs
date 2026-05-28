@@ -79,9 +79,8 @@ pub trait RecordSink: Send + 'static {
 
 /// One framed chunk in the per-episode wire stream.
 ///
-/// **Variant ordering is wire-format-stable** — `Frame` and `Metrics`
-/// keep tags 0 and 1 so v1/v2 records still decode under v3. The new
-/// `Population` variant lands at tag 2.
+/// **Variant ordering is wire-format-stable** — new variants append at
+/// the end so existing bincode tags keep decoding. `Population` is at tag 2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum RecordChunk {
     Frame(FrameRecord),
@@ -306,7 +305,7 @@ impl RecordSink for RecordWriter {
 ///
 /// # Errors
 ///
-/// Returns `InvalidData` if the format version doesn't match
+/// Returns `InvalidData` if the format version is not exactly
 /// `FORMAT_VERSION`, or any IO/bincode error encountered along the way.
 /// Truncation past the last whole chunk returns `Ok(...)` with the
 /// frames decoded up to the truncation boundary.
@@ -315,15 +314,10 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
     let mut preamble = [0u8; 16];
     f.read_exact(&mut preamble)?;
     let version = u16::from_le_bytes([preamble[0], preamble[1]]);
-    if !(crate::record::schema::MIN_SUPPORTED_VERSION..=FORMAT_VERSION).contains(&version) {
+    if version != FORMAT_VERSION {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!(
-                "format version unsupported: file={version} \
-                 supported={min}..={max}",
-                min = crate::record::schema::MIN_SUPPORTED_VERSION,
-                max = FORMAT_VERSION
-            ),
+            format!("format version unsupported: file={version} expected={FORMAT_VERSION}"),
         ));
     }
 

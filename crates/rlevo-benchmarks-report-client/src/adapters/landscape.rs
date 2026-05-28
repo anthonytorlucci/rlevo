@@ -32,12 +32,7 @@ const VB_PAD: f32 = 16.0;
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Landscape2D(payload) => view_with_payload(payload),
-        _ => {
-            // Wire format permits an Ascii fallback for backwards
-            // compatibility with older recordings — surface that case
-            // through the styled path with the family banner.
-            super::fallback::render(crate::wire::EnvFamily::Landscapes, frame)
-        }
+        _ => super::fallback::render(crate::wire::EnvFamily::Landscapes, frame),
     }
     .into_any()
 }

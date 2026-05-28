@@ -17,26 +17,19 @@ use rlevo_core::render::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Bumps on any breaking change to the on-disk schema. The writer
-/// stamps this into every [`EpisodeRecordHeader`]; the loader accepts
-/// any value in [[`MIN_SUPPORTED_VERSION`], [`FORMAT_VERSION`]]] and
-/// refuses anything outside that range.
-///
-/// **v2**: adds rich [`FamilyPayload`] variants (`Landscape2D`,
-/// `Box2dBodies`, `Locomotion2D`) for SVG-tier rendering. v1 records
-/// (styled-text-only) decode cleanly under v2 because the only variant
-/// the v1 writer ever emitted (`Ascii`) keeps tag index 0.
-///
-/// **v3**: adds [`PopulationSample`] carried by a new
-/// `RecordChunk::Population` variant (bincode tag 2) so EA runs can
-/// record per-generation population snapshots. v1/v2 records decode
-/// cleanly because the new chunk tag never appears in older streams.
+/// Current on-disk schema version. The writer stamps this into every
+/// [`EpisodeRecordHeader`]; the loader rejects any file that does not
+/// carry exactly this value.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
+// same value.  The const assertions in tests/wire_format_compat.rs
+// enforce this at compile time when tests are built.
 pub const FORMAT_VERSION: u16 = 3;
 
-/// Oldest on-disk format version this loader still accepts. The
-/// schema is backwards-compatible with v1 records — see
-/// [`FORMAT_VERSION`].
-pub const MIN_SUPPORTED_VERSION: u16 = 1;
+/// Oldest on-disk version this loader accepts. Equal to
+/// [`FORMAT_VERSION`] — no backward compatibility is maintained
+/// before the first production release.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
+pub const MIN_SUPPORTED_VERSION: u16 = 3;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -106,20 +99,19 @@ pub const fn default_frame_stride(family: EnvFamily) -> u16 {
 /// Per-family rich payload.
 ///
 /// **Variant ordering is wire-format-stable** — new variants append at
-/// the end so existing bincode tags keep decoding. `Ascii` stays at
-/// tag 0 because v1 records exclusively carry that variant.
+/// the end so existing bincode tags keep decoding.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FamilyPayload {
     /// Plain-text / styled-text rendering — the default for ASCII-able
     /// envs.
     Ascii,
-    /// Landscape (search-space) projection for `landscapes` envs (v2+).
+    /// Landscape (search-space) projection for `landscapes` envs.
     Landscape2D(Landscape2DPayload),
-    /// Rigid-body world for `box2d` envs (v2+).
+    /// Rigid-body world for `box2d` envs.
     Box2dBodies(Box2dPayload),
     /// Sagittal-plane stick figure for `locomotion` envs — their
-    /// canonical view, since locomotion has no ASCII path (v2+).
+    /// canonical view, since locomotion has no ASCII path.
     Locomotion2D(Locomotion2DPayload),
 }
 
@@ -277,9 +269,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_three_and_min_supported_is_one() {
+    fn format_version_is_three_and_min_supported_is_three() {
         assert_eq!(FORMAT_VERSION, 3);
-        assert_eq!(MIN_SUPPORTED_VERSION, 1);
+        assert_eq!(MIN_SUPPORTED_VERSION, 3);
     }
 
     #[test]
