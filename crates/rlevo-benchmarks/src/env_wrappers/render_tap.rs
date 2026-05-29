@@ -23,12 +23,21 @@ use rlevo_core::render::AsciiRenderable;
 
 use crate::reporter::tui::TuiHandle;
 
-/// Wrapper that emits a [`StyledFrame`](rlevo_core::render::StyledFrame)
-/// after every successful `reset` / `step` on the inner env.
+/// Transparent [`BenchEnv`] wrapper that emits a [`StyledFrame`] after each successful step.
 ///
-/// The `E` bound is `BenchEnv + AsciiRenderable`. Any env that ships the
-/// styled projection (every 2D env post-milestone-1) drops in without
-/// further plumbing.
+/// Requires `E: BenchEnv + AsciiRenderable`. Any env that provides the
+/// styled projection drops in without further plumbing.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use rlevo_benchmarks::env_wrappers::render_tap::RenderTap;
+/// # use rlevo_benchmarks::reporter::tui::TuiHandle;
+/// # fn make_env() -> impl rlevo_core::evaluation::BenchEnv + rlevo_core::render::AsciiRenderable { todo!() }
+/// let (handle, _rx) = TuiHandle::channel();
+/// let mut tap = RenderTap::new(make_env(), handle);
+/// tap.reset().unwrap();
+/// ```
 #[derive(Debug)]
 pub struct RenderTap<E> {
     inner: E,
@@ -251,6 +260,7 @@ mod tests {
         assert_eq!(tap.step_count(), 2);
     }
 
+    /// Consuming `into_inner` yields the original env with its state intact.
     #[test]
     fn into_inner_returns_wrapped_env() {
         let (handle, _rx) = TuiHandle::channel();

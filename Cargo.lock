@@ -6449,6 +6449,7 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "burn",
+ "parking_lot",
  "rand 0.10.1",
  "rand_distr 0.6.0",
  "rlevo-benchmarks",

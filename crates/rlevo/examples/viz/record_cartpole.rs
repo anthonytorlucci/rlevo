@@ -36,7 +36,9 @@
 //!
 //! [`MultiReporter`]: rlevo_benchmarks::reporter::MultiReporter
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -58,15 +60,20 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_environments::bench::BenchAdapter;
 use rlevo_environments::classic::{CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation};
 
+/// Delay injected between steps to keep the TUI rendering legible.
 const STEP_THROTTLE: Duration = Duration::from_millis(20);
+/// Deterministic seed used for both recording config and the evaluator.
 const SEED: u64 = 2026;
+/// Number of CartPole episodes to run and record.
 const NUM_EPISODES: usize = 12;
 
+/// Uniformly-random CartPole agent used to drive the recording harness.
 struct RandomCartPoleAgent {
     dist: Uniform<usize>,
 }
 
 impl RandomCartPoleAgent {
+    /// Creates a new agent whose action distribution spans all valid CartPole actions.
     fn new() -> Self {
         Self {
             dist: Uniform::new(0, CartPoleAction::ACTION_COUNT).expect("non-empty action set"),
@@ -75,6 +82,7 @@ impl RandomCartPoleAgent {
 }
 
 impl BenchableAgent<CartPoleObservation, CartPoleAction> for RandomCartPoleAgent {
+    /// Samples a random action, sleeping for `STEP_THROTTLE` to pace the live TUI.
     fn act(&mut self, _obs: &CartPoleObservation, rng: &mut dyn Rng) -> CartPoleAction {
         thread::sleep(STEP_THROTTLE);
         let idx = self.dist.sample(rng);

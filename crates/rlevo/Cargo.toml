@@ -23,6 +23,7 @@ rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
 approx = { workspace = true }
 burn = { workspace = true }
+parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde = { workspace = true }
