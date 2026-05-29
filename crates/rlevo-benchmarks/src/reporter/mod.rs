@@ -1,8 +1,18 @@
-//! Streaming reporter sink.
+//! Streaming reporter sinks for benchmark suite events.
 //!
-//! Reporters receive events during suite execution. They are not
-//! responsible for computing metrics — that happens in `metrics::core` —
-//! only for emitting / displaying / buffering the events they observe.
+//! The central abstraction is the [`Reporter`] trait. Implementations receive
+//! lifecycle callbacks as a suite progresses and are free to emit, display, or
+//! buffer events however they choose. Metric *computation* is not their
+//! responsibility — that belongs to `metrics::core`.
+//!
+//! Built-in implementations live in the sub-modules:
+//!
+//! - `logging` — a simple tracing-backed sink (always available)
+//! - `json` — serialises reports to JSON files (requires the `json` feature)
+//! - `tui` — live terminal UI (requires the `tui` feature)
+//!
+//! When a run must drive several sinks simultaneously, wrap them in a
+//! [`MultiReporter`].
 
 pub mod logging;
 
@@ -15,11 +25,28 @@ pub mod tui;
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::suite::{SuiteInfo, TrialInfo};
 
+/// Event sink called by the `Evaluator` throughout a benchmark run.
+///
+/// Implementors are notified at each lifecycle boundary — suite start/end,
+/// trial start/end, and episode end — and may emit, log, or buffer the data
+/// however they need. Implementors must be [`Send`] so they can be driven from
+/// the evaluator's execution context.
+///
+/// For running multiple sinks in parallel, see [`MultiReporter`].
 pub trait Reporter: Send {
+    /// Called once before any trials begin, with metadata about the suite.
     fn on_suite_start(&mut self, suite: &SuiteInfo);
+
+    /// Called at the start of each (env, seed) trial.
     fn on_trial_start(&mut self, trial: &TrialInfo);
+
+    /// Called after each episode within a trial completes.
     fn on_episode_end(&mut self, trial: &TrialInfo, ep: &EpisodeSummary);
+
+    /// Called when a trial finishes, with its full accumulated report.
     fn on_trial_end(&mut self, trial: &TrialInfo, report: &TrialReport);
+
+    /// Called once after all trials complete, with the aggregate suite report.
     fn on_suite_end(&mut self, report: &BenchmarkReport);
 }
 
@@ -40,6 +67,7 @@ impl std::fmt::Debug for MultiReporter {
 }
 
 impl MultiReporter {
+    /// Creates a `MultiReporter` that forwards events to `reporters` in order.
     #[must_use]
     pub fn new(reporters: Vec<Box<dyn Reporter>>) -> Self {
         Self { reporters }

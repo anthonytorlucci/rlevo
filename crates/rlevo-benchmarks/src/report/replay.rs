@@ -47,7 +47,12 @@ pub struct EpisodeIndex {
     pub metrics: Vec<MetricSample>,
 }
 
-/// Loaded run materialised in memory.
+/// A recorded benchmark run loaded from disk and held in memory.
+///
+/// Construct with [`RecordedRun::open`]. The run is fully materialised on
+/// load: all episode frames are eagerly decoded and metrics are merged into
+/// a per-series index. Warnings produced during loading (synthesised manifest,
+/// episode count mismatch) are accessible via [`warnings`](Self::warnings).
 #[derive(Debug, Clone)]
 pub struct RecordedRun {
     manifest: RunManifest,
@@ -159,26 +164,36 @@ impl RecordedRun {
         })
     }
 
+    /// Returns the run manifest, either loaded from `run.toml` or synthesised.
     #[must_use]
     pub fn manifest(&self) -> &RunManifest {
         &self.manifest
     }
 
+    /// Returns the decoded episodes in ascending episode-number order.
     #[must_use]
     pub fn episodes(&self) -> &[EpisodeIndex] {
         &self.episodes
     }
 
+    /// Returns per-series metric samples aggregated across all episodes.
+    ///
+    /// Keys are metric names (e.g. `"policy_loss"`); values are all samples
+    /// for that series in the order they were emitted across episodes.
     #[must_use]
     pub fn metrics_by_series(&self) -> &BTreeMap<String, Vec<MetricSample>> {
         &self.metrics_by_series
     }
 
+    /// Returns non-fatal conditions detected during loading, if any.
+    ///
+    /// An empty slice means the run was loaded without any anomalies.
     #[must_use]
     pub fn warnings(&self) -> &[OpenWarning] {
         &self.warnings
     }
 
+    /// Returns the root directory from which this run was opened.
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -198,16 +213,25 @@ impl RecordedRun {
     }
 }
 
+/// Errors that prevent a run directory from being opened.
+///
+/// Contrast with [`OpenWarning`], which covers non-fatal anomalies that
+/// allow loading to succeed with a degraded or reconstructed manifest.
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
+    /// An I/O failure while listing or reading files in the run directory.
     #[error("io error reading run directory: {0}")]
     Io(#[source] io::Error),
+    /// The directory contained no `episode_*.rec` files.
     #[error("no episode_*.rec files found in {0}")]
     NoEpisodes(PathBuf),
+    /// `run.toml` was present but could not be deserialized as a [`RunManifest`](crate::record::RunManifest).
     #[error("run.toml present but could not be parsed: {0}")]
     ManifestParse(#[source] toml::de::Error),
+    /// An episode file could not be opened or decoded.
     #[error("could not decode {path}: {source}")]
     EpisodeDecode {
+        /// Path of the episode file that triggered the error.
         path: PathBuf,
         #[source]
         source: io::Error,

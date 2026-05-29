@@ -1,4 +1,10 @@
-//! Zero-dep reporter that emits tracing events.
+//! Tracing-backed [`Reporter`] with no additional dependencies.
+//!
+//! [`LoggingReporter`] emits one `INFO`-level tracing event per lifecycle
+//! callback under the `rlevo_benchmarks` target. It is always compiled; no
+//! feature flag is required.
+//!
+//! [`Reporter`]: crate::reporter::Reporter
 
 use tracing::info;
 
@@ -6,10 +12,18 @@ use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
+/// [`Reporter`] that emits a structured `INFO` tracing event at each lifecycle boundary.
+///
+/// Events are tagged with `target: "rlevo_benchmarks"` so they can be
+/// filtered independently of other `rlevo` spans. The struct carries no
+/// state; it is cheaply cloneable via its [`Default`] derivation.
+///
+/// [`Reporter`]: crate::reporter::Reporter
 #[derive(Debug, Default)]
 pub struct LoggingReporter;
 
 impl LoggingReporter {
+    /// Creates a new `LoggingReporter`.
     #[must_use]
     pub const fn new() -> Self {
         Self

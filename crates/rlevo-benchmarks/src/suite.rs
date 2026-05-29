@@ -15,8 +15,11 @@ pub type EnvFactory<E> = Arc<dyn Fn(u64) -> E + Send + Sync>;
 
 /// A named collection of environments to benchmark against.
 pub struct Suite<E> {
+    /// Display name of the suite, used as a label in reports and checkpoints.
     pub name: String,
+    /// Registered environments: `(display_name, factory)` pairs in insertion order.
     pub envs: Vec<(String, EnvFactory<E>)>,
+    /// Default evaluator configuration applied when the suite is run.
     pub default_config: EvaluatorConfig,
 }
 
@@ -34,6 +37,7 @@ impl<E> std::fmt::Debug for Suite<E> {
 }
 
 impl<E> Suite<E> {
+    /// Creates an empty suite with the given name and default evaluator config.
     pub fn new(name: impl Into<String>, default_config: EvaluatorConfig) -> Self {
         Self {
             name: name.into(),
@@ -42,6 +46,9 @@ impl<E> Suite<E> {
         }
     }
 
+    /// Registers an environment under `name`, built on demand by `factory`.
+    ///
+    /// The factory is called once per trial with the trial-derived seed.
     #[must_use]
     pub fn with_env(
         mut self,
@@ -56,8 +63,11 @@ impl<E> Suite<E> {
 /// Static metadata about a suite passed to reporters.
 #[derive(Debug, Clone)]
 pub struct SuiteInfo {
+    /// Display name of the suite.
     pub name: String,
+    /// Display names of all registered environments, in insertion order.
     pub env_names: Vec<String>,
+    /// Number of independent seeds evaluated per environment.
     pub num_trials_per_env: usize,
 }
 
@@ -65,15 +75,20 @@ pub struct SuiteInfo {
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TrialKey {
+    /// Zero-based index into `Suite::envs`.
     pub env_idx: usize,
+    /// Zero-based seed repetition index for this environment.
     pub trial_idx: usize,
 }
 
 /// Runtime metadata about an in-flight trial passed to reporters.
 #[derive(Debug, Clone)]
 pub struct TrialInfo {
+    /// Unique identifier for this trial within the suite.
     pub key: TrialKey,
+    /// Display name of the environment under evaluation.
     pub env_name: String,
+    /// Combined seed used for both the environment and the agent.
     pub trial_seed: u64,
 }
 

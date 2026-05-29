@@ -159,7 +159,7 @@ pub fn max(xs: &[f64]) -> f64 {
 ///
 /// This is the single source of truth for the standard benchmark metric set.
 /// The evaluator calls it exactly once per trial — after the episode loop
-/// finishes — and passes the result straight into [`BenchmarkReport::absorb_metrics`]:
+/// finishes — and passes the result straight into [`crate::report::TrialReport::absorb_metrics`]:
 ///
 /// ```text
 /// // inside evaluator::run_trial
@@ -178,7 +178,7 @@ pub fn max(xs: &[f64]) -> f64 {
 /// - `wall_clock_seconds` — elapsed wall time for the **entire trial** (all
 ///   episodes), so [`STEPS_PER_SEC`] reflects real throughput including
 ///   environment overhead and any inter-episode setup cost.
-/// - `success_threshold` — sourced from [`EvaluatorConfig::success_threshold`];
+/// - `success_threshold` — sourced from [`crate::evaluator::EvaluatorConfig::success_threshold`];
 ///   when `Some`, a [`SUCCESS_RATE`] metric is appended. Omitting it keeps the
 ///   output compact for environments where "success" is not meaningful.
 ///

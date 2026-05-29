@@ -128,22 +128,31 @@ impl ClientAssets {
     }
 }
 
-/// Outcome metadata reported by [`emit_static_html`].
+/// Outcome metadata returned by a successful [`emit_static_html`] call.
 #[derive(Debug, Clone)]
 pub struct EmitOutcome {
+    /// Number of episode payload blocks inlined into the HTML file.
     pub episode_count: u32,
+    /// Total bytes written to disk (length of the finished HTML string).
     pub bytes_written: u64,
+    /// `true` when `bytes_written` exceeded the configured
+    /// [`EmitConfig::size_warn_bytes`] threshold (default 10 MiB).
     pub size_warning: bool,
 }
 
+/// Errors that can occur while emitting a static HTML report.
 #[derive(Debug, thiserror::Error)]
 pub enum EmitError {
+    /// An I/O failure while creating, writing, or renaming the output file.
     #[error("io error writing output: {0}")]
     Io(#[source] io::Error),
+    /// The manifest or episode-index could not be serialized to JSON.
     #[error("could not encode manifest as JSON: {0}")]
     ManifestJson(#[source] serde_json::Error),
+    /// An episode `.rec` file could not be re-read from disk for inlining.
     #[error("could not re-encode episode {episode} for inlining: {source}")]
     EpisodeReencode {
+        /// Zero-based episode number whose file triggered the error.
         episode: u32,
         #[source]
         source: io::Error,

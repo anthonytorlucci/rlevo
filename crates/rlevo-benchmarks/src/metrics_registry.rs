@@ -1,7 +1,7 @@
 //! Canonical metric field-name registry shared by all tracing layers.
 //!
-//! Both the live-TUI layer ([`crate::tui::log_layer::TuiCaptureLayer`]) and
-//! the on-disk recording layer ([`crate::record::tracing_layer::RecordingLayer`])
+//! Both the live-TUI layer (`TuiCaptureLayer`) and
+//! the on-disk recording layer (`RecordingLayer`)
 //! extract the same named fields from `tracing` events. Keeping the registry
 //! here means a single edit covers both surfaces — the two layers just
 //! import [`CANONICAL_METRICS`] instead of duplicating it.

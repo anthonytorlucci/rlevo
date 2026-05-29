@@ -1,6 +1,12 @@
-//! Per-run manifest written as `run.toml` at the root of the recording
-//! directory. Atomic write: tmp + rename so a reader never observes a
-//! partial file.
+//! Run-level manifest written atomically as `run.toml` at run end.
+//!
+//! [`RunManifest`] carries the metadata a report-tier loader needs to
+//! interpret a recording directory: the run id, seed, environment family,
+//! timestamps, episode count, frame stride, and optional hyperparameters.
+//!
+//! [`RunManifest::write_atomic`] writes via a tmp-then-rename strategy so
+//! the reader always observes either the previous `run.toml` or the new one,
+//! never a partial write.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};

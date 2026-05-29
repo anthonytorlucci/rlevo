@@ -1,9 +1,20 @@
 //! Reproducible benchmarking harness for `rlevo`.
 //!
-//! The trait surface (`BenchEnv`, `BenchError`, `BenchStep`,
-//! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives
-//! in `rlevo-core` (shared trait surface). This crate provides the runner that
-//! drives those traits to produce reports.
+//! The shared trait surface (`BenchEnv`, `BenchError`, `BenchStep`,
+//! `BenchableAgent`, `FitnessEvaluable`, `Landscape`, `SeedStream`) lives in
+//! `rlevo-core`. This crate provides everything needed to drive those traits
+//! and produce structured reports:
+//!
+//! - [`evaluator`] — trial-level parallel runner (rayon) with checkpoint resume.
+//! - [`suite`] — grouping and factory type for environments under test.
+//! - [`metrics`] — core statistics (return, length, throughput), EA metrics, and
+//!   RL metric name constants.
+//! - [`reporter`] — event-sink trait plus `logging`, `json`, and `tui` sinks.
+//! - [`report`] — in-memory report types written by the evaluator.
+//! - [`checkpoint`] — atomic partial-report persistence for crash recovery.
+//! - `record` *(feature `record`)* — per-episode binary recording surface.
+//! - `tui` *(feature `tui`)* — live `ratatui` terminal dashboard.
+//! - `env_wrappers` *(feature `tui`)* — composable env wrappers for frame capture.
 
 pub mod checkpoint;
 #[cfg(feature = "tui")]

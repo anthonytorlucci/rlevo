@@ -103,7 +103,7 @@ pub fn fitness_variance(evaluations: &[f64]) -> f64 {
 ///
 /// The evolution loop typically calls this once per generation alongside
 /// [`core_metrics`][super::core::core_metrics] and merges both into
-/// [`BenchmarkReport::absorb_metrics`]:
+/// [`crate::report::TrialReport::absorb_metrics`]:
 ///
 /// ```text
 /// // inside evolution::run_generation

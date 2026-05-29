@@ -1,14 +1,24 @@
-//! On-disk per-episode recording.
+//! On-disk per-episode recording surface (feature `record`).
 //!
-//! The recording surface ships a sink trait ([`RecordSink`]) plus three
-//! parallel producers (env wrapper, harness reporter, tracing layer)
-//! that all push into the same sink. This mirrors the live-TUI
-//! architecture: one transport, several producers, each owning a single
-//! concern (env frames, suite-lifecycle events, canonical training
-//! metrics).
+//! Three parallel producers all push into the same [`RecordSink`], each
+//! owning a single concern:
 //!
-//! See `projects/rlevo/specs/2026-05-26-env-vis/rlevo-viz-overview.md`
-//! §8 for the wire format and §10 for the writer state machine.
+//! | Producer | Role |
+//! |---|---|
+//! | [`RecordingTap`] | Captures every `reset`/`step` frame from a raw env. |
+//! | [`RecordingReporter`] | Routes harness lifecycle events (episode boundaries, manifest). |
+//! | [`RecordingLayer`] | Extracts canonical metric fields from `tracing` events. |
+//!
+//! The on-disk implementation is [`RecordWriter`], which creates one
+//! `episode_<N>.rec` file per episode in a run directory, then writes
+//! `run.toml` at suite end via [`RunManifest::write_atomic`]. For testing
+//! without touching the filesystem, use [`InMemoryRecordSink`].
+//!
+//! See the project spec (§8 wire format, §10 writer state machine) for the
+//! full binary layout.
+//!
+//! [`RecordWriter`]: crate::record::writer::RecordWriter
+//! [`InMemoryRecordSink`]: crate::record::writer::InMemoryRecordSink
 
 /// [`RecordingTap`] — env wrapper that captures every reset/step frame.
 pub mod env_tap;
