@@ -105,7 +105,8 @@ pub fn median(xs: &[f64]) -> f64 {
 /// ```
 /// # use rlevo_benchmarks::metrics::core::std_dev;
 /// use approx::assert_relative_eq;
-/// assert_relative_eq!(std_dev(&[2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]), 2.0);
+/// // [1, 2, 3]: mean=2, sum-of-sq-dev=2, sample var=2/(3-1)=1, std_dev=1
+/// assert_relative_eq!(std_dev(&[1.0, 2.0, 3.0]), 1.0);
 /// assert_eq!(std_dev(&[42.0]), 0.0);  // single element — undefined, returns 0
 /// ```
 #[must_use]
