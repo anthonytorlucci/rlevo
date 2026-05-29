@@ -46,7 +46,7 @@ impl std::fmt::Debug for RecordingReporter {
 }
 
 impl RecordingReporter {
-    /// Build a reporter that owns the episode lifecycle. Use when the
+    /// Builds a reporter that owns the episode lifecycle. Use when the
     /// env is **not** wrapped in
     /// [`RecordingTap`](super::env_tap::RecordingTap).
     #[must_use]
@@ -58,7 +58,7 @@ impl RecordingReporter {
         }
     }
 
-    /// Build a reporter that suppresses `on_episode_start` /
+    /// Builds a reporter that suppresses `on_episode_start` /
     /// `on_episode_end`. Use when [`RecordingTap`] already drives
     /// those, so the reporter's role is limited to the run-level
     /// manifest at `on_suite_end`.
@@ -73,14 +73,14 @@ impl RecordingReporter {
         }
     }
 
-    /// Replace the hyperparameter map written to the manifest.
+    /// Replaces the hyperparameter map written to the manifest.
     #[must_use]
     pub fn with_hyperparameters(mut self, hp: Hyperparameters) -> Self {
         self.manifest.hyperparameters = hp;
         self
     }
 
-    /// Set a single hyperparameter key/value pair.
+    /// Sets a single hyperparameter key/value pair.
     #[must_use]
     pub fn with_hyperparameter(
         mut self,
@@ -125,8 +125,10 @@ impl Reporter for RecordingReporter {
     }
 }
 
-/// Returns an empty hyperparameter map — convenience to make the
-/// builder API readable without bringing `BTreeMap` into call sites.
+/// Returns an empty [`Hyperparameters`] map.
+///
+/// Avoids a bare `BTreeMap::new()` at call sites when building a
+/// [`RecordingReporter`].
 #[must_use]
 pub fn empty_hyperparameters() -> Hyperparameters {
     BTreeMap::new()

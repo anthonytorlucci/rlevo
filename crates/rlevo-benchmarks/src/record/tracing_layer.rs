@@ -45,7 +45,7 @@ impl fmt::Debug for RecordingLayer {
 }
 
 impl RecordingLayer {
-    /// Construct the layer wrapped around a shared sink. The same
+    /// Constructs the layer wrapped around a shared sink. The same
     /// `sink` should also be held by the env-tap / reporter producers
     /// in the same run so all three write to the same files.
     #[must_use]

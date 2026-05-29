@@ -35,15 +35,19 @@ use super::schema::{
 /// picks the per-family default.
 #[derive(Debug, Clone)]
 pub struct RecordingConfig {
+    /// Frame decimation factor override; `None` uses the per-family default.
     pub frame_stride: Option<u16>,
+    /// Environment family recorded in this run.
     pub env_family: EnvFamily,
+    /// RNG seed used by the env / agent, preserved in the manifest.
     pub seed: u64,
+    /// Explicit run id, or `None` to generate a fresh timestamped id on open.
     pub run_id: Option<RunId>,
 }
 
 impl RecordingConfig {
-    /// Minimum viable config: defaults `frame_stride` to the family
-    /// default and `run_id` to a fresh timestamped id.
+    /// Creates a minimal config with per-family default stride and a
+    /// generated run id.
     #[must_use]
     pub fn new(env_family: EnvFamily, seed: u64) -> Self {
         Self {
@@ -66,12 +70,17 @@ impl RecordingConfig {
 /// `Send + 'static` so producers can hold the sink behind
 /// `Arc<parking_lot::Mutex<dyn RecordSink>>` across rayon worker threads.
 pub trait RecordSink: Send + 'static {
+    /// Called when a new episode begins; `episode_idx` is zero-based.
     fn on_episode_start(&mut self, episode_idx: u32);
+    /// Pushes one captured frame to the sink.
     fn on_frame(&mut self, frame: FrameRecord);
+    /// Pushes one scalar metric sample to the sink.
     fn on_metric(&mut self, sample: MetricSample);
+    /// Called when an episode terminates or truncates.
     fn on_episode_end(&mut self, return_value: f64, length: u32);
+    /// Called once when the run concludes; `manifest` carries finalised run-level metadata.
     fn on_run_end(&mut self, manifest: RunManifest);
-    /// Push one population snapshot. EA producers call this once per
+    /// Pushes one population snapshot. EA producers call this once per
     /// generation; RL producers never call it. Default no-op so impls
     /// outside the EA path don't need a stub.
     fn on_population_sample(&mut self, _sample: PopulationSample) {}
@@ -367,12 +376,16 @@ fn read_chunk<T: for<'de> Deserialize<'de>, R: Read + Seek>(r: &mut R) -> io::Re
 /// have to touch the filesystem.
 #[derive(Debug, Default)]
 pub struct InMemoryRecordSink {
+    /// All accumulated episode records keyed by episode index.
     pub episodes: BTreeMap<u32, EpisodeRecord>,
+    /// Episode index of the currently open episode, or `None` between episodes.
     pub current: Option<u32>,
+    /// Run manifests collected via [`RecordSink::on_run_end`].
     pub manifests: Vec<RunManifest>,
 }
 
 impl InMemoryRecordSink {
+    /// Creates an empty in-memory sink.
     #[must_use]
     pub fn new() -> Self {
         Self::default()

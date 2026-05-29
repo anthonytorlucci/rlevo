@@ -40,16 +40,23 @@ use super::writer::RecordSink;
 /// convenience constructors.
 pub type PayloadExtractor<E> = Box<dyn Fn(&E) -> FamilyPayload + Send + Sync>;
 
-/// Boxed extractor for the optional ASCII / styled rendering. Returns
-/// `None` for envs that do not implement [`AsciiRenderable`] — the
-/// `locomotion` family is the canonical example.
+/// Boxed extractor for the optional ASCII rendering surface.
+///
+/// Returns `None` for envs that do not implement [`AsciiRenderable`] —
+/// the `locomotion` family is the canonical example.
 pub type AsciiExtractor<E> = Box<dyn Fn(&E) -> Option<String> + Send + Sync>;
+
+/// Boxed extractor for the optional styled rendering surface.
+///
+/// Returns `None` for envs that do not implement [`AsciiRenderable`] —
+/// the `locomotion` family is the canonical example.
 pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Sync>;
 
-/// Wraps an [`Environment`] and pushes a [`FrameRecord`] after every
-/// successful `reset` / `step`, calling [`RecordSink::on_episode_start`]
-/// at each new episode and [`RecordSink::on_episode_end`] on termination
-/// or truncation.
+/// Environment wrapper that records every reset and step to a [`RecordSink`].
+///
+/// Pushes a [`FrameRecord`] after every successful `reset` / `step`,
+/// calling [`RecordSink::on_episode_start`] at each new episode and
+/// [`RecordSink::on_episode_end`] on termination or truncation.
 ///
 /// Action encoding requires `Environment::ActionType: Serialize`. Most
 /// env action types either already derive [`Serialize`] or only need a

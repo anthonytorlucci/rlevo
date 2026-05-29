@@ -44,7 +44,7 @@ pub fn bincode_config() -> bincode::config::Configuration {
 pub struct RunId(pub String);
 
 impl RunId {
-    /// Construct a run id from the current wall-clock time and a
+    /// Constructs a run id from the current wall-clock time and a
     /// random 24-bit suffix. Collisions are vanishingly unlikely for
     /// the per-second granularity but the suffix protects against
     /// concurrent processes starting in the same second.
@@ -76,11 +76,17 @@ impl RunId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EnvFamily {
+    /// Classic control tasks (CartPole, MountainCar, Acrobot, …).
     Classic,
+    /// Discrete grid-world environments.
     Grids,
+    /// Tabular toy-text environments (FrozenLake, Taxi, …).
     ToyText,
+    /// 2D rigid-body physics environments.
     Box2d,
+    /// Continuous locomotion environments (no ASCII rendering path).
     Locomotion,
+    /// Optimisation-landscape search environments.
     Landscapes,
 }
 
@@ -124,13 +130,20 @@ pub enum FamilyPayload {
 // no bincode dependency.
 // ---------------------------------------------------------------------------
 
+/// Bincode-stable mirror of [`Landscape2DSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Landscape2DPayload {
+    /// Horizontal extent of the search space `(min_x, max_x)`.
     pub bounds_x: (f32, f32),
+    /// Vertical extent of the search space `(min_y, max_y)`.
     pub bounds_y: (f32, f32),
+    /// Current agent position in the landscape.
     pub current: Point2,
+    /// Best position found so far, or `None` if not yet tracked.
     pub best: Option<Point2>,
+    /// Historical positions for trajectory rendering.
     pub trail: Vec<Point2>,
+    /// Human-readable label for the landscape panel.
     pub label: String,
 }
 
@@ -147,10 +160,14 @@ impl From<Landscape2DSnapshot> for Landscape2DPayload {
     }
 }
 
+/// Bincode-stable mirror of [`Box2dSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Box2dPayload {
+    /// Axis-aligned bounding box of the physics world `(min, max)`.
     pub world_bounds: (Point2, Point2),
+    /// Rigid bodies present in the world this frame.
     pub bodies: Vec<RigidBody2D>,
+    /// Active contact points between bodies.
     pub contacts: Vec<Point2>,
 }
 
@@ -164,12 +181,18 @@ impl From<Box2dSnapshot> for Box2dPayload {
     }
 }
 
+/// Bincode-stable mirror of [`Locomotion2DSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Locomotion2DPayload {
+    /// 2D joint positions in the sagittal-plane projection.
     pub joints: Vec<Point2>,
+    /// Bone segments as `(parent_joint_index, child_joint_index)` pairs.
     pub bones: Vec<(u32, u32)>,
+    /// World-space y-coordinate of the ground plane.
     pub ground_y: f32,
+    /// Centre of mass, if provided by the environment.
     pub com: Option<Point2>,
+    /// Active ground-contact points.
     pub contacts: Vec<Point2>,
 }
 
@@ -191,10 +214,15 @@ impl From<Locomotion2DSnapshot> for Locomotion2DPayload {
 /// to refuse mismatched files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpisodeRecordHeader {
+    /// Wire-format version stamp; loader rejects any value ≠ [`FORMAT_VERSION`].
     pub format_version: u16,
+    /// Unique identifier of the parent recording run.
     pub run_id: RunId,
+    /// RNG seed used for this episode.
     pub seed: u64,
+    /// Environment family — determines the payload decoder on the report tier.
     pub env_family: EnvFamily,
+    /// Unix timestamp (seconds) when this episode file was opened.
     pub created_at: i64,
 }
 
@@ -203,11 +231,17 @@ pub struct EpisodeRecordHeader {
 /// (Discrete / Continuous / multi-dim) share one carrier.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameRecord {
+    /// Zero-based step index within the episode.
     pub step: u32,
+    /// Bincode-encoded action taken to reach this frame; empty on the reset frame.
     pub action: Vec<u8>,
+    /// Scalar reward received at this step.
     pub reward: f32,
+    /// Plain-text env rendering, or `None` for headless envs.
     pub ascii: Option<String>,
+    /// Styled-text env rendering, or `None` for headless envs.
     pub styled: Option<StyledFrame>,
+    /// Family-specific rich payload for report-tier rendering.
     pub family_payload: FamilyPayload,
 }
 
@@ -215,8 +249,11 @@ pub struct FrameRecord {
 /// generation index (EA) it was emitted at.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MetricSample {
+    /// Global training step (RL) or generation index (EA) at emission.
     pub step: u32,
+    /// Metric name, e.g. `"policy_loss"` or `"episode_return"`.
     pub name: String,
+    /// Scalar value of the metric.
     pub value: f64,
 }
 
@@ -237,12 +274,19 @@ pub struct MetricSample {
 ///   scatter panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PopulationSample {
+    /// Zero-based generation index.
     pub generation: u32,
+    /// Per-genome fitness scores in population order.
     pub fitnesses: Vec<f32>,
+    /// Optional behavioural or genotypic diversity estimate.
     pub diversity: Option<f32>,
+    /// Index into `fitnesses` of the highest-scoring genome.
     pub best_index: u32,
+    /// 128-bit hash of the best genome's serialised representation.
     pub best_genome_digest: Option<[u8; 16]>,
+    /// Digests of the best genome's parent genomes (empty until lineage DAG lands).
     pub parents_of_best: Vec<[u8; 16]>,
+    /// Per-genome inner RL returns for hybrid drivers; `None` from pure-EA producers.
     pub inner_rl_returns: Option<Vec<f32>>,
 }
 
@@ -251,9 +295,13 @@ pub struct PopulationSample {
 /// this whole struct in memory during normal recording.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EpisodeRecord {
+    /// Run-level identification and format-version stamp.
     pub header: EpisodeRecordHeader,
+    /// All captured frames in episode order.
     pub frames: Vec<FrameRecord>,
+    /// Scalar metrics emitted during the episode.
     pub metrics: Vec<MetricSample>,
+    /// EA population snapshots; empty for RL-only runs.
     #[serde(default)]
     pub population_samples: Vec<PopulationSample>,
 }

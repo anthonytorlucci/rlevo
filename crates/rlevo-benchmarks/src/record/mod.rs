@@ -10,12 +10,19 @@
 //! See `projects/rlevo/specs/2026-05-26-env-vis/rlevo-viz-overview.md`
 //! §8 for the wire format and §10 for the writer state machine.
 
+/// [`RecordingTap`] — env wrapper that captures every reset/step frame.
 pub mod env_tap;
+/// [`RunManifest`] — atomic `run.toml` writer for run-level metadata.
 pub mod manifest;
+/// [`PopulationReporter`] — EA population-snapshot sink adapter.
 pub mod population_reporter;
+/// [`RecordingReporter`] — suite-lifecycle producer (episode start/end, manifest).
 pub mod reporter;
+/// On-disk type definitions and wire-format constants.
 pub mod schema;
+/// [`RecordingLayer`] — `tracing` subscriber that forwards metric events to the sink.
 pub mod tracing_layer;
+/// [`RecordSink`] trait, [`RecordWriter`], and [`InMemoryRecordSink`].
 pub mod writer;
 
 pub use env_tap::RecordingTap;

@@ -45,6 +45,7 @@ impl std::fmt::Debug for PopulationReporter {
 }
 
 impl PopulationReporter {
+    /// Wraps `sink` in a new reporter.
     #[must_use]
     pub fn new(sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self { sink }

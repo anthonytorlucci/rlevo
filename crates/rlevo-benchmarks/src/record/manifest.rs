@@ -14,20 +14,29 @@ use super::schema::{EnvFamily, FORMAT_VERSION, Hyperparameters, RunId};
 /// Run-level metadata written once per recording at suite end.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunManifest {
+    /// Unique identifier for this recording run.
     pub run_id: RunId,
+    /// RNG seed used for the run, preserved for reproducibility.
     pub seed: u64,
+    /// Environment family recorded in this run.
     pub env_family: EnvFamily,
+    /// Unix timestamp (seconds) when the run was opened.
     pub created_at: i64,
+    /// Unix timestamp (seconds) when the run was finalised.
     pub finished_at: i64,
+    /// Total number of episodes captured.
     pub episode_count: u32,
+    /// Frame decimation factor applied by the writer.
     pub frame_stride: u16,
+    /// Wire-format version used when writing this recording.
     pub format_version: u16,
+    /// Agent / algorithm hyperparameters logged alongside the run.
     #[serde(default)]
     pub hyperparameters: Hyperparameters,
 }
 
 impl RunManifest {
-    /// Construct a fresh manifest. `frame_stride` is the resolved
+    /// Constructs a fresh manifest. `frame_stride` is the resolved
     /// value (per-family default + per-run override) the writer
     /// actually applied.
     #[must_use]
