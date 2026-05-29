@@ -46,6 +46,11 @@ pub fn ascii_frame_view(ascii: &str) -> AnyView {
     view! { <pre class="rlevo-styled">{ascii.to_owned()}</pre> }.into_any()
 }
 
+/// Renders one [`StyledSpan`] as a `<span>` with the appropriate CSS classes.
+///
+/// When [`span_classes`] produces an empty string (default style, `Reset`
+/// colour, zero modifier) the `class` attribute is omitted entirely to keep
+/// the HTML compact.
 fn styled_span_view(span: &StyledSpan) -> AnyView {
     let class = span_classes(&span.style);
     let text = span.text.clone();

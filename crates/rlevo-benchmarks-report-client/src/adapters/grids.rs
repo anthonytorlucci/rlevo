@@ -1,17 +1,27 @@
 //! Grids adapter (Minigrid-style empty/four_rooms/door_key/etc.).
 //!
-//! The grids library tier renders the agent as a direction glyph
-//! (`< > ^ v`), walls as `#`, goals as `G`, hazards as `L`, doors as
-//! `D`, keys as `K` (see `grids/core/render.rs` lines 57–87). Colour
-//! is layered via the semantic palette; the adapter forwards the
-//! styled projection and explains the glyphs in the legend.
+//! The grids library tier renders the environment as a 2-D ASCII grid where
+//! each cell maps to one glyph: `< > ^ v` for the agent (heading), `#` for
+//! walls, `G` for goal, `L` for lava/hazard, `D` for doors, and `K` for keys
+//! (see `grids/core/render.rs`).  Colour is layered on top via the semantic
+//! palette.
+//!
+//! This adapter forwards the styled projection via [`crate::adapters::frame_body`]
+//! and appends a `<figcaption>` that labels every glyph in plain text so the
+//! report satisfies the hue-redundant accessibility contract — direction,
+//! shape, and label all carry the same information independently of colour.
 
 use leptos::prelude::*;
 
 use crate::adapters::frame_body;
 use crate::wire::FrameRecord;
 
-/// Render one grids-family frame.
+/// Wraps a grids-family frame in a `<figure>` with a full glyph legend.
+///
+/// Delegates the ASCII/styled projection to [`crate::adapters::frame_body`]
+/// and appends a `<figcaption>` listing every glyph (agent heading, wall,
+/// goal, lava, key, door) with plain-language labels so screen readers and
+/// greyscale users can interpret the grid without relying on colour.
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     view! {

@@ -19,8 +19,11 @@ use leptos::prelude::*;
 
 use crate::wire::{BodyKind, Box2dPayload, FamilyPayload, FrameRecord, Point2, RigidBody2D};
 
+/// SVG viewBox width in user units.
 const VB_W: f32 = 480.0;
+/// SVG viewBox height in user units.
 const VB_H: f32 = 320.0;
+/// Padding inside the viewBox on each edge, keeping bodies away from the border.
 const VB_PAD: f32 = 12.0;
 
 /// Render one box2d-family frame.
@@ -33,6 +36,7 @@ pub fn render(frame: &FrameRecord) -> AnyView {
     .into_any()
 }
 
+/// Maps a [`BodyKind`] to its CSS class name for styling and a11y stroke patterns.
 fn body_class(kind: BodyKind) -> &'static str {
     match kind {
         BodyKind::Hull => "rlevo-box2d-hull",
@@ -45,6 +49,12 @@ fn body_class(kind: BodyKind) -> &'static str {
     }
 }
 
+/// Builds the full SVG figure for a [`Box2dPayload`], including bodies, contacts, and legend.
+///
+/// Computes a uniform scale from `world_bounds` so the entire scene fits
+/// inside the viewBox with [`VB_PAD`] margin on each edge, then flips the
+/// y-axis so physics-up maps to SVG-down.  Returns an error paragraph if
+/// `world_bounds` is degenerate (zero span on either axis).
 fn view_with_payload(payload: &Box2dPayload) -> AnyView {
     let (min, max) = payload.world_bounds;
     let span_x = max.x - min.x;
@@ -124,6 +134,13 @@ fn view_with_payload(payload: &Box2dPayload) -> AnyView {
     .into_any()
 }
 
+/// Renders a single [`RigidBody2D`] as an SVG `<polygon>` (plus a centre disk for wheels).
+///
+/// Rotates each local-frame vertex by `body.rotation_rad`, translates it by
+/// `body.position`, then maps world coordinates to SVG coordinates with
+/// `xform`.  Wheel bodies receive an additional filled `<circle>` whose
+/// radius is derived from the maximum vertex extent so it never overflows the
+/// polygon hull.
 fn render_body<F>(body: &RigidBody2D, scale: f32, xform: F) -> AnyView
 where
     F: Fn(&Point2) -> (f32, f32) + Copy + 'static,

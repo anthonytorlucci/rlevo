@@ -15,13 +15,15 @@ use crate::series::{
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
-/// Two-coordinate datum the chart consumes. `leptos-chartistry`'s
-/// [`Tick`](leptos_chartistry::Tick) trait is implemented for `f64`
-/// and `DateTime<Tz>` — `u32` step values are widened at the chart
-/// boundary.
+/// Two-coordinate datum passed to `leptos-chartistry`.
+///
+/// `leptos-chartistry`'s `Tick` trait is implemented for `f64`; `u32` step
+/// and generation values are widened to `f64` at the chart boundary.
 #[derive(Debug, Clone, Copy)]
 struct Point {
+    /// Horizontal axis value (episode index or generation number, widened to `f64`).
     x: f64,
+    /// Vertical axis value (reward, loss, fitness, etc.).
     y: f64,
 }
 
@@ -185,6 +187,8 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     .into_any()
 }
 
+/// Returns `true` for metrics that are recorded once per EA generation rather
+/// than once per PPO update, so they are plotted without a rolling-mean overlay.
 fn is_per_generation(name: &str) -> bool {
     matches!(
         name,
@@ -192,6 +196,10 @@ fn is_per_generation(name: &str) -> bool {
     )
 }
 
+/// Converts a wire-format metric key into a human-readable panel title.
+///
+/// Known keys are mapped to title-cased phrases; any unrecognised key is
+/// returned unchanged so new metrics surface without a code change.
 fn pretty_metric_title(name: &str) -> String {
     match name {
         "policy_loss" => "Policy loss".into(),
@@ -218,12 +226,17 @@ fn pretty_metric_title(name: &str) -> String {
 // selection-pressure indicator reuse `line_chart_view`.
 // ---------------------------------------------------------------------------
 
-/// SVG viewport for the box plot.
+/// SVG viewBox width for the hand-rolled box plot, in user units.
 const BOX_VB_W: f64 = 640.0;
+/// SVG viewBox height for the hand-rolled box plot, in user units.
 const BOX_VB_H: f64 = 300.0;
+/// Left margin reserved for the y-axis labels.
 const BOX_M_L: f64 = 56.0;
+/// Right margin between the last box and the viewBox edge.
 const BOX_M_R: f64 = 16.0;
+/// Top margin above the plot area.
 const BOX_M_T: f64 = 20.0;
+/// Bottom margin reserved for the x-axis labels.
 const BOX_M_B: f64 = 32.0;
 
 /// Hand-rolled per-generation fitness box plot.
@@ -417,9 +430,13 @@ pub fn population_box_view(
     .into_any()
 }
 
-/// Compose the EA Population section: box plot + diversity trace +
-/// selection-pressure indicator. Section suppresses entirely when no
-/// population samples are present.
+/// Composes the EA population section: box plot, diversity trace, and selection-pressure panel.
+///
+/// Derives per-generation [`BoxStats`] and overlay traces from `samples`, then
+/// builds up to three panels: the hand-rolled fitness box plot (always), a
+/// diversity line chart (when data is present), and a selection-pressure ratio
+/// chart (when data is present).  Returns an empty `<span>` when `samples` is
+/// empty so the section disappears cleanly from RL-only runs.
 #[must_use]
 pub fn population_panel_view(samples: &[PopulationSample]) -> AnyView {
     if samples.is_empty() {

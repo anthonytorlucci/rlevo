@@ -23,11 +23,21 @@ use leptos::prelude::*;
 
 use crate::wire::{FamilyPayload, FrameRecord, Locomotion2DPayload, Point2};
 
+/// SVG viewBox width in user units (wider than tall for a sagittal-plane view).
 const VB_W: f32 = 480.0;
+/// SVG viewBox height in user units.
 const VB_H: f32 = 240.0;
+/// Padding inside the viewBox on each edge so joints at the boundary stay visible.
 const VB_PAD: f32 = 20.0;
 
-/// Render one locomotion-family frame.
+/// Renders one locomotion-family frame, dispatching on the payload variant.
+///
+/// Extracts a [`FamilyPayload::Locomotion2D`] payload and forwards it to
+/// [`view_with_payload`].  Any other variant falls through to
+/// [`super::fallback::render`].  This is the only rendering pathway for
+/// locomotion environments — they do not implement `AsciiRenderable`.
+///
+/// [`FamilyPayload::Locomotion2D`]: crate::wire::FamilyPayload::Locomotion2D
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
@@ -64,6 +74,7 @@ fn payload_bounds(payload: &Locomotion2DPayload) -> (f32, f32, f32, f32) {
     (cx - hx, cx + hx, cy - hy, cy + hy)
 }
 
+/// Returns `(min, max)` over finite values in `values`, or `None` if none are finite.
 fn bounds(values: &[f32]) -> Option<(f32, f32)> {
     let mut iter = values.iter().copied().filter(|v| v.is_finite());
     let first = iter.next()?;
@@ -80,6 +91,13 @@ fn bounds(values: &[f32]) -> Option<(f32, f32)> {
     Some((lo, hi))
 }
 
+/// Builds the full SVG figure for a [`Locomotion2DPayload`].
+///
+/// Derives world bounds from all joints, the centre of mass, contact points,
+/// and `ground_y` via [`payload_bounds`], then maps world coordinates to SVG
+/// user units with a y-flip (physics-up → SVG-down).  Renders in paint order:
+/// ground line, bones, joints, contacts, centre-of-mass cross-hair.  Returns
+/// an error paragraph if the computed bounds are degenerate on either axis.
 fn view_with_payload(payload: &Locomotion2DPayload) -> AnyView {
     let (x_lo, x_hi, y_lo, y_hi) = payload_bounds(payload);
     let span_x = x_hi - x_lo;
