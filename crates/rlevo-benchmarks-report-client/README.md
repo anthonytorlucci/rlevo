@@ -85,8 +85,8 @@ pane into a true playback surface:
     dedicated one lands.
 
 The umbrella crate ships paired examples for every covered family:
-`record_cartpole` / `record_grids` / `record_toy_text` produce
-recordings; `report_cartpole_with_client` / `report_grids_with_client` /
+`record_ppo_cartpole` / `record_grids` / `record_toy_text` produce
+recordings; `report_ppo_cartpole_with_client` / `report_grids_with_client` /
 `report_toy_text_with_client` wrap them into single-file HTML reports.
 
 ## M7 — per-family SVG adapters for box2d, landscapes, locomotion

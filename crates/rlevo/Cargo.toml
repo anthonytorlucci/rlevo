@@ -23,6 +23,7 @@ rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
 approx = { workspace = true }
 burn = { workspace = true }
+criterion = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -204,24 +205,9 @@ path = "examples/viz/tui_ppo_cartpole.rs"
 required-features = ["viz-tui"]
 
 [[example]]
-name = "record_cartpole"
-path = "examples/viz/record_cartpole.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
 name = "record_ppo_cartpole"
 path = "examples/viz/record_ppo_cartpole.rs"
 required-features = ["viz-tui", "viz-record"]
-
-[[example]]
-name = "report_cartpole"
-path = "examples/viz/report_cartpole.rs"
-required-features = ["viz-record", "viz-report"]
-
-[[example]]
-name = "report_cartpole_with_client"
-path = "examples/viz/report_cartpole_with_client.rs"
-required-features = ["viz-record", "viz-report"]
 
 [[example]]
 name = "record_grids"
@@ -286,4 +272,20 @@ required-features = ["viz-record", "viz-report"]
 [[example]]
 name = "record_evolution_sphere_with_client"
 path = "examples/viz/record_evolution_sphere_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# Recording-tier throughput benchmark (formerly the `record_cartpole`
+# random-policy example). Gated on viz-record; run with
+# `cargo bench -p rlevo --features viz-record --bench cartpole_record`.
+[[bench]]
+name = "cartpole_record"
+path = "benches/cartpole_record.rs"
+harness = false
+required-features = ["viz-record"]
+
+# End-to-end record → report pipeline smoke test (formerly the
+# `report_cartpole*` random-policy examples). Gated on the report stack.
+[[test]]
+name = "cartpole_report_smoke"
+path = "tests/cartpole_report_smoke.rs"
 required-features = ["viz-record", "viz-report"]

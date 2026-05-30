@@ -3,7 +3,7 @@
 //! SVG adapter** (search-space projection: trail polyline + current
 //! candidate marker + best-so-far marker).
 //!
-//! Build flow mirrors `report_cartpole_with_client`:
+//! Build flow mirrors `report_ppo_cartpole_with_client`:
 //!
 //! ```bash
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release

@@ -1,7 +1,7 @@
 //! Harness-driven [`EmptyEnv`] (grids family) run that writes
 //! per-episode `.rec` files alongside the live TUI dashboard.
 //!
-//! Mirrors `record_cartpole.rs` for the grids family — the on-disk
+//! Mirrors `record_ppo_cartpole.rs` for the grids family — the on-disk
 //! manifest carries `EnvFamily::Grids`, and the resulting run replays
 //! through the grids playback adapter in the report client.
 //!

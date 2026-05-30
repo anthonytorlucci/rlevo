@@ -61,7 +61,7 @@ pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Syn
 /// Action encoding requires `Environment::ActionType: Serialize`. Most
 /// env action types either already derive [`Serialize`] or only need a
 /// one-line `#[derive(...)]` addition to opt in to recording — see the
-/// example wired in `crates/rlevo/examples/viz/record_cartpole.rs`.
+/// example wired in `crates/rlevo/examples/viz/record_ppo_cartpole.rs`.
 pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
