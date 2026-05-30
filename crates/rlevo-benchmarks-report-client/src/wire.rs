@@ -475,6 +475,7 @@ mod tests {
             seed: 42,
             env_family: EnvFamily::Classic,
             created_at: 1700,
+            trial: None,
         };
         let bytes = bincode::serde::encode_to_vec(&h, bincode_config()).unwrap();
         let (decoded, _): (EpisodeRecordHeader, usize) =

@@ -282,6 +282,7 @@ mod tests {
     use super::*;
     use crate::wire::{
         EnvFamily, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample, RunId,
+        FORMAT_VERSION,
     };
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
@@ -306,11 +307,12 @@ mod tests {
     fn record(frames: Vec<FrameRecord>, metrics: Vec<MetricSample>) -> EpisodeRecord {
         EpisodeRecord {
             header: EpisodeRecordHeader {
-                format_version: 3,
+                format_version: FORMAT_VERSION,
                 run_id: RunId("x".into()),
                 seed: 0,
                 env_family: EnvFamily::Classic,
                 created_at: 0,
+                trial: None,
             },
             frames,
             metrics,
