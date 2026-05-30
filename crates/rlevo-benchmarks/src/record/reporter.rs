@@ -25,7 +25,7 @@ use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
 use super::manifest::RunManifest;
-use super::schema::Hyperparameters;
+use super::schema::{Hyperparameters, TrialRef};
 use super::writer::RecordSink;
 
 /// Routes harness lifecycle events into a shared [`RecordSink`].
@@ -95,9 +95,17 @@ impl RecordingReporter {
 impl Reporter for RecordingReporter {
     fn on_suite_start(&mut self, _suite: &SuiteInfo) {}
 
-    fn on_trial_start(&mut self, _trial: &TrialInfo) {
+    fn on_trial_start(&mut self, trial: &TrialInfo) {
+        // Stamp provenance in both modes so recorded episodes carry their
+        // originating trial regardless of who drives the episode lifecycle.
+        let trial_ref = TrialRef {
+            env_index: u32::try_from(trial.key.env_idx).unwrap_or(u32::MAX),
+            trial_index: u32::try_from(trial.key.trial_idx).unwrap_or(u32::MAX),
+        };
+        let mut sink = self.sink.lock();
+        sink.set_trial_context(Some(trial_ref));
         if self.drive_episode_lifecycle {
-            self.sink.lock().on_episode_start(0);
+            sink.on_episode_start(0);
         }
     }
 
@@ -297,5 +305,33 @@ mod tests {
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
         assert_eq!(*counter.lock(), 1);
+    }
+
+    #[test]
+    fn on_trial_start_sets_trial_context() {
+        let probe: Arc<Mutex<InMemoryRecordSink>> =
+            Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
+        // `without_lifecycle` so the only effect is the trial-context stamp.
+        let mut r = RecordingReporter::without_lifecycle(dyn_sink, sample_manifest());
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 3,
+                trial_idx: 7,
+            },
+            env_name: "stub".into(),
+            trial_seed: 1,
+        };
+        r.on_trial_start(&info);
+
+        let probe = probe.lock();
+        assert_eq!(
+            probe.last_trial_context,
+            Some(TrialRef {
+                env_index: 3,
+                trial_index: 7
+            })
+        );
     }
 }

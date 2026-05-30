@@ -15,8 +15,10 @@
 //! Then ship the run through the static-HTML emitter via
 //! `report_grids_with_client`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
+
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use rand::Rng;
@@ -104,6 +106,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _report = evaluator.run_suite(&suite, |_| RandomGridAgent::new(), &mut reporter);
 
     drop(reporter);
+
+    // Fail loud if recording hit a write error. `TuiRunner::drop` restores
+    // the terminal on the error path.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
 
     runner.wait_for_keypress()?;
     runner.shutdown()?;

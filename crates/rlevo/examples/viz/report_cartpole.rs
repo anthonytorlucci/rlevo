@@ -24,7 +24,9 @@
 //! renders and the episode table lists every captured episode.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
@@ -99,6 +101,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let evaluator = Evaluator::new(cfg);
     let _report = evaluator.run_suite(&suite, |_| RandomCartPoleAgent::new(), &mut reporter);
     drop(reporter);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
 
     // Drop the writer so episode files + run.toml are fully flushed
     // before the loader opens them.

@@ -111,6 +111,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .on_episode_end(episode_return, STEPS_PER_EPISODE);
     }
     sink.lock().unwrap().on_run_end(manifest);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().unwrap().take_error() {
+        return Err(e.into());
+    }
+
     drop(sink);
 
     let run = RecordedRun::open(&run_dir)?;

@@ -15,8 +15,9 @@
 //! [`RigidBody2D`]: rlevo_core::render::RigidBody2D
 //! [`BodyKind`]: rlevo_core::render::BodyKind
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use rlevo_benchmarks::record::{
@@ -63,7 +64,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error rather than reporting success.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(tap);
     drop(sink);
     println!("wrote {NUM_EPISODES} lunar-lander episodes under runs/");

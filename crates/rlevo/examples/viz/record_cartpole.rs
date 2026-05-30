@@ -143,6 +143,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // flushed the manifest atomically.
     drop(reporter);
 
+    // Fail loud if recording hit a write error rather than shipping a
+    // silently-truncated run. `TuiRunner::drop` restores the terminal on
+    // the error path.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     runner.wait_for_keypress()?;
     runner.shutdown()?;
     Ok(())

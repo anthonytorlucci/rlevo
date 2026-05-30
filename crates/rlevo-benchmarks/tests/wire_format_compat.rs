@@ -18,7 +18,8 @@ use rlevo_benchmarks::record::{
     FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload,
     FrameRecord as NativeFrame, Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
-    PopulationSample as NativePopulationSample, RunId as NativeRunId, bincode_config,
+    PopulationSample as NativePopulationSample, RunId as NativeRunId,
+    TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
@@ -35,6 +36,10 @@ fn populated_native_record() -> NativeRecord {
             seed: 11,
             env_family: NativeFamily::Classic,
             created_at: 1_700_000_000,
+            trial: Some(NativeTrialRef {
+                env_index: 3,
+                trial_index: 4,
+            }),
         },
         frames: vec![
             NativeFrame {
@@ -170,6 +175,10 @@ fn native_encode_decodes_via_client_wire_types() {
     assert_eq!(mirrored.header.run_id.0, native.header.run_id.0);
     assert_eq!(mirrored.header.seed, native.header.seed);
     assert_eq!(mirrored.header.created_at, native.header.created_at);
+    // Trial provenance survives the host→client bincode round-trip.
+    let trial = mirrored.header.trial.expect("trial provenance decoded");
+    assert_eq!(trial.env_index, 3);
+    assert_eq!(trial.trial_index, 4);
     assert_eq!(mirrored.frames.len(), native.frames.len());
     for (m, n) in mirrored.frames.iter().zip(native.frames.iter()) {
         assert_eq!(m.step, n.step);

@@ -28,8 +28,9 @@ use crate::record::{EnvFamily, MetricSample, RunId, RunManifest, read_episode_re
 pub struct EpisodeIndex {
     /// Episode number as parsed from the `episode_NNNNNN.rec` filename.
     pub episode: u32,
-    /// Absolute path of the source `.rec` file. Lets a future lazy
-    /// loader re-read frames without holding them in memory.
+    /// Absolute path of the source `.rec` file. Frames are *not* retained
+    /// in memory after load; [`RecordedRun::frame_at_or_before`] re-reads
+    /// this file on demand so a long run does not hold every frame in RAM.
     pub path: PathBuf,
     /// Number of whole frames decoded.
     pub frame_count: u32,
@@ -39,20 +40,21 @@ pub struct EpisodeIndex {
     /// Maximum step index seen in the frame stream, plus one. Mirrors
     /// the manifest's per-episode length semantics.
     pub length: u32,
-    /// Encoded frame stream as read off disk. Eagerly loaded today; a
-    /// future iteration can swap this for a lazy region map.
-    pub frames: Vec<crate::record::FrameRecord>,
     /// Per-episode metric samples (PPO loss series, EA fitness, etc.)
-    /// already split out from the on-disk wire format.
+    /// already split out from the on-disk wire format. Small relative to
+    /// the frame stream, so these are retained.
     pub metrics: Vec<MetricSample>,
 }
 
-/// A recorded benchmark run loaded from disk and held in memory.
+/// A recorded benchmark run loaded from disk.
 ///
-/// Construct with [`RecordedRun::open`]. The run is fully materialised on
-/// load: all episode frames are eagerly decoded and metrics are merged into
-/// a per-series index. Warnings produced during loading (synthesised manifest,
-/// episode count mismatch) are accessible via [`warnings`](Self::warnings).
+/// Construct with [`RecordedRun::open`]. Each episode is decoded once on
+/// load to compute its summary (frame count, reward, length) and to merge
+/// metrics into a per-series index; the decoded **frames are not retained**
+/// — only one episode's frames are held transiently during the load pass,
+/// and [`frame_at_or_before`](Self::frame_at_or_before) re-reads on demand.
+/// Warnings produced during loading (synthesised manifest, episode count
+/// mismatch) are accessible via [`warnings`](Self::warnings).
 #[derive(Debug, Clone)]
 pub struct RecordedRun {
     manifest: RunManifest,
@@ -127,13 +129,16 @@ impl RecordedRun {
                     .push(sample.clone());
             }
 
+            // Summaries are computed from `decoded.frames` above; the frame
+            // vector itself is intentionally dropped here rather than stored
+            // so peak memory stays at one episode's frames during the pass,
+            // not every episode's frames for the run's lifetime.
             episodes.push(EpisodeIndex {
                 episode: episode_num,
                 path,
                 frame_count,
                 episode_reward,
                 length,
-                frames: decoded.frames,
                 metrics: decoded.metrics,
             });
         }
@@ -202,14 +207,20 @@ impl RecordedRun {
     /// Find the frame whose recorded `step` is the largest value `<= step`
     /// inside `episode`. Useful for timeline scrubbing UIs (per
     /// `rollout-and-replay` §3).
+    ///
+    /// Frames are not held in memory after load, so this re-reads the
+    /// episode's `.rec` file on demand and returns an owned frame. Returns
+    /// `None` if the episode is unknown, its file cannot be re-read, or no
+    /// frame satisfies the bound.
     #[must_use]
     pub fn frame_at_or_before(
         &self,
         episode: u32,
         step: u32,
-    ) -> Option<&crate::record::FrameRecord> {
+    ) -> Option<crate::record::FrameRecord> {
         let ep = self.episodes.iter().find(|e| e.episode == episode)?;
-        ep.frames.iter().rev().find(|f| f.step <= step)
+        let decoded = read_episode_record(&ep.path).ok()?;
+        decoded.frames.into_iter().rev().find(|f| f.step <= step)
     }
 }
 
@@ -460,5 +471,39 @@ mod tests {
         assert_eq!(run.episodes().len(), 2);
         // Both episodes still parse — the partial chunk is dropped.
         assert!(run.episodes()[1].frame_count >= 1);
+    }
+
+    /// Frames are re-read from disk on demand rather than cached: the
+    /// summary survives load, and `frame_at_or_before` still returns the
+    /// correct frame content (#6).
+    #[test]
+    fn frame_at_or_before_rereads_from_disk_after_load() {
+        let dir = tempdir().unwrap();
+        let run_dir = write_simple_run(dir.path(), 1, 5);
+        let run = RecordedRun::open(&run_dir).unwrap();
+
+        // Summary is retained without holding the frame vector.
+        assert_eq!(run.episodes()[0].frame_count, 5);
+
+        // Frame content is fetched lazily from the file.
+        let f = run.frame_at_or_before(0, 2).expect("frame re-read from disk");
+        assert_eq!(f.step, 2);
+        assert_eq!(f.ascii.as_deref(), Some("step 2"));
+    }
+
+    /// Regression lock for #6: removing an episode file after load makes
+    /// `frame_at_or_before` return `None`. If frames were eagerly cached in
+    /// RAM (the old behaviour) this would still return `Some`.
+    #[test]
+    fn frame_at_or_before_none_when_file_removed_after_load() {
+        let dir = tempdir().unwrap();
+        let run_dir = write_simple_run(dir.path(), 1, 3);
+        let run = RecordedRun::open(&run_dir).unwrap();
+
+        std::fs::remove_file(run_dir.join("episode_000000.rec")).unwrap();
+        assert!(
+            run.frame_at_or_before(0, 0).is_none(),
+            "frames must be re-read from disk, not cached in memory"
+        );
     }
 }

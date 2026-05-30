@@ -25,7 +25,9 @@
 //!
 //! `--release` matters: PPO is unusable at debug speed.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
@@ -172,8 +174,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Finalise the run manifest on the shared sink before we tear the
     // TUI down. PPO has no Reporter chain to drive this, so the example
     // calls on_run_end directly.
-    if let Ok(mut s) = sink.lock() {
-        s.on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud if recording hit a write error. `TuiRunner::drop` restores
+    // the terminal on the error path.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
     }
 
     runner.wait_for_keypress()?;

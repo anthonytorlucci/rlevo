@@ -18,16 +18,18 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Read, Seek, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::thread::{self, ThreadId};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use super::error::RecordError;
 use super::manifest::RunManifest;
 use super::schema::{
     EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FrameRecord, MetricSample,
-    PopulationSample, RunId, bincode_config, default_frame_stride,
+    PopulationSample, RunId, TrialRef, bincode_config, default_frame_stride,
 };
 
 /// Per-run configuration: the writer materialises this once at the
@@ -84,6 +86,25 @@ pub trait RecordSink: Send + 'static {
     /// generation; RL producers never call it. Default no-op so impls
     /// outside the EA path don't need a stub.
     fn on_population_sample(&mut self, _sample: PopulationSample) {}
+
+    /// Take the first error the sink encountered during the run, clearing
+    /// it. Writes are best-effort and non-fatal *during* the run (they log
+    /// and continue); a driver should call this **after** the run to fail
+    /// loudly instead of shipping a silently-truncated recording.
+    ///
+    /// The default returns `None` — sinks that cannot fail (e.g.
+    /// [`InMemoryRecordSink`]) need no override.
+    fn take_error(&mut self) -> Option<RecordError> {
+        None
+    }
+
+    /// Set the trial context stamped into subsequent episode headers.
+    ///
+    /// Harness producers call this at each trial start so recorded
+    /// episodes carry their `(env_index, trial_index)` provenance.
+    /// Default no-op — non-harness producers leave episodes with
+    /// `trial = None`.
+    fn set_trial_context(&mut self, _trial: Option<TrialRef>) {}
 }
 
 /// One framed chunk in the per-episode wire stream.
@@ -109,6 +130,18 @@ pub struct RecordWriter {
     current: Option<EpisodeFile>,
     pending_metrics: Vec<MetricSample>,
     frames_seen: u64,
+    /// First non-fatal write error seen this run; surfaced via
+    /// [`RecordSink::take_error`].
+    first_error: Option<RecordError>,
+    /// Thread that opened the currently-open episode file, if any. Used to
+    /// detect concurrent (cross-thread) use of a single-stream writer —
+    /// the corruption mode when a recording harness runs with
+    /// `num_threads > 1`. `None` between episodes.
+    owner: Option<ThreadId>,
+    /// Trial context stamped into each episode header until changed.
+    /// Set by [`RecordSink::set_trial_context`]; `None` for non-harness
+    /// producers.
+    current_trial: Option<TrialRef>,
 }
 
 impl std::fmt::Debug for RecordWriter {
@@ -123,6 +156,9 @@ impl std::fmt::Debug for RecordWriter {
             .field("current", &self.current.is_some())
             .field("pending_metrics", &self.pending_metrics.len())
             .field("frames_seen", &self.frames_seen)
+            .field("first_error", &self.first_error)
+            .field("owner", &self.owner)
+            .field("current_trial", &self.current_trial)
             .finish()
     }
 }
@@ -155,7 +191,38 @@ impl RecordWriter {
             current: None,
             pending_metrics: Vec::new(),
             frames_seen: 0,
+            first_error: None,
+            owner: None,
+            current_trial: None,
         })
+    }
+
+    /// Detect concurrent (cross-thread) use of this single-stream writer.
+    ///
+    /// Returns `true` — and records a [`RecordError::ConcurrentUse`] — when
+    /// an episode is open and the calling thread is not the one that opened
+    /// it. Callers must bail out without performing their write so the
+    /// in-flight episode is not truncated. Single-threaded sequential use
+    /// (including the abandoned-episode `reset` path, which re-enters from
+    /// the same thread) never trips this.
+    fn reject_concurrent_use(&mut self) -> bool {
+        let foreign = self.current.is_some()
+            && self.owner.is_some_and(|o| o != thread::current().id());
+        if foreign {
+            self.record_error(RecordError::ConcurrentUse);
+        }
+        foreign
+    }
+
+    /// Log a write failure and retain it if it is the first this run.
+    ///
+    /// Keeps today's `tracing::warn!` live visibility while making the
+    /// failure recoverable after the run via [`RecordSink::take_error`].
+    fn record_error(&mut self, error: RecordError) {
+        tracing::warn!(target: "rlevo_benchmarks::record", error = %error, "recording error");
+        if self.first_error.is_none() {
+            self.first_error = Some(error);
+        }
     }
 
     /// Directory the writer writes into, after the run-id suffix has
@@ -208,11 +275,58 @@ impl RecordWriter {
             seed: self.cfg.seed,
             env_family: self.cfg.env_family,
             created_at: self.created_at,
+            trial: self.current_trial,
         };
         write_chunk_raw(&mut writer, &header)?;
 
         self.current = Some(EpisodeFile { writer });
+        self.owner = Some(thread::current().id());
         Ok(())
+    }
+
+    /// Flush any buffered metrics into the currently-open episode file and
+    /// close it, fsyncing on the way out. Returns `true` if a file was
+    /// actually open.
+    ///
+    /// Shared by [`RecordSink::on_episode_end`] (normal close) and
+    /// [`RecordSink::on_episode_start`] (an episode abandoned by an early
+    /// `reset`, i.e. a new episode opened before the prior one ended).
+    /// Metrics buffer in memory and are only written as a single chunk at
+    /// episode close; without flushing here an abandoned episode's metrics
+    /// — which belong with the frames already written to its file — would
+    /// be silently dropped.
+    fn flush_and_close_current(&mut self) -> bool {
+        let Some(mut current) = self.current.take() else {
+            return false;
+        };
+        self.owner = None;
+        if !self.pending_metrics.is_empty() {
+            let metrics = std::mem::take(&mut self.pending_metrics);
+            if let Err(e) = write_chunk_raw(&mut current.writer, &RecordChunk::Metrics(metrics)) {
+                self.record_error(RecordError::Io {
+                    context: "write metric chunk",
+                    source: e,
+                });
+            }
+        }
+        match current.writer.into_inner() {
+            Ok(mut f) => {
+                let _ = f.flush();
+                if let Err(e) = f.sync_all() {
+                    self.record_error(RecordError::Io {
+                        context: "fsync episode on close",
+                        source: e,
+                    });
+                }
+            }
+            Err(e) => {
+                self.record_error(RecordError::Io {
+                    context: "flush episode buffer on close",
+                    source: e.into_error(),
+                });
+            }
+        }
+        true
     }
 }
 
@@ -234,19 +348,29 @@ fn write_chunk_raw<T: Serialize, W: Write>(w: &mut W, value: &T) -> io::Result<(
 
 impl RecordSink for RecordWriter {
     fn on_episode_start(&mut self, episode_idx: u32) {
-        if let Some(prev) = self.current.take()
-            && let Ok(f) = prev.writer.into_inner()
-        {
-            let _ = f.sync_all();
+        if self.reject_concurrent_use() {
+            return;
         }
+        // Close any still-open episode first. If the prior episode was
+        // abandoned (a new `reset` before its `on_episode_end`), this
+        // flushes its buffered metrics into the file before closing it —
+        // otherwise they would be lost. `clear()` afterward is a defensive
+        // no-op for the normal path (the flush already drained them).
+        self.flush_and_close_current();
         self.pending_metrics.clear();
         self.frames_seen = 0;
         if let Err(e) = self.open_episode_file(episode_idx) {
-            tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "failed to open episode file");
+            self.record_error(RecordError::Io {
+                context: "open episode file",
+                source: e,
+            });
         }
     }
 
     fn on_frame(&mut self, frame: FrameRecord) {
+        if self.reject_concurrent_use() {
+            return;
+        }
         let stride = u64::from(self.stride.max(1));
         let idx = self.frames_seen;
         self.frames_seen = self.frames_seen.saturating_add(1);
@@ -256,8 +380,13 @@ impl RecordSink for RecordWriter {
         let Some(current) = self.current.as_mut() else {
             return;
         };
-        if let Err(e) = write_chunk_raw(&mut current.writer, &RecordChunk::Frame(frame)) {
-            tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "failed to write frame chunk");
+        // `current` borrow ends with this call; record_error then re-borrows self.
+        let res = write_chunk_raw(&mut current.writer, &RecordChunk::Frame(frame));
+        if let Err(e) = res {
+            self.record_error(RecordError::Io {
+                context: "write frame chunk",
+                source: e,
+            });
         }
     }
 
@@ -266,46 +395,49 @@ impl RecordSink for RecordWriter {
     }
 
     fn on_population_sample(&mut self, sample: PopulationSample) {
+        if self.reject_concurrent_use() {
+            return;
+        }
         let Some(current) = self.current.as_mut() else {
             return;
         };
-        if let Err(e) =
-            write_chunk_raw(&mut current.writer, &RecordChunk::Population(sample))
-        {
-            tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "failed to write population chunk");
+        let res = write_chunk_raw(&mut current.writer, &RecordChunk::Population(sample));
+        if let Err(e) = res {
+            self.record_error(RecordError::Io {
+                context: "write population chunk",
+                source: e,
+            });
         }
     }
 
     fn on_episode_end(&mut self, _return_value: f64, _length: u32) {
-        let Some(mut current) = self.current.take() else {
+        if self.reject_concurrent_use() {
             return;
-        };
-        if !self.pending_metrics.is_empty() {
-            let metrics = std::mem::take(&mut self.pending_metrics);
-            if let Err(e) = write_chunk_raw(&mut current.writer, &RecordChunk::Metrics(metrics)) {
-                tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "failed to write metric chunk");
-            }
         }
-        match current.writer.into_inner() {
-            Ok(mut f) => {
-                let _ = f.flush();
-                if let Err(e) = f.sync_all() {
-                    tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "fsync on episode close failed");
-                }
-            }
-            Err(e) => {
-                tracing::warn!(target: "rlevo_benchmarks::record", error = %e.error(), "buffered flush on close failed");
-            }
+        // Only count episodes that were actually open; a stray
+        // `on_episode_end` with no current file is a no-op.
+        if self.flush_and_close_current() {
+            self.episode_count = self.episode_count.saturating_add(1);
         }
-        self.episode_count = self.episode_count.saturating_add(1);
     }
 
     fn on_run_end(&mut self, mut manifest: RunManifest) {
         manifest.episode_count = self.episode_count;
         manifest.finished_at = now_unix();
         if let Err(e) = manifest.write_atomic(&self.dir) {
-            tracing::warn!(target: "rlevo_benchmarks::record", error = %e, "manifest write failed");
+            self.record_error(RecordError::Io {
+                context: "write run manifest",
+                source: e,
+            });
         }
+    }
+
+    fn take_error(&mut self) -> Option<RecordError> {
+        self.first_error.take()
+    }
+
+    fn set_trial_context(&mut self, trial: Option<TrialRef>) {
+        self.current_trial = trial;
     }
 }
 
@@ -351,25 +483,48 @@ pub fn read_episode_record(path: &Path) -> io::Result<EpisodeRecord> {
     })
 }
 
-fn read_chunk<T: for<'de> Deserialize<'de>, R: Read + Seek>(r: &mut R) -> io::Result<Option<T>> {
+fn read_chunk<T: for<'de> Deserialize<'de>, R: Read>(r: &mut R) -> io::Result<Option<T>> {
     let mut len_buf = [0u8; 4];
-    match r.read(&mut len_buf)? {
-        0 => return Ok(None),
-        n if n < 4 => {
-            // Partial length prefix — treat as truncation.
-            return Ok(None);
-        }
-        _ => {}
+    // `Read::read` may legally return fewer bytes than requested even when
+    // not at EOF, so we must loop rather than trust a single read to fill
+    // the buffer (the previous bug: a short read on a valid chunk was
+    // misread as truncation, silently dropping the rest of the episode).
+    // A full 4-byte prefix means another chunk follows; 0 bytes is a clean
+    // EOF at a chunk boundary and 1–3 bytes is a truncated prefix — both
+    // stop iteration without erroring.
+    if read_full(r, &mut len_buf)? != 4 {
+        return Ok(None);
     }
     let len = u32::from_le_bytes(len_buf) as usize;
     let mut bytes = vec![0u8; len];
-    match r.read(&mut bytes)? {
-        n if n < len => return Ok(None),
-        _ => {}
+    if read_full(r, &mut bytes)? < len {
+        // Fewer than `len` bytes before EOF → genuine truncation.
+        return Ok(None);
     }
     let (value, _): (T, usize) =
         bincode::serde::decode_from_slice(&bytes, bincode_config()).map_err(io::Error::other)?;
     Ok(Some(value))
+}
+
+/// Read repeatedly until `buf` is full or EOF is reached, returning the
+/// number of bytes actually read.
+///
+/// Differs from [`Read::read_exact`] in that a short fill at EOF is
+/// reported through the return value (`< buf.len()`) rather than raising
+/// [`io::ErrorKind::UnexpectedEof`] — the record loader treats a partial
+/// trailing chunk as truncation, not an error, so a crash mid-write still
+/// decodes up to the last whole chunk. `Interrupted` is retried.
+fn read_full<R: Read>(r: &mut R, buf: &mut [u8]) -> io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match r.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(filled)
 }
 
 /// In-memory [`RecordSink`] used by producer tests so they do not
@@ -382,6 +537,9 @@ pub struct InMemoryRecordSink {
     pub current: Option<u32>,
     /// Run manifests collected via [`RecordSink::on_run_end`].
     pub manifests: Vec<RunManifest>,
+    /// Last trial context set via [`RecordSink::set_trial_context`];
+    /// stamped into the header of each episode opened afterward.
+    pub last_trial_context: Option<TrialRef>,
 }
 
 impl InMemoryRecordSink {
@@ -404,6 +562,7 @@ impl RecordSink for InMemoryRecordSink {
                     seed: 0,
                     env_family: EnvFamily::Classic,
                     created_at: 0,
+                    trial: self.last_trial_context,
                 },
                 frames: Vec::new(),
                 metrics: Vec::new(),
@@ -437,6 +596,9 @@ impl RecordSink for InMemoryRecordSink {
     }
     fn on_run_end(&mut self, manifest: RunManifest) {
         self.manifests.push(manifest);
+    }
+    fn set_trial_context(&mut self, trial: Option<TrialRef>) {
+        self.last_trial_context = trial;
     }
 }
 
@@ -650,5 +812,180 @@ mod tests {
         let ep = &sink.episodes[&0];
         assert_eq!(ep.population_samples.len(), 2);
         assert_eq!(ep.population_samples[1].generation, 1);
+    }
+
+    // ----------------------------------------------------------------
+    // Regression: short reads must not be mistaken for truncation (#2).
+    // ----------------------------------------------------------------
+
+    /// A `Read` that hands back at most `max` bytes per call, emulating the
+    /// legal-but-inconvenient short reads `Read::read` may produce. With
+    /// `max = 1` it is the pathological worst case the old `read_chunk`
+    /// mis-handled.
+    struct ThrottledReader<'a> {
+        data: &'a [u8],
+        pos: usize,
+        max: usize,
+    }
+
+    impl Read for ThrottledReader<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.pos >= self.data.len() {
+                return Ok(0);
+            }
+            let remaining = self.data.len() - self.pos;
+            let n = remaining.min(buf.len()).min(self.max.max(1));
+            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+    }
+
+    /// Frame a chunk exactly the way the writer does: 4-byte LE length
+    /// prefix followed by the bincode payload.
+    fn encode_chunk(chunk: &RecordChunk) -> Vec<u8> {
+        let payload = bincode::serde::encode_to_vec(chunk, bincode_config()).unwrap();
+        let mut out = Vec::with_capacity(4 + payload.len());
+        out.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_le_bytes());
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    #[test]
+    fn read_chunk_reassembles_across_one_byte_reads() {
+        // Two chunks back-to-back, fed one byte at a time. Both must decode
+        // and the reader must then report clean EOF — never a spurious
+        // truncation in the middle.
+        let mut buf = encode_chunk(&RecordChunk::Frame(frame(3, 1.5)));
+        buf.extend(encode_chunk(&RecordChunk::Frame(frame(4, -2.0))));
+
+        let mut r = ThrottledReader {
+            data: &buf,
+            pos: 0,
+            max: 1,
+        };
+
+        match read_chunk::<RecordChunk, _>(&mut r).unwrap() {
+            Some(RecordChunk::Frame(f)) => assert_eq!(f.step, 3),
+            other => panic!("expected first Frame chunk, got {other:?}"),
+        }
+        match read_chunk::<RecordChunk, _>(&mut r).unwrap() {
+            Some(RecordChunk::Frame(f)) => assert_eq!(f.step, 4),
+            other => panic!("expected second Frame chunk, got {other:?}"),
+        }
+        assert!(
+            read_chunk::<RecordChunk, _>(&mut r).unwrap().is_none(),
+            "reader should report clean EOF after the last whole chunk"
+        );
+    }
+
+    #[test]
+    fn read_chunk_treats_real_truncation_as_eof() {
+        // A full length prefix but a payload cut short before `len` bytes
+        // is genuine truncation and must return None, not error.
+        let chunk = encode_chunk(&RecordChunk::Frame(frame(0, 1.0)));
+        let cut = &chunk[..chunk.len() - 3]; // drop 3 payload bytes
+        let mut r = ThrottledReader {
+            data: cut,
+            pos: 0,
+            max: 1,
+        };
+        assert!(read_chunk::<RecordChunk, _>(&mut r).unwrap().is_none());
+    }
+
+    #[test]
+    fn large_frame_round_trips_through_real_file() {
+        // A frame far larger than any single OS read is the realistic
+        // trigger for the short-read bug on actual files.
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("big-frame-run".into())),
+        };
+        let big_ascii = "x".repeat(512 * 1024);
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+        w.on_episode_start(0);
+        let mut f = frame(0, 1.0);
+        f.ascii = Some(big_ascii.clone());
+        w.on_frame(f);
+        w.on_episode_end(1.0, 1);
+        w.on_run_end(w.manifest_template());
+
+        let decoded = read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
+        assert_eq!(decoded.frames.len(), 1);
+        assert_eq!(decoded.frames[0].ascii.as_deref(), Some(big_ascii.as_str()));
+    }
+
+    // ----------------------------------------------------------------
+    // Regression: an episode abandoned by an early reset must still flush
+    // its buffered metrics (#3).
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn metrics_flush_when_episode_abandoned_by_early_reset() {
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("abandon-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+
+        // Episode 0: a frame + a metric, but NO on_episode_end.
+        w.on_episode_start(0);
+        w.on_frame(frame(0, 1.0));
+        w.on_metric(MetricSample {
+            step: 5,
+            name: "policy_loss".into(),
+            value: 0.3,
+        });
+        // Early reset abandons episode 0 and opens episode 1.
+        w.on_episode_start(1);
+        w.on_frame(frame(0, 2.0));
+        w.on_episode_end(2.0, 1);
+        w.on_run_end(w.manifest_template());
+
+        let ep0 = read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
+        assert_eq!(
+            ep0.metrics.len(),
+            1,
+            "abandoned episode's buffered metrics must still be flushed"
+        );
+        assert_eq!(ep0.metrics[0].name, "policy_loss");
+
+        // The next episode must not inherit the prior episode's metrics.
+        let ep1 = read_episode_record(&w.run_dir().join("episode_000001.rec")).unwrap();
+        assert!(
+            ep1.metrics.is_empty(),
+            "metrics buffer must reset across the reset boundary"
+        );
+    }
+
+    #[test]
+    fn abandoned_episode_does_not_increment_episode_count() {
+        // Abandoning via on_episode_start must not count the episode; only
+        // a real on_episode_end does. Episode 0 is abandoned, episode 1
+        // ends normally → manifest episode_count == 1.
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("count-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+        w.on_episode_start(0);
+        w.on_frame(frame(0, 1.0));
+        w.on_episode_start(1); // abandon 0
+        w.on_frame(frame(0, 1.0));
+        w.on_episode_end(1.0, 1); // end 1 normally
+        w.on_run_end(w.manifest_template());
+
+        let body = std::fs::read_to_string(w.run_dir().join("run.toml")).unwrap();
+        let m: RunManifest = toml::from_str(&body).unwrap();
+        assert_eq!(m.episode_count, 1);
     }
 }

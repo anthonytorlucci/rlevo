@@ -16,7 +16,9 @@
 //! [`RecordingTap::with_locomotion_payload`]: rlevo_benchmarks::record::RecordingTap::with_locomotion_payload
 //! [`RecordingTap::new_headless`]: rlevo_benchmarks::record::RecordingTap::new_headless
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -60,7 +62,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error rather than reporting success.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(tap);
     drop(sink);
     println!("wrote {NUM_EPISODES} inverted-pendulum episodes under runs/");

@@ -22,6 +22,8 @@
 
 /// [`RecordingTap`] — env wrapper that captures every reset/step frame.
 pub mod env_tap;
+/// [`RecordError`] — non-fatal write failures retained for post-run query.
+pub mod error;
 /// [`RunManifest`] — atomic `run.toml` writer for run-level metadata.
 pub mod manifest;
 /// [`PopulationReporter`] — EA population-snapshot sink adapter.
@@ -36,6 +38,7 @@ pub mod tracing_layer;
 pub mod writer;
 
 pub use env_tap::RecordingTap;
+pub use error::RecordError;
 pub use population_reporter::PopulationReporter;
 pub use reporter::{RecordingReporter, empty_hyperparameters};
 pub use tracing_layer::RecordingLayer;
@@ -44,6 +47,6 @@ pub use manifest::RunManifest;
 pub use schema::{
     Box2dPayload, EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload,
     FrameRecord, Hyperparameters, Landscape2DPayload, Locomotion2DPayload, MIN_SUPPORTED_VERSION,
-    MetricSample, PopulationSample, RunId, bincode_config, default_frame_stride,
+    MetricSample, PopulationSample, RunId, TrialRef, bincode_config, default_frame_stride,
 };
 pub use writer::{InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, read_episode_record};

@@ -189,12 +189,12 @@ pub struct Locomotion2DPayload {
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
-pub const FORMAT_VERSION: u16 = 3;
+pub const FORMAT_VERSION: u16 = 4;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
 // Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
-pub const MIN_SUPPORTED_VERSION: u16 = 3;
+pub const MIN_SUPPORTED_VERSION: u16 = 4;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
 #[must_use]
@@ -245,6 +245,16 @@ pub enum FamilyPayload {
     Locomotion2D(Locomotion2DPayload),
 }
 
+/// Trial provenance. Mirror of
+/// `rlevo_benchmarks::record::schema::TrialRef`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrialRef {
+    /// Zero-based environment index within the suite.
+    pub env_index: u32,
+    /// Zero-based seed-repetition index for that environment.
+    pub trial_index: u32,
+}
+
 /// Fixed-size preamble written at the start of every `.rec` file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpisodeRecordHeader {
@@ -258,6 +268,9 @@ pub struct EpisodeRecordHeader {
     pub env_family: EnvFamily,
     /// Unix timestamp (seconds) when the episode file was created.
     pub created_at: i64,
+    /// Trial that produced this episode, or `None` for non-harness
+    /// producers. Added in `FORMAT_VERSION = 4`.
+    pub trial: Option<TrialRef>,
 }
 
 /// One recorded simulation step, stored as a [`RecordChunk::Frame`].

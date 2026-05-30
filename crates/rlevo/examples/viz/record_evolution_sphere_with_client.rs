@@ -35,7 +35,12 @@
 //! box plot, selection-pressure indicator).
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+// The record sink uses `parking_lot::Mutex` (the producers require it),
+// while the EA observer handle (`SharedPopulationObserver`) is defined over
+// `std::sync::Mutex` — so this example needs both, with std aliased.
+use std::sync::{Arc, Mutex as StdMutex};
+
+use parking_lot::Mutex;
 
 use burn::backend::Flex;
 use tracing_subscriber::layer::SubscriberExt;
@@ -76,8 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(RecordingLayer::new(sink.clone()))
         .try_init()?;
 
-    let reporter: Arc<Mutex<PopulationReporter>> =
-        Arc::new(Mutex::new(PopulationReporter::new(sink.clone())));
+    let reporter: Arc<StdMutex<PopulationReporter>> =
+        Arc::new(StdMutex::new(PopulationReporter::new(sink.clone())));
     let observer: SharedPopulationObserver = reporter.clone();
 
     let sphere = Sphere::new(DIM);
@@ -105,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_observer(observer);
 
     harness.reset();
-    sink.lock().unwrap().on_episode_start(0);
+    sink.lock().on_episode_start(0);
 
     let mut trail: Vec<Point2> = Vec::new();
     let mut episode_return = 0.0_f64;
@@ -145,7 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 styled: None,
                 family_payload: FamilyPayload::Landscape2D(Landscape2DPayload::from(snap)),
             };
-            sink.lock().unwrap().on_frame(frame);
+            sink.lock().on_frame(frame);
         }
 
         if outcome.done {
@@ -154,9 +159,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     sink.lock()
-        .unwrap()
         .on_episode_end(episode_return, frames_emitted);
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(harness);
     drop(reporter);
     drop(sink);

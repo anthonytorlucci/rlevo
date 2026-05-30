@@ -38,7 +38,9 @@
 //! `--release` matters: PPO is unusable at debug speed.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
@@ -178,9 +180,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Finalise the run manifest before we open the directory for emit.
-    if let Ok(mut s) = sink.lock() {
-        s.on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
     }
+
     drop(env);
     drop(sink);
 

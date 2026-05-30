@@ -23,13 +23,13 @@ use serde::{Deserialize, Serialize};
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
 // same value.  The const assertions in tests/wire_format_compat.rs
 // enforce this at compile time when tests are built.
-pub const FORMAT_VERSION: u16 = 3;
+pub const FORMAT_VERSION: u16 = 4;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
-pub const MIN_SUPPORTED_VERSION: u16 = 3;
+pub const MIN_SUPPORTED_VERSION: u16 = 4;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -209,6 +209,22 @@ impl From<Locomotion2DSnapshot> for Locomotion2DPayload {
 }
 
 
+/// Identifies the harness trial that produced an episode.
+///
+/// Mirrors `suite::TrialKey` but is wire-owned (`u32` fields, serde) so the
+/// record schema does not depend on the harness types. `None` on an
+/// [`EpisodeRecordHeader`] means the episode came from a non-harness
+/// producer (a training loop or landscape driver that drives the sink
+/// directly).
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrialRef {
+    /// Zero-based index of the environment within the suite.
+    pub env_index: u32,
+    /// Zero-based seed-repetition index for that environment.
+    pub trial_index: u32,
+}
+
 /// Header written at the start of every `episode_*.rec` file. Carries
 /// run-level identification + the format-version stamp the loader uses
 /// to refuse mismatched files.
@@ -224,6 +240,9 @@ pub struct EpisodeRecordHeader {
     pub env_family: EnvFamily,
     /// Unix timestamp (seconds) when this episode file was opened.
     pub created_at: i64,
+    /// Trial that produced this episode, or `None` for non-harness
+    /// producers. Added in `FORMAT_VERSION = 4`.
+    pub trial: Option<TrialRef>,
 }
 
 /// One captured frame, written length-prefixed to the per-episode
@@ -317,9 +336,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_three_and_min_supported_is_three() {
-        assert_eq!(FORMAT_VERSION, 3);
-        assert_eq!(MIN_SUPPORTED_VERSION, 3);
+    fn format_version_is_four_and_min_supported_is_four() {
+        assert_eq!(FORMAT_VERSION, 4);
+        assert_eq!(MIN_SUPPORTED_VERSION, 4);
     }
 
     #[test]
@@ -385,6 +404,10 @@ mod tests {
             seed: 42,
             env_family: EnvFamily::Classic,
             created_at: 1_700_000_000,
+            trial: Some(TrialRef {
+                env_index: 1,
+                trial_index: 2,
+            }),
         }
     }
 
@@ -418,6 +441,26 @@ mod tests {
         let (decoded, _): (EpisodeRecordHeader, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
         assert_eq!(h, decoded);
+        assert_eq!(
+            decoded.trial,
+            Some(TrialRef {
+                env_index: 1,
+                trial_index: 2
+            })
+        );
+    }
+
+    #[test]
+    fn header_round_trip_without_trial() {
+        let h = EpisodeRecordHeader {
+            trial: None,
+            ..sample_header()
+        };
+        let bytes = bincode::serde::encode_to_vec(&h, bincode_config()).unwrap();
+        let (decoded, _): (EpisodeRecordHeader, usize) =
+            bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+        assert_eq!(h, decoded);
+        assert!(decoded.trial.is_none());
     }
 
     #[test]
