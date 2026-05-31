@@ -25,7 +25,7 @@ use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::env_wrappers::RenderTap;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::reporter::MultiReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -64,11 +64,12 @@ impl BenchableAgent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLak
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EnvFamily::ToyText))?;
+    // Family declared once by the env type (`FrozenLake: RecordedEnvFamily`).
+    let runner = TuiRunner::start(TuiConfig::default().with_env_family(FrozenLake::FAMILY))?;
     let handle = runner.handle();
 
-    let record_cfg = RecordingConfig::new(EnvFamily::ToyText, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<FrozenLake>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
@@ -77,6 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_trials_per_env: 1,
         max_steps: MAX_STEPS_PER_EPISODE,
         base_seed: SEED,
+        // Recording is single-stream: a `RecordWriter` holds one open
+        // episode file, so the harness must run on a single thread. A value
+        // >1 trips `RecordError::ConcurrentUse` (surfaced post-run via
+        // `take_error`) rather than corrupting the in-flight episode.
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,

@@ -51,9 +51,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
+
+use rlevo_environments::classic::cartpole::CartPole;
 
 use ppo_cartpole::{SEED, base_env, build_agent, train};
 
@@ -64,8 +66,8 @@ const TOTAL_TIMESTEPS: usize = 12_000;
 const CLIENT_DIST: &str = "crates/rlevo-benchmarks-report-client/dist";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::new(EnvFamily::Classic, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<CartPole>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));

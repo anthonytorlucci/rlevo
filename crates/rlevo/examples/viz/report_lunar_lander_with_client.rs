@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingTap,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_core::environment::{Environment, Snapshot};
@@ -32,8 +32,8 @@ const MAX_STEPS_PER_EPISODE: usize = 250;
 const CLIENT_DIST: &str = "crates/rlevo-benchmarks-report-client/dist";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::new(EnvFamily::Box2d, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<LunarLanderDiscrete>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));

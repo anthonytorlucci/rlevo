@@ -24,7 +24,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_benchmarks::suite::Suite;
@@ -62,8 +62,8 @@ impl BenchableAgent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLak
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::new(EnvFamily::ToyText, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<FrozenLake>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
@@ -73,6 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_trials_per_env: 1,
         max_steps: MAX_STEPS_PER_EPISODE,
         base_seed: SEED,
+        // Recording is single-stream: a `RecordWriter` holds one open
+        // episode file, so the harness must run on a single thread. A value
+        // >1 trips `RecordError::ConcurrentUse` (surfaced post-run via
+        // `take_error`) rather than corrupting the in-flight episode.
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,

@@ -192,9 +192,8 @@ where
         #[cfg(not(feature = "custom-kernels"))]
         assert!(
             params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
-            "Firefly without `custom-kernels` feature caps pop_size at {} to keep the O(N²D) \
-             pairwise tensor bounded; enable `custom-kernels` for larger swarms",
-            FIREFLY_PURE_TENSOR_CAP
+            "Firefly without `custom-kernels` feature caps pop_size at {FIREFLY_PURE_TENSOR_CAP} \
+             to keep the O(N²D) pairwise tensor bounded; enable `custom-kernels` for larger swarms",
         );
         // Even with the kernel feature active, the fused pairwise-attract
         // kernel is currently a design placeholder and the pure-tensor

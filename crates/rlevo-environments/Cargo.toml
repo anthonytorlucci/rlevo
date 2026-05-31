@@ -31,4 +31,7 @@ locomotion = ["dep:rapier3d"]
 # `BenchAdapter` and preset `Suite` factories for the `rlevo-benchmarks` harness.
 # Off by default to keep the base envs dep cone (rayon, tracing, serde_json) lean.
 bench = ["dep:rlevo-benchmarks"]
+# `RecordedEnvFamily` impls tying each built-in env to its recording family.
+# Pulls in the harness's `record` tier on top of `bench`.
+record = ["bench", "rlevo-benchmarks/record"]
 

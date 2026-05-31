@@ -40,20 +40,24 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use rlevo_benchmarks::env_wrappers::TuiEnvTap;
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
+    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingLayer, RecordingTap,
 };
 use rlevo_benchmarks::tui::{TuiCaptureLayer, TuiConfig, TuiRunner};
+
+use rlevo_environments::classic::cartpole::CartPole;
 
 use ppo_cartpole::{SEED, base_env, build_agent, train};
 
 const TOTAL_TIMESTEPS: usize = 20_000;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EnvFamily::Classic))?;
+    // Family declared once by the underlying env type (`CartPole`), shared by
+    // the TUI and recording config even though `base_env()` wraps it.
+    let runner = TuiRunner::start(TuiConfig::default().with_env_family(CartPole::FAMILY))?;
     let handle = runner.handle();
 
-    let record_cfg = RecordingConfig::new(EnvFamily::Classic, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<CartPole>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 

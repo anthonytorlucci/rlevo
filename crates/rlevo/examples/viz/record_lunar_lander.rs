@@ -21,7 +21,7 @@ use parking_lot::Mutex;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingTap,
 };
 use rlevo_core::environment::{Environment, Snapshot};
 
@@ -34,8 +34,8 @@ const NUM_EPISODES: usize = 4;
 const MAX_STEPS_PER_EPISODE: usize = 250;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::new(EnvFamily::Box2d, SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let record_cfg = RecordingConfig::for_env::<LunarLanderDiscrete>(SEED);
+    let writer = RecordWriter::open_default(record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
