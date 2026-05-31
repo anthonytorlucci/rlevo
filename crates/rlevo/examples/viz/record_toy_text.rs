@@ -1,9 +1,9 @@
-//! Harness-driven [`FrozenLake`] (toy_text family) run that writes
+//! Harness-driven [`FrozenLake`] (`toy_text` family) run that writes
 //! per-episode `.rec` files alongside the live TUI dashboard.
 //!
-//! Mirrors `record_ppo_cartpole.rs` for the toy_text family — the on-disk
+//! Mirrors `record_ppo_cartpole.rs` for the `toy_text` family — the on-disk
 //! manifest carries `EnvFamily::ToyText`, and the resulting run replays
-//! through the interactive toy_text playback adapter in the report client.
+//! through the interactive `toy_text` playback adapter in the report client.
 //!
 //! # Run with
 //!

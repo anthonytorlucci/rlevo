@@ -34,6 +34,10 @@
 //! (fitness aggregates) plus the **Population section** (per-generation
 //! box plot, selection-pressure indicator).
 
+// Example driver: one linear recording script, longer than the default
+// function-length lint allows.
+#![allow(clippy::too_many_lines)]
+
 use std::path::PathBuf;
 // The record sink and the EA observer handle (`SharedPopulationObserver`)
 // now share one lock type (`parking_lot::Mutex`, ADR 0010), so this example

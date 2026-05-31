@@ -16,6 +16,11 @@
 //! and the landscape SVG: bounded search domain + current candidate
 //! marker + best-so-far + trail polyline.
 
+// Example driver: f64 world coordinates are deliberately narrowed to the f32
+// render precision of `Point2` (and the episode index to `u32`); the linear
+// recording script also runs past the default function-length lint.
+#![allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

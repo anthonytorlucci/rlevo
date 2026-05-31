@@ -1,8 +1,8 @@
-//! Headless [`FrozenLake`] (toy_text family) harness recording →
+//! Headless [`FrozenLake`] (`toy_text` family) harness recording →
 //! static-HTML report that mounts the Leptos/WASM client. Mirrors
-//! `report_ppo_cartpole_with_client.rs` for the toy_text family — the
+//! `report_ppo_cartpole_with_client.rs` for the `toy_text` family — the
 //! manifest carries `EnvFamily::ToyText`, dispatching to the interactive
-//! toy_text playback adapter.
+//! `toy_text` playback adapter.
 //!
 //! # Run with
 //!

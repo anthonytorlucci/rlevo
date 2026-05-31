@@ -21,6 +21,10 @@
 //!
 //! [`RecordingTap`]: rlevo_benchmarks::record::RecordingTap
 
+// Example driver: f64 world coordinates are deliberately narrowed to the f32
+// render precision of `Point2`, and the episode index to `u32`.
+#![allow(clippy::cast_possible_truncation)]
+
 use std::sync::Arc;
 
 use parking_lot::Mutex;
