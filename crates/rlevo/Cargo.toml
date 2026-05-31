@@ -200,14 +200,10 @@ name = "mountain_car_dqn"
 path = "benches/mountain_car_dqn.rs"
 harness = false
 
-# Recording-tier throughput benchmark (formerly the `record_cartpole`
-# random-policy example). Gated on viz-record; run with
-# `cargo bench -p rlevo --features viz-record --bench cartpole_record`.
 [[bench]]
-name = "cartpole_record"
-path = "benches/cartpole_record.rs"
+name = "cartpole_ppo"
+path = "benches/cartpole_ppo.rs"
 harness = false
-required-features = ["viz-record"]
 
 # End-to-end record → report pipeline smoke test (formerly the
 # `report_cartpole*` random-policy examples). Gated on the report stack.
