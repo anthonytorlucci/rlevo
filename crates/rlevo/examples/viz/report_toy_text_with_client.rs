@@ -1,8 +1,8 @@
-//! Headless [`FrozenLake`] (toy_text family) harness recording →
+//! Headless [`FrozenLake`] (`toy_text` family) harness recording →
 //! static-HTML report that mounts the Leptos/WASM client. Mirrors
-//! `report_cartpole_with_client.rs` for the toy_text family — the
+//! `report_ppo_cartpole_with_client.rs` for the `toy_text` family — the
 //! manifest carries `EnvFamily::ToyText`, dispatching to the interactive
-//! toy_text playback adapter.
+//! `toy_text` playback adapter.
 //!
 //! # Run with
 //!
@@ -14,7 +14,9 @@
 //! ```
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use rand::Rng;
 use rand_distr::{Distribution, Uniform};
@@ -100,6 +102,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let evaluator = Evaluator::new(cfg);
     let _report = evaluator.run_suite(&suite, |_| RandomFrozenLakeAgent::new(), &mut reporter);
     drop(reporter);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(sink);
 
     let run = RecordedRun::open(&run_dir)?;

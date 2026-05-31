@@ -34,8 +34,17 @@
 //! (fitness aggregates) plus the **Population section** (per-generation
 //! box plot, selection-pressure indicator).
 
+// Example driver: one linear recording script, longer than the default
+// function-length lint allows.
+#![allow(clippy::too_many_lines)]
+
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+// The record sink and the EA observer handle (`SharedPopulationObserver`)
+// now share one lock type (`parking_lot::Mutex`, ADR 0010), so this example
+// needs only a single `Mutex` import.
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use burn::backend::Flex;
 use tracing_subscriber::layer::SubscriberExt;
@@ -105,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_observer(observer);
 
     harness.reset();
-    sink.lock().unwrap().on_episode_start(0);
+    sink.lock().on_episode_start(0);
 
     let mut trail: Vec<Point2> = Vec::new();
     let mut episode_return = 0.0_f64;
@@ -145,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 styled: None,
                 family_payload: FamilyPayload::Landscape2D(Landscape2DPayload::from(snap)),
             };
-            sink.lock().unwrap().on_frame(frame);
+            sink.lock().on_frame(frame);
         }
 
         if outcome.done {
@@ -154,9 +163,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     sink.lock()
-        .unwrap()
         .on_episode_end(episode_return, frames_emitted);
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(harness);
     drop(reporter);
     drop(sink);

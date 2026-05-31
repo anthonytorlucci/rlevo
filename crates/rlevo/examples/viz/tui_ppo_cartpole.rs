@@ -15,7 +15,7 @@
 //!    benchmarks-harness `Suite`/`Evaluator` flow required.
 //! 4. PPO calls
 //!    [`train_discrete`](rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete)
-//!    directly against the wrapped env.
+//!    directly against the wrapped env (via the shared `ppo_cartpole::train`).
 //! 5. [`TuiRunner::shutdown`] joins the render thread and restores the
 //!    terminal.
 //!
@@ -23,9 +23,10 @@
 //!
 //! - **Env panel** — per-step `StyledFrame`s pushed by [`TuiEnvTap`].
 //! - **Reward sparkline** — `EpisodeReturn` events pushed by
-//!   [`TuiEnvTap`] on each episode termination (CartPole both
+//!   [`TuiEnvTap`] on each episode termination (`CartPole` both
 //!   `Terminated` from pole failure and `Truncated` from the
-//!   `TimeLimit`).
+//!   `TimeLimit`). Because PPO *learns*, this sparkline climbs toward the
+//!   500-step ceiling rather than hovering at the ~20-step random floor.
 //! - **`policy_loss` / `entropy` / `approx_kl` sparklines** — PPO emits
 //!   these as structured fields at every `log_every` interval; the
 //!   canonical-metric registry in `rlevo-benchmarks::tui::log_layer`
@@ -45,12 +46,8 @@
 //!
 //! [`TuiEnvTap`]: rlevo_benchmarks::env_wrappers::TuiEnvTap
 
-use burn::backend::{Autodiff, Flex};
-use burn::module::Module;
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
-use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend};
+#[path = "common/ppo_cartpole.rs"]
+mod ppo_cartpole;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -61,67 +58,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 use rlevo_benchmarks::env_wrappers::TuiEnvTap;
 use rlevo_benchmarks::tui::{TuiCaptureLayer, TuiConfig, TuiRunner};
 
-use rlevo_environments::classic::cartpole::{
-    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
-};
-use rlevo_environments::wrappers::TimeLimit;
-use rlevo_reinforcement_learning::algorithms::ppo::policies::{
-    CategoricalPolicyHead, CategoricalPolicyHeadConfig,
-};
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
-use rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete;
+use ppo_cartpole::{SEED, base_env, build_agent, train};
 
-// Knobs intentionally hardcoded for the smoke run — no CLI noise.
-// `TOTAL_TIMESTEPS` is sized so the dashboard runs for ~30 s of training
-// on a release build, giving the user time to read every panel.
-const SEED: u64 = 42;
+// Sized so the dashboard runs for ~30 s of training on a release build,
+// giving the user time to read every panel.
 const TOTAL_TIMESTEPS: usize = 20_000;
-const NUM_STEPS: usize = 128;
-const LOG_EVERY: usize = 1_024;
-const EPISODE_TIME_LIMIT: usize = 500;
-const HIDDEN: usize = 64;
-const OBS_DIM: usize = 4;
-const NUM_ACTIONS: usize = 2;
-
-// Value network — two-hidden-layer MLP, matching the existing
-// `ppo_cart_pole` example so the comparison stays apples-to-apples.
-
-#[derive(Module, Debug)]
-struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
-}
-
-impl<B: Backend> ValueMlp<B> {
-    fn new(
-        obs_dim: usize,
-        hidden: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Self {
-        Self {
-            fc1: LinearConfig::new(obs_dim, hidden).init(device),
-            fc2: LinearConfig::new(hidden, hidden).init(device),
-            head: LinearConfig::new(hidden, 1).init(device),
-        }
-    }
-
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
-        let h = tanh(self.fc1.forward(obs));
-        let h = tanh(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
-        self.forward_impl(obs)
-    }
-}
-
-type Be = Autodiff<Flex>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. TUI owns the terminal from here until shutdown.
@@ -135,68 +76,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(TuiCaptureLayer::new(handle.clone()))
         .try_init()?;
 
-    // 3. PPO setup — same shape as the non-TUI `ppo_cart_pole` example.
-    let device = Default::default();
+    // 3. Env: CartPole → TimeLimit → TuiEnvTap. The tap forwards per-step
+    //    frames and episode returns to the dashboard through the same
+    //    channel as the tracing-driven metric sparklines. Without it the
+    //    env panel + reward sparkline stay empty.
     let mut rng = StdRng::seed_from_u64(SEED);
-
-    let base_env = CartPole::with_config(CartPoleConfig {
-        seed: SEED,
-        ..CartPoleConfig::default()
-    });
-    let timed = TimeLimit::new(base_env, EPISODE_TIME_LIMIT);
-    // Wrap the env so per-step frames and episode returns reach the
-    // dashboard through the same channel as the tracing-driven metric
-    // sparklines. Without this, env panel + reward sparkline stay empty.
-    let mut env: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(timed, handle);
-
-    let policy: CategoricalPolicyHead<Be> = CategoricalPolicyHeadConfig {
-        obs_dim: OBS_DIM,
-        hidden: HIDDEN,
-        num_actions: NUM_ACTIONS,
-    }
-    .init::<Be>(&device);
-    let value: ValueMlp<Be> = ValueMlp::new(OBS_DIM, HIDDEN, &device);
-
-    let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
-        .num_steps(NUM_STEPS)
-        .num_minibatches(4)
-        .update_epochs(4)
-        .learning_rate(2.5e-4)
-        .clip_coef(0.2)
-        .entropy_coef(0.01)
-        .value_coef(0.5)
-        .gamma(0.99)
-        .gae_lambda(0.95)
-        .build();
-
-    let total_iterations = TOTAL_TIMESTEPS / config.batch_size().max(1);
-
-    let mut agent: PpoAgent<
-        Be,
-        CategoricalPolicyHead<Be>,
-        ValueMlp<Be>,
-        CartPoleObservation,
-        1,
-        2,
-    > = PpoAgent::new(policy, value, config, device, total_iterations);
+    let mut env: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(base_env(), handle);
+    let mut agent = build_agent(TOTAL_TIMESTEPS);
 
     // 4. Train. Every `LOG_EVERY` steps PPO emits a structured tracing
     //    event; the capture layer fans the loss/entropy/kl fields into
     //    the metric panels and the formatted message into the log panel.
-    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
-        &mut agent,
-        &mut env,
-        &mut rng,
-        TOTAL_TIMESTEPS,
-        LOG_EVERY,
-    )?;
+    train(&mut agent, &mut env, &mut rng, TOTAL_TIMESTEPS)?;
 
-    // 5. Hold the dashboard open until the user dismisses it — the
-    //    final metric trajectories and log tail are the whole point.
-    //    The status line shows the dismissal hint.
+    // 5. Hold the dashboard open until the user dismisses it — the final
+    //    metric trajectories and log tail are the whole point.
     runner.wait_for_keypress()?;
-
     runner.shutdown()?;
     Ok(())
 }

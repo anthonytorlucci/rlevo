@@ -1,9 +1,9 @@
-//! Harness-driven [`FrozenLake`] (toy_text family) run that writes
+//! Harness-driven [`FrozenLake`] (`toy_text` family) run that writes
 //! per-episode `.rec` files alongside the live TUI dashboard.
 //!
-//! Mirrors `record_cartpole.rs` for the toy_text family — the on-disk
+//! Mirrors `record_ppo_cartpole.rs` for the `toy_text` family — the on-disk
 //! manifest carries `EnvFamily::ToyText`, and the resulting run replays
-//! through the interactive toy_text playback adapter in the report client.
+//! through the interactive `toy_text` playback adapter in the report client.
 //!
 //! # Run with
 //!
@@ -12,8 +12,10 @@
 //!   --features viz-tui,viz-record
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
+
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use rand::Rng;
@@ -106,6 +108,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _report = evaluator.run_suite(&suite, |_| RandomFrozenLakeAgent::new(), &mut reporter);
 
     drop(reporter);
+
+    // Fail loud if recording hit a write error. `TuiRunner::drop` restores
+    // the terminal on the error path.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
 
     runner.wait_for_keypress()?;
     runner.shutdown()?;

@@ -124,12 +124,19 @@ pub fn rolling_mean(samples: &[(u32, f64)], window: usize) -> Vec<(u32, f64)> {
 /// nearest sample inside the fence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoxStats {
+    /// EA generation index; used as the x-axis position in the box plot.
     pub generation: u32,
+    /// Lower whisker — minimum fitness value inside the Tukey 1.5×IQR fence.
     pub min: f64,
+    /// First quartile (25th percentile), linearly interpolated.
     pub q1: f64,
+    /// Median (50th percentile), linearly interpolated.
     pub median: f64,
+    /// Third quartile (75th percentile), linearly interpolated.
     pub q3: f64,
+    /// Upper whisker — maximum fitness value inside the Tukey 1.5×IQR fence.
     pub max: f64,
+    /// Values outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`; rendered as open circles.
     pub outliers: Vec<f64>,
 }
 
@@ -144,6 +151,12 @@ pub fn population_box_data(samples: &[PopulationSample]) -> Vec<BoxStats> {
         .collect()
 }
 
+/// Computes [`BoxStats`] for one generation from a raw fitness slice.
+///
+/// Sorts values ascending, derives Q1/median/Q3 via [`quantile`], applies
+/// Tukey's 1.5×IQR rule to split whisker values from outliers.  When every
+/// value is an outlier (e.g. a constant series with IQR = 0), falls back to
+/// the raw min/max so the box still renders.
 fn box_stats_for(generation: u32, fitnesses: &[f32]) -> BoxStats {
     let mut sorted: Vec<f64> = fitnesses.iter().map(|f| f64::from(*f)).collect();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -269,6 +282,7 @@ mod tests {
     use super::*;
     use crate::wire::{
         EnvFamily, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample, RunId,
+        FORMAT_VERSION,
     };
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
@@ -293,11 +307,12 @@ mod tests {
     fn record(frames: Vec<FrameRecord>, metrics: Vec<MetricSample>) -> EpisodeRecord {
         EpisodeRecord {
             header: EpisodeRecordHeader {
-                format_version: 3,
+                format_version: FORMAT_VERSION,
                 run_id: RunId("x".into()),
                 seed: 0,
                 env_family: EnvFamily::Classic,
                 created_at: 0,
+                trial: None,
             },
             frames,
             metrics,

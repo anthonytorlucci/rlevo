@@ -142,12 +142,21 @@ cargo doc --workspace --no-deps --open
 
 ## Dependencies
 
-- **[Burn](https://burn.dev/) 0.19** — backend-agnostic tensor operations with `wgpu`, `ndarray`, training loop, and TUI metrics
-- **rand 0.9** — randomness with deterministic seeding via `splitmix64`
+- **[Burn](https://burn.dev/) 0.21** — backend-agnostic tensor operations; features: `wgpu`, `train`, `tui`, `metrics`, `flex`
+- **cubecl 0.10** — compute abstraction layer underlying Burn's wgpu backend
+- **rand 0.10** — randomness and deterministic seeding
+- **rand_distr 0.6** — probability distributions (normal, uniform, etc.)
+- **ringbuffer 0.16** — fixed-capacity circular buffer for replay buffers
 - **serde 1.0** — serialization for checkpoints and configs
 - **tracing 0.1** — structured logging
-- **rapier2d / rapier3d** — physics simulation with enhanced determinism
-- **criterion** — benchmarking
+- **tracing-subscriber 0.3** — subscriber implementations
+- **thiserror 2.0** — typed error enums
+- **anyhow 1.0** — ergonomic error propagation for application-level code
+- **rapier2d / rapier3d 0.32** — physics simulation with enhanced determinism
+- **parking_lot 0.12** — high-performance Mutex/RwLock
+- **criterion 0.8** — statistical microbenchmarking
+- **pprof 0.15** — CPU profiling with flamegraph and criterion integration
+- **approx 0.5** — floating-point approximate equality for tests
 
 ## Contributing
 

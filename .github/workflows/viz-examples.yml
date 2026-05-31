@@ -1,0 +1,62 @@
+# Regression net for the visualisation examples (gap G1).
+#
+# The viz examples under `crates/rlevo/examples/viz/` are all
+# `required-features`-gated, so a plain `cargo build` / `cargo test` never
+# compiles them. That is how ~10 examples once shipped non-compiling (the
+# `std` vs `parking_lot` Mutex split, ADR 0010) without anyone noticing.
+#
+# This job compiles every viz example with the full feature set. It is
+# build-only: actually running them needs a tty (TUI), `--release` wall-clock
+# (PPO/EA), and a `trunk`-built WASM bundle (`*_with_client`). Compiling is
+# enough to catch producer-API drift like the Mutex split.
+#
+# See research note `viz-mutex-and-ci-gap` (Root cause B) for the rationale.
+name: viz-examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: viz-examples-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-examples:
+    name: build + clippy (viz examples, all features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Edition 2024 / MSRV 1.85 — use a recent stable toolchain.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # The examples pull rapier2d (box2d), rapier3d (locomotion), and
+      # burn-wgpu. None need a GPU to *compile*; libudev is the only
+      # build-time system dep on a headless runner.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libudev-dev
+
+      - name: Build viz examples (full feature set)
+        run: |
+          cargo build -p rlevo --examples \
+            --features viz-tui,viz-record,viz-report,box2d,locomotion
+
+      - name: Clippy viz examples (full feature set)
+        run: |
+          cargo clippy -p rlevo --examples \
+            --features viz-tui,viz-record,viz-report,box2d,locomotion \
+            -- -D warnings

@@ -18,8 +18,9 @@
 //!
 //! [`TuiEnvTap`]: crate::env_wrappers::TuiEnvTap
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::render::{
     AsciiRenderable, Box2dPayloadSource, Landscape2DPayloadSource, Locomotion2DPayloadSource,
@@ -39,21 +40,28 @@ use super::writer::RecordSink;
 /// convenience constructors.
 pub type PayloadExtractor<E> = Box<dyn Fn(&E) -> FamilyPayload + Send + Sync>;
 
-/// Boxed extractor for the optional ASCII / styled rendering. Returns
-/// `None` for envs that do not implement [`AsciiRenderable`] — the
-/// `locomotion` family is the canonical example.
+/// Boxed extractor for the optional ASCII rendering surface.
+///
+/// Returns `None` for envs that do not implement [`AsciiRenderable`] —
+/// the `locomotion` family is the canonical example.
 pub type AsciiExtractor<E> = Box<dyn Fn(&E) -> Option<String> + Send + Sync>;
+
+/// Boxed extractor for the optional styled rendering surface.
+///
+/// Returns `None` for envs that do not implement [`AsciiRenderable`] —
+/// the `locomotion` family is the canonical example.
 pub type StyledExtractor<E> = Box<dyn Fn(&E) -> Option<StyledFrame> + Send + Sync>;
 
-/// Wraps an [`Environment`] and pushes a [`FrameRecord`] after every
-/// successful `reset` / `step`, calling [`RecordSink::on_episode_start`]
-/// at each new episode and [`RecordSink::on_episode_end`] on termination
-/// or truncation.
+/// Environment wrapper that records every reset and step to a [`RecordSink`].
+///
+/// Pushes a [`FrameRecord`] after every successful `reset` / `step`,
+/// calling [`RecordSink::on_episode_start`] at each new episode and
+/// [`RecordSink::on_episode_end`] on termination or truncation.
 ///
 /// Action encoding requires `Environment::ActionType: Serialize`. Most
 /// env action types either already derive [`Serialize`] or only need a
 /// one-line `#[derive(...)]` addition to opt in to recording — see the
-/// example wired in `crates/rlevo/examples/viz/record_cartpole.rs`.
+/// example wired in `crates/rlevo/examples/viz/record_ppo_cartpole.rs`.
 pub struct RecordingTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     sink: Arc<Mutex<dyn RecordSink>>,
@@ -173,7 +181,7 @@ where
     E: AsciiRenderable + Box2dPayloadSource + 'static,
 {
     /// Convenience constructor for `box2d` envs: extracts a
-    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. Box2D envs
+    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. `Box2D` envs
     /// implement [`AsciiRenderable`], so the static-frame ascii / styled
     /// projection is captured alongside the rich payload.
     pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
@@ -209,6 +217,8 @@ where
             .field("inner", &self.inner)
             .field("sink", &"Arc<Mutex<dyn RecordSink>>")
             .field("payload_extractor", &"Box<dyn Fn>")
+            .field("ascii_extractor", &"Box<dyn Fn>")
+            .field("styled_extractor", &"Box<dyn Fn>")
             .field("step", &self.step)
             .field("episode_idx", &self.episode_idx)
             .field("episode_return", &self.episode_return)
@@ -249,9 +259,7 @@ where
             styled,
             family_payload: payload,
         };
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_frame(record);
-        }
+        self.sink.lock().on_frame(record);
     }
 }
 
@@ -293,9 +301,7 @@ where
         self.step = 0;
         self.episode_return = 0.0;
         self.episode_length = 0;
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_episode_start(self.episode_idx);
-        }
+        self.sink.lock().on_episode_start(self.episode_idx);
         self.capture_frame(Vec::new(), 0.0);
         Ok(snap)
     }
@@ -309,10 +315,10 @@ where
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
         self.capture_frame(action_bytes, r);
-        if snap.is_done()
-            && let Ok(mut sink) = self.sink.lock()
-        {
-            sink.on_episode_end(self.episode_return, self.episode_length);
+        if snap.is_done() {
+            self.sink
+                .lock()
+                .on_episode_end(self.episode_return, self.episode_length);
         }
         Ok(snap)
     }
@@ -324,8 +330,9 @@ mod tests {
     //! the `tui_env_tap` pattern: a stub gives the same coverage as a
     //! real env without pulling the env crate's full test surface.
 
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
+    use parking_lot::Mutex;
     use rlevo_core::base::{Action, Observation, State};
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
     use rlevo_core::render::AsciiRenderable;
@@ -457,7 +464,7 @@ mod tests {
         let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert_eq!(probe.episodes.len(), 1);
         let ep = &probe.episodes[&0];
         assert_eq!(ep.frames.len(), 1);
@@ -475,7 +482,7 @@ mod tests {
         tap.step(StubAction(7)).unwrap();
         tap.step(StubAction(9)).unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert_eq!(ep.frames.len(), 3);
         assert_eq!(ep.frames[1].step, 1);
@@ -496,7 +503,7 @@ mod tests {
         tap.step(StubAction(1)).unwrap();
         tap.step(StubAction(1)).unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         // current cleared on on_episode_end → record was finalised
         assert!(probe.current.is_none());
         let ep = &probe.episodes[&0];
@@ -512,7 +519,7 @@ mod tests {
         tap.step(StubAction(0)).unwrap();
         tap.step(StubAction(0)).unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.current.is_none());
     }
 
@@ -528,7 +535,7 @@ mod tests {
         tap.step(StubAction(2)).unwrap();
         tap.step(StubAction(2)).unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
         assert_eq!(probe.episodes[&0].frames.len(), 3);
@@ -550,7 +557,7 @@ mod tests {
         let env = StubEnv::new(0.0, Termination::TerminateAt(u32::MAX));
         let mut tap: RecordingTap<_, 1, 1, 1> = RecordingTap::new(env, sink);
         tap.reset().unwrap();
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         assert!(matches!(
             ep.frames[0].family_payload,
@@ -581,7 +588,7 @@ mod tests {
         tap.step(StubAction(0)).unwrap();
         tap.step(StubAction(0)).unwrap();
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         let ep = &probe.episodes[&0];
         for frame in &ep.frames {
             match &frame.family_payload {

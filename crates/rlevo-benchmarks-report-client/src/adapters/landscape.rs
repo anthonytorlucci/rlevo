@@ -22,26 +22,36 @@ use leptos::prelude::*;
 
 use crate::wire::{FamilyPayload, FrameRecord, Landscape2DPayload};
 
-/// SVG viewport size in user units. The transform maps the landscape
-/// bounds onto `[VB_PAD, VB_SIZE - VB_PAD]` along both axes.
+/// SVG viewport size in user units (square canvas).
 const VB_SIZE: f32 = 320.0;
+/// Padding inside the viewBox on each edge; the affine map places the
+/// landscape bounds onto `[VB_PAD, VB_SIZE − VB_PAD]` along both axes.
 const VB_PAD: f32 = 16.0;
 
-/// Render one landscapes-family frame.
+/// Renders one landscapes-family frame, dispatching on the payload variant.
+///
+/// Extracts a [`FamilyPayload::Landscape2D`] payload and forwards it to
+/// [`view_with_payload`].  Any other variant falls through to
+/// [`super::fallback::render`].
+///
+/// [`FamilyPayload::Landscape2D`]: crate::wire::FamilyPayload::Landscape2D
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
         FamilyPayload::Landscape2D(payload) => view_with_payload(payload),
-        _ => {
-            // Wire format permits an Ascii fallback for backwards
-            // compatibility with older recordings — surface that case
-            // through the styled path with the family banner.
-            super::fallback::render(crate::wire::EnvFamily::Landscapes, frame)
-        }
+        _ => super::fallback::render(crate::wire::EnvFamily::Landscapes, frame),
     }
     .into_any()
 }
 
+/// Builds the full SVG figure for a [`Landscape2DPayload`].
+///
+/// Computes a normalised affine map from landscape coordinates to SVG user
+/// units, flipping the y-axis so physics-up becomes SVG-down.  Renders (in
+/// paint order): background rectangle, trail polyline, best-so-far open ring
+/// with cross-hair (when present), and the current candidate as a filled
+/// disk.  Returns an error paragraph if either axis of `bounds` has zero
+/// span.
 fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
     let (xlo, xhi) = payload.bounds_x;
     let (ylo, yhi) = payload.bounds_y;

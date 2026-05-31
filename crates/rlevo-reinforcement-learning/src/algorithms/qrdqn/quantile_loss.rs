@@ -29,6 +29,16 @@ pub fn huber<B: Backend, const D: usize>(u: Tensor<B, D>, kappa: f32) -> Tensor<
     small.clone() * quad + small.neg().add_scalar(1.0) * linear
 }
 
+/// Number of predicted-quantile rows processed per loop iteration.
+///
+/// The full pairwise tensor is `(B, N_pred, N_target)`. At N=200, B=128 that
+/// is ~20 MB of f32 — too large for L2/L3 cache, causing repeated cache misses
+/// across the ~10 element-wise passes over the data. Chunking keeps the working
+/// set at `B × CHUNK × N_target × 4` bytes: with CHUNK=32 and the largest
+/// benchmark config (B=128, N=200) that is 3.2 MB, which fits comfortably in
+/// Apple-Silicon L2. The math is identical; only peak allocation changes.
+const QUANTILE_CHUNK_SIZE: usize = 32;
+
 /// Quantile Huber loss between `pred_quantiles` and `target_quantiles`.
 ///
 /// # Shapes
@@ -44,30 +54,62 @@ pub fn huber<B: Backend, const D: usize>(u: Tensor<B, D>, kappa: f32) -> Tensor<
 /// `u_ij = target_j − pred_i`, then `ρ_κ_{τ_i}(u_ij) = |τ_i − 𝟙{u_ij < 0}| ·
 /// L_κ(u_ij) / κ`. Aggregated as `mean_j → sum_i → mean_batch` following
 /// Dabney Eq. 10.
+///
+/// The pred axis is processed in chunks of [`QUANTILE_CHUNK_SIZE`] to avoid
+/// materialising the full `(B, N, N)` tensor at once.
 pub fn quantile_huber_loss<B: Backend>(
     pred_quantiles: Tensor<B, 2>,
     target_quantiles: Tensor<B, 2>,
     taus: Tensor<B, 1>,
     kappa: f32,
 ) -> Tensor<B, 1> {
-    // Broadcast to (B, N_pred, N_target).
-    let pred_3d: Tensor<B, 3> = pred_quantiles.unsqueeze_dim::<3>(2); // (B, N, 1)
-    let target_3d: Tensor<B, 3> = target_quantiles.unsqueeze_dim::<3>(1); // (B, 1, N)
-    let u = target_3d - pred_3d; // (B, N_pred, N_target)
+    let [batch, n_pred] = pred_quantiles.dims();
 
-    // `|τ_i − 𝟙{u_ij < 0}|` — the Bool → float conversion detaches from
-    // the autodiff graph, so the gradient flows only through `u`.
-    let taus_3d: Tensor<B, 3> = taus.unsqueeze_dim::<2>(0).unsqueeze_dim::<3>(2); // (1, N, 1)
-    let neg_mask = u.clone().lower_elem(0.0).float(); // (B, N_pred, N_target)
-    let weight = (taus_3d - neg_mask).abs();
+    // Accumulate `Σ_i mean_j ρ(u_ij)` for each sample, one chunk of pred
+    // quantiles at a time. Each chunk materialises (B, chunk, N_target) rather
+    // than the full (B, N_pred, N_target) block.
+    let mut per_sample_acc: Option<Tensor<B, 1>> = None;
+    let mut chunk_start = 0;
 
-    let huber_u = huber::<B, 3>(u, kappa);
-    let weighted = (weight * huber_u).div_scalar(kappa);
+    while chunk_start < n_pred {
+        let chunk_end = (chunk_start + QUANTILE_CHUNK_SIZE).min(n_pred);
 
-    // mean over target axis, sum over pred axis, mean over batch.
-    let per_pred: Tensor<B, 2> = weighted.mean_dim(2).squeeze_dim::<2>(2);
-    let per_sample: Tensor<B, 1> = per_pred.sum_dim(1).squeeze_dim::<1>(1);
-    per_sample.mean()
+        let pred_chunk = pred_quantiles
+            .clone()
+            .slice([0..batch, chunk_start..chunk_end]); // (B, chunk)
+        let chunk_range = chunk_start..chunk_end;
+        let taus_chunk = taus.clone().slice([chunk_range]); // (chunk,)
+
+        // Broadcast to (B, chunk, N_target).
+        let pred_3d: Tensor<B, 3> = pred_chunk.unsqueeze_dim::<3>(2); // (B, chunk, 1)
+        let target_3d: Tensor<B, 3> = target_quantiles.clone().unsqueeze_dim::<3>(1); // (B, 1, N_target)
+        let u = target_3d - pred_3d; // (B, chunk, N_target)
+
+        // `|τ_i − 𝟙{u_ij < 0}|` — Bool → float detaches from autodiff graph.
+        let taus_3d: Tensor<B, 3> = taus_chunk
+            .unsqueeze_dim::<2>(0) // (1, chunk)
+            .unsqueeze_dim::<3>(2); // (1, chunk, 1)
+        let neg_mask = u.clone().lower_elem(0.0).float(); // (B, chunk, N_target)
+        let weight = (taus_3d - neg_mask).abs();
+
+        let huber_u = huber::<B, 3>(u, kappa);
+        let weighted = (weight * huber_u).div_scalar(kappa);
+
+        // mean over target axis (dim 2) → (B, chunk); sum over chunk (dim 1) → (B,).
+        let per_pred: Tensor<B, 2> = weighted.mean_dim(2).squeeze_dim::<2>(2);
+        let chunk_sum: Tensor<B, 1> = per_pred.sum_dim(1).squeeze_dim::<1>(1);
+
+        per_sample_acc = Some(match per_sample_acc {
+            None => chunk_sum,
+            Some(acc) => acc + chunk_sum,
+        });
+
+        chunk_start = chunk_end;
+    }
+
+    per_sample_acc
+        .expect("quantile_huber_loss: pred_quantiles must have at least one quantile")
+        .mean()
 }
 
 #[cfg(test)]

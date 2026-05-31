@@ -13,6 +13,8 @@ use wasm_bindgen::JsCast;
 use crate::adapters;
 use crate::wire::{EnvFamily, EpisodeRecord};
 
+/// Base interval between play-loop ticks at 1× speed, in milliseconds.
+/// Higher speeds divide this value; the result is floored at 20 ms.
 const PLAY_BASE_INTERVAL_MS: u64 = 200;
 
 /// Determine the next frame index when the play loop ticks. Returns
@@ -46,9 +48,22 @@ pub fn play_interval_ms(speed: u32) -> u64 {
     (PLAY_BASE_INTERVAL_MS / s).max(20)
 }
 
+/// Available playback speed multipliers surfaced as toggle buttons in the UI.
 const SPEEDS: &[u32] = &[1, 2, 5, 10];
 
-/// Render the interactive playback panel for one episode.
+/// Renders the interactive playback panel for one episode.
+///
+/// Creates three reactive signals scoped to the current Leptos owner —
+/// `frame_idx`, `playing`, and `speed` — so that when the parent replaces the
+/// selected episode the previous panel's signals and interval handle are
+/// disposed cleanly by the owner tree.
+///
+/// The play loop runs via `set_interval_with_handle`; the handle is stored in
+/// a `StoredValue` and cleared whenever `playing` or `speed` changes or when
+/// the owner is dropped (`on_cleanup`).  Reaching the terminal frame
+/// auto-pauses rather than wrapping.
+///
+/// Returns an error placeholder when `record.frames` is empty.
 pub fn playback_panel(family: EnvFamily, record: EpisodeRecord) -> AnyView {
     let frame_count = record.frames.len();
 

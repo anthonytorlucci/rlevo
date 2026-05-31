@@ -1,4 +1,15 @@
-//! Evaluator — orchestrates suite execution with rayon trial-level parallelism.
+//! Suite evaluator with rayon trial-level parallelism and checkpoint resume.
+//!
+//! The core entry point is [`Evaluator::run_suite`], which drives every
+//! `(env, seed)` trial in a [`Suite`] through a [`BenchableAgent`], collects
+//! [`TrialReport`]s, and delivers them to a [`Reporter`].
+//!
+//! Parallelism is controlled via [`EvaluatorConfig::num_threads`] (`None` reuses
+//! the global rayon pool). Panics inside a trial are caught with
+//! `catch_unwind` and recorded as errored trials rather than aborting the run.
+//! [`EvaluatorConfig::checkpoint_dir`] enables crash-recovery: the partial
+//! [`BenchmarkReport`] is atomically written after every trial so a resumed run
+//! can skip already-finished keys.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -20,15 +31,28 @@ use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{Suite, SuiteInfo, TrialInfo, TrialKey};
 
+/// Parameters governing how the evaluator runs a suite.
 #[derive(Debug, Clone)]
 pub struct EvaluatorConfig {
+    /// Number of episodes to run per trial.
     pub num_episodes: usize,
+    /// Number of independent seeds to evaluate per environment.
     pub num_trials_per_env: usize,
+    /// Hard step ceiling per episode; an episode that has not terminated by
+    /// `max_steps` is truncated with whatever return accumulated so far.
     pub max_steps: usize,
+    /// Root seed from which all trial and episode seeds are derived
+    /// via [`SeedStream`].
     pub base_seed: u64,
+    /// Fixed rayon thread count; `None` uses the global pool.
     pub num_threads: Option<usize>,
+    /// If set, the partial [`BenchmarkReport`] is checkpointed here after every
+    /// trial so a crashed run can be resumed.
     pub checkpoint_dir: Option<PathBuf>,
+    /// Abort the suite after the first errored trial.
     pub fail_fast: bool,
+    /// When `Some(threshold)`, a `success_rate` metric is emitted per trial
+    /// counting the fraction of episodes whose return ≥ `threshold`.
     pub success_threshold: Option<f64>,
 }
 
@@ -47,12 +71,15 @@ impl Default for EvaluatorConfig {
     }
 }
 
+/// Runs a benchmark suite according to an [`EvaluatorConfig`].
 #[derive(Debug, Clone)]
 pub struct Evaluator {
+    /// Configuration applied to every suite run.
     pub cfg: EvaluatorConfig,
 }
 
 impl Evaluator {
+    /// Creates an evaluator from the supplied configuration.
     #[must_use]
     pub const fn new(cfg: EvaluatorConfig) -> Self {
         Self { cfg }

@@ -16,6 +16,21 @@ use crate::inline_data::{
 use crate::playback::playback_panel;
 use crate::wire::{EnvFamily, EpisodeRecord, RunManifest};
 
+/// Root Leptos component that assembles the full report page.
+///
+/// Reads the run manifest, episode index, and warnings from inline data,
+/// then renders the header, episode table, convergence and population charts,
+/// and the per-episode playback panel.  Episode selection is managed with a
+/// reactive signal; the playback panel re-renders whenever the selection
+/// changes.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use leptos::mount::mount_to_body;
+/// # use rlevo_benchmarks_report_client::app::App;
+/// mount_to_body(App);
+/// ```
 #[component]
 pub fn App() -> impl IntoView {
     let manifest = read_manifest();
@@ -74,6 +89,7 @@ pub fn App() -> impl IntoView {
     }
 }
 
+/// Renders the manifest header block as a `<h1>` and definition list.
 fn manifest_view(m: &RunManifest) -> impl IntoView {
     let run_id = m.run_id.0.clone();
     let env_family = format!("{:?}", m.env_family);
@@ -94,6 +110,7 @@ fn manifest_view(m: &RunManifest) -> impl IntoView {
     }
 }
 
+/// Renders a collapsible warning section, or an empty span when there are none.
 fn warnings_view(warnings: Vec<WarningEntry>) -> impl IntoView {
     if warnings.is_empty() {
         return view! { <span></span> }.into_any();
@@ -117,6 +134,9 @@ fn warnings_view(warnings: Vec<WarningEntry>) -> impl IntoView {
     .into_any()
 }
 
+/// Renders the sortable episode list as an HTML `<table>`.
+///
+/// Clicking a row updates `set_selected` with that episode's `script_id`.
 fn episode_table(
     episodes: Vec<EpisodeMeta>,
     selected: ReadSignal<Option<String>>,
@@ -142,6 +162,7 @@ fn episode_table(
     }
 }
 
+/// Renders a single `<tr>` for one episode; adds the `selected` CSS class reactively.
 fn episode_row(
     m: EpisodeMeta,
     selected: ReadSignal<Option<String>>,

@@ -15,7 +15,9 @@
 //!
 //! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 /// Per-generation population snapshot delivered to a
 /// [`PopulationObserver`].
@@ -57,8 +59,10 @@ pub trait PopulationObserver: Send + 'static {
     fn on_population(&mut self, snapshot: PopulationSnapshot);
 }
 
-/// Shared handle to a [`PopulationObserver`]. Aliased so call sites do
-/// not have to spell out the `Arc<Mutex<…>>` shape every time.
+/// Shared handle to a [`PopulationObserver`]. Backed by
+/// [`parking_lot::Mutex`] so the observer handle and the recording-tier
+/// sinks in `rlevo-benchmarks` share one lock type (ADR 0010); aliased so
+/// call sites do not have to spell out the `Arc<Mutex<…>>` shape every time.
 pub type SharedPopulationObserver = Arc<Mutex<dyn PopulationObserver>>;
 
 #[cfg(test)]
@@ -91,9 +95,9 @@ mod tests {
                 best_genome_digest: None,
                 parents_of_best: Vec::new(),
             };
-            obs.lock().unwrap().on_population(snapshot);
+            obs.lock().on_population(snapshot);
         }
-        let guard = obs.lock().unwrap();
+        let guard = obs.lock();
         assert_eq!(guard.snapshots.len(), 3);
         assert_eq!(guard.snapshots[2].generation, 2);
     }

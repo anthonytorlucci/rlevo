@@ -15,11 +15,18 @@ use std::path::{Path, PathBuf};
 use crate::report::BenchmarkReport;
 use crate::suite::TrialKey;
 
+/// Returns the canonical checkpoint file path for a suite.
+///
+/// Combines `dir` and `suite_name` into `<dir>/<suite_name>.ckpt.json`.
 #[must_use]
 pub fn checkpoint_path(dir: &Path, suite_name: &str) -> PathBuf {
     dir.join(format!("{suite_name}.ckpt.json"))
 }
 
+/// Returns the set of [`TrialKey`]s that completed without error.
+///
+/// Used by the evaluator at startup to skip already-finished trials when
+/// resuming from a checkpoint.
 #[must_use]
 pub fn completed_keys(report: &BenchmarkReport) -> HashSet<TrialKey> {
     report
@@ -31,7 +38,10 @@ pub fn completed_keys(report: &BenchmarkReport) -> HashSet<TrialKey> {
 }
 
 #[cfg(feature = "json")]
+/// Loads a [`BenchmarkReport`] from `path`, or returns `None` if the file does not exist.
+///
 /// # Errors
+///
 /// Returns an error if the file cannot be read or if deserialization fails.
 pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
     if !path.exists() {
@@ -44,7 +54,10 @@ pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
 }
 
 #[cfg(feature = "json")]
+/// Atomically writes `report` to `path` via a tmp-then-rename strategy.
+///
 /// # Errors
+///
 /// Returns an error if the file cannot be written or if serialization fails.
 pub fn save(path: &Path, report: &BenchmarkReport) -> std::io::Result<()> {
     use std::io::Write;

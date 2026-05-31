@@ -10,7 +10,9 @@
 //! ```
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -59,7 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
+
+    // Fail loud on a recording write error before building the report.
+    if let Some(e) = sink.lock().take_error() {
+        return Err(e.into());
+    }
+
     drop(tap);
     drop(sink);
 

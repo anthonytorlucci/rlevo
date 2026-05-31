@@ -17,26 +17,19 @@ use rlevo_core::render::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Bumps on any breaking change to the on-disk schema. The writer
-/// stamps this into every [`EpisodeRecordHeader`]; the loader accepts
-/// any value in [[`MIN_SUPPORTED_VERSION`], [`FORMAT_VERSION`]]] and
-/// refuses anything outside that range.
-///
-/// **v2**: adds rich [`FamilyPayload`] variants (`Landscape2D`,
-/// `Box2dBodies`, `Locomotion2D`) for SVG-tier rendering. v1 records
-/// (styled-text-only) decode cleanly under v2 because the only variant
-/// the v1 writer ever emitted (`Ascii`) keeps tag index 0.
-///
-/// **v3**: adds [`PopulationSample`] carried by a new
-/// `RecordChunk::Population` variant (bincode tag 2) so EA runs can
-/// record per-generation population snapshots. v1/v2 records decode
-/// cleanly because the new chunk tag never appears in older streams.
-pub const FORMAT_VERSION: u16 = 3;
+/// Current on-disk schema version. The writer stamps this into every
+/// [`EpisodeRecordHeader`]; the loader rejects any file that does not
+/// carry exactly this value.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
+// same value.  The const assertions in tests/wire_format_compat.rs
+// enforce this at compile time when tests are built.
+pub const FORMAT_VERSION: u16 = 4;
 
-/// Oldest on-disk format version this loader still accepts. The
-/// schema is backwards-compatible with v1 records — see
-/// [`FORMAT_VERSION`].
-pub const MIN_SUPPORTED_VERSION: u16 = 1;
+/// Oldest on-disk version this loader accepts. Equal to
+/// [`FORMAT_VERSION`] — no backward compatibility is maintained
+/// before the first production release.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
+pub const MIN_SUPPORTED_VERSION: u16 = 4;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -51,7 +44,7 @@ pub fn bincode_config() -> bincode::config::Configuration {
 pub struct RunId(pub String);
 
 impl RunId {
-    /// Construct a run id from the current wall-clock time and a
+    /// Constructs a run id from the current wall-clock time and a
     /// random 24-bit suffix. Collisions are vanishingly unlikely for
     /// the per-second granularity but the suffix protects against
     /// concurrent processes starting in the same second.
@@ -83,11 +76,17 @@ impl RunId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EnvFamily {
+    /// Classic control tasks (`CartPole`, `MountainCar`, `Acrobot`, …).
     Classic,
+    /// Discrete grid-world environments.
     Grids,
+    /// Tabular toy-text environments (`FrozenLake`, `Taxi`, …).
     ToyText,
+    /// 2D rigid-body physics environments.
     Box2d,
+    /// Continuous locomotion environments (no ASCII rendering path).
     Locomotion,
+    /// Optimisation-landscape search environments.
     Landscapes,
 }
 
@@ -106,20 +105,19 @@ pub const fn default_frame_stride(family: EnvFamily) -> u16 {
 /// Per-family rich payload.
 ///
 /// **Variant ordering is wire-format-stable** — new variants append at
-/// the end so existing bincode tags keep decoding. `Ascii` stays at
-/// tag 0 because v1 records exclusively carry that variant.
+/// the end so existing bincode tags keep decoding.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum FamilyPayload {
     /// Plain-text / styled-text rendering — the default for ASCII-able
     /// envs.
     Ascii,
-    /// Landscape (search-space) projection for `landscapes` envs (v2+).
+    /// Landscape (search-space) projection for `landscapes` envs.
     Landscape2D(Landscape2DPayload),
-    /// Rigid-body world for `box2d` envs (v2+).
+    /// Rigid-body world for `box2d` envs.
     Box2dBodies(Box2dPayload),
     /// Sagittal-plane stick figure for `locomotion` envs — their
-    /// canonical view, since locomotion has no ASCII path (v2+).
+    /// canonical view, since locomotion has no ASCII path.
     Locomotion2D(Locomotion2DPayload),
 }
 
@@ -132,13 +130,20 @@ pub enum FamilyPayload {
 // no bincode dependency.
 // ---------------------------------------------------------------------------
 
+/// Bincode-stable mirror of [`Landscape2DSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Landscape2DPayload {
+    /// Horizontal extent of the search space `(min_x, max_x)`.
     pub bounds_x: (f32, f32),
+    /// Vertical extent of the search space `(min_y, max_y)`.
     pub bounds_y: (f32, f32),
+    /// Current agent position in the landscape.
     pub current: Point2,
+    /// Best position found so far, or `None` if not yet tracked.
     pub best: Option<Point2>,
+    /// Historical positions for trajectory rendering.
     pub trail: Vec<Point2>,
+    /// Human-readable label for the landscape panel.
     pub label: String,
 }
 
@@ -155,10 +160,14 @@ impl From<Landscape2DSnapshot> for Landscape2DPayload {
     }
 }
 
+/// Bincode-stable mirror of [`Box2dSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Box2dPayload {
+    /// Axis-aligned bounding box of the physics world `(min, max)`.
     pub world_bounds: (Point2, Point2),
+    /// Rigid bodies present in the world this frame.
     pub bodies: Vec<RigidBody2D>,
+    /// Active contact points between bodies.
     pub contacts: Vec<Point2>,
 }
 
@@ -172,12 +181,18 @@ impl From<Box2dSnapshot> for Box2dPayload {
     }
 }
 
+/// Bincode-stable mirror of [`Locomotion2DSnapshot`] for the record wire format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Locomotion2DPayload {
+    /// 2D joint positions in the sagittal-plane projection.
     pub joints: Vec<Point2>,
+    /// Bone segments as `(parent_joint_index, child_joint_index)` pairs.
     pub bones: Vec<(u32, u32)>,
+    /// World-space y-coordinate of the ground plane.
     pub ground_y: f32,
+    /// Centre of mass, if provided by the environment.
     pub com: Option<Point2>,
+    /// Active ground-contact points.
     pub contacts: Vec<Point2>,
 }
 
@@ -194,16 +209,40 @@ impl From<Locomotion2DSnapshot> for Locomotion2DPayload {
 }
 
 
+/// Identifies the harness trial that produced an episode.
+///
+/// Mirrors `suite::TrialKey` but is wire-owned (`u32` fields, serde) so the
+/// record schema does not depend on the harness types. `None` on an
+/// [`EpisodeRecordHeader`] means the episode came from a non-harness
+/// producer (a training loop or landscape driver that drives the sink
+/// directly).
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrialRef {
+    /// Zero-based index of the environment within the suite.
+    pub env_index: u32,
+    /// Zero-based seed-repetition index for that environment.
+    pub trial_index: u32,
+}
+
 /// Header written at the start of every `episode_*.rec` file. Carries
 /// run-level identification + the format-version stamp the loader uses
 /// to refuse mismatched files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpisodeRecordHeader {
+    /// Wire-format version stamp; loader rejects any value ≠ [`FORMAT_VERSION`].
     pub format_version: u16,
+    /// Unique identifier of the parent recording run.
     pub run_id: RunId,
+    /// RNG seed used for this episode.
     pub seed: u64,
+    /// Environment family — determines the payload decoder on the report tier.
     pub env_family: EnvFamily,
+    /// Unix timestamp (seconds) when this episode file was opened.
     pub created_at: i64,
+    /// Trial that produced this episode, or `None` for non-harness
+    /// producers. Added in `FORMAT_VERSION = 4`.
+    pub trial: Option<TrialRef>,
 }
 
 /// One captured frame, written length-prefixed to the per-episode
@@ -211,11 +250,17 @@ pub struct EpisodeRecordHeader {
 /// (Discrete / Continuous / multi-dim) share one carrier.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameRecord {
+    /// Zero-based step index within the episode.
     pub step: u32,
+    /// Bincode-encoded action taken to reach this frame; empty on the reset frame.
     pub action: Vec<u8>,
+    /// Scalar reward received at this step.
     pub reward: f32,
+    /// Plain-text env rendering, or `None` for headless envs.
     pub ascii: Option<String>,
+    /// Styled-text env rendering, or `None` for headless envs.
     pub styled: Option<StyledFrame>,
+    /// Family-specific rich payload for report-tier rendering.
     pub family_payload: FamilyPayload,
 }
 
@@ -223,8 +268,11 @@ pub struct FrameRecord {
 /// generation index (EA) it was emitted at.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MetricSample {
+    /// Global training step (RL) or generation index (EA) at emission.
     pub step: u32,
+    /// Metric name, e.g. `"policy_loss"` or `"episode_return"`.
     pub name: String,
+    /// Scalar value of the metric.
     pub value: f64,
 }
 
@@ -245,12 +293,19 @@ pub struct MetricSample {
 ///   scatter panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PopulationSample {
+    /// Zero-based generation index.
     pub generation: u32,
+    /// Per-genome fitness scores in population order.
     pub fitnesses: Vec<f32>,
+    /// Optional behavioural or genotypic diversity estimate.
     pub diversity: Option<f32>,
+    /// Index into `fitnesses` of the highest-scoring genome.
     pub best_index: u32,
+    /// 128-bit hash of the best genome's serialised representation.
     pub best_genome_digest: Option<[u8; 16]>,
+    /// Digests of the best genome's parent genomes (empty until lineage DAG lands).
     pub parents_of_best: Vec<[u8; 16]>,
+    /// Per-genome inner RL returns for hybrid drivers; `None` from pure-EA producers.
     pub inner_rl_returns: Option<Vec<f32>>,
 }
 
@@ -259,9 +314,13 @@ pub struct PopulationSample {
 /// this whole struct in memory during normal recording.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EpisodeRecord {
+    /// Run-level identification and format-version stamp.
     pub header: EpisodeRecordHeader,
+    /// All captured frames in episode order.
     pub frames: Vec<FrameRecord>,
+    /// Scalar metrics emitted during the episode.
     pub metrics: Vec<MetricSample>,
+    /// EA population snapshots; empty for RL-only runs.
     #[serde(default)]
     pub population_samples: Vec<PopulationSample>,
 }
@@ -277,9 +336,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_three_and_min_supported_is_one() {
-        assert_eq!(FORMAT_VERSION, 3);
-        assert_eq!(MIN_SUPPORTED_VERSION, 1);
+    fn format_version_is_four_and_min_supported_is_four() {
+        assert_eq!(FORMAT_VERSION, 4);
+        assert_eq!(MIN_SUPPORTED_VERSION, 4);
     }
 
     #[test]
@@ -345,6 +404,10 @@ mod tests {
             seed: 42,
             env_family: EnvFamily::Classic,
             created_at: 1_700_000_000,
+            trial: Some(TrialRef {
+                env_index: 1,
+                trial_index: 2,
+            }),
         }
     }
 
@@ -378,6 +441,26 @@ mod tests {
         let (decoded, _): (EpisodeRecordHeader, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
         assert_eq!(h, decoded);
+        assert_eq!(
+            decoded.trial,
+            Some(TrialRef {
+                env_index: 1,
+                trial_index: 2
+            })
+        );
+    }
+
+    #[test]
+    fn header_round_trip_without_trial() {
+        let h = EpisodeRecordHeader {
+            trial: None,
+            ..sample_header()
+        };
+        let bytes = bincode::serde::encode_to_vec(&h, bincode_config()).unwrap();
+        let (decoded, _): (EpisodeRecordHeader, usize) =
+            bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+        assert_eq!(h, decoded);
+        assert!(decoded.trial.is_none());
     }
 
     #[test]

@@ -18,8 +18,9 @@
 //!
 //! [`PopulationObserver`]: rlevo_evolution::PopulationObserver
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rlevo_evolution::{PopulationObserver, PopulationSnapshot};
 
 use super::schema::PopulationSample;
@@ -44,6 +45,7 @@ impl std::fmt::Debug for PopulationReporter {
 }
 
 impl PopulationReporter {
+    /// Wraps `sink` in a new reporter.
     #[must_use]
     pub fn new(sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self { sink }
@@ -61,9 +63,7 @@ impl PopulationObserver for PopulationReporter {
             parents_of_best: snapshot.parents_of_best,
             inner_rl_returns: None,
         };
-        if let Ok(mut guard) = self.sink.lock() {
-            guard.on_population_sample(sample);
-        }
+        self.sink.lock().on_population_sample(sample);
     }
 }
 
@@ -88,14 +88,11 @@ mod tests {
         let probe: Arc<Mutex<InMemoryRecordSink>> =
             Arc::new(Mutex::new(InMemoryRecordSink::new()));
         let sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
-        {
-            let mut s = sink.lock().unwrap();
-            s.on_episode_start(0);
-        }
+        sink.lock().on_episode_start(0);
         let mut reporter = PopulationReporter::new(sink);
         reporter.on_population(snapshot(0));
         reporter.on_population(snapshot(1));
-        let guard = probe.lock().unwrap();
+        let guard = probe.lock();
         let ep = guard.episodes.get(&0).expect("episode 0 created");
         assert_eq!(ep.population_samples.len(), 2);
         assert_eq!(ep.population_samples[0].generation, 0);

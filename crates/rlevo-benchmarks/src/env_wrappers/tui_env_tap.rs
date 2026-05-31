@@ -7,8 +7,8 @@
 //! - [`RenderTap`] wraps a [`BenchEnv`](rlevo_core::evaluation::BenchEnv) —
 //!   the harness-facing trait. It pairs with [`Suite`](crate::suite::Suite)
 //!   + [`Evaluator`](crate::evaluator::Evaluator) +
-//!   [`TuiReporter`](crate::reporter::tui::TuiReporter), which together
-//!   surface lifecycle (`EpisodeEnd`) events.
+//!     [`TuiReporter`](crate::reporter::tui::TuiReporter), which together
+//!     surface lifecycle (`EpisodeEnd`) events.
 //! - [`TuiEnvTap`] wraps a raw [`Environment`] — the trait every RL/EA
 //!   algorithm crate drives directly. Used by training loops that bypass
 //!   the benchmarks harness (PPO's
@@ -30,14 +30,26 @@ use rlevo_core::render::{AsciiRenderable, StyledFrame};
 
 use crate::reporter::tui::TuiHandle;
 
-/// Wrapper that emits a [`StyledFrame`](rlevo_core::render::StyledFrame)
-/// after every successful `reset` / `step` on the inner env, and an
-/// [`EpisodeReturn`](crate::reporter::tui::TuiEvent::EpisodeReturn) event
-/// on each episode termination.
+/// Transparent [`Environment`] wrapper that emits frames and episode returns to the TUI.
 ///
-/// The `E` bound is `Environment<D, SD, AD> + AsciiRenderable`. Any env
-/// that ships the styled projection (every 2D env post-milestone-1) drops
-/// in without further plumbing.
+/// After each successful `reset` / `step` a [`StyledFrame`] is forwarded to
+/// the render thread. When `step` returns a done snapshot an
+/// [`EpisodeReturn`](crate::reporter::tui::TuiEvent::EpisodeReturn) event is
+/// also emitted with the summed reward and step count.
+///
+/// Requires `E: Environment<D, SD, AD> + AsciiRenderable`. Any env that
+/// ships the styled projection drops in without further plumbing.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use rlevo_benchmarks::env_wrappers::tui_env_tap::TuiEnvTap;
+/// # use rlevo_benchmarks::reporter::tui::TuiHandle;
+/// # fn make_env() -> impl rlevo_core::environment::Environment<1, 1, 1> + rlevo_core::render::AsciiRenderable { todo!() }
+/// let (handle, _rx) = TuiHandle::channel();
+/// let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(make_env(), handle);
+/// tap.reset().unwrap();
+/// ```
 pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
     handle: TuiHandle,
@@ -59,7 +71,8 @@ impl<E, const D: usize, const SD: usize, const AD: usize> TuiEnvTap<E, D, SD, AD
         }
     }
 
-    /// Borrow the wrapped env.
+    /// Borrow the wrapped env. Useful for tests that need to inspect
+    /// the underlying state directly.
     pub const fn inner(&self) -> &E {
         &self.inner
     }
@@ -70,6 +83,7 @@ impl<E, const D: usize, const SD: usize, const AD: usize> TuiEnvTap<E, D, SD, AD
     }
 
     /// Consume the tap and return the wrapped env.
+    #[must_use]
     pub fn into_inner(self) -> E {
         self.inner
     }
@@ -92,7 +106,7 @@ where
             .field("episode_return", &self.episode_return)
             .field("episode_length", &self.episode_length)
             .field("inner", &self.inner)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -120,12 +134,11 @@ where
     type RewardType = E::RewardType;
     type SnapshotType = E::SnapshotType;
 
+    /// Satisfies the [`Environment`] trait bound; prefer [`TuiEnvTap::new`] instead.
+    ///
+    /// The synthesised [`TuiHandle`] receiver is dropped immediately, so every
+    /// frame and episode-return push silently returns `false`.
     fn new(render: bool) -> Self {
-        // `TuiEnvTap` has no meaningful standalone constructor; callers use
-        // `TuiEnvTap::new(env, handle)`. This satisfies the trait but
-        // should not be called directly — the receiver paired with the
-        // synthesised handle is dropped immediately, so every push
-        // returns `false`.
         let (handle, _rx) = TuiHandle::channel();
         Self::new(E::new(render), handle)
     }
@@ -459,6 +472,7 @@ mod tests {
         assert_eq!(tap.step_count(), 3);
     }
 
+    /// Consuming `into_inner` yields the original env with its state intact.
     #[test]
     fn into_inner_returns_wrapped_env() {
         let (handle, _rx) = TuiHandle::channel();

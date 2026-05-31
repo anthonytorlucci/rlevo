@@ -1,10 +1,19 @@
 //! Per-family playback adapters for the static-HTML report tier.
 //!
-//! Each adapter wraps the shared [`crate::styled::styled_frame_view`]
-//! with family-specific framing and a glyph/colour legend. The legend
-//! pairs colour with glyph + plain-language wording so a B/W screenshot
-//! of the report still conveys agent / goal / hazard meaning — per the
-//! project's hue-redundant accessibility contract.
+//! Each sub-module (`classic`, `box2d`, `grids`, …) exposes a single
+//! `render(frame)` or `render(family, frame)` function that wraps the
+//! shared [`frame_body`] helper with family-specific `<figure>` framing and
+//! a glyph/colour legend.
+//!
+//! The top-level [`render`] function dispatches a [`FrameRecord`] to the
+//! correct adapter based on [`EnvFamily`].  Unknown future variants (the enum
+//! is `#[non_exhaustive]`) fall through to [`fallback::render`].
+//!
+//! # Accessibility contract
+//!
+//! Every legend must pair hue with at least one other signal (glyph shape,
+//! stroke pattern, or plain-language label) so the report remains readable in
+//! greyscale and for colour-blind users — see ADR 0008.
 
 pub mod box2d;
 pub mod classic;
@@ -18,7 +27,10 @@ use leptos::prelude::*;
 
 use crate::wire::{EnvFamily, FrameRecord};
 
-/// Dispatch one [`FrameRecord`] to the family-specific renderer.
+/// Dispatches one [`FrameRecord`] to the correct family-specific adapter.
+///
+/// `EnvFamily` is `#[non_exhaustive]`; any variant not yet covered by a
+/// dedicated adapter falls through to [`fallback::render`].
 #[must_use]
 pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
     // `EnvFamily` is `#[non_exhaustive]`; the wildcard arm catches future
@@ -36,9 +48,12 @@ pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
     }
 }
 
-/// Shared frame-rendering helper: prefer the `StyledFrame` projection
-/// when present, fall back to plain ASCII, and finally render an empty
-/// placeholder if neither is available.
+/// Renders the best available projection from a [`FrameRecord`].
+///
+/// Priority order: styled (`StyledFrame`) → plain ASCII → empty placeholder
+/// `<pre>`.  All family adapters call this rather than accessing
+/// `frame.styled` / `frame.ascii` directly so the fallback chain stays in
+/// one place.
 #[must_use]
 pub(crate) fn frame_body(frame: &FrameRecord) -> AnyView {
     if let Some(styled) = &frame.styled {

@@ -16,14 +16,16 @@
 //! is preferred when composing.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
 use crate::suite::{SuiteInfo, TrialInfo};
 
 use super::manifest::RunManifest;
-use super::schema::Hyperparameters;
+use super::schema::{Hyperparameters, TrialRef};
 use super::writer::RecordSink;
 
 /// Routes harness lifecycle events into a shared [`RecordSink`].
@@ -44,7 +46,7 @@ impl std::fmt::Debug for RecordingReporter {
 }
 
 impl RecordingReporter {
-    /// Build a reporter that owns the episode lifecycle. Use when the
+    /// Builds a reporter that owns the episode lifecycle. Use when the
     /// env is **not** wrapped in
     /// [`RecordingTap`](super::env_tap::RecordingTap).
     #[must_use]
@@ -56,7 +58,7 @@ impl RecordingReporter {
         }
     }
 
-    /// Build a reporter that suppresses `on_episode_start` /
+    /// Builds a reporter that suppresses `on_episode_start` /
     /// `on_episode_end`. Use when [`RecordingTap`] already drives
     /// those, so the reporter's role is limited to the run-level
     /// manifest at `on_suite_end`.
@@ -71,14 +73,14 @@ impl RecordingReporter {
         }
     }
 
-    /// Replace the hyperparameter map written to the manifest.
+    /// Replaces the hyperparameter map written to the manifest.
     #[must_use]
     pub fn with_hyperparameters(mut self, hp: Hyperparameters) -> Self {
         self.manifest.hyperparameters = hp;
         self
     }
 
-    /// Set a single hyperparameter key/value pair.
+    /// Sets a single hyperparameter key/value pair.
     #[must_use]
     pub fn with_hyperparameter(
         mut self,
@@ -93,10 +95,16 @@ impl RecordingReporter {
 impl Reporter for RecordingReporter {
     fn on_suite_start(&mut self, _suite: &SuiteInfo) {}
 
-    fn on_trial_start(&mut self, _trial: &TrialInfo) {
-        if self.drive_episode_lifecycle
-            && let Ok(mut sink) = self.sink.lock()
-        {
+    fn on_trial_start(&mut self, trial: &TrialInfo) {
+        // Stamp provenance in both modes so recorded episodes carry their
+        // originating trial regardless of who drives the episode lifecycle.
+        let trial_ref = TrialRef {
+            env_index: u32::try_from(trial.key.env_idx).unwrap_or(u32::MAX),
+            trial_index: u32::try_from(trial.key.trial_idx).unwrap_or(u32::MAX),
+        };
+        let mut sink = self.sink.lock();
+        sink.set_trial_context(Some(trial_ref));
+        if self.drive_episode_lifecycle {
             sink.on_episode_start(0);
         }
     }
@@ -105,31 +113,30 @@ impl Reporter for RecordingReporter {
         if !self.drive_episode_lifecycle {
             return;
         }
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_episode_end(
-                ep.return_value,
-                u32::try_from(ep.length).unwrap_or(u32::MAX),
-            );
-            // Open the next episode file straight away. The writer
-            // tolerates a stray on_episode_start when the trial ends,
-            // since the next call rotates the file cleanly.
-            sink.on_episode_start(
-                u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX),
-            );
-        }
+        let mut sink = self.sink.lock();
+        sink.on_episode_end(
+            ep.return_value,
+            u32::try_from(ep.length).unwrap_or(u32::MAX),
+        );
+        // Open the next episode file straight away. The writer
+        // tolerates a stray on_episode_start when the trial ends,
+        // since the next call rotates the file cleanly.
+        sink.on_episode_start(
+            u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX),
+        );
     }
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {}
 
     fn on_suite_end(&mut self, _report: &BenchmarkReport) {
-        if let Ok(mut sink) = self.sink.lock() {
-            sink.on_run_end(self.manifest.clone());
-        }
+        self.sink.lock().on_run_end(self.manifest.clone());
     }
 }
 
-/// Returns an empty hyperparameter map — convenience to make the
-/// builder API readable without bringing `BTreeMap` into call sites.
+/// Returns an empty [`Hyperparameters`] map.
+///
+/// Avoids a bare `BTreeMap::new()` at call sites when building a
+/// [`RecordingReporter`].
 #[must_use]
 pub fn empty_hyperparameters() -> Hyperparameters {
     BTreeMap::new()
@@ -196,7 +203,7 @@ mod tests {
         r.on_trial_end(&trial(), &trep());
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         // on_trial_start opens ep 0; on_episode_end (×3) closes and re-opens for
         // the next idx → episodes 0, 1, 2, 3 all reach on_episode_start.
         assert!(probe.episodes.contains_key(&0));
@@ -225,7 +232,7 @@ mod tests {
         );
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.episodes.is_empty(), "no on_episode_start should fire");
         assert!(probe.current.is_none(), "no on_episode_end should fire");
         assert_eq!(probe.manifests.len(), 1);
@@ -241,7 +248,7 @@ mod tests {
 
         r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert_eq!(probe.manifests.len(), 1);
         assert_eq!(
             probe.manifests[0].hyperparameters.get("lr"),
@@ -264,7 +271,7 @@ mod tests {
             fn on_suite_start(&mut self, _: &SuiteInfo) {}
             fn on_trial_start(&mut self, _: &TrialInfo) {}
             fn on_episode_end(&mut self, _: &TrialInfo, _: &EpisodeSummary) {
-                *self.shared.lock().unwrap() += 1;
+                *self.shared.lock() += 1;
             }
             fn on_trial_end(&mut self, _: &TrialInfo, _: &TrialReport) {}
             fn on_suite_end(&mut self, _: &BenchmarkReport) {}
@@ -294,9 +301,37 @@ mod tests {
         );
         multi.on_suite_end(&BenchmarkReport::new("S".into(), 0));
 
-        let probe = probe.lock().unwrap();
+        let probe = probe.lock();
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
-        assert_eq!(*counter.lock().unwrap(), 1);
+        assert_eq!(*counter.lock(), 1);
+    }
+
+    #[test]
+    fn on_trial_start_sets_trial_context() {
+        let probe: Arc<Mutex<InMemoryRecordSink>> =
+            Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
+        // `without_lifecycle` so the only effect is the trial-context stamp.
+        let mut r = RecordingReporter::without_lifecycle(dyn_sink, sample_manifest());
+
+        let info = TrialInfo {
+            key: TrialKey {
+                env_idx: 3,
+                trial_idx: 7,
+            },
+            env_name: "stub".into(),
+            trial_seed: 1,
+        };
+        r.on_trial_start(&info);
+
+        let probe = probe.lock();
+        assert_eq!(
+            probe.last_trial_context,
+            Some(TrialRef {
+                env_index: 3,
+                trial_index: 7
+            })
+        );
     }
 }
