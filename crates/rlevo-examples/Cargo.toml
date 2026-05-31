@@ -1,0 +1,117 @@
+[package]
+name = "rlevo-examples"
+version.workspace = true
+authors.workspace = true
+description = "Visualisation, recording, and reporting examples for rlevo"
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+publish = false
+
+[dependencies]
+rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", default-features = false, features = ["bench"] }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-features = false }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.1.0" }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0", default-features = false }
+burn = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+box2d = ["rlevo-environments/box2d"]
+locomotion = ["rlevo-environments/locomotion"]
+viz-tui = ["rlevo-benchmarks/tui"]
+viz-record = ["rlevo-benchmarks/record", "rlevo-environments/record"]
+viz-report = ["rlevo-benchmarks/report"]
+
+[lints]
+workspace = true
+
+# Examples — RL (PPO on CartPole)
+[[example]]
+name = "tui_ppo_cartpole"
+path = "examples/classic/tui_ppo_cartpole.rs"
+required-features = ["viz-tui"]
+
+[[example]]
+name = "record_ppo_cartpole"
+path = "examples/classic/record_ppo_cartpole.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_ppo_cartpole_with_client"
+path = "examples/classic/report_ppo_cartpole_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# Examples — evolution / landscapes
+[[example]]
+name = "record_sphere_landscape"
+path = "examples/evolution/record_sphere_landscape.rs"
+required-features = ["viz-record"]
+
+[[example]]
+name = "report_sphere_landscape_with_client"
+path = "examples/evolution/report_sphere_landscape_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+[[example]]
+name = "record_evolution_sphere_with_client"
+path = "examples/evolution/record_evolution_sphere_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# Examples — grids
+[[example]]
+name = "record_grids"
+path = "examples/grids/record_grids.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_grids_with_client"
+path = "examples/grids/report_grids_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# Examples — toy_text
+[[example]]
+name = "record_toy_text"
+path = "examples/toy_text/record_toy_text.rs"
+required-features = ["viz-tui", "viz-record"]
+
+[[example]]
+name = "report_toy_text_with_client"
+path = "examples/toy_text/report_toy_text_with_client.rs"
+required-features = ["viz-record", "viz-report"]
+
+# Examples — locomotion
+[[example]]
+name = "record_inverted_pendulum"
+path = "examples/locomotion/record_inverted_pendulum.rs"
+required-features = ["locomotion", "viz-record"]
+
+[[example]]
+name = "report_inverted_pendulum_with_client"
+path = "examples/locomotion/report_inverted_pendulum_with_client.rs"
+required-features = ["locomotion", "viz-record", "viz-report"]
+
+# Examples — box2d
+[[example]]
+name = "record_lunar_lander"
+path = "examples/box2d/record_lunar_lander.rs"
+required-features = ["box2d", "viz-record"]
+
+[[example]]
+name = "report_lunar_lander_with_client"
+path = "examples/box2d/report_lunar_lander_with_client.rs"
+required-features = ["box2d", "viz-record", "viz-report"]
+
+# Examples — benchmarks harness
+[[example]]
+name = "ga_rastrigin"
+path = "examples/harness/ga_rastrigin.rs"
+
+[[example]]
+name = "tabular_bandit"
+path = "examples/harness/tabular_bandit.rs"

@@ -36,7 +36,7 @@
 //!
 //! `--release` matters: PPO is unusable at debug speed.
 
-#[path = "common/ppo_cartpole.rs"]
+#[path = "../common/ppo_cartpole.rs"]
 mod ppo_cartpole;
 
 use std::path::PathBuf;

@@ -75,7 +75,10 @@ impl Observation<1> for LinearObservation {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         Tensor::from_data(TensorData::new(vec![self.x], vec![1]), device)
     }
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -231,7 +234,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
     }
     #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(&active.valid(), target, tau as f32)
+        polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
+            &active.valid(),
+            target,
+            tau as f32,
+        )
     }
 }
 
@@ -242,7 +249,12 @@ struct Critic<B: Backend> {
 }
 
 impl<B: Backend> Critic<B> {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        action_dim: usize,
+        hidden: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             head: LinearConfig::new(hidden, 1).init(device),

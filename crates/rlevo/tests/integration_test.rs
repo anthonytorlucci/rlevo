@@ -40,7 +40,10 @@ impl Observation<1> for WalkObservation {
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         Tensor::from_floats([self.position as f32], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -110,7 +113,10 @@ impl DiscreteAction<1> for WalkAction {
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         Tensor::from_floats([self.to_index() as f32], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -146,7 +152,10 @@ impl From<WalkReward> for f32 {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         Tensor::from_floats([self.0], device)
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {

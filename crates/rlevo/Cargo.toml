@@ -52,16 +52,8 @@ workspace = true
 
 # Examples — gridworlds
 [[example]]
-name = "grid_empty_random"
-path = "examples/envs/grids/grid_empty_random.rs"
-
-[[example]]
 name = "grid_door_key_scripted"
 path = "examples/envs/grids/grid_door_key_scripted.rs"
-
-[[example]]
-name = "grid_memory_random"
-path = "examples/envs/grids/grid_memory_random.rs"
 
 # Examples — classic control
 [[example]]
@@ -73,73 +65,12 @@ name = "cartpole_timelimit"
 path = "examples/envs/classic/cartpole_timelimit.rs"
 
 [[example]]
-name = "mountain_car_random"
-path = "examples/envs/classic/mountain_car_random.rs"
-
-[[example]]
 name = "mountain_car_continuous_random"
 path = "examples/envs/classic/mountain_car_continuous_random.rs"
 
 [[example]]
 name = "pendulum_random"
 path = "examples/envs/classic/pendulum_random.rs"
-
-[[example]]
-name = "acrobot_random"
-path = "examples/envs/classic/acrobot_random.rs"
-
-[[example]]
-name = "k_armed_bandit_random"
-path = "examples/envs/classic/k_armed_bandit_random.rs"
-
-[[example]]
-name = "contextual_bandit_random"
-path = "examples/envs/classic/contextual_bandit_random.rs"
-
-[[example]]
-name = "non_stationary_bandit_random"
-path = "examples/envs/classic/non_stationary_bandit_random.rs"
-
-[[example]]
-name = "adversarial_bandit_random"
-path = "examples/envs/classic/adversarial_bandit_random.rs"
-
-# Examples — Box2D
-[[example]]
-name = "bipedal_walker_random"
-path = "examples/envs/box2d/bipedal_walker_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "lunar_lander_discrete_random"
-path = "examples/envs/box2d/lunar_lander_discrete_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "lunar_lander_continuous_random"
-path = "examples/envs/box2d/lunar_lander_continuous_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "car_racing_random"
-path = "examples/envs/box2d/car_racing_random.rs"
-required-features = ["box2d"]
-
-# Examples — locomotion
-[[example]]
-name = "reacher_random"
-path = "examples/envs/locomotion/reacher_random.rs"
-required-features = ["locomotion"]
-
-[[example]]
-name = "inverted_double_pendulum_random"
-path = "examples/envs/locomotion/inverted_double_pendulum_random.rs"
-required-features = ["locomotion"]
-
-[[example]]
-name = "swimmer_random"
-path = "examples/envs/locomotion/swimmer_random.rs"
-required-features = ["locomotion"]
 
 # Examples — evolution showcases
 [[example]]
@@ -154,136 +85,40 @@ path = "examples/evo/ackley_showcase.rs"
 name = "rastrigin_showcase"
 path = "examples/evo/rastrigin_showcase.rs"
 
-# Examples — RL algorithms
-[[example]]
-name = "dqn_cart_pole"
-path = "examples/rl/dqn_cart_pole.rs"
-
-[[example]]
-name = "c51_cart_pole"
-path = "examples/rl/c51_cart_pole.rs"
-
-[[example]]
-name = "qrdqn_cart_pole"
-path = "examples/rl/qrdqn_cart_pole.rs"
-
-[[example]]
-name = "ppo_cart_pole"
-path = "examples/rl/ppo_cart_pole.rs"
-
-[[example]]
-name = "ppo_pendulum"
-path = "examples/rl/ppo_pendulum.rs"
-
-[[example]]
-name = "ppg_cart_pole"
-path = "examples/rl/ppg_cart_pole.rs"
-
-[[example]]
-name = "ddpg_pendulum"
-path = "examples/rl/ddpg_pendulum.rs"
-
-[[example]]
-name = "td3_pendulum"
-path = "examples/rl/td3_pendulum.rs"
-
-[[example]]
-name = "sac_pendulum"
-path = "examples/rl/sac_pendulum.rs"
-
-# Examples — benchmarks harness
-[[example]]
-name = "ga_rastrigin"
-path = "examples/benchmarks/ga_rastrigin.rs"
-
-[[example]]
-name = "tabular_bandit"
-path = "examples/benchmarks/tabular_bandit.rs"
-
-# Examples — live TUI dashboard
-[[example]]
-name = "tui_ppo_cartpole"
-path = "examples/viz/tui_ppo_cartpole.rs"
-required-features = ["viz-tui"]
-
-[[example]]
-name = "record_ppo_cartpole"
-path = "examples/viz/record_ppo_cartpole.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
-name = "record_grids"
-path = "examples/viz/record_grids.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
-name = "record_toy_text"
-path = "examples/viz/record_toy_text.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
-name = "report_grids_with_client"
-path = "examples/viz/report_grids_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-[[example]]
-name = "report_toy_text_with_client"
-path = "examples/viz/report_toy_text_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-# M7 — landscapes
-[[example]]
-name = "record_sphere_landscape"
-path = "examples/viz/record_sphere_landscape.rs"
-required-features = ["viz-record"]
-
-[[example]]
-name = "report_sphere_landscape_with_client"
-path = "examples/viz/report_sphere_landscape_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-# M7 — locomotion
-[[example]]
-name = "record_inverted_pendulum"
-path = "examples/viz/record_inverted_pendulum.rs"
-required-features = ["locomotion", "viz-record"]
-
-[[example]]
-name = "report_inverted_pendulum_with_client"
-path = "examples/viz/report_inverted_pendulum_with_client.rs"
-required-features = ["locomotion", "viz-record", "viz-report"]
-
-# M7 — box2d
-[[example]]
-name = "record_lunar_lander"
-path = "examples/viz/record_lunar_lander.rs"
-required-features = ["box2d", "viz-record"]
-
-[[example]]
-name = "report_lunar_lander_with_client"
-path = "examples/viz/report_lunar_lander_with_client.rs"
-required-features = ["box2d", "viz-record", "viz-report"]
-
-# M8 — convergence plots
-[[example]]
-name = "report_ppo_cartpole_with_client"
-path = "examples/viz/report_ppo_cartpole_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-# M8.1 — population panels (EA box plot / selection-pressure indicator)
-[[example]]
-name = "record_evolution_sphere_with_client"
-path = "examples/viz/record_evolution_sphere_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-# Recording-tier throughput benchmark (formerly the `record_cartpole`
-# random-policy example). Gated on viz-record; run with
-# `cargo bench -p rlevo --features viz-record --bench cartpole_record`.
+# Random-baseline-vs-learned benches. Each prints a reward/success quality
+# comparison, then times per-step rollout throughput for both policies.
+# Shared DQN model + Polyak scaffolding lives in `benches/support/dqn.rs`.
+# Pendulum actor/critic models live in `benches/support/pendulum.rs`.
+# Run e.g. with `cargo bench -p rlevo --bench grid_empty_dqn`.
 [[bench]]
-name = "cartpole_record"
-path = "benches/cartpole_record.rs"
+name = "grid_empty_rl"
+path = "benches/grid_empty_rl.rs"
 harness = false
-required-features = ["viz-record"]
+
+[[bench]]
+name = "grid_memory_rl"
+path = "benches/grid_memory_rl.rs"
+harness = false
+
+[[bench]]
+name = "acrobot_rl"
+path = "benches/acrobot_rl.rs"
+harness = false
+
+[[bench]]
+name = "mountain_car_rl"
+path = "benches/mountain_car_rl.rs"
+harness = false
+
+[[bench]]
+name = "cartpole_rl"
+path = "benches/cartpole_rl.rs"
+harness = false
+
+[[bench]]
+name = "pendulum_rl"
+path = "benches/pendulum_rl.rs"
+harness = false
 
 # End-to-end record → report pipeline smoke test (formerly the
 # `report_cartpole*` random-policy examples). Gated on the report stack.
