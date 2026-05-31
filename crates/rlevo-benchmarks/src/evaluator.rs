@@ -45,6 +45,13 @@ pub struct EvaluatorConfig {
     /// via [`SeedStream`].
     pub base_seed: u64,
     /// Fixed rayon thread count; `None` uses the global pool.
+    ///
+    /// Recording runs require `Some(1)`: a single `RecordWriter` is
+    /// single-stream (it holds one open episode file), so a recording sink
+    /// driven from multiple worker threads is rejected at runtime with
+    /// `RecordError::ConcurrentUse` rather than being allowed to truncate
+    /// the in-flight episode. See the `record` module's `RecordSink` docs
+    /// for the full single-stream constraint.
     pub num_threads: Option<usize>,
     /// If set, the partial [`BenchmarkReport`] is checkpointed here after every
     /// trial so a crashed run can be resumed.

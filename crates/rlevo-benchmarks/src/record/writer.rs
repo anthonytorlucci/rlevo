@@ -29,7 +29,7 @@ use super::error::RecordError;
 use super::manifest::RunManifest;
 use super::schema::{
     EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FrameRecord, MetricSample,
-    PopulationSample, RunId, TrialRef, bincode_config, default_frame_stride,
+    PopulationSample, RecordedEnvFamily, RunId, TrialRef, bincode_config, default_frame_stride,
 };
 
 /// Per-run configuration: the writer materialises this once at the
@@ -58,6 +58,16 @@ impl RecordingConfig {
             seed,
             run_id: None,
         }
+    }
+
+    /// Like [`new`](Self::new), but derives the family from an environment
+    /// type that opts into [`RecordedEnvFamily`] instead of taking it as a
+    /// literal. This keeps the family a single source of truth shared with
+    /// any TUI config (`with_env_family(E::FAMILY)`), so the two cannot
+    /// silently disagree.
+    #[must_use]
+    pub fn for_env<E: RecordedEnvFamily>(seed: u64) -> Self {
+        Self::new(E::FAMILY, seed)
     }
 
     fn resolved_stride(&self) -> u16 {

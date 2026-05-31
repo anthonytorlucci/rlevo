@@ -28,7 +28,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_benchmarks::suite::Suite;
@@ -65,7 +65,7 @@ impl BenchableAgent<GridObservation, GridAction> for RandomGridAgent {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let record_cfg = RecordingConfig::new(EnvFamily::Grids, SEED);
+    let record_cfg = RecordingConfig::for_env::<EmptyEnv>(SEED);
     let writer = RecordWriter::open("runs", record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
     let manifest = writer.manifest_template();

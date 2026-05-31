@@ -28,7 +28,7 @@ use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::env_wrappers::RenderTap;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::reporter::MultiReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -66,10 +66,13 @@ impl BenchableAgent<GridObservation, GridAction> for RandomGridAgent {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EnvFamily::Grids))?;
+    // Family is declared once by the env type (`EmptyEnv: RecordedEnvFamily`)
+    // and reused for both the TUI and the recording config, so the two cannot
+    // disagree.
+    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EmptyEnv::FAMILY))?;
     let handle = runner.handle();
 
-    let record_cfg = RecordingConfig::new(EnvFamily::Grids, SEED);
+    let record_cfg = RecordingConfig::for_env::<EmptyEnv>(SEED);
     let writer = RecordWriter::open("runs", record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));

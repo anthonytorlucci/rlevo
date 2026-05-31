@@ -22,6 +22,10 @@
 //! [`Evaluator::run_suite`]: rlevo_benchmarks::evaluator::Evaluator::run_suite
 
 pub mod adapter;
+/// [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls
+/// for the built-in environments (feature `record`).
+#[cfg(feature = "record")]
+pub mod family;
 pub mod landscape;
 pub mod suites;
 

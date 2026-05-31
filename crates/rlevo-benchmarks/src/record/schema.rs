@@ -90,6 +90,31 @@ pub enum EnvFamily {
     Landscapes,
 }
 
+/// Opt-in association between a concrete environment type and its
+/// [`EnvFamily`].
+///
+/// Recording and visualisation drivers otherwise restate the family as a
+/// literal at every call site — once for [`RecordingConfig`] and again for
+/// the TUI config — with nothing tying either back to the environment being
+/// run. The two can silently disagree (recording a locomotion env as
+/// [`EnvFamily::Classic`] compiles fine and just produces the wrong
+/// report-tier adapter). Implementing this trait lets a driver derive the
+/// family from the env type *once* via [`RecordingConfig::for_env`] /
+/// [`Self::FAMILY`], collapsing the two literals to a single source of truth.
+///
+/// This is deliberately **not** a supertrait of
+/// [`Environment`](rlevo_core::environment::Environment): family/render
+/// knowledge stays an opt-in concern off the behavioural trait, per ADR 0007.
+/// Impls for the built-in environments live in `rlevo-environments` behind
+/// its `record` feature.
+///
+/// [`RecordingConfig`]: crate::record::writer::RecordingConfig
+/// [`RecordingConfig::for_env`]: crate::record::writer::RecordingConfig::for_env
+pub trait RecordedEnvFamily {
+    /// The recording / visualisation family this environment belongs to.
+    const FAMILY: EnvFamily;
+}
+
 /// Per-family default `frame_stride` — locomotion + `Box2D` environments
 /// emit denser frame streams so we sub-sample by default. Overridden
 /// per-run via `RecordingConfig::frame_stride`.

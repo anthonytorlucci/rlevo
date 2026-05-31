@@ -25,7 +25,7 @@ use rlevo_benchmarks::agent::BenchableAgent;
 use rlevo_benchmarks::env_wrappers::RenderTap;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::reporter::MultiReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -64,10 +64,11 @@ impl BenchableAgent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLak
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EnvFamily::ToyText))?;
+    // Family declared once by the env type (`FrozenLake: RecordedEnvFamily`).
+    let runner = TuiRunner::start(TuiConfig::default().with_env_family(FrozenLake::FAMILY))?;
     let handle = runner.handle();
 
-    let record_cfg = RecordingConfig::new(EnvFamily::ToyText, SEED);
+    let record_cfg = RecordingConfig::for_env::<FrozenLake>(SEED);
     let writer = RecordWriter::open("runs", record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
