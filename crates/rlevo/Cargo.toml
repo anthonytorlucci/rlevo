@@ -72,59 +72,6 @@ path = "examples/envs/classic/mountain_car_continuous_random.rs"
 name = "pendulum_random"
 path = "examples/envs/classic/pendulum_random.rs"
 
-[[example]]
-name = "k_armed_bandit_random"
-path = "examples/envs/classic/k_armed_bandit_random.rs"
-
-[[example]]
-name = "contextual_bandit_random"
-path = "examples/envs/classic/contextual_bandit_random.rs"
-
-[[example]]
-name = "non_stationary_bandit_random"
-path = "examples/envs/classic/non_stationary_bandit_random.rs"
-
-[[example]]
-name = "adversarial_bandit_random"
-path = "examples/envs/classic/adversarial_bandit_random.rs"
-
-# Examples — Box2D
-[[example]]
-name = "bipedal_walker_random"
-path = "examples/envs/box2d/bipedal_walker_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "lunar_lander_discrete_random"
-path = "examples/envs/box2d/lunar_lander_discrete_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "lunar_lander_continuous_random"
-path = "examples/envs/box2d/lunar_lander_continuous_random.rs"
-required-features = ["box2d"]
-
-[[example]]
-name = "car_racing_random"
-path = "examples/envs/box2d/car_racing_random.rs"
-required-features = ["box2d"]
-
-# Examples — locomotion
-[[example]]
-name = "reacher_random"
-path = "examples/envs/locomotion/reacher_random.rs"
-required-features = ["locomotion"]
-
-[[example]]
-name = "inverted_double_pendulum_random"
-path = "examples/envs/locomotion/inverted_double_pendulum_random.rs"
-required-features = ["locomotion"]
-
-[[example]]
-name = "swimmer_random"
-path = "examples/envs/locomotion/swimmer_random.rs"
-required-features = ["locomotion"]
-
 # Examples — evolution showcases
 [[example]]
 name = "sphere_showcase"
@@ -138,48 +85,11 @@ path = "examples/evo/ackley_showcase.rs"
 name = "rastrigin_showcase"
 path = "examples/evo/rastrigin_showcase.rs"
 
-# Examples — RL algorithms
-[[example]]
-name = "dqn_cart_pole"
-path = "examples/rl/dqn_cart_pole.rs"
-
-[[example]]
-name = "c51_cart_pole"
-path = "examples/rl/c51_cart_pole.rs"
-
-[[example]]
-name = "qrdqn_cart_pole"
-path = "examples/rl/qrdqn_cart_pole.rs"
-
-[[example]]
-name = "ppo_cart_pole"
-path = "examples/rl/ppo_cart_pole.rs"
-
-[[example]]
-name = "ppo_pendulum"
-path = "examples/rl/ppo_pendulum.rs"
-
-[[example]]
-name = "ppg_cart_pole"
-path = "examples/rl/ppg_cart_pole.rs"
-
-[[example]]
-name = "ddpg_pendulum"
-path = "examples/rl/ddpg_pendulum.rs"
-
-[[example]]
-name = "td3_pendulum"
-path = "examples/rl/td3_pendulum.rs"
-
-[[example]]
-name = "sac_pendulum"
-path = "examples/rl/sac_pendulum.rs"
-
-# Random-baseline-vs-DQN benches (formerly the `*_random` random-policy
-# examples). Each prints a reward/success quality comparison, then times
-# per-step rollout throughput for both policies. Shared DQN model + Polyak
-# scaffolding lives in `benches/support/dqn.rs`. Run e.g. with
-# `cargo bench -p rlevo --bench grid_empty_dqn`.
+# Random-baseline-vs-learned benches. Each prints a reward/success quality
+# comparison, then times per-step rollout throughput for both policies.
+# Shared DQN model + Polyak scaffolding lives in `benches/support/dqn.rs`.
+# Pendulum actor/critic models live in `benches/support/pendulum.rs`.
+# Run e.g. with `cargo bench -p rlevo --bench grid_empty_dqn`.
 [[bench]]
 name = "grid_empty_dqn"
 path = "benches/grid_empty_dqn.rs"
@@ -201,8 +111,13 @@ path = "benches/mountain_car_dqn.rs"
 harness = false
 
 [[bench]]
-name = "cartpole_ppo"
-path = "benches/cartpole_ppo.rs"
+name = "cartpole_rl"
+path = "benches/cartpole_rl.rs"
+harness = false
+
+[[bench]]
+name = "pendulum_rl"
+path = "benches/pendulum_rl.rs"
 harness = false
 
 # End-to-end record → report pipeline smoke test (formerly the
