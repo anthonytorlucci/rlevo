@@ -7,8 +7,8 @@
 //! - [`RenderTap`] wraps a [`BenchEnv`](rlevo_core::evaluation::BenchEnv) —
 //!   the harness-facing trait. It pairs with [`Suite`](crate::suite::Suite)
 //!   + [`Evaluator`](crate::evaluator::Evaluator) +
-//!   [`TuiReporter`](crate::reporter::tui::TuiReporter), which together
-//!   surface lifecycle (`EpisodeEnd`) events.
+//!     [`TuiReporter`](crate::reporter::tui::TuiReporter), which together
+//!     surface lifecycle (`EpisodeEnd`) events.
 //! - [`TuiEnvTap`] wraps a raw [`Environment`] — the trait every RL/EA
 //!   algorithm crate drives directly. Used by training loops that bypass
 //!   the benchmarks harness (PPO's
@@ -106,7 +106,7 @@ where
             .field("episode_return", &self.episode_return)
             .field("episode_length", &self.episode_length)
             .field("inner", &self.inner)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

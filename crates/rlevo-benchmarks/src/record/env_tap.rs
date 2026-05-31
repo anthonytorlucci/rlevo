@@ -181,7 +181,7 @@ where
     E: AsciiRenderable + Box2dPayloadSource + 'static,
 {
     /// Convenience constructor for `box2d` envs: extracts a
-    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. Box2D envs
+    /// [`Box2dPayload`] per frame via [`Box2dPayloadSource`]. `Box2D` envs
     /// implement [`AsciiRenderable`], so the static-frame ascii / styled
     /// projection is captured alongside the rich payload.
     pub fn with_box2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {

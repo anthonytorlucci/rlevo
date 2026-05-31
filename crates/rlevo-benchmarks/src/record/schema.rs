@@ -76,11 +76,11 @@ impl RunId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EnvFamily {
-    /// Classic control tasks (CartPole, MountainCar, Acrobot, …).
+    /// Classic control tasks (`CartPole`, `MountainCar`, `Acrobot`, …).
     Classic,
     /// Discrete grid-world environments.
     Grids,
-    /// Tabular toy-text environments (FrozenLake, Taxi, …).
+    /// Tabular toy-text environments (`FrozenLake`, `Taxi`, …).
     ToyText,
     /// 2D rigid-body physics environments.
     Box2d,

@@ -184,10 +184,10 @@ impl TuiRunner {
             // Short poll so the loop stays responsive to a manual
             // shutdown signal (e.g. another thread flipping the flag)
             // without burning CPU.
-            if crossterm::event::poll(Duration::from_millis(100))? {
-                if let crossterm::event::Event::Key(_) = crossterm::event::read()? {
-                    return Ok(());
-                }
+            if crossterm::event::poll(Duration::from_millis(100))?
+                && let crossterm::event::Event::Key(_) = crossterm::event::read()?
+            {
+                return Ok(());
             }
             if self.shutdown.load(Ordering::Acquire) {
                 return Ok(());

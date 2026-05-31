@@ -77,7 +77,8 @@ pub fn quantile_huber_loss<B: Backend>(
         let pred_chunk = pred_quantiles
             .clone()
             .slice([0..batch, chunk_start..chunk_end]); // (B, chunk)
-        let taus_chunk = taus.clone().slice([chunk_start..chunk_end]); // (chunk,)
+        let chunk_range = chunk_start..chunk_end;
+        let taus_chunk = taus.clone().slice([chunk_range]); // (chunk,)
 
         // Broadcast to (B, chunk, N_target).
         let pred_3d: Tensor<B, 3> = pred_chunk.unsqueeze_dim::<3>(2); // (B, chunk, 1)
