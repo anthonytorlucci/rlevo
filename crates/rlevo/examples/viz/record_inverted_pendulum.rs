@@ -37,7 +37,7 @@ const MAX_STEPS_PER_EPISODE: usize = 200;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::for_env::<InvertedPendulumRapier>(SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let writer = RecordWriter::open_default(record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 

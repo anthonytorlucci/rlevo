@@ -50,4 +50,7 @@ pub use schema::{
     MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef, bincode_config,
     default_frame_stride,
 };
-pub use writer::{InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, read_episode_record};
+pub use writer::{
+    InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, default_runs_dir,
+    read_episode_record,
+};

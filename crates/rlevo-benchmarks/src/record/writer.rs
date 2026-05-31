@@ -99,14 +99,26 @@ pub trait RecordSink: Send + 'static {
 
     /// Take the first error the sink encountered during the run, clearing
     /// it. Writes are best-effort and non-fatal *during* the run (they log
-    /// and continue); a driver should call this **after** the run to fail
-    /// loudly instead of shipping a silently-truncated recording.
+    /// and continue); a driver **must** call this **after** the run to fail
+    /// loudly instead of shipping a silently-truncated recording. Omitting
+    /// the post-run check on a durable run defeats the error-as-API
+    /// design — write failures (`Io`, `ConcurrentUse`, `ActionEncode`)
+    /// will then pass unnoticed.
     ///
     /// The default returns `None` — sinks that cannot fail (e.g.
     /// [`InMemoryRecordSink`]) need no override.
     fn take_error(&mut self) -> Option<RecordError> {
         None
     }
+
+    /// Report an error a *producer* detected (e.g. the
+    /// [`RecordingTap`](super::env_tap::RecordingTap) failing to encode an
+    /// action) so it surfaces through [`take_error`](Self::take_error)
+    /// alongside the writer's own IO failures. First-error-wins.
+    ///
+    /// Default no-op — sinks that only ever observe their own writes (e.g.
+    /// [`InMemoryRecordSink`]) need no override.
+    fn record_external_error(&mut self, _error: RecordError) {}
 
     /// Set the trial context stamped into subsequent episode headers.
     ///
@@ -177,6 +189,28 @@ struct EpisodeFile {
     writer: BufWriter<File>,
 }
 
+/// Default root directory for recordings, honoring the `RLEVO_RUNS_DIR`
+/// environment override.
+///
+/// Returns `RLEVO_RUNS_DIR` if set and non-empty, otherwise `"runs"`
+/// (relative to the working directory, preserving prior behaviour). Pass
+/// it to [`RecordWriter::open`], or use [`RecordWriter::open_default`], so
+/// recordings land in one configurable place rather than wherever the
+/// binary was invoked from.
+#[must_use]
+pub fn default_runs_dir() -> PathBuf {
+    resolve_runs_dir(std::env::var_os("RLEVO_RUNS_DIR"))
+}
+
+/// Pure resolution behind [`default_runs_dir`], split out so it can be
+/// unit-tested without mutating process-global environment state.
+fn resolve_runs_dir(override_var: Option<std::ffi::OsString>) -> PathBuf {
+    match override_var {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => PathBuf::from("runs"),
+    }
+}
+
 impl RecordWriter {
     /// Open a recorder rooted at `dir/<run_id>/`. Creates the
     /// directory if it does not exist; does not touch a pre-existing
@@ -205,6 +239,19 @@ impl RecordWriter {
             owner: None,
             current_trial: None,
         })
+    }
+
+    /// Open a recorder under [`default_runs_dir`] — i.e. the
+    /// `RLEVO_RUNS_DIR` environment override, or `"runs"` when unset.
+    /// Convenience wrapper over [`open`](Self::open) for examples and
+    /// binaries that want the standard, configurable output location
+    /// instead of a path relative to wherever the binary happened to run.
+    ///
+    /// # Errors
+    ///
+    /// Returns any IO error from `create_dir_all`.
+    pub fn open_default(cfg: RecordingConfig) -> io::Result<Self> {
+        Self::open(default_runs_dir(), cfg)
     }
 
     /// Detect concurrent (cross-thread) use of this single-stream writer.
@@ -446,6 +493,10 @@ impl RecordSink for RecordWriter {
         self.first_error.take()
     }
 
+    fn record_external_error(&mut self, error: RecordError) {
+        self.record_error(error);
+    }
+
     fn set_trial_context(&mut self, trial: Option<TrialRef>) {
         self.current_trial = trial;
     }
@@ -550,6 +601,11 @@ pub struct InMemoryRecordSink {
     /// Last trial context set via [`RecordSink::set_trial_context`];
     /// stamped into the header of each episode opened afterward.
     pub last_trial_context: Option<TrialRef>,
+    /// First error reported by a producer via
+    /// [`RecordSink::record_external_error`], surfaced through
+    /// [`take_error`](RecordSink::take_error). First-error-wins, matching
+    /// [`RecordWriter`].
+    pub first_error: Option<RecordError>,
 }
 
 impl InMemoryRecordSink {
@@ -607,6 +663,14 @@ impl RecordSink for InMemoryRecordSink {
     fn on_run_end(&mut self, manifest: RunManifest) {
         self.manifests.push(manifest);
     }
+    fn record_external_error(&mut self, error: RecordError) {
+        if self.first_error.is_none() {
+            self.first_error = Some(error);
+        }
+    }
+    fn take_error(&mut self) -> Option<RecordError> {
+        self.first_error.take()
+    }
     fn set_trial_context(&mut self, trial: Option<TrialRef>) {
         self.last_trial_context = trial;
     }
@@ -631,6 +695,55 @@ mod tests {
             }),
             family_payload: crate::record::FamilyPayload::Ascii,
         }
+    }
+
+    #[test]
+    fn resolve_runs_dir_honors_override_and_defaults() {
+        use std::ffi::OsString;
+        assert_eq!(
+            resolve_runs_dir(Some(OsString::from("/tmp/rlevo-runs"))),
+            PathBuf::from("/tmp/rlevo-runs")
+        );
+        // Empty override falls back to the default.
+        assert_eq!(resolve_runs_dir(Some(OsString::new())), PathBuf::from("runs"));
+        assert_eq!(resolve_runs_dir(None), PathBuf::from("runs"));
+    }
+
+    #[test]
+    fn record_external_error_sets_first_error_and_take_clears() {
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("ext-err-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+        w.record_external_error(RecordError::ActionEncode {
+            step: 3,
+            message: "boom".into(),
+        });
+        // First-error-wins: a later error does not overwrite.
+        w.record_external_error(RecordError::ConcurrentUse);
+        match w.take_error() {
+            Some(RecordError::ActionEncode { step, .. }) => assert_eq!(step, 3),
+            other => panic!("expected the first ActionEncode, got {other:?}"),
+        }
+        assert!(w.take_error().is_none());
+    }
+
+    #[test]
+    fn in_memory_sink_captures_external_error() {
+        let mut sink = InMemoryRecordSink::new();
+        sink.record_external_error(RecordError::ActionEncode {
+            step: 1,
+            message: "boom".into(),
+        });
+        assert!(matches!(
+            sink.take_error(),
+            Some(RecordError::ActionEncode { step: 1, .. })
+        ));
+        assert!(sink.take_error().is_none());
     }
 
     #[test]

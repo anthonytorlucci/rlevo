@@ -307,8 +307,24 @@ where
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // On encode failure, surface it through `take_error` rather than
+        // letting the action silently collapse to the same empty-bytes
+        // sentinel a reset frame uses. The frame is still emitted (with an
+        // empty action) so the trajectory stays decodable; `self.step + 1`
+        // is the frame's eventual index since `self.step` bumps below.
         let action_bytes =
-            bincode::serde::encode_to_vec(&action, super::schema::bincode_config()).unwrap_or_default();
+            match bincode::serde::encode_to_vec(&action, super::schema::bincode_config()) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    self.sink
+                        .lock()
+                        .record_external_error(super::error::RecordError::ActionEncode {
+                            step: self.step.saturating_add(1),
+                            message: e.to_string(),
+                        });
+                    Vec::new()
+                }
+            };
         let snap = self.inner.step(action)?;
         self.step = self.step.saturating_add(1);
         let r: f32 = snap.reward().clone().into();
@@ -598,5 +614,90 @@ mod tests {
                 other => panic!("expected Landscape2D, got {other:?}"),
             }
         }
+    }
+
+    /// An action whose `Serialize` impl always fails, to exercise the
+    /// encode-failure path in `RecordingTap::step`.
+    #[derive(Debug, Clone, Copy)]
+    struct FailAction;
+
+    impl Serialize for FailAction {
+        fn serialize<S: serde::Serializer>(&self, _s: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("intentional encode failure"))
+        }
+    }
+
+    impl Action<1> for FailAction {
+        fn shape() -> [usize; 1] {
+            [1]
+        }
+        fn is_valid(&self) -> bool {
+            true
+        }
+    }
+
+    /// Minimal env over [`FailAction`]; reuses the stub state/obs and never
+    /// terminates. Headless (no `AsciiRenderable`) — the tap is built with
+    /// `new_headless`.
+    struct FailEnv {
+        pos: i32,
+    }
+
+    impl Environment<1, 1, 1> for FailEnv {
+        type StateType = StubState;
+        type ObservationType = StubObs;
+        type ActionType = FailAction;
+        type RewardType = ScalarReward;
+        type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
+
+        fn new(_render: bool) -> Self {
+            Self { pos: 0 }
+        }
+
+        fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+            self.pos = 0;
+            Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))
+        }
+
+        fn step(&mut self, _action: FailAction) -> Result<Self::SnapshotType, EnvironmentError> {
+            self.pos += 1;
+            Ok(SnapshotBase::running(
+                StubObs { pos: self.pos },
+                ScalarReward(0.0),
+            ))
+        }
+    }
+
+    #[test]
+    fn step_encode_failure_surfaces_via_take_error_and_still_emits_frame() {
+        use crate::record::{FamilyPayload, RecordError};
+        use crate::record::writer::RecordSink;
+
+        let (probe, sink) = sink_handle();
+        let env = FailEnv { pos: 0 };
+        let mut tap: RecordingTap<_, 1, 1, 1> =
+            RecordingTap::new_headless(env, sink, |_| FamilyPayload::Ascii);
+        tap.reset().unwrap();
+        // The inner step still succeeds; only the action encode fails.
+        tap.step(FailAction).unwrap();
+        tap.step(FailAction).unwrap();
+
+        let mut guard = probe.lock();
+        let ep = &guard.episodes[&0];
+        // reset frame + two step frames are all present — the encode failure
+        // did not desync bookkeeping.
+        assert_eq!(ep.frames.len(), 3);
+        // The step frames ship with an empty action, distinguishable from a
+        // legitimate reset frame only via take_error.
+        assert_eq!(ep.frames[1].step, 1);
+        assert!(ep.frames[1].action.is_empty());
+
+        // First-error-wins: the surfaced error is the *first* failing step.
+        match guard.take_error() {
+            Some(RecordError::ActionEncode { step, .. }) => assert_eq!(step, 1),
+            other => panic!("expected ActionEncode at step 1, got {other:?}"),
+        }
+        // take_error cleared it.
+        assert!(guard.take_error().is_none());
     }
 }

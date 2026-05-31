@@ -41,4 +41,19 @@ pub enum RecordError {
          recording requires EvaluatorConfig.num_threads = Some(1)"
     )]
     ConcurrentUse,
+    /// An action value could not be bincode-encoded for a recorded frame.
+    ///
+    /// The frame is still emitted (with an empty `action`, matching the
+    /// reset-frame convention) so the trajectory stays decodable, but the
+    /// run is flagged so a driver can fail loudly via
+    /// [`RecordSink::take_error`](super::writer::RecordSink::take_error)
+    /// instead of silently shipping frames whose action collapsed to the
+    /// same empty-bytes sentinel a reset frame uses.
+    #[error("recording action encode failed (step {step}): {message}")]
+    ActionEncode {
+        /// Episode-local step index of the frame whose action failed to encode.
+        step: u32,
+        /// Rendered encoder error.
+        message: String,
+    },
 }

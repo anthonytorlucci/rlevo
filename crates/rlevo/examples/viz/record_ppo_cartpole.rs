@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = runner.handle();
 
     let record_cfg = RecordingConfig::for_env::<CartPole>(SEED);
-    let writer = RecordWriter::open("runs", record_cfg)?;
+    let writer = RecordWriter::open_default(record_cfg)?;
     let manifest = writer.manifest_template();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
