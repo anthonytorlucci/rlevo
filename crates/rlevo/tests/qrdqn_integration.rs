@@ -40,7 +40,10 @@ struct QrDqnMlp<B: Backend> {
 }
 
 impl<B: Backend> QrDqnMlp<B> {
-    fn new(num_quantiles: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        num_quantiles: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         Self {
             l1: LinearConfig::new(4, 64).init(device),
             l2: LinearConfig::new(64, 64).init(device),

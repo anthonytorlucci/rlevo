@@ -44,7 +44,12 @@ pub struct ActorMlp<B: Backend> {
 }
 
 impl<B: Backend> ActorMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, action_dim: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        action_dim: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         // Pendulum action range is [-2, 2], so scale=2, bias=0.
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
@@ -98,7 +103,12 @@ pub struct CriticMlp<B: Backend> {
 }
 
 impl<B: Backend> CriticMlp<B> {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        action_dim: usize,
+        hidden: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),

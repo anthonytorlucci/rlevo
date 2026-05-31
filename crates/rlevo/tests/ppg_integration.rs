@@ -35,7 +35,11 @@ struct ValueMlp<B: Backend> {
 }
 
 impl<B: Backend> ValueMlp<B> {
-    fn new(obs_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        hidden: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
