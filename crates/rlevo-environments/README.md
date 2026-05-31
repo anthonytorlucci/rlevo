@@ -157,14 +157,17 @@ rlevo-environments = { path = "…", default-features = false }
 cargo run -p rlevo-environments --example cartpole_random
 cargo run -p rlevo-environments --example cartpole_timelimit
 cargo run -p rlevo-environments --example pendulum_random
-cargo run -p rlevo-environments --example mountain_car_random
 cargo run -p rlevo-environments --example mountain_car_continuous_random
-cargo run -p rlevo-environments --example acrobot_random
 
 # Gridworlds
-cargo run -p rlevo-environments --example grid_empty_random
 cargo run -p rlevo-environments --example grid_door_key_scripted
-cargo run -p rlevo-environments --example grid_memory_random
+
+# Several former `*_random` examples are now random-vs-DQN benches in the
+# `rlevo` umbrella crate (see `crates/rlevo/benches`):
+#   cargo bench -p rlevo --bench grid_empty_dqn
+#   cargo bench -p rlevo --bench grid_memory_dqn
+#   cargo bench -p rlevo --bench acrobot_dqn
+#   cargo bench -p rlevo --bench mountain_car_dqn
 
 # Bandits
 cargo run -p rlevo-environments --example ten_armed_bandit_training

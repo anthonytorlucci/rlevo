@@ -21,18 +21,26 @@ cargo run -p rlevo-environments --example swimmer_random --features locomotion
 |---------|-------------|
 | `cartpole_random` | Random-policy rollout over `CartPole` |
 | `cartpole_timelimit` | `CartPole` with `TimeLimit` wrapper — truncation vs. termination |
-| `mountain_car_random` | Random-policy rollout over `MountainCar` |
 | `mountain_car_continuous_random` | Random-policy rollout over `MountainCarContinuous` |
 | `pendulum_random` | Random-policy rollout over `Pendulum` |
-| `acrobot_random` | Random-policy rollout over `Acrobot` |
 
 ### Grids
 
 | Example | Description |
 |---------|-------------|
-| `grid_empty_random` | Random-policy rollout over `EmptyEnv` |
 | `grid_door_key_scripted` | Scripted rollout of `DoorKeyEnv` with ASCII trace per step |
-| `grid_memory_random` | Random-policy rollout over `MemoryEnv` |
+
+> Several former `*_random` examples are now random-vs-DQN **benches** —
+> the random policy is the baseline a learned policy is compared against
+> (reward/success quality plus per-step throughput). Shared DQN scaffolding
+> lives in `benches/support/dqn.rs`. Run with `cargo bench -p rlevo --bench <name>`:
+>
+> | Bench | Was example | Env |
+> |-------|-------------|-----|
+> | `grid_empty_dqn` | `grid_empty_random` | `EmptyEnv` |
+> | `grid_memory_dqn` | `grid_memory_random` | `MemoryEnv` (memoryless DQN ≈ chance — the point) |
+> | `acrobot_dqn` | `acrobot_random` | `Acrobot` |
+> | `mountain_car_dqn` | `mountain_car_random` | `MountainCar` |
 
 ### Box2D (`--features box2d`)
 

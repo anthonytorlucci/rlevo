@@ -52,16 +52,8 @@ workspace = true
 
 # Examples — gridworlds
 [[example]]
-name = "grid_empty_random"
-path = "examples/envs/grids/grid_empty_random.rs"
-
-[[example]]
 name = "grid_door_key_scripted"
 path = "examples/envs/grids/grid_door_key_scripted.rs"
-
-[[example]]
-name = "grid_memory_random"
-path = "examples/envs/grids/grid_memory_random.rs"
 
 # Examples — classic control
 [[example]]
@@ -73,20 +65,12 @@ name = "cartpole_timelimit"
 path = "examples/envs/classic/cartpole_timelimit.rs"
 
 [[example]]
-name = "mountain_car_random"
-path = "examples/envs/classic/mountain_car_random.rs"
-
-[[example]]
 name = "mountain_car_continuous_random"
 path = "examples/envs/classic/mountain_car_continuous_random.rs"
 
 [[example]]
 name = "pendulum_random"
 path = "examples/envs/classic/pendulum_random.rs"
-
-[[example]]
-name = "acrobot_random"
-path = "examples/envs/classic/acrobot_random.rs"
 
 [[example]]
 name = "k_armed_bandit_random"
@@ -190,6 +174,31 @@ path = "examples/rl/td3_pendulum.rs"
 [[example]]
 name = "sac_pendulum"
 path = "examples/rl/sac_pendulum.rs"
+
+# Random-baseline-vs-DQN benches (formerly the `*_random` random-policy
+# examples). Each prints a reward/success quality comparison, then times
+# per-step rollout throughput for both policies. Shared DQN model + Polyak
+# scaffolding lives in `benches/support/dqn.rs`. Run e.g. with
+# `cargo bench -p rlevo --bench grid_empty_dqn`.
+[[bench]]
+name = "grid_empty_dqn"
+path = "benches/grid_empty_dqn.rs"
+harness = false
+
+[[bench]]
+name = "grid_memory_dqn"
+path = "benches/grid_memory_dqn.rs"
+harness = false
+
+[[bench]]
+name = "acrobot_dqn"
+path = "benches/acrobot_dqn.rs"
+harness = false
+
+[[bench]]
+name = "mountain_car_dqn"
+path = "benches/mountain_car_dqn.rs"
+harness = false
 
 # Recording-tier throughput benchmark (formerly the `record_cartpole`
 # random-policy example). Gated on viz-record; run with
