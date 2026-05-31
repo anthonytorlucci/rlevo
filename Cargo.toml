@@ -7,6 +7,17 @@ members = [
     "crates/rlevo-core",
     "crates/rlevo-environments",
     "crates/rlevo-evolution",
+    "crates/rlevo-examples",
+    "crates/rlevo-hybrid",
+    "crates/rlevo-reinforcement-learning",
+]
+
+default-members = [
+    "crates/rlevo",
+    "crates/rlevo-benchmarks",
+    "crates/rlevo-core",
+    "crates/rlevo-environments",
+    "crates/rlevo-evolution",
     "crates/rlevo-hybrid",
     "crates/rlevo-reinforcement-learning",
 ]

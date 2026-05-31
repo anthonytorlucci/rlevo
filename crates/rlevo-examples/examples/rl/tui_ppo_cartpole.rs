@@ -46,7 +46,7 @@
 //!
 //! [`TuiEnvTap`]: rlevo_benchmarks::env_wrappers::TuiEnvTap
 
-#[path = "common/ppo_cartpole.rs"]
+#[path = "../common/ppo_cartpole.rs"]
 mod ppo_cartpole;
 
 use rand::SeedableRng;

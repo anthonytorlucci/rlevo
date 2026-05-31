@@ -6553,6 +6553,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlevo-examples"
+version = "0.1.0"
+dependencies = [
+ "burn",
+ "parking_lot",
+ "rand 0.10.1",
+ "rand_distr 0.6.0",
+ "rlevo-benchmarks",
+ "rlevo-core",
+ "rlevo-environments",
+ "rlevo-evolution",
+ "rlevo-reinforcement-learning",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rlevo-hybrid"
 version = "0.1.0"
 dependencies = [
