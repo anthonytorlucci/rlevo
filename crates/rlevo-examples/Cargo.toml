@@ -34,17 +34,17 @@ workspace = true
 # Examples — RL (PPO on CartPole)
 [[example]]
 name = "tui_ppo_cartpole"
-path = "examples/rl/tui_ppo_cartpole.rs"
+path = "examples/classic/tui_ppo_cartpole.rs"
 required-features = ["viz-tui"]
 
 [[example]]
 name = "record_ppo_cartpole"
-path = "examples/rl/record_ppo_cartpole.rs"
+path = "examples/classic/record_ppo_cartpole.rs"
 required-features = ["viz-tui", "viz-record"]
 
 [[example]]
 name = "report_ppo_cartpole_with_client"
-path = "examples/rl/report_ppo_cartpole_with_client.rs"
+path = "examples/classic/report_ppo_cartpole_with_client.rs"
 required-features = ["viz-record", "viz-report"]
 
 # Examples — evolution / landscapes

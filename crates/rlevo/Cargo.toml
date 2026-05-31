@@ -91,23 +91,23 @@ path = "examples/evo/rastrigin_showcase.rs"
 # Pendulum actor/critic models live in `benches/support/pendulum.rs`.
 # Run e.g. with `cargo bench -p rlevo --bench grid_empty_dqn`.
 [[bench]]
-name = "grid_empty_dqn"
-path = "benches/grid_empty_dqn.rs"
+name = "grid_empty_rl"
+path = "benches/grid_empty_rl.rs"
 harness = false
 
 [[bench]]
-name = "grid_memory_dqn"
-path = "benches/grid_memory_dqn.rs"
+name = "grid_memory_rl"
+path = "benches/grid_memory_rl.rs"
 harness = false
 
 [[bench]]
-name = "acrobot_dqn"
-path = "benches/acrobot_dqn.rs"
+name = "acrobot_rl"
+path = "benches/acrobot_rl.rs"
 harness = false
 
 [[bench]]
-name = "mountain_car_dqn"
-path = "benches/mountain_car_dqn.rs"
+name = "mountain_car_rl"
+path = "benches/mountain_car_rl.rs"
 harness = false
 
 [[bench]]
