@@ -191,15 +191,6 @@ path = "examples/rl/td3_pendulum.rs"
 name = "sac_pendulum"
 path = "examples/rl/sac_pendulum.rs"
 
-# Examples — benchmarks harness
-[[example]]
-name = "ga_rastrigin"
-path = "examples/benchmarks/ga_rastrigin.rs"
-
-[[example]]
-name = "tabular_bandit"
-path = "examples/benchmarks/tabular_bandit.rs"
-
 # Recording-tier throughput benchmark (formerly the `record_cartpole`
 # random-policy example). Gated on viz-record; run with
 # `cargo bench -p rlevo --features viz-record --bench cartpole_record`.
