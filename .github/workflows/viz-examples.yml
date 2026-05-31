@@ -1,14 +1,15 @@
-# Regression net for the visualisation examples (gap G1).
+# Regression net for the visualisation/recording/reporting/harness examples.
 #
-# The viz examples under `crates/rlevo/examples/viz/` are all
-# `required-features`-gated, so a plain `cargo build` / `cargo test` never
-# compiles them. That is how ~10 examples once shipped non-compiling (the
-# `std` vs `parking_lot` Mutex split, ADR 0010) without anyone noticing.
+# These examples live in `crates/rlevo-examples/` (ADR 0012). They are all
+# `required-features`-gated or depend on `rlevo-benchmarks`, so a plain
+# `cargo build` / `cargo test` never compiles them — that is how ~10 examples
+# once shipped non-compiling (the `std` vs `parking_lot` Mutex split, ADR 0010)
+# without anyone noticing.
 #
-# This job compiles every viz example with the full feature set. It is
-# build-only: actually running them needs a tty (TUI), `--release` wall-clock
-# (PPO/EA), and a `trunk`-built WASM bundle (`*_with_client`). Compiling is
-# enough to catch producer-API drift like the Mutex split.
+# This job compiles every example in `rlevo-examples` with the full feature
+# set. It is build-only: actually running them needs a tty (TUI), `--release`
+# wall-clock (PPO/EA), and a `trunk`-built WASM bundle (`*_with_client`).
+# Compiling is enough to catch producer-API drift like the Mutex split.
 #
 # See research note `viz-mutex-and-ci-gap` (Root cause B) for the rationale.
 name: viz-examples
@@ -52,11 +53,11 @@ jobs:
 
       - name: Build viz examples (full feature set)
         run: |
-          cargo build -p rlevo --examples \
+          cargo build -p rlevo-examples --examples \
             --features viz-tui,viz-record,viz-report,box2d,locomotion
 
       - name: Clippy viz examples (full feature set)
         run: |
-          cargo clippy -p rlevo --examples \
+          cargo clippy -p rlevo-examples --examples \
             --features viz-tui,viz-record,viz-report,box2d,locomotion \
             -- -D warnings
