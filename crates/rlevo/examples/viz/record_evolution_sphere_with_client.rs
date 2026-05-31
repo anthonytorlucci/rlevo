@@ -35,10 +35,10 @@
 //! box plot, selection-pressure indicator).
 
 use std::path::PathBuf;
-// The record sink uses `parking_lot::Mutex` (the producers require it),
-// while the EA observer handle (`SharedPopulationObserver`) is defined over
-// `std::sync::Mutex` — so this example needs both, with std aliased.
-use std::sync::{Arc, Mutex as StdMutex};
+// The record sink and the EA observer handle (`SharedPopulationObserver`)
+// now share one lock type (`parking_lot::Mutex`, ADR 0010), so this example
+// needs only a single `Mutex` import.
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 
@@ -81,8 +81,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(RecordingLayer::new(sink.clone()))
         .try_init()?;
 
-    let reporter: Arc<StdMutex<PopulationReporter>> =
-        Arc::new(StdMutex::new(PopulationReporter::new(sink.clone())));
+    let reporter: Arc<Mutex<PopulationReporter>> =
+        Arc::new(Mutex::new(PopulationReporter::new(sink.clone())));
     let observer: SharedPopulationObserver = reporter.clone();
 
     let sphere = Sphere::new(DIM);

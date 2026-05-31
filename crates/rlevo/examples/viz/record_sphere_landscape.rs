@@ -21,7 +21,9 @@
 //!
 //! [`RecordingTap`]: rlevo_benchmarks::record::RecordingTap
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -60,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut trail: Vec<Point2> = Vec::new();
 
         {
-            let mut sink_lock = sink.lock().unwrap();
+            let mut sink_lock = sink.lock();
             sink_lock.on_episode_start(ep as u32);
         }
 
@@ -120,18 +122,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 styled: None,
                 family_payload: FamilyPayload::Landscape2D(Landscape2DPayload::from(snapshot)),
             };
-            sink.lock().unwrap().on_frame(frame);
+            sink.lock().on_frame(frame);
         }
 
         sink.lock()
-            .unwrap()
             .on_episode_end(episode_return, STEPS_PER_EPISODE);
     }
 
-    sink.lock().unwrap().on_run_end(manifest);
+    sink.lock().on_run_end(manifest);
 
     // Fail loud on a recording write error rather than reporting success.
-    if let Some(e) = sink.lock().unwrap().take_error() {
+    if let Some(e) = sink.lock().take_error() {
         return Err(e.into());
     }
 

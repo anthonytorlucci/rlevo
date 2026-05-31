@@ -15,6 +15,10 @@ cubecl = { workspace = true, optional = true }
 rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
 rand = { workspace = true }
 rand_distr = { workspace = true }
+# Lock type for `SharedPopulationObserver`: unified on `parking_lot` so the
+# observer handle and the recording-tier sinks in `rlevo-benchmarks` share
+# one `Mutex` type (ADR 0010). Already a transitive workspace dependency.
+parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

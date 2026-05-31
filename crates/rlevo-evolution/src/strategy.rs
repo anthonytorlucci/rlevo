@@ -443,9 +443,7 @@ where
                 best_genome_digest: None,
                 parents_of_best: Vec::new(),
             };
-            if let Ok(mut guard) = observer.lock() {
-                guard.on_population(snapshot);
-            }
+            observer.lock().on_population(snapshot);
         }
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
@@ -656,7 +654,9 @@ mod tests {
 
     #[test]
     fn harness_fires_observer_per_generation() {
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
+
+        use parking_lot::Mutex;
         let device = Default::default();
         let observer = Arc::new(Mutex::new(CountingObserver::default()));
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
@@ -675,7 +675,7 @@ mod tests {
         for _ in 0..3 {
             harness.step(());
         }
-        let guard = observer.lock().unwrap();
+        let guard = observer.lock();
         assert_eq!(guard.snapshots.len(), 3);
         // pop_size = 5, ranked fitness = [1/1, 1/2, 1/3, 1/4, 1/5]; best
         // (smallest) is the last element.
