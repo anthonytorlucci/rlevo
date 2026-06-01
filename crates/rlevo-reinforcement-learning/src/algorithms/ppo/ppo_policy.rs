@@ -104,4 +104,20 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     fn raw_to_env_row(&self, raw_row: &[f32]) -> Vec<f32> {
         raw_row.to_vec()
     }
+
+    /// Deterministic (greedy) env-space action for the first row of `obs`,
+    /// evaluated on the inner (non-autodiff) backend.
+    ///
+    /// Returns the policy's mode — the Gaussian mean squashed into the env
+    /// range, or the categorical argmax — with no sampling and no autodiff
+    /// graph. This is the policy to use for evaluation and throughput
+    /// benchmarking: it reflects what the network learned without the
+    /// exploration noise that [`sample_with_logprob`](Self::sample_with_logprob)
+    /// injects, and it skips the per-call graph construction that the autodiff
+    /// `sample_with_logprob` path incurs. Snapshot the inner module once with
+    /// [`AutodiffModule::valid`] and reuse it across many steps.
+    fn deterministic_env_row_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, DB>,
+    ) -> Vec<f32>;
 }

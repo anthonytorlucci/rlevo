@@ -47,6 +47,9 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 # Benchmarking and profiling
 criterion = { version = "0.8", features = ["html_reports"] }
 pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
+# Pin the global thread pool to one thread in benches for reproducible
+# floating-point results (burn-flex's gemm parallelises via rayon).
+rayon = "1.12"
 
 # Logging (recommended for ML projects)
 tracing = "0.1"

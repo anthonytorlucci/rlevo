@@ -8,22 +8,27 @@
 //! - [`ActorMlp`] — deterministic tanh-scaled actor for DDPG and TD3
 //! - [`CriticMlp`] — concat(obs, action) Q-value head shared by DDPG, TD3, SAC
 //! - [`StochasticActor`] — squashed-Gaussian reparameterized actor for SAC
-//! - Polyak averaging helpers (identical to `support/dqn.rs`)
+//!
+//! The Polyak target-network update is shared with the value-based benches via
+//! [`value_nets::polyak_update`] rather than re-implemented here.
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-use std::marker::PhantomData;
-
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::Tensor;
 
 // TD3 and SAC re-export these from ddpg_model, so one impl per type covers all three algorithms.
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
+
+// Nested via `#[path]` so this module stays self-contained regardless of how
+// the including bench names its top-level modules; we use only `polyak_update`.
+#[path = "value_nets.rs"]
+mod value_nets;
+use value_nets::polyak_update;
 
 // ---------------------------------------------------------------------------
 // ActorMlp — deterministic tanh-scaled actor for DDPG and TD3
@@ -255,53 +260,3 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> 
     }
 }
 
-// ---------------------------------------------------------------------------
-// Polyak averaging — identical to support/dqn.rs
-// ---------------------------------------------------------------------------
-
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: PhantomData<B>,
-}
-
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: PhantomData<B>,
-}
-
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self
-            .active
-            .remove(&id)
-            .expect("param not collected from active network");
-        let tau = self.tau;
-        param.map(move |target_tensor| {
-            let device = target_tensor.device();
-            let active_tensor = Tensor::<B, D>::from_data(active, &device);
-            target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
-        })
-    }
-}
-
-pub fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    let mut collector = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: PhantomData,
-    };
-    active.visit(&mut collector);
-    let mut mapper = PolyakMapper::<B> {
-        active: collector.tensors,
-        tau,
-        _marker: PhantomData,
-    };
-    target.map(&mut mapper)
-}

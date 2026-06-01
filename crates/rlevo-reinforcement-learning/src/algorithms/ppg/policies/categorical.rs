@@ -169,6 +169,20 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
         let t: Tensor<B, 1, Int> = Tensor::from_data(TensorData::new(as_i64, vec![n_rows]), device);
         t.unsqueeze_dim::<2>(1)
     }
+
+    fn deterministic_env_row_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+    ) -> Vec<f32> {
+        // Deterministic action = argmax over logits (the categorical mode).
+        // `PpgAuxValueHead::logits` is autodiff-only, so recompute logits on the
+        // inner backend from the shared trunk + logits head directly.
+        let logits = inner.logits_head.forward(inner.trunk(obs));
+        let idx: Tensor<B::InnerBackend, 2, Int> = logits.argmax(1);
+        let data = idx.into_data().convert::<i64>();
+        let slice = data.as_slice::<i64>().expect("argmax index is i64");
+        vec![slice[0] as f32]
+    }
 }
 
 #[cfg(test)]

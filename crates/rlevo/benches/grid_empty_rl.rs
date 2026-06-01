@@ -23,7 +23,7 @@
 //! cargo bench -p rlevo --bench grid_empty_dqn
 //! ```
 
-#[path = "support/dqn.rs"]
+#[path = "support/value_nets.rs"]
 mod support;
 
 use std::hint::black_box;

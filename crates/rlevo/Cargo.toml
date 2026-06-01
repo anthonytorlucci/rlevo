@@ -27,6 +27,7 @@ criterion = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 tracing-subscriber = { workspace = true }
 

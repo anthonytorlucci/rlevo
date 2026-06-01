@@ -195,6 +195,18 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             .map(|z| self.action_scale * z.tanh())
             .collect()
     }
+
+    fn deterministic_env_row_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+    ) -> Vec<f32> {
+        // Deterministic action = squashed policy mean (no σ·ε noise).
+        let action_dim = inner.action_dim();
+        let env = tanh(inner.mean(obs)).mul_scalar(inner.action_scale());
+        let data = env.into_data().convert::<f32>();
+        let slice = data.as_slice::<f32>().expect("gaussian mean is f32");
+        slice[0..action_dim].to_vec()
+    }
 }
 
 /// Convenience: build a `ContinuousAction` from the env-action row produced
@@ -263,6 +275,43 @@ mod tests {
         assert!(
             (got - expected).abs() < 1e-4,
             "expected {expected}, got {got}"
+        );
+    }
+
+    #[test]
+    fn deterministic_env_row_inner_is_scaled_tanh_mean() {
+        use burn::module::AutodiffModule;
+        use burn::tensor::backend::AutodiffBackend;
+
+        let device = Default::default();
+        let cfg = TanhGaussianPolicyHeadConfig {
+            obs_dim: 3,
+            hidden: 8,
+            action_dim: 1,
+            log_std_init: 0.0,
+            action_scale: 2.0,
+        };
+        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let obs_vals = vec![0.1_f32, -0.2, 0.3];
+
+        // Reference: scale · tanh(μ) computed on the autodiff head.
+        let obs: Tensor<B, 2> =
+            Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
+        let mean = head.mean(obs).into_scalar().elem::<f32>();
+        let expected = 2.0 * mean.tanh();
+
+        // The inner deterministic path must agree (no sampling noise).
+        let inner = head.valid();
+        let obs_inner: Tensor<<B as AutodiffBackend>::InnerBackend, 2> =
+            Tensor::from_data(TensorData::new(obs_vals, vec![1, 3]), &device);
+        let row = <TanhGaussianPolicyHead<B> as PpoPolicy<B, 2>>::deterministic_env_row_inner(
+            &inner, obs_inner,
+        );
+        assert_eq!(row.len(), 1);
+        assert!(
+            (row[0] - expected).abs() < 1e-5,
+            "expected {expected}, got {}",
+            row[0]
         );
     }
 

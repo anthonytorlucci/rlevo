@@ -25,19 +25,13 @@
 //! cargo bench -p rlevo --bench cartpole_rl -- --test
 //! ```
 
-#[path = "support/dqn.rs"]
-mod dqn_support;
+#[path = "support/value_nets.rs"]
+mod value_nets;
 
-use std::collections::HashMap;
 use std::hint::black_box;
 
 use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
-use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
-use burn::tensor::activation::tanh;
-use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{TensorData, activation};
+use burn::tensor::backend::Backend;
 
 use criterion::{BenchmarkId, Criterion, Throughput};
 
@@ -53,7 +47,6 @@ use rlevo_environments::wrappers::TimeLimit;
 
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
 use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train as train_c51;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
@@ -65,13 +58,11 @@ use rlevo_reinforcement_learning::algorithms::ppg::ppg_agent::PpgAgent;
 use rlevo_reinforcement_learning::algorithms::ppg::ppg_config::PpgConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::ppg::train::train_discrete as train_ppg;
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn;
 
-use dqn_support::VecMlpDqn;
+use value_nets::{C51Mlp, QrDqnMlp, ValueMlp, VecMlpDqn};
 
 const SEED: u64 = 2026;
 const OBS_FEATURES: usize = 4;
@@ -102,196 +93,6 @@ type PpgCartPoleAgent = PpgAgent<
 >;
 
 // ---------------------------------------------------------------------------
-// C51 model — (batch, 4) → (batch, actions, atoms)
-// ---------------------------------------------------------------------------
-
-#[derive(Module, Debug)]
-pub struct C51Mlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
-    num_atoms: usize,
-}
-
-impl<B: Backend> C51Mlp<B> {
-    fn new(num_atoms: usize, device: &<B as BackendTypes>::Device) -> Self {
-        Self {
-            l1: LinearConfig::new(OBS_FEATURES, HIDDEN).init(device),
-            l2: LinearConfig::new(HIDDEN, HIDDEN).init(device),
-            l3: LinearConfig::new(HIDDEN, ACTIONS * num_atoms).init(device),
-            num_atoms,
-        }
-    }
-
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
-        let [batch, _] = obs.dims();
-        let x = activation::relu(self.l1.forward(obs));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3.forward(x).reshape([batch, ACTIONS, self.num_atoms])
-    }
-}
-
-impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
-        self.forward_impl(obs)
-    }
-
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        c51_polyak::<B::InnerBackend, C51Mlp<B::InnerBackend>>(&active.valid(), target, tau as f32)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// QR-DQN model — (batch, 4) → (batch, actions, quantiles)
-// ---------------------------------------------------------------------------
-
-#[derive(Module, Debug)]
-pub struct QrDqnMlp<B: Backend> {
-    l1: Linear<B>,
-    l2: Linear<B>,
-    l3: Linear<B>,
-    num_quantiles: usize,
-}
-
-impl<B: Backend> QrDqnMlp<B> {
-    fn new(num_quantiles: usize, device: &<B as BackendTypes>::Device) -> Self {
-        Self {
-            l1: LinearConfig::new(OBS_FEATURES, HIDDEN).init(device),
-            l2: LinearConfig::new(HIDDEN, HIDDEN).init(device),
-            l3: LinearConfig::new(HIDDEN, ACTIONS * num_quantiles).init(device),
-            num_quantiles,
-        }
-    }
-
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
-        let [batch, _] = obs.dims();
-        let x = activation::relu(self.l1.forward(obs));
-        let x = activation::relu(self.l2.forward(x));
-        self.l3
-            .forward(x)
-            .reshape([batch, ACTIONS, self.num_quantiles])
-    }
-}
-
-impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 3> {
-        self.forward_impl(obs)
-    }
-
-    fn forward_inner(
-        inner: &Self::InnerModule,
-        obs: Tensor<B::InnerBackend, 2>,
-    ) -> Tensor<B::InnerBackend, 3> {
-        inner.forward_impl(obs)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
-        qrdqn_polyak::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
-            &active.valid(),
-            target,
-            tau as f32,
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// PPG value network — two-layer tanh MLP → scalar
-// ---------------------------------------------------------------------------
-
-#[derive(Module, Debug)]
-pub struct ValueMlp<B: Backend> {
-    fc1: Linear<B>,
-    fc2: Linear<B>,
-    head: Linear<B>,
-}
-
-impl<B: Backend> ValueMlp<B> {
-    fn new(device: &<B as BackendTypes>::Device) -> Self {
-        Self {
-            fc1: LinearConfig::new(OBS_FEATURES, HIDDEN).init(device),
-            fc2: LinearConfig::new(HIDDEN, HIDDEN).init(device),
-            head: LinearConfig::new(HIDDEN, 1).init(device),
-        }
-    }
-
-    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
-        let h = tanh(self.fc1.forward(obs));
-        let h = tanh(self.fc2.forward(h));
-        self.head.forward(h).squeeze_dim::<1>(1)
-    }
-}
-
-impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
-    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
-        self.forward_impl(obs)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Polyak averaging — one copy per model type (each needs its own M bound)
-// ---------------------------------------------------------------------------
-
-fn polyak_impl<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    struct Collector<B: Backend> {
-        tensors: HashMap<ParamId, TensorData>,
-        _m: std::marker::PhantomData<B>,
-    }
-    impl<B: Backend> ModuleVisitor<B> for Collector<B> {
-        fn visit_float<const D: usize>(&mut self, p: &Param<Tensor<B, D>>) {
-            self.tensors.insert(p.id, p.val().to_data());
-        }
-    }
-    struct Mapper<B: Backend> {
-        active: HashMap<ParamId, TensorData>,
-        tau: f32,
-        _m: std::marker::PhantomData<B>,
-    }
-    impl<B: Backend> ModuleMapper<B> for Mapper<B> {
-        fn map_float<const D: usize>(
-            &mut self,
-            param: Param<Tensor<B, D>>,
-        ) -> Param<Tensor<B, D>> {
-            let id = param.id;
-            let active = self.active.remove(&id).expect("param missing");
-            let tau = self.tau;
-            param.map(move |t| {
-                let dev = t.device();
-                t.mul_scalar(1.0 - tau) + Tensor::<B, D>::from_data(active, &dev).mul_scalar(tau)
-            })
-        }
-    }
-
-    let mut c = Collector::<B> {
-        tensors: HashMap::new(),
-        _m: std::marker::PhantomData,
-    };
-    active.visit(&mut c);
-    let mut m = Mapper::<B> {
-        active: c.tensors,
-        tau,
-        _m: std::marker::PhantomData,
-    };
-    target.map(&mut m)
-}
-
-fn c51_polyak<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    polyak_impl(active, target, tau)
-}
-
-fn qrdqn_polyak<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    polyak_impl(active, target, tau)
-}
-
-// ---------------------------------------------------------------------------
 // Environment factory
 // ---------------------------------------------------------------------------
 
@@ -311,6 +112,7 @@ fn make_env() -> Env {
 
 fn train_dqn_agent() -> DqnCartPoleAgent {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = DqnTrainingConfigBuilder::new()
@@ -335,6 +137,7 @@ fn train_dqn_agent() -> DqnCartPoleAgent {
 
 fn train_c51_agent() -> C51CartPoleAgent {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = C51TrainingConfigBuilder::new()
@@ -353,7 +156,7 @@ fn train_c51_agent() -> C51CartPoleAgent {
         .v_min(0.0)
         .v_max(500.0)
         .build();
-    let model: C51Mlp<Backend_> = C51Mlp::new(NUM_ATOMS, &device);
+    let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
     let mut agent: C51CartPoleAgent = C51Agent::new(model, config, device);
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
     agent
@@ -361,6 +164,7 @@ fn train_c51_agent() -> C51CartPoleAgent {
 
 fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let config = QrDqnTrainingConfigBuilder::new()
@@ -378,7 +182,7 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
         .num_quantiles(NUM_QUANTILES)
         .kappa(1.0)
         .build();
-    let model: QrDqnMlp<Backend_> = QrDqnMlp::new(NUM_QUANTILES, &device);
+    let model: QrDqnMlp<Backend_> = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
     let mut agent: QrDqnCartPoleAgent = QrDqnAgent::new(model, config, device);
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
     agent
@@ -386,6 +190,7 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
 
 fn train_ppg_agent() -> PpgCartPoleAgent {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let policy: PpgCategoricalPolicyHead<Backend_> = PpgCategoricalPolicyHeadConfig {
@@ -394,7 +199,7 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
         num_actions: ACTIONS,
     }
     .init::<Backend_>(&device);
-    let value: ValueMlp<Backend_> = ValueMlp::new(&device);
+    let value: ValueMlp<Backend_> = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
     let config = PpgConfigBuilder::new()
         .with_ppo(|p| {
             PpoTrainingConfigBuilder::new()
@@ -493,17 +298,24 @@ fn print_quality_comparison(
     let (rand_ret, rand_solve) =
         evaluate(|_| CartPoleAction::from_index(rng.random_range(0..ACTIONS)));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(1));
-    let (dqn_ret, dqn_solve) = evaluate(|obs| dqn.act(obs, &mut r));
+    // Evaluation uses each agent's greedy policy: `act` is ε-greedy and floors
+    // at `epsilon_end`, so it injects exploration noise that destabilises the
+    // pole and caps the solve rate even for a well-trained policy. The
+    // value-based agents run inference on a once-snapshotted inner (non-autodiff)
+    // network — far cheaper than rebuilding an autodiff graph every step.
+    let dqn_infer = dqn.inference_net();
+    let (dqn_ret, dqn_solve) = evaluate(|obs| dqn.act_greedy_with(&dqn_infer, obs));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(2));
-    let (c51_ret, c51_solve) = evaluate(|obs| c51.act(obs, &mut r));
+    let c51_infer = c51.inference_net();
+    let c51_support = c51.inference_support();
+    let (c51_ret, c51_solve) = evaluate(|obs| c51.act_greedy_with(&c51_infer, &c51_support, obs));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(3));
-    let (qrdqn_ret, qrdqn_solve) = evaluate(|obs| qrdqn.act(obs, &mut r));
+    let qrdqn_infer = qrdqn.inference_net();
+    let (qrdqn_ret, qrdqn_solve) = evaluate(|obs| qrdqn.act_greedy_with(&qrdqn_infer, obs));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(4));
-    let (ppg_ret, ppg_solve) = evaluate(|obs| action_from_row(&ppg.act(obs, &mut r).env_row));
+    let ppg_infer = ppg.inference_net();
+    let (ppg_ret, ppg_solve) =
+        evaluate(|obs| action_from_row(&ppg.act_greedy_env_row_with(&ppg_infer, obs)));
 
     println!();
     println!(
@@ -529,49 +341,63 @@ fn bench_policies(
     qrdqn: &QrDqnCartPoleAgent,
     ppg: &PpgCartPoleAgent,
 ) {
+    // Snapshot each value-based net onto the inner (non-autodiff) backend once;
+    // per-step inference then skips autodiff-graph construction entirely, which
+    // is the dominant cost for the distributional agents at batch size 1.
+    let dqn_infer = dqn.inference_net();
+    let c51_infer = c51.inference_net();
+    let c51_support = c51.inference_support();
+    let qrdqn_infer = qrdqn.inference_net();
+    let ppg_infer = ppg.inference_net();
+
     let mut group = c.benchmark_group("cartpole_policy_rollout");
-    for &steps in &[1_000_usize, 4_000, 16_000] {
-        group.throughput(Throughput::Elements(steps as u64));
+    // Per-step throughput is independent of rollout length (the rollout is
+    // linear and `Throughput::Elements` normalises per step), so a single size
+    // captures the same signal the 1k/4k/16k sweep did. Ten samples keep a
+    // usable confidence interval without multi-second-per-iteration runs.
+    group.sample_size(10);
+    let steps = 4_000_usize;
+    group.throughput(Throughput::Elements(steps as u64));
 
-        group.bench_with_input(BenchmarkId::new("random", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |_| {
-                    CartPoleAction::from_index(rng.random_range(0..ACTIONS))
-                });
+    group.bench_with_input(BenchmarkId::new("random", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            let mut rng = StdRng::seed_from_u64(SEED);
+            rollout_steps(black_box(steps), |_| {
+                CartPoleAction::from_index(rng.random_range(0..ACTIONS))
             });
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("dqn", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| dqn.act(obs, &mut rng));
+    // Learned policies time their greedy (evaluation) inference path on the
+    // inner backend, matching how the quality comparison rolls them out.
+    group.bench_with_input(BenchmarkId::new("dqn", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| dqn.act_greedy_with(&dqn_infer, obs));
+        });
+    });
+
+    group.bench_with_input(BenchmarkId::new("c51", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| {
+                c51.act_greedy_with(&c51_infer, &c51_support, obs)
             });
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("c51", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| c51.act(obs, &mut rng));
+    group.bench_with_input(BenchmarkId::new("qrdqn", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| qrdqn.act_greedy_with(&qrdqn_infer, obs));
+        });
+    });
+
+    group.bench_with_input(BenchmarkId::new("ppg", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| {
+                action_from_row(&ppg.act_greedy_env_row_with(&ppg_infer, obs))
             });
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("qrdqn", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| qrdqn.act(obs, &mut rng));
-            });
-        });
-
-        group.bench_with_input(BenchmarkId::new("ppg", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| {
-                    action_from_row(&ppg.act(obs, &mut rng).env_row)
-                });
-            });
-        });
-    }
     group.finish();
 }
 
@@ -580,6 +406,23 @@ fn bench_policies(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // Reproducibility has two requirements, both handled here + in each trainer:
+    //
+    // 1. Seed the backend RNG (`<Backend_>::seed` in every `train_*_agent`). The
+    //    `StdRng` we thread through training only drives action sampling/replay;
+    //    network weight init (`LinearConfig::init`) draws from the *backend* RNG,
+    //    which is seeded from entropy unless we set it. This is the dominant
+    //    source of run-to-run policy divergence.
+    // 2. Pin the global rayon pool to one thread (below). Flex parallelises
+    //    matmul through `gemm`'s rayon feature, and parallel float accumulation
+    //    is non-associative, so multi-threaded training still drifts bitwise even
+    //    with a seeded init. Single-threaded gemm fixes the reduction order.
+    //    `.ok()` because the pool may already be initialised (e.g. under `--test`).
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+
     let dqn = train_dqn_agent();
     let c51 = train_c51_agent();
     let qrdqn = train_qrdqn_agent();
