@@ -36,7 +36,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
 //! let mut env = CrossingEnv::with_config(cfg, false);
@@ -62,7 +62,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -229,7 +229,7 @@ impl FromStr for CrossingConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::crossing::{CrossingConfig, CrossingEnv, CrossingKind};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = CrossingEnv::with_config(
 ///     CrossingConfig::new(7, 196, 0, CrossingKind::Lava),
@@ -375,16 +375,18 @@ impl Display for CrossingEnv {
     }
 }
 
+impl ConstructableEnv for CrossingEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(CrossingConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for CrossingEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(CrossingConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

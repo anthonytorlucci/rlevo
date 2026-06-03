@@ -275,23 +275,6 @@ where
     type RewardType = E::RewardType;
     type SnapshotType = E::SnapshotType;
 
-    fn new(render: bool) -> Self {
-        // No meaningful standalone constructor — callers use
-        // `RecordingTap::new(env, sink)`. This impl exists only to
-        // satisfy the trait shape.
-        struct NullSink;
-        impl RecordSink for NullSink {
-            fn on_episode_start(&mut self, _: u32) {}
-            fn on_frame(&mut self, _: FrameRecord) {}
-            fn on_metric(&mut self, _: super::schema::MetricSample) {}
-            fn on_episode_end(&mut self, _: f64, _: u32) {}
-            fn on_run_end(&mut self, _: super::manifest::RunManifest) {}
-        }
-        Self::new_headless(E::new(render), Arc::new(Mutex::new(NullSink)), |_| {
-            FamilyPayload::Ascii
-        })
-    }
-
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let snap = self.inner.reset()?;
         if self.started {
@@ -438,10 +421,6 @@ mod tests {
         type ActionType = StubAction;
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
-
-        fn new(_render: bool) -> Self {
-            Self::new(0.0, Termination::TerminateAt(u32::MAX))
-        }
 
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.pos = 0;
@@ -649,10 +628,6 @@ mod tests {
         type ActionType = FailAction;
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
-
-        fn new(_render: bool) -> Self {
-            Self { pos: 0 }
-        }
 
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.pos = 0;

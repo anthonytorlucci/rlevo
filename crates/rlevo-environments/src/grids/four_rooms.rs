@@ -41,7 +41,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = FourRoomsConfig::new(11, 484, 0);
 //! let mut env = FourRoomsEnv::with_config(cfg, false);
@@ -65,7 +65,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -191,7 +191,7 @@ impl FromStr for FourRoomsConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = FourRoomsEnv::with_config(
 ///     FourRoomsConfig::new(11, 484, 0),
@@ -322,16 +322,18 @@ impl Display for FourRoomsEnv {
     }
 }
 
+impl ConstructableEnv for FourRoomsEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(FourRoomsConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for FourRoomsEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(FourRoomsConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

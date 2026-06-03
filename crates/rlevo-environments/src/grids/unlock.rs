@@ -28,7 +28,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::unlock::{UnlockConfig, UnlockEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = UnlockConfig::new(5, 200, 0);
 //! let mut env = UnlockEnv::with_config(cfg, false);
@@ -54,7 +54,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -169,7 +169,7 @@ impl FromStr for UnlockConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::unlock::UnlockEnv;
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = UnlockEnv::new(false);
 /// let snap = env.reset().unwrap();
@@ -280,16 +280,18 @@ impl Display for UnlockEnv {
     }
 }
 
+impl ConstructableEnv for UnlockEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(UnlockConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for UnlockEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(UnlockConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let (state, door_pos) = Self::build(&self.config);

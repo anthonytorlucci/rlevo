@@ -152,10 +152,6 @@ impl Environment<1, 1, 1> for LinearEnv {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, LinearObservation, ScalarReward>;
 
-    fn new(_render: bool) -> Self {
-        Self::with_seed(0, 20)
-    }
-
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = LinearState {
             x: Self::sample_x(&mut self.rng),

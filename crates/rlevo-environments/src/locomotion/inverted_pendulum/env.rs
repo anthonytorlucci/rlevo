@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
@@ -169,16 +169,18 @@ impl InvertedPendulum<Rapier3DBackend> {
     }
 }
 
+impl ConstructableEnv for InvertedPendulum<Rapier3DBackend> {
+    fn new(_render: bool) -> Self {
+        Self::with_config(InvertedPendulumConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     type StateType = InvertedPendulumState;
     type ObservationType = InvertedPendulumObservation;
     type ActionType = InvertedPendulumAction;
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<InvertedPendulumObservation>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(InvertedPendulumConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

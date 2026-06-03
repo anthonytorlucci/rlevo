@@ -36,7 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 
@@ -316,16 +316,18 @@ impl Blackjack {
     }
 }
 
+impl ConstructableEnv for Blackjack {
+    fn new(_render: bool) -> Self {
+        Self::with_config(BlackjackConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for Blackjack {
     type StateType = BlackjackState;
     type ObservationType = BlackjackObservation;
     type ActionType = BlackjackAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, BlackjackObservation, ScalarReward>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(BlackjackConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.deal_initial();

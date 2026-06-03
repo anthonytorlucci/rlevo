@@ -13,11 +13,11 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{Environment, Snapshot};
+//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
 //! use rlevo_environments::classic::{KArmedBandit, KArmedBanditAction};
 //!
 //! let mut env: KArmedBandit<10> =
-//!     <KArmedBandit<10> as Environment<1, 1, 1>>::new(false);
+//!     <KArmedBandit<10> as ConstructableEnv>::new(false);
 //! let _ = <KArmedBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm index in range");
@@ -35,7 +35,7 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -488,17 +488,19 @@ pub(super) fn sample_arm_means<const K: usize>(rng: &mut StdRng) -> [f32; K] {
     arm_means
 }
 
+impl<const K: usize> ConstructableEnv for KArmedBandit<K> {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(KArmedBanditConfig::default())
+    }
+}
+
 impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     type StateType = KArmedBanditState;
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(KArmedBanditConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         KArmedBandit::reset(self);
@@ -677,7 +679,7 @@ mod tests {
 
     #[test]
     fn environment_new_constructs() {
-        let env = <KArmedBandit<K> as Environment<1, 1, 1>>::new(false);
+        let env = <KArmedBandit<K> as ConstructableEnv>::new(false);
         assert_eq!(env.steps, 0);
         assert!(!env.done);
     }

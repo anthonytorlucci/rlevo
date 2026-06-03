@@ -6,7 +6,7 @@ use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -372,16 +372,18 @@ impl BipedalWalker {
     }
 }
 
+impl ConstructableEnv for BipedalWalker {
+    fn new(_render: bool) -> Self {
+        Self::with_config(BipedalWalkerConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for BipedalWalker {
     type StateType = BipedalWalkerState;
     type ObservationType = BipedalWalkerObservation;
     type ActionType = BipedalWalkerAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, BipedalWalkerObservation, ScalarReward>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(BipedalWalkerConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rebuild_world();

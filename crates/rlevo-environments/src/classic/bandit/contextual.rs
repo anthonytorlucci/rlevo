@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{Environment, Snapshot};
+//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
 //! use rlevo_environments::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
 //!
 //! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default());
@@ -38,7 +38,7 @@ use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -303,17 +303,19 @@ fn sample_arm_means<const C: usize, const K: usize>(rng: &mut StdRng) -> [[f32; 
     means
 }
 
+impl<const C: usize, const K: usize> ConstructableEnv for ContextualBandit<C, K> {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(ContextualBanditConfig::default())
+    }
+}
+
 impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C, K> {
     type StateType = ContextualBanditState<C>;
     type ObservationType = ContextualBanditObservation<C>;
     type ActionType = KArmedBanditAction<K>;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(ContextualBanditConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

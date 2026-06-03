@@ -7,7 +7,7 @@ use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -313,16 +313,18 @@ impl LunarLanderDiscrete {
     }
 }
 
+impl ConstructableEnv for LunarLanderDiscrete {
+    fn new(_render: bool) -> Self {
+        Self::with_config(LunarLanderConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for LunarLanderDiscrete {
     type StateType = LunarLanderState;
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderDiscreteAction;
     type RewardType = ScalarReward;
     type SnapshotType = LunarLanderSnapshot;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(LunarLanderConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
@@ -380,16 +382,18 @@ impl LunarLanderContinuous {
     }
 }
 
+impl ConstructableEnv for LunarLanderContinuous {
+    fn new(_render: bool) -> Self {
+        Self::with_config(LunarLanderConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for LunarLanderContinuous {
     type StateType = LunarLanderState;
     type ObservationType = LunarLanderObservation;
     type ActionType = LunarLanderContinuousAction;
     type RewardType = ScalarReward;
     type SnapshotType = LunarLanderSnapshot;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(LunarLanderConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();

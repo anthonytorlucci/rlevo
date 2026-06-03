@@ -46,7 +46,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
 //! let mut env = DynamicObstaclesEnv::with_config(cfg, false);
@@ -72,7 +72,7 @@ use super::core::{
 };
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -214,7 +214,7 @@ impl FromStr for DynamicObstaclesConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = DynamicObstaclesEnv::with_config(
 ///     DynamicObstaclesConfig::new(6, 2, 144, 0),
@@ -417,16 +417,18 @@ impl Display for DynamicObstaclesEnv {
     }
 }
 
+impl ConstructableEnv for DynamicObstaclesEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(DynamicObstaclesConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for DynamicObstaclesEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(DynamicObstaclesConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

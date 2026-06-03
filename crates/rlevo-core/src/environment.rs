@@ -275,17 +275,6 @@ pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
     /// The snapshot type returned by reset and step operations.
     type SnapshotType: Snapshot<D, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
-    /// Create a new environment instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `render` - Whether to render/display the environment (if supported)
-    ///
-    /// # Returns
-    ///
-    /// A new instance of this environment.
-    fn new(render: bool) -> Self;
-
     /// Reset the environment to its initial state.
     ///
     /// This method should reset all state and return an initial observation (snapshot)
@@ -311,6 +300,32 @@ pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
     /// A snapshot containing the next state, reward, and done flag,
     /// or an error if the step fails.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
+}
+
+/// Default-construction factory for environments, lifted off [`Environment`]
+/// (ADR-0011).
+///
+/// Construction is a separate concern from the behavioural [`Environment`]
+/// contract (`reset`/`step`). Keeping `new` here means transparent decorators
+/// — `RecordingTap`, `TuiEnvTap`, `TimeLimit` — implement only the behaviour
+/// they actually forward and are never forced to synthesise a degenerate
+/// standalone constructor just to satisfy a trait bound. They are always
+/// built from an existing inner environment instead.
+///
+/// Concrete environments implement this alongside [`Environment`]; generic
+/// code that needs to build an environment from nothing (rather than from a
+/// caller-supplied factory closure) bounds on `E: ConstructableEnv`.
+pub trait ConstructableEnv {
+    /// Create a new environment instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `render` - Whether to render/display the environment (if supported)
+    ///
+    /// # Returns
+    ///
+    /// A new instance of this environment.
+    fn new(render: bool) -> Self;
 }
 
 #[cfg(test)]
@@ -433,16 +448,18 @@ mod tests {
         }
     }
 
+    impl ConstructableEnv for MockEnvironment {
+        fn new(render: bool) -> Self {
+            Self::with_defaults(render)
+        }
+    }
+
     impl Environment<1, 1, 1> for MockEnvironment {
         type StateType = MockState;
         type ObservationType = MockObservation;
         type ActionType = MockAction;
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, MockObservation, ScalarReward>;
-
-        fn new(render: bool) -> Self {
-            Self::with_defaults(render)
-        }
 
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.current_state = MockState::new(Self::START_STATE);

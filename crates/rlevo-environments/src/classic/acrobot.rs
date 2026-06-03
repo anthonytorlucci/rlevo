@@ -133,7 +133,7 @@
 //!
 //! ```no_run,ignore
 //! use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
 //! let _snap = env.reset().unwrap();
@@ -147,7 +147,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -590,7 +590,7 @@ impl DiscreteAction<1> for AcrobotAction {
 ///
 /// ```rust,ignore
 /// use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
 /// env.reset().unwrap();
@@ -691,17 +691,19 @@ impl<D: AcrobotDynamicsFn> fmt::Display for Acrobot<D> {
     }
 }
 
+impl<D: AcrobotDynamicsFn + Default> ConstructableEnv for Acrobot<D> {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(AcrobotConfig::default())
+    }
+}
+
 impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     type StateType = AcrobotState;
     type ObservationType = AcrobotObservation;
     type ActionType = AcrobotAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, AcrobotObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(AcrobotConfig::default())
-    }
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///

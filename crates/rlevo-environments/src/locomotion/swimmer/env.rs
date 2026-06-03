@@ -6,7 +6,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
@@ -272,16 +272,18 @@ impl Swimmer<Rapier3DBackend> {
     }
 }
 
+impl ConstructableEnv for Swimmer<Rapier3DBackend> {
+    fn new(_render: bool) -> Self {
+        Self::with_config(SwimmerConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     type StateType = SwimmerState;
     type ObservationType = SwimmerObservation;
     type ActionType = SwimmerAction;
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<SwimmerObservation>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(SwimmerConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

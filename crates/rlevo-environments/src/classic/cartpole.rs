@@ -119,7 +119,7 @@
 //! ```no_run,ignore
 //! use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
 //! use rlevo_environments::wrappers::TimeLimit;
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let env = CartPole::with_config(CartPoleConfig::default());
 //! let mut timed = TimeLimit::new(env, 500);
@@ -135,7 +135,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -552,17 +552,19 @@ impl fmt::Display for CartPole {
     }
 }
 
+impl ConstructableEnv for CartPole {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(CartPoleConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for CartPole {
     type StateType = CartPoleState;
     type ObservationType = CartPoleObservation;
     type ActionType = CartPoleAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, CartPoleObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(CartPoleConfig::default())
-    }
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///

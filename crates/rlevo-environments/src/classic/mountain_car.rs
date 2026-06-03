@@ -67,7 +67,7 @@
 //! ## Quick start
 //!
 //! ```rust
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //! use rlevo_environments::classic::mountain_car::{MountainCar, MountainCarAction};
 //!
 //! let mut env = MountainCar::new(false);
@@ -82,7 +82,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -330,17 +330,19 @@ impl fmt::Display for MountainCar {
     }
 }
 
+impl ConstructableEnv for MountainCar {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(MountainCarConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for MountainCar {
     type StateType = MountainCarState;
     type ObservationType = MountainCarObservation;
     type ActionType = MountainCarAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, MountainCarObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(MountainCarConfig::default())
-    }
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
