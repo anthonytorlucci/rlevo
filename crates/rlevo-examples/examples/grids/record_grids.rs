@@ -97,7 +97,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 EmptyConfig::new(GRID_SIZE, MAX_STEPS_PER_EPISODE, seed),
                 false,
             );
-            let recorded: RecordingTap<EmptyEnv, 3, 3, 1> = RecordingTap::new(env, sink.clone());
+            // Structured-only (ADR-0013): the grids report renders SVG from
+            // the `FamilyPayload::Grid` tile state; no ascii/styled is captured.
+            let recorded: RecordingTap<EmptyEnv, 3, 3, 1> =
+                RecordingTap::with_grid_payload(env, sink.clone());
             BenchAdapter::new(recorded)
         })
     };

@@ -601,3 +601,9 @@ mod tests {
         assert!(s.contains("num_obstacles=3"));
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for DynamicObstaclesEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

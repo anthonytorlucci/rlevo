@@ -23,13 +23,13 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::render::{
-    AsciiRenderable, Box2dPayloadSource, Landscape2DPayloadSource, Locomotion2DPayloadSource,
-    StyledFrame,
+    AsciiRenderable, Box2dPayloadSource, GridPayloadSource, Landscape2DPayloadSource,
+    Locomotion2DPayloadSource, StyledFrame,
 };
 use serde::Serialize;
 
 use super::schema::{
-    Box2dPayload, FamilyPayload, FrameRecord, Landscape2DPayload, Locomotion2DPayload,
+    Box2dPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload, Locomotion2DPayload,
 };
 use super::writer::RecordSink;
 
@@ -203,6 +203,22 @@ where
     pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: GridPayloadSource + 'static,
+{
+    /// Convenience constructor for `grids` envs: extracts a structured
+    /// [`GridPayload`] per frame via [`GridPayloadSource`]. Uses
+    /// [`new_headless`](Self::new_headless) so the record is **structured-only**
+    /// (ADR-0013) — no `ascii` / `styled` text is captured; the report renders
+    /// SVG from the tile grid.
+    pub fn with_grid_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::Grid(GridPayload::from(e.grid_snapshot()))
         })
     }
 }

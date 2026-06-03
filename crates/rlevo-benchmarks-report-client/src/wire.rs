@@ -183,18 +183,83 @@ pub struct Locomotion2DPayload {
     pub contacts: Vec<Point2>,
 }
 
+/// Cardinal facing of the grid agent (mirror of `rlevo-core` `GridDir`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDir {
+    East,
+    South,
+    West,
+    North,
+}
+
+/// The six Minigrid colours (mirror of `rlevo-core` `GridColor`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridColor {
+    Red,
+    Green,
+    Blue,
+    Purple,
+    Yellow,
+    Grey,
+}
+
+/// Door state (mirror of `rlevo-core` `GridDoorState`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDoorState {
+    Open,
+    Closed,
+    Locked,
+}
+
+/// One grid cell's contents (mirror of `rlevo-core` `GridTile`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridTile {
+    Empty,
+    Floor,
+    Wall,
+    Goal,
+    Lava,
+    Door(GridColor, GridDoorState),
+    Key(GridColor),
+    Ball(GridColor),
+    Box(GridColor),
+}
+
+/// Agent marker: cell position, facing, carried item (mirror of
+/// `rlevo-core` `GridAgentMarker`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridAgentMarker {
+    pub x: u16,
+    pub y: u16,
+    pub dir: GridDir,
+    pub carrying: Option<GridTile>,
+}
+
+/// Structured tile grid for `grids` envs (mirror of
+/// `rlevo-benchmarks::record::GridPayload`). `tiles` is row-major,
+/// `len == width * height`; cell `(x, y)` is `tiles[y * width + x]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GridPayload {
+    pub width: u16,
+    pub height: u16,
+    pub tiles: Vec<GridTile>,
+    pub agent: GridAgentMarker,
+}
+
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
-pub const FORMAT_VERSION: u16 = 4;
+pub const FORMAT_VERSION: u16 = 5;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
 // Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
-pub const MIN_SUPPORTED_VERSION: u16 = 4;
+pub const MIN_SUPPORTED_VERSION: u16 = 5;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
 #[must_use]
@@ -243,6 +308,9 @@ pub enum FamilyPayload {
     Box2dBodies(Box2dPayload),
     /// Sagittal-plane locomotion skeleton (Ant, HalfCheetah, …).
     Locomotion2D(Locomotion2DPayload),
+    /// Structured tile grid (empty, four-rooms, door-key, …). Added in
+    /// `FORMAT_VERSION = 5`.
+    Grid(GridPayload),
 }
 
 /// Trial provenance. Mirror of

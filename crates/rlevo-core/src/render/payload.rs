@@ -154,6 +154,103 @@ pub trait Locomotion2DPayloadSource {
     fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Grid
+// ---------------------------------------------------------------------------
+
+/// Cardinal facing of the grid agent. Mirrors the env-side `Direction`
+/// (`+x` East, `+y` South); the renderer rotates the agent triangle to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDir {
+    East,
+    South,
+    West,
+    North,
+}
+
+/// The six Minigrid colours, paired with a redundant non-colour signal
+/// (glyph/label) on the report tier per the accessibility contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridColor {
+    Red,
+    Green,
+    Blue,
+    Purple,
+    Yellow,
+    Grey,
+}
+
+/// Open / closed / locked state of a [`GridTile::Door`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDoorState {
+    Open,
+    Closed,
+    Locked,
+}
+
+/// One grid cell's contents, projected from the env-side `Entity`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridTile {
+    /// Empty walkable cell.
+    Empty,
+    /// Walkable floor (drawn distinctly from `Empty`).
+    Floor,
+    /// Impassable wall.
+    Wall,
+    /// Terminal goal cell.
+    Goal,
+    /// Hazard cell (ends the episode in failure).
+    Lava,
+    /// Door of the given colour and state.
+    Door(GridColor, GridDoorState),
+    /// Colored key.
+    Key(GridColor),
+    /// Colored ball.
+    Ball(GridColor),
+    /// Colored box.
+    Box(GridColor),
+}
+
+/// The agent marker: cell position, facing, and any carried item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridAgentMarker {
+    /// Column (0-based, left to right).
+    pub x: u16,
+    /// Row (0-based, top to bottom).
+    pub y: u16,
+    /// Direction the agent faces.
+    pub dir: GridDir,
+    /// Item the agent is holding, if any.
+    pub carrying: Option<GridTile>,
+}
+
+/// A snapshot of a grid (Minigrid-style) environment at one frame.
+///
+/// `tiles` is row-major with `tiles.len() == width * height`; cell
+/// `(x, y)` is `tiles[y * width + x]`. The renderer draws one `<rect>`
+/// per tile, the agent as a rotated triangle, and pickable objects as
+/// shape-distinct glyphs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GridSnapshot {
+    /// Grid width in cells.
+    pub width: u16,
+    /// Grid height in cells.
+    pub height: u16,
+    /// Row-major tiles, `len == width * height`.
+    pub tiles: Vec<GridTile>,
+    /// The agent marker.
+    pub agent: GridAgentMarker,
+}
+
+/// Producer-side trait. A grid env implements this so its recording ships
+/// a `FamilyPayload::Grid` rendered from structured tile state instead of
+/// `Ascii` text.
+pub trait GridPayloadSource {
+    fn grid_snapshot(&self) -> GridSnapshot;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

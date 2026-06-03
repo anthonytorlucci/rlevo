@@ -16,15 +16,16 @@ use rlevo_benchmarks::record::{
     Box2dPayload as NativeBox2dPayload, EnvFamily as NativeFamily,
     EpisodeRecord as NativeRecord, EpisodeRecordHeader as NativeHeader,
     FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload,
-    FrameRecord as NativeFrame, Landscape2DPayload as NativeLandscapePayload,
+    FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
+    Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
     PopulationSample as NativePopulationSample, RunId as NativeRunId,
     TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
-    BodyKind, Color, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
-    StyledSpan,
+    BodyKind, Color, GridAgentMarker, GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle,
+    StyledFrame, StyledLine, StyledSpan,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -116,6 +117,29 @@ fn populated_native_record() -> NativeRecord {
                     contacts: vec![Point2::new(0.0, 0.0)],
                 }),
             },
+            NativeFrame {
+                step: 5,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::Grid(NativeGridPayload {
+                    width: 2,
+                    height: 2,
+                    tiles: vec![
+                        GridTile::Wall,
+                        GridTile::Floor,
+                        GridTile::Goal,
+                        GridTile::Lava,
+                    ],
+                    agent: GridAgentMarker {
+                        x: 1,
+                        y: 0,
+                        dir: GridDir::East,
+                        carrying: None,
+                    },
+                }),
+            },
         ],
         metrics: vec![
             NativeMetric {
@@ -202,6 +226,13 @@ fn native_encode_decodes_via_client_wire_types() {
                 assert_eq!(mc.joints.len(), nc.joints.len());
                 assert_eq!(mc.bones.len(), nc.bones.len());
                 assert_eq!(mc.com.is_some(), nc.com.is_some());
+            }
+            (client::FamilyPayload::Grid(mc), NativePayload::Grid(nc)) => {
+                assert_eq!(mc.width, nc.width);
+                assert_eq!(mc.height, nc.height);
+                assert_eq!(mc.tiles.len(), nc.tiles.len());
+                assert_eq!(mc.agent.x, nc.agent.x);
+                assert_eq!(mc.agent.y, nc.agent.y);
             }
             (other_m, other_n) => panic!(
                 "family_payload variant mismatch: client={other_m:?} native={other_n:?}"

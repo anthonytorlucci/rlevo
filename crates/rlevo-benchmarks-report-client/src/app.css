@@ -190,6 +190,33 @@ svg.rlevo-svg-frame {
     }
 }
 
+/* Grids adapter */
+.rlevo-grid-floor { fill: rgba(127,127,127,0.06); stroke: rgba(127,127,127,0.18); stroke-width: 0.5; }
+.rlevo-grid-wall  { fill: #5a6268; stroke: #3b4045; stroke-width: 0.5; }
+.rlevo-grid-goal  { fill: rgba(39,174,96,0.22); stroke: rgba(39,174,96,0.5); stroke-width: 0.5; }
+.rlevo-grid-lava  { fill: rgba(192,57,43,0.28); stroke: rgba(192,57,43,0.6); stroke-width: 0.5; }
+.rlevo-grid-agent { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-grid-glyph {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+    font-size: 13px;
+}
+.rlevo-grid-goal-fg { color: #1e8449; fill: #1e8449; }
+.rlevo-grid-lava-fg { color: #a93226; fill: #a93226; }
+.rlevo-grid-red    { fill: #c0392b; color: #c0392b; }
+.rlevo-grid-green  { fill: #27ae60; color: #27ae60; }
+.rlevo-grid-blue   { fill: #2980b9; color: #2980b9; }
+.rlevo-grid-purple { fill: #8e44ad; color: #8e44ad; }
+.rlevo-grid-yellow { fill: #b7950b; color: #b7950b; }
+.rlevo-grid-grey   { fill: #707b7c; color: #707b7c; }
+.rlevo-grid-agent-fg { color: #2980b9; }
+.rlevo-grid-wall-swatch { background: #5a6268; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-grid-wall { fill: #7b8288; }
+    .rlevo-grid-agent { fill: #5dade2; stroke: #2980b9; }
+    .rlevo-grid-agent-fg { color: #5dade2; }
+}
+
 /* Box2D adapter */
 svg.rlevo-svg-box2d { max-width: 40rem; }
 .rlevo-box2d-hull {

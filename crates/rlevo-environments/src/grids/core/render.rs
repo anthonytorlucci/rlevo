@@ -5,13 +5,86 @@
 //! no curses, no blocking IO — printing is the caller's responsibility.
 
 use super::agent::AgentState;
+use super::color::Color as GridEntityColor;
 use super::direction::Direction;
 use super::entity::{DoorState, Entity};
 use super::grid::Grid;
+use rlevo_core::render::payload::{
+    GridAgentMarker, GridColor, GridDir, GridDoorState, GridSnapshot, GridTile,
+};
 use crate::render::palette::{
     AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER, WALL_FG,
 };
 use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+/// Project a `(Grid, AgentState)` pair into a structured [`GridSnapshot`]
+/// for the report tier (ADR-0013). Pure data — the env-side `Entity` /
+/// `Color` / `Direction` types map onto the wire-neutral payload enums in
+/// `rlevo-core::render::payload`.
+#[must_use]
+pub fn grid_snapshot(grid: &Grid, agent: &AgentState) -> GridSnapshot {
+    let width = grid.width();
+    let height = grid.height();
+    let mut tiles = Vec::with_capacity(width * height);
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
+            tiles.push(entity_to_tile(grid.get(x, y)));
+        }
+    }
+    GridSnapshot {
+        width: width as u16,
+        height: height as u16,
+        tiles,
+        agent: GridAgentMarker {
+            x: agent.x.max(0) as u16,
+            y: agent.y.max(0) as u16,
+            dir: dir_to_payload(agent.direction),
+            carrying: agent.carrying.map(entity_to_tile),
+        },
+    }
+}
+
+const fn entity_to_tile(entity: Entity) -> GridTile {
+    match entity {
+        Entity::Empty => GridTile::Empty,
+        Entity::Floor => GridTile::Floor,
+        Entity::Wall => GridTile::Wall,
+        Entity::Goal => GridTile::Goal,
+        Entity::Lava => GridTile::Lava,
+        Entity::Door(c, s) => GridTile::Door(color_to_payload(c), door_to_payload(s)),
+        Entity::Key(c) => GridTile::Key(color_to_payload(c)),
+        Entity::Ball(c) => GridTile::Ball(color_to_payload(c)),
+        Entity::Box(c) => GridTile::Box(color_to_payload(c)),
+    }
+}
+
+const fn color_to_payload(c: GridEntityColor) -> GridColor {
+    match c {
+        GridEntityColor::Red => GridColor::Red,
+        GridEntityColor::Green => GridColor::Green,
+        GridEntityColor::Blue => GridColor::Blue,
+        GridEntityColor::Purple => GridColor::Purple,
+        GridEntityColor::Yellow => GridColor::Yellow,
+        GridEntityColor::Grey => GridColor::Grey,
+    }
+}
+
+const fn door_to_payload(s: DoorState) -> GridDoorState {
+    match s {
+        DoorState::Open => GridDoorState::Open,
+        DoorState::Closed => GridDoorState::Closed,
+        DoorState::Locked => GridDoorState::Locked,
+    }
+}
+
+const fn dir_to_payload(d: Direction) -> GridDir {
+    match d {
+        Direction::East => GridDir::East,
+        Direction::South => GridDir::South,
+        Direction::West => GridDir::West,
+        Direction::North => GridDir::North,
+    }
+}
 
 /// Render the grid and the agent's position to a multi-line ASCII string.
 #[must_use]
@@ -151,6 +224,31 @@ mod tests {
         assert!(s.contains('>'));
         assert!(s.contains('#'));
         assert_eq!(s.lines().count(), 3);
+    }
+
+    #[test]
+    fn grid_snapshot_projects_tiles_and_agent() {
+        use rlevo_core::render::payload::{GridColor, GridDir, GridTile};
+
+        let mut g = Grid::new(3, 2);
+        g.set(0, 0, Entity::Wall);
+        g.set(2, 1, Entity::Goal);
+        g.set(1, 0, Entity::Key(Color::Blue));
+        let a = AgentState::new(1, 1, Direction::North);
+
+        let snap = grid_snapshot(&g, &a);
+
+        assert_eq!(snap.width, 3);
+        assert_eq!(snap.height, 2);
+        assert_eq!(snap.tiles.len(), 6);
+        // Row-major: (x, y) -> tiles[y * width + x].
+        assert_eq!(snap.tiles[0], GridTile::Wall); // (0,0)
+        assert_eq!(snap.tiles[1], GridTile::Key(GridColor::Blue)); // (1,0)
+        assert_eq!(snap.tiles[2 + 3], GridTile::Goal); // (2,1)
+        assert_eq!(snap.agent.x, 1);
+        assert_eq!(snap.agent.y, 1);
+        assert_eq!(snap.agent.dir, GridDir::North);
+        assert_eq!(snap.agent.carrying, None);
     }
 
     #[test]
