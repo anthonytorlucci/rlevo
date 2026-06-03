@@ -4,6 +4,102 @@
 //! Physics from Barto, Sutton, and Anderson (1983); equations of motion
 //! match the Gymnasium `CartPole-v1` reference implementation exactly.
 //!
+//! ## Physical model
+//!
+//! A cart of mass `$m_c$` slides on a frictionless horizontal track. A rigid,
+//! uniform pole of mass `$m_p$` and **full** length `$2\ell$` (so `$\ell$` is the
+//! half-length, [`CartPoleConfig::length`]) is hinged to the cart by a
+//! frictionless pivot. A horizontal force `$F = \pm F_\text{mag}$` is applied to
+//! the cart each step. The state is the 4-vector
+//!
+//! ```math
+//! \mathbf{s} = \left(x,\; \frac{dx}{dt},\; \theta,\; \frac{d\theta}{dt}\right),
+//! ```
+//!
+//! where `$x$` is the cart position and `$\theta$` is the pole angle (here,
+//! positive `$\theta$` leans the pole clockwise; `$\theta = 0$` is upright).
+//!
+//! ## Equations of motion
+//!
+//! The continuous-time dynamics follow from the Euler–Lagrange equations for the
+//! cart–pole. Because the pole is a uniform rod, its moment of inertia about its
+//! centre of mass is `$I = \tfrac{1}{12} m_p (2\ell)^2 = \tfrac{1}{3} m_p \ell^2$`;
+//! this contributes the `$1 + I/(m_p \ell^2) = \tfrac{4}{3}$` term in the angular
+//! denominator below. Writing the total mass as `$m = m_c + m_p$`, the angular
+//! and linear accelerations are
+//!
+//! ```math
+//! \frac{d^2\theta}{dt^2} =
+//!   \frac{g \sin\theta \;-\; \cos\theta\,\tau}
+//!        {\ell \left( \dfrac{4}{3} - \dfrac{m_p \cos^2\theta}{m} \right)},
+//! \qquad
+//! \frac{d^2 x}{dt^2} = \tau - \frac{m_p \ell}{m}\,\frac{d^2\theta}{dt^2}\,\cos\theta,
+//! ```
+//!
+//! where the shared intermediate term `$\tau$` (the code's `temp`) collects the
+//! applied force and the centripetal reaction of the swinging pole:
+//!
+//! ```math
+//! \tau = \frac{F + m_p \ell \left(\dfrac{d\theta}{dt}\right)^{\!2} \sin\theta}{m}.
+//! ```
+//!
+//! Substituting `$\tau$` back gives the equivalent self-contained forms found in
+//! Barto, Sutton & Anderson (1983) and Florian (2007):
+//!
+//! ```math
+//! \frac{d^2\theta}{dt^2} =
+//!   \frac{g \sin\theta + \cos\theta
+//!         \left( \dfrac{-F - m_p \ell \left(\frac{d\theta}{dt}\right)^2 \sin\theta}{m} \right)}
+//!        {\ell \left( \dfrac{4}{3} - \dfrac{m_p \cos^2\theta}{m} \right)},
+//! \qquad
+//! \frac{d^2 x}{dt^2} =
+//!   \frac{F + m_p \ell \left[ \left(\dfrac{d\theta}{dt}\right)^2 \sin\theta
+//!         - \dfrac{d^2\theta}{dt^2}\cos\theta \right]}{m}.
+//! ```
+//!
+//! These are evaluated each step in `CartPole::step_physics`.
+//!
+//! ## Discrete-time integration
+//!
+//! The continuous ODE is advanced with a fixed step `$\Delta t$`
+//! ([`CartPoleConfig::tau`], not to be confused with the term `$\tau$` above).
+//! [`Integrator::Euler`] uses the explicit forward (positions and velocities both
+//! advanced from the *old* velocities/accelerations):
+//!
+//! ```math
+//! \begin{aligned}
+//! x_{t+1}            &= x_t + \Delta t\,\frac{dx}{dt}\bigg|_t, &
+//! \frac{dx}{dt}\bigg|_{t+1} &= \frac{dx}{dt}\bigg|_t + \Delta t\,\frac{d^2x}{dt^2}\bigg|_t, \\[4pt]
+//! \theta_{t+1}       &= \theta_t + \Delta t\,\frac{d\theta}{dt}\bigg|_t, &
+//! \frac{d\theta}{dt}\bigg|_{t+1} &= \frac{d\theta}{dt}\bigg|_t + \Delta t\,\frac{d^2\theta}{dt^2}\bigg|_t.
+//! \end{aligned}
+//! ```
+//!
+//! [`Integrator::SemiImplicit`] (symplectic Euler) updates the velocities first,
+//! then advances the positions with the *new* velocities:
+//!
+//! ```math
+//! \begin{aligned}
+//! \frac{dx}{dt}\bigg|_{t+1} &= \frac{dx}{dt}\bigg|_t + \Delta t\,\frac{d^2x}{dt^2}\bigg|_t, &
+//! x_{t+1} &= x_t + \Delta t\,\frac{dx}{dt}\bigg|_{t+1}, \\[4pt]
+//! \frac{d\theta}{dt}\bigg|_{t+1} &= \frac{d\theta}{dt}\bigg|_t + \Delta t\,\frac{d^2\theta}{dt^2}\bigg|_t, &
+//! \theta_{t+1} &= \theta_t + \Delta t\,\frac{d\theta}{dt}\bigg|_{t+1}.
+//! \end{aligned}
+//! ```
+//!
+//! The accelerations `$\tfrac{d^2 x}{dt^2}$` and `$\tfrac{d^2\theta}{dt^2}$` are
+//! computed once from the state at time `$t$` and reused by both schemes; the
+//! variants differ only in whether the position update reads the old or new
+//! velocity.
+//!
+//! ## References
+//!
+//! - A. G. Barto, R. S. Sutton, C. W. Anderson, "Neuronlike adaptive elements
+//!   that can solve difficult learning control problems," *IEEE Trans. SMC*,
+//!   1983.
+//! - R. V. Florian, "Correct equations of motion for the cart-pole system,"
+//!   tech. report, 2007 — source of the `$\tfrac{4}{3}$` rod-inertia term.
+//!
 //! ## Integrators
 //!
 //! Two integration schemes are available via [`Integrator`]:
@@ -385,7 +481,23 @@ impl CartPole {
             || !state.is_valid()
     }
 
-    /// Apply equations of motion and return the next state.
+    /// Apply the equations of motion and return the next state.
+    ///
+    /// Implements the cart–pole dynamics documented at the [module
+    /// level](crate::classic::cartpole). The local bindings map to the symbols
+    /// there as follows:
+    ///
+    /// | Code            | Symbol                  | Meaning                                         |
+    /// |-----------------|-------------------------|-------------------------------------------------|
+    /// | `force`         | `$F$`                   | applied force, `$\pm F_\text{mag}$`             |
+    /// | `total_mass`    | `$m = m_c + m_p$`       | cart + pole mass                                |
+    /// | `pm_l`          | `$m_p \ell$`            | pole mass times half-length                     |
+    /// | `temp`          | `$\tau$`                | `$(F + m_p \ell\,(d\theta/dt)^2\sin\theta)/m$` |
+    /// | `theta_acc`     | `$d^2\theta/dt^2$`      | angular acceleration                            |
+    /// | `x_acc`         | `$d^2x/dt^2$`           | cart linear acceleration                        |
+    ///
+    /// The `Euler` and `SemiImplicit` arms then apply the corresponding
+    /// discretisation with step `$\Delta t$` (`cfg.tau`).
     fn step_physics(
         state: &CartPoleState,
         action: CartPoleAction,

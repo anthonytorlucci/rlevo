@@ -1,20 +1,128 @@
 //! Acrobot-v1 environment.
 //!
-//! A two-link pendulum where the second joint is actuated. The goal is to
-//! swing the end of the lower link above a target height. Reference:
-//! Sutton & Barto §10.
+//! A two-link pendulum hanging from a fixed pivot. Only the **second** joint
+//! (the "elbow") is actuated; the first (the "shoulder") swings freely. The
+//! goal is to swing the tip of the lower link above a target height by pumping
+//! energy in through the elbow. Equations of motion match the Gymnasium
+//! `Acrobot-v1` reference implementation exactly. Reference: Sutton & Barto
+//! §10 and Sutton (1996).
 //!
-//! ## Dynamics variants
+//! ## Physical model
 //!
-//! Two dynamics implementations are available:
+//! Each link `$i \in \{1, 2\}$` has mass `$m_i$` ([`AcrobotConfig::link_mass_1`],
+//! [`AcrobotConfig::link_mass_2`]), length `$l_i$`, centre-of-mass distance
+//! `$l_{c i}$` from its proximal joint, and moment of inertia `$I_i$` about that
+//! centre of mass. `$\theta_1$` is the angle of link 1 measured from the
+//! downward vertical, and `$\theta_2$` is the angle of link 2 *relative to*
+//! link 1; both are `$0$` when the arm hangs straight down. A discrete torque
+//! `$\tau \in \{-1, 0, +1\}\,\mathrm{N{\cdot}m}$` is applied at the elbow. The
+//! state is the 4-vector
+//!
+//! ```math
+//! \mathbf{s} = \left(\theta_1,\; \theta_2,\;
+//!     \frac{d\theta_1}{dt},\; \frac{d\theta_2}{dt}\right).
+//! ```
+//!
+//! ## Equations of motion
+//!
+//! The dynamics are the standard two-link manipulator equation with gravity.
+//! Because joint 1 is passive and only joint 2 receives the torque `$\tau$`, the
+//! coupled system is
+//!
+//! ```math
+//! \begin{aligned}
+//! d_1\,\frac{d^2\theta_1}{dt^2} + d_2\,\frac{d^2\theta_2}{dt^2} + \phi_1 &= 0, \\[4pt]
+//! d_2\,\frac{d^2\theta_1}{dt^2} + d_3\,\frac{d^2\theta_2}{dt^2} + \phi_2 &= \tau,
+//! \end{aligned}
+//! ```
+//!
+//! where the inertia coefficients are
+//!
+//! ```math
+//! \begin{aligned}
+//! d_1 &= m_1 l_{c1}^2 + m_2\!\left(l_1^2 + l_{c2}^2 + 2 l_1 l_{c2}\cos\theta_2\right) + I_1 + I_2, \\[2pt]
+//! d_2 &= m_2\!\left(l_{c2}^2 + l_1 l_{c2}\cos\theta_2\right) + I_2, \\[2pt]
+//! d_3 &= m_2 l_{c2}^2 + I_2,
+//! \end{aligned}
+//! ```
+//!
+//! and the gravitational / centripetal–Coriolis terms are
+//!
+//! ```math
+//! \begin{aligned}
+//! \phi_2 &= m_2 l_{c2}\, g \cos\!\left(\theta_1 + \theta_2 - \tfrac{\pi}{2}\right), \\[4pt]
+//! \phi_1 &= -\,m_2 l_1 l_{c2} \left(\frac{d\theta_2}{dt}\right)^{\!2}\sin\theta_2
+//!          \;-\; 2\, m_2 l_1 l_{c2}\,\frac{d\theta_2}{dt}\,\frac{d\theta_1}{dt}\,\sin\theta_2 \\
+//!        &\quad +\; (m_1 l_{c1} + m_2 l_1)\, g \cos\!\left(\theta_1 - \tfrac{\pi}{2}\right) + \phi_2.
+//! \end{aligned}
+//! ```
+//!
+//! Solving the pair for the accelerations (eliminating the passive joint) gives
+//! the form evaluated in [`BookDynamics`]:
+//!
+//! ```math
+//! \frac{d^2\theta_2}{dt^2} =
+//!   \frac{\tau + \dfrac{d_2}{d_1}\,\phi_1
+//!         - m_2 l_1 l_{c2} \left(\dfrac{d\theta_1}{dt}\right)^{\!2}\sin\theta_2 - \phi_2}
+//!        {m_2 l_{c2}^2 + I_2 - \dfrac{d_2^2}{d_1}},
+//! \qquad
+//! \frac{d^2\theta_1}{dt^2} = -\,\frac{d_2\,\dfrac{d^2\theta_2}{dt^2} + \phi_1}{d_1}.
+//! ```
+//!
+//! These are evaluated each step in `BookDynamics::dsdt`. Note that the symbol
+//! `$\tau$` denotes the applied **torque** here; it is unrelated to the
+//! integration step size (see below).
+//!
+//! ### Book vs. NIPS dynamics
+//!
+//! Two dynamics implementations are selected via the generic parameter `D` on
+//! [`Acrobot<D>`] (the [`AcrobotDynamicsFn`] strategy trait):
 //!
 //! | Type | Description |
 //! |------|-------------|
 //! | [`BookDynamics`] | Sutton & Barto textbook form (Gymnasium default) |
-//! | [`NipsDynamics`] | Original NIPS-1995 form — omits certain cross-terms |
+//! | [`NipsDynamics`] | Original NIPS-1995 form — omits two cross-terms |
 //!
-//! The environment is generic over the dynamics via [`AcrobotDynamicsFn`]:
-//! `Acrobot<BookDynamics>` and `Acrobot<NipsDynamics>`.
+//! [`NipsDynamics`] drops the `$2\, m_2 l_1 l_{c2}\,\tfrac{d\theta_2}{dt}\tfrac{d\theta_1}{dt}\sin\theta_2$`
+//! Coriolis term from `$\phi_1$` **and** the
+//! `$m_2 l_1 l_{c2}\left(\tfrac{d\theta_1}{dt}\right)^2\sin\theta_2$` centripetal
+//! term from the `$\tfrac{d^2\theta_2}{dt^2}$` numerator, matching the original
+//! 1995 paper. The book form (consistent with the published Java implementation)
+//! is recommended for reproducing benchmark results.
+//!
+//! ## Discrete-time integration
+//!
+//! The continuous ODE `$\tfrac{d}{dt}\mathbf{s} = f(\mathbf{s}, \tau)$` is
+//! advanced by one fixed step `$\Delta t$` ([`AcrobotConfig::dt`]) using the
+//! classical fourth-order Runge–Kutta scheme:
+//!
+//! ```math
+//! \begin{aligned}
+//! \mathbf{k}_1 &= f(\mathbf{s}_t), &
+//! \mathbf{k}_2 &= f\!\left(\mathbf{s}_t + \tfrac{\Delta t}{2}\,\mathbf{k}_1\right), \\
+//! \mathbf{k}_3 &= f\!\left(\mathbf{s}_t + \tfrac{\Delta t}{2}\,\mathbf{k}_2\right), &
+//! \mathbf{k}_4 &= f\!\left(\mathbf{s}_t + \Delta t\,\mathbf{k}_3\right),
+//! \end{aligned}
+//! \qquad
+//! \mathbf{s}_{t+1} = \mathbf{s}_t + \frac{\Delta t}{6}
+//!   \left(\mathbf{k}_1 + 2\mathbf{k}_2 + 2\mathbf{k}_3 + \mathbf{k}_4\right).
+//! ```
+//!
+//! After integration the joint velocities are clamped to
+//! `$\left|\tfrac{d\theta_1}{dt}\right| \le 4\pi$` and
+//! `$\left|\tfrac{d\theta_2}{dt}\right| \le 9\pi$`
+//! ([`AcrobotConfig::max_vel_1`], [`AcrobotConfig::max_vel_2`]). Unlike
+//! Gymnasium, the angles `$\theta_1, \theta_2$` are **not** wrapped to
+//! `$[-\pi, \pi]$`; this is observationally inert because the observation and
+//! termination test depend on the angles only through `$\cos$` and `$\sin$`.
+//!
+//! ## Reward and termination
+//!
+//! The tip height above the pivot is `$h = -l_1\cos\theta_1 - l_2\cos(\theta_1+\theta_2)$`.
+//! An episode **terminates** when `$h > 1$`, i.e. the lower tip rises one link
+//! length above the pivot. The reward is `$-1$` on every non-terminal step and
+//! `$0$` on the terminal step, so the (undiscounted) return equals the negative
+//! number of steps to success.
 //!
 //! ## Step limit
 //!
@@ -57,10 +165,12 @@ use serde::{Deserialize, Serialize};
 /// Implement this trait only when you need custom dynamics; prefer the
 /// provided types for standard use.
 pub trait AcrobotDynamicsFn: fmt::Debug + Clone + Send + Sync {
-    /// Computes `d/dt [θ1, θ2, θ̇1, θ̇2]` for the given state and torque.
+    /// Computes the state derivative `dθ1/dt, dθ2/dt, d²θ1/dt², d²θ2/dt²`
+    /// for the given state and torque.
     ///
     /// `s` is `[theta1, theta2, dtheta1, dtheta2]` and `a` is the applied
-    /// torque (N·m). The returned array has the same layout.
+    /// torque (N·m). The returned array has the same layout — the first two
+    /// entries are the velocities, the last two the accelerations.
     fn dsdt(&self, s: [f32; 4], a: f32, cfg: &AcrobotConfig) -> [f32; 4];
 }
 

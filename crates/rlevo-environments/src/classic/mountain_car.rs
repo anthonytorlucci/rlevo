@@ -2,17 +2,56 @@
 //!
 //! A car starting near the bottom of a valley must reach the flag at the top
 //! of the right hill. Direct acceleration is insufficient; the agent must learn
-//! to swing left first to build enough momentum.
+//! to swing left first to build enough momentum. The update rule matches the
+//! Gymnasium `MountainCar-v0` reference implementation exactly. Reference:
+//! Moore (1990) and Sutton & Barto §10.1.
 //!
-//! ## Reward
+//! ## Physical model
 //!
-//! The agent receives `-1` every step until the goal is reached:
+//! The car moves along a one-dimensional track whose height profile is the
+//! sinusoidal hill `$y(x) = \sin(3x)$`, with the position `$x$` confined to
+//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` ([`MountainCarConfig::min_pos`],
+//! [`MountainCarConfig::max_pos`]). The valley floor sits near `$x = -\tfrac{\pi}{6}$`
+//! and the goal flag is at `$x_\text{goal} = 0.5$`. The state is the 2-vector
 //!
-//! - **Running step**: `reward = -1.0`
-//! - **Terminal step** (goal reached): `reward = -1.0`
+//! ```math
+//! \mathbf{s} = \left(x,\; \frac{dx}{dt}\right),
+//! ```
 //!
-//! Minimising total cost is equivalent to reaching the goal as fast as
-//! possible. The minimum achievable return depends on the initial position.
+//! the car's position and velocity. Each step the agent picks a discrete action
+//! `$a \in \{0, 1, 2\}$` mapping to a directional force `$a - 1 \in \{-1, 0, +1\}$`.
+//!
+//! ## Equations of motion
+//!
+//! This is a discrete-time map (no sub-step integrator). Writing the velocity at
+//! step `$t$` as `$v_t = \tfrac{dx}{dt}\big|_t$`, force magnitude `$F$`
+//! ([`MountainCarConfig::force`]) and gravity coefficient `$g$`
+//! ([`MountainCarConfig::gravity`]), each step updates velocity then position:
+//!
+//! ```math
+//! \begin{aligned}
+//! v_{t+1} &= \operatorname{clip}\!\Big( v_t + (a - 1)\,F - g\cos(3 x_t),\;
+//!            -v_{\max},\; v_{\max} \Big), \\[4pt]
+//! x_{t+1} &= \operatorname{clip}\!\big( x_t + v_{t+1},\; x_{\min},\; x_{\max} \big).
+//! \end{aligned}
+//! ```
+//!
+//! The `$-g\cos(3 x_t)$` term is the gravitational pull along the track: the hill
+//! slope is `$\tfrac{dy}{dx} = 3\cos(3x)$`, and the restoring acceleration is
+//! taken proportional to `$\cos(3x)$` (the factor of `$3$` absorbed into `$g$`).
+//! The speed is capped at `$v_{\max} = 0.07$` ([`MountainCarConfig::max_speed`]).
+//! The left wall at `$x_{\min}$` is fully inelastic: if the position update
+//! clamps against it, the velocity is reset to `$0$`. These are evaluated each
+//! step in `MountainCar::apply_physics`.
+//!
+//! ## Reward and termination
+//!
+//! An episode **terminates** when `$x \ge x_\text{goal}$` **and**
+//! `$v \ge v_\text{goal}$` ([`MountainCarConfig::goal_velocity`], default `$0$`).
+//! The reward is `$-1$` on **every** step, including the terminal one, so the
+//! undiscounted return equals the negative number of steps taken — minimising
+//! cost is equivalent to reaching the flag as fast as possible. The minimum
+//! achievable return depends on the initial position.
 //!
 //! ## Step limit
 //!

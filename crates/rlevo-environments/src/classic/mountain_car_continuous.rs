@@ -2,21 +2,69 @@
 //!
 //! Continuous-action variant of [`crate::classic::mountain_car::MountainCar`].
 //! The agent applies a scalar force in `[-1, 1]` at each step; it must swing
-//! left to build momentum before cresting the right hill.
+//! left to build momentum before cresting the right hill. The update rule
+//! matches the Gymnasium `MountainCarContinuous-v0` reference implementation
+//! exactly. Reference: Moore (1990) and Sutton & Barto §10.1.
 //!
-//! ## Reward
+//! ## Physical model
 //!
-//! Reward is shaped to penalise effort while rewarding goal-reaching:
+//! The car moves along a one-dimensional track whose height profile is the
+//! sinusoidal hill `$y(x) = \sin(3x)$`, with the position `$x$` confined to
+//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` ([`MountainCarContinuousConfig::min_pos`],
+//! [`MountainCarContinuousConfig::max_pos`]). The goal flag is at
+//! `$x_\text{goal} = 0.45$`. The state is the 2-vector
 //!
-//! ```text
-//! reward = -0.1 * force² + 100 * [position ≥ goal_position ∧ velocity ≥ goal_velocity]
+//! ```math
+//! \mathbf{s} = \left(x,\; \frac{dx}{dt}\right),
 //! ```
 //!
-//! - **Running step**: `reward = -0.1 * force²` (≤ 0)
-//! - **Terminal step**: `reward = -0.1 * force² + 100`
+//! the car's position and velocity. Unlike the discrete variant, the agent
+//! supplies a **continuous** force `$a \in [-1, 1]$`
+//! ([`MountainCarContinuousConfig::min_action`],
+//! [`MountainCarContinuousConfig::max_action`]) scaled by a power coefficient
+//! `$P$` ([`MountainCarContinuousConfig::power`]).
 //!
-//! A zero-force policy scores `0` every step; the agent must accept temporary
-//! control cost to achieve the large goal bonus.
+//! ## Equations of motion
+//!
+//! This is a discrete-time map (no sub-step integrator). Writing the velocity at
+//! step `$t$` as `$v_t = \tfrac{dx}{dt}\big|_t$` and the gravity coefficient as
+//! `$g = 0.0025$` (fixed, as in Gymnasium), each step updates velocity then
+//! position:
+//!
+//! ```math
+//! \begin{aligned}
+//! v_{t+1} &= \operatorname{clip}\!\Big(
+//!            v_t + P\,\operatorname{clip}(a, -1, 1) - g\cos(3 x_t),\;
+//!            -v_{\max},\; v_{\max} \Big), \\[4pt]
+//! x_{t+1} &= \operatorname{clip}\!\big( x_t + v_{t+1},\; x_{\min},\; x_{\max} \big).
+//! \end{aligned}
+//! ```
+//!
+//! The `$-g\cos(3 x_t)$` term is the gravitational pull along the track (the
+//! hill slope is `$\tfrac{dy}{dx} = 3\cos(3x)$`, with the factor of `$3$`
+//! absorbed into `$g$`). The speed is capped at `$v_{\max} = 0.07$`
+//! ([`MountainCarContinuousConfig::max_speed`]). The left wall at `$x_{\min}$`
+//! is fully inelastic: if the position update clamps against it, the velocity is
+//! reset to `$0$`. These are evaluated each step in
+//! `MountainCarContinuous::apply_physics`.
+//!
+//! ## Reward and termination
+//!
+//! An episode **terminates** when `$x \ge x_\text{goal}$` **and**
+//! `$v \ge v_\text{goal}$` ([`MountainCarContinuousConfig::goal_velocity`],
+//! default `$0$`). The reward shapes a quadratic control cost against a large
+//! goal bonus:
+//!
+//! ```math
+//! \text{reward} = -0.1\, a^2 + 100 \cdot \big[\, x \ge x_\text{goal} \;\wedge\; v \ge v_\text{goal} \,\big],
+//! ```
+//!
+//! where `$[\cdot]$` is the Iverson bracket (`$1$` if the goal condition holds,
+//! else `$0$`) and `$a$` is the **raw** action (squared *before* clipping, as in
+//! Gymnasium). So a non-terminal step scores `$-0.1\,a^2 \le 0$` and the
+//! terminal step adds `$+100$`. A zero-force policy scores `$0$` every step; the
+//! agent must accept temporary control cost to earn the goal bonus. The two
+//! components are also exposed by the keys [`REWARD_CTRL`] and [`REWARD_GOAL`].
 //!
 //! ## Step limit
 //!
