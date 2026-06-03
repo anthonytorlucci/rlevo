@@ -128,8 +128,6 @@ mod tests {
     use super::*;
     use ratatui::buffer::Cell;
 
-    use crate::tui::state::PanelMode;
-
     fn buffer_text(buf: &Buffer) -> String {
         buf.content().iter().map(Cell::symbol).collect()
     }
@@ -162,7 +160,7 @@ mod tests {
     /// Non-empty ring → sparkline bar glyphs land in the bar area.
     #[test]
     fn renders_bars_when_samples_present() {
-        let mut state = AppState::new(8, PanelMode::Auto);
+        let mut state = AppState::new(8);
         for v in [0.5, 0.4, 0.6, 0.3, 0.7] {
             state.record_metric("policy_loss", v);
         }
@@ -181,7 +179,7 @@ mod tests {
     /// Custom display label is honoured.
     #[test]
     fn custom_label_overrides_metric_name() {
-        let mut state = AppState::new(8, PanelMode::Auto);
+        let mut state = AppState::new(8);
         state.record_metric("policy_loss", 0.5);
         let area = Rect::new(0, 0, 40, 1);
         let mut buf = Buffer::empty(area);
@@ -200,7 +198,7 @@ mod tests {
     /// another's display.
     #[test]
     fn unrelated_metric_rings_dont_cross_contaminate() {
-        let mut state = AppState::new(8, PanelMode::Auto);
+        let mut state = AppState::new(8);
         state.record_metric("entropy", 1.0);
         // Render policy_loss — its ring is still empty.
         let area = Rect::new(0, 0, 40, 1);
@@ -212,7 +210,7 @@ mod tests {
     /// Bars-only mode omits the label and fills the area with bars.
     #[test]
     fn bars_only_skips_label_and_fills_area() {
-        let mut state = AppState::new(8, PanelMode::Auto);
+        let mut state = AppState::new(8);
         for v in [0.5, 0.4, 0.6, 0.3] {
             state.record_metric("policy_loss", v);
         }

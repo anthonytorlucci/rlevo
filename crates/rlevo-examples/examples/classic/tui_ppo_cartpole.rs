@@ -1,7 +1,10 @@
-//! Live TUI dashboard wrapping a PPO training run on [`CartPole`].
+//! Live (metrics-only) TUI dashboard wrapping a PPO training run on
+//! [`CartPole`].
 //!
-//! Demonstrates the full live tier end-to-end on a non-harness training
-//! loop:
+//! Demonstrates the live product end-to-end on a non-harness training loop.
+//! The live TUI is metrics-only (ADR-0013): it answers *"is it learning?"*
+//! from learning curves and renders no environment — env playback lives in
+//! the post-run report (see the `record_*`/`report_*` examples).
 //!
 //! 1. [`TuiRunner::start`] enters raw mode + alt screen and spawns the
 //!    render thread.
@@ -9,10 +12,10 @@
 //!    every `tracing::info!` PPO emits during training feeds the live
 //!    dashboard's metric sparklines and scrolling log panel through the
 //!    same channel.
-//! 3. The env (`CartPole` → `TimeLimit` → [`TuiEnvTap`]) is wrapped in a
-//!    frame + episode-return emitter so the env panel and reward
-//!    sparkline light up from a raw `Environment` driver — no
-//!    benchmarks-harness `Suite`/`Evaluator` flow required.
+//! 3. The env (`CartPole` → `TimeLimit` → [`TuiEnvTap`]) is wrapped in an
+//!    episode-return emitter so the reward sparkline lights up from a raw
+//!    `Environment` driver — no benchmarks-harness `Suite`/`Evaluator` flow
+//!    required.
 //! 4. PPO calls
 //!    [`train_discrete`](rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete)
 //!    directly against the wrapped env (via the shared `ppo_cartpole::train`).
@@ -21,10 +24,6 @@
 //!
 //! # Which panels light up
 //!
-//! - **Env panel** — per-step `StyledFrame`s pushed by [`TuiEnvTap`],
-//!   drawing both the cart on its track and the balancing pole. The
-//!   pole's tilt (and its colour, green→red) tracks how close the angle
-//!   is to the failure threshold, so the panel reads as live motion.
 //! - **Reward sparkline** — `EpisodeReturn` events pushed by
 //!   [`TuiEnvTap`] on each episode termination (`CartPole` both
 //!   `Terminated` from pole failure and `Truncated` from the
@@ -94,10 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(TuiCaptureLayer::new(handle.clone()))
         .try_init()?;
 
-    // 3. Env: CartPole → TimeLimit → TuiEnvTap. The tap forwards per-step
-    //    frames and episode returns to the dashboard through the same
-    //    channel as the tracing-driven metric sparklines. Without it the
-    //    env panel + reward sparkline stay empty.
+    // 3. Env: CartPole → TimeLimit → TuiEnvTap. The tap forwards episode
+    //    returns to the dashboard through the same channel as the
+    //    tracing-driven metric sparklines. Without it the reward sparkline
+    //    stays empty.
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(base_env(), handle);
     let mut agent = build_agent(TOTAL_TIMESTEPS);

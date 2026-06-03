@@ -7,9 +7,9 @@
 //! drains a [`mpsc::Receiver<TuiEvent>`] each tick, folding events into
 //! the shared [`AppState`] and redrawing the dashboard.
 //!
-//! Rollout-side producers ([`RenderTap`] for per-step frames,
-//! [`TuiReporter`] for suite/trial lifecycle) feed the channel through a
-//! cloneable [`TuiHandle`].
+//! Rollout-side producers ([`TuiReporter`] for suite/trial/episode
+//! lifecycle, [`TuiEnvTap`] for non-harness episode returns) feed the
+//! channel through a cloneable [`TuiHandle`].
 //!
 //! # Shutdown
 //!
@@ -28,7 +28,7 @@
 //! don't fire the hook (handled by `Evaluator`'s `catch_unwind`); the
 //! render thread keeps drawing.
 //!
-//! [`RenderTap`]: crate::env_wrappers::RenderTap
+//! [`TuiEnvTap`]: crate::env_wrappers::TuiEnvTap
 //! [`TuiReporter`]: crate::reporter::tui::TuiReporter
 //! [`AppState`]: crate::tui::state::AppState
 //! [`TuiHandle`]: crate::reporter::tui::TuiHandle
@@ -48,15 +48,15 @@ use ratatui::style::{Modifier as RatModifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::reporter::tui::{TuiEvent, TuiHandle};
-use crate::tui::panels::{EnvPanel, LogPanel, MetricSparkline, RewardSparkline};
+use crate::tui::panels::{LogPanel, MetricSparkline, RewardSparkline};
 use crate::tui::state::{
     AppState, CapturedLogLine, DEFAULT_LOG_HISTORY, DEFAULT_REWARD_HISTORY, MetricsLayout,
-    PanelMode, StatusLine,
+    StatusLine,
 };
 
-/// Default render tick. 60 ms ≈ 16 fps — fast enough that the env panel
-/// reads as smooth motion, slow enough that the render thread spends
-/// most of its time blocked on the channel rather than redrawing.
+/// Default render tick. 60 ms ≈ 16 fps — slow enough that the render
+/// thread spends most of its time blocked on the channel rather than
+/// redrawing, fast enough that the sparklines update fluidly.
 pub const DEFAULT_TICK_MS: u64 = 60;
 
 /// Configuration for [`TuiRunner`].
@@ -68,9 +68,7 @@ pub struct TuiConfig {
     pub reward_history: usize,
     /// Cap on the scrolling log ring.
     pub log_history: usize,
-    /// Whether to render captured frames or the locomotion placeholder.
-    pub panel_mode: PanelMode,
-    /// Metric names shown in the right-hand column, in display order.
+    /// Metric names shown in the metric column, in display order.
     /// Defaults to [`DASHBOARD_METRICS`]; narrow it to drop signals a run
     /// never emits (e.g. EA-only `best_fitness` in a pure RL run).
     pub metrics: &'static [&'static str],
@@ -84,31 +82,9 @@ impl Default for TuiConfig {
             tick_ms: DEFAULT_TICK_MS,
             reward_history: DEFAULT_REWARD_HISTORY,
             log_history: DEFAULT_LOG_HISTORY,
-            panel_mode: PanelMode::default(),
             metrics: DASHBOARD_METRICS,
             metrics_layout: MetricsLayout::default(),
         }
-    }
-}
-
-impl TuiConfig {
-    /// Pick a [`PanelMode`] based on the run's environment family.
-    /// Locomotion gets [`PanelMode::LocomotionPlaceholder`] since
-    /// those envs have no `AsciiRenderable` impl; everything else
-    /// stays on [`PanelMode::Auto`].
-    ///
-    /// Only available with the `record` feature; this is the canonical
-    /// way to apply the `EnvFamily` classification from the record
-    /// schema to a TUI run.
-    #[cfg(feature = "record")]
-    #[must_use]
-    pub fn with_env_family(mut self, family: crate::record::EnvFamily) -> Self {
-        self.panel_mode = if matches!(family, crate::record::EnvFamily::Locomotion) {
-            PanelMode::LocomotionPlaceholder
-        } else {
-            PanelMode::Auto
-        };
-        self
     }
 }
 
@@ -152,9 +128,8 @@ impl TuiRunner {
             .name("rlevo-tui-render".to_string())
             .spawn(move || {
                 let mut term = terminal;
-                let mut state =
-                    AppState::with_history(cfg.reward_history, cfg.log_history, cfg.panel_mode)
-                        .with_layout(cfg.metrics, cfg.metrics_layout);
+                let mut state = AppState::with_history(cfg.reward_history, cfg.log_history)
+                    .with_layout(cfg.metrics, cfg.metrics_layout);
                 let result = render_loop(&mut term, &mut state, &rx, &thread_shutdown, cfg.tick_ms);
                 // Always restore — even if render_loop returned an error
                 // we want the terminal usable for the user's last words.
@@ -303,9 +278,6 @@ pub fn apply_event(state: &mut AppState, event: TuiEvent) {
         TuiEvent::SuiteEnd(_) => {
             state.mark_suite_end();
         }
-        TuiEvent::Frame { step: _, frame } => {
-            state.push_frame(frame);
-        }
         TuiEvent::MetricUpdate { name, value } => {
             state.record_metric(name, value);
         }
@@ -341,34 +313,24 @@ pub const DASHBOARD_METRICS: &[&str] = &[
 const LOG_BLOCK_HEIGHT: u16 = 10;
 
 /// Compose the dashboard layout for one tick.
+///
+/// The live TUI is metrics-only (ADR-0013): the metric column fills the
+/// full width above the log strip and status line. Env playback lives in
+/// the post-run report, not here.
 pub fn draw_dashboard(frame: &mut Frame<'_>, state: &AppState) {
     let area = frame.area();
 
-    // Outer vertical: panels above, log strip, single-line status.
-    let [top, logs_area, status_area] = Layout::vertical([
+    // Outer vertical: metrics above, log strip, single-line status.
+    let [metrics_area, logs_area, status_area] = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(LOG_BLOCK_HEIGHT),
         Constraint::Length(1),
     ])
     .areas::<3>(area);
 
-    // Top section split horizontally into env (60%) and metrics (40%).
-    let [env_area, metrics_area] =
-        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .areas::<2>(top);
-
-    render_env_block(frame, state, env_area);
     render_metrics_column(frame, state, metrics_area);
     render_log_block(frame, state, logs_area);
     frame.render_widget(status_paragraph(&state.status), status_area);
-}
-
-/// Bordered env panel + its inner content.
-fn render_env_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title("Env");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    frame.render_widget(EnvPanel::new(state), inner);
 }
 
 /// Render the metric column according to `state.metrics_layout`, drawing
@@ -475,29 +437,11 @@ pub fn format_status(status: &StatusLine) -> String {
     }
 }
 
-/// Helper exposing the [`Rect`] of the env panel for a given total area.
-/// Test-only — kept in the prod module so the layout math has one home.
-#[doc(hidden)]
-#[must_use]
-pub fn dashboard_env_rect(total: Rect) -> Rect {
-    let [top, _logs, _status] = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(LOG_BLOCK_HEIGHT),
-        Constraint::Length(1),
-    ])
-    .areas::<3>(total);
-    let [env, _metrics] =
-        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .areas::<2>(top);
-    env
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Cell;
-    use rlevo_core::render::{StyledFrame, StyledLine, StyledSpan};
 
     use crate::report::EpisodeSummary;
     use crate::suite::{SuiteInfo, TrialInfo, TrialKey};
@@ -510,32 +454,6 @@ mod tests {
             },
             env_name: env.to_string(),
             trial_seed: 7,
-        }
-    }
-
-    #[cfg(feature = "record")]
-    #[test]
-    fn with_env_family_locomotion_sets_placeholder() {
-        let cfg = TuiConfig::default().with_env_family(crate::record::EnvFamily::Locomotion);
-        assert_eq!(cfg.panel_mode, PanelMode::LocomotionPlaceholder);
-    }
-
-    #[cfg(feature = "record")]
-    #[test]
-    fn with_env_family_non_locomotion_stays_auto() {
-        for family in [
-            crate::record::EnvFamily::Classic,
-            crate::record::EnvFamily::Grids,
-            crate::record::EnvFamily::ToyText,
-            crate::record::EnvFamily::Box2d,
-            crate::record::EnvFamily::Landscapes,
-        ] {
-            let cfg = TuiConfig::default().with_env_family(family);
-            assert_eq!(
-                cfg.panel_mode,
-                PanelMode::Auto,
-                "family {family:?} should remain Auto"
-            );
         }
     }
 
@@ -573,16 +491,6 @@ mod tests {
         );
         assert_eq!(state.reward_ring.back().copied(), Some(195.0));
         assert_eq!(state.status.last_return, Some(195.0));
-    }
-
-    #[test]
-    fn apply_event_frame_replaces_held_frame() {
-        let mut state = AppState::default();
-        let frame = StyledFrame {
-            lines: vec![StyledLine::from_spans([StyledSpan::raw("rendered")])],
-        };
-        apply_event(&mut state, TuiEvent::Frame { step: 3, frame });
-        assert_eq!(state.frame.as_ref().unwrap().plain_text(), "rendered");
     }
 
     #[test]
@@ -634,13 +542,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_event_trial_start_clears_frame_keeps_rewards() {
+    fn apply_event_trial_start_sets_env_keeps_rewards() {
         let mut state = AppState::default();
-        state.push_frame(StyledFrame::unstyled("stale".into()));
         state.record_episode_end(0, 1.0);
 
         apply_event(&mut state, TuiEvent::TrialStart(trial_info("cartpole")));
-        assert!(state.frame.is_none());
         assert_eq!(state.reward_ring.len(), 1);
         assert_eq!(state.status.env_name.as_deref(), Some("cartpole"));
     }
@@ -683,9 +589,10 @@ mod tests {
         );
     }
 
-    /// End-to-end-ish: drive a render loop against a `TestBackend`,
-    /// confirm every M3 panel writes content and the status line still
-    /// surfaces the run metadata.
+    /// End-to-end-ish: drive a render against a `TestBackend`, confirm the
+    /// metric + log panels write content and the status line surfaces the
+    /// run metadata. The live TUI is metrics-only (ADR-0013) — there is no
+    /// env panel.
     #[test]
     fn draw_dashboard_populates_all_panels() {
         let backend = TestBackend::new(80, 24);
@@ -696,9 +603,8 @@ mod tests {
         state.mark_trial_start("cartpole");
         state.record_episode_end(0, 1.0);
         state.record_episode_end(1, 5.0);
-        state.push_frame(StyledFrame::unstyled("env-glyphs".to_string()));
 
-        // Feed each M3 metric panel a sample so its sparkline lights up
+        // Feed each metric panel a sample so its sparkline lights up
         // rather than the "no data yet" placeholder.
         for name in DASHBOARD_METRICS {
             state.record_metric(*name, 0.5);
@@ -722,13 +628,12 @@ mod tests {
             .map(Cell::symbol)
             .collect();
 
-        // M2 panels still render.
-        assert!(text.contains("Env"), "env block title missing: {text:?}");
-        assert!(text.contains("env-glyphs"), "env frame contents missing");
+        // No env panel under ADR-0013.
+        assert!(!text.contains("Env"), "env block must not render: {text:?}");
         assert!(text.contains("smoke"), "status suite missing");
         assert!(text.contains("cartpole"), "status env missing");
 
-        // M3 additions.
+        // Metric + log panels.
         assert!(text.contains("Metrics"), "metrics block title missing");
         assert!(text.contains("Logs"), "logs block title missing");
         for name in DASHBOARD_METRICS {
@@ -798,10 +703,10 @@ mod tests {
         let s = Arc::clone(&shutdown);
         let join = thread::spawn(move || render_loop(&mut terminal, &mut state, &rx, &s, 20));
 
-        // Push one frame so the loop isn't entirely idle.
-        let _ = tx.send(TuiEvent::Frame {
-            step: 0,
-            frame: StyledFrame::unstyled("hi".into()),
+        // Push one event so the loop isn't entirely idle.
+        let _ = tx.send(TuiEvent::MetricUpdate {
+            name: "policy_loss".to_string(),
+            value: 0.1,
         });
 
         // Now signal shutdown and observe the join.
@@ -838,21 +743,5 @@ mod tests {
 
         drop(tx);
         join.join().unwrap().expect("render_loop io");
-    }
-
-    /// `dashboard_env_rect` returns a sane env-panel region. Used by the
-    /// future smoke example to align test frames with what the user will
-    /// see at runtime.
-    #[test]
-    fn dashboard_env_rect_carves_top_left_sixty_percent() {
-        let total = Rect::new(0, 0, 80, 24);
-        let env = dashboard_env_rect(total);
-        // Top row, leftmost. Width ≈ 48 (60% of 80). Height is the total
-        // minus the log block (LOG_BLOCK_HEIGHT) minus the 1-row status.
-        let expected_height = 24 - i32::from(LOG_BLOCK_HEIGHT) - 1;
-        assert_eq!(env.x, 0);
-        assert_eq!(env.y, 0);
-        assert_eq!(i32::from(env.height), expected_height);
-        assert!((47..=49).contains(&env.width), "env width was {}", env.width);
     }
 }

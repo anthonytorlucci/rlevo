@@ -25,10 +25,9 @@ use rand::Rng;
 use rand_distr::{Distribution, Uniform};
 
 use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::env_wrappers::RenderTap;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::reporter::MultiReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -66,10 +65,9 @@ impl BenchableAgent<GridObservation, GridAction> for RandomGridAgent {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Family is declared once by the env type (`EmptyEnv: RecordedEnvFamily`)
-    // and reused for both the TUI and the recording config, so the two cannot
-    // disagree.
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(EmptyEnv::FAMILY))?;
+    // Live TUI is metrics-only (ADR-0013); the recording config carries the
+    // env family for the report adapter, derived once from `EmptyEnv`.
+    let runner = TuiRunner::start(TuiConfig::default())?;
     let handle = runner.handle();
 
     let record_cfg = RecordingConfig::for_env::<EmptyEnv>(SEED);
@@ -93,7 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let suite = {
-        let handle = handle.clone();
         let sink = sink.clone();
         Suite::new("empty-grid-record", cfg.clone()).with_env("empty", move |seed| {
             let env = EmptyEnv::with_config(
@@ -101,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 false,
             );
             let recorded: RecordingTap<EmptyEnv, 3, 3, 1> = RecordingTap::new(env, sink.clone());
-            RenderTap::new(BenchAdapter::new(recorded), handle.clone())
+            BenchAdapter::new(recorded)
         })
     };
 

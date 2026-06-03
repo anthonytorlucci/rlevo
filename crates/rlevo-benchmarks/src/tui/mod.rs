@@ -1,9 +1,10 @@
 //! Live `ratatui` terminal dashboard for benchmark runs (feature `tui`).
 //!
-//! Wires the styled environment output defined in [`rlevo_core::render`] into
-//! a four-panel terminal UI: an ASCII env canvas, a reward-return sparkline,
-//! per-metric sparklines (loss, entropy, `approx_kl`), and a scrolling log
-//! panel driven by a `tracing` subscriber layer.
+//! A metrics-only terminal UI (ADR-0013): a reward-return sparkline,
+//! per-metric sparklines (loss, entropy, `approx_kl`, `best_fitness`), and a
+//! scrolling log panel driven by a `tracing` subscriber layer. The live TUI
+//! answers *"is it learning?"*; env playback lives in the post-run report,
+//! not here.
 //!
 //! All `ratatui` and `crossterm` dependencies are confined to this module;
 //! production crates (`rlevo-core`, `rlevo-environments`,
@@ -14,9 +15,9 @@
 //!
 //! | Module       | Purpose                                                          |
 //! |--------------|------------------------------------------------------------------|
-//! | `convert`    | Maps [`StyledFrame`] / [`SpanStyle`] to `ratatui` `Span`s       |
+//! | `convert`    | Maps [`Color`] / [`SpanStyle`] to `ratatui` styles for the palette |
 //! | `log_layer`  | `tracing` subscriber that captures events into the TUI channel  |
-//! | `panels`     | Individual panel widgets (env canvas, sparklines, log)          |
+//! | `panels`     | Individual panel widgets (reward/metric sparklines, log)        |
 //! | `runner`     | Top-level [`TuiRunner`] event loop and [`TuiConfig`]            |
 //! | `state`      | [`AppState`] — in-memory model the render thread writes to      |
 //! | `theme`      | Colour palette and `ratatui` style constants                    |
@@ -29,11 +30,15 @@
 //!
 //! ```no_run
 //! # use rlevo_benchmarks::tui::{TuiConfig, TuiRunner};
-//! let (runner, handle) = TuiRunner::new(TuiConfig::default());
-//! // pass `handle.as_reporter()` to the Evaluator and spawn `runner.run(rx)`.
+//! let runner = TuiRunner::start(TuiConfig::default()).unwrap();
+//! let handle = runner.handle();
+//! // pass `handle.as_reporter()` to the Evaluator and `handle.clone()` to
+//! // the TuiCaptureLayer; the render thread started by `start` drains the
+//! // channel until `runner.shutdown()`.
+//! # let _ = handle;
 //! ```
 //!
-//! [`StyledFrame`]: rlevo_core::render::StyledFrame
+//! [`Color`]: rlevo_core::render::Color
 //! [`SpanStyle`]: rlevo_core::render::SpanStyle
 //! [`AppState`]: crate::tui::state::AppState
 

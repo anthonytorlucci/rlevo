@@ -22,10 +22,9 @@ use rand::Rng;
 use rand_distr::{Distribution, Uniform};
 
 use rlevo_benchmarks::agent::BenchableAgent;
-use rlevo_benchmarks::env_wrappers::RenderTap;
 use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::record::{
-    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingReporter, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingReporter, RecordingTap,
 };
 use rlevo_benchmarks::reporter::MultiReporter;
 use rlevo_benchmarks::suite::Suite;
@@ -64,8 +63,9 @@ impl BenchableAgent<FrozenLakeObservation, FrozenLakeAction> for RandomFrozenLak
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Family declared once by the env type (`FrozenLake: RecordedEnvFamily`).
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(FrozenLake::FAMILY))?;
+    // Live TUI is metrics-only (ADR-0013); the recording config carries the
+    // env family for the report adapter, derived once from `FrozenLake`.
+    let runner = TuiRunner::start(TuiConfig::default())?;
     let handle = runner.handle();
 
     let record_cfg = RecordingConfig::for_env::<FrozenLake>(SEED);
@@ -89,7 +89,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let suite = {
-        let handle = handle.clone();
         let sink = sink.clone();
         Suite::new("frozen-lake-record", cfg.clone()).with_env("frozen_lake", move |seed| {
             let env = FrozenLake::with_config(FrozenLakeConfig {
@@ -101,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("FrozenLake construction with preset map cannot fail");
             let recorded: RecordingTap<FrozenLake, 1, 1, 1> =
                 RecordingTap::new(env, sink.clone());
-            RenderTap::new(BenchAdapter::new(recorded), handle.clone())
+            BenchAdapter::new(recorded)
         })
     };
 
