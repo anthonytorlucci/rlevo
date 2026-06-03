@@ -15,8 +15,8 @@
 use rlevo_benchmarks::record::{
     Box2dPayload as NativeBox2dPayload, EnvFamily as NativeFamily,
     EpisodeRecord as NativeRecord, EpisodeRecordHeader as NativeHeader,
-    FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload,
-    FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
+    Classic2DPayload as NativeClassic2DPayload, FORMAT_VERSION as NATIVE_VERSION,
+    FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
     Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
     PopulationSample as NativePopulationSample, RunId as NativeRunId,
@@ -24,9 +24,10 @@ use rlevo_benchmarks::record::{
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
-    BodyKind, CardTable, Color, GridAgentMarker, GridDir, GridTile, Modifier, Point2, RigidBody2D,
-    SpanStyle, StyledFrame, StyledLine, StyledSpan, TabularCell, TabularGrid, TabularLayout,
-    TabularMarker, TabularMarkerKind, TabularSnapshot,
+    BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
+    GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
+    StyledSpan, TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+    TabularSnapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -180,6 +181,30 @@ fn populated_native_record() -> NativeRecord {
                     },
                 )),
             },
+            NativeFrame {
+                step: 8,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::Classic2D(NativeClassic2DPayload::from(
+                    Classic2DSnapshot {
+                        bodies: vec![
+                            Classic2DBody {
+                                points: vec![Point2::new(-2.4, 0.0), Point2::new(2.4, 0.0)],
+                                role: Classic2DRole::Track,
+                                closed: false,
+                            },
+                            Classic2DBody {
+                                points: vec![Point2::new(0.0, 0.1), Point2::new(0.0, 1.1)],
+                                role: Classic2DRole::Pole,
+                                closed: false,
+                            },
+                        ],
+                        bounds: (Point2::new(-2.6, -0.4), Point2::new(2.6, 1.6)),
+                    },
+                )),
+            },
         ],
         metrics: vec![
             NativeMetric {
@@ -287,6 +312,13 @@ fn native_encode_decodes_via_client_wire_types() {
                         assert_eq!(mcard.dealer_showing, ncard.dealer_showing);
                     }
                     (om, on) => panic!("tabular layout mismatch: client={om:?} native={on:?}"),
+                }
+            }
+            (client::FamilyPayload::Classic2D(mc), NativePayload::Classic2D(nc)) => {
+                assert_eq!(mc.bodies.len(), nc.bodies.len());
+                for (mb, nb) in mc.bodies.iter().zip(nc.bodies.iter()) {
+                    assert_eq!(mb.points.len(), nb.points.len());
+                    assert_eq!(mb.closed, nb.closed);
                 }
             }
             (other_m, other_n) => panic!(

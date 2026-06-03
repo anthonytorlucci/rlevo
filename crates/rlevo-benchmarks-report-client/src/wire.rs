@@ -314,6 +314,36 @@ pub struct TabularPayload {
     pub layout: TabularLayout,
 }
 
+/// Semantic role of a classic-control body (mirror of `rlevo-core`
+/// `Classic2DRole`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Classic2DRole {
+    Track,
+    Cart,
+    Pole,
+    Link,
+    Car,
+    Hinge,
+}
+
+/// One world-space body of a classic-control mechanism (mirror of
+/// `rlevo-core` `Classic2DBody`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DBody {
+    pub points: Vec<Point2>,
+    pub role: Classic2DRole,
+    pub closed: bool,
+}
+
+/// Structured 2-D line-art for classic-control envs (mirror of
+/// `rlevo-benchmarks::record::Classic2DPayload`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DPayload {
+    pub bodies: Vec<Classic2DBody>,
+    pub bounds: (Point2, Point2),
+}
+
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
@@ -380,6 +410,9 @@ pub enum FamilyPayload {
     /// Structured toy-text layout (FrozenLake/CliffWalking/Taxi grid, or
     /// Blackjack cards). Added in `FORMAT_VERSION = 5`.
     TabularText(TabularPayload),
+    /// Structured 2-D line-art for classic physics envs. Added in
+    /// `FORMAT_VERSION = 5`.
+    Classic2D(Classic2DPayload),
 }
 
 /// Trial provenance. Mirror of

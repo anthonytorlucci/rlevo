@@ -257,6 +257,25 @@ svg.rlevo-svg-frame {
     .rlevo-tab-agent-fg { color: #5dade2; fill: #5dade2; }
 }
 
+/* Classic-control adapter */
+.rlevo-classic-track { fill: none; stroke: #707b7c; stroke-width: 2; stroke-dasharray: 4 3; }
+.rlevo-classic-cart  { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-classic-car   { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-classic-pole  { fill: none; stroke: #c0392b; stroke-width: 4; stroke-linecap: round; }
+.rlevo-classic-link  { fill: none; stroke: #8e44ad; stroke-width: 4; stroke-linecap: round; }
+.rlevo-classic-hinge { fill: #f1c40f; stroke: #b7950b; stroke-width: 1; }
+.rlevo-classic-cart-swatch  { background: #2980b9; }
+.rlevo-classic-pole-swatch  { background: #c0392b; }
+.rlevo-classic-track-swatch {
+    background: linear-gradient(90deg, #707b7c 0 60%, transparent 60%);
+}
+.rlevo-classic-hinge-fg { color: #b7950b; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-classic-cart, .rlevo-classic-car { fill: #5dade2; stroke: #2980b9; }
+    .rlevo-classic-pole { stroke: #ec7063; }
+    .rlevo-classic-link { stroke: #bb8fce; }
+}
+
 /* Box2D adapter */
 svg.rlevo-svg-box2d { max-width: 40rem; }
 .rlevo-box2d-hull {

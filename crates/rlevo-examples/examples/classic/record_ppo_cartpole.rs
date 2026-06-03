@@ -72,7 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the TuiEnvTap so the same trajectory feeds the live TUI AND the
     // on-disk record from one wrap site.
     let tui_tapped: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(base_env(), handle);
-    let mut env: RecordingTap<_, 1, 1, 1> = RecordingTap::new(tui_tapped, sink.clone());
+    // Structured-only (ADR-0013): the classic report renders SVG line-art from
+    // the `FamilyPayload::Classic2D` body geometry; no ascii/styled captured.
+    let mut env: RecordingTap<_, 1, 1, 1> =
+        RecordingTap::with_classic2d_payload(tui_tapped, sink.clone());
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 
     train(&mut agent, &mut env, &mut rng, TOTAL_TIMESTEPS)?;

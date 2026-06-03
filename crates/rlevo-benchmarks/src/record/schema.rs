@@ -13,8 +13,9 @@
 use std::collections::BTreeMap;
 
 use rlevo_core::render::{
-    Box2dSnapshot, GridAgentMarker, GridSnapshot, GridTile, Landscape2DSnapshot,
-    Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame, TabularLayout, TabularSnapshot,
+    Box2dSnapshot, Classic2DBody, Classic2DSnapshot, GridAgentMarker, GridSnapshot, GridTile,
+    Landscape2DSnapshot, Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame, TabularLayout,
+    TabularSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -152,6 +153,9 @@ pub enum FamilyPayload {
     /// `CliffWalking` / `Taxi`) or a card table (`Blackjack`). Added in
     /// `FORMAT_VERSION = 5`.
     TabularText(TabularPayload),
+    /// Structured 2-D line-art for `classic` physics envs (`CartPole` /
+    /// `Pendulum` / `MountainCar` / `Acrobot`). Added in `FORMAT_VERSION = 5`.
+    Classic2D(Classic2DPayload),
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +283,26 @@ pub struct TabularPayload {
 impl From<TabularSnapshot> for TabularPayload {
     fn from(s: TabularSnapshot) -> Self {
         Self { layout: s.layout }
+    }
+}
+
+/// Bincode-stable mirror of [`Classic2DSnapshot`] for the record wire format.
+/// Reuses the wire-neutral [`Classic2DBody`] (with [`Point2`]) from
+/// `rlevo-core::render::payload`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DPayload {
+    /// Bodies in paint order (track first, moving parts last).
+    pub bodies: Vec<Classic2DBody>,
+    /// Viewport rectangle `(min, max)` the renderer fits to.
+    pub bounds: (Point2, Point2),
+}
+
+impl From<Classic2DSnapshot> for Classic2DPayload {
+    fn from(s: Classic2DSnapshot) -> Self {
+        Self {
+            bodies: s.bodies,
+            bounds: s.bounds,
+        }
     }
 }
 

@@ -817,6 +817,30 @@ mod tests {
     }
 
     #[test]
+    fn classic2d_snapshot_has_track_cart_pole_and_upright_pole_at_theta_zero() {
+        use rlevo_core::render::payload::{Classic2DPayloadSource, Classic2DRole};
+
+        let mut env = default_env();
+        env.state.x = 0.0;
+        env.state.theta = 0.0; // upright
+        let snap = env.classic2d_snapshot();
+        // Track, cart, pole.
+        let roles: Vec<_> = snap.bodies.iter().map(|b| b.role).collect();
+        assert!(roles.contains(&Classic2DRole::Track));
+        assert!(roles.contains(&Classic2DRole::Cart));
+        let pole = snap
+            .bodies
+            .iter()
+            .find(|b| b.role == Classic2DRole::Pole)
+            .expect("pole body present");
+        // Upright pole rises straight up from the hinge: same x, higher y.
+        assert_eq!(pole.points.len(), 2);
+        let (base, tip) = (pole.points[0], pole.points[1]);
+        assert!((tip.x - base.x).abs() < 1e-5, "upright pole must be vertical");
+        assert!(tip.y > base.y, "pole tip must be above the hinge when upright");
+    }
+
+    #[test]
     fn reset_returns_running_obs_in_range() {
         use rlevo_core::environment::EpisodeStatus;
 
@@ -1043,6 +1067,46 @@ mod tests {
                 "line exceeds 80 cols: {line:?} ({} chars)",
                 line.chars().count()
             );
+        }
+    }
+}
+
+impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        let x = self.state.x;
+        let theta = self.state.theta; // 0 = upright, +clockwise
+        let xt = self.config.x_threshold;
+        let pole_len = 2.0 * self.config.length; // full rod length = 2·half-length
+        let (cart_w, cart_h) = (0.4_f32, 0.25_f32);
+        let hinge_y = cart_h; // hinge atop the cart
+        // Cart rectangle centred at (x, cart_h/2).
+        let cy = cart_h * 0.5;
+        let cart = vec![
+            Point2::new(x - cart_w * 0.5, cy - cart_h * 0.5),
+            Point2::new(x + cart_w * 0.5, cy - cart_h * 0.5),
+            Point2::new(x + cart_w * 0.5, cy + cart_h * 0.5),
+            Point2::new(x - cart_w * 0.5, cy + cart_h * 0.5),
+        ];
+        let tip = Point2::new(x + pole_len * theta.sin(), hinge_y + pole_len * theta.cos());
+        Classic2DSnapshot {
+            bodies: vec![
+                Classic2DBody {
+                    points: vec![Point2::new(-xt, 0.0), Point2::new(xt, 0.0)],
+                    role: Classic2DRole::Track,
+                    closed: false,
+                },
+                Classic2DBody { points: cart, role: Classic2DRole::Cart, closed: true },
+                Classic2DBody {
+                    points: vec![Point2::new(x, hinge_y), tip],
+                    role: Classic2DRole::Pole,
+                    closed: false,
+                },
+            ],
+            bounds: (
+                Point2::new(-xt - 0.2, -0.4),
+                Point2::new(xt + 0.2, pole_len + 0.4),
+            ),
         }
     }
 }

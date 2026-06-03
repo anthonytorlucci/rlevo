@@ -759,3 +759,35 @@ mod tests {
         }
     }
 }
+
+impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCarContinuous {
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        let (lo, hi) = (self.config.min_pos, self.config.max_pos);
+        // Terrain profile y = sin(3x), sampled across the track.
+        const SAMPLES: usize = 48;
+        let terrain: Vec<Point2> = (0..=SAMPLES)
+            .map(|i| {
+                let x = lo + (hi - lo) * (i as f32 / SAMPLES as f32);
+                Point2::new(x, (3.0 * x).sin())
+            })
+            .collect();
+        let px = self.state.position;
+        let py = (3.0 * px).sin();
+        // Car as a small square sitting on the hill.
+        let r = 0.04;
+        let car = vec![
+            Point2::new(px - r, py - r),
+            Point2::new(px + r, py - r),
+            Point2::new(px + r, py + r),
+            Point2::new(px - r, py + r),
+        ];
+        Classic2DSnapshot {
+            bodies: vec![
+                Classic2DBody { points: terrain, role: Classic2DRole::Track, closed: false },
+                Classic2DBody { points: car, role: Classic2DRole::Car, closed: true },
+            ],
+            bounds: (Point2::new(lo - 0.1, -1.1), Point2::new(hi + 0.1, 1.1)),
+        }
+    }
+}

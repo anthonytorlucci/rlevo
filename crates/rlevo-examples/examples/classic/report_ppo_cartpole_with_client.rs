@@ -80,7 +80,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // CartPole → TimeLimit → RecordingTap. No TUI tap here — the metric
     // stream is captured headlessly and replayed by the report client.
-    let mut env: RecordingTap<_, 1, 1, 1> = RecordingTap::new(base_env(), sink.clone());
+    // Structured-only (ADR-0013): record `FamilyPayload::Classic2D` line-art.
+    let mut env: RecordingTap<_, 1, 1, 1> =
+        RecordingTap::with_classic2d_payload(base_env(), sink.clone());
     let mut agent = build_agent(TOTAL_TIMESTEPS);
 
     train(&mut agent, &mut env, &mut rng, TOTAL_TIMESTEPS)?;

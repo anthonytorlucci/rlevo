@@ -340,6 +340,61 @@ pub trait TabularPayloadSource {
     fn tabular_snapshot(&self) -> TabularSnapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Classic2D
+// ---------------------------------------------------------------------------
+
+/// Semantic role of a [`Classic2DBody`], driving the report tier's CSS
+/// (colour / stroke / fill) so the parts of each classic-control mechanism
+/// stay visually distinct and accessible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Classic2DRole {
+    /// The ground line / track / terrain profile.
+    Track,
+    /// The cart (CartPole).
+    Cart,
+    /// A balancing pole (CartPole / Pendulum).
+    Pole,
+    /// A rigid link of a multi-link arm (Acrobot).
+    Link,
+    /// The car (MountainCar).
+    Car,
+    /// A pivot / hinge point (drawn as a small marker).
+    Hinge,
+}
+
+/// One body of a classic-control mechanism, expressed as a **world-space**
+/// polyline (already transformed — no separate pose). A single-point body is
+/// a marker (e.g. a hinge); `closed = true` makes it a filled polygon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DBody {
+    /// World-space points in the env's natural frame (`+y` up).
+    pub points: Vec<Point2>,
+    /// What this body is, for styling.
+    pub role: Classic2DRole,
+    /// `true` → render as a closed filled polygon; `false` → open polyline.
+    pub closed: bool,
+}
+
+/// A snapshot of a classic-control env (CartPole / Pendulum / MountainCar /
+/// Acrobot) at one frame: a set of world-space bodies plus the viewport the
+/// renderer fits to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DSnapshot {
+    /// Bodies in paint order (track first, moving parts last).
+    pub bodies: Vec<Classic2DBody>,
+    /// Viewport rectangle the renderer fits to: `(min, max)` corners.
+    pub bounds: (Point2, Point2),
+}
+
+/// Producer-side trait. A classic-control env implements this so its
+/// recording ships a `FamilyPayload::Classic2D` rendered as SVG line-art
+/// instead of `Ascii` text.
+pub trait Classic2DPayloadSource {
+    fn classic2d_snapshot(&self) -> Classic2DSnapshot;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
