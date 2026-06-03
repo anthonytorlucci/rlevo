@@ -15,7 +15,7 @@
 //! consumes.
 //!
 //! ```bash
-//! cargo run -p rlevo --example record_sphere_landscape \
+//! cargo run -p rlevo-examples --example record_sphere_landscape \
 //!     --features viz-record
 //! ```
 //!

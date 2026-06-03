@@ -13,7 +13,7 @@
 //! cd ../../
 //!
 //! # 2) Run this example.
-//! cargo run -p rlevo --example report_grids_with_client \
+//! cargo run -p rlevo-examples --example report_grids_with_client \
 //!     --features viz-record,viz-report
 //! ```
 

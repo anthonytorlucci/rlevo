@@ -8,7 +8,7 @@
 //! # Run with
 //!
 //! ```bash
-//! cargo run -p rlevo --example record_grids \
+//! cargo run -p rlevo-examples --example record_grids \
 //!   --features viz-tui,viz-record
 //! ```
 //!

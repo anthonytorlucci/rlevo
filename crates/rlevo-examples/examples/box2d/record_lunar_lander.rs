@@ -7,7 +7,7 @@
 //! payload's `contacts` vector.
 //!
 //! ```bash
-//! cargo run -p rlevo --example record_lunar_lander \
+//! cargo run -p rlevo-examples --example record_lunar_lander \
 //!     --features box2d,viz-record
 //! ```
 //!
