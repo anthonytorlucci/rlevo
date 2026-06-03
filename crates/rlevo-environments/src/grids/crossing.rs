@@ -543,3 +543,9 @@ mod tests {
         assert_eq!(env.strip_rows(), vec![2, 4]);
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for CrossingEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

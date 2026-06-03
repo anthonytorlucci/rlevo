@@ -493,3 +493,9 @@ mod tests {
         assert_eq!(env.state().agent.direction, Direction::North);
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for DoorKeyEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

@@ -9,7 +9,7 @@
 //! ```bash
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
-//! cargo run -p rlevo --example report_toy_text_with_client \
+//! cargo run -p rlevo-examples --example report_toy_text_with_client \
 //!     --features viz-record,viz-report
 //! ```
 

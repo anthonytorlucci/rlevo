@@ -526,3 +526,9 @@ mod tests {
         assert_eq!(env.steps(), 0);
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for MultiRoomEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

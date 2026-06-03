@@ -23,13 +23,14 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::render::{
-    AsciiRenderable, Box2dPayloadSource, Landscape2DPayloadSource, Locomotion2DPayloadSource,
-    StyledFrame,
+    AsciiRenderable, Box2dPayloadSource, Classic2DPayloadSource, GridPayloadSource,
+    Landscape2DPayloadSource, Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
 };
 use serde::Serialize;
 
 use super::schema::{
-    Box2dPayload, FamilyPayload, FrameRecord, Landscape2DPayload, Locomotion2DPayload,
+    Box2dPayload, Classic2DPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload,
+    Locomotion2DPayload, TabularPayload,
 };
 use super::writer::RecordSink;
 
@@ -203,6 +204,53 @@ where
     pub fn with_locomotion_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Locomotion2D(Locomotion2DPayload::from(e.locomotion2d_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: GridPayloadSource + 'static,
+{
+    /// Convenience constructor for `grids` envs: extracts a structured
+    /// [`GridPayload`] per frame via [`GridPayloadSource`]. Uses
+    /// [`new_headless`](Self::new_headless) so the record is **structured-only**
+    /// (ADR-0013) — no `ascii` / `styled` text is captured; the report renders
+    /// SVG from the tile grid.
+    pub fn with_grid_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::Grid(GridPayload::from(e.grid_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: TabularPayloadSource + 'static,
+{
+    /// Convenience constructor for `toy_text` envs: extracts a structured
+    /// [`TabularPayload`] per frame via [`TabularPayloadSource`]. Uses
+    /// [`new_headless`](Self::new_headless) so the record is **structured-only**
+    /// (ADR-0013) — the report renders the grid/card layout from typed state.
+    pub fn with_tabular_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::TabularText(TabularPayload::from(e.tabular_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: Classic2DPayloadSource + 'static,
+{
+    /// Convenience constructor for `classic` physics envs: extracts a
+    /// structured [`Classic2DPayload`] per frame via [`Classic2DPayloadSource`].
+    /// Uses [`new_headless`](Self::new_headless) so the record is
+    /// **structured-only** (ADR-0013) — the report renders SVG line-art from
+    /// the world-space bodies.
+    pub fn with_classic2d_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::Classic2D(Classic2DPayload::from(e.classic2d_snapshot()))
         })
     }
 }

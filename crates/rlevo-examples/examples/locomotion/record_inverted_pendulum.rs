@@ -8,7 +8,7 @@
 //! sagittal-plane joint topology is the only rendering surface).
 //!
 //! ```bash
-//! cargo run -p rlevo --example record_inverted_pendulum \
+//! cargo run -p rlevo-examples --example record_inverted_pendulum \
 //!     --features locomotion,viz-record
 //! ```
 //!

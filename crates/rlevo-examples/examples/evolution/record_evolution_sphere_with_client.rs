@@ -25,7 +25,7 @@
 //! trunk build --release
 //!
 //! cd ../../
-//! cargo run -p rlevo --example record_evolution_sphere_with_client \
+//! cargo run -p rlevo-examples --example record_evolution_sphere_with_client \
 //!     --features viz-record,viz-report --release
 //! ```
 //!

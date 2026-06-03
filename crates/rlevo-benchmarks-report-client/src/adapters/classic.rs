@@ -1,47 +1,124 @@
-//! Classic-control adapter (CartPole, MountainCar, Pendulum, Acrobot).
+//! Classic-control adapter — structured SVG line-art from a
+//! [`FamilyPayload::Classic2D`] payload (ADR-0013).
 //!
-//! The library tier renders classic environments as a 1-D ASCII track with a
-//! styled agent glyph and a suffix carrying angle / step metrics (see
-//! `cartpole.rs`).  This adapter wraps that projection in a `<figure>` with a
-//! legend so the web report can display it without duplicating render logic.
+//! Each body is a world-space polyline; the adapter fits an affine map from
+//! the payload's viewport `bounds` onto a padded SVG viewBox (flipping y so
+//! physics-up renders up). Bodies render by role: `Track` as an open
+//! polyline, `Cart` / `Car` as filled polygons, `Pole` / `Link` as thick
+//! strokes, `Hinge` (a single point) as a small ring.
 //!
-//! # Accessibility
+//! Per the a11y contract each role pairs colour with a distinct shape /
+//! stroke so a B/W screenshot still reads. Falls back to
+//! [`super::fallback::render`] for any non-`Classic2D` payload (e.g. a legacy
+//! `Ascii` record, or the bandit envs which stay on the ASCII path).
 //!
-//! The legend pairs each glyph with a text label so the meaning is not
-//! conveyed by colour alone.  The agent glyph is bold cyan `#`; the track
-//! uses a dashed `┄` in dark-gray — hue and stroke pattern differ so both
-//! channels carry the same information.
+//! [`FamilyPayload::Classic2D`]: crate::wire::FamilyPayload::Classic2D
 
 use leptos::prelude::*;
 
-use crate::adapters::frame_body;
-use crate::wire::FrameRecord;
+use crate::wire::{Classic2DBody, Classic2DPayload, Classic2DRole, FamilyPayload, FrameRecord, Point2};
 
-/// Wraps a classic-family frame in a `<figure>` with a labelled legend.
-///
-/// Delegates the actual ASCII projection to [`crate::adapters::frame_body`]
-/// and appends a `<figcaption>` describing the agent glyph, track glyph, and
-/// suffix metrics so screen readers and colour-blind users can interpret the
-/// display without relying on hue alone.
+/// Square SVG viewport size in user units.
+const VB: f32 = 320.0;
+/// Padding inside the viewBox on each edge.
+const PAD: f32 = 16.0;
+
+/// Renders one classic-family frame, dispatching on the payload variant.
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
+    match &frame.family_payload {
+        FamilyPayload::Classic2D(payload) => view_with_payload(payload),
+        _ => super::fallback::render(crate::wire::EnvFamily::Classic, frame),
+    }
+    .into_any()
+}
+
+/// CSS class for a body role.
+const fn role_class(role: Classic2DRole) -> &'static str {
+    match role {
+        Classic2DRole::Track => "rlevo-classic-track",
+        Classic2DRole::Cart => "rlevo-classic-cart",
+        Classic2DRole::Pole => "rlevo-classic-pole",
+        Classic2DRole::Link => "rlevo-classic-link",
+        Classic2DRole::Car => "rlevo-classic-car",
+        Classic2DRole::Hinge => "rlevo-classic-hinge",
+    }
+}
+
+/// Builds the SVG figure for a [`Classic2DPayload`].
+fn view_with_payload(payload: &Classic2DPayload) -> AnyView {
+    let (lo, hi) = payload.bounds;
+    let (sx, sy) = (hi.x - lo.x, hi.y - lo.y);
+    if sx.abs() < f32::EPSILON || sy.abs() < f32::EPSILON {
+        return view! {
+            <p class="rlevo-warnings">"classic payload has degenerate bounds — cannot render"</p>
+        }
+        .into_any();
+    }
+    // Uniform scale so the mechanism keeps its aspect ratio; centre the
+    // shorter axis. Flip y (physics-up → SVG-down).
+    let span = sx.max(sy);
+    let inner = VB - 2.0 * PAD;
+    let scale = inner / span;
+    let off_x = PAD + (inner - sx * scale) * 0.5;
+    let off_y = PAD + (inner - sy * scale) * 0.5;
+    let xform = move |p: &Point2| {
+        let px = off_x + (p.x - lo.x) * scale;
+        let py = off_y + (hi.y - p.y) * scale; // flip
+        (px, py)
+    };
+
+    let bodies: Vec<AnyView> = payload.bodies.iter().map(|b| body_view(b, &xform)).collect();
+    let view_box = format!("0 0 {VB} {VB}");
+
     view! {
         <figure class="rlevo-family-classic">
-            {frame_body(frame)}
+            <svg class="rlevo-svg-frame" viewBox=view_box role="img" aria-label="classic control view">
+                {bodies}
+            </svg>
             <figcaption class="legend">
                 <span class="rlevo-legend-key">
-                    <span class="rlevo-legend-glyph rlevo-fg-cyan rlevo-mod-bold">"#"</span>
-                    " agent / cart"
+                    <span class="rlevo-legend-swatch rlevo-classic-cart-swatch" />
+                    " cart / car"
                 </span>
                 <span class="rlevo-legend-key">
-                    <span class="rlevo-legend-glyph rlevo-fg-darkgray">"┄"</span>
-                    " track"
+                    <span class="rlevo-legend-swatch rlevo-classic-pole-swatch" />
+                    " pole / link"
                 </span>
                 <span class="rlevo-legend-key">
-                    "θ / step metrics in suffix"
+                    <span class="rlevo-legend-swatch rlevo-classic-track-swatch" />
+                    " track / terrain"
+                </span>
+                <span class="rlevo-legend-key">
+                    <span class="rlevo-legend-glyph rlevo-classic-hinge-fg">"\u{25cb}"</span>
+                    " hinge / pivot"
                 </span>
             </figcaption>
         </figure>
     }
     .into_any()
+}
+
+/// Renders one body: a ring for a single-point hinge, a polygon when closed,
+/// otherwise an open polyline.
+fn body_view(body: &Classic2DBody, xform: &impl Fn(&Point2) -> (f32, f32)) -> AnyView {
+    let cls = role_class(body.role);
+    if body.points.len() == 1 {
+        let (cx, cy) = xform(&body.points[0]);
+        return view! { <circle cx=cx cy=cy r=4.0 class=cls /> }.into_any();
+    }
+    let pts = body
+        .points
+        .iter()
+        .map(|p| {
+            let (x, y) = xform(p);
+            format!("{x:.2},{y:.2}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if body.closed {
+        view! { <polygon points=pts class=cls /> }.into_any()
+    } else {
+        view! { <polyline points=pts class=cls /> }.into_any()
+    }
 }

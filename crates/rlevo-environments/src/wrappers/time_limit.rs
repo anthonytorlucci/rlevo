@@ -133,6 +133,18 @@ where
     }
 }
 
+/// Forward the optional `Classic2DPayloadSource` through to the wrapped env,
+/// so a `TimeLimit` over a classic-control env stays structurally renderable
+/// (ADR-0013) — e.g. when a `RecordingTap` records a `TimeLimit`-wrapped env.
+impl<E> rlevo_core::render::payload::Classic2DPayloadSource for TimeLimit<E>
+where
+    E: rlevo_core::render::payload::Classic2DPayloadSource,
+{
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        self.inner.classic2d_snapshot()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

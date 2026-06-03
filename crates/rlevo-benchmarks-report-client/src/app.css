@@ -190,6 +190,92 @@ svg.rlevo-svg-frame {
     }
 }
 
+/* Grids adapter */
+.rlevo-grid-floor { fill: rgba(127,127,127,0.06); stroke: rgba(127,127,127,0.18); stroke-width: 0.5; }
+.rlevo-grid-wall  { fill: #5a6268; stroke: #3b4045; stroke-width: 0.5; }
+.rlevo-grid-goal  { fill: rgba(39,174,96,0.22); stroke: rgba(39,174,96,0.5); stroke-width: 0.5; }
+.rlevo-grid-lava  { fill: rgba(192,57,43,0.28); stroke: rgba(192,57,43,0.6); stroke-width: 0.5; }
+.rlevo-grid-agent { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-grid-glyph {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+    font-size: 13px;
+}
+.rlevo-grid-goal-fg { color: #1e8449; fill: #1e8449; }
+.rlevo-grid-lava-fg { color: #a93226; fill: #a93226; }
+.rlevo-grid-red    { fill: #c0392b; color: #c0392b; }
+.rlevo-grid-green  { fill: #27ae60; color: #27ae60; }
+.rlevo-grid-blue   { fill: #2980b9; color: #2980b9; }
+.rlevo-grid-purple { fill: #8e44ad; color: #8e44ad; }
+.rlevo-grid-yellow { fill: #b7950b; color: #b7950b; }
+.rlevo-grid-grey   { fill: #707b7c; color: #707b7c; }
+.rlevo-grid-agent-fg { color: #2980b9; }
+.rlevo-grid-wall-swatch { background: #5a6268; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-grid-wall { fill: #7b8288; }
+    .rlevo-grid-agent { fill: #5dade2; stroke: #2980b9; }
+    .rlevo-grid-agent-fg { color: #5dade2; }
+}
+
+/* Toy-text adapter (grid layout) */
+.rlevo-tab-empty  { fill: rgba(127,127,127,0.06); stroke: rgba(127,127,127,0.18); stroke-width: 0.5; }
+.rlevo-tab-frozen { fill: rgba(93,173,226,0.18); stroke: rgba(93,173,226,0.4); stroke-width: 0.5; }
+.rlevo-tab-start  { fill: rgba(183,149,11,0.22); stroke: rgba(183,149,11,0.5); stroke-width: 0.5; }
+.rlevo-tab-goal   { fill: rgba(39,174,96,0.22); stroke: rgba(39,174,96,0.5); stroke-width: 0.5; }
+.rlevo-tab-hazard { fill: rgba(192,57,43,0.28); stroke: rgba(192,57,43,0.6); stroke-width: 0.5; }
+.rlevo-tab-glyph { font-family: ui-monospace, monospace; font-weight: 700; font-size: 14px; }
+.rlevo-tab-agent-fg     { color: #2980b9; fill: #2980b9; }
+.rlevo-tab-passenger-fg { color: #8e44ad; fill: #8e44ad; }
+.rlevo-tab-dest-fg      { color: #1e8449; fill: #1e8449; }
+.rlevo-tab-loc-fg       { color: #707b7c; fill: #707b7c; }
+.rlevo-tab-goal-swatch   { background: rgba(39,174,96,0.4); }
+.rlevo-tab-hazard-swatch { background: rgba(192,57,43,0.45); }
+
+/* Toy-text adapter (Blackjack card table) */
+.rlevo-bj-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; }
+.rlevo-bj-label { font-weight: 700; width: 4rem; }
+.rlevo-bj-hand { display: inline-flex; gap: 0.25rem; }
+.rlevo-card {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: 0.1rem 0.3rem;
+    text-align: center;
+    border: 1px solid rgba(127,127,127,0.5);
+    border-radius: 0.2rem;
+    background: rgba(127,127,127,0.08);
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+}
+.rlevo-bj-total { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.rlevo-bj-ace {
+    font-size: 0.8em;
+    padding: 0 0.35em;
+    border-radius: 0.2em;
+    background: rgba(183,149,11,0.22);
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-tab-agent-fg { color: #5dade2; fill: #5dade2; }
+}
+
+/* Classic-control adapter */
+.rlevo-classic-track { fill: none; stroke: #707b7c; stroke-width: 2; stroke-dasharray: 4 3; }
+.rlevo-classic-cart  { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-classic-car   { fill: #2980b9; stroke: #1b4f72; stroke-width: 1; }
+.rlevo-classic-pole  { fill: none; stroke: #c0392b; stroke-width: 4; stroke-linecap: round; }
+.rlevo-classic-link  { fill: none; stroke: #8e44ad; stroke-width: 4; stroke-linecap: round; }
+.rlevo-classic-hinge { fill: #f1c40f; stroke: #b7950b; stroke-width: 1; }
+.rlevo-classic-cart-swatch  { background: #2980b9; }
+.rlevo-classic-pole-swatch  { background: #c0392b; }
+.rlevo-classic-track-swatch {
+    background: linear-gradient(90deg, #707b7c 0 60%, transparent 60%);
+}
+.rlevo-classic-hinge-fg { color: #b7950b; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-classic-cart, .rlevo-classic-car { fill: #5dade2; stroke: #2980b9; }
+    .rlevo-classic-pole { stroke: #ec7063; }
+    .rlevo-classic-link { stroke: #bb8fce; }
+}
+
 /* Box2D adapter */
 svg.rlevo-svg-box2d { max-width: 40rem; }
 .rlevo-box2d-hull {

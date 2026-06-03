@@ -15,16 +15,19 @@
 use rlevo_benchmarks::record::{
     Box2dPayload as NativeBox2dPayload, EnvFamily as NativeFamily,
     EpisodeRecord as NativeRecord, EpisodeRecordHeader as NativeHeader,
-    FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload,
-    FrameRecord as NativeFrame, Landscape2DPayload as NativeLandscapePayload,
+    Classic2DPayload as NativeClassic2DPayload, FORMAT_VERSION as NATIVE_VERSION,
+    FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
+    Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
     PopulationSample as NativePopulationSample, RunId as NativeRunId,
-    TrialRef as NativeTrialRef, bincode_config,
+    TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
-    BodyKind, Color, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
-    StyledSpan,
+    BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
+    GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
+    StyledSpan, TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+    TabularSnapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -116,6 +119,92 @@ fn populated_native_record() -> NativeRecord {
                     contacts: vec![Point2::new(0.0, 0.0)],
                 }),
             },
+            NativeFrame {
+                step: 5,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::Grid(NativeGridPayload {
+                    width: 2,
+                    height: 2,
+                    tiles: vec![
+                        GridTile::Wall,
+                        GridTile::Floor,
+                        GridTile::Goal,
+                        GridTile::Lava,
+                    ],
+                    agent: GridAgentMarker {
+                        x: 1,
+                        y: 0,
+                        dir: GridDir::East,
+                        carrying: None,
+                    },
+                }),
+            },
+            NativeFrame {
+                step: 6,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::TabularText(NativeTabularPayload::from(
+                    TabularSnapshot {
+                        layout: TabularLayout::Grid(TabularGrid {
+                            width: 2,
+                            height: 1,
+                            cells: vec![TabularCell::Start, TabularCell::Goal],
+                            markers: vec![TabularMarker {
+                                x: 0,
+                                y: 0,
+                                kind: TabularMarkerKind::Agent,
+                            }],
+                        }),
+                    },
+                )),
+            },
+            NativeFrame {
+                step: 7,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::TabularText(NativeTabularPayload::from(
+                    TabularSnapshot {
+                        layout: TabularLayout::Cards(CardTable {
+                            player_cards: vec![1, 10],
+                            player_total: 21,
+                            usable_ace: true,
+                            dealer_cards: vec![7],
+                            dealer_showing: 7,
+                        }),
+                    },
+                )),
+            },
+            NativeFrame {
+                step: 8,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::Classic2D(NativeClassic2DPayload::from(
+                    Classic2DSnapshot {
+                        bodies: vec![
+                            Classic2DBody {
+                                points: vec![Point2::new(-2.4, 0.0), Point2::new(2.4, 0.0)],
+                                role: Classic2DRole::Track,
+                                closed: false,
+                            },
+                            Classic2DBody {
+                                points: vec![Point2::new(0.0, 0.1), Point2::new(0.0, 1.1)],
+                                role: Classic2DRole::Pole,
+                                closed: false,
+                            },
+                        ],
+                        bounds: (Point2::new(-2.6, -0.4), Point2::new(2.6, 1.6)),
+                    },
+                )),
+            },
         ],
         metrics: vec![
             NativeMetric {
@@ -202,6 +291,35 @@ fn native_encode_decodes_via_client_wire_types() {
                 assert_eq!(mc.joints.len(), nc.joints.len());
                 assert_eq!(mc.bones.len(), nc.bones.len());
                 assert_eq!(mc.com.is_some(), nc.com.is_some());
+            }
+            (client::FamilyPayload::Grid(mc), NativePayload::Grid(nc)) => {
+                assert_eq!(mc.width, nc.width);
+                assert_eq!(mc.height, nc.height);
+                assert_eq!(mc.tiles.len(), nc.tiles.len());
+                assert_eq!(mc.agent.x, nc.agent.x);
+                assert_eq!(mc.agent.y, nc.agent.y);
+            }
+            (client::FamilyPayload::TabularText(mc), NativePayload::TabularText(nc)) => {
+                match (&mc.layout, &nc.layout) {
+                    (client::TabularLayout::Grid(mg), TabularLayout::Grid(ng)) => {
+                        assert_eq!(mg.width, ng.width);
+                        assert_eq!(mg.cells.len(), ng.cells.len());
+                        assert_eq!(mg.markers.len(), ng.markers.len());
+                    }
+                    (client::TabularLayout::Cards(mcard), TabularLayout::Cards(ncard)) => {
+                        assert_eq!(mcard.player_total, ncard.player_total);
+                        assert_eq!(mcard.usable_ace, ncard.usable_ace);
+                        assert_eq!(mcard.dealer_showing, ncard.dealer_showing);
+                    }
+                    (om, on) => panic!("tabular layout mismatch: client={om:?} native={on:?}"),
+                }
+            }
+            (client::FamilyPayload::Classic2D(mc), NativePayload::Classic2D(nc)) => {
+                assert_eq!(mc.bodies.len(), nc.bodies.len());
+                for (mb, nb) in mc.bodies.iter().zip(nc.bodies.iter()) {
+                    assert_eq!(mb.points.len(), nb.points.len());
+                    assert_eq!(mb.closed, nb.closed);
+                }
             }
             (other_m, other_n) => panic!(
                 "family_payload variant mismatch: client={other_m:?} native={other_n:?}"

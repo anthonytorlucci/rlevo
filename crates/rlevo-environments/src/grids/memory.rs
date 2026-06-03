@@ -503,3 +503,9 @@ mod tests {
         assert!(!env.facing_match());
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for MemoryEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

@@ -154,6 +154,247 @@ pub trait Locomotion2DPayloadSource {
     fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Grid
+// ---------------------------------------------------------------------------
+
+/// Cardinal facing of the grid agent. Mirrors the env-side `Direction`
+/// (`+x` East, `+y` South); the renderer rotates the agent triangle to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDir {
+    East,
+    South,
+    West,
+    North,
+}
+
+/// The six Minigrid colours, paired with a redundant non-colour signal
+/// (glyph/label) on the report tier per the accessibility contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridColor {
+    Red,
+    Green,
+    Blue,
+    Purple,
+    Yellow,
+    Grey,
+}
+
+/// Open / closed / locked state of a [`GridTile::Door`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridDoorState {
+    Open,
+    Closed,
+    Locked,
+}
+
+/// One grid cell's contents, projected from the env-side `Entity`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum GridTile {
+    /// Empty walkable cell.
+    Empty,
+    /// Walkable floor (drawn distinctly from `Empty`).
+    Floor,
+    /// Impassable wall.
+    Wall,
+    /// Terminal goal cell.
+    Goal,
+    /// Hazard cell (ends the episode in failure).
+    Lava,
+    /// Door of the given colour and state.
+    Door(GridColor, GridDoorState),
+    /// Colored key.
+    Key(GridColor),
+    /// Colored ball.
+    Ball(GridColor),
+    /// Colored box.
+    Box(GridColor),
+}
+
+/// The agent marker: cell position, facing, and any carried item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridAgentMarker {
+    /// Column (0-based, left to right).
+    pub x: u16,
+    /// Row (0-based, top to bottom).
+    pub y: u16,
+    /// Direction the agent faces.
+    pub dir: GridDir,
+    /// Item the agent is holding, if any.
+    pub carrying: Option<GridTile>,
+}
+
+/// A snapshot of a grid (Minigrid-style) environment at one frame.
+///
+/// `tiles` is row-major with `tiles.len() == width * height`; cell
+/// `(x, y)` is `tiles[y * width + x]`. The renderer draws one `<rect>`
+/// per tile, the agent as a rotated triangle, and pickable objects as
+/// shape-distinct glyphs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GridSnapshot {
+    /// Grid width in cells.
+    pub width: u16,
+    /// Grid height in cells.
+    pub height: u16,
+    /// Row-major tiles, `len == width * height`.
+    pub tiles: Vec<GridTile>,
+    /// The agent marker.
+    pub agent: GridAgentMarker,
+}
+
+/// Producer-side trait. A grid env implements this so its recording ships
+/// a `FamilyPayload::Grid` rendered from structured tile state instead of
+/// `Ascii` text.
+pub trait GridPayloadSource {
+    fn grid_snapshot(&self) -> GridSnapshot;
+}
+
+// ---------------------------------------------------------------------------
+// TabularText
+// ---------------------------------------------------------------------------
+
+/// Background class of a [`TabularGrid`] cell — the union of cell semantics
+/// across the grid-shaped toy-text envs (FrozenLake / CliffWalking / Taxi).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularCell {
+    /// Plain walkable cell.
+    Empty,
+    /// Frozen safe surface (FrozenLake).
+    Frozen,
+    /// Episode start cell.
+    Start,
+    /// Terminal goal cell.
+    Goal,
+    /// Hazard cell — falling in a hole / stepping off the cliff.
+    Hazard,
+}
+
+/// Semantic class of a [`TabularMarker`] overlaid on a [`TabularGrid`] cell.
+/// Each maps to a shape-distinct glyph on the report tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularMarkerKind {
+    /// The controllable agent (elf / taxi).
+    Agent,
+    /// Passenger waiting to be picked up (Taxi).
+    Passenger,
+    /// Drop-off destination (Taxi).
+    Destination,
+    /// A named pickup/drop location (Taxi's R/G/Y/B corners).
+    Location,
+}
+
+/// A point-of-interest overlaid on a grid cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabularMarker {
+    pub x: u16,
+    pub y: u16,
+    pub kind: TabularMarkerKind,
+}
+
+/// Grid layout for the grid-shaped toy-text envs. `cells` is row-major,
+/// `len == width * height`; `markers` overlay agent / passenger / destination.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularGrid {
+    pub width: u16,
+    pub height: u16,
+    pub cells: Vec<TabularCell>,
+    pub markers: Vec<TabularMarker>,
+}
+
+/// Card-table layout for Blackjack. Card values are blackjack face values
+/// (`1` = ace, `2..=10`, `10` for face cards). `dealer_showing` is the
+/// dealer's single up-card while the hole card is concealed during play;
+/// `dealer_cards` carries the full hand for post-episode review.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardTable {
+    pub player_cards: Vec<u8>,
+    pub player_total: u8,
+    pub usable_ace: bool,
+    pub dealer_cards: Vec<u8>,
+    pub dealer_showing: u8,
+}
+
+/// Layout discriminant for [`TabularSnapshot`] — grid-shaped envs vs the
+/// Blackjack card table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularLayout {
+    Grid(TabularGrid),
+    Cards(CardTable),
+}
+
+/// A snapshot of a tabular (toy-text) environment at one frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularSnapshot {
+    pub layout: TabularLayout,
+}
+
+/// Producer-side trait. A toy-text env implements this so its recording
+/// ships a `FamilyPayload::TabularText` rendered from structured layout
+/// state instead of `Ascii` text.
+pub trait TabularPayloadSource {
+    fn tabular_snapshot(&self) -> TabularSnapshot;
+}
+
+// ---------------------------------------------------------------------------
+// Classic2D
+// ---------------------------------------------------------------------------
+
+/// Semantic role of a [`Classic2DBody`], driving the report tier's CSS
+/// (colour / stroke / fill) so the parts of each classic-control mechanism
+/// stay visually distinct and accessible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Classic2DRole {
+    /// The ground line / track / terrain profile.
+    Track,
+    /// The cart (CartPole).
+    Cart,
+    /// A balancing pole (CartPole / Pendulum).
+    Pole,
+    /// A rigid link of a multi-link arm (Acrobot).
+    Link,
+    /// The car (MountainCar).
+    Car,
+    /// A pivot / hinge point (drawn as a small marker).
+    Hinge,
+}
+
+/// One body of a classic-control mechanism, expressed as a **world-space**
+/// polyline (already transformed — no separate pose). A single-point body is
+/// a marker (e.g. a hinge); `closed = true` makes it a filled polygon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DBody {
+    /// World-space points in the env's natural frame (`+y` up).
+    pub points: Vec<Point2>,
+    /// What this body is, for styling.
+    pub role: Classic2DRole,
+    /// `true` → render as a closed filled polygon; `false` → open polyline.
+    pub closed: bool,
+}
+
+/// A snapshot of a classic-control env (CartPole / Pendulum / MountainCar /
+/// Acrobot) at one frame: a set of world-space bodies plus the viewport the
+/// renderer fits to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DSnapshot {
+    /// Bodies in paint order (track first, moving parts last).
+    pub bodies: Vec<Classic2DBody>,
+    /// Viewport rectangle the renderer fits to: `(min, max)` corners.
+    pub bounds: (Point2, Point2),
+}
+
+/// Producer-side trait. A classic-control env implements this so its
+/// recording ships a `FamilyPayload::Classic2D` rendered as SVG line-art
+/// instead of `Ascii` text.
+pub trait Classic2DPayloadSource {
+    fn classic2d_snapshot(&self) -> Classic2DSnapshot;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

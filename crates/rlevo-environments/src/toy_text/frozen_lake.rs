@@ -768,6 +768,31 @@ mod tests {
     }
 
     #[test]
+    fn tabular_snapshot_projects_grid_and_agent() {
+        use rlevo_core::render::payload::{
+            TabularCell, TabularLayout, TabularMarkerKind, TabularPayloadSource,
+        };
+
+        let env = four_env();
+        let snap = env.tabular_snapshot();
+        let TabularLayout::Grid(grid) = snap.layout else {
+            panic!("FrozenLake must project a grid layout");
+        };
+        // The classic 4×4 preset.
+        assert_eq!(grid.width, 4);
+        assert_eq!(grid.height, 4);
+        assert_eq!(grid.cells.len(), 16);
+        // "SFFF / FHFH / FFFH / HFFG": start top-left, goal bottom-right, holes present.
+        assert_eq!(grid.cells[0], TabularCell::Start);
+        assert_eq!(grid.cells[15], TabularCell::Goal);
+        assert!(grid.cells.iter().any(|c| *c == TabularCell::Hazard));
+        // One agent marker at the start cell (0, 0).
+        assert_eq!(grid.markers.len(), 1);
+        assert_eq!(grid.markers[0].kind, TabularMarkerKind::Agent);
+        assert_eq!((grid.markers[0].x, grid.markers[0].y), (0, 0));
+    }
+
+    #[test]
     /// Verifies `from_index` and `to_index` are inverses for all valid action indices.
     fn action_roundtrip() {
         for i in 0..FrozenLakeAction::ACTION_COUNT {
@@ -1035,6 +1060,38 @@ mod tests {
                 "line exceeds 80 cols: {line:?} ({} chars)",
                 line.chars().count()
             );
+        }
+    }
+}
+
+impl rlevo_core::render::payload::TabularPayloadSource for FrozenLake {
+    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+        use rlevo_core::render::payload::{
+            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+            TabularSnapshot,
+        };
+        let cells = self
+            .map
+            .tiles
+            .iter()
+            .map(|t| match t {
+                Tile::Start => TabularCell::Start,
+                Tile::Frozen => TabularCell::Frozen,
+                Tile::Hole => TabularCell::Hazard,
+                Tile::Goal => TabularCell::Goal,
+            })
+            .collect();
+        TabularSnapshot {
+            layout: TabularLayout::Grid(TabularGrid {
+                width: self.map.ncol as u16,
+                height: self.map.nrow as u16,
+                cells,
+                markers: vec![TabularMarker {
+                    x: u16::from(self.state.col),
+                    y: u16::from(self.state.row),
+                    kind: TabularMarkerKind::Agent,
+                }],
+            }),
         }
     }
 }

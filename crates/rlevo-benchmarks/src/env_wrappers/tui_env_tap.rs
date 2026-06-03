@@ -118,6 +118,19 @@ where
     }
 }
 
+/// Forward the optional `Classic2DPayloadSource` through to the wrapped env,
+/// so a `TuiEnvTap` over a classic-control env composes under a
+/// `RecordingTap::with_classic2d_payload` (ADR-0013 structured recording).
+impl<E, const D: usize, const SD: usize, const AD: usize>
+    rlevo_core::render::payload::Classic2DPayloadSource for TuiEnvTap<E, D, SD, AD>
+where
+    E: rlevo_core::render::payload::Classic2DPayloadSource,
+{
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        self.inner.classic2d_snapshot()
+    }
+}
+
 impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
     for TuiEnvTap<E, D, SD, AD>
 where

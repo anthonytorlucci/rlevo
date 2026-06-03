@@ -493,3 +493,9 @@ mod tests {
         assert!("variant=wat".parse::<DistShiftConfig>().is_err());
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for DistShiftEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

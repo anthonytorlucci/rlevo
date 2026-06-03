@@ -542,3 +542,9 @@ mod tests {
         assert_eq!(a.mission(), b.mission());
     }
 }
+
+impl rlevo_core::render::payload::GridPayloadSource for GoToDoorEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}

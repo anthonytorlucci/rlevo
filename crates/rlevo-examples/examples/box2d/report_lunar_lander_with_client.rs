@@ -5,7 +5,7 @@
 //! ```bash
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
-//! cargo run -p rlevo --example report_lunar_lander_with_client \
+//! cargo run -p rlevo-examples --example report_lunar_lander_with_client \
 //!     --features box2d,viz-record,viz-report
 //! ```
 

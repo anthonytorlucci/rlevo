@@ -13,7 +13,9 @@
 use std::collections::BTreeMap;
 
 use rlevo_core::render::{
-    Box2dSnapshot, Landscape2DSnapshot, Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame,
+    Box2dSnapshot, Classic2DBody, Classic2DSnapshot, GridAgentMarker, GridSnapshot, GridTile,
+    Landscape2DSnapshot, Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame, TabularLayout,
+    TabularSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,13 +25,13 @@ use serde::{Deserialize, Serialize};
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
 // same value.  The const assertions in tests/wire_format_compat.rs
 // enforce this at compile time when tests are built.
-pub const FORMAT_VERSION: u16 = 4;
+pub const FORMAT_VERSION: u16 = 5;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
-pub const MIN_SUPPORTED_VERSION: u16 = 4;
+pub const MIN_SUPPORTED_VERSION: u16 = 5;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -143,6 +145,17 @@ pub enum FamilyPayload {
     /// Sagittal-plane stick figure for `locomotion` envs — their
     /// canonical view, since locomotion has no ASCII path.
     Locomotion2D(Locomotion2DPayload),
+    /// Structured tile grid for `grids` (Minigrid-style) envs. Added in
+    /// `FORMAT_VERSION = 5`; the report renders SVG from this instead of
+    /// the legacy ASCII path.
+    Grid(GridPayload),
+    /// Structured layout for `toy_text` envs — a tile grid (`FrozenLake` /
+    /// `CliffWalking` / `Taxi`) or a card table (`Blackjack`). Added in
+    /// `FORMAT_VERSION = 5`.
+    TabularText(TabularPayload),
+    /// Structured 2-D line-art for `classic` physics envs (`CartPole` /
+    /// `Pendulum` / `MountainCar` / `Acrobot`). Added in `FORMAT_VERSION = 5`.
+    Classic2D(Classic2DPayload),
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +241,67 @@ impl From<Locomotion2DSnapshot> for Locomotion2DPayload {
             ground_y: s.ground_y,
             com: s.com,
             contacts: s.contacts,
+        }
+    }
+}
+
+/// Bincode-stable mirror of [`GridSnapshot`] for the record wire format.
+/// Reuses the wire-neutral leaf enums ([`GridTile`], [`GridAgentMarker`])
+/// from `rlevo-core::render::payload`, which already derive serde.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GridPayload {
+    /// Grid width in cells.
+    pub width: u16,
+    /// Grid height in cells.
+    pub height: u16,
+    /// Row-major tiles, `len == width * height`.
+    pub tiles: Vec<GridTile>,
+    /// The agent marker (position, facing, carried item).
+    pub agent: GridAgentMarker,
+}
+
+impl From<GridSnapshot> for GridPayload {
+    fn from(s: GridSnapshot) -> Self {
+        Self {
+            width: s.width,
+            height: s.height,
+            tiles: s.tiles,
+            agent: s.agent,
+        }
+    }
+}
+
+/// Bincode-stable mirror of [`TabularSnapshot`] for the record wire format.
+/// Reuses the wire-neutral [`TabularLayout`] (grid vs card table) from
+/// `rlevo-core::render::payload`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularPayload {
+    /// Grid layout (`FrozenLake` / `CliffWalking` / `Taxi`) or card table (`Blackjack`).
+    pub layout: TabularLayout,
+}
+
+impl From<TabularSnapshot> for TabularPayload {
+    fn from(s: TabularSnapshot) -> Self {
+        Self { layout: s.layout }
+    }
+}
+
+/// Bincode-stable mirror of [`Classic2DSnapshot`] for the record wire format.
+/// Reuses the wire-neutral [`Classic2DBody`] (with [`Point2`]) from
+/// `rlevo-core::render::payload`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Classic2DPayload {
+    /// Bodies in paint order (track first, moving parts last).
+    pub bodies: Vec<Classic2DBody>,
+    /// Viewport rectangle `(min, max)` the renderer fits to.
+    pub bounds: (Point2, Point2),
+}
+
+impl From<Classic2DSnapshot> for Classic2DPayload {
+    fn from(s: Classic2DSnapshot) -> Self {
+        Self {
+            bodies: s.bodies,
+            bounds: s.bounds,
         }
     }
 }
@@ -360,9 +434,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_four_and_min_supported_is_four() {
-        assert_eq!(FORMAT_VERSION, 4);
-        assert_eq!(MIN_SUPPORTED_VERSION, 4);
+    fn format_version_is_five_and_min_supported_is_five() {
+        assert_eq!(FORMAT_VERSION, 5);
+        assert_eq!(MIN_SUPPORTED_VERSION, 5);
     }
 
     #[test]
