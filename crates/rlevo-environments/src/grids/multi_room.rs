@@ -32,7 +32,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::multi_room::{MultiRoomConfig, MultiRoomEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
 //! let mut env = MultiRoomEnv::with_config(cfg, false);
@@ -58,7 +58,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -223,7 +223,7 @@ impl FromStr for MultiRoomConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::multi_room::MultiRoomEnv;
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = MultiRoomEnv::new(false);
 /// let snap = env.reset().unwrap();
@@ -356,16 +356,18 @@ impl Display for MultiRoomEnv {
     }
 }
 
+impl ConstructableEnv for MultiRoomEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(MultiRoomConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for MultiRoomEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(MultiRoomConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

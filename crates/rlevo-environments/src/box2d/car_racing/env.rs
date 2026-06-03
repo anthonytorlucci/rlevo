@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -249,16 +249,18 @@ impl CarRacing {
     }
 }
 
+impl ConstructableEnv for CarRacing {
+    fn new(_render: bool) -> Self {
+        Self::with_config(CarRacingConfig::default())
+    }
+}
+
 impl Environment<3, 3, 1> for CarRacing {
     type StateType = CarRacingState;
     type ObservationType = CarRacingObservation;
     type ActionType = CarRacingAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<3, CarRacingObservation, ScalarReward>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(CarRacingConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.track = Track::generate(&self.config, &mut self.rng);

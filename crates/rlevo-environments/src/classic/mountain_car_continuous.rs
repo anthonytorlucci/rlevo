@@ -80,7 +80,7 @@
 //! ## Quick start
 //!
 //! ```rust
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //! use rlevo_environments::classic::mountain_car_continuous::{
 //!     MountainCarContinuous, MountainCarContinuousAction,
 //! };
@@ -98,7 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -413,17 +413,19 @@ impl fmt::Display for MountainCarContinuous {
     }
 }
 
+impl ConstructableEnv for MountainCarContinuous {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(MountainCarContinuousConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for MountainCarContinuous {
     type StateType = MountainCarContinuousState;
     type ObservationType = MountainCarContinuousObservation;
     type ActionType = MountainCarContinuousAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, MountainCarContinuousObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(MountainCarContinuousConfig::default())
-    }
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///

@@ -23,7 +23,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{Environment, Snapshot};
+//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
 //! use rlevo_environments::classic::{
 //!     AdversarialBandit, AdversarialBanditConfig, KArmedBanditAction,
 //! };
@@ -45,7 +45,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{Action, Reward, State};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
@@ -225,17 +225,19 @@ fn sample_phases<const K: usize>(rng: &mut StdRng, period: usize) -> [usize; K] 
     phases
 }
 
+impl<const K: usize> ConstructableEnv for AdversarialBandit<K> {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(AdversarialBanditConfig::default())
+    }
+}
+
 impl<const K: usize> Environment<1, 1, 1> for AdversarialBandit<K> {
     type StateType = KArmedBanditState;
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(AdversarialBanditConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

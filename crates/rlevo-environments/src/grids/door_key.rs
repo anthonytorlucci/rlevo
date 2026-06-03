@@ -40,7 +40,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = DoorKeyConfig::new(5, 100, 0);
 //! let mut env = DoorKeyEnv::with_config(cfg, false);
@@ -66,7 +66,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -189,7 +189,7 @@ impl FromStr for DoorKeyConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = DoorKeyEnv::with_config(
 ///     DoorKeyConfig::new(5, 100, 0),
@@ -332,16 +332,18 @@ impl Display for DoorKeyEnv {
     }
 }
 
+impl ConstructableEnv for DoorKeyEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(DoorKeyConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for DoorKeyEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(DoorKeyConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

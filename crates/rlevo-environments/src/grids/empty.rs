@@ -35,7 +35,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = EmptyConfig::new(8, 256, 0);
 //! let mut env = EmptyEnv::with_config(cfg, false);
@@ -59,7 +59,7 @@ use super::core::{
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::State;
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -177,7 +177,7 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 ///
 /// ```no_run
 /// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
 /// env.reset().unwrap();
@@ -286,16 +286,18 @@ impl Display for EmptyEnv {
     }
 }
 
+impl ConstructableEnv for EmptyEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(EmptyConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for EmptyEnv {
     type StateType = GridState;
     type ObservationType = GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<3, GridObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(EmptyConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let (grid, agent) = Self::build(&self.config);

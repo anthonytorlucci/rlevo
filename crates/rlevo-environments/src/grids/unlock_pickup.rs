@@ -29,7 +29,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = UnlockPickupConfig::new(7, 196, 0);
 //! let mut env = UnlockPickupEnv::with_config(cfg, false);
@@ -55,7 +55,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -173,7 +173,7 @@ impl FromStr for UnlockPickupConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::unlock_pickup::UnlockPickupEnv;
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = UnlockPickupEnv::new(false);
 /// let snap = env.reset().unwrap();
@@ -294,16 +294,18 @@ impl Display for UnlockPickupEnv {
     }
 }
 
+impl ConstructableEnv for UnlockPickupEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(UnlockPickupConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for UnlockPickupEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(UnlockPickupConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

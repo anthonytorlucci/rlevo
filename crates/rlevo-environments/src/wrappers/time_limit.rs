@@ -1,6 +1,6 @@
 use rlevo_core::{
     base::{Observation, Reward},
-    environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase},
     render::{AsciiRenderable, StyledFrame},
 };
 
@@ -68,6 +68,16 @@ where
     }
 }
 
+/// A `TimeLimit` over a constructable inner env is itself constructable: it
+/// builds the inner via [`ConstructableEnv`] and wraps it with no limit
+/// (`usize::MAX`). Prefer the inherent `TimeLimit::new(env, max)` for real
+/// use — this exists so generic `E: ConstructableEnv` code composes.
+impl<E: ConstructableEnv> ConstructableEnv for TimeLimit<E> {
+    fn new(render: bool) -> Self {
+        Self::new(E::new(render), usize::MAX)
+    }
+}
+
 /// `TimeLimit` implements `Environment` for any inner env whose `SnapshotType`
 /// is `SnapshotBase<D, Obs, Rew>`. This constraint lets `step` directly
 /// set `snap.status = Truncated` without trait acrobatics.
@@ -90,12 +100,6 @@ where
     type ActionType = E::ActionType;
     type RewardType = Rew;
     type SnapshotType = SnapshotBase<D, Obs, Rew>;
-
-    fn new(render: bool) -> Self {
-        // TimeLimit has no meaningful standalone constructor; callers use TimeLimit::new(env, max).
-        // This satisfies the trait but should not be called directly.
-        Self::new(E::new(render), usize::MAX)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.steps = 0;
@@ -200,6 +204,15 @@ mod tests {
         }
     }
 
+    impl ConstructableEnv for StubEnv {
+        fn new(_render: bool) -> Self {
+            Self {
+                pos: 0,
+                goal: i32::MAX,
+            }
+        }
+    }
+
     impl Environment<1, 1, 1> for StubEnv {
         type StateType = StubState;
         type ObservationType = StubObs;
@@ -207,12 +220,6 @@ mod tests {
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-        fn new(_render: bool) -> Self {
-            Self {
-                pos: 0,
-                goal: i32::MAX,
-            }
-        }
 
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.pos = 0;

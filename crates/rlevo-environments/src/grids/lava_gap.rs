@@ -27,7 +27,7 @@
 //!
 //! ```rust
 //! use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = LavaGapConfig::new(5, 100, 0);
 //! let mut env = LavaGapEnv::with_config(cfg, false);
@@ -53,7 +53,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::environment::{Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -167,7 +167,7 @@ impl FromStr for LavaGapConfig {
 ///
 /// ```rust
 /// use rlevo_environments::grids::lava_gap::LavaGapEnv;
-/// use rlevo_core::environment::Environment;
+/// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
 /// let mut env = LavaGapEnv::new(false);
 /// let snap = env.reset().unwrap();
@@ -291,16 +291,18 @@ impl Display for LavaGapEnv {
     }
 }
 
+impl ConstructableEnv for LavaGapEnv {
+    fn new(render: bool) -> Self {
+        Self::with_config(LavaGapConfig::default(), render)
+    }
+}
+
 impl Environment<3, 3, 1> for LavaGapEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
     type ActionType = GridAction;
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
-
-    fn new(render: bool) -> Self {
-        Self::with_config(LavaGapConfig::default(), render)
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);

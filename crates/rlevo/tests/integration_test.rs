@@ -174,14 +174,6 @@ impl RandomWalkEnv {
     const START: i32 = 3;
     const GOAL: i32 = 6;
     const MAX_STEPS: usize = 20;
-}
-
-impl Environment<1, 1, 1> for RandomWalkEnv {
-    type StateType = WalkState;
-    type ObservationType = WalkObservation;
-    type ActionType = WalkAction;
-    type RewardType = WalkReward;
-    type SnapshotType = SnapshotBase<1, WalkObservation, WalkReward>;
 
     fn new(_render: bool) -> Self {
         Self {
@@ -191,6 +183,14 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
             steps: 0,
         }
     }
+}
+
+impl Environment<1, 1, 1> for RandomWalkEnv {
+    type StateType = WalkState;
+    type ObservationType = WalkObservation;
+    type ActionType = WalkAction;
+    type RewardType = WalkReward;
+    type SnapshotType = SnapshotBase<1, WalkObservation, WalkReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = WalkState {

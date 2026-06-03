@@ -82,7 +82,7 @@
 //! ```no_run,ignore
 //! use rlevo_environments::classic::{Pendulum, PendulumConfig, PendulumAction};
 //! use rlevo_environments::wrappers::TimeLimit;
-//! use rlevo_core::environment::Environment;
+//! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let env = Pendulum::with_config(PendulumConfig::default());
 //! let mut timed = TimeLimit::new(env, 200);
@@ -98,7 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -410,17 +410,19 @@ impl fmt::Display for Pendulum {
     }
 }
 
+impl ConstructableEnv for Pendulum {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(PendulumConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for Pendulum {
     type StateType = PendulumState;
     type ObservationType = PendulumObservation;
     type ActionType = PendulumAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, PendulumObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(PendulumConfig::default())
-    }
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///

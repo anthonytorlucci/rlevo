@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rlevo_core::environment::{Environment, Snapshot};
+//! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
 //! use rlevo_environments::classic::{
 //!     KArmedBanditAction, NonStationaryBandit, NonStationaryBanditConfig,
 //! };
@@ -36,7 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{Action, Reward, State};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -212,17 +212,19 @@ impl<const K: usize> NonStationaryBandit<K> {
     }
 }
 
+impl<const K: usize> ConstructableEnv for NonStationaryBandit<K> {
+    fn new(render: bool) -> Self {
+        let _ = render;
+        Self::with_config(NonStationaryBanditConfig::default())
+    }
+}
+
 impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
     type StateType = KArmedBanditState;
     type ObservationType = KArmedBanditObservation;
     type ActionType = KArmedBanditAction<K>;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
-
-    fn new(render: bool) -> Self {
-        let _ = render;
-        Self::with_config(NonStationaryBanditConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

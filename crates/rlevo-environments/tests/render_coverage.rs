@@ -19,7 +19,7 @@
 //! library-tier ASCII renderer; the report tier owns them via
 //! `FamilyPayload::Locomotion2D`.
 
-use rlevo_core::environment::Environment;
+use rlevo_core::environment::{ConstructableEnv, Environment};
 use rlevo_environments::render::AsciiRenderable;
 
 /// Run the three invariants against any [`AsciiRenderable`].

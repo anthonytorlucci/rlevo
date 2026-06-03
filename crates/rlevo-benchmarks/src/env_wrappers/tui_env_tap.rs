@@ -129,15 +129,6 @@ where
     type RewardType = E::RewardType;
     type SnapshotType = E::SnapshotType;
 
-    /// Satisfies the [`Environment`] trait bound; prefer [`TuiEnvTap::new`] instead.
-    ///
-    /// The synthesised [`TuiHandle`] receiver is dropped immediately, so every
-    /// episode-return push silently returns `false`.
-    fn new(render: bool) -> Self {
-        let (handle, _rx) = TuiHandle::channel();
-        Self::new(E::new(render), handle)
-    }
-
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let snap = self.inner.reset()?;
         self.step = 0;
@@ -271,10 +262,6 @@ mod tests {
         type ActionType = StubAction;
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
-
-        fn new(_render: bool) -> Self {
-            Self::with_termination(0.0, Termination::Never)
-        }
 
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.pos = 0;

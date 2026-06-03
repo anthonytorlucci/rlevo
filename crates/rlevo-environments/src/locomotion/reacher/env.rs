@@ -6,7 +6,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
@@ -214,16 +214,18 @@ impl Reacher<Rapier3DBackend> {
     }
 }
 
+impl ConstructableEnv for Reacher<Rapier3DBackend> {
+    fn new(_render: bool) -> Self {
+        Self::with_config(ReacherConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     type StateType = ReacherState;
     type ObservationType = ReacherObservation;
     type ActionType = ReacherAction;
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<ReacherObservation>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(ReacherConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);

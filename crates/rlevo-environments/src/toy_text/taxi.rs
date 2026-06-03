@@ -46,7 +46,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
-use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -373,16 +373,18 @@ impl Taxi {
     }
 }
 
+impl ConstructableEnv for Taxi {
+    fn new(_render: bool) -> Self {
+        Self::with_config(TaxiConfig::default())
+    }
+}
+
 impl Environment<1, 1, 1> for Taxi {
     type StateType = TaxiState;
     type ObservationType = TaxiObservation;
     type ActionType = TaxiAction;
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, TaxiObservation, ScalarReward>;
-
-    fn new(_render: bool) -> Self {
-        Self::with_config(TaxiConfig::default())
-    }
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = self.sample_initial_state();
