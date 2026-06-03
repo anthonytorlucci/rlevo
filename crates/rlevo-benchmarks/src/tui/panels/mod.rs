@@ -11,14 +11,10 @@
 //! widgets reusable as panels (gradient-norm / fitness / log / etc.)
 //! are added or rearranged.
 
-pub mod env_panel;
-pub mod locomotion_placeholder;
 pub mod log_panel;
 pub mod metric_sparkline;
 pub mod reward_sparkline;
 
-pub use env_panel::EnvPanel;
-pub use locomotion_placeholder::LocomotionPlaceholder;
 pub use log_panel::LogPanel;
 pub use metric_sparkline::MetricSparkline;
 pub use reward_sparkline::RewardSparkline;

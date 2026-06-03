@@ -157,6 +157,40 @@ where
     }
 }
 
+/// Greedy / inference-only methods, separated out because they additionally
+/// require `O` to convert onto the inner (non-autodiff) backend. Construction
+/// and training (the main `impl` below) do not need that bound.
+impl<B, P, V, O, const DO: usize, const DB: usize> PpoAgent<B, P, V, O, DO, DB>
+where
+    B: AutodiffBackend,
+    P: PpoPolicy<B, DB>,
+    V: PpoValue<B, DB>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+{
+    /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
+    /// greedy inference.
+    ///
+    /// Returns a frozen inference handle for use with
+    /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
+    /// once after training, then reuse across many steps — the snapshot goes
+    /// stale if the policy is updated again.
+    pub fn inference_net(&self) -> P::InnerModule {
+        self.policy().valid()
+    }
+
+    /// Deterministic env-space action row for `obs`, evaluated against a
+    /// pre-snapshotted inner network — no sampling, no autodiff graph.
+    ///
+    /// This is the policy to use for evaluation and throughput benchmarking;
+    /// [`act`](Self::act) samples from the stochastic policy, which injects
+    /// exploration noise into the returned action.
+    pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
+        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        P::deterministic_env_row_inner(net, batched)
+    }
+}
+
 impl<B, P, V, O, const DO: usize, const DB: usize> PpoAgent<B, P, V, O, DO, DB>
 where
     B: AutodiffBackend,

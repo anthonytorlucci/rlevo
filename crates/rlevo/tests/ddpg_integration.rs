@@ -392,6 +392,54 @@ fn ddpg_solves_linear_1d_continuous() {
     );
 }
 
+/// `act_with` (inner-backend greedy inference) must produce the same action as
+/// `act(obs, false, _)` (the autodiff deterministic mean) for identical
+/// weights — the inner snapshot is just a non-autodiff copy of the actor, so
+/// the bench's faster greedy path stays faithful to the eval policy.
+#[test]
+fn ddpg_act_with_matches_deterministic_act() {
+    let seed: u64 = 7;
+    let device = Default::default();
+    <Be as Backend>::seed(&device, seed);
+
+    let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
+    let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
+    let config = DdpgTrainingConfigBuilder::new()
+        .buffer_capacity(20_000)
+        .batch_size(32)
+        .learning_starts(500)
+        .actor_lr(1e-3)
+        .critic_lr(1e-3)
+        .gamma(0.99)
+        .tau(0.02)
+        .exploration_noise(0.2)
+        .policy_frequency(2)
+        .build();
+    let agent: DdpgAgent<
+        Be,
+        Actor<Be>,
+        Critic<Be>,
+        LinearObservation,
+        LinearAction,
+        1,
+        2,
+        1,
+        2,
+    > = DdpgAgent::new(actor, critic, config, device);
+
+    let net = agent.inference_net();
+    let mut rng = StdRng::seed_from_u64(seed);
+    for &x in &[-0.9_f32, -0.3, 0.0, 0.25, 0.8] {
+        let obs = LinearObservation { x };
+        // training=false ⇒ deterministic mean + bound clip; rng is unused.
+        let det = agent.act(&obs, false, &mut rng);
+        let greedy = agent.act_with(&net, &obs);
+        let a = det.as_slice()[0];
+        let b = greedy.as_slice()[0];
+        assert!((a - b).abs() < 1e-5, "x={x}: act(false)={a}, act_with={b}");
+    }
+}
+
 /// Pendulum smoke test: 50k steps with small networks, verifies training runs
 /// without crashing and produces a reward above the zero-torque baseline.
 /// Gated — Burn's Flex backend shares a global RNG with other tests so

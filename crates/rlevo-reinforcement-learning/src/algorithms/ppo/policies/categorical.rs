@@ -165,6 +165,17 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         let t: Tensor<B, 1, Int> = Tensor::from_data(TensorData::new(as_i64, vec![n_rows]), device);
         t.unsqueeze_dim::<2>(1)
     }
+
+    fn deterministic_env_row_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+    ) -> Vec<f32> {
+        // Deterministic action = argmax over logits (the categorical mode).
+        let idx: Tensor<B::InnerBackend, 2, Int> = inner.logits(obs).argmax(1);
+        let data = idx.into_data().convert::<i64>();
+        let slice = data.as_slice::<i64>().expect("argmax index is i64");
+        vec![slice[0] as f32]
+    }
 }
 
 /// Convenience converter: extract a `DiscreteAction` value from a single

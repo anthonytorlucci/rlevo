@@ -1,36 +1,43 @@
-//! Plain-text rendering surface for environments.
+//! Optional plain-text rendering surface for environments.
 //!
-//! The [`AsciiRenderable`] trait lives in `rlevo-core` so that
-//! `rlevo-benchmarks` (the host of the live `ratatui` TUI) can bound on it
-//! without depending on `rlevo-environments` — a circular package dep that
-//! Cargo rejects. Concrete env impls still live in `rlevo-environments` and
-//! are unaffected (the trait being in core just removes a coupling).
+//! [`AsciiRenderable`] is an **optional debug helper**, not a library
+//! invariant (ADR-0013). The two visualisation products do not depend on it:
+//! the live TUI is metrics-only and renders no env, and the post-run report
+//! renders env playback from the structured `FamilyPayload` carried in each
+//! `EpisodeRecord` frame. An env implements this trait only when a quick
+//! grep-friendly text dump is useful — for logs, snapshot tests, or a
+//! user-built env that wants the report's legacy `<pre>` fallback without
+//! writing a structured payload adapter.
+//!
+//! The trait lives in `rlevo-core` (rather than `rlevo-environments`) so that
+//! `rlevo-benchmarks` can still bound on it without a circular package dep.
+//! It is not a supertrait of `Environment`.
 
 use super::{Renderer, StyledFrame};
 
 /// An environment that can render itself as an ASCII string.
 ///
-/// Implement this for each environment that wants text output. The
-/// [`AsciiRenderer`] delegates to [`render_ascii`](Self::render_ascii) and
-/// returns the `String` as its `Frame`.
+/// Optional (ADR-0013): implement it only for envs that want a text dump.
+/// The [`AsciiRenderer`] delegates to [`render_ascii`](Self::render_ascii)
+/// and returns the `String` as its `Frame`.
 ///
 /// # Two projections
 ///
 /// Two methods, two consumers:
 ///
 /// - [`render_ascii`](Self::render_ascii) returns a plain `String` for logs,
-///   snapshot tests, grep-friendly output, and `EpisodeRecord.ascii`. Every
-///   implementor must provide it.
+///   snapshot tests, grep-friendly output, and the optional
+///   `FrameRecord.ascii` slot. Every implementor must provide it.
 /// - [`render_styled`](Self::render_styled) returns a
-///   [`StyledFrame`] carrying colour and modifier hints
-///   for the live `ratatui` TUI and the static-HTML report tier. The default
-///   impl wraps the plain text as a single unstyled span, so existing
-///   implementors continue to compile without changes.
+///   [`StyledFrame`] carrying colour and modifier hints for the report's
+///   legacy `<pre>`/CSS-span fallback. The default impl wraps the plain text
+///   as a single unstyled span, so implementors that only want the plain
+///   projection compile without changes.
 ///
-/// Override `render_styled` only when the env benefits from colour cues.
-/// Use the project palette constants in [`super::palette`] rather than raw
-/// [`super::Color`] values so that the accessibility contract (hue-redundant
-/// signalling for hazard/goal semantics) is preserved.
+/// Override `render_styled` only when the text dump benefits from colour
+/// cues. Use the project palette constants in [`super::palette`] rather than
+/// raw [`super::Color`] values so that the accessibility contract
+/// (hue-redundant signalling for hazard/goal semantics) is preserved.
 pub trait AsciiRenderable {
     /// Produce a text representation of the current environment state.
     fn render_ascii(&self) -> String;

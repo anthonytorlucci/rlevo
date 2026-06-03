@@ -151,6 +151,39 @@ where
     B: AutodiffBackend,
     P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
     V: PpoValue<B, DB>,
+    O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
+{
+    /// Snapshots the policy onto the inner (non-autodiff) backend for repeated
+    /// greedy inference.
+    ///
+    /// Returns a frozen inference handle for use with
+    /// [`act_greedy_env_row_with`](Self::act_greedy_env_row_with). Snapshot
+    /// once after training, then reuse across many steps — the snapshot goes
+    /// stale if the policy is updated again. Mirrors
+    /// [`PpoAgent::inference_net`](crate::algorithms::ppo::ppo_agent::PpoAgent::inference_net).
+    pub fn inference_net(&self) -> P::InnerModule {
+        self.policy().valid()
+    }
+
+    /// Deterministic env-space action row for `obs`, evaluated against a
+    /// pre-snapshotted inner network — no sampling, no autodiff graph.
+    ///
+    /// Equivalent to [`act_greedy`](Self::act_greedy) (the categorical mode is
+    /// the argmax over logits, and `raw_to_env_row` is the identity for the
+    /// discrete head) but skips per-step autodiff-graph construction, which
+    /// dominates cost at batch size 1. Use this for evaluation and throughput.
+    pub fn act_greedy_env_row_with(&self, net: &P::InnerModule, obs: &O) -> Vec<f32> {
+        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        P::deterministic_env_row_inner(net, batched)
+    }
+}
+
+impl<B, P, V, O, const DO: usize, const DB: usize> PpgAgent<B, P, V, O, DO, DB>
+where
+    B: AutodiffBackend,
+    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
+    V: PpoValue<B, DB>,
     O: Observation<DO> + TensorConvertible<DO, B>,
 {
     /// Construct a new agent from a pre-built policy and value network.
@@ -279,6 +312,28 @@ where
             entropy,
             value,
         }
+    }
+
+    /// Greedy (deterministic) action for one observation — the categorical mode.
+    ///
+    /// Returns the env-space action row for the argmax over the policy logits,
+    /// with no sampling. This is the policy to use for evaluation;
+    /// [`act`](Self::act) samples from the categorical and so injects
+    /// exploration noise that is only appropriate during training.
+    ///
+    /// PPG v1 is discrete-only (see
+    /// [`ppg_policy`](crate::algorithms::ppg::ppg_policy)), so the "mode" is the
+    /// highest-logit action; a future Gaussian head would instead return the
+    /// distribution mean.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn act_greedy(&self, obs: &O) -> Vec<f32> {
+        let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
+        let logits: Tensor<B, 2> = PpgAuxValueHead::logits(self.policy(), batched); // (1, A)
+        let idx = logits.argmax(1).into_scalar().elem::<i64>();
+        let action = P::action_tensor_from_flat(&[idx as f32], 1, &self.device);
+        let raw_row = P::action_row_from_tensor(&action, 0);
+        self.policy().raw_to_env_row(&raw_row)
     }
 
     /// Pushes one step into the rollout buffer.

@@ -282,6 +282,35 @@ where
         A::from_slice(&out)
     }
 
+    /// Snapshots the actor onto the inner (non-autodiff) backend for repeated
+    /// greedy inference.
+    ///
+    /// Returns a frozen inference handle for use with
+    /// [`act_with`](Self::act_with). Snapshot once after training, then reuse
+    /// across many steps — the snapshot goes stale if the actor is updated
+    /// again.
+    pub fn inference_net(&self) -> Actor::InnerModule {
+        self.actor_ref().valid()
+    }
+
+    /// Deterministic action against a pre-snapshotted inner actor.
+    ///
+    /// Equivalent to `act(obs, false, _)` (the unnoised, bound-clipped policy
+    /// mean) but runs on the non-autodiff backend via
+    /// [`inference_net`](Self::inference_net), avoiding the per-call autodiff
+    /// graph construction that [`act`](Self::act) incurs.
+    pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
+        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let raw: Tensor<B::InnerBackend, DAB> = Actor::forward_inner(net, batched);
+        let data = raw.into_data().convert::<f32>();
+        let slice = data.as_slice::<f32>().expect("actor output is f32");
+        let out: Vec<f32> = (0..A::DIM)
+            .map(|i| slice[i].clamp(self.low[i], self.high[i]))
+            .collect();
+        A::from_slice(&out)
+    }
+
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, done: bool) {

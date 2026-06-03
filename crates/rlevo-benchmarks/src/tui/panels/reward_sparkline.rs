@@ -191,7 +191,7 @@ mod tests {
     /// landed, not the exact glyph row.
     #[test]
     fn renders_bars_when_returns_present() {
-        let mut state = AppState::new(8, crate::tui::state::PanelMode::Auto);
+        let mut state = AppState::new(8);
         for v in [1.0, 5.0, 3.0, 8.0] {
             state.record_episode_end(0, v);
         }

@@ -1,4 +1,4 @@
-//! TUI reporter and frame-producer handle.
+//! TUI reporter and metric/episode-return producer handle.
 //!
 //! Two producer paths feed the same `mpsc` channel:
 //!
@@ -6,21 +6,20 @@
 //!   trial / episode boundaries) as [`TuiEvent`]s. Rayon workers grab the
 //!   reporter through a `Mutex`, so its send is brief and never blocks the
 //!   render thread.
-//! - [`TuiHandle`] is the lighter producer used by per-step frame capture
-//!   (see `crate::env_wrappers::RenderTap`). It exposes only the
-//!   [`TuiHandle::try_push_frame`] entry point so the rollout side cannot
+//! - [`TuiHandle`] is the lighter producer used by the metric tracing layer
+//!   ([`TuiCaptureLayer`](crate::tui::log_layer::TuiCaptureLayer)) and by
+//!   non-harness episode-return taps
+//!   ([`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)). It exposes only metric,
+//!   log, and episode-return entry points so the rollout side cannot
 //!   accidentally emit higher-level lifecycle events from inside the env.
 //!
 //! Both producers wrap the same `Sender<TuiEvent>`. The render thread holds
 //! the single `Receiver` and drains it each tick. The channel is the
-//! unbounded `std::sync::mpsc::channel`; under sustained rollout pressure
-//! it can queue, but the render thread folds events into `AppState` each
-//! tick (frame coalescing) so the queue depth is bounded by
-//! `tick_ms × frame_rate`.
+//! unbounded `std::sync::mpsc::channel`; under sustained pressure it can
+//! queue, but the render thread folds events into `AppState` each tick so
+//! the queue depth stays bounded.
 
 use std::sync::mpsc::{self, Receiver, Sender};
-
-use rlevo_core::render::StyledFrame;
 
 use crate::report::{BenchmarkReport, EpisodeSummary, TrialReport};
 use crate::reporter::Reporter;
@@ -66,18 +65,6 @@ pub enum TuiEvent {
     },
     /// Suite-level termination with the full [`BenchmarkReport`].
     SuiteEnd(BenchmarkReport),
-    /// Per-step environment frame captured by [`RenderTap`]. The render
-    /// thread coalesces multiple `Frame` events between ticks into the
-    /// most recent.
-    ///
-    /// [`RenderTap`]: crate::env_wrappers::RenderTap
-    Frame {
-        /// Monotonic step counter within the current episode. Resets on
-        /// `reset` in the wrapping `RenderTap`.
-        step: u32,
-        /// Captured styled frame.
-        frame: StyledFrame,
-    },
     /// One scalar metric sample extracted from a structured tracing event
     /// by [`TuiCaptureLayer`]. The render thread appends the value to the
     /// per-name ring in [`AppState`](crate::tui::state::AppState).
@@ -104,11 +91,12 @@ pub enum TuiEvent {
     },
 }
 
-/// Lightweight producer the rollout side uses to emit per-step frames.
+/// Lightweight producer the rollout side uses to emit metric, log, and
+/// episode-return events.
 ///
-/// Cloneable: the env factory captures one handle and clones it into every
-/// [`RenderTap`](crate::env_wrappers::RenderTap) it constructs. All clones
-/// feed the same underlying channel.
+/// Cloneable: the caller captures one handle and clones it into the metric
+/// tracing layer and any [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap) it
+/// constructs. All clones feed the same underlying channel.
 #[derive(Debug, Clone)]
 pub struct TuiHandle {
     tx: Sender<TuiEvent>,
@@ -124,22 +112,10 @@ impl TuiHandle {
         (Self { tx }, rx)
     }
 
-    /// Best-effort frame push. Returns `false` when the receiver has been
-    /// dropped (i.e., the render thread has exited); never blocks the
-    /// caller. Frames pushed into a live receiver always succeed because
-    /// the underlying channel is unbounded.
-    ///
-    /// Callers in the rollout hot path typically ignore the return value
-    /// (the contract is intentionally lossy); the `#[must_use]` is for
-    /// tests and adapter code that want to assert delivery.
-    #[must_use = "the return value indicates whether the render thread is still listening"]
-    pub fn try_push_frame(&self, step: u32, frame: StyledFrame) -> bool {
-        self.tx.send(TuiEvent::Frame { step, frame }).is_ok()
-    }
-
     /// Best-effort metric push. Used by [`TuiCaptureLayer`] when a known
-    /// numeric field arrives on a tracing event. Same lossy semantics as
-    /// [`Self::try_push_frame`].
+    /// numeric field arrives on a tracing event. Returns `false` when the
+    /// receiver has been dropped (the render thread has exited); never
+    /// blocks the caller. The contract is intentionally lossy.
     ///
     /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
     #[must_use = "the return value indicates whether the render thread is still listening"]
@@ -149,7 +125,7 @@ impl TuiHandle {
 
     /// Best-effort log push. Used by [`TuiCaptureLayer`] for every tracing
     /// event the subscriber sees. Same lossy semantics as
-    /// [`Self::try_push_frame`].
+    /// [`Self::try_push_metric`].
     ///
     /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
     #[must_use = "the return value indicates whether the render thread is still listening"]
@@ -170,7 +146,7 @@ impl TuiHandle {
 
     /// Best-effort episode-return push. Used by non-harness env wrappers
     /// (e.g., [`TuiEnvTap`](crate::env_wrappers::TuiEnvTap)) on episode
-    /// termination. Same lossy semantics as [`Self::try_push_frame`].
+    /// termination. Same lossy semantics as [`Self::try_push_metric`].
     #[must_use = "the return value indicates whether the render thread is still listening"]
     pub fn try_push_episode_return(&self, return_value: f64, length: u32) -> bool {
         self.tx
@@ -183,10 +159,9 @@ impl TuiHandle {
 
     /// Build a [`TuiReporter`] sharing the same channel as this handle.
     /// Use this to plug the reporter into [`Evaluator::run_suite`] while
-    /// retaining clones of the handle for [`RenderTap`].
+    /// retaining clones of the handle for the metric layer.
     ///
     /// [`Evaluator::run_suite`]: crate::evaluator::Evaluator::run_suite
-    /// [`RenderTap`]: crate::env_wrappers::RenderTap
     #[must_use]
     pub fn as_reporter(&self) -> TuiReporter {
         TuiReporter {
@@ -248,33 +223,26 @@ impl Reporter for TuiReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rlevo_core::render::{StyledLine, StyledSpan};
-
-    fn make_frame(text: &str) -> StyledFrame {
-        StyledFrame {
-            lines: vec![StyledLine::from_spans([StyledSpan::raw(text)])],
-        }
-    }
 
     #[test]
-    fn handle_pushes_frame_event() {
+    fn handle_pushes_metric_event() {
         let (handle, rx) = TuiHandle::channel();
-        assert!(handle.try_push_frame(0, make_frame("hello")));
+        assert!(handle.try_push_metric("policy_loss".to_string(), 0.25));
         match rx.try_recv().expect("expected a queued event") {
-            TuiEvent::Frame { step, frame } => {
-                assert_eq!(step, 0);
-                assert_eq!(frame.plain_text(), "hello");
+            TuiEvent::MetricUpdate { name, value } => {
+                assert_eq!(name, "policy_loss");
+                assert!((value - 0.25).abs() < f64::EPSILON);
             }
-            other => panic!("expected Frame, got {other:?}"),
+            other => panic!("expected MetricUpdate, got {other:?}"),
         }
     }
 
     #[test]
-    fn try_push_frame_returns_false_when_receiver_dropped() {
+    fn try_push_metric_returns_false_when_receiver_dropped() {
         let (handle, rx) = TuiHandle::channel();
         drop(rx);
         assert!(
-            !handle.try_push_frame(0, make_frame("x")),
+            !handle.try_push_metric("x".to_string(), 0.0),
             "should fail cleanly after receiver drop"
         );
     }
@@ -306,7 +274,7 @@ mod tests {
     }
 
     /// Reporter callbacks land on the same channel the handle uses, so a
-    /// caller can multiplex lifecycle events with per-step frames through
+    /// caller can multiplex lifecycle events with metric updates through
     /// one render thread.
     #[test]
     fn reporter_and_handle_share_channel() {
@@ -318,19 +286,19 @@ mod tests {
             num_trials_per_env: 1,
         };
         reporter.on_suite_start(&suite);
-        assert!(handle.try_push_frame(7, make_frame("step7")));
+        assert!(handle.try_push_metric("entropy".to_string(), 1.0));
 
         let first = rx.recv().unwrap();
         let second = rx.recv().unwrap();
         assert!(matches!(first, TuiEvent::SuiteStart(_)));
         match second {
-            TuiEvent::Frame { step, .. } => assert_eq!(step, 7),
-            other => panic!("expected Frame, got {other:?}"),
+            TuiEvent::MetricUpdate { name, .. } => assert_eq!(name, "entropy"),
+            other => panic!("expected MetricUpdate, got {other:?}"),
         }
     }
 
     /// `TuiReporter::channel()` remains a one-shot convenience for callers
-    /// that don't tap frames. Backwards-compatible with v1 usage.
+    /// that only need the lifecycle stream. Backwards-compatible with v1 usage.
     #[test]
     fn legacy_channel_constructor_yields_working_reporter() {
         let (mut reporter, rx) = TuiReporter::channel();

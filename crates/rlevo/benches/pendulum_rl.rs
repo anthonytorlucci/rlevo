@@ -171,6 +171,7 @@ fn make_env() -> Env {
 
 fn train_ppo_agent() -> PpoAgent_ {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let policy: TanhGaussianPolicyHead<Backend_> = TanhGaussianPolicyHeadConfig {
@@ -211,6 +212,7 @@ fn train_ppo_agent() -> PpoAgent_ {
 
 fn train_ddpg_agent() -> DdpgAgent_ {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
@@ -240,6 +242,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
 
 fn train_td3_agent() -> Td3Agent_ {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
@@ -272,6 +275,7 @@ fn train_td3_agent() -> Td3Agent_ {
 
 fn train_sac_agent() -> SacAgent_ {
     let device = Default::default();
+    <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let actor: StochasticActor<Backend_> = StochasticActor::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
@@ -365,17 +369,24 @@ fn print_quality_comparison(
     let mut rng = StdRng::seed_from_u64(SEED);
     let rand_ret = evaluate(|_| random_action(&mut rng));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(1));
+    // Learned policies are evaluated with their deterministic (greedy) policy
+    // against a once-snapshotted inner (non-autodiff) network. `PpoAgent::act`
+    // samples from the stochastic policy — that injects exploration noise into
+    // the score; the deterministic mean is the policy we actually want to
+    // measure. The value-based actors run far cheaper on the inner backend,
+    // skipping the per-step autodiff graph. SAC's `act(_, false, _)` already
+    // runs deterministically on its own inner snapshot, so it stays as-is.
+    let ppo_infer = ppo.inference_net();
     let ppo_ret = evaluate(|obs| {
-        let row = ppo.act(obs, &mut r).env_row;
+        let row = ppo.act_greedy_env_row_with(&ppo_infer, obs);
         PendulumAction::new(row[0]).expect("ppo action in range")
     });
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(2));
-    let ddpg_ret = evaluate(|obs| ddpg.act(obs, false, &mut r));
+    let ddpg_infer = ddpg.inference_net();
+    let ddpg_ret = evaluate(|obs| ddpg.act_with(&ddpg_infer, obs));
 
-    let mut r = StdRng::seed_from_u64(SEED.wrapping_add(3));
-    let td3_ret = evaluate(|obs| td3.act(obs, false, &mut r));
+    let td3_infer = td3.inference_net();
+    let td3_ret = evaluate(|obs| td3.act_with(&td3_infer, obs));
 
     let mut r = StdRng::seed_from_u64(SEED.wrapping_add(4));
     let sac_ret = evaluate(|obs| sac.act(obs, false, &mut r));
@@ -404,48 +415,59 @@ fn bench_policies(
     td3: &Td3Agent_,
     sac: &SacAgent_,
 ) {
+    // Snapshot each actor onto the inner (non-autodiff) backend once; per-step
+    // inference then skips autodiff-graph construction entirely, the dominant
+    // cost at batch size 1. SAC already snapshots internally in `act`.
+    let ppo_infer = ppo.inference_net();
+    let ddpg_infer = ddpg.inference_net();
+    let td3_infer = td3.inference_net();
+
     let mut group = c.benchmark_group("pendulum_policy_rollout");
-    for &steps in &[1_000_usize, 4_000, 16_000] {
-        group.throughput(Throughput::Elements(steps as u64));
+    // Per-step throughput is independent of rollout length (the rollout is
+    // linear and `Throughput::Elements` normalises per step), so a single size
+    // captures the same signal the 1k/4k/16k sweep did. Ten samples keep a
+    // usable confidence interval without multi-second-per-iteration runs.
+    group.sample_size(10);
+    let steps = 4_000_usize;
+    group.throughput(Throughput::Elements(steps as u64));
 
-        group.bench_with_input(BenchmarkId::new("random", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |_| random_action(&mut rng));
+    group.bench_with_input(BenchmarkId::new("random", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            let mut rng = StdRng::seed_from_u64(SEED);
+            rollout_steps(black_box(steps), |_| random_action(&mut rng));
+        });
+    });
+
+    // Learned policies time their greedy (evaluation) inference path on the
+    // inner backend, matching how the quality comparison rolls them out.
+    group.bench_with_input(BenchmarkId::new("ppo", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| {
+                PendulumAction::new(ppo.act_greedy_env_row_with(&ppo_infer, obs)[0])
+                    .expect("ppo action in range")
             });
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("ppo", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| {
-                    PendulumAction::new(ppo.act(obs, &mut rng).env_row[0])
-                        .expect("ppo action in range")
-                });
-            });
+    group.bench_with_input(BenchmarkId::new("ddpg", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| ddpg.act_with(&ddpg_infer, obs));
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("ddpg", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| ddpg.act(obs, false, &mut rng));
-            });
+    group.bench_with_input(BenchmarkId::new("td3", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            rollout_steps(black_box(steps), |obs| td3.act_with(&td3_infer, obs));
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("td3", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| td3.act(obs, false, &mut rng));
-            });
+    group.bench_with_input(BenchmarkId::new("sac", steps), &steps, |b, &steps| {
+        b.iter(|| {
+            let mut rng = StdRng::seed_from_u64(SEED);
+            rollout_steps(black_box(steps), |obs| sac.act(obs, false, &mut rng));
         });
+    });
 
-        group.bench_with_input(BenchmarkId::new("sac", steps), &steps, |b, &steps| {
-            b.iter(|| {
-                let mut rng = StdRng::seed_from_u64(SEED);
-                rollout_steps(black_box(steps), |obs| sac.act(obs, false, &mut rng));
-            });
-        });
-    }
     group.finish();
 }
 
@@ -454,6 +476,23 @@ fn bench_policies(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // Reproducibility has two requirements, both handled here + in each trainer:
+    //
+    // 1. Seed the backend RNG (`<Backend_>::seed` in every `train_*_agent`). The
+    //    `StdRng` we thread through training only drives action sampling/replay;
+    //    network weight init (`LinearConfig::init`) draws from the *backend* RNG,
+    //    which is seeded from entropy unless we set it. This is the dominant
+    //    source of run-to-run policy divergence.
+    // 2. Pin the global rayon pool to one thread (below). Flex parallelises
+    //    matmul through `gemm`'s rayon feature, and parallel float accumulation
+    //    is non-associative, so multi-threaded training still drifts bitwise even
+    //    with a seeded init. Single-threaded gemm fixes the reduction order.
+    //    `.ok()` because the pool may already be initialised (e.g. under `--test`).
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+
     let ppo = train_ppo_agent();
     let ddpg = train_ddpg_agent();
     let td3 = train_td3_agent();

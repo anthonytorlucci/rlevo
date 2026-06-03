@@ -212,10 +212,46 @@ where
         if self.exploration.should_explore(rng) {
             return A::from_index(rng.random_range(0..A::ACTION_COUNT));
         }
+        self.act_greedy(obs)
+    }
+
+    /// Greedy (deterministic) action selection — the argmax over mean-quantile
+    /// Q-values of the predicted return distribution.
+    ///
+    /// Unlike [`act`](Self::act) this never explores, so it is the policy to
+    /// use for evaluation: it reflects what the network has learned without the
+    /// ε-greedy exploration noise that floors at `epsilon_end`.
+    pub fn act_greedy(&self, obs: &O) -> A {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
         let quantiles: Tensor<B, 3> = self.policy().forward(batched); // (1, A, N)
         let q: Tensor<B, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
+        let idx = q.argmax(1).into_scalar();
+        A::from_index(idx.elem::<i64>() as usize)
+    }
+
+    /// Snapshots the policy network onto the inner (non-autodiff) backend.
+    ///
+    /// Returns a frozen inference handle for use with
+    /// [`act_greedy_with`](Self::act_greedy_with). Action selection never needs
+    /// gradients, so running it on the inner backend avoids the per-call
+    /// autodiff graph construction that [`act_greedy`](Self::act_greedy)
+    /// incurs. Snapshot once after training, then reuse across many steps —
+    /// the snapshot goes stale if the policy is updated again.
+    pub fn inference_net(&self) -> M::InnerModule {
+        self.policy().valid()
+    }
+
+    /// Greedy action selection against a pre-snapshotted inner network.
+    ///
+    /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
+    /// non-autodiff backend via [`inference_net`](Self::inference_net), which
+    /// is dramatically cheaper for repeated single-observation inference.
+    pub fn act_greedy_with(&self, net: &M::InnerModule, obs: &O) -> A {
+        let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
+        let quantiles: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
+        let q: Tensor<B::InnerBackend, 2> = quantiles.mean_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
     }

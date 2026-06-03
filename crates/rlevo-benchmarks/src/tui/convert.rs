@@ -1,16 +1,12 @@
-//! Bridge between [`rlevo_core::render::StyledFrame`] and `ratatui` text.
+//! Bridge between [`rlevo_core::render`] styling types and `ratatui` style.
 //!
-//! Production crates ship `StyledFrame` (and its sub-types) without any
-//! terminal-side dependency. This module owns the one-way translation into
-//! `ratatui::text::Text<'static>` — every span's text is cloned into an
-//! owned `Cow`, so converted frames carry no borrow on the source frame and
-//! can be freely sent across thread boundaries to the render loop.
-//!
-//! Both [`StyledFrame`] (defined in `rlevo-core`) and `ratatui::text::Text`
-//! (defined in `ratatui-core`) are foreign to this crate, so the orphan
-//! rule prevents writing `impl From<StyledFrame> for Text<'static>` here.
-//! The bridge is therefore exposed as free functions; callers write
-//! `frame_to_text(frame)` rather than `frame.into()`.
+//! The live TUI is metrics-only (ADR-0013), so this module no longer
+//! translates whole [`StyledFrame`](rlevo_core::render::StyledFrame)s into
+//! terminal text. What remains is the colour/style translation the metric
+//! panels and [`theme`](crate::tui::theme) use to honour the semantic
+//! [`palette`](rlevo_core::render::palette) — mapping
+//! [`rlevo_core::render::Color`] / [`Modifier`] / [`SpanStyle`] onto their
+//! `ratatui` equivalents.
 //!
 //! Style translation is exhaustive over every variant of
 //! [`rlevo_core::render::Color`] *that exists today*. The enum is marked
@@ -19,11 +15,8 @@
 //! than panicking, so adding a variant in `rlevo-core` keeps the live tier
 //! degrading gracefully.
 
-use std::borrow::Cow;
-
 use ratatui::style::{Color as RatColor, Modifier as RatModifier, Style as RatStyle};
-use ratatui::text::{Line, Span, Text};
-use rlevo_core::render::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
+use rlevo_core::render::{Color, Modifier, SpanStyle};
 
 /// Map a [`Color`] to its ratatui equivalent.
 #[must_use]
@@ -95,110 +88,10 @@ pub fn span_style_to_ratatui(s: SpanStyle) -> RatStyle {
     out
 }
 
-/// Map a [`StyledSpan`] to a `ratatui` [`Span<'static>`].
-///
-/// Ownership is transferred: the span's `String` lands in a `Cow::Owned`,
-/// so the result has no lifetime tied to the input.
-#[must_use]
-pub fn span_to_ratatui(span: StyledSpan) -> Span<'static> {
-    Span {
-        style: span_style_to_ratatui(span.style),
-        content: Cow::Owned(span.text),
-    }
-}
-
-/// Map a [`StyledLine`] to a `ratatui` [`Line<'static>`].
-#[must_use]
-pub fn line_to_ratatui(line: StyledLine) -> Line<'static> {
-    let spans: Vec<Span<'static>> = line.spans.into_iter().map(span_to_ratatui).collect();
-    Line::from(spans)
-}
-
-/// Map a [`StyledFrame`] to a `ratatui` [`Text<'static>`].
-///
-/// Empty frames map to `Text::default()`. Newlines that were carried
-/// structurally by `StyledFrame.lines` survive: each [`StyledLine`] becomes
-/// exactly one [`Line<'static>`].
-#[must_use]
-pub fn frame_to_ratatui(frame: StyledFrame) -> Text<'static> {
-    let lines: Vec<Line<'static>> = frame.lines.into_iter().map(line_to_ratatui).collect();
-    Text::from(lines)
-}
-
-/// Borrowing variant of [`frame_to_ratatui`].
-///
-/// Panel widgets render once per tick from a shared [`AppState`]; cloning
-/// the held frame into the conversion would do ~one malloc per span per
-/// tick. This entry point clones internally only as needed to produce
-/// `'static` `Cow`s, so the source frame remains usable for the next tick.
-///
-/// [`AppState`]: crate::tui::state::AppState
-#[must_use]
-pub fn frame_to_ratatui_ref(frame: &StyledFrame) -> Text<'static> {
-    let lines: Vec<Line<'static>> = frame
-        .lines
-        .iter()
-        .map(|line| {
-            let spans: Vec<Span<'static>> = line
-                .spans
-                .iter()
-                .map(|span| Span {
-                    style: span_style_to_ratatui(span.style),
-                    content: Cow::Owned(span.text.clone()),
-                })
-                .collect();
-            Line::from(spans)
-        })
-        .collect();
-    Text::from(lines)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use rlevo_core::render::palette;
-
-    /// `StyledFrame::unstyled` → `Text` should round-trip every glyph and
-    /// every newline, so the visible content in the TUI matches what the
-    /// env emits.
-    #[test]
-    fn frame_unstyled_roundtrip() {
-        let frame = StyledFrame::unstyled(String::from("ab\ncd"));
-        let text = frame_to_ratatui(frame);
-        assert_eq!(text.lines.len(), 2);
-        let joined: String = text
-            .lines
-            .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(joined, "ab\ncd");
-    }
-
-    #[test]
-    fn frame_preserves_per_span_style() {
-        let frame = StyledFrame {
-            lines: vec![StyledLine::from_spans([
-                StyledSpan::new("agent ", SpanStyle::default().fg(Color::Cyan).bold()),
-                StyledSpan::raw("here"),
-            ])],
-        };
-        let text = frame_to_ratatui(frame);
-        let line = &text.lines[0];
-        assert_eq!(line.spans.len(), 2);
-
-        assert_eq!(line.spans[0].content.as_ref(), "agent ");
-        assert_eq!(line.spans[0].style.fg, Some(RatColor::Cyan));
-        assert!(line.spans[0].style.add_modifier.contains(RatModifier::BOLD));
-
-        assert_eq!(line.spans[1].content.as_ref(), "here");
-        assert_eq!(line.spans[1].style, RatStyle::default());
-    }
 
     /// Every `Color` variant declared today must map to a distinct
     /// `ratatui::Color`. Guards against silent collisions if either palette
@@ -270,41 +163,5 @@ mod tests {
         let rs = span_style_to_ratatui(style);
         assert_eq!(rs.fg, Some(RatColor::Red));
         assert!(rs.add_modifier.contains(RatModifier::REVERSED));
-    }
-
-    #[test]
-    fn empty_frame_yields_empty_text() {
-        let frame = StyledFrame::default();
-        let text = frame_to_ratatui(frame);
-        assert!(text.lines.is_empty());
-    }
-
-    /// Borrow variant produces the same lines/glyphs/style as the owning
-    /// variant; only the ownership semantics differ.
-    #[test]
-    fn frame_borrow_variant_matches_owning_variant() {
-        let frame = StyledFrame {
-            lines: vec![StyledLine::from_spans([
-                StyledSpan::new(
-                    "agent",
-                    SpanStyle::default().fg(palette::AGENT_FG).bold(),
-                ),
-                StyledSpan::raw(" idle"),
-            ])],
-        };
-
-        let owned = frame_to_ratatui(frame.clone());
-        let borrowed = frame_to_ratatui_ref(&frame);
-
-        assert_eq!(owned.lines.len(), borrowed.lines.len());
-        for (a, b) in owned.lines.iter().zip(borrowed.lines.iter()) {
-            assert_eq!(a.spans.len(), b.spans.len());
-            for (sa, sb) in a.spans.iter().zip(b.spans.iter()) {
-                assert_eq!(sa.content, sb.content);
-                assert_eq!(sa.style, sb.style);
-            }
-        }
-        // Source frame is still usable.
-        assert_eq!(frame.plain_text(), "agent idle");
     }
 }

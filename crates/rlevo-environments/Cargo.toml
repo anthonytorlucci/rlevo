@@ -22,6 +22,11 @@ rapier3d = { workspace = true, optional = true }
 [dev-dependencies]
 approx = { workspace = true }
 
+# Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "../../katex-header.html"]
+
 [features]
 default = ["box2d", "locomotion"]
 # Box2D-style physics environments (rapier2d)

@@ -62,9 +62,9 @@ impl RecordingConfig {
 
     /// Like [`new`](Self::new), but derives the family from an environment
     /// type that opts into [`RecordedEnvFamily`] instead of taking it as a
-    /// literal. This keeps the family a single source of truth shared with
-    /// any TUI config (`with_env_family(E::FAMILY)`), so the two cannot
-    /// silently disagree.
+    /// literal. This keeps the recorded family a single source of truth tied
+    /// to the env type (`E::FAMILY`), so a run can't silently mislabel which
+    /// report adapter should replay it.
     #[must_use]
     pub fn for_env<E: RecordedEnvFamily>(seed: u64) -> Self {
         Self::new(E::FAMILY, seed)

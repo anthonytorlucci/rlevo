@@ -1,28 +1,19 @@
-//! [`TuiEnvTap`] — an [`Environment`] wrapper that captures styled frames
-//! and episode returns for the live TUI.
+//! [`TuiEnvTap`] — an [`Environment`] wrapper that emits episode returns to
+//! the live (metrics-only) TUI.
 //!
-//! Sibling of [`RenderTap`](crate::env_wrappers::RenderTap). The two differ
-//! only in the trait they wrap:
+//! [`TuiEnvTap`] wraps a raw [`Environment`] — the trait every RL/EA
+//! algorithm crate drives directly. It is used by training loops that bypass
+//! the benchmarks harness (PPO's
+//! [`train_discrete`](https://docs.rs/rlevo-reinforcement-learning), future
+//! evolutionary loops). Since no `Reporter` is involved, the wrapper itself
+//! accumulates per-episode reward + step count and emits a
+//! [`TuiEvent::EpisodeReturn`] on termination, feeding the reward sparkline.
 //!
-//! - [`RenderTap`] wraps a [`BenchEnv`](rlevo_core::evaluation::BenchEnv) —
-//!   the harness-facing trait. It pairs with [`Suite`](crate::suite::Suite)
-//!   + [`Evaluator`](crate::evaluator::Evaluator) +
-//!     [`TuiReporter`](crate::reporter::tui::TuiReporter), which together
-//!     surface lifecycle (`EpisodeEnd`) events.
-//! - [`TuiEnvTap`] wraps a raw [`Environment`] — the trait every RL/EA
-//!   algorithm crate drives directly. Used by training loops that bypass
-//!   the benchmarks harness (PPO's
-//!   [`train_discrete`](https://docs.rs/rlevo-reinforcement-learning),
-//!   future evolutionary loops). Since no `Reporter` is involved, the
-//!   wrapper itself accumulates per-episode reward + step count and
-//!   emits a [`TuiEvent::EpisodeReturn`] on termination.
+//! The live TUI is metrics-only (ADR-0013): the tap no longer captures env
+//! frames, only the per-episode return. Emission is best-effort and lossy
+//! via [`TuiHandle::try_push_episode_return`]; the wrapped env never stalls
+//! on render-thread state.
 //!
-//! Frame capture is best-effort and lossy via
-//! [`TuiHandle::try_push_frame`]; episode-return emission is similarly
-//! lossy via [`TuiHandle::try_push_episode_return`]. The wrapped env never
-//! stalls on render-thread state.
-//!
-//! [`RenderTap`]: crate::env_wrappers::RenderTap
 //! [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
 
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
@@ -30,25 +21,29 @@ use rlevo_core::render::{AsciiRenderable, StyledFrame};
 
 use crate::reporter::tui::TuiHandle;
 
-/// Transparent [`Environment`] wrapper that emits frames and episode returns to the TUI.
+/// Transparent [`Environment`] wrapper that emits episode returns to the TUI.
 ///
-/// After each successful `reset` / `step` a [`StyledFrame`] is forwarded to
-/// the render thread. When `step` returns a done snapshot an
+/// When `step` returns a done snapshot an
 /// [`EpisodeReturn`](crate::reporter::tui::TuiEvent::EpisodeReturn) event is
-/// also emitted with the summed reward and step count.
+/// emitted with the summed reward and step count.
 ///
-/// Requires `E: Environment<D, SD, AD> + AsciiRenderable`. Any env that
-/// ships the styled projection drops in without further plumbing.
+/// Requires only `E: Environment<D, SD, AD>`. A separate
+/// [`AsciiRenderable`] forwarding impl is provided when the inner env is
+/// renderable, so the tap composes under a
+/// [`RecordingTap`](crate::record::RecordingTap) that records env frames to
+/// disk.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// # use rlevo_benchmarks::env_wrappers::tui_env_tap::TuiEnvTap;
 /// # use rlevo_benchmarks::reporter::tui::TuiHandle;
-/// # fn make_env() -> impl rlevo_core::environment::Environment<1, 1, 1> + rlevo_core::render::AsciiRenderable { todo!() }
+/// # use rlevo_core::environment::Environment;
+/// # fn demo<E: Environment<1, 1, 1>>(env: E) {
 /// let (handle, _rx) = TuiHandle::channel();
-/// let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(make_env(), handle);
+/// let mut tap: TuiEnvTap<E, 1, 1, 1> = TuiEnvTap::new(env, handle);
 /// tap.reset().unwrap();
+/// # }
 /// ```
 pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
     inner: E,
@@ -126,7 +121,7 @@ where
 impl<E, const D: usize, const SD: usize, const AD: usize> Environment<D, SD, AD>
     for TuiEnvTap<E, D, SD, AD>
 where
-    E: Environment<D, SD, AD> + AsciiRenderable,
+    E: Environment<D, SD, AD>,
 {
     type StateType = E::StateType;
     type ObservationType = E::ObservationType;
@@ -137,7 +132,7 @@ where
     /// Satisfies the [`Environment`] trait bound; prefer [`TuiEnvTap::new`] instead.
     ///
     /// The synthesised [`TuiHandle`] receiver is dropped immediately, so every
-    /// frame and episode-return push silently returns `false`.
+    /// episode-return push silently returns `false`.
     fn new(render: bool) -> Self {
         let (handle, _rx) = TuiHandle::channel();
         Self::new(E::new(render), handle)
@@ -148,7 +143,6 @@ where
         self.step = 0;
         self.episode_return = 0.0;
         self.episode_length = 0;
-        let _ = self.handle.try_push_frame(self.step, self.inner.render_styled());
         Ok(snap)
     }
 
@@ -160,7 +154,6 @@ where
         let r: f32 = snap.reward().clone().into();
         self.episode_return += f64::from(r);
         self.episode_length = self.episode_length.saturating_add(1);
-        let _ = self.handle.try_push_frame(self.step, self.inner.render_styled());
         if snap.is_done() {
             let _ = self
                 .handle
@@ -184,7 +177,7 @@ mod tests {
 
     use rlevo_core::base::{Action, Observation, State};
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
-    use rlevo_core::render::{AsciiRenderable, StyledFrame};
+    use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
     use serde::{Deserialize, Serialize};
 
@@ -307,16 +300,6 @@ mod tests {
         }
     }
 
-    fn collect_frames(rx: &Receiver<TuiEvent>) -> Vec<(u32, StyledFrame)> {
-        let mut out = Vec::new();
-        while let Ok(event) = rx.try_recv() {
-            if let TuiEvent::Frame { step, frame } = event {
-                out.push((step, frame));
-            }
-        }
-        out
-    }
-
     fn collect_episode_returns(rx: &Receiver<TuiEvent>) -> Vec<(f64, u32)> {
         let mut out = Vec::new();
         while let Ok(event) = rx.try_recv() {
@@ -331,43 +314,16 @@ mod tests {
         out
     }
 
-    /// Drain every event of any variant. Used when a test needs to inspect
-    /// the full interleaved order of frames + episode returns.
-    fn drain_all(rx: &Receiver<TuiEvent>) -> Vec<TuiEvent> {
-        let mut out = Vec::new();
-        while let Ok(event) = rx.try_recv() {
-            out.push(event);
-        }
-        out
-    }
-
+    /// Stepping advances the wrapper's step counter even though no frames
+    /// are emitted (the live TUI is metrics-only, ADR-0013).
     #[test]
-    fn reset_emits_initial_frame_at_step_zero() {
-        let (handle, rx) = TuiHandle::channel();
-        let env = StubEnv::with_termination(0.0, Termination::Never);
-        let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
-        tap.reset().unwrap();
-
-        let frames = collect_frames(&rx);
-        assert_eq!(frames.len(), 1);
-        assert_eq!(frames[0].0, 0);
-        assert_eq!(frames[0].1.plain_text(), "pos=0");
-        assert_eq!(tap.step_count(), 0);
-    }
-
-    #[test]
-    fn step_emits_frame_with_incremented_counter() {
-        let (handle, rx) = TuiHandle::channel();
+    fn step_advances_counter() {
+        let (handle, _rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(0.0, Termination::Never);
         let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
         tap.reset().unwrap();
         tap.step(StubAction).unwrap();
         tap.step(StubAction).unwrap();
-
-        let frames = collect_frames(&rx);
-        let steps: Vec<u32> = frames.iter().map(|(s, _)| *s).collect();
-        assert_eq!(steps, vec![0, 1, 2]);
-        assert_eq!(frames[2].1.plain_text(), "pos=2");
         assert_eq!(tap.step_count(), 2);
     }
 
@@ -432,11 +388,10 @@ mod tests {
         assert_eq!(lengths, vec![2, 2]);
     }
 
-    /// Within an episode the frame for the terminating step must still be
-    /// emitted before the `EpisodeReturn` event, so the env panel shows
-    /// the final state at the moment the reward sparkline updates.
+    /// Exactly one `EpisodeReturn` is emitted per terminating episode and
+    /// nothing else lands on the channel (no per-step frames).
     #[test]
-    fn final_frame_precedes_episode_return() {
+    fn only_episode_return_is_emitted() {
         let (handle, rx) = TuiHandle::channel();
         let env = StubEnv::with_termination(1.0, Termination::TerminateAt(2));
         let mut tap: TuiEnvTap<_, 1, 1, 1> = TuiEnvTap::new(env, handle);
@@ -444,15 +399,12 @@ mod tests {
         tap.step(StubAction).unwrap();
         tap.step(StubAction).unwrap();
 
-        let events = drain_all(&rx);
-        // reset emits one Frame at step 0; each step emits one Frame; the
-        // terminating step also emits an EpisodeReturn. Order must be:
-        // Frame(0), Frame(1), Frame(2), EpisodeReturn.
-        assert_eq!(events.len(), 4);
-        assert!(matches!(events[0], TuiEvent::Frame { step: 0, .. }));
-        assert!(matches!(events[1], TuiEvent::Frame { step: 1, .. }));
-        assert!(matches!(events[2], TuiEvent::Frame { step: 2, .. }));
-        assert!(matches!(events[3], TuiEvent::EpisodeReturn { .. }));
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], TuiEvent::EpisodeReturn { .. }));
     }
 
     /// A dropped receiver disables every push; the rollout loop must

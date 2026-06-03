@@ -6,7 +6,7 @@
 //! ```text
 //!   CartPole
 //!     └─ TimeLimit
-//!         └─ TuiEnvTap   (frames + episode returns to live TUI)
+//!         └─ TuiEnvTap   (episode returns to the metrics-only live TUI)
 //!             └─ RecordingTap (frame + metric stream to disk)
 //!                 ↓
 //!              train_discrete
@@ -19,7 +19,7 @@
 //! # Run with
 //!
 //! ```bash
-//! cargo run -p rlevo --example record_ppo_cartpole \
+//! cargo run -p rlevo-examples --example record_ppo_cartpole \
 //!   --features viz-tui,viz-record --release
 //! ```
 //!
@@ -40,7 +40,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use rlevo_benchmarks::env_wrappers::TuiEnvTap;
 use rlevo_benchmarks::record::{
-    RecordSink, RecordWriter, RecordedEnvFamily, RecordingConfig, RecordingLayer, RecordingTap,
+    RecordSink, RecordWriter, RecordingConfig, RecordingLayer, RecordingTap,
 };
 use rlevo_benchmarks::tui::{TuiCaptureLayer, TuiConfig, TuiRunner};
 
@@ -51,9 +51,9 @@ use ppo_cartpole::{SEED, base_env, build_agent, train};
 const TOTAL_TIMESTEPS: usize = 20_000;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Family declared once by the underlying env type (`CartPole`), shared by
-    // the TUI and recording config even though `base_env()` wraps it.
-    let runner = TuiRunner::start(TuiConfig::default().with_env_family(CartPole::FAMILY))?;
+    // Live TUI is metrics-only (ADR-0013); the recording config carries the
+    // env family for the report adapter, derived once from `CartPole`.
+    let runner = TuiRunner::start(TuiConfig::default())?;
     let handle = runner.handle();
 
     let record_cfg = RecordingConfig::for_env::<CartPole>(SEED);

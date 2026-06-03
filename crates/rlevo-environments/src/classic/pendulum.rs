@@ -2,18 +2,80 @@
 //!
 //! Swing an under-actuated pendulum to the upright position and keep it
 //! there. The episode never terminates intrinsically — compose with
-//! [`crate::wrappers::TimeLimit::new(env, 200)`] for the standard 200-step limit.
+//! [`crate::wrappers::TimeLimit::new(env, 200)`] for the standard 200-step
+//! limit. Equations of motion match the Gymnasium `Pendulum-v1` reference
+//! implementation exactly.
+//!
+//! ## Physical model
+//!
+//! A rigid pendulum of mass `$m$` ([`PendulumConfig::m`]) and length `$l$`
+//! ([`PendulumConfig::l`]) swings about a fixed frictionless pivot under gravity
+//! `$g$` ([`PendulumConfig::g`]). The angle `$\theta$` is measured from the
+//! **upward** vertical, so `$\theta = 0$` is upright (the unstable equilibrium
+//! to balance at) and `$\theta = \pm\pi$` hangs straight down. A continuous
+//! torque `$u \in [-u_\text{max}, u_\text{max}]$` ([`PendulumConfig::max_torque`])
+//! is applied at the pivot. The state is the 2-vector
+//!
+//! ```math
+//! \mathbf{s} = \left(\theta,\; \frac{d\theta}{dt}\right).
+//! ```
+//!
+//! ## Equations of motion
+//!
+//! Modelling the pendulum as a point mass on a massless rod, the angular
+//! acceleration is
+//!
+//! ```math
+//! \frac{d^2\theta}{dt^2} = \frac{3 g}{2 l}\sin\theta + \frac{3}{m l^2}\,u,
+//! ```
+//!
+//! where `$u$` is the applied torque after clipping to
+//! `$[-u_\text{max}, u_\text{max}]$`. The `$\tfrac{3}{m l^2}$` factor is the
+//! reciprocal of the rod's moment of inertia about the pivot,
+//! `$I = \tfrac{1}{3} m l^2$`, and the gravitational term carries the matching
+//! `$\tfrac{3}{2}$`. This is evaluated each step in `Pendulum::step_dynamics`.
+//!
+//! ## Discrete-time integration
+//!
+//! The dynamics are advanced by one fixed step `$\Delta t$`
+//! ([`PendulumConfig::dt`]) with **semi-implicit** (symplectic) Euler — the
+//! angular velocity is updated first and then drives the angle update:
+//!
+//! ```math
+//! \begin{aligned}
+//! \frac{d\theta}{dt}\bigg|_{t+1}
+//!   &= \operatorname{clip}\!\left(
+//!        \frac{d\theta}{dt}\bigg|_t + \Delta t\,\frac{d^2\theta}{dt^2}\bigg|_t,\;
+//!        -\omega_\text{max},\; \omega_\text{max}\right), \\[4pt]
+//! \theta_{t+1} &= \theta_t + \Delta t\,\frac{d\theta}{dt}\bigg|_{t+1},
+//! \end{aligned}
+//! ```
+//!
+//! with the angular velocity clamped to `$\omega_\text{max}$`
+//! ([`PendulumConfig::max_speed`]). The stored angle is wrapped to `$(-\pi, \pi]$`
+//! via [`angle_normalize`]; this is observationally inert because the
+//! observation `$(\cos\theta, \sin\theta, \tfrac{d\theta}{dt})$` and the cost
+//! below depend on `$\theta$` only through periodic functions.
 //!
 //! ## Reward
 //!
-//! Each step yields `reward = -cost` where:
+//! Each step yields `$\text{reward} = -\text{cost}$` with
 //!
-//! ```text
-//! cost = angle_normalize(θ)² + 0.1·θ̇² + 0.001·u²
+//! ```math
+//! \text{cost} = \big(\operatorname{wrap}(\theta)\big)^2
+//!   + 0.1\left(\frac{d\theta}{dt}\right)^{\!2} + 0.001\, u^2,
 //! ```
 //!
-//! Minimum per-step reward ≈ `-16.27` (hanging down, max speed, max torque);
-//! maximum is `0.0` (perfectly upright, stationary, no torque).
+//! where `$\operatorname{wrap}(\theta) \in (-\pi, \pi]$` is [`angle_normalize`].
+//! The cost penalises deviation from upright, angular speed, and torque effort.
+//! The minimum per-step reward is `$-(\pi^2 + 0.1\,\omega_\text{max}^2 + 0.001\,u_\text{max}^2) \approx -16.27$`
+//! (hanging down, max speed, max torque); the maximum is `$0$` (perfectly
+//! upright, stationary, no torque).
+//!
+//! ## References
+//!
+//! - Gymnasium `Pendulum-v1` — source of the `$\tfrac{3}{ml^2}$` / `$\tfrac{3g}{2l}$`
+//!   point-mass-on-rod formulation and the quadratic cost.
 //!
 //! ## Quick start
 //!
@@ -381,7 +443,7 @@ impl Environment<1, 1, 1> for Pendulum {
     /// Advances the simulation by one time step and returns the resulting snapshot.
     ///
     /// Clips the torque to `[-max_torque, max_torque]`, integrates the equations
-    /// of motion with forward Euler, and clamps angular velocity to
+    /// of motion with semi-implicit (symplectic) Euler, and clamps angular velocity to
     /// `[-max_speed, max_speed]`. The episode never terminates; the snapshot is
     /// always `Running`.
     ///

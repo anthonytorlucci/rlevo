@@ -96,11 +96,10 @@ where
     }
 }
 
-/// Forward [`AsciiRenderable`] through to the wrapped env. Required so
-/// [`RenderTap`] can wrap a [`BenchAdapter`] without callers having to
-/// rebuild a per-env wrapper for every styled output.
-///
-/// [`RenderTap`]: rlevo_benchmarks::env_wrappers::RenderTap
+/// Forward the optional [`AsciiRenderable`] debug helper through to the
+/// wrapped env, so a [`BenchAdapter`] over a renderable env stays renderable
+/// (e.g. for a text dump or the report's legacy `<pre>` fallback) without a
+/// per-env wrapper.
 impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
     for BenchAdapter<E, D, SD, AD>
 where
