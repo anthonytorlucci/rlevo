@@ -98,8 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..FrozenLakeConfig::default()
             })
             .expect("FrozenLake construction with preset map cannot fail");
+            // Structured-only (ADR-0013): the toy_text report renders the
+            // grid/card layout from `FamilyPayload::TabularText`; no ascii/styled.
             let recorded: RecordingTap<FrozenLake, 1, 1, 1> =
-                RecordingTap::new(env, sink.clone());
+                RecordingTap::with_tabular_payload(env, sink.clone());
             BenchAdapter::new(recorded)
         })
     };

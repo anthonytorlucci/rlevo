@@ -20,12 +20,13 @@ use rlevo_benchmarks::record::{
     Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
     PopulationSample as NativePopulationSample, RunId as NativeRunId,
-    TrialRef as NativeTrialRef, bincode_config,
+    TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::render::{
-    BodyKind, Color, GridAgentMarker, GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle,
-    StyledFrame, StyledLine, StyledSpan,
+    BodyKind, CardTable, Color, GridAgentMarker, GridDir, GridTile, Modifier, Point2, RigidBody2D,
+    SpanStyle, StyledFrame, StyledLine, StyledSpan, TabularCell, TabularGrid, TabularLayout,
+    TabularMarker, TabularMarkerKind, TabularSnapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -140,6 +141,45 @@ fn populated_native_record() -> NativeRecord {
                     },
                 }),
             },
+            NativeFrame {
+                step: 6,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::TabularText(NativeTabularPayload::from(
+                    TabularSnapshot {
+                        layout: TabularLayout::Grid(TabularGrid {
+                            width: 2,
+                            height: 1,
+                            cells: vec![TabularCell::Start, TabularCell::Goal],
+                            markers: vec![TabularMarker {
+                                x: 0,
+                                y: 0,
+                                kind: TabularMarkerKind::Agent,
+                            }],
+                        }),
+                    },
+                )),
+            },
+            NativeFrame {
+                step: 7,
+                action: vec![],
+                reward: 0.0,
+                ascii: None,
+                styled: None,
+                family_payload: NativePayload::TabularText(NativeTabularPayload::from(
+                    TabularSnapshot {
+                        layout: TabularLayout::Cards(CardTable {
+                            player_cards: vec![1, 10],
+                            player_total: 21,
+                            usable_ace: true,
+                            dealer_cards: vec![7],
+                            dealer_showing: 7,
+                        }),
+                    },
+                )),
+            },
         ],
         metrics: vec![
             NativeMetric {
@@ -233,6 +273,21 @@ fn native_encode_decodes_via_client_wire_types() {
                 assert_eq!(mc.tiles.len(), nc.tiles.len());
                 assert_eq!(mc.agent.x, nc.agent.x);
                 assert_eq!(mc.agent.y, nc.agent.y);
+            }
+            (client::FamilyPayload::TabularText(mc), NativePayload::TabularText(nc)) => {
+                match (&mc.layout, &nc.layout) {
+                    (client::TabularLayout::Grid(mg), TabularLayout::Grid(ng)) => {
+                        assert_eq!(mg.width, ng.width);
+                        assert_eq!(mg.cells.len(), ng.cells.len());
+                        assert_eq!(mg.markers.len(), ng.markers.len());
+                    }
+                    (client::TabularLayout::Cards(mcard), TabularLayout::Cards(ncard)) => {
+                        assert_eq!(mcard.player_total, ncard.player_total);
+                        assert_eq!(mcard.usable_ace, ncard.usable_ace);
+                        assert_eq!(mcard.dealer_showing, ncard.dealer_showing);
+                    }
+                    (om, on) => panic!("tabular layout mismatch: client={om:?} native={on:?}"),
+                }
             }
             (other_m, other_n) => panic!(
                 "family_payload variant mismatch: client={other_m:?} native={other_n:?}"

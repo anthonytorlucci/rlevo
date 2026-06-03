@@ -248,6 +248,72 @@ pub struct GridPayload {
     pub agent: GridAgentMarker,
 }
 
+/// Background class of a tabular grid cell (mirror of `rlevo-core`
+/// `TabularCell`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularCell {
+    Empty,
+    Frozen,
+    Start,
+    Goal,
+    Hazard,
+}
+
+/// Marker class overlaid on a tabular grid cell (mirror of `rlevo-core`
+/// `TabularMarkerKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularMarkerKind {
+    Agent,
+    Passenger,
+    Destination,
+    Location,
+}
+
+/// A point-of-interest overlaid on a tabular grid cell (mirror of
+/// `rlevo-core` `TabularMarker`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabularMarker {
+    pub x: u16,
+    pub y: u16,
+    pub kind: TabularMarkerKind,
+}
+
+/// Grid layout for grid-shaped toy-text envs (mirror of `rlevo-core`
+/// `TabularGrid`). `cells` is row-major, `len == width * height`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularGrid {
+    pub width: u16,
+    pub height: u16,
+    pub cells: Vec<TabularCell>,
+    pub markers: Vec<TabularMarker>,
+}
+
+/// Card-table layout for Blackjack (mirror of `rlevo-core` `CardTable`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardTable {
+    pub player_cards: Vec<u8>,
+    pub player_total: u8,
+    pub usable_ace: bool,
+    pub dealer_cards: Vec<u8>,
+    pub dealer_showing: u8,
+}
+
+/// Layout discriminant (mirror of `rlevo-core` `TabularLayout`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularLayout {
+    Grid(TabularGrid),
+    Cards(CardTable),
+}
+
+/// Structured toy-text layout (mirror of `rlevo-benchmarks::record::TabularPayload`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularPayload {
+    pub layout: TabularLayout,
+}
+
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
@@ -311,6 +377,9 @@ pub enum FamilyPayload {
     /// Structured tile grid (empty, four-rooms, door-key, …). Added in
     /// `FORMAT_VERSION = 5`.
     Grid(GridPayload),
+    /// Structured toy-text layout (FrozenLake/CliffWalking/Taxi grid, or
+    /// Blackjack cards). Added in `FORMAT_VERSION = 5`.
+    TabularText(TabularPayload),
 }
 
 /// Trial provenance. Mirror of

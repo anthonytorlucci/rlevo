@@ -685,3 +685,18 @@ mod tests {
         }
     }
 }
+
+impl rlevo_core::render::payload::TabularPayloadSource for Blackjack {
+    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+        use rlevo_core::render::payload::{CardTable, TabularLayout, TabularSnapshot};
+        TabularSnapshot {
+            layout: TabularLayout::Cards(CardTable {
+                player_cards: self.state.player_hand.clone(),
+                player_total: self.state.player_sum,
+                usable_ace: self.state.usable_ace,
+                dealer_cards: self.state.dealer_hand.clone(),
+                dealer_showing: self.state.dealer_showing,
+            }),
+        }
+    }
+}

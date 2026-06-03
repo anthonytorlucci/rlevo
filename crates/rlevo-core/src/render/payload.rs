@@ -251,6 +251,95 @@ pub trait GridPayloadSource {
     fn grid_snapshot(&self) -> GridSnapshot;
 }
 
+// ---------------------------------------------------------------------------
+// TabularText
+// ---------------------------------------------------------------------------
+
+/// Background class of a [`TabularGrid`] cell — the union of cell semantics
+/// across the grid-shaped toy-text envs (FrozenLake / CliffWalking / Taxi).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularCell {
+    /// Plain walkable cell.
+    Empty,
+    /// Frozen safe surface (FrozenLake).
+    Frozen,
+    /// Episode start cell.
+    Start,
+    /// Terminal goal cell.
+    Goal,
+    /// Hazard cell — falling in a hole / stepping off the cliff.
+    Hazard,
+}
+
+/// Semantic class of a [`TabularMarker`] overlaid on a [`TabularGrid`] cell.
+/// Each maps to a shape-distinct glyph on the report tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularMarkerKind {
+    /// The controllable agent (elf / taxi).
+    Agent,
+    /// Passenger waiting to be picked up (Taxi).
+    Passenger,
+    /// Drop-off destination (Taxi).
+    Destination,
+    /// A named pickup/drop location (Taxi's R/G/Y/B corners).
+    Location,
+}
+
+/// A point-of-interest overlaid on a grid cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabularMarker {
+    pub x: u16,
+    pub y: u16,
+    pub kind: TabularMarkerKind,
+}
+
+/// Grid layout for the grid-shaped toy-text envs. `cells` is row-major,
+/// `len == width * height`; `markers` overlay agent / passenger / destination.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularGrid {
+    pub width: u16,
+    pub height: u16,
+    pub cells: Vec<TabularCell>,
+    pub markers: Vec<TabularMarker>,
+}
+
+/// Card-table layout for Blackjack. Card values are blackjack face values
+/// (`1` = ace, `2..=10`, `10` for face cards). `dealer_showing` is the
+/// dealer's single up-card while the hole card is concealed during play;
+/// `dealer_cards` carries the full hand for post-episode review.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CardTable {
+    pub player_cards: Vec<u8>,
+    pub player_total: u8,
+    pub usable_ace: bool,
+    pub dealer_cards: Vec<u8>,
+    pub dealer_showing: u8,
+}
+
+/// Layout discriminant for [`TabularSnapshot`] — grid-shaped envs vs the
+/// Blackjack card table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TabularLayout {
+    Grid(TabularGrid),
+    Cards(CardTable),
+}
+
+/// A snapshot of a tabular (toy-text) environment at one frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularSnapshot {
+    pub layout: TabularLayout,
+}
+
+/// Producer-side trait. A toy-text env implements this so its recording
+/// ships a `FamilyPayload::TabularText` rendered from structured layout
+/// state instead of `Ascii` text.
+pub trait TabularPayloadSource {
+    fn tabular_snapshot(&self) -> TabularSnapshot;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

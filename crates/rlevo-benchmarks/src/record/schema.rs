@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use rlevo_core::render::{
     Box2dSnapshot, GridAgentMarker, GridSnapshot, GridTile, Landscape2DSnapshot,
-    Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame,
+    Locomotion2DSnapshot, Point2, RigidBody2D, StyledFrame, TabularLayout, TabularSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -148,6 +148,10 @@ pub enum FamilyPayload {
     /// `FORMAT_VERSION = 5`; the report renders SVG from this instead of
     /// the legacy ASCII path.
     Grid(GridPayload),
+    /// Structured layout for `toy_text` envs — a tile grid (`FrozenLake` /
+    /// `CliffWalking` / `Taxi`) or a card table (`Blackjack`). Added in
+    /// `FORMAT_VERSION = 5`.
+    TabularText(TabularPayload),
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +264,21 @@ impl From<GridSnapshot> for GridPayload {
             tiles: s.tiles,
             agent: s.agent,
         }
+    }
+}
+
+/// Bincode-stable mirror of [`TabularSnapshot`] for the record wire format.
+/// Reuses the wire-neutral [`TabularLayout`] (grid vs card table) from
+/// `rlevo-core::render::payload`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabularPayload {
+    /// Grid layout (`FrozenLake` / `CliffWalking` / `Taxi`) or card table (`Blackjack`).
+    pub layout: TabularLayout,
+}
+
+impl From<TabularSnapshot> for TabularPayload {
+    fn from(s: TabularSnapshot) -> Self {
+        Self { layout: s.layout }
     }
 }
 

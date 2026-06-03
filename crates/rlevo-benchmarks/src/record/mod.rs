@@ -47,8 +47,8 @@ pub use manifest::RunManifest;
 pub use schema::{
     Box2dPayload, EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload,
     FrameRecord, GridPayload, Hyperparameters, Landscape2DPayload, Locomotion2DPayload,
-    MIN_SUPPORTED_VERSION, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef,
-    bincode_config, default_frame_stride,
+    MIN_SUPPORTED_VERSION, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TabularPayload,
+    TrialRef, bincode_config, default_frame_stride,
 };
 pub use writer::{
     InMemoryRecordSink, RecordSink, RecordWriter, RecordingConfig, default_runs_dir,

@@ -24,12 +24,13 @@ use parking_lot::Mutex;
 use rlevo_core::environment::{Environment, EnvironmentError, Snapshot};
 use rlevo_core::render::{
     AsciiRenderable, Box2dPayloadSource, GridPayloadSource, Landscape2DPayloadSource,
-    Locomotion2DPayloadSource, StyledFrame,
+    Locomotion2DPayloadSource, StyledFrame, TabularPayloadSource,
 };
 use serde::Serialize;
 
 use super::schema::{
     Box2dPayload, FamilyPayload, FrameRecord, GridPayload, Landscape2DPayload, Locomotion2DPayload,
+    TabularPayload,
 };
 use super::writer::RecordSink;
 
@@ -219,6 +220,21 @@ where
     pub fn with_grid_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
         Self::new_headless(inner, sink, |e| {
             FamilyPayload::Grid(GridPayload::from(e.grid_snapshot()))
+        })
+    }
+}
+
+impl<E, const D: usize, const SD: usize, const AD: usize> RecordingTap<E, D, SD, AD>
+where
+    E: TabularPayloadSource + 'static,
+{
+    /// Convenience constructor for `toy_text` envs: extracts a structured
+    /// [`TabularPayload`] per frame via [`TabularPayloadSource`]. Uses
+    /// [`new_headless`](Self::new_headless) so the record is **structured-only**
+    /// (ADR-0013) — the report renders the grid/card layout from typed state.
+    pub fn with_tabular_payload(inner: E, sink: Arc<Mutex<dyn RecordSink>>) -> Self {
+        Self::new_headless(inner, sink, |e| {
+            FamilyPayload::TabularText(TabularPayload::from(e.tabular_snapshot()))
         })
     }
 }

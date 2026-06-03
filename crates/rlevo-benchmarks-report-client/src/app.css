@@ -217,6 +217,46 @@ svg.rlevo-svg-frame {
     .rlevo-grid-agent-fg { color: #5dade2; }
 }
 
+/* Toy-text adapter (grid layout) */
+.rlevo-tab-empty  { fill: rgba(127,127,127,0.06); stroke: rgba(127,127,127,0.18); stroke-width: 0.5; }
+.rlevo-tab-frozen { fill: rgba(93,173,226,0.18); stroke: rgba(93,173,226,0.4); stroke-width: 0.5; }
+.rlevo-tab-start  { fill: rgba(183,149,11,0.22); stroke: rgba(183,149,11,0.5); stroke-width: 0.5; }
+.rlevo-tab-goal   { fill: rgba(39,174,96,0.22); stroke: rgba(39,174,96,0.5); stroke-width: 0.5; }
+.rlevo-tab-hazard { fill: rgba(192,57,43,0.28); stroke: rgba(192,57,43,0.6); stroke-width: 0.5; }
+.rlevo-tab-glyph { font-family: ui-monospace, monospace; font-weight: 700; font-size: 14px; }
+.rlevo-tab-agent-fg     { color: #2980b9; fill: #2980b9; }
+.rlevo-tab-passenger-fg { color: #8e44ad; fill: #8e44ad; }
+.rlevo-tab-dest-fg      { color: #1e8449; fill: #1e8449; }
+.rlevo-tab-loc-fg       { color: #707b7c; fill: #707b7c; }
+.rlevo-tab-goal-swatch   { background: rgba(39,174,96,0.4); }
+.rlevo-tab-hazard-swatch { background: rgba(192,57,43,0.45); }
+
+/* Toy-text adapter (Blackjack card table) */
+.rlevo-bj-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; }
+.rlevo-bj-label { font-weight: 700; width: 4rem; }
+.rlevo-bj-hand { display: inline-flex; gap: 0.25rem; }
+.rlevo-card {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: 0.1rem 0.3rem;
+    text-align: center;
+    border: 1px solid rgba(127,127,127,0.5);
+    border-radius: 0.2rem;
+    background: rgba(127,127,127,0.08);
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+}
+.rlevo-bj-total { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.rlevo-bj-ace {
+    font-size: 0.8em;
+    padding: 0 0.35em;
+    border-radius: 0.2em;
+    background: rgba(183,149,11,0.22);
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-tab-agent-fg { color: #5dade2; fill: #5dade2; }
+}
+
 /* Box2D adapter */
 svg.rlevo-svg-box2d { max-width: 40rem; }
 .rlevo-box2d-hull {
