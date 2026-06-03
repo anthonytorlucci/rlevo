@@ -21,24 +21,30 @@
 //!
 //! # Which panels light up
 //!
-//! - **Env panel** — per-step `StyledFrame`s pushed by [`TuiEnvTap`].
+//! - **Env panel** — per-step `StyledFrame`s pushed by [`TuiEnvTap`],
+//!   drawing both the cart on its track and the balancing pole. The
+//!   pole's tilt (and its colour, green→red) tracks how close the angle
+//!   is to the failure threshold, so the panel reads as live motion.
 //! - **Reward sparkline** — `EpisodeReturn` events pushed by
 //!   [`TuiEnvTap`] on each episode termination (`CartPole` both
 //!   `Terminated` from pole failure and `Truncated` from the
 //!   `TimeLimit`). Because PPO *learns*, this sparkline climbs toward the
 //!   500-step ceiling rather than hovering at the ~20-step random floor.
-//! - **`policy_loss` / `entropy` / `approx_kl` sparklines** — PPO emits
-//!   these as structured fields at every `log_every` interval; the
+//! - **`policy_loss` / `entropy` / `approx_kl` panels** — PPO emits these
+//!   as structured fields at every `log_every` interval; the
 //!   canonical-metric registry in `rlevo-benchmarks::tui::log_layer`
-//!   routes them into the dashboard.
+//!   routes them into the dashboard. Here each gets its own bordered
+//!   panel ([`MetricsLayout::Separate`]).
 //! - **Log panel** — every PPO "training progress" line scrolls in,
 //!   styled by level.
-//! - **`best_fitness` sparkline** — *empty.* This is an EA-only signal.
+//!
+//! The EA-only `best_fitness` signal is omitted from this run's metric
+//! set, so no empty panel takes up space.
 //!
 //! # Run with
 //!
 //! ```bash
-//! cargo run -p rlevo --example tui_ppo_cartpole --features viz-tui --release
+//! cargo run -p rlevo-examples --example tui_ppo_cartpole --features viz-tui --release
 //! ```
 //!
 //! The `--release` matters: PPO's training loop is unusable at debug
@@ -56,7 +62,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use rlevo_benchmarks::env_wrappers::TuiEnvTap;
-use rlevo_benchmarks::tui::{TuiCaptureLayer, TuiConfig, TuiRunner};
+use rlevo_benchmarks::tui::{MetricsLayout, TuiCaptureLayer, TuiConfig, TuiRunner};
 
 use ppo_cartpole::{SEED, base_env, build_agent, train};
 
@@ -64,9 +70,21 @@ use ppo_cartpole::{SEED, base_env, build_agent, train};
 // giving the user time to read every panel.
 const TOTAL_TIMESTEPS: usize = 20_000;
 
+// The three metrics PPO actually emits. Naming them explicitly drops the
+// EA-only `best_fitness` panel that would otherwise sit permanently empty
+// during an RL run.
+const PPO_METRICS: &[&str] = &["policy_loss", "entropy", "approx_kl"];
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. TUI owns the terminal from here until shutdown.
-    let runner = TuiRunner::start(TuiConfig::default())?;
+    // 1. TUI owns the terminal from here until shutdown. Each metric gets
+    //    its own bordered panel so the loss/entropy/KL trajectories are
+    //    readable side-by-side rather than crammed into single rows.
+    let cfg = TuiConfig {
+        metrics: PPO_METRICS,
+        metrics_layout: MetricsLayout::Separate,
+        ..TuiConfig::default()
+    };
+    let runner = TuiRunner::start(cfg)?;
     let handle = runner.handle();
 
     // 2. Install the capture layer as the global tracing subscriber. No

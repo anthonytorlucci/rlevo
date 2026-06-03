@@ -50,7 +50,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::reporter::tui::{TuiEvent, TuiHandle};
 use crate::tui::panels::{EnvPanel, LogPanel, MetricSparkline, RewardSparkline};
 use crate::tui::state::{
-    AppState, CapturedLogLine, DEFAULT_LOG_HISTORY, DEFAULT_REWARD_HISTORY, PanelMode, StatusLine,
+    AppState, CapturedLogLine, DEFAULT_LOG_HISTORY, DEFAULT_REWARD_HISTORY, MetricsLayout,
+    PanelMode, StatusLine,
 };
 
 /// Default render tick. 60 ms ≈ 16 fps — fast enough that the env panel
@@ -69,6 +70,12 @@ pub struct TuiConfig {
     pub log_history: usize,
     /// Whether to render captured frames or the locomotion placeholder.
     pub panel_mode: PanelMode,
+    /// Metric names shown in the right-hand column, in display order.
+    /// Defaults to [`DASHBOARD_METRICS`]; narrow it to drop signals a run
+    /// never emits (e.g. EA-only `best_fitness` in a pure RL run).
+    pub metrics: &'static [&'static str],
+    /// Geometry of the metric panels. See [`MetricsLayout`].
+    pub metrics_layout: MetricsLayout,
 }
 
 impl Default for TuiConfig {
@@ -78,6 +85,8 @@ impl Default for TuiConfig {
             reward_history: DEFAULT_REWARD_HISTORY,
             log_history: DEFAULT_LOG_HISTORY,
             panel_mode: PanelMode::default(),
+            metrics: DASHBOARD_METRICS,
+            metrics_layout: MetricsLayout::default(),
         }
     }
 }
@@ -144,7 +153,8 @@ impl TuiRunner {
             .spawn(move || {
                 let mut term = terminal;
                 let mut state =
-                    AppState::with_history(cfg.reward_history, cfg.log_history, cfg.panel_mode);
+                    AppState::with_history(cfg.reward_history, cfg.log_history, cfg.panel_mode)
+                        .with_layout(cfg.metrics, cfg.metrics_layout);
                 let result = render_loop(&mut term, &mut state, &rx, &thread_shutdown, cfg.tick_ms);
                 // Always restore — even if render_loop returned an error
                 // we want the terminal usable for the user's last words.
@@ -361,10 +371,19 @@ fn render_env_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     frame.render_widget(EnvPanel::new(state), inner);
 }
 
-/// Bordered metrics column: reward sparkline plus one `MetricSparkline`
-/// per entry in [`DASHBOARD_METRICS`]. Each occupies a single row;
-/// remaining vertical space is left blank (filler row).
+/// Render the metric column according to `state.metrics_layout`, drawing
+/// the metrics named in `state.metrics` (reward sparkline always first).
 fn render_metrics_column(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    match state.metrics_layout {
+        MetricsLayout::Combined => render_metrics_combined(frame, state, area),
+        MetricsLayout::Separate => render_metrics_separate(frame, state, area),
+    }
+}
+
+/// Combined layout: one bordered "Metrics" block holding the reward
+/// sparkline plus one `MetricSparkline` per name in `state.metrics`. Each
+/// occupies a single row; remaining vertical space is left blank.
+fn render_metrics_combined(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title("Metrics");
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -372,7 +391,7 @@ fn render_metrics_column(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     // One Length(1) per sparkline plus a Min(0) filler so the column
     // remains stable when metrics arrive out of order.
     let constraints: Vec<Constraint> =
-        std::iter::repeat_n(Constraint::Length(1), 1 + DASHBOARD_METRICS.len())
+        std::iter::repeat_n(Constraint::Length(1), 1 + state.metrics.len())
             .chain(std::iter::once(Constraint::Min(0)))
             .collect();
     let rects = Layout::vertical(constraints).split(inner);
@@ -380,9 +399,34 @@ fn render_metrics_column(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     if let Some(reward_row) = rects.first() {
         frame.render_widget(RewardSparkline::new(state), *reward_row);
     }
-    for (i, name) in DASHBOARD_METRICS.iter().enumerate() {
+    for (i, name) in state.metrics.iter().enumerate() {
         if let Some(row) = rects.get(i + 1) {
             frame.render_widget(MetricSparkline::from_name(state, name), *row);
+        }
+    }
+}
+
+/// Separate layout: the reward sparkline and each metric in `state.metrics`
+/// get their own bordered, titled panel, splitting the column evenly so
+/// every chart has room for taller bars.
+fn render_metrics_separate(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let panel_count = u32::try_from(1 + state.metrics.len()).unwrap_or(u32::MAX);
+    let constraints: Vec<Constraint> =
+        std::iter::repeat_n(Constraint::Ratio(1, panel_count), panel_count as usize).collect();
+    let rects = Layout::vertical(constraints).split(area);
+
+    if let Some(&rect) = rects.first() {
+        let block = Block::default().borders(Borders::ALL).title("Reward");
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+        frame.render_widget(RewardSparkline::new(state), inner);
+    }
+    for (i, name) in state.metrics.iter().enumerate() {
+        if let Some(&rect) = rects.get(i + 1) {
+            let block = Block::default().borders(Borders::ALL).title(*name);
+            let inner = block.inner(rect);
+            frame.render_widget(block, rect);
+            frame.render_widget(MetricSparkline::bars_only(state, name), inner);
         }
     }
 }
@@ -696,6 +740,45 @@ mod tests {
         assert!(
             text.contains("training step"),
             "log message missing from log panel"
+        );
+    }
+
+    /// Separate layout draws a bordered, titled panel per metric (plus a
+    /// "Reward" panel) instead of stacking them in one "Metrics" block.
+    #[test]
+    fn draw_dashboard_separate_layout_titles_each_metric() {
+        const M: &[&str] = &["policy_loss", "entropy", "approx_kl"];
+        let backend = TestBackend::new(80, 32);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut state = AppState::default().with_layout(M, MetricsLayout::Separate);
+        for name in M {
+            state.record_metric(*name, 0.5);
+            state.record_metric(*name, 0.4);
+        }
+
+        terminal
+            .draw(|f| draw_dashboard(f, &state))
+            .expect("draw failed");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(Cell::symbol)
+            .collect();
+
+        // Each metric titles its own panel; the dedicated reward panel
+        // replaces the combined "Metrics" block.
+        assert!(text.contains("Reward"), "reward panel title missing");
+        assert!(!text.contains("Metrics"), "combined block leaked through");
+        for name in M {
+            assert!(text.contains(name), "panel title {name:?} missing");
+        }
+        // best_fitness was not in the metric set — no empty panel for it.
+        assert!(
+            !text.contains("best_fitness"),
+            "dropped metric should not appear"
         );
     }
 

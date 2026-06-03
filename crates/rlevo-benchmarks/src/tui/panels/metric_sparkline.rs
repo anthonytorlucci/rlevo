@@ -24,7 +24,13 @@ use crate::tui::theme::metric_style;
 /// canonical metric name (`best_fitness_ever`, 17 chars) plus one space.
 const LABEL_WIDTH: u16 = 18;
 
-/// Renders one named metric as a labelled 1-row sparkline.
+/// Renders one named metric as a sparkline.
+///
+/// In the default (labelled) mode the widget is a single row: a
+/// fixed-width text label followed by the bars, so several stack with
+/// aligned bar columns. In bars-only mode (see [`Self::bars_only`]) the
+/// label is dropped and the bars fill the whole area — used when an
+/// enclosing bordered block already titles the panel.
 #[derive(Debug, Clone, Copy)]
 pub struct MetricSparkline<'a> {
     state: &'a AppState,
@@ -33,6 +39,8 @@ pub struct MetricSparkline<'a> {
     /// Display label rendered to the left of the bars. Usually the same
     /// as `name` but can be shortened for the panel column.
     label: &'a str,
+    /// When `false`, skip the label column and let the bars fill the area.
+    show_label: bool,
 }
 
 impl<'a> MetricSparkline<'a> {
@@ -45,6 +53,7 @@ impl<'a> MetricSparkline<'a> {
             state,
             name,
             label,
+            show_label: true,
         }
     }
 
@@ -54,10 +63,46 @@ impl<'a> MetricSparkline<'a> {
     pub const fn from_name(state: &'a AppState, name: &'a str) -> Self {
         Self::new(state, name, name)
     }
+
+    /// Construct a label-less sparkline that fills its whole area. Pair
+    /// with a bordered block whose title carries the metric name.
+    #[must_use]
+    pub const fn bars_only(state: &'a AppState, name: &'a str) -> Self {
+        Self {
+            state,
+            name,
+            label: name,
+            show_label: false,
+        }
+    }
+
+    /// Draw the bars (or the "no data yet" hint) into `area`.
+    fn render_bars(self, area: Rect, buf: &mut Buffer) {
+        if let Some(ring) = self
+            .state
+            .metric_rings
+            .get(self.name)
+            .filter(|ring| !ring.is_empty())
+        {
+            let data = encode_returns(ring);
+            Sparkline::default()
+                .data(data)
+                .style(metric_style(self.name))
+                .render(area, buf);
+        } else {
+            let dim = RatStyle::default().add_modifier(RatModifier::DIM);
+            Paragraph::new("no data yet").style(dim).render(area, buf);
+        }
+    }
 }
 
 impl Widget for MetricSparkline<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.show_label {
+            self.render_bars(area, buf);
+            return;
+        }
+
         if area.width <= LABEL_WIDTH {
             // Not enough horizontal room for a labelled split; render
             // the label only and bail. Avoids `Layout::areas` panicking
@@ -74,21 +119,7 @@ impl Widget for MetricSparkline<'_> {
             .style(metric_style(self.name))
             .render(label_area, buf);
 
-        if let Some(ring) = self
-            .state
-            .metric_rings
-            .get(self.name)
-            .filter(|ring| !ring.is_empty())
-        {
-            let data = encode_returns(ring);
-            Sparkline::default()
-                .data(data)
-                .style(metric_style(self.name))
-                .render(bar_area, buf);
-        } else {
-            let dim = RatStyle::default().add_modifier(RatModifier::DIM);
-            Paragraph::new("no data yet").style(dim).render(bar_area, buf);
-        }
+        self.render_bars(bar_area, buf);
     }
 }
 
@@ -176,6 +207,28 @@ mod tests {
         let mut buf = Buffer::empty(area);
         MetricSparkline::from_name(&state, "policy_loss").render(area, &mut buf);
         assert!(buffer_text(&buf).contains("no data yet"));
+    }
+
+    /// Bars-only mode omits the label and fills the area with bars.
+    #[test]
+    fn bars_only_skips_label_and_fills_area() {
+        let mut state = AppState::new(8, PanelMode::Auto);
+        for v in [0.5, 0.4, 0.6, 0.3] {
+            state.record_metric("policy_loss", v);
+        }
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        MetricSparkline::bars_only(&state, "policy_loss").render(area, &mut buf);
+
+        let text = buffer_text(&buf);
+        assert!(
+            !text.contains("policy_loss"),
+            "bars-only mode must not draw the label: {text:?}"
+        );
+        let has_bar = text
+            .chars()
+            .any(|c| matches!(c, '▁' | '▂' | '▃' | '▄' | '▅' | '▆' | '▇' | '█'));
+        assert!(has_bar, "expected sparkline glyphs, got {text:?}");
     }
 
     /// Tiny widths must not panic — happens on terminal resize down.

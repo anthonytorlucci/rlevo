@@ -46,3 +46,4 @@ pub mod theme;
 
 pub use log_layer::{TuiCaptureLayer, CANONICAL_METRICS};
 pub use runner::{TuiConfig, TuiError, TuiRunner, DEFAULT_TICK_MS};
+pub use state::MetricsLayout;

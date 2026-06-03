@@ -69,6 +69,22 @@ pub enum PanelMode {
     LocomotionPlaceholder,
 }
 
+/// How the metric panels are laid out in the right-hand column.
+///
+/// The set of metrics shown is chosen separately (see
+/// [`AppState::metrics`]); this only controls their geometry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MetricsLayout {
+    /// All sparklines stacked as single rows inside one bordered
+    /// "Metrics" block. Compact; the default.
+    #[default]
+    Combined,
+    /// Each metric (and the reward) gets its own bordered, titled panel
+    /// with room for taller bars. Reads better with a handful of metrics
+    /// and a tall terminal; cramped with many.
+    Separate,
+}
+
 /// Compact status-line summary surfaced under the panels.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct StatusLine {
@@ -107,6 +123,13 @@ pub struct AppState {
     pub log_history: usize,
     /// Selected env-panel render mode.
     pub panel_mode: PanelMode,
+    /// Metric names rendered in the right-hand column, in display order.
+    /// Defaults to [`crate::tui::runner::DASHBOARD_METRICS`]; override via
+    /// [`Self::with_layout`] to hide signals a given run never emits (e.g.
+    /// the EA-only `best_fitness` during a pure RL run).
+    pub metrics: &'static [&'static str],
+    /// Geometry of the metric panels. See [`MetricsLayout`].
+    pub metrics_layout: MetricsLayout,
     /// Summary surfaced in the bottom status row.
     pub status: StatusLine,
 }
@@ -151,8 +174,26 @@ impl AppState {
             reward_history: reward_cap,
             log_history: log_cap,
             panel_mode,
+            metrics: crate::tui::runner::DASHBOARD_METRICS,
+            metrics_layout: MetricsLayout::default(),
             status: StatusLine::default(),
         }
+    }
+
+    /// Override the metric column's contents and geometry.
+    ///
+    /// `metrics` is the ordered set of metric names to show; `layout`
+    /// chooses between the stacked [`MetricsLayout::Combined`] column and
+    /// the per-metric [`MetricsLayout::Separate`] panels.
+    #[must_use]
+    pub fn with_layout(
+        mut self,
+        metrics: &'static [&'static str],
+        layout: MetricsLayout,
+    ) -> Self {
+        self.metrics = metrics;
+        self.metrics_layout = layout;
+        self
     }
 
     /// Install the most recent captured frame, replacing any prior value.
@@ -389,6 +430,21 @@ mod tests {
 
         state.mark_suite_end();
         assert!(state.status.finished);
+    }
+
+    #[test]
+    fn default_layout_is_combined_with_dashboard_metrics() {
+        let state = AppState::default();
+        assert_eq!(state.metrics_layout, MetricsLayout::Combined);
+        assert_eq!(state.metrics, crate::tui::runner::DASHBOARD_METRICS);
+    }
+
+    #[test]
+    fn with_layout_overrides_metrics_and_geometry() {
+        const M: &[&str] = &["policy_loss", "entropy"];
+        let state = AppState::default().with_layout(M, MetricsLayout::Separate);
+        assert_eq!(state.metrics, M);
+        assert_eq!(state.metrics_layout, MetricsLayout::Separate);
     }
 
     #[test]

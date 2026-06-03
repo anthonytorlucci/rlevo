@@ -508,63 +508,113 @@ impl Environment<1, 1, 1> for CartPole {
 // ASCII renderer
 // ---------------------------------------------------------------------------
 
+/// Width of the rendered cart-pole canvas, in columns.
+const RENDER_WIDTH: usize = 50;
+/// Number of rows the pole occupies above the track.
+const RENDER_POLE_H: usize = 6;
+/// Fraction of the failure angle past which the pole is drawn as a hazard
+/// (red + reversed) rather than balanced (green + bold).
+const RENDER_DANGER_TIER: f32 = 0.66;
+
 impl crate::render::AsciiRenderable for CartPole {
     fn render_ascii(&self) -> String {
-        let width = 50_usize;
-        let cart_frac = (self.state.x / self.config.x_threshold * 0.5 + 0.5).clamp(0.0, 1.0);
-        let cart_col = (cart_frac * (width as f32 - 1.0)) as usize;
-        let mut track = vec!['-'; width];
-        track[cart_col] = '#';
-        let track_str: String = track.iter().collect();
-        let angle_deg = self.state.theta.to_degrees();
-        format!("[{track_str}]  θ={angle_deg:.1}°  step={}", self.steps)
+        self.render_styled().plain_text()
     }
 
     fn render_styled(&self) -> crate::render::StyledFrame {
-        let line = self.render_ascii();
         crate::render::StyledFrame {
-            lines: vec![style_cartpole_line(&line)],
+            lines: self.scene_lines(),
         }
     }
 }
 
-/// Style one `render_ascii` line for [`CartPole`].
-///
-/// The cart glyph `#` carries [`AGENT_FG`] with [`AGENT_MODIFIER`]; the
-/// brackets and dashes carry [`WALL_FG`]; numeric annotations are unstyled.
-fn style_cartpole_line(line: &str) -> crate::render::StyledLine {
-    use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
-    use crate::render::{SpanStyle, StyledLine, StyledSpan};
+impl CartPole {
+    /// Build the styled scene drawn by the live TUI and report tiers.
+    ///
+    /// The frame is, top to bottom: [`RENDER_POLE_H`] rows tracing the pole
+    /// from tip down to the pivot, one track row carrying the cart glyph,
+    /// and a status row with the angle, cart position, and step count.
+    ///
+    /// The pole's tilt is the primary, hue-independent signal: each row's
+    /// horizontal offset and slope glyph (`/`, `|`, `\`) follow
+    /// `theta / theta_threshold`, so the tip leans a full [`RENDER_POLE_H`]
+    /// columns off vertical at the failure angle. Colour is a redundant
+    /// overlay — green/bold while balanced, red/reversed once the pole is
+    /// past [`RENDER_DANGER_TIER`] of the way to failing — satisfying the
+    /// project's "never rely on hue alone" accessibility contract.
+    fn scene_lines(&self) -> Vec<crate::render::StyledLine> {
+        use crate::render::palette::{
+            AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER, WALL_FG,
+        };
+        use crate::render::{SpanStyle, StyledLine, StyledSpan};
 
-    let wall_style = SpanStyle::default().fg(WALL_FG);
-    let agent_style = SpanStyle::default()
-        .fg(AGENT_FG)
-        .with_modifier(AGENT_MODIFIER);
+        let width = RENDER_WIDTH;
+        let cart_frac = (self.state.x / self.config.x_threshold * 0.5 + 0.5).clamp(0.0, 1.0);
+        let cart_col = (cart_frac * (width as f32 - 1.0)) as usize;
 
-    let Some(close_idx) = line.find(']') else {
-        return StyledLine::unstyled(line);
-    };
-    let track_segment = &line[..=close_idx];
-    let suffix = &line[close_idx + 1..];
+        let theta = self.state.theta;
+        let threshold = self.config.theta_threshold_radians.max(f32::EPSILON);
+        let danger = (theta.abs() / threshold).clamp(0.0, 1.0);
+        // Horizontal tip offset in columns: a full pole-height lean at the
+        // failure angle makes the diagonal unmistakable.
+        let tip_frac = (theta / threshold).clamp(-1.0, 1.0);
+        let max_tip = RENDER_POLE_H as f32;
 
-    let Some(cart_col) = track_segment.find('#') else {
-        return StyledLine::unstyled(line);
-    };
+        let pole_style = if danger >= RENDER_DANGER_TIER {
+            SpanStyle::default()
+                .fg(HAZARD_FG)
+                .with_modifier(HAZARD_MODIFIER)
+        } else {
+            SpanStyle::default().fg(GOAL_FG).with_modifier(GOAL_MODIFIER)
+        };
+        // Positive theta is clockwise (top leans right) → '/'.
+        let glyph = if tip_frac > 0.08 {
+            '/'
+        } else if tip_frac < -0.08 {
+            '\\'
+        } else {
+            '|'
+        };
 
-    let mut spans = Vec::with_capacity(4);
-    spans.push(StyledSpan::new(
-        track_segment[..cart_col].to_string(),
-        wall_style,
-    ));
-    spans.push(StyledSpan::new("#", agent_style));
-    spans.push(StyledSpan::new(
-        track_segment[cart_col + 1..].to_string(),
-        wall_style,
-    ));
-    if !suffix.is_empty() {
-        spans.push(StyledSpan::raw(suffix.to_string()));
+        let wall_style = SpanStyle::default().fg(WALL_FG);
+        let agent_style = SpanStyle::default()
+            .fg(AGENT_FG)
+            .with_modifier(AGENT_MODIFIER);
+
+        let mut lines = Vec::with_capacity(RENDER_POLE_H + 2);
+
+        // Pole rows, tip first. Row `r` sits `RENDER_POLE_H - r` cells above
+        // the pivot, so the offset shrinks to zero as we approach the cart.
+        for r in 0..RENDER_POLE_H {
+            let height_from_base = (RENDER_POLE_H - r) as f32;
+            let frac = height_from_base / RENDER_POLE_H as f32;
+            let offset = (frac * tip_frac * max_tip).round() as i32;
+            let col = (cart_col as i32 + offset).clamp(0, width as i32 - 1) as usize;
+
+            lines.push(StyledLine::from_spans([
+                StyledSpan::raw(" ".repeat(col)),
+                StyledSpan::new(glyph.to_string(), pole_style),
+                StyledSpan::raw(" ".repeat(width - col - 1)),
+            ]));
+        }
+
+        // Track row: dashes with the cart glyph sitting on it.
+        lines.push(StyledLine::from_spans([
+            StyledSpan::new("-".repeat(cart_col), wall_style),
+            StyledSpan::new("#", agent_style),
+            StyledSpan::new("-".repeat(width - cart_col - 1), wall_style),
+        ]));
+
+        // Status row — plain text, mirroring the old single-line summary.
+        lines.push(StyledLine::unstyled(format!(
+            "  θ={:+.1}°  x={:+.2}  step={}",
+            theta.to_degrees(),
+            self.state.x,
+            self.steps
+        )));
+
+        lines
     }
-    StyledLine::from_spans(spans)
 }
 
 // ---------------------------------------------------------------------------
@@ -828,34 +878,43 @@ mod tests {
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
-        assert_eq!(styled.lines.len(), 1);
+        // Pole rows + track row + status row.
+        assert_eq!(styled.lines.len(), RENDER_POLE_H + 2);
         assert_eq!(styled.plain_text(), plain);
+        assert!(
+            plain.lines().last().unwrap().contains("step="),
+            "status row missing: {plain:?}"
+        );
     }
 
     #[test]
     fn render_styled_uses_palette_consts() {
         use crate::render::AsciiRenderable;
-        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, WALL_FG};
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, WALL_FG};
 
         let mut env = CartPole::new(false);
         env.reset().unwrap();
         let styled = env.render_styled();
-        let line = &styled.lines[0];
+        let spans = || styled.lines.iter().flat_map(|l| l.spans.iter());
 
-        let cart_span = line
-            .spans
-            .iter()
+        // Cart glyph lives on the track row, carrying the agent style.
+        let cart_span = spans()
             .find(|s| s.text == "#")
             .expect("cart glyph span present");
         assert_eq!(cart_span.style.fg, Some(AGENT_FG));
         assert!(cart_span.style.modifier.contains(AGENT_MODIFIER));
 
-        let bracket_span = line
-            .spans
-            .iter()
-            .find(|s| s.text.starts_with('['))
-            .expect("track-opening span present");
-        assert_eq!(bracket_span.style.fg, Some(WALL_FG));
+        // The track dashes carry the wall style.
+        let track_span = spans()
+            .find(|s| s.text.starts_with('-'))
+            .expect("track dash span present");
+        assert_eq!(track_span.style.fg, Some(WALL_FG));
+
+        // At reset the pole is near-vertical, so it renders balanced (goal).
+        let pole_span = spans()
+            .find(|s| matches!(s.text.as_str(), "|" | "/" | "\\"))
+            .expect("pole glyph span present");
+        assert_eq!(pole_span.style.fg, Some(GOAL_FG));
     }
 
     #[test]
