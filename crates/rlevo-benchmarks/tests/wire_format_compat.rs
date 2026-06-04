@@ -13,13 +13,14 @@
 #![cfg(feature = "record")]
 
 use rlevo_benchmarks::record::{
-    Box2dPayload as NativeBox2dPayload, EnvFamily as NativeFamily,
-    EpisodeRecord as NativeRecord, EpisodeRecordHeader as NativeHeader,
-    Classic2DPayload as NativeClassic2DPayload, FORMAT_VERSION as NATIVE_VERSION,
-    FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
-    Landscape2DPayload as NativeLandscapePayload,
+    Box2dPayload as NativeBox2dPayload, CheckpointFormat as NativeCheckpointFormat,
+    CheckpointKind as NativeCheckpointKind, CheckpointRef as NativeCheckpointRef,
+    EnvFamily as NativeFamily, EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
+    EpisodeRecordHeader as NativeHeader, Classic2DPayload as NativeClassic2DPayload,
+    FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload, FrameRecord as NativeFrame,
+    GridPayload as NativeGridPayload, Landscape2DPayload as NativeLandscapePayload,
     Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
-    PopulationSample as NativePopulationSample, RunId as NativeRunId,
+    PopulationSample as NativePopulationSample, RunId as NativeRunId, RunManifest as NativeManifest,
     TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
@@ -43,6 +44,7 @@ fn populated_native_record() -> NativeRecord {
                 env_index: 3,
                 trial_index: 4,
             }),
+            kind: NativeEpisodeKind::Evaluation,
         },
         frames: vec![
             NativeFrame {
@@ -268,6 +270,8 @@ fn native_encode_decodes_via_client_wire_types() {
     let trial = mirrored.header.trial.expect("trial provenance decoded");
     assert_eq!(trial.env_index, 3);
     assert_eq!(trial.trial_index, 4);
+    // v6 episode kind survives the host→client round-trip.
+    assert_eq!(mirrored.header.kind, client::EpisodeKind::Evaluation);
     assert_eq!(mirrored.frames.len(), native.frames.len());
     for (m, n) in mirrored.frames.iter().zip(native.frames.iter()) {
         assert_eq!(m.step, n.step);
@@ -349,6 +353,36 @@ fn native_encode_decodes_via_client_wire_types() {
         assert_eq!(m.parents_of_best, n.parents_of_best);
         assert_eq!(m.inner_rl_returns.is_some(), n.inner_rl_returns.is_some());
     }
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn manifest_provenance_and_checkpoints_mirror_via_json() {
+    // The report client reads the manifest as JSON; guard that the v6
+    // provenance fields + checkpoint list survive the host→client decode.
+    let mut native = NativeManifest::new(NativeRunId("m6".into()), 7, NativeFamily::Classic, 1);
+    native.algorithm = Some("ppo".into());
+    native.num_seeds = Some(10);
+    native.success_threshold = Some(195.0);
+    native.checkpoints = vec![NativeCheckpointRef {
+        step: 5000,
+        kind: NativeCheckpointKind::Best,
+        format: NativeCheckpointFormat::NamedMpk,
+        path: "checkpoints/best.mpk".into(),
+        metric: Some(241.7),
+        digest: Some([5u8; 16]),
+    }];
+
+    let json = serde_json::to_string(&native).unwrap();
+    let mirrored: client::RunManifest = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(mirrored.algorithm.as_deref(), Some("ppo"));
+    assert_eq!(mirrored.num_seeds, Some(10));
+    assert_eq!(mirrored.success_threshold, Some(195.0));
+    assert_eq!(mirrored.checkpoints.len(), 1);
+    assert_eq!(mirrored.checkpoints[0].path, "checkpoints/best.mpk");
+    assert_eq!(mirrored.checkpoints[0].kind, client::CheckpointKind::Best);
+    assert_eq!(mirrored.checkpoints[0].step, 5000);
 }
 
 #[test]

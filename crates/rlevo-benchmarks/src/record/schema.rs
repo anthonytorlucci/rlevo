@@ -25,13 +25,13 @@ use serde::{Deserialize, Serialize};
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
 // same value.  The const assertions in tests/wire_format_compat.rs
 // enforce this at compile time when tests are built.
-pub const FORMAT_VERSION: u16 = 5;
+pub const FORMAT_VERSION: u16 = 6;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
-pub const MIN_SUPPORTED_VERSION: u16 = 5;
+pub const MIN_SUPPORTED_VERSION: u16 = 6;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -323,6 +323,82 @@ pub struct TrialRef {
     pub trial_index: u32,
 }
 
+/// Whether an episode was recorded during training (exploration on) or
+/// evaluation (deterministic / greedy). Added in `FORMAT_VERSION = 6`.
+///
+/// Eval rollouts are recorded as separate episode files tagged
+/// [`EpisodeKind::Evaluation`]; the metric samples captured into that file
+/// inherit the tag by file membership, so no per-sample discriminator is
+/// needed. `Training` is the default for existing producers.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum EpisodeKind {
+    /// Exploration rollout produced while the policy is being updated.
+    #[default]
+    Training,
+    /// Deterministic rollout produced to measure the current policy.
+    Evaluation,
+}
+
+/// Why a [`CheckpointRef`] was written. Added in `FORMAT_VERSION = 6`.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum CheckpointKind {
+    /// Saved on a periodic step interval during training.
+    Periodic,
+    /// Saved because it is the best-performing checkpoint so far.
+    Best,
+    /// Saved at the end of the run.
+    Final,
+}
+
+/// Serialisation format of a saved learner checkpoint, mirroring the Burn
+/// file recorder that wrote it. Added in `FORMAT_VERSION = 6`.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum CheckpointFormat {
+    /// `NamedMpkFileRecorder` (`.mpk`).
+    NamedMpk,
+    /// `NamedMpkGzFileRecorder` (`.mpk.gz`).
+    NamedMpkGz,
+    /// `BinFileRecorder` (`.bin`).
+    Bin,
+    /// `PrettyJsonFileRecorder` (`.json`).
+    Json,
+    /// Any other recorder.
+    Other,
+}
+
+/// A reference to one Burn-saved learner checkpoint.
+///
+/// Deep-RL produces a trained artifact — the policy / value networks — that
+/// the record cannot otherwise point to. Burn owns model serialisation via
+/// its `Recorder` trait, so the record **references** the saved file(s) and
+/// never embeds weights. This is the deep-RL analog of
+/// [`PopulationSample::best_genome_digest`] (a pointer, not the genome).
+/// Carried only in [`super::manifest::RunManifest::checkpoints`]; pure
+/// evolutionary-optimisation runs leave that list empty. Added in
+/// `FORMAT_VERSION = 6`.
+// Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckpointRef {
+    /// Global training step at which the checkpoint was written.
+    pub step: u32,
+    /// Why this checkpoint was written.
+    pub kind: CheckpointKind,
+    /// Burn recorder format used for the artifact.
+    pub format: CheckpointFormat,
+    /// Path to the artifact, relative to the run directory.
+    pub path: String,
+    /// Metric (e.g. eval return) at save time, if known.
+    pub metric: Option<f64>,
+    /// 128-bit content digest, like [`PopulationSample::best_genome_digest`].
+    pub digest: Option<[u8; 16]>,
+}
+
 /// Header written at the start of every `episode_*.rec` file. Carries
 /// run-level identification + the format-version stamp the loader uses
 /// to refuse mismatched files.
@@ -341,6 +417,9 @@ pub struct EpisodeRecordHeader {
     /// Trial that produced this episode, or `None` for non-harness
     /// producers. Added in `FORMAT_VERSION = 4`.
     pub trial: Option<TrialRef>,
+    /// Whether this episode was a training or evaluation rollout. Added in
+    /// `FORMAT_VERSION = 6`; defaults to [`EpisodeKind::Training`].
+    pub kind: EpisodeKind,
 }
 
 /// One captured frame, written length-prefixed to the per-episode
@@ -434,9 +513,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_five_and_min_supported_is_five() {
-        assert_eq!(FORMAT_VERSION, 5);
-        assert_eq!(MIN_SUPPORTED_VERSION, 5);
+    fn format_version_is_six_and_min_supported_is_six() {
+        assert_eq!(FORMAT_VERSION, 6);
+        assert_eq!(MIN_SUPPORTED_VERSION, 6);
     }
 
     #[test]
@@ -506,6 +585,7 @@ mod tests {
                 env_index: 1,
                 trial_index: 2,
             }),
+            kind: EpisodeKind::Training,
         }
     }
 
@@ -559,6 +639,37 @@ mod tests {
             bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
         assert_eq!(h, decoded);
         assert!(decoded.trial.is_none());
+    }
+
+    #[test]
+    fn header_round_trips_each_episode_kind() {
+        for kind in [EpisodeKind::Training, EpisodeKind::Evaluation] {
+            let h = EpisodeRecordHeader {
+                kind,
+                ..sample_header()
+            };
+            let bytes = bincode::serde::encode_to_vec(&h, bincode_config()).unwrap();
+            let (decoded, _): (EpisodeRecordHeader, usize) =
+                bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+            assert_eq!(h, decoded);
+            assert_eq!(decoded.kind, kind);
+        }
+    }
+
+    #[test]
+    fn checkpoint_ref_round_trips() {
+        let c = CheckpointRef {
+            step: 50_000,
+            kind: CheckpointKind::Best,
+            format: CheckpointFormat::NamedMpk,
+            path: "checkpoints/best.mpk".into(),
+            metric: Some(241.7),
+            digest: Some([9u8; 16]),
+        };
+        let bytes = bincode::serde::encode_to_vec(&c, bincode_config()).unwrap();
+        let (decoded, _): (CheckpointRef, usize) =
+            bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
+        assert_eq!(c, decoded);
     }
 
     #[test]

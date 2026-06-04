@@ -21,15 +21,16 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread::{self, ThreadId};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use super::error::RecordError;
 use super::manifest::RunManifest;
 use super::schema::{
-    EnvFamily, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION, FrameRecord, MetricSample,
-    PopulationSample, RecordedEnvFamily, RunId, TrialRef, bincode_config, default_frame_stride,
+    CheckpointRef, EnvFamily, EpisodeKind, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION,
+    FrameRecord, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef, bincode_config,
+    default_frame_stride,
 };
 
 /// Per-run configuration: the writer materialises this once at the
@@ -127,6 +128,24 @@ pub trait RecordSink: Send + 'static {
     /// Default no-op — non-harness producers leave episodes with
     /// `trial = None`.
     fn set_trial_context(&mut self, _trial: Option<TrialRef>) {}
+
+    /// Set the [`EpisodeKind`] stamped into subsequent episode headers.
+    ///
+    /// Stays in effect until changed (like [`set_trial_context`](Self::set_trial_context)).
+    /// A driver running deterministic evaluation rollouts calls this with
+    /// [`EpisodeKind::Evaluation`] around them and restores
+    /// [`EpisodeKind::Training`] afterward. Default no-op leaves every
+    /// episode `Training`, so existing producers are correct unchanged.
+    fn set_episode_kind(&mut self, _kind: EpisodeKind) {}
+
+    /// Register a reference to a learner checkpoint the producer has just
+    /// written via Burn's `Recorder`.
+    ///
+    /// Accumulated and merged into the run manifest at
+    /// [`on_run_end`](Self::on_run_end). The record references the saved
+    /// file; it never embeds weights. Default no-op — non-RL / un-wired
+    /// sinks need no override; pure-EA runs never call it.
+    fn register_checkpoint(&mut self, _checkpoint: CheckpointRef) {}
 }
 
 /// One framed chunk in the per-episode wire stream.
@@ -164,6 +183,13 @@ pub struct RecordWriter {
     /// Set by [`RecordSink::set_trial_context`]; `None` for non-harness
     /// producers.
     current_trial: Option<TrialRef>,
+    /// Episode kind stamped into each episode header until changed. Set by
+    /// [`RecordSink::set_episode_kind`]; defaults to [`EpisodeKind::Training`].
+    current_kind: EpisodeKind,
+    /// Learner checkpoints registered during the run via
+    /// [`RecordSink::register_checkpoint`]; merged into the manifest at
+    /// [`RecordSink::on_run_end`]. Empty for EA / un-wired RL runs.
+    checkpoints: Vec<CheckpointRef>,
 }
 
 impl std::fmt::Debug for RecordWriter {
@@ -181,12 +207,17 @@ impl std::fmt::Debug for RecordWriter {
             .field("first_error", &self.first_error)
             .field("owner", &self.owner)
             .field("current_trial", &self.current_trial)
+            .field("current_kind", &self.current_kind)
+            .field("checkpoints", &self.checkpoints.len())
             .finish()
     }
 }
 
 struct EpisodeFile {
     writer: BufWriter<File>,
+    /// Monotonic clock stamped when the file was opened, used to compute
+    /// the episode wall-clock (`t`) terminal metric at close.
+    open_instant: Instant,
 }
 
 /// Default root directory for recordings, honoring the `RLEVO_RUNS_DIR`
@@ -238,6 +269,8 @@ impl RecordWriter {
             first_error: None,
             owner: None,
             current_trial: None,
+            current_kind: EpisodeKind::Training,
+            checkpoints: Vec::new(),
         })
     }
 
@@ -333,10 +366,14 @@ impl RecordWriter {
             env_family: self.cfg.env_family,
             created_at: self.created_at,
             trial: self.current_trial,
+            kind: self.current_kind,
         };
         write_chunk_raw(&mut writer, &header)?;
 
-        self.current = Some(EpisodeFile { writer });
+        self.current = Some(EpisodeFile {
+            writer,
+            open_instant: Instant::now(),
+        });
         self.owner = Some(thread::current().id());
         Ok(())
     }
@@ -466,9 +503,31 @@ impl RecordSink for RecordWriter {
         }
     }
 
-    fn on_episode_end(&mut self, _return_value: f64, _length: u32) {
+    fn on_episode_end(&mut self, return_value: f64, length: u32) {
         if self.reject_concurrent_use() {
             return;
+        }
+        // Emit the (r, l, t) episode triple as terminal metrics into the
+        // open file's metric buffer *before* the flush+close drains it.
+        // `r` and `l` arrive on this call; only `t` (wall-clock) is new.
+        if let Some(current) = self.current.as_ref() {
+            let step = u32::try_from(self.frames_seen.saturating_sub(1)).unwrap_or(u32::MAX);
+            let wall_clock = current.open_instant.elapsed().as_secs_f64();
+            self.pending_metrics.push(MetricSample {
+                step,
+                name: "episode_return".to_string(),
+                value: return_value,
+            });
+            self.pending_metrics.push(MetricSample {
+                step,
+                name: "episode_length".to_string(),
+                value: f64::from(length),
+            });
+            self.pending_metrics.push(MetricSample {
+                step,
+                name: "episode_wall_clock_secs".to_string(),
+                value: wall_clock,
+            });
         }
         // Only count episodes that were actually open; a stray
         // `on_episode_end` with no current file is a no-op.
@@ -480,6 +539,9 @@ impl RecordSink for RecordWriter {
     fn on_run_end(&mut self, mut manifest: RunManifest) {
         manifest.episode_count = self.episode_count;
         manifest.finished_at = now_unix();
+        if manifest.checkpoints.is_empty() {
+            manifest.checkpoints = std::mem::take(&mut self.checkpoints);
+        }
         if let Err(e) = manifest.write_atomic(&self.dir) {
             self.record_error(RecordError::Io {
                 context: "write run manifest",
@@ -498,6 +560,14 @@ impl RecordSink for RecordWriter {
 
     fn set_trial_context(&mut self, trial: Option<TrialRef>) {
         self.current_trial = trial;
+    }
+
+    fn set_episode_kind(&mut self, kind: EpisodeKind) {
+        self.current_kind = kind;
+    }
+
+    fn register_checkpoint(&mut self, checkpoint: CheckpointRef) {
+        self.checkpoints.push(checkpoint);
     }
 }
 
@@ -600,6 +670,13 @@ pub struct InMemoryRecordSink {
     /// Last trial context set via [`RecordSink::set_trial_context`];
     /// stamped into the header of each episode opened afterward.
     pub last_trial_context: Option<TrialRef>,
+    /// Last episode kind set via [`RecordSink::set_episode_kind`]; stamped
+    /// into the header of each episode opened afterward.
+    pub last_episode_kind: EpisodeKind,
+    /// Checkpoints registered via [`RecordSink::register_checkpoint`];
+    /// merged into the manifest at [`RecordSink::on_run_end`], mirroring
+    /// [`RecordWriter`].
+    pub checkpoints: Vec<CheckpointRef>,
     /// First error reported by a producer via
     /// [`RecordSink::record_external_error`], surfaced through
     /// [`take_error`](RecordSink::take_error). First-error-wins, matching
@@ -628,6 +705,7 @@ impl RecordSink for InMemoryRecordSink {
                     env_family: EnvFamily::Classic,
                     created_at: 0,
                     trial: self.last_trial_context,
+                    kind: self.last_episode_kind,
                 },
                 frames: Vec::new(),
                 metrics: Vec::new(),
@@ -659,7 +737,10 @@ impl RecordSink for InMemoryRecordSink {
     fn on_episode_end(&mut self, _return_value: f64, _length: u32) {
         self.current = None;
     }
-    fn on_run_end(&mut self, manifest: RunManifest) {
+    fn on_run_end(&mut self, mut manifest: RunManifest) {
+        if manifest.checkpoints.is_empty() {
+            manifest.checkpoints = std::mem::take(&mut self.checkpoints);
+        }
         self.manifests.push(manifest);
     }
     fn record_external_error(&mut self, error: RecordError) {
@@ -673,11 +754,18 @@ impl RecordSink for InMemoryRecordSink {
     fn set_trial_context(&mut self, trial: Option<TrialRef>) {
         self.last_trial_context = trial;
     }
+    fn set_episode_kind(&mut self, kind: EpisodeKind) {
+        self.last_episode_kind = kind;
+    }
+    fn register_checkpoint(&mut self, checkpoint: CheckpointRef) {
+        self.checkpoints.push(checkpoint);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record::schema::{CheckpointFormat, CheckpointKind};
     use rlevo_core::render::{StyledFrame, StyledLine, StyledSpan};
     use tempfile::tempdir;
 
@@ -773,8 +861,12 @@ mod tests {
         assert_eq!(decoded.frames.len(), 2);
         assert_eq!(decoded.frames[0].step, 0);
         assert_eq!(decoded.frames[1].step, 1);
-        assert_eq!(decoded.metrics.len(), 1);
-        assert_eq!(decoded.metrics[0].name, "policy_loss");
+        // policy_loss + the (r, l, t) terminal triple emitted at episode end.
+        let names: Vec<&str> = decoded.metrics.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"policy_loss"));
+        assert!(names.contains(&"episode_return"));
+        assert!(names.contains(&"episode_length"));
+        assert!(names.contains(&"episode_wall_clock_secs"));
 
         // Manifest written + decodable.
         let manifest_path = w.run_dir().join("run.toml");
@@ -1078,12 +1170,15 @@ mod tests {
         );
         assert_eq!(ep0.metrics[0].name, "policy_loss");
 
-        // The next episode must not inherit the prior episode's metrics.
+        // The next episode must not inherit the prior episode's buffered
+        // metric; it carries only its own (r, l, t) terminal triple.
         let ep1 = read_episode_record(&w.run_dir().join("episode_000001.rec")).unwrap();
+        let ep1_names: Vec<&str> = ep1.metrics.iter().map(|m| m.name.as_str()).collect();
         assert!(
-            ep1.metrics.is_empty(),
+            !ep1_names.contains(&"policy_loss"),
             "metrics buffer must reset across the reset boundary"
         );
+        assert!(ep1_names.contains(&"episode_return"));
     }
 
     #[test]
@@ -1109,5 +1204,73 @@ mod tests {
         let body = std::fs::read_to_string(w.run_dir().join("run.toml")).unwrap();
         let m: RunManifest = toml::from_str(&body).unwrap();
         assert_eq!(m.episode_count, 1);
+    }
+
+    #[test]
+    fn episode_kind_stamps_separate_eval_and_training_files() {
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("kind-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+
+        // Episode 0: an evaluation rollout.
+        w.set_episode_kind(EpisodeKind::Evaluation);
+        w.on_episode_start(0);
+        w.on_frame(frame(0, 1.0));
+        w.on_episode_end(1.0, 1);
+
+        // Episode 1: back to training (the default).
+        w.set_episode_kind(EpisodeKind::Training);
+        w.on_episode_start(1);
+        w.on_frame(frame(0, 1.0));
+        w.on_episode_end(1.0, 1);
+        w.on_run_end(w.manifest_template());
+
+        let ep0 = read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
+        let ep1 = read_episode_record(&w.run_dir().join("episode_000001.rec")).unwrap();
+        assert_eq!(ep0.header.kind, EpisodeKind::Evaluation);
+        assert_eq!(ep1.header.kind, EpisodeKind::Training);
+    }
+
+    #[test]
+    fn registered_checkpoints_land_in_manifest() {
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("ckpt-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+        w.on_episode_start(0);
+        w.on_frame(frame(0, 1.0));
+        w.on_episode_end(1.0, 1);
+        w.register_checkpoint(CheckpointRef {
+            step: 1000,
+            kind: CheckpointKind::Periodic,
+            format: CheckpointFormat::NamedMpk,
+            path: "checkpoints/step_1000.mpk".into(),
+            metric: Some(12.0),
+            digest: None,
+        });
+        w.register_checkpoint(CheckpointRef {
+            step: 5000,
+            kind: CheckpointKind::Best,
+            format: CheckpointFormat::NamedMpk,
+            path: "checkpoints/best.mpk".into(),
+            metric: Some(98.5),
+            digest: Some([1u8; 16]),
+        });
+        w.on_run_end(w.manifest_template());
+
+        let body = std::fs::read_to_string(w.run_dir().join("run.toml")).unwrap();
+        let m: RunManifest = toml::from_str(&body).unwrap();
+        assert_eq!(m.checkpoints.len(), 2);
+        assert_eq!(m.checkpoints[0].path, "checkpoints/step_1000.mpk");
+        assert_eq!(m.checkpoints[1].kind, CheckpointKind::Best);
     }
 }

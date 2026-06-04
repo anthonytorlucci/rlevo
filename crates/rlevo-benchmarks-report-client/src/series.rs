@@ -18,6 +18,31 @@ pub const CANONICAL_METRICS: &[&str] = &[
     "entropy",
     "approx_kl",
     "clip_frac",
+    // v6 RL diagnostics + per-iteration stats.
+    "explained_variance",
+    "old_approx_kl",
+    "episode_return_mean",
+    "episode_return_std",
+    "episode_return_min",
+    "episode_return_max",
+    "episode_length_mean",
+    "env_steps_sampled",
+    "steps_per_sec",
+    "learning_rate",
+    // v6 per-episode terminal triple.
+    "episode_return",
+    "episode_length",
+    "episode_wall_clock_secs",
+    // v6 DQN / SAC / schedule metrics.
+    "td_loss",
+    "q_values",
+    "qf1_loss",
+    "qf2_loss",
+    "actor_loss",
+    "alpha",
+    "alpha_loss",
+    "clip_range",
+    "n_updates",
     "best_fitness",
     "mean_fitness",
     "worst_fitness",
@@ -281,8 +306,8 @@ pub fn fitness_range_series(
 mod tests {
     use super::*;
     use crate::wire::{
-        EnvFamily, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample, RunId,
-        FORMAT_VERSION,
+        EnvFamily, EpisodeKind, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample,
+        RunId, FORMAT_VERSION,
     };
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
@@ -313,6 +338,7 @@ mod tests {
                 env_family: EnvFamily::Classic,
                 created_at: 0,
                 trial: None,
+                kind: EpisodeKind::Training,
             },
             frames,
             metrics,

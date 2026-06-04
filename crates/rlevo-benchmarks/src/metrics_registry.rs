@@ -25,6 +25,34 @@ pub const CANONICAL_METRICS: &[&str] = &[
     "entropy",
     "approx_kl",
     "clip_frac",
+    // RL value/policy diagnostics (added in FORMAT_VERSION = 6).
+    "explained_variance",
+    "old_approx_kl",
+    // Per-iteration training stats (v6).
+    "episode_return_mean",
+    "episode_return_std",
+    "episode_return_min",
+    "episode_return_max",
+    "episode_length_mean",
+    "env_steps_sampled",
+    "steps_per_sec",
+    "learning_rate",
+    // Per-episode terminal triple emitted by the record writer (v6).
+    "episode_return",
+    "episode_length",
+    "episode_wall_clock_secs",
+    // DQN family (v6).
+    "td_loss",
+    "q_values",
+    // SAC family (v6).
+    "qf1_loss",
+    "qf2_loss",
+    "actor_loss",
+    "alpha",
+    "alpha_loss",
+    // Schedules (v6).
+    "clip_range",
+    "n_updates",
     // Evolution training stats emitted by `EvolutionaryHarness`.
     "best_fitness",
     "mean_fitness",
@@ -54,5 +82,31 @@ mod tests {
         assert!(!is_canonical_metric("batch_size"));
         assert!(!is_canonical_metric("not_a_metric"));
         assert!(!is_canonical_metric(""));
+    }
+
+    #[test]
+    fn v6_additions_are_recognised() {
+        for name in [
+            "explained_variance",
+            "old_approx_kl",
+            "episode_return_mean",
+            "env_steps_sampled",
+            "steps_per_sec",
+            "learning_rate",
+            "episode_return",
+            "episode_length",
+            "episode_wall_clock_secs",
+            "td_loss",
+            "q_values",
+            "qf1_loss",
+            "qf2_loss",
+            "actor_loss",
+            "alpha",
+            "alpha_loss",
+            "clip_range",
+            "n_updates",
+        ] {
+            assert!(is_canonical_metric(name), "{name} should be canonical");
+        }
     }
 }

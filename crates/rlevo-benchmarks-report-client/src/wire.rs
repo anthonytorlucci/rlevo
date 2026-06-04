@@ -350,12 +350,12 @@ pub struct Classic2DPayload {
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
-pub const FORMAT_VERSION: u16 = 5;
+pub const FORMAT_VERSION: u16 = 6;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
 // Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
-pub const MIN_SUPPORTED_VERSION: u16 = 5;
+pub const MIN_SUPPORTED_VERSION: u16 = 6;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
 #[must_use]
@@ -425,6 +425,69 @@ pub struct TrialRef {
     pub trial_index: u32,
 }
 
+/// Whether an episode was a training or evaluation rollout. Added in
+/// `FORMAT_VERSION = 6`.
+// Mirror of `rlevo-benchmarks::record::EpisodeKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum EpisodeKind {
+    /// Exploration rollout produced while the policy is being updated.
+    #[default]
+    Training,
+    /// Deterministic rollout produced to measure the current policy.
+    Evaluation,
+}
+
+/// Why a [`CheckpointRef`] was written. Added in `FORMAT_VERSION = 6`.
+// Mirror of `rlevo-benchmarks::record::CheckpointKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum CheckpointKind {
+    /// Saved on a periodic step interval during training.
+    Periodic,
+    /// Saved because it is the best-performing checkpoint so far.
+    Best,
+    /// Saved at the end of the run.
+    Final,
+}
+
+/// Burn recorder format of a saved learner checkpoint. Added in
+/// `FORMAT_VERSION = 6`.
+// Mirror of `rlevo-benchmarks::record::CheckpointFormat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum CheckpointFormat {
+    /// `NamedMpkFileRecorder` (`.mpk`).
+    NamedMpk,
+    /// `NamedMpkGzFileRecorder` (`.mpk.gz`).
+    NamedMpkGz,
+    /// `BinFileRecorder` (`.bin`).
+    Bin,
+    /// `PrettyJsonFileRecorder` (`.json`).
+    Json,
+    /// Any other recorder.
+    Other,
+}
+
+/// Reference to one Burn-saved learner checkpoint; the record references
+/// the file and never embeds weights. Added in `FORMAT_VERSION = 6`.
+// Mirror of `rlevo-benchmarks::record::CheckpointRef`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckpointRef {
+    /// Global training step at which the checkpoint was written.
+    pub step: u32,
+    /// Why this checkpoint was written.
+    pub kind: CheckpointKind,
+    /// Burn recorder format used for the artifact.
+    pub format: CheckpointFormat,
+    /// Path to the artifact, relative to the run directory.
+    pub path: String,
+    /// Metric (e.g. eval return) at save time, if known.
+    pub metric: Option<f64>,
+    /// 128-bit content digest.
+    pub digest: Option<[u8; 16]>,
+}
+
 /// Fixed-size preamble written at the start of every `.rec` file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpisodeRecordHeader {
@@ -441,6 +504,9 @@ pub struct EpisodeRecordHeader {
     /// Trial that produced this episode, or `None` for non-harness
     /// producers. Added in `FORMAT_VERSION = 4`.
     pub trial: Option<TrialRef>,
+    /// Whether this episode was a training or evaluation rollout. Added in
+    /// `FORMAT_VERSION = 6`.
+    pub kind: EpisodeKind,
 }
 
 /// One recorded simulation step, stored as a [`RecordChunk::Frame`].
@@ -521,7 +587,10 @@ pub struct EpisodeRecord {
 pub type Hyperparameters = BTreeMap<String, String>;
 
 /// JSON manifest embedded in `index.html` describing the overall run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is intentionally not derived: `success_threshold` and the metrics
+/// carried by [`CheckpointRef`] are `f64`, which is not `Eq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunManifest {
     /// Identifier of the training run.
     pub run_id: RunId,
@@ -542,6 +611,40 @@ pub struct RunManifest {
     /// Algorithm hyperparameters logged at run start; empty when not provided.
     #[serde(default)]
     pub hyperparameters: Hyperparameters,
+    /// Algorithm identity (e.g. `"ppo"`). Added in `FORMAT_VERSION = 6`.
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// `rlevo` crate version. Added in v6.
+    #[serde(default)]
+    pub rlevo_version: Option<String>,
+    /// Rust toolchain version string. Added in v6.
+    #[serde(default)]
+    pub rustc_version: Option<String>,
+    /// Resolved `burn` dependency version. Added in v6.
+    #[serde(default)]
+    pub burn_version: Option<String>,
+    /// `OS`-`ARCH` platform string. Added in v6.
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// Git commit hash of the build, if known. Added in v6.
+    #[serde(default)]
+    pub git_commit: Option<String>,
+    /// Whether the working tree was dirty at build time. Added in v6.
+    #[serde(default)]
+    pub git_dirty: Option<bool>,
+    /// Backend device descriptor. Added in v6.
+    #[serde(default)]
+    pub device: Option<String>,
+    /// Distinct seed count across the trial suite. Added in v6.
+    #[serde(default)]
+    pub num_seeds: Option<u32>,
+    /// Success threshold that produced `success_rate`. Added in v6.
+    #[serde(default)]
+    pub success_threshold: Option<f64>,
+    /// Deep-RL learner checkpoints (Burn-`Recorder` files referenced, never
+    /// embedded). Empty for EA and un-wired RL. Added in v6.
+    #[serde(default)]
+    pub checkpoints: Vec<CheckpointRef>,
 }
 
 /// Decode the raw bytes of a single `episode_*.rec` file produced by
@@ -646,11 +749,13 @@ mod tests {
             env_family: EnvFamily::Classic,
             created_at: 1700,
             trial: None,
+            kind: EpisodeKind::Evaluation,
         };
         let bytes = bincode::serde::encode_to_vec(&h, bincode_config()).unwrap();
         let (decoded, _): (EpisodeRecordHeader, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode_config()).unwrap();
         assert_eq!(h, decoded);
+        assert_eq!(decoded.kind, EpisodeKind::Evaluation);
     }
 
     #[test]
