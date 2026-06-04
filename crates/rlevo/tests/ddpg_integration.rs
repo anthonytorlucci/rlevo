@@ -333,6 +333,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 
 type Be = Autodiff<Flex>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -343,6 +345,8 @@ type Be = Autodiff<Flex>;
 /// approaches `0`.
 #[test]
 fn ddpg_solves_linear_1d_continuous() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -394,6 +398,8 @@ fn ddpg_solves_linear_1d_continuous() {
 /// the bench's faster greedy path stays faithful to the eval policy.
 #[test]
 fn ddpg_act_with_matches_deterministic_act() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -438,11 +444,11 @@ fn ddpg_act_with_matches_deterministic_act() {
 
 /// Pendulum smoke test: 50k steps with small networks, verifies training runs
 /// without crashing and produces a reward above the zero-torque baseline.
-/// Gated — Burn's Flex backend shares a global RNG with other tests so
-/// this runs at `--test-threads=1`.
 #[test]
-#[ignore = "smoke run (~50k Pendulum steps); --test-threads=1 for isolated Burn RNG"]
+#[ignore = "smoke run (~50k Pendulum steps)"]
 fn ddpg_pendulum_smoke() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);

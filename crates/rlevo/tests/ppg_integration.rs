@@ -62,6 +62,8 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
 
 type Be = Autodiff<Flex>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
@@ -104,6 +106,8 @@ fn make_cart_pole_agent(
 
 #[test]
 fn ppg_cart_pole_reaches_modest_threshold() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     // CartPole is not PPG's home turf: the auxiliary phase's distillation
     // periodically pulls the policy back, slowing convergence relative to
     // PPO. PPG's sample-efficiency wins live on Procgen-style envs with CNN
@@ -132,6 +136,8 @@ fn ppg_cart_pole_reaches_modest_threshold() {
 
 #[test]
 fn ppg_without_aux_phase_matches_ppo_baseline() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     // Sanity check that the policy-phase update is a faithful PPO update:
     // with n_iteration set above the total iteration count the auxiliary
     // phase never fires, and PPG should match PPO's ~50k-step CartPole
@@ -165,6 +171,8 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
 
 #[test]
 fn ppg_aux_phase_actually_runs() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     // Use a small n_iteration so the aux phase fires within a tiny budget.
     let seed: u64 = 11;
     let num_steps = 128_usize;
@@ -197,8 +205,9 @@ fn ppg_aux_phase_actually_runs() {
 }
 
 #[test]
-#[ignore = "perturbs Burn's global Flex RNG; run with --test-threads=1"]
 fn ppg_short_run_produces_finite_rewards() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let total = 2_048_usize;
     let num_steps = 128_usize;
@@ -228,6 +237,8 @@ fn ppg_short_run_produces_finite_rewards() {
 #[test]
 #[ignore = "macro convergence; ~2-5 min on Flex"]
 fn ppg_cart_pole_reaches_475() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let total = 400_000_usize;
     let num_steps = 128_usize;

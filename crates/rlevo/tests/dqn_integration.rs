@@ -123,6 +123,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 type Be = Autodiff<Flex>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn fresh_agent(seed: u64) -> Agent {
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -154,6 +156,8 @@ fn fresh_agent(seed: u64) -> Agent {
 /// reached ~183 on seed=42; we assert a conservative floor of 100.
 #[test]
 fn dqn_cart_pole_reaches_100() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,
@@ -171,15 +175,13 @@ fn dqn_cart_pole_reaches_100() {
 
 /// Reproducibility smoke test: two back-to-back runs from the same seed
 /// produce identical reward sequences when run sequentially in the same
-/// thread. Marked `#[ignore]` because Burn's Flex backend keeps a
-/// *global* RNG — running alongside other tests via the default
-/// multi-threaded runner poisons that global state. Run explicitly with
-/// `cargo test -p rlevo-reinforcement-learning --test dqn_integration dqn_reproducibility
-/// -- --ignored --test-threads=1`.
+/// process. The `BACKEND_LOCK` serializes execution within this binary so
+/// Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
 #[allow(clippy::float_cmp)]
 fn dqn_reproducibility_flex() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
@@ -205,13 +207,13 @@ fn dqn_reproducibility_flex() {
 }
 
 /// Smoke test: a short run completes with finite rewards and a populated
-/// buffer. Protects against silent regressions that would NaN-out. Marked
-/// `#[ignore]` because running it alongside `dqn_cart_pole_reaches_100`
-/// perturbs Burn's global Flex RNG; run with `-- --ignored
-/// --test-threads=1` to exercise it.
+/// buffer. Protects against silent regressions that would NaN-out.
+/// The `BACKEND_LOCK` serializes execution within this binary so
+/// Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "perturbs global Burn RNG; run with --test-threads=1"]
 fn dqn_short_run_produces_finite_rewards() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,
