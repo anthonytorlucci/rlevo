@@ -6,7 +6,7 @@
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_lunar_lander_with_client \
-//!     --features box2d,viz-record,viz-report
+//!     --features box2d,viz-report
 //! ```
 
 use std::path::PathBuf;

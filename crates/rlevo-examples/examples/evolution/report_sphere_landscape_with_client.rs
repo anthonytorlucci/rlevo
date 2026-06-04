@@ -9,7 +9,7 @@
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_sphere_landscape_with_client \
-//!     --features viz-record,viz-report
+//!     --features viz-report
 //! ```
 //!
 //! Opening the emitted `index.html` shows the manifest, episode table,

@@ -31,7 +31,7 @@
 //! #    the run, and emits a single-file index.html.
 //! cd ../../  # back to repo root
 //! cargo run -p rlevo-examples --example report_ppo_cartpole_with_client \
-//!     --features viz-record,viz-report --release
+//!     --features viz-report --release
 //! ```
 //!
 //! `--release` matters: PPO is unusable at debug speed.

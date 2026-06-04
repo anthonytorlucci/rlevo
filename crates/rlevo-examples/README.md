@@ -23,22 +23,17 @@ cargo run -p rlevo-examples --example tabular_bandit
 cargo run -p rlevo-examples --example ga_rastrigin
 ```
 
+The two viz products (ADR-0013): the live metrics TUI (`viz-tui`) and the
+post-run record + report pipeline (`viz-report`). `viz-report` pulls recording
+in transitively — there is no separate `viz-record` flag.
+
 ### Live TUI (`--features viz-tui`)
 
 ```bash
 cargo run -p rlevo-examples --example tui_ppo_cartpole --features viz-tui
 ```
 
-### Recording (`--features viz-tui,viz-record`)
-
-```bash
-cargo run -p rlevo-examples --example record_ppo_cartpole    --features viz-tui,viz-record
-cargo run -p rlevo-examples --example record_sphere_landscape --features viz-record
-cargo run -p rlevo-examples --example record_grids            --features viz-tui,viz-record
-cargo run -p rlevo-examples --example record_toy_text         --features viz-tui,viz-record
-```
-
-### Report (`--features viz-record,viz-report`)
+### Report (`--features viz-report`)
 
 The `*_with_client` variants stream data to the report server. Start the client first:
 
@@ -49,24 +44,12 @@ cargo run -p rlevo-benchmarks-report-client
 Then in a second terminal:
 
 ```bash
-cargo run -p rlevo-examples --example report_ppo_cartpole_with_client      --features viz-record,viz-report
-cargo run -p rlevo-examples --example report_sphere_landscape_with_client  --features viz-record,viz-report
-cargo run -p rlevo-examples --example report_grids_with_client             --features viz-record,viz-report
-cargo run -p rlevo-examples --example report_toy_text_with_client          --features viz-record,viz-report
-```
-
-### Locomotion (`--features locomotion,...`)
-
-```bash
-cargo run -p rlevo-examples --example record_inverted_pendulum             --features locomotion,viz-record
-cargo run -p rlevo-examples --example report_inverted_pendulum_with_client --features locomotion,viz-record,viz-report
-```
-
-### Box2D (`--features box2d,...`)
-
-```bash
-cargo run -p rlevo-examples --example record_lunar_lander             --features box2d,viz-record
-cargo run -p rlevo-examples --example report_lunar_lander_with_client --features box2d,viz-record,viz-report
+cargo run -p rlevo-examples --example report_ppo_cartpole_with_client      --features viz-report
+cargo run -p rlevo-examples --example report_sphere_landscape_with_client  --features viz-report
+cargo run -p rlevo-examples --example report_grids_with_client             --features viz-report
+cargo run -p rlevo-examples --example report_toy_text_with_client          --features viz-report
+cargo run -p rlevo-examples --example report_inverted_pendulum_with_client --features locomotion,viz-report
+cargo run -p rlevo-examples --example report_lunar_lander_with_client      --features box2d,viz-report
 ```
 
 ## Example layout
@@ -75,20 +58,19 @@ cargo run -p rlevo-examples --example report_lunar_lander_with_client --features
 examples/
   common/         shared helpers (ppo_cartpole model/config)
   harness/        benchmarking harness demos (tabular_bandit, ga_rastrigin)
-  rl/             PPO on CartPole — TUI, record, report
-  evolution/      sphere landscape — record, report, with EA run
-  grids/          grid environments — record, report
-  toy_text/       toy-text environments — record, report
-  locomotion/     inverted pendulum — record, report
-  box2d/          lunar lander — record, report
+  classic/        PPO on CartPole — live TUI + report
+  evolution/      sphere landscape — report, with EA run
+  grids/          grid environments — report
+  toy_text/       toy-text environments — report
+  locomotion/     inverted pendulum — report
+  box2d/          lunar lander — report
 ```
 
 ## Features
 
 | Feature | Enables |
 |---|---|
-| `viz-tui` | Live ratatui TUI dashboard (`rlevo-benchmarks/tui`) |
-| `viz-record` | On-disk episode recording (`rlevo-benchmarks/record`, `rlevo-environments/record`) |
-| `viz-report` | Static-HTML report emitter (`rlevo-benchmarks/report`) |
+| `viz-tui` | Live metrics TUI dashboard (`rlevo-benchmarks/tui`) |
+| `viz-report` | Post-run record + static-HTML report (`rlevo-benchmarks/report` → `record` transitively, plus `rlevo-environments/record`) |
 | `locomotion` | Rapier3D locomotion environments |
 | `box2d` | Rapier2D Box2D-style environments |

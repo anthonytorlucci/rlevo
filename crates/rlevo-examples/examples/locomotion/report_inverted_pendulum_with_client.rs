@@ -10,7 +10,7 @@
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_inverted_pendulum_with_client \
-//!     --features locomotion,viz-record,viz-report
+//!     --features locomotion,viz-report
 //! ```
 
 use std::path::PathBuf;

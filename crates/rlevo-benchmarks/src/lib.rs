@@ -14,7 +14,8 @@
 //! - [`checkpoint`] — atomic partial-report persistence for crash recovery.
 //! - `record` *(feature `record`)* — per-episode binary recording surface.
 //! - `tui` *(feature `tui`)* — live `ratatui` terminal dashboard.
-//! - `env_wrappers` *(feature `tui`)* — composable env wrappers for frame capture.
+//! - `env_wrappers` *(feature `tui`)* — composable env wrappers that emit
+//!   per-episode returns to the metrics-only live TUI (ADR-0013).
 
 pub mod checkpoint;
 #[cfg(feature = "tui")]
