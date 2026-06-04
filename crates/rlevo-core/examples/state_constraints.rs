@@ -123,7 +123,7 @@ impl RobotPose {
     /// * `theta_mdeg` - Orientation in millidegrees (must be -180,000 to 180,000)
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// let pose = RobotPose::new(500, 500, 0);
     /// assert!(pose.is_some());
     /// assert_eq!(pose.unwrap().x_mm, 500);

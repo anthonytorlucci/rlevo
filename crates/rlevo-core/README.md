@@ -201,7 +201,7 @@ let mut buffer = PrioritizedExperienceReplayBuilder::default()
 cargo run -p rlevo-core --example grid_agent
 
 # Constrained continuous state (2D robot workspace with orientation bounds)
-cargo run -p rlevo-core --example continuous_state_with_constraints
+cargo run -p rlevo-core --example state_constraints
 ```
 
 ## Academic References
