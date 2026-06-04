@@ -35,7 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::for_env::<LunarLanderDiscrete>(SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
-    let manifest = writer.manifest_template();
+    // v6 manifest provenance: a random policy (no learner), tagged so the
+    // report tier shows the reward/length curves without loss panels, plus
+    // build/platform reproducibility metadata.
+    let manifest = writer
+        .manifest_template()
+        .with_algorithm("random")
+        .with_num_seeds(1)
+        .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
     let env = LunarLanderDiscrete::with_config(LunarLanderConfig {

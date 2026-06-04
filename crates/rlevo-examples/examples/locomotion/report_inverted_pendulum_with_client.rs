@@ -39,7 +39,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::for_env::<InvertedPendulumRapier>(SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
-    let manifest = writer.manifest_template();
+    // v6 manifest provenance: a random forcing policy (no learner), plus
+    // build/platform reproducibility metadata.
+    let manifest = writer
+        .manifest_template()
+        .with_algorithm("random")
+        .with_num_seeds(1)
+        .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
     let env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {

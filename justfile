@@ -62,22 +62,32 @@ harness-tabular-bandit:
 tui-ppo-cartpole:
     cargo run -p rlevo-examples --features viz-tui --example tui_ppo_cartpole
 
-report-ppo-cartpole:
+# `trunk build` stamps the wire FORMAT_VERSION into dist/wire-version.txt
+# (Trunk.toml post_build hook); the report emitter refuses a dist/ that lags
+# the source. Every `report-*` recipe depends on this so the bundle is never
+# stale — re-running is cheap (~0.2s) when nothing changed. Needs `trunk`
+# (cargo install trunk) + the wasm32-unknown-unknown target.
+#
+# Rebuild the Leptos/WASM report client (auto-run before every report-* recipe).
+client-build:
+    cd crates/rlevo-benchmarks-report-client && trunk build --release
+
+report-ppo-cartpole: client-build
     cargo run -p rlevo-examples --features viz-report --example report_ppo_cartpole_with_client
 
-report-sphere:
+report-sphere: client-build
     cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client
 
-report-grids:
+report-grids: client-build
     cargo run -p rlevo-examples --features viz-report --example report_grids_with_client
 
-report-toy-text:
+report-toy-text: client-build
     cargo run -p rlevo-examples --features viz-report --example report_toy_text_with_client
 
-report-inverted-pendulum:
+report-inverted-pendulum: client-build
     cargo run -p rlevo-examples --features locomotion,viz-report --example report_inverted_pendulum_with_client
 
-report-lunar-lander:
+report-lunar-lander: client-build
     cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client
 
 # ── Common checks ────────────────────────────────────────────────────────────

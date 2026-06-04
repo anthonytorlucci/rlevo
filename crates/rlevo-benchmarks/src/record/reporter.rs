@@ -92,59 +92,46 @@ impl RecordingReporter {
     }
 
     /// Stamps the algorithm identity (e.g. `"ppo"`, `"dqn"`, `"ga"`) the
-    /// report tier uses to choose loss panels.
+    /// report tier uses to choose loss panels. Delegates to
+    /// [`RunManifest::with_algorithm`].
     #[must_use]
     pub fn with_algorithm(mut self, algorithm: impl Into<String>) -> Self {
-        self.manifest.algorithm = Some(algorithm.into());
+        self.manifest = self.manifest.with_algorithm(algorithm);
         self
     }
 
     /// Records the distinct seed count across the trial suite (for
-    /// cross-seed IQM/CI aggregation at the report tier).
+    /// cross-seed IQM/CI aggregation at the report tier). Delegates to
+    /// [`RunManifest::with_num_seeds`].
     #[must_use]
     pub fn with_num_seeds(mut self, num_seeds: u32) -> Self {
-        self.manifest.num_seeds = Some(num_seeds);
+        self.manifest = self.manifest.with_num_seeds(num_seeds);
         self
     }
 
     /// Records the success threshold that produced `success_rate`.
+    /// Delegates to [`RunManifest::with_success_threshold`].
     #[must_use]
     pub fn with_success_threshold(mut self, threshold: f64) -> Self {
-        self.manifest.success_threshold = Some(threshold);
+        self.manifest = self.manifest.with_success_threshold(threshold);
         self
     }
 
-    /// Records the backend device descriptor (CPU/GPU).
+    /// Records the backend device descriptor (CPU/GPU). Delegates to
+    /// [`RunManifest::with_device`].
     #[must_use]
     pub fn with_device(mut self, device: impl Into<String>) -> Self {
-        self.manifest.device = Some(device.into());
+        self.manifest = self.manifest.with_device(device);
         self
     }
 
-    /// Stamps build-time + platform provenance onto the manifest:
-    /// `rlevo_version` (always), and — when the `build.rs` provided them —
-    /// `git_commit`, `git_dirty`, `rustc_version`, `burn_version`, plus the
-    /// runtime `platform`. Missing build-time values resolve to `None`, so
-    /// this is safe to call outside a git checkout or without `build.rs`.
+    /// Stamps build-time + platform provenance onto the manifest.
+    /// Delegates to [`RunManifest::with_build_provenance`] (the build-time
+    /// `option_env!` reads resolve in the `rlevo-benchmarks` crate, where
+    /// `build.rs` lives).
     #[must_use]
     pub fn with_build_provenance(mut self) -> Self {
-        fn non_empty(s: &str) -> Option<String> {
-            (!s.is_empty()).then(|| s.to_string())
-        }
-        self.manifest.rlevo_version = non_empty(env!("CARGO_PKG_VERSION"));
-        self.manifest.git_commit = option_env!("GIT_COMMIT").and_then(non_empty);
-        self.manifest.git_dirty = match option_env!("GIT_DIRTY") {
-            Some("1") => Some(true),
-            Some("0") => Some(false),
-            _ => None,
-        };
-        self.manifest.rustc_version = option_env!("RUSTC_VERSION").and_then(non_empty);
-        self.manifest.burn_version = option_env!("BURN_VERSION").and_then(non_empty);
-        self.manifest.platform = Some(format!(
-            "{}-{}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ));
+        self.manifest = self.manifest.with_build_provenance();
         self
     }
 }

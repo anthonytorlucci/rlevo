@@ -4,7 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rlevo report client (standalone)</title>
-<link data-trunk rel="rust" data-wasm-opt="z" />
+<!-- Pin the wasm build to the cdylib; the crate also has a native-only
+     `wire_version` bin (used by the Trunk.toml post_build hook to stamp
+     dist/wire-version.txt), which would otherwise make the target ambiguous. -->
+<link data-trunk rel="rust" data-target-name="rlevo_benchmarks_report_client" data-wasm-opt="z" />
 <link data-trunk rel="css" href="src/app.css" />
 </head>
 <body>
