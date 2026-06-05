@@ -12,8 +12,8 @@ use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_fo
 use crate::series::{
     AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
     downsample_minmax, episode_axis, episode_length_series, episode_reward_series,
-    fitness_range_series, metric_band, metric_series, population_box_data, remap_episode_series,
-    rolling_mean, selection_pressure_series,
+    fitness_range_series, metric_band, metric_series, nearest_by_x, population_box_data,
+    remap_episode_series, rolling_mean, selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
@@ -126,6 +126,131 @@ pub fn line_chart_view_xy(
     .into_any()
 }
 
+/// Hand-rolled line panel with a hover crosshair that reports the *raw*
+/// (un-decimated) sample under the cursor.
+///
+/// `decimated` drives the drawn path (kept light for long runs); `raw_full` is
+/// the full-resolution series used only for the tooltip lookup, so the readout
+/// is exact even when the path is decimated (M8.2 accuracy requirement). An
+/// optional `smoothed` overlay is drawn at greater width for B/W legibility.
+#[must_use]
+pub fn interactive_line_view(
+    title: String,
+    raw_full: Vec<(f64, f64)>,
+    decimated: Vec<(f64, f64)>,
+    smoothed: Option<Vec<(f64, f64)>>,
+) -> AnyView {
+    use std::fmt::Write as _;
+    if decimated.is_empty() {
+        return view! {
+            <figure class="rlevo-chart-card rlevo-chart-empty">
+                <figcaption>{title}</figcaption>
+                <p class="rlevo-chart-no-data">"no samples"</p>
+            </figure>
+        }
+        .into_any();
+    }
+
+    let x_min = decimated.first().map_or(0.0, |p| p.0);
+    let x_max_raw = decimated.last().map_or(1.0, |p| p.0);
+    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON { x_min + 1.0 } else { x_max_raw };
+    let mut y_min = f64::INFINITY;
+    let mut y_max = f64::NEG_INFINITY;
+    for &(_, y) in decimated.iter().chain(smoothed.iter().flatten()) {
+        if y.is_finite() {
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
+        }
+    }
+    if !y_min.is_finite() || !y_max.is_finite() {
+        y_min = 0.0;
+        y_max = 1.0;
+    }
+    let span = (y_max - y_min).abs();
+    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    y_min -= pad;
+    y_max += pad;
+    if (y_max - y_min).abs() < f64::EPSILON {
+        y_max = y_min + 1.0;
+    }
+
+    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
+    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    // Pixel→data and data→pixel maps share these scalars (all Copy), so both
+    // the static path build and the mousemove handler can use them.
+    let sx_of = move |x: f64| BOX_M_L + (x - x_min) / (x_max - x_min) * plot_w;
+    let sy_of = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h;
+
+    let mut raw_path = String::new();
+    for &(x, y) in &decimated {
+        if y.is_finite() {
+            let _ = write!(raw_path, "{:.2},{:.2} ", sx_of(x), sy_of(y));
+        }
+    }
+    let smoothed_path = smoothed.as_ref().map(|s| {
+        let mut p = String::new();
+        for &(x, y) in s {
+            if y.is_finite() {
+                let _ = write!(p, "{:.2},{:.2} ", sx_of(x), sy_of(y));
+            }
+        }
+        p
+    });
+
+    let (hover, set_hover) = signal::<Option<(f64, f64, f64, f64)>>(None);
+
+    let raw_for_move = raw_full;
+    let on_move = move |ev: leptos::ev::MouseEvent| {
+        use wasm_bindgen::JsCast as _;
+        let Some(target) = ev.current_target() else { return };
+        let Ok(elem) = target.dyn_into::<web_sys::Element>() else { return };
+        let width = elem.get_bounding_client_rect().width();
+        if width <= 0.0 {
+            return;
+        }
+        let data_x = x_min + (f64::from(ev.offset_x()) / width) * (x_max - x_min);
+        if let Some((rx, ry)) = nearest_by_x(&raw_for_move, data_x) {
+            set_hover.set(Some((sx_of(rx), sy_of(ry), rx, ry)));
+        }
+    };
+    let on_leave = move |_| set_hover.set(None);
+
+    let x_axis_y = BOX_VB_H - BOX_M_B;
+    let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
+    let smoothed_poly = smoothed_path.map(|pts| {
+        view! { <polyline class="rlevo-line-smoothed" points={pts} fill="none" /> }.into_any()
+    });
+
+    let overlay = move || match hover.get() {
+        Some((sx, sy, dx, dy)) => {
+            // Clamp the label x so it stays inside the viewBox.
+            let label_x = sx.min(BOX_VB_W - 90.0).max(BOX_M_L);
+            let label = format!("{dx:.2}, {dy:.4}");
+            view! {
+                <line class="rlevo-crosshair" x1={sx} y1={BOX_M_T} x2={sx} y2={x_axis_y} />
+                <circle class="rlevo-crosshair-dot" cx={sx} cy={sy} r=3.0 />
+                <text class="rlevo-crosshair-label" x={label_x} y={BOX_M_T + 10.0}>{label}</text>
+            }
+            .into_any()
+        }
+        None => ().into_any(),
+    };
+
+    view! {
+        <figure class="rlevo-chart-card">
+            <figcaption>{title}</figcaption>
+            <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none"
+                role="img" on:mousemove=on_move on:mouseleave=on_leave>
+                <line class="rlevo-boxplot-axis" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
+                <polyline class="rlevo-line-raw" points={raw_path} fill="none" />
+                {smoothed_poly}
+                {overlay}
+            </svg>
+        </figure>
+    }
+    .into_any()
+}
+
 /// Compose the panel grid for a run. RL panels appear when the
 /// corresponding metric is present in the record; EA panels appear
 /// when the `*_fitness` metrics are present. Empty panels are
@@ -169,14 +294,22 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
             continue;
         }
         // Decimate long series so the SVG path stays light; min/max bucketing
-        // keeps peaks. Short series pass through unchanged.
-        let raw = downsample_minmax(&full);
+        // keeps peaks. The full series feeds the hover crosshair so the raw
+        // value under the cursor is exact even when the path is decimated.
+        let decimated = downsample_minmax(&full);
+        let raw_full: Vec<(f64, f64)> =
+            full.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+        let dec_xy: Vec<(f64, f64)> =
+            decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         let title = title_for(&name).to_string();
         let panel = if is_per_generation(&name) {
-            line_chart_view(title, name.clone(), &raw, None)
+            interactive_line_view(title, raw_full, dec_xy, None)
         } else {
-            let smoothed = rolling_mean(&raw, METRIC_WINDOW);
-            line_chart_view(title, name.clone(), &raw, Some(&smoothed))
+            let smoothed: Vec<(f64, f64)> = rolling_mean(&decimated, METRIC_WINDOW)
+                .iter()
+                .map(|&(x, y)| (f64::from(x), y))
+                .collect();
+            interactive_line_view(title, raw_full, dec_xy, Some(smoothed))
         };
         match descriptor(&name).map(|d| d.kind) {
             Some(MetricKind::Eo) => eo_panels.push(panel),

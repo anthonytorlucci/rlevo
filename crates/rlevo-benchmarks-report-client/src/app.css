@@ -555,3 +555,16 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     background: rgba(80, 140, 220, 0.18);
     font-weight: 600;
 }
+
+/* Hand-rolled interactive line panel with hover crosshair. */
+.rlevo-line { width: 100%; height: auto; cursor: crosshair; }
+.rlevo-line-raw { stroke: rgba(80, 140, 220, 0.55); stroke-width: 1; }
+.rlevo-line-smoothed { stroke: #2c6fb5; stroke-width: 2.5; }
+.rlevo-crosshair { stroke: rgba(120, 120, 120, 0.8); stroke-width: 1; stroke-dasharray: 3 3; }
+.rlevo-crosshair-dot { fill: #e67e22; stroke: #fff; stroke-width: 0.5; }
+.rlevo-crosshair-label { fill: currentColor; font-size: 11px; font-variant-numeric: tabular-nums; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-line-raw { stroke: rgba(93, 173, 226, 0.55); }
+    .rlevo-line-smoothed { stroke: #5dade2; }
+    .rlevo-crosshair-dot { fill: #f39c12; stroke: #222; }
+}

@@ -44,6 +44,10 @@ features = [
     "Element",
     "HtmlElement",
     "Window",
+    # Hover-crosshair interaction: read the cursor offset and the rendered
+    # SVG width to map pixels back to data coordinates.
+    "MouseEvent",
+    "DomRect",
 ]
 
 [dev-dependencies]

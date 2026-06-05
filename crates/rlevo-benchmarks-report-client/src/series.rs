@@ -185,6 +185,35 @@ pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
     }
 }
 
+/// Nearest point to `x` in a series sorted ascending by x, by absolute x
+/// distance. Returns `None` for an empty series. Used by the hover crosshair to
+/// report the *raw* sample under the cursor, independent of any decimation
+/// applied to the drawn path.
+#[must_use]
+pub fn nearest_by_x(points: &[(f64, f64)], x: f64) -> Option<(f64, f64)> {
+    if points.is_empty() {
+        return None;
+    }
+    // Points are x-sorted; binary-search the insertion point then compare the
+    // straddling neighbours.
+    let idx = points.partition_point(|&(px, _)| px < x);
+    let mut best = points[idx.min(points.len() - 1)];
+    let mut best_d = (best.0 - x).abs();
+    if idx > 0 {
+        let prev = points[idx - 1];
+        let d = (prev.0 - x).abs();
+        if d < best_d {
+            best = prev;
+            best_d = d;
+        }
+    }
+    // Guard against NaN x in the data leaving best_d NaN.
+    if best_d.is_nan() {
+        return points.first().copied();
+    }
+    Some(best)
+}
+
 /// Remaps a per-episode series (x = episode index) onto an `axis` vector
 /// produced by [`episode_axis`], pairing each `(episode_idx, y)` with
 /// `axis[episode_idx]`. Out-of-range indices are dropped.
@@ -679,6 +708,34 @@ mod tests {
         let series = vec![(0u32, 1.0), (9, 2.0)];
         let axis = vec![0.0];
         assert_eq!(remap_episode_series(&series, &axis), vec![(0.0, 1.0)]);
+    }
+
+    #[test]
+    fn nearest_by_x_finds_closest() {
+        let pts = vec![(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)];
+        assert_eq!(nearest_by_x(&pts, 3.0), Some((0.0, 10.0)));
+        assert_eq!(nearest_by_x(&pts, 6.0), Some((10.0, 20.0)));
+        assert_eq!(nearest_by_x(&pts, 100.0), Some((20.0, 30.0)));
+        assert_eq!(nearest_by_x(&pts, -5.0), Some((0.0, 10.0)));
+    }
+
+    #[test]
+    fn nearest_by_x_exact_hit_returns_that_point() {
+        let pts = vec![(0.0, 1.0), (5.0, 2.0), (9.0, 3.0)];
+        assert_eq!(nearest_by_x(&pts, 5.0), Some((5.0, 2.0)));
+    }
+
+    #[test]
+    fn nearest_by_x_empty_is_none() {
+        assert_eq!(nearest_by_x(&[], 1.0), None);
+    }
+
+    #[test]
+    fn nearest_by_x_uses_raw_not_decimated() {
+        // A raw series with a spike the cursor lands on; nearest must report
+        // the exact raw value, not an interpolated/decimated one.
+        let raw = vec![(0.0, 0.0), (1.0, 99.0), (2.0, 0.0)];
+        assert_eq!(nearest_by_x(&raw, 1.1), Some((1.0, 99.0)));
     }
 
     #[test]
