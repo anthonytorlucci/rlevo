@@ -276,7 +276,7 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     }
 
     let episode_count = records.len();
-    let window = EPISODE_WINDOW.min(episode_count.max(1) * 4 / 4).max(1);
+    let window = EPISODE_WINDOW.min(episode_count.max(1)).max(1);
 
     // Episode-outcome panels (reward, length) get a global x-axis toggle:
     // episode index / cumulative env step / cumulative wall-clock. Per-update
@@ -300,8 +300,12 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
         // keeps peaks. The full series feeds the hover crosshair so the raw
         // value under the cursor is exact even when the path is decimated.
         let decimated = downsample_minmax(&full);
-        let raw_full: Vec<(f64, f64)> =
+        let mut raw_full: Vec<(f64, f64)> =
             full.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+        // `interactive_line_view`'s hover lookup (nearest_by_x) requires x-sorted
+        // input. Step counters are monotone in practice, but sort here so the
+        // contract holds regardless of emission order.
+        raw_full.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         let dec_xy: Vec<(f64, f64)> =
             decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         let title = title_for(&name).to_string();

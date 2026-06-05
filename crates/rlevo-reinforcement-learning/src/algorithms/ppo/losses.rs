@@ -102,10 +102,20 @@ pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Ten
 
 /// Fraction of return variance explained by the value-network predictions.
 ///
-/// `ev = 1 − Var(returns − values) / Var(returns)`, computed over the whole
-/// rollout. `ev ≈ 1` means the value net tracks returns well; `ev ≈ 0` means
-/// it predicts no better than the mean; negative means worse than the mean.
-/// This is the single most informative value-net health signal.
+/// `ev = 1 − mean((returns − values)²) / Var(returns)`, computed over the whole
+/// rollout. `ev ≈ 1` means the value net tracks returns well; `ev ≈ 0` means it
+/// predicts no better than the mean; negative means worse than the mean. This is
+/// the single most informative value-net health signal.
+///
+/// # CleanRL / SB3 convention (non-centered residual)
+///
+/// The residual term is the raw mean-square `mean((returns − values)²)`, not the
+/// *centered* variance `Var(returns − values)` of the scikit-learn R² formula.
+/// The two agree once the value net is unbiased (`E[returns − values] ≈ 0`), but
+/// the non-centered form additionally penalises a constant value-net **bias**.
+/// So during early warm-up a value net that has the right shape but a constant
+/// offset reads `ev < 0` — this is expected, not a code bug. This matches CleanRL
+/// and Stable-Baselines3 so curves are comparable across implementations.
 ///
 /// Returns `0.0` when `Var(returns) == 0` (a degenerate rollout) rather than
 /// dividing by zero — never emits `NaN`/`Inf`.
@@ -267,6 +277,18 @@ mod tests {
         let mean = 2.5;
         let values = [mean; 4];
         assert!(explained_variance(&returns, &values).abs() < 1e-6);
+    }
+
+    #[test]
+    fn explained_variance_penalises_constant_bias_cleanrl_convention() {
+        // Perfectly-shaped value net with a constant +1 offset. The scikit R²
+        // (centered) form would give 1.0; the CleanRL non-centered form we use
+        // penalises the bias. returns var = 2/3, residual mean-sq = 1.0 ⇒
+        // ev = 1 - 1.0/(2/3) = -0.5. This documents the intentional divergence.
+        let returns = [10.0, 11.0, 12.0];
+        let values = [9.0, 10.0, 11.0];
+        let ev = explained_variance(&returns, &values);
+        assert!((ev - (-0.5)).abs() < 1e-6, "expected -0.5 (CleanRL), got {ev}");
     }
 
     #[test]

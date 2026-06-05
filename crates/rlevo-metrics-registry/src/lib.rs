@@ -178,8 +178,14 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
     d("qf2_loss", MetricKind::Rl, Cadence::PerUpdate, "Critic 2 loss"),
     d("actor_loss", MetricKind::Rl, Cadence::PerUpdate, "Actor loss"),
     d("alpha", MetricKind::Rl, Cadence::PerUpdate, "Entropy temperature α"),
+    // Reserved: the SAC α update is a closed-form scalar Adam step with no
+    // exposed loss scalar, so no producer emits `alpha_loss` yet. The panel
+    // simply does not appear until one does (absent metrics are skipped, not
+    // rendered empty). Kept here so the v6 metric set stays complete.
     d("alpha_loss", MetricKind::Rl, Cadence::PerUpdate, "Alpha loss"),
     // ---- Schedules (v6) ----
+    // Reserved: emitted only once a scheduled clip range is wired (PPO uses a
+    // fixed `clip_coef` today). See the note on `alpha_loss`.
     d("clip_range", MetricKind::Rl, Cadence::PerUpdate, "Clip range"),
     du("n_updates", MetricKind::Rl, Cadence::PerUpdate, "Update count", "updates"),
     // ---- Evolution training stats (per generation) ----
