@@ -185,6 +185,92 @@ pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
     }
 }
 
+/// Closed-form value of a known 2-D benchmark landscape at `(x, y)`.
+///
+/// Recognises `sphere`, `ackley`, and `rastrigin` (case-insensitive, by
+/// substring so decorated labels like `"sphere-2d"` still match). Returns
+/// `None` for any other label so the caller can skip the heatmap rather than
+/// draw a wrong surface. All three are minimisation problems with their global
+/// optimum at the origin.
+#[must_use]
+pub fn landscape_value(label: &str, x: f64, y: f64) -> Option<f64> {
+    use core::f64::consts::{E, PI};
+    let l = label.to_ascii_lowercase();
+    if l.contains("sphere") {
+        Some(x * x + y * y)
+    } else if l.contains("rastrigin") {
+        let term = |v: f64| v * v - 10.0 * (2.0 * PI * v).cos();
+        Some(20.0 + term(x) + term(y))
+    } else if l.contains("ackley") {
+        let sq = 0.5 * (x * x + y * y);
+        let cos = 0.5 * ((2.0 * PI * x).cos() + (2.0 * PI * y).cos());
+        Some(-20.0 * (-0.2 * sq.sqrt()).exp() - cos.exp() + E + 20.0)
+    } else {
+        None
+    }
+}
+
+/// A normalised scalar field sampled over a landscape's search domain, for the
+/// report's heatmap background.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandscapeField {
+    /// Grid resolution (the field is `n × n` cells).
+    pub n: usize,
+    /// Row-major normalised values in `[0, 1]` (0 = grid minimum = best for a
+    /// minimisation surface). Row 0 is the top of the view (high `y`), column 0
+    /// is the left (low `x`), matching the adapter's SVG paint order.
+    pub cells: Vec<f32>,
+}
+
+/// Samples a known landscape over `bounds_x × bounds_y` into an `n × n`
+/// normalised [`LandscapeField`] (cell-centre evaluation).
+///
+/// Returns `None` for an unknown `label`, a non-positive `n`, or degenerate
+/// bounds. Values are min/max-normalised across the grid so the ramp uses the
+/// full range regardless of the surface's absolute scale.
+#[must_use]
+pub fn landscape_field(
+    label: &str,
+    bounds_x: (f32, f32),
+    bounds_y: (f32, f32),
+    n: usize,
+) -> Option<LandscapeField> {
+    let (xlo, xhi) = (f64::from(bounds_x.0), f64::from(bounds_x.1));
+    let (ylo, yhi) = (f64::from(bounds_y.0), f64::from(bounds_y.1));
+    if n == 0 || (xhi - xlo).abs() < f64::EPSILON || (yhi - ylo).abs() < f64::EPSILON {
+        return None;
+    }
+    landscape_value(label, xlo, ylo)?; // bail early on unknown labels.
+
+    let mut raw: Vec<f64> = Vec::with_capacity(n * n);
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for row in 0..n {
+        // Row 0 = top of view = high y; sample at cell centres.
+        let fy = (row as f64 + 0.5) / n as f64;
+        let y = yhi - fy * (yhi - ylo);
+        for col in 0..n {
+            let fx = (col as f64 + 0.5) / n as f64;
+            let x = xlo + fx * (xhi - xlo);
+            let v = landscape_value(label, x, y).unwrap_or(0.0);
+            if v.is_finite() {
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+            raw.push(v);
+        }
+    }
+    let range = hi - lo;
+    let cells: Vec<f32> = raw
+        .iter()
+        .map(|&v| {
+            let t = if range.abs() < f64::EPSILON { 0.0 } else { (v - lo) / range };
+            t.clamp(0.0, 1.0) as f32
+        })
+        .collect();
+    Some(LandscapeField { n, cells })
+}
+
 /// Wraps a serialized `<svg>…</svg>` fragment into a standalone, downloadable
 /// SVG document: prepends the XML prolog and injects the SVG namespace if the
 /// opening tag lacks one (browsers omit it from `outerHTML`). Idempotent w.r.t.
@@ -804,6 +890,42 @@ mod tests {
         // First and last extremes preserved.
         assert_eq!(stats[0].points.first(), Some(&0.0));
         assert_eq!(stats[0].points.last(), Some(&1999.0));
+    }
+
+    #[test]
+    fn landscape_value_known_surfaces() {
+        assert_eq!(landscape_value("sphere", 0.0, 0.0), Some(0.0));
+        assert_eq!(landscape_value("sphere-2d", 1.0, 2.0), Some(5.0));
+        // Rastrigin and Ackley both have their global minimum 0 at the origin.
+        assert!(landscape_value("rastrigin", 0.0, 0.0).unwrap().abs() < 1e-9);
+        assert!(landscape_value("ackley", 0.0, 0.0).unwrap().abs() < 1e-9);
+    }
+
+    #[test]
+    fn landscape_value_unknown_is_none() {
+        assert_eq!(landscape_value("mystery", 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn landscape_field_normalised_and_sized() {
+        let f = landscape_field("sphere", (-2.0, 2.0), (-2.0, 2.0), 8).unwrap();
+        assert_eq!(f.n, 8);
+        assert_eq!(f.cells.len(), 64);
+        let min = f.cells.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = f.cells.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!((min - 0.0).abs() < 1e-6, "min normalised to 0, got {min}");
+        assert!((max - 1.0).abs() < 1e-6, "max normalised to 1, got {max}");
+        // Sphere: centre cells (near origin) are lower than corners.
+        let centre = f.cells[4 * 8 + 4];
+        let corner = f.cells[0];
+        assert!(centre < corner, "basin brighter than corner: {centre} < {corner}");
+    }
+
+    #[test]
+    fn landscape_field_rejects_unknown_and_degenerate() {
+        assert_eq!(landscape_field("nope", (-1.0, 1.0), (-1.0, 1.0), 4), None);
+        assert_eq!(landscape_field("sphere", (1.0, 1.0), (-1.0, 1.0), 4), None);
+        assert_eq!(landscape_field("sphere", (-1.0, 1.0), (-1.0, 1.0), 0), None);
     }
 
     #[test]
