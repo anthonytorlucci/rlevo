@@ -185,6 +185,26 @@ pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
     }
 }
 
+/// Wraps a serialized `<svg>…</svg>` fragment into a standalone, downloadable
+/// SVG document: prepends the XML prolog and injects the SVG namespace if the
+/// opening tag lacks one (browsers omit it from `outerHTML`). Idempotent w.r.t.
+/// an already-namespaced tag. Non-`<svg>` input is returned with only the
+/// prolog so the caller still gets well-formed XML.
+#[must_use]
+pub fn ensure_svg_header(svg: &str) -> String {
+    const PROLOG: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    let trimmed = svg.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("<svg") {
+        if trimmed.contains("xmlns=") {
+            format!("{PROLOG}{trimmed}")
+        } else {
+            format!("{PROLOG}<svg xmlns=\"http://www.w3.org/2000/svg\"{rest}")
+        }
+    } else {
+        format!("{PROLOG}{trimmed}")
+    }
+}
+
 /// Default "low diversity" guideline: the 5th percentile of the diversity
 /// values over the first ten generations (or all of them if fewer).
 ///
@@ -784,6 +804,21 @@ mod tests {
         // First and last extremes preserved.
         assert_eq!(stats[0].points.first(), Some(&0.0));
         assert_eq!(stats[0].points.last(), Some(&1999.0));
+    }
+
+    #[test]
+    fn ensure_svg_header_injects_namespace_and_prolog() {
+        let out = ensure_svg_header("<svg viewBox=\"0 0 10 10\"><line/></svg>");
+        assert!(out.starts_with("<?xml version=\"1.0\""));
+        assert!(out.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(out.contains("viewBox=\"0 0 10 10\""));
+    }
+
+    #[test]
+    fn ensure_svg_header_does_not_duplicate_namespace() {
+        let src = "<svg xmlns=\"http://www.w3.org/2000/svg\"><g/></svg>";
+        let out = ensure_svg_header(src);
+        assert_eq!(out.matches("xmlns=").count(), 1);
     }
 
     #[test]

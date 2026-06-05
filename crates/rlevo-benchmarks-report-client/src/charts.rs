@@ -12,8 +12,9 @@ use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_fo
 use crate::series::{
     AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
     downsample_minmax, episode_axis, episode_length_series, episode_reward_series,
-    fitness_range_series, low_diversity_threshold, metric_band, metric_series, nearest_by_x,
-    population_box_data, remap_episode_series, rolling_mean, selection_pressure_series,
+    ensure_svg_header, fitness_range_series, low_diversity_threshold, metric_band, metric_series,
+    nearest_by_x, population_box_data, remap_episode_series, rolling_mean,
+    selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
@@ -119,6 +120,7 @@ pub fn line_chart_view_xy(
     view! {
         <figure class="rlevo-chart-card">
             <figcaption>{title}</figcaption>
+            {export_button("rlevo-panel.svg")}
             {chart}
             <span class="rlevo-chart-y">{y_label}</span>
         </figure>
@@ -239,6 +241,7 @@ pub fn interactive_line_view(
     view! {
         <figure class="rlevo-chart-card">
             <figcaption>{title}</figcaption>
+            {export_button("rlevo-metric.svg")}
             <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none"
                 role="img" on:mousemove=on_move on:mouseleave=on_leave>
                 <line class="rlevo-boxplot-axis" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
@@ -521,6 +524,7 @@ pub fn band_chart_view(title: String, band: &[BandPoint]) -> AnyView {
     view! {
         <figure class="rlevo-chart-card">
             <figcaption>{title}</figcaption>
+            {export_button("rlevo-band.svg")}
             <svg class="rlevo-band" viewBox={view_box} preserveAspectRatio="none" role="img">
                 <polygon class="rlevo-band-fill" points={poly} />
                 <polyline class="rlevo-band-mean" points={mean_pts} fill="none" />
@@ -582,6 +586,40 @@ const BOX_M_B: f64 = 32.0;
 /// outliers as small open circles. Three overlay polylines (best,
 /// median, worst) pair colour with distinct dash patterns so the a11y
 /// contract survives a B/W screenshot.
+/// A small "⤓ SVG" toolbar button that downloads the SVG of the chart card it
+/// lives in. The handler is DOM-generic (it walks up to `.rlevo-chart-card`
+/// and grabs the contained `<svg>`), so the same button works for every panel
+/// type — hand-rolled or `leptos-chartistry`.
+fn export_button(filename: &'static str) -> AnyView {
+    let on_click = move |ev: leptos::ev::MouseEvent| export_panel_svg(&ev, filename);
+    view! {
+        <button type="button" class="rlevo-export-btn"
+            title="Download this panel as SVG" on:click=on_click>
+            "⤓ SVG"
+        </button>
+    }
+    .into_any()
+}
+
+/// Serializes the clicked panel's `<svg>` and triggers a download. Silently
+/// no-ops if any DOM step is unavailable (e.g. headless contexts).
+fn export_panel_svg(ev: &leptos::ev::MouseEvent, filename: &str) {
+    use wasm_bindgen::JsCast as _;
+    let Some(target) = ev.current_target() else { return };
+    let Ok(btn) = target.dyn_into::<web_sys::Element>() else { return };
+    let Ok(Some(card)) = btn.closest(".rlevo-chart-card") else { return };
+    let Ok(Some(svg)) = card.query_selector("svg") else { return };
+    let markup = ensure_svg_header(&svg.outer_html());
+    let encoded: String = js_sys::encode_uri_component(&markup).into();
+    let href = format!("data:image/svg+xml;charset=utf-8,{encoded}");
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Ok(anchor) = doc.create_element("a") else { return };
+    let Ok(anchor) = anchor.dyn_into::<web_sys::HtmlAnchorElement>() else { return };
+    anchor.set_href(&href);
+    anchor.set_download(filename);
+    anchor.click();
+}
+
 /// Deterministic jitter in `[-1, 1)` from an index — a cheap integer hash so
 /// the strip-plot scatter is stable across renders (no RNG; `Math.random` is
 /// unavailable and determinism keeps screenshots reproducible).
@@ -770,6 +808,7 @@ pub fn population_box_view(
                 >
                     "Individual points"
                 </button>
+                {export_button("rlevo-fitness-boxplot.svg")}
             </div>
             <svg class="rlevo-svg-frame rlevo-boxplot-svg"
                 viewBox=view_box
@@ -890,6 +929,7 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
                         prop:value=move || threshold.get().to_string()
                         on:input=on_threshold />
                 </label>
+                {export_button("rlevo-diversity.svg")}
             </div>
             <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none" role="img"
                 aria-label="population diversity over generations">

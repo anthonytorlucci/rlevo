@@ -48,6 +48,8 @@ features = [
     # SVG width to map pixels back to data coordinates.
     "MouseEvent",
     "DomRect",
+    # Per-panel SVG export: build a download anchor and trigger it.
+    "HtmlAnchorElement",
 ]
 
 [dev-dependencies]

@@ -606,3 +606,15 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
     .rlevo-pulse { animation: none; outline: 2px solid rgba(192, 57, 43, 0.7); }
 }
+
+/* Per-panel SVG export button. */
+.rlevo-export-btn {
+    padding: 0.05rem 0.5rem;
+    border: 1px solid rgba(127, 127, 127, 0.5);
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8em;
+    margin-left: 0.25rem;
+}
+.rlevo-export-btn:hover { border-color: #2c6fb5; background: rgba(80, 140, 220, 0.12); }
