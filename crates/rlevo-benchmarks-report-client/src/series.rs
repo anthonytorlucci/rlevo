@@ -368,7 +368,14 @@ pub struct BoxStats {
     pub max: f64,
     /// Values outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`; rendered as open circles.
     pub outliers: Vec<f64>,
+    /// Per-individual fitness values for the optional strip-plot overlay,
+    /// evenly sub-sampled to at most [`STRIP_SAMPLE_CAP`] points per generation
+    /// so a large population does not bloat the SVG. Sorted ascending.
+    pub points: Vec<f64>,
 }
+
+/// Maximum per-generation jitter points retained for the strip-plot overlay.
+pub const STRIP_SAMPLE_CAP: usize = 256;
 
 /// Per-generation box-plot summary, one entry per population sample in
 /// the input slice. Samples with empty `fitnesses` are skipped.
@@ -426,7 +433,20 @@ fn box_stats_for(generation: u32, fitnesses: &[f32]) -> BoxStats {
         q3,
         max: whisker_hi,
         outliers,
+        points: subsample(&sorted, STRIP_SAMPLE_CAP),
     }
+}
+
+/// Evenly sub-samples `sorted` down to at most `cap` elements, preserving the
+/// first and last. Returns a clone when already within the cap.
+fn subsample(sorted: &[f64], cap: usize) -> Vec<f64> {
+    let n = sorted.len();
+    if n <= cap || cap == 0 {
+        return sorted.to_vec();
+    }
+    (0..cap)
+        .map(|i| sorted[i * (n - 1) / (cap - 1).max(1)])
+        .collect()
 }
 
 /// Linear-interpolation quantile (`p` in `[0.0, 1.0]`). Input must be
@@ -708,6 +728,41 @@ mod tests {
         let series = vec![(0u32, 1.0), (9, 2.0)];
         let axis = vec![0.0];
         assert_eq!(remap_episode_series(&series, &axis), vec![(0.0, 1.0)]);
+    }
+
+    #[test]
+    fn box_stats_points_retained_when_small() {
+        let s = PopulationSample {
+            generation: 0,
+            fitnesses: vec![3.0, 1.0, 2.0],
+            diversity: None,
+            best_index: 1,
+            best_genome_digest: None,
+            parents_of_best: vec![],
+            inner_rl_returns: None,
+        };
+        let stats = population_box_data(std::slice::from_ref(&s));
+        // Sorted ascending, all retained (below the cap).
+        assert_eq!(stats[0].points, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn box_stats_points_capped_for_large_population() {
+        let fitnesses: Vec<f32> = (0..2000).map(|i| i as f32).collect();
+        let s = PopulationSample {
+            generation: 0,
+            fitnesses,
+            diversity: None,
+            best_index: 0,
+            best_genome_digest: None,
+            parents_of_best: vec![],
+            inner_rl_returns: None,
+        };
+        let stats = population_box_data(std::slice::from_ref(&s));
+        assert!(stats[0].points.len() <= STRIP_SAMPLE_CAP);
+        // First and last extremes preserved.
+        assert_eq!(stats[0].points.first(), Some(&0.0));
+        assert_eq!(stats[0].points.last(), Some(&1999.0));
     }
 
     #[test]

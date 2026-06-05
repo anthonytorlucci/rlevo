@@ -582,6 +582,16 @@ const BOX_M_B: f64 = 32.0;
 /// outliers as small open circles. Three overlay polylines (best,
 /// median, worst) pair colour with distinct dash patterns so the a11y
 /// contract survives a B/W screenshot.
+/// Deterministic jitter in `[-1, 1)` from an index — a cheap integer hash so
+/// the strip-plot scatter is stable across renders (no RNG; `Math.random` is
+/// unavailable and determinism keeps screenshots reproducible).
+fn jitter_unit(i: u64) -> f64 {
+    let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    // Top 53 bits → [0, 1), then map to [-1, 1).
+    let unit = (h >> 11) as f64 / (1u64 << 53) as f64;
+    unit.mul_add(2.0, -1.0)
+}
+
 #[must_use]
 pub fn population_box_view(
     stats: &[BoxStats],
@@ -705,6 +715,28 @@ pub fn population_box_view(
         }
     }
 
+    // Strip-plot points: one jittered (cx, cy) per sampled individual, computed
+    // once. The jitter is a deterministic hash of the index (no RNG — keeps the
+    // render reproducible), spread across ~90% of the box width.
+    let mut strip_pts: Vec<(f64, f64)> = Vec::new();
+    for s in stats {
+        let cx = scale_x(f64::from(s.generation));
+        for (i, v) in s.points.iter().enumerate() {
+            strip_pts.push((cx + jitter_unit(i as u64) * box_w * 0.45, scale_y(*v)));
+        }
+    }
+    let (show_strip, set_show_strip) = signal(false);
+    let strip_view = move || {
+        if !show_strip.get() {
+            return ().into_any();
+        }
+        let dots: Vec<AnyView> = strip_pts
+            .iter()
+            .map(|&(cx, cy)| view! { <circle class="rlevo-strip-dot" cx={cx} cy={cy} r=1.5 /> }.into_any())
+            .collect();
+        view! { <g class="rlevo-strip">{dots}</g> }.into_any()
+    };
+
     let polyline_str = |series: &[(u32, f64)]| -> String {
         series
             .iter()
@@ -728,6 +760,17 @@ pub fn population_box_view(
     view! {
         <figure class="rlevo-chart-card rlevo-boxplot-card">
             <figcaption>"Fitness distribution per generation"</figcaption>
+            <div class="rlevo-boxplot-toolbar">
+                <button
+                    type="button"
+                    class="rlevo-strip-toggle"
+                    class:active=move || show_strip.get()
+                    aria-pressed=move || if show_strip.get() { "true" } else { "false" }
+                    on:click=move |_| set_show_strip.update(|v| *v = !*v)
+                >
+                    "Individual points"
+                </button>
+            </div>
             <svg class="rlevo-svg-frame rlevo-boxplot-svg"
                 viewBox=view_box
                 role="img"
@@ -739,6 +782,8 @@ pub fn population_box_view(
                 <line class="rlevo-boxplot-axis"
                     x1={BOX_M_L} y1={BOX_M_T}
                     x2={BOX_M_L} y2={x_axis_y} />
+                // strip-plot jitter cloud beneath the boxes (toggle)
+                {strip_view}
                 // boxes + whiskers + medians + outliers
                 {box_elems}
                 // overlay reference lines (best / median trace / worst)
