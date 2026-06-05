@@ -109,6 +109,75 @@ pub fn downsample_minmax(points: &[(u32, f64)]) -> Vec<(u32, f64)> {
     out
 }
 
+/// One aggregated point of a multi-seed metric band: the cross-seed mean and
+/// (population) standard deviation at a given step, plus how many distinct
+/// seeds contributed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BandPoint {
+    /// Training step / generation the aggregate is computed at.
+    pub step: u32,
+    /// Mean across the seeds present at this step.
+    pub mean: f64,
+    /// Population standard deviation across those seeds (`0.0` for one seed).
+    pub std: f64,
+    /// Number of distinct seeds that contributed a value at this step.
+    pub n: usize,
+}
+
+/// Number of distinct run seeds (`EpisodeRecordHeader::seed`) in the record
+/// set. `>= 2` means the report can draw a cross-seed mean±std band.
+#[must_use]
+pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
+    let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+    for r in records {
+        seeds.insert(r.header.seed);
+    }
+    seeds.len()
+}
+
+/// Cross-seed aggregation of one metric into a mean±std band.
+///
+/// Records are grouped by `header.seed`; within a seed, repeated samples at the
+/// same step are averaged. At each step the per-seed values are reduced to a
+/// cross-seed mean and population standard deviation (`std = 0` when a single
+/// seed has data there). Steps are returned in ascending order. Non-finite
+/// values are ignored. Returns empty when no seed has a finite sample.
+#[must_use]
+pub fn metric_band(records: &[EpisodeRecord], name: &str) -> Vec<BandPoint> {
+    use std::collections::BTreeMap;
+    // step -> seed -> (sum, count) for averaging within a seed.
+    let mut by_step: BTreeMap<u32, BTreeMap<u64, (f64, u32)>> = BTreeMap::new();
+    for r in records {
+        let seed = r.header.seed;
+        for m in r.metrics.iter().filter(|m| m.name == name) {
+            if !m.value.is_finite() {
+                continue;
+            }
+            let entry = by_step.entry(m.step).or_default().entry(seed).or_insert((0.0, 0));
+            entry.0 += m.value;
+            entry.1 += 1;
+        }
+    }
+    by_step
+        .into_iter()
+        .map(|(step, per_seed)| {
+            let means: Vec<f64> = per_seed
+                .values()
+                .map(|&(sum, count)| sum / f64::from(count))
+                .collect();
+            let n = means.len();
+            let mean = means.iter().sum::<f64>() / n as f64;
+            let var = means.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
+            BandPoint {
+                step,
+                mean,
+                std: var.sqrt(),
+                n,
+            }
+        })
+        .collect()
+}
+
 /// Distinct metric names present anywhere in the run, ordered by
 /// [`CANONICAL_METRICS`] first (so the panel grid is stable across
 /// runs), then any non-canonical names appended in lexical order.
@@ -373,6 +442,95 @@ mod tests {
             .collect();
         let out = downsample_minmax(&pts);
         assert!(out.windows(2).all(|w| w[0].0 <= w[1].0), "x monotone");
+    }
+
+    /// Builds a one-episode record under `seed` carrying the given
+    /// `(step, value)` samples for metric `name`.
+    fn seeded_metric_record(seed: u64, name: &str, samples: &[(u32, f64)]) -> EpisodeRecord {
+        let header = EpisodeRecordHeader {
+            format_version: FORMAT_VERSION,
+            run_id: RunId("r".into()),
+            seed,
+            env_family: EnvFamily::Classic,
+            created_at: 0,
+            trial: None,
+            kind: EpisodeKind::Training,
+        };
+        let metrics = samples
+            .iter()
+            .map(|&(step, value)| MetricSample {
+                step,
+                name: name.to_string(),
+                value,
+            })
+            .collect();
+        EpisodeRecord {
+            header,
+            frames: vec![],
+            metrics,
+            population_samples: vec![],
+        }
+    }
+
+    #[test]
+    fn distinct_seed_count_counts_unique_seeds() {
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0)]),
+            seeded_metric_record(1, "loss", &[(1, 1.0)]),
+            seeded_metric_record(2, "loss", &[(0, 1.0)]),
+        ];
+        assert_eq!(distinct_seed_count(&recs), 2);
+    }
+
+    #[test]
+    fn metric_band_computes_cross_seed_mean_and_std() {
+        // Three seeds at step 0 with values 1, 2, 3 → mean 2, popvar = 2/3.
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0)]),
+            seeded_metric_record(2, "loss", &[(0, 2.0)]),
+            seeded_metric_record(3, "loss", &[(0, 3.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        let p = band[0];
+        assert_eq!(p.step, 0);
+        assert_eq!(p.n, 3);
+        assert!((p.mean - 2.0).abs() < 1e-12);
+        assert!((p.std - (2.0_f64 / 3.0).sqrt()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn metric_band_single_seed_has_zero_std() {
+        let recs = vec![seeded_metric_record(7, "loss", &[(0, 5.0), (1, 6.0)])];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 2);
+        assert!(band.iter().all(|p| p.n == 1 && p.std == 0.0));
+    }
+
+    #[test]
+    fn metric_band_averages_within_seed_then_across() {
+        // Seed 1 has two samples at step 0 (avg 2.0); seed 2 has one (4.0).
+        // Cross-seed mean = 3.0.
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0), (0, 3.0)]),
+            seeded_metric_record(2, "loss", &[(0, 4.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        assert_eq!(band[0].n, 2);
+        assert!((band[0].mean - 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn metric_band_skips_non_finite() {
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, f64::NAN)]),
+            seeded_metric_record(2, "loss", &[(0, 2.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        assert_eq!(band[0].n, 1);
+        assert!((band[0].mean - 2.0).abs() < 1e-12);
     }
 
     fn frame(step: u32, reward: f32) -> FrameRecord {

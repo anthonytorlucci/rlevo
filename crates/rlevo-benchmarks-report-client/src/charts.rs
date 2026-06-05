@@ -10,9 +10,9 @@ use leptos_chartistry::{AspectRatio, Chart, Line, Series};
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
-    BoxStats, available_metric_names, diversity_series, downsample_minmax, episode_length_series,
-    episode_reward_series, fitness_range_series, metric_series, population_box_data, rolling_mean,
-    selection_pressure_series,
+    BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
+    downsample_minmax, episode_length_series, episode_reward_series, fitness_range_series,
+    metric_band, metric_series, population_box_data, rolling_mean, selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
@@ -197,6 +197,7 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
 
     let rl_section = group_section("RL diagnostics", "rlevo-group-rl", rl_panels);
     let eo_section = group_section("EO diagnostics", "rlevo-group-eo", eo_panels);
+    let seed_section = multi_seed_section(records);
 
     view! {
         <section class="rlevo-convergence">
@@ -204,7 +205,138 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
             <div class="rlevo-chart-grid">{shared_panels}</div>
             {rl_section}
             {eo_section}
+            {seed_section}
         </section>
+    }
+    .into_any()
+}
+
+/// Renders the cross-seed mean±std band section when the record set spans two
+/// or more distinct seeds, or nothing for a single-seed run.
+///
+/// One band panel per metric that has at least one step with ≥2 contributing
+/// seeds; per-generation EA metrics are excluded (population panels cover them).
+fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
+    if distinct_seed_count(records) < 2 {
+        return ().into_any();
+    }
+    let mut panels: Vec<AnyView> = Vec::new();
+    for name in available_metric_names(records) {
+        if is_per_generation(&name) {
+            continue;
+        }
+        let band = metric_band(records, &name);
+        if !band.iter().any(|p| p.n >= 2) {
+            continue;
+        }
+        panels.push(band_chart_view(title_for(&name).to_string(), &band));
+    }
+    if panels.is_empty() {
+        return ().into_any();
+    }
+    let n = distinct_seed_count(records);
+    view! {
+        <div class="rlevo-metric-group rlevo-group-seed">
+            <h3>{format!("Multi-seed aggregation (mean ± std, n={n})")}</h3>
+            <div class="rlevo-chart-grid">{panels}</div>
+        </div>
+    }
+    .into_any()
+}
+
+/// Hand-rolled SVG mean±std band panel.
+///
+/// `leptos-chartistry` 0.2 has no area primitive, so the ±std envelope is a
+/// filled `<polygon>` (upper edge left→right, lower edge right→left) under a
+/// solid mean `<polyline>`. The fill/line pairing keeps the band legible in
+/// B/W per the a11y contract.
+#[must_use]
+pub fn band_chart_view(title: String, band: &[BandPoint]) -> AnyView {
+    use std::fmt::Write as _;
+    if band.is_empty() {
+        return view! {
+            <figure class="rlevo-chart-card rlevo-chart-empty">
+                <figcaption>{title}</figcaption>
+                <p class="rlevo-chart-no-data">"no data"</p>
+            </figure>
+        }
+        .into_any();
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let x_min = f64::from(band.first().map_or(0, |p| p.step));
+    #[allow(clippy::cast_precision_loss)]
+    let x_max_raw = f64::from(band.last().map_or(1, |p| p.step));
+    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON {
+        x_min + 1.0
+    } else {
+        x_max_raw
+    };
+
+    let mut y_min = f64::INFINITY;
+    let mut y_max = f64::NEG_INFINITY;
+    for p in band {
+        y_min = y_min.min(p.mean - p.std);
+        y_max = y_max.max(p.mean + p.std);
+    }
+    let span = (y_max - y_min).abs();
+    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    y_min -= pad;
+    y_max += pad;
+    if (y_max - y_min).abs() < f64::EPSILON {
+        y_max = y_min + 1.0;
+    }
+
+    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
+    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    let scale_x = move |g: f64| -> f64 { BOX_M_L + (g - x_min) / (x_max - x_min) * plot_w };
+    let scale_y = move |v: f64| -> f64 { BOX_M_T + (1.0 - (v - y_min) / (y_max - y_min)) * plot_h };
+
+    // Band polygon: upper edge forward, lower edge back.
+    let mut poly = String::new();
+    for p in band {
+        let _ = write!(
+            poly,
+            "{:.2},{:.2} ",
+            scale_x(f64::from(p.step)),
+            scale_y(p.mean + p.std)
+        );
+    }
+    for p in band.iter().rev() {
+        let _ = write!(
+            poly,
+            "{:.2},{:.2} ",
+            scale_x(f64::from(p.step)),
+            scale_y(p.mean - p.std)
+        );
+    }
+    let mut mean_pts = String::new();
+    for p in band {
+        let _ = write!(
+            mean_pts,
+            "{:.2},{:.2} ",
+            scale_x(f64::from(p.step)),
+            scale_y(p.mean)
+        );
+    }
+
+    let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
+    let y_min_label = format!("{y_min:.3}");
+    let y_max_label = format!("{y_max:.3}");
+    let x_axis_y = BOX_VB_H - BOX_M_B;
+
+    view! {
+        <figure class="rlevo-chart-card">
+            <figcaption>{title}</figcaption>
+            <svg class="rlevo-band" viewBox={view_box} preserveAspectRatio="none" role="img">
+                <polygon class="rlevo-band-fill" points={poly} />
+                <polyline class="rlevo-band-mean" points={mean_pts} fill="none" />
+                <line class="rlevo-boxplot-axis"
+                    x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
+                <text class="rlevo-boxplot-axis-label" x=4.0 y={BOX_M_T + 8.0}>{y_max_label}</text>
+                <text class="rlevo-boxplot-axis-label" x=4.0 y={x_axis_y}>{y_min_label}</text>
+            </svg>
+        </figure>
     }
     .into_any()
 }
