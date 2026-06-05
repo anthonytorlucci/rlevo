@@ -109,6 +109,93 @@ pub fn downsample_minmax(points: &[(u32, f64)]) -> Vec<(u32, f64)> {
     out
 }
 
+/// Global x-axis mode for the episode-outcome panels.
+///
+/// Per-update metric panels stay on their native training-step axis; this
+/// toggle remaps the per-episode series (reward / length) between the three
+/// well-defined episode-level axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AxisMode {
+    /// Cumulative environment steps elapsed when each episode began.
+    Step,
+    /// Episode index (0-based). The default.
+    #[default]
+    Episode,
+    /// Cumulative wall-clock seconds elapsed when each episode began.
+    Wallclock,
+}
+
+impl AxisMode {
+    /// Short axis label for the toggle / x-axis caption.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            AxisMode::Step => "step",
+            AxisMode::Episode => "episode",
+            AxisMode::Wallclock => "wallclock",
+        }
+    }
+}
+
+/// Per-episode x-axis values for `mode`, one entry per record in input order.
+///
+/// - `Episode`: the episode index `0..n`.
+/// - `Step`: exclusive prefix sum of per-episode frame counts (env steps
+///   elapsed *before* each episode).
+/// - `Wallclock`: exclusive prefix sum of each episode's
+///   `episode_wall_clock_secs` terminal metric. If no episode carries that
+///   metric the axis would be all-zero, so it falls back to the episode index.
+#[must_use]
+pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
+    let n = records.len();
+    match mode {
+        AxisMode::Episode => (0..n).map(|i| i as f64).collect(),
+        AxisMode::Step => {
+            let mut acc = 0.0;
+            let mut out = Vec::with_capacity(n);
+            for r in records {
+                out.push(acc);
+                acc += r.frames.len() as f64;
+            }
+            out
+        }
+        AxisMode::Wallclock => {
+            let per_ep: Vec<f64> = records
+                .iter()
+                .map(|r| {
+                    r.metrics
+                        .iter()
+                        .filter(|m| m.name == "episode_wall_clock_secs" && m.value.is_finite())
+                        .map(|m| m.value)
+                        .fold(0.0_f64, f64::max)
+                })
+                .collect();
+            if per_ep.iter().all(|&v| v == 0.0) {
+                // No wall-clock data recorded — degrade to episode index.
+                return (0..n).map(|i| i as f64).collect();
+            }
+            let mut acc = 0.0;
+            let mut out = Vec::with_capacity(n);
+            for v in per_ep {
+                out.push(acc);
+                acc += v;
+            }
+            out
+        }
+    }
+}
+
+/// Remaps a per-episode series (x = episode index) onto an `axis` vector
+/// produced by [`episode_axis`], pairing each `(episode_idx, y)` with
+/// `axis[episode_idx]`. Out-of-range indices are dropped.
+#[must_use]
+pub fn remap_episode_series(series: &[(u32, f64)], axis: &[f64]) -> Vec<(f64, f64)> {
+    series
+        .iter()
+        .filter_map(|&(idx, y)| axis.get(idx as usize).map(|&x| (x, y)))
+        .collect()
+}
+
 /// One aggregated point of a multi-seed metric band: the cross-seed mean and
 /// (population) standard deviation at a given step, plus how many distinct
 /// seeds contributed.
@@ -519,6 +606,87 @@ mod tests {
         assert_eq!(band.len(), 1);
         assert_eq!(band[0].n, 2);
         assert!((band[0].mean - 3.0).abs() < 1e-12);
+    }
+
+    /// Record with `frame_count` frames and an optional wall-clock metric.
+    fn timed_record(frames: u32, wall: Option<f64>) -> EpisodeRecord {
+        let header = EpisodeRecordHeader {
+            format_version: FORMAT_VERSION,
+            run_id: RunId("r".into()),
+            seed: 0,
+            env_family: EnvFamily::Classic,
+            created_at: 0,
+            trial: None,
+            kind: EpisodeKind::Training,
+        };
+        let metrics = wall
+            .map(|w| {
+                vec![MetricSample {
+                    step: 0,
+                    name: "episode_wall_clock_secs".to_string(),
+                    value: w,
+                }]
+            })
+            .unwrap_or_default();
+        EpisodeRecord {
+            header,
+            frames: (0..frames).map(|s| frame(s, 0.0)).collect(),
+            metrics,
+            population_samples: vec![],
+        }
+    }
+
+    #[test]
+    fn episode_axis_episode_mode_is_index() {
+        let recs = vec![timed_record(3, None), timed_record(5, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Episode), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn episode_axis_step_mode_is_exclusive_prefix_sum() {
+        let recs = vec![timed_record(3, None), timed_record(5, None), timed_record(2, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Step), vec![0.0, 3.0, 8.0]);
+    }
+
+    #[test]
+    fn episode_axis_wallclock_prefix_sum() {
+        let recs = vec![
+            timed_record(1, Some(1.5)),
+            timed_record(1, Some(2.5)),
+            timed_record(1, Some(4.0)),
+        ];
+        assert_eq!(episode_axis(&recs, AxisMode::Wallclock), vec![0.0, 1.5, 4.0]);
+    }
+
+    #[test]
+    fn episode_axis_wallclock_falls_back_to_index_without_data() {
+        let recs = vec![timed_record(1, None), timed_record(1, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Wallclock), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn remap_episode_series_pairs_with_axis() {
+        let series = vec![(0u32, 10.0), (1, 20.0), (2, 30.0)];
+        let axis = vec![0.0, 5.0, 12.0];
+        assert_eq!(
+            remap_episode_series(&series, &axis),
+            vec![(0.0, 10.0), (5.0, 20.0), (12.0, 30.0)]
+        );
+    }
+
+    #[test]
+    fn remap_episode_series_drops_out_of_range() {
+        let series = vec![(0u32, 1.0), (9, 2.0)];
+        let axis = vec![0.0];
+        assert_eq!(remap_episode_series(&series, &axis), vec![(0.0, 1.0)]);
+    }
+
+    #[test]
+    fn axis_mode_labels() {
+        assert_eq!(AxisMode::Step.label(), "step");
+        assert_eq!(AxisMode::Episode.label(), "episode");
+        assert_eq!(AxisMode::Wallclock.label(), "wallclock");
+        assert_eq!(AxisMode::default(), AxisMode::Episode);
     }
 
     #[test]

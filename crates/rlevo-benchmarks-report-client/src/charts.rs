@@ -10,9 +10,10 @@ use leptos_chartistry::{AspectRatio, Chart, Line, Series};
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
-    BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
-    downsample_minmax, episode_length_series, episode_reward_series, fitness_range_series,
-    metric_band, metric_series, population_box_data, rolling_mean, selection_pressure_series,
+    AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
+    downsample_minmax, episode_axis, episode_length_series, episode_reward_series,
+    fitness_range_series, metric_band, metric_series, population_box_data, remap_episode_series,
+    rolling_mean, selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
@@ -51,6 +52,22 @@ pub fn line_chart_view(
     raw: &[(u32, f64)],
     smoothed: Option<&[(u32, f64)]>,
 ) -> AnyView {
+    let raw_xy: Vec<(f64, f64)> = raw.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+    let smoothed_xy: Option<Vec<(f64, f64)>> =
+        smoothed.map(|s| s.iter().map(|&(x, y)| (f64::from(x), y)).collect());
+    line_chart_view_xy(title, y_label, &raw_xy, smoothed_xy.as_deref())
+}
+
+/// Like [`line_chart_view`] but with floating-point x-coordinates, used when
+/// the x-axis is a remapped continuous quantity (e.g. wall-clock seconds under
+/// the axis-mode toggle).
+#[must_use]
+pub fn line_chart_view_xy(
+    title: String,
+    y_label: String,
+    raw: &[(f64, f64)],
+    smoothed: Option<&[(f64, f64)]>,
+) -> AnyView {
     if raw.is_empty() {
         return view! {
             <figure class="rlevo-chart-card rlevo-chart-empty">
@@ -61,21 +78,9 @@ pub fn line_chart_view(
         .into_any();
     }
 
-    let raw_points: Vec<Point> = raw
-        .iter()
-        .map(|&(x, y)| Point {
-            x: f64::from(x),
-            y,
-        })
-        .collect();
-    let smoothed_points: Option<Vec<Point>> = smoothed.map(|s| {
-        s.iter()
-            .map(|&(x, y)| Point {
-                x: f64::from(x),
-                y,
-            })
-            .collect()
-    });
+    let raw_points: Vec<Point> = raw.iter().map(|&(x, y)| Point { x, y }).collect();
+    let smoothed_points: Option<Vec<Point>> =
+        smoothed.map(|s| s.iter().map(|&(x, y)| Point { x, y }).collect());
 
     let raw_signal: Signal<Vec<Point>> = Signal::derive(move || raw_points.clone());
 
@@ -145,25 +150,12 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     let episode_count = records.len();
     let window = EPISODE_WINDOW.min(episode_count.max(1) * 4 / 4).max(1);
 
-    let reward = episode_reward_series(records);
-    let reward_smoothed = rolling_mean(&reward, window);
-    let length = episode_length_series(records);
-    let length_smoothed = rolling_mean(&length, window);
+    // Episode-outcome panels (reward, length) get a global x-axis toggle:
+    // episode index / cumulative env step / cumulative wall-clock. Per-update
+    // metric panels below keep their native training-step axis.
+    let episode_outcomes = episode_outcome_panels(records, window);
 
-    // The shared episode-outcome panels render for every run.
     let mut shared_panels: Vec<AnyView> = Vec::new();
-    shared_panels.push(line_chart_view(
-        "Episode reward".to_string(),
-        "reward".to_string(),
-        &reward,
-        Some(&reward_smoothed),
-    ));
-    shared_panels.push(line_chart_view(
-        "Episode length".to_string(),
-        "frames".to_string(),
-        &length,
-        Some(&length_smoothed),
-    ));
 
     // Remaining metrics split into RL diagnostics and EO diagnostics by the
     // shared registry's `MetricKind` (ADR-0015 / [[2026-06-05-rl-vs-eo-learning]]),
@@ -202,11 +194,79 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     view! {
         <section class="rlevo-convergence">
             <h2>"Convergence"</h2>
+            {episode_outcomes}
             <div class="rlevo-chart-grid">{shared_panels}</div>
             {rl_section}
             {eo_section}
             {seed_section}
         </section>
+    }
+    .into_any()
+}
+
+/// Reactive episode-outcome block: a step/episode/wallclock x-axis toggle plus
+/// the reward and length panels, which re-render synchronously when the mode
+/// changes. The three axis vectors are precomputed once; switching only remaps.
+fn episode_outcome_panels(records: &[EpisodeRecord], window: usize) -> AnyView {
+    let reward = episode_reward_series(records);
+    let reward_smoothed = rolling_mean(&reward, window);
+    let length = episode_length_series(records);
+    let length_smoothed = rolling_mean(&length, window);
+    let axis_episode = episode_axis(records, AxisMode::Episode);
+    let axis_step = episode_axis(records, AxisMode::Step);
+    let axis_wall = episode_axis(records, AxisMode::Wallclock);
+
+    let (mode, set_mode) = signal(AxisMode::Episode);
+
+    let panels = move || {
+        let axis = match mode.get() {
+            AxisMode::Episode => &axis_episode,
+            AxisMode::Step => &axis_step,
+            AxisMode::Wallclock => &axis_wall,
+        };
+        let x_label = mode.get().label().to_string();
+        let reward_xy = remap_episode_series(&reward, axis);
+        let reward_sm = remap_episode_series(&reward_smoothed, axis);
+        let length_xy = remap_episode_series(&length, axis);
+        let length_sm = remap_episode_series(&length_smoothed, axis);
+        view! {
+            <div class="rlevo-chart-grid">
+                {line_chart_view_xy(
+                    format!("Episode reward (x: {x_label})"),
+                    "reward".to_string(),
+                    &reward_xy,
+                    Some(&reward_sm),
+                )}
+                {line_chart_view_xy(
+                    format!("Episode length (x: {x_label})"),
+                    "frames".to_string(),
+                    &length_xy,
+                    Some(&length_sm),
+                )}
+            </div>
+        }
+    };
+
+    let mk_button = move |m: AxisMode| {
+        view! {
+            <button
+                class="rlevo-axis-btn"
+                class:active=move || mode.get() == m
+                on:click=move |_| set_mode.set(m)
+            >
+                {m.label()}
+            </button>
+        }
+    };
+
+    view! {
+        <div class="rlevo-axis-toggle" role="group" aria-label="x-axis mode">
+            <span class="rlevo-axis-label">"x-axis:"</span>
+            {mk_button(AxisMode::Step)}
+            {mk_button(AxisMode::Episode)}
+            {mk_button(AxisMode::Wallclock)}
+        </div>
+        {panels}
     }
     .into_any()
 }

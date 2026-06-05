@@ -537,3 +537,21 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     .rlevo-band-fill { fill: rgba(93, 173, 226, 0.25); }
     .rlevo-band-mean { stroke: #5dade2; }
 }
+
+/* x-axis mode toggle for the episode-outcome panels. */
+.rlevo-axis-toggle { display: flex; align-items: center; gap: 0.25rem; margin: 0.5rem 0; }
+.rlevo-axis-label { font-size: 0.85em; opacity: 0.8; margin-right: 0.25rem; }
+.rlevo-axis-btn {
+    padding: 0.1rem 0.6rem;
+    border: 1px solid rgba(127, 127, 127, 0.5);
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-variant: small-caps;
+}
+.rlevo-axis-btn.active {
+    border-color: #2c6fb5;
+    background: rgba(80, 140, 220, 0.18);
+    font-weight: 600;
+}
