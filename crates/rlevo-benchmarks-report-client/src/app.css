@@ -490,3 +490,40 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     .rlevo-boxplot-median-trace { stroke: #f1c40f; }
     .rlevo-boxplot-worst { stroke: #ec7063; }
 }
+
+/* Episode-kind badge (eval/train). Colour is paired with a text label and a
+   border/shape difference so the distinction survives a B/W screenshot. */
+.rlevo-kind {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.8em;
+    font-variant: small-caps;
+    border: 1px solid currentColor;
+}
+.rlevo-kind-train { color: #2e7d32; border-style: solid; }
+.rlevo-kind-eval  { color: #6a1b9a; border-style: dashed; font-weight: 600; }
+
+/* RL vs EO metric-group sections in the convergence panel. */
+.rlevo-metric-group { margin-top: 1.25rem; }
+.rlevo-metric-group > h3 {
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.2rem;
+    border-bottom: 2px solid rgba(127, 127, 127, 0.4);
+}
+.rlevo-group-rl > h3 { border-bottom-style: solid; }
+.rlevo-group-eo > h3 { border-bottom-style: dashed; }
+
+/* Checkpoint table. */
+.rlevo-ckpt-table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+.rlevo-ckpt-table th, .rlevo-ckpt-table td {
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.4);
+    text-align: left;
+}
+.rlevo-ckpt-path { font-family: monospace; font-size: 0.85em; word-break: break-all; }
+
+@media (prefers-color-scheme: dark) {
+    .rlevo-kind-train { color: #81c784; }
+    .rlevo-kind-eval  { color: #ce93d8; }
+}

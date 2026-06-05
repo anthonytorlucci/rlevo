@@ -230,6 +230,9 @@ struct EpisodeMeta {
     episode_reward: f64,
     length: u32,
     script_id: String,
+    /// `"training"` or `"evaluation"` (v6 `EpisodeKind`), as a string so the
+    /// JSON index stays decoupled from the enum's wire shape.
+    kind: &'static str,
 }
 
 #[derive(Serialize)]
@@ -283,6 +286,10 @@ pub fn emit_static_html(
             episode_reward: ep.episode_reward,
             length: ep.length,
             script_id,
+            kind: match ep.kind {
+                crate::record::EpisodeKind::Training => "training",
+                crate::record::EpisodeKind::Evaluation => "evaluation",
+            },
         });
     }
     let index_json = serde_json::to_string(&episode_metas).map_err(EmitError::ManifestJson)?;

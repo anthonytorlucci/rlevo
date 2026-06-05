@@ -20,7 +20,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::record::{EnvFamily, MetricSample, RunId, RunManifest, read_episode_record};
+use crate::record::{EnvFamily, EpisodeKind, MetricSample, RunId, RunManifest, read_episode_record};
 
 /// Per-episode summary held in memory after a successful
 /// [`RecordedRun::open`].
@@ -44,6 +44,9 @@ pub struct EpisodeIndex {
     /// already split out from the on-disk wire format. Small relative to
     /// the frame stream, so these are retained.
     pub metrics: Vec<MetricSample>,
+    /// Whether this episode was a training or evaluation rollout
+    /// (`EpisodeRecordHeader::kind`, v6). Drives the report's eval/train split.
+    pub kind: EpisodeKind,
 }
 
 /// A recorded benchmark run loaded from disk.
@@ -139,6 +142,7 @@ impl RecordedRun {
                 frame_count,
                 episode_reward,
                 length,
+                kind: decoded.header.kind,
                 metrics: decoded.metrics,
             });
         }

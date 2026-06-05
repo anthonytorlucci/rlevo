@@ -257,6 +257,7 @@ fn episode_table(
             <thead>
                 <tr>
                     <th>"episode"</th>
+                    <th>"kind"</th>
                     <th>"frames"</th>
                     <th>"length"</th>
                     <th>"return"</th>
@@ -281,12 +282,22 @@ fn episode_row(
     let episode_str = m.episode.to_string();
     let frame_count_str = m.frame_count.to_string();
     let length_str = m.length.to_string();
+    // Eval episodes get a distinct badge class so the split survives a B/W
+    // screenshot (text label + class, not colour alone) per the a11y contract.
+    let is_eval = m.kind.eq_ignore_ascii_case("evaluation");
+    let kind_label = if is_eval { "eval" } else { "train" };
+    let kind_class = if is_eval {
+        "rlevo-kind rlevo-kind-eval"
+    } else {
+        "rlevo-kind rlevo-kind-train"
+    };
     view! {
         <tr
             class:selected=move || selected.get().as_deref() == Some(script_id_for_class.as_str())
             on:click=move |_| set_selected.set(Some(script_id_for_click.clone()))
         >
             <td class="numeric">{episode_str}</td>
+            <td><span class=kind_class>{kind_label}</span></td>
             <td class="numeric">{frame_count_str}</td>
             <td class="numeric">{length_str}</td>
             <td class="numeric">{reward_text}</td>
