@@ -185,6 +185,27 @@ pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
     }
 }
 
+/// Default "low diversity" guideline: the 5th percentile of the diversity
+/// values over the first ten generations (or all of them if fewer).
+///
+/// Returns `None` when there are no finite diversity values. A trace dipping
+/// below this line signals the population is collapsing toward premature
+/// convergence (see `research/2026-06-05-rl-vs-eo-learning.md` §4.3).
+#[must_use]
+pub fn low_diversity_threshold(diversity: &[(u32, f64)]) -> Option<f64> {
+    let take = diversity.len().min(10);
+    let mut firsts: Vec<f64> = diversity[..take]
+        .iter()
+        .map(|&(_, y)| y)
+        .filter(|y| y.is_finite())
+        .collect();
+    if firsts.is_empty() {
+        return None;
+    }
+    firsts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(quantile(&firsts, 0.05))
+}
+
 /// Nearest point to `x` in a series sorted ascending by x, by absolute x
 /// distance. Returns `None` for an empty series. Used by the hover crosshair to
 /// report the *raw* sample under the cursor, independent of any decimation
@@ -763,6 +784,29 @@ mod tests {
         // First and last extremes preserved.
         assert_eq!(stats[0].points.first(), Some(&0.0));
         assert_eq!(stats[0].points.last(), Some(&1999.0));
+    }
+
+    #[test]
+    fn low_diversity_threshold_5th_pct_of_first_ten() {
+        // 12 generations; only the first 10 count. Values 10..=19 over gens 0..9.
+        let div: Vec<(u32, f64)> = (0..12).map(|g| (g, 10.0 + f64::from(g))).collect();
+        // First ten sorted = [10..19]; 5th percentile ≈ 10 + 0.05*(9) = 10.45.
+        let t = low_diversity_threshold(&div).unwrap();
+        assert!((t - 10.45).abs() < 1e-9, "got {t}");
+    }
+
+    #[test]
+    fn low_diversity_threshold_uses_all_when_fewer_than_ten() {
+        let div = vec![(0u32, 4.0), (1, 2.0), (2, 8.0)];
+        let t = low_diversity_threshold(&div).unwrap();
+        // sorted [2,4,8]; 5th pct interpolates near the low end.
+        assert!(t >= 2.0 && t < 4.0, "got {t}");
+    }
+
+    #[test]
+    fn low_diversity_threshold_none_without_finite() {
+        assert_eq!(low_diversity_threshold(&[]), None);
+        assert_eq!(low_diversity_threshold(&[(0, f64::NAN)]), None);
     }
 
     #[test]

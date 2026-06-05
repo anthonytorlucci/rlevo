@@ -12,8 +12,8 @@ use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_fo
 use crate::series::{
     AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
     downsample_minmax, episode_axis, episode_length_series, episode_reward_series,
-    fitness_range_series, metric_band, metric_series, nearest_by_x, population_box_data,
-    remap_episode_series, rolling_mean, selection_pressure_series,
+    fitness_range_series, low_diversity_threshold, metric_band, metric_series, nearest_by_x,
+    population_box_data, remap_episode_series, rolling_mean, selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
@@ -811,6 +811,98 @@ pub fn population_box_view(
     .into_any()
 }
 
+/// Diversity trace panel with a configurable low-diversity guideline.
+///
+/// A dashed horizontal guideline marks the low-diversity threshold (default:
+/// 5th percentile of the first ten generations, [`low_diversity_threshold`]);
+/// the user can override it via a number input. When the trace dips below the
+/// guideline the card border pulses and the title gains a ⚠ glyph — both
+/// colour-redundant so the alert survives a B/W screenshot.
+#[must_use]
+pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
+    use std::fmt::Write as _;
+    if diversity.is_empty() {
+        return ().into_any();
+    }
+
+    let x_min = f64::from(diversity.first().map_or(0, |p| p.0));
+    let x_max_raw = f64::from(diversity.last().map_or(1, |p| p.0));
+    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON { x_min + 1.0 } else { x_max_raw };
+    let mut y_min = f64::INFINITY;
+    let mut y_max = f64::NEG_INFINITY;
+    for &(_, y) in diversity {
+        if y.is_finite() {
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
+        }
+    }
+    if !y_min.is_finite() {
+        y_min = 0.0;
+        y_max = 1.0;
+    }
+    let span = (y_max - y_min).abs();
+    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    y_min -= pad;
+    y_max += pad;
+    if (y_max - y_min).abs() < f64::EPSILON {
+        y_max = y_min + 1.0;
+    }
+
+    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
+    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    let sx_of = move |x: f64| BOX_M_L + (x - x_min) / (x_max - x_min) * plot_w;
+    let sy_of = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h;
+
+    let mut path = String::new();
+    for &(x, y) in diversity {
+        if y.is_finite() {
+            let _ = write!(path, "{:.2},{:.2} ", sx_of(f64::from(x)), sy_of(y));
+        }
+    }
+
+    let default_t = low_diversity_threshold(diversity).unwrap_or(y_min);
+    let values: Vec<f64> = diversity.iter().map(|&(_, y)| y).collect();
+    let (threshold, set_threshold) = signal(default_t);
+
+    // Memo so both the title and the card-pulse class can read the breach state
+    // (a plain `Fn` closure would be moved by the first consumer).
+    let breached = Memo::new(move |_| {
+        let t = threshold.get();
+        values.iter().any(|&y| y.is_finite() && y < t)
+    });
+    let guide_y = move || sy_of(threshold.get().clamp(y_min, y_max));
+    let x_axis_y = BOX_VB_H - BOX_M_B;
+    let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
+    let right_x = BOX_VB_W - BOX_M_R;
+    let title = move || if breached.get() { "⚠ Diversity" } else { "Diversity" };
+    let on_threshold = move |ev: leptos::ev::Event| {
+        if let Ok(v) = leptos::prelude::event_target_value(&ev).parse::<f64>() {
+            set_threshold.set(v);
+        }
+    };
+
+    view! {
+        <figure class="rlevo-chart-card" class:rlevo-pulse=move || breached.get()>
+            <figcaption>{title}</figcaption>
+            <div class="rlevo-diversity-toolbar">
+                <label>"low-diversity threshold: "
+                    <input type="number" step="any" class="rlevo-threshold-input"
+                        prop:value=move || threshold.get().to_string()
+                        on:input=on_threshold />
+                </label>
+            </div>
+            <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none" role="img"
+                aria-label="population diversity over generations">
+                <line class="rlevo-boxplot-axis" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
+                <polyline class="rlevo-line-smoothed" points={path} fill="none" />
+                <line class="rlevo-diversity-guide"
+                    x1={BOX_M_L} y1=guide_y x2={right_x} y2=guide_y />
+            </svg>
+        </figure>
+    }
+    .into_any()
+}
+
 /// Composes the EA population section: box plot, diversity trace, and selection-pressure panel.
 ///
 /// Derives per-generation [`BoxStats`] and overlay traces from `samples`, then
@@ -832,12 +924,7 @@ pub fn population_panel_view(samples: &[PopulationSample]) -> AnyView {
     let mut panels: Vec<AnyView> = Vec::new();
     panels.push(population_box_view(&box_stats, overlays));
     if !diversity.is_empty() {
-        panels.push(line_chart_view(
-            "Diversity".to_string(),
-            "diversity".to_string(),
-            &diversity,
-            None,
-        ));
+        panels.push(diversity_panel_view(&diversity));
     }
     if !pressure.is_empty() {
         panels.push(line_chart_view(

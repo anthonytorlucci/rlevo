@@ -589,3 +589,20 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
 @media (prefers-color-scheme: dark) {
     .rlevo-strip-dot { fill: rgba(210, 210, 210, 0.30); }
 }
+
+/* Diversity panel: low-diversity guideline + breach pulse. */
+.rlevo-diversity-toolbar { font-size: 0.8em; opacity: 0.85; margin: 0.2rem 0; }
+.rlevo-threshold-input { width: 7rem; margin-left: 0.25rem; }
+.rlevo-diversity-guide { stroke: #c0392b; stroke-width: 1.5; stroke-dasharray: 6 3; }
+/* Breach alert: a brief border pulse (colour-redundant with the ⚠ title glyph). */
+.rlevo-pulse { animation: rlevo-pulse-kf 1s ease-in-out 3; border-radius: 0.25rem; }
+@keyframes rlevo-pulse-kf {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.0); }
+    50% { box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.6); }
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-diversity-guide { stroke: #ec7063; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rlevo-pulse { animation: none; outline: 2px solid rgba(192, 57, 43, 0.7); }
+}
