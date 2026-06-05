@@ -51,6 +51,64 @@ pub fn metric_series(records: &[EpisodeRecord], name: &str) -> Vec<(u32, f64)> {
         .collect()
 }
 
+/// Series length above which [`downsample_minmax`] decimates before charting.
+pub const DOWNSAMPLE_THRESHOLD: usize = 10_000;
+/// Target bucket count for [`downsample_minmax`]; the decimated series has at
+/// most `2 * DOWNSAMPLE_BUCKETS` points (a min and a max per bucket).
+pub const DOWNSAMPLE_BUCKETS: usize = 2_048;
+
+/// Min/max-per-bucket decimation that preserves visual extremes.
+///
+/// Series at or below [`DOWNSAMPLE_THRESHOLD`] points are returned unchanged.
+/// Longer series are split into `DOWNSAMPLE_BUCKETS` equal-width index buckets;
+/// each bucket contributes its minimum-y and maximum-y points, emitted in x
+/// order, so peaks and troughs survive decimation (a plain stride would alias
+/// them away). Non-finite (`NaN`/`±Inf`) y-values are dropped. The first and
+/// last finite points are always retained so the curve spans its full domain.
+///
+/// This is a *display* transform — keep the raw series for exact-value tooltips.
+#[must_use]
+pub fn downsample_minmax(points: &[(u32, f64)]) -> Vec<(u32, f64)> {
+    if points.len() <= DOWNSAMPLE_THRESHOLD {
+        return points.iter().copied().filter(|(_, y)| y.is_finite()).collect();
+    }
+    let n = points.len();
+    let buckets = DOWNSAMPLE_BUCKETS;
+    let mut out: Vec<(u32, f64)> = Vec::with_capacity(buckets * 2 + 2);
+    for b in 0..buckets {
+        let start = b * n / buckets;
+        let end = ((b + 1) * n / buckets).max(start + 1).min(n);
+        let mut lo: Option<(u32, f64)> = None;
+        let mut hi: Option<(u32, f64)> = None;
+        for &(x, y) in &points[start..end] {
+            if !y.is_finite() {
+                continue;
+            }
+            if lo.is_none_or(|(_, ly)| y < ly) {
+                lo = Some((x, y));
+            }
+            if hi.is_none_or(|(_, hy)| y > hy) {
+                hi = Some((x, y));
+            }
+        }
+        // Emit min then max in x order so the rendered path stays monotone in x.
+        match (lo, hi) {
+            (Some(a), Some(b)) if a.0 <= b.0 => {
+                out.push(a);
+                if a != b {
+                    out.push(b);
+                }
+            }
+            (Some(a), Some(b)) => {
+                out.push(b);
+                out.push(a);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Distinct metric names present anywhere in the run, ordered by
 /// [`CANONICAL_METRICS`] first (so the panel grid is stable across
 /// runs), then any non-canonical names appended in lexical order.
@@ -271,6 +329,51 @@ mod tests {
         EnvFamily, EpisodeKind, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample,
         RunId, FORMAT_VERSION,
     };
+
+    #[test]
+    fn downsample_passthrough_below_threshold() {
+        let pts: Vec<(u32, f64)> = (0..100).map(|i| (i, f64::from(i))).collect();
+        assert_eq!(downsample_minmax(&pts), pts);
+    }
+
+    #[test]
+    fn downsample_drops_non_finite_below_threshold() {
+        let pts = vec![(0, 1.0), (1, f64::NAN), (2, f64::INFINITY), (3, 2.0)];
+        let out = downsample_minmax(&pts);
+        assert_eq!(out, vec![(0, 1.0), (3, 2.0)]);
+        assert!(out.iter().all(|(_, y)| y.is_finite()));
+    }
+
+    #[test]
+    fn downsample_preserves_global_extremes() {
+        // A long ramp with a single planted spike and dip; decimation must keep both.
+        let mut pts: Vec<(u32, f64)> = (0..50_000u32).map(|i| (i, f64::from(i % 7))).collect();
+        pts[12_345].1 = 9_999.0; // global max
+        pts[37_000].1 = -9_999.0; // global min
+        let out = downsample_minmax(&pts);
+        assert!(out.len() <= DOWNSAMPLE_BUCKETS * 2 + 2, "bounded point count");
+        let max = out.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+        let min = out.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
+        assert!((max - 9_999.0).abs() < 1e-9, "global max survived: {max}");
+        assert!((min + 9_999.0).abs() < 1e-9, "global min survived: {min}");
+    }
+
+    #[test]
+    fn downsample_constant_series_stays_constant() {
+        let pts: Vec<(u32, f64)> = (0..20_000u32).map(|i| (i, 3.0)).collect();
+        let out = downsample_minmax(&pts);
+        assert!(!out.is_empty());
+        assert!(out.iter().all(|(_, y)| (*y - 3.0).abs() < 1e-12));
+    }
+
+    #[test]
+    fn downsample_x_is_non_decreasing() {
+        let pts: Vec<(u32, f64)> = (0..30_000u32)
+            .map(|i| (i, ((f64::from(i) * 0.01).sin())))
+            .collect();
+        let out = downsample_minmax(&pts);
+        assert!(out.windows(2).all(|w| w[0].0 <= w[1].0), "x monotone");
+    }
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
         FrameRecord {

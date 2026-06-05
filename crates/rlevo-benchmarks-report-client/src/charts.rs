@@ -10,7 +10,7 @@ use leptos_chartistry::{AspectRatio, Chart, Line, Series};
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
-    BoxStats, available_metric_names, diversity_series, episode_length_series,
+    BoxStats, available_metric_names, diversity_series, downsample_minmax, episode_length_series,
     episode_reward_series, fitness_range_series, metric_series, population_box_data, rolling_mean,
     selection_pressure_series,
 };
@@ -172,10 +172,13 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     let mut rl_panels: Vec<AnyView> = Vec::new();
     let mut eo_panels: Vec<AnyView> = Vec::new();
     for name in available_metric_names(records) {
-        let raw = metric_series(records, &name);
-        if raw.is_empty() {
+        let full = metric_series(records, &name);
+        if full.is_empty() {
             continue;
         }
+        // Decimate long series so the SVG path stays light; min/max bucketing
+        // keeps peaks. Short series pass through unchanged.
+        let raw = downsample_minmax(&full);
         let title = title_for(&name).to_string();
         let panel = if is_per_generation(&name) {
             line_chart_view(title, name.clone(), &raw, None)
