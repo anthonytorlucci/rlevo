@@ -3,7 +3,7 @@
 //! These transform decoded [`EpisodeRecord`]s into `(x, y)` arrays that
 //! the [`crate::charts`] module feeds into `leptos-chartistry`. No DOM,
 //! no Leptos — every function here is testable as a native unit test.
-
+//!
 //! The canonical metric table is the shared [`rlevo_metrics_registry`] crate
 //! (ADR-0015) — there is no client-side copy to keep in sync.
 
@@ -367,8 +367,9 @@ pub struct BandPoint {
     pub n: usize,
 }
 
-/// Number of distinct run seeds (`EpisodeRecordHeader::seed`) in the record
-/// set. `>= 2` means the report can draw a cross-seed mean±std band.
+/// Returns the number of distinct run seeds (`EpisodeRecordHeader::seed`) in the record set.
+///
+/// A count of `>= 2` means the report can draw a cross-seed mean±std band.
 #[must_use]
 pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
     let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
@@ -495,8 +496,9 @@ pub struct BoxStats {
     pub max: f64,
     /// Values outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`; rendered as open circles.
     pub outliers: Vec<f64>,
-    /// Per-individual fitness values for the optional strip-plot overlay,
-    /// evenly sub-sampled to at most [`STRIP_SAMPLE_CAP`] points per generation
+    /// Per-individual fitness values for the optional strip-plot overlay.
+    ///
+    /// Evenly sub-sampled to at most [`STRIP_SAMPLE_CAP`] points per generation
     /// so a large population does not bloat the SVG. Sorted ascending.
     pub points: Vec<f64>,
 }

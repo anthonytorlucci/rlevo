@@ -40,12 +40,14 @@ const EPISODE_WINDOW: usize = 50;
 /// samples already fire per PPO update, not per env step.
 const METRIC_WINDOW: usize = 20;
 
-/// One panel: thin raw line at low alpha plus a thicker smoothed
-/// overlay. The pairing keeps the panel legible in B/W per the a11y
-/// contract — the width step (1.0 vs 2.5) survives without colour.
+/// Builds a line-chart panel with a thin raw line and a thicker smoothed overlay.
 ///
-/// `smoothed = None` draws only the raw line (used for series that are
-/// already aggregated per-generation, e.g. `best_fitness`).
+/// The width difference (1.0 vs 2.5) is the hue-redundant a11y signal — the
+/// two traces remain distinguishable in a B/W screenshot without relying on
+/// colour alone.
+///
+/// Pass `smoothed = None` to draw only the raw line, which is appropriate for
+/// series that are already aggregated per-generation (e.g. `best_fitness`).
 #[must_use]
 pub fn line_chart_view(
     title: String,
@@ -59,7 +61,9 @@ pub fn line_chart_view(
     line_chart_view_xy(title, y_label, &raw_xy, smoothed_xy.as_deref())
 }
 
-/// Like [`line_chart_view`] but with floating-point x-coordinates, used when
+/// Builds a thin/smoothed line-chart panel with floating-point x-coordinates.
+///
+/// Identical to [`line_chart_view`] except the x values are `f64`, used when
 /// the x-axis is a remapped continuous quantity (e.g. wall-clock seconds under
 /// the axis-mode toggle).
 #[must_use]
@@ -583,16 +587,10 @@ const BOX_M_T: f64 = 20.0;
 /// Bottom margin reserved for the x-axis labels.
 const BOX_M_B: f64 = 32.0;
 
-/// Hand-rolled per-generation fitness box plot.
+/// Returns a small "⤓ SVG" toolbar button that downloads the panel's SVG.
 ///
-/// Inside each generation: filled rect for `[Q1, Q3]`, horizontal
-/// median tick, vertical whiskers clipped at the Tukey 1.5×IQR fence,
-/// outliers as small open circles. Three overlay polylines (best,
-/// median, worst) pair colour with distinct dash patterns so the a11y
-/// contract survives a B/W screenshot.
-/// A small "⤓ SVG" toolbar button that downloads the SVG of the chart card it
-/// lives in. The handler is DOM-generic (it walks up to `.rlevo-chart-card`
-/// and grabs the contained `<svg>`), so the same button works for every panel
+/// The click handler is DOM-generic: it walks up to `.rlevo-chart-card` and
+/// serializes the contained `<svg>`, so the same button works for every panel
 /// type — hand-rolled or `leptos-chartistry`.
 fn export_button(filename: &'static str) -> AnyView {
     let on_click = move |ev: leptos::ev::MouseEvent| export_panel_svg(&ev, filename);
@@ -634,6 +632,17 @@ fn jitter_unit(i: u64) -> f64 {
     unit.mul_add(2.0, -1.0)
 }
 
+/// Renders the hand-rolled per-generation fitness box plot SVG panel.
+///
+/// Inside each generation slot: a filled rect for `[Q1, Q3]`, a horizontal
+/// median tick, vertical whiskers clipped at the Tukey 1.5×IQR fence, and
+/// outliers as small open circles. Three overlay polylines (best, median,
+/// worst) pair colour with distinct dash patterns so the a11y contract
+/// survives a B/W screenshot. An optional strip-plot scatter is toggled by an
+/// "Individual points" button in the toolbar.
+///
+/// `overlays` is the `(best, median, worst)` triple returned by
+/// [`crate::series::fitness_range_series`].
 #[must_use]
 pub fn population_box_view(
     stats: &[BoxStats],
