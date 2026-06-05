@@ -54,6 +54,8 @@ where
     let mut episode_reward = 0.0_f32;
     let mut episode_steps = 0_usize;
     let mut last_critic_loss = 0.0_f32;
+    let mut last_qf1_loss = 0.0_f32;
+    let mut last_qf2_loss = 0.0_f32;
     let mut last_q_mean = 0.0_f32;
 
     for step in 0..total_steps {
@@ -73,6 +75,8 @@ where
 
         if let Some(outcome) = agent.learn_step(rng) {
             last_critic_loss = outcome.critic_loss;
+            last_qf1_loss = outcome.qf1_loss;
+            last_qf2_loss = outcome.qf2_loss;
             last_q_mean = outcome.q_mean;
         }
 
@@ -106,9 +110,14 @@ where
                 avg_reward = %avg,
                 critic_loss = last_critic_loss,
                 q_mean = last_q_mean,
+                buffer = agent.buffer_len(),
+                // Canonical metrics consumed by the TUI / record layers.
+                qf1_loss = last_qf1_loss,
+                qf2_loss = last_qf2_loss,
+                actor_loss = agent.last_actor_loss(),
+                q_values = last_q_mean,
                 alpha = agent.last_alpha(),
                 entropy = agent.last_entropy(),
-                buffer = agent.buffer_len(),
                 "sac training progress"
             );
         }

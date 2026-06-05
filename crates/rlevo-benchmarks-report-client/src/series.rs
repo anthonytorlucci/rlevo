@@ -4,50 +4,12 @@
 //! the [`crate::charts`] module feeds into `leptos-chartistry`. No DOM,
 //! no Leptos — every function here is testable as a native unit test.
 
-use crate::wire::{EpisodeRecord, PopulationSample};
+//! The canonical metric table is the shared [`rlevo_metrics_registry`] crate
+//! (ADR-0015) — there is no client-side copy to keep in sync.
 
-/// Canonical metric names, ordered for a stable panel layout across
-/// runs. Mirrors `rlevo_benchmarks::record::tracing_layer::CANONICAL_METRICS`
-/// — drift is caught by the cross-crate wire-format compat test on the
-/// host side, and any name not in this list still surfaces via
-/// [`available_metric_names`] (just at the end).
-pub const CANONICAL_METRICS: &[&str] = &[
-    "policy_loss",
-    "value_loss",
-    "loss",
-    "entropy",
-    "approx_kl",
-    "clip_frac",
-    // v6 RL diagnostics + per-iteration stats.
-    "explained_variance",
-    "old_approx_kl",
-    "episode_return_mean",
-    "episode_return_std",
-    "episode_return_min",
-    "episode_return_max",
-    "episode_length_mean",
-    "env_steps_sampled",
-    "steps_per_sec",
-    "learning_rate",
-    // v6 per-episode terminal triple.
-    "episode_return",
-    "episode_length",
-    "episode_wall_clock_secs",
-    // v6 DQN / SAC / schedule metrics.
-    "td_loss",
-    "q_values",
-    "qf1_loss",
-    "qf2_loss",
-    "actor_loss",
-    "alpha",
-    "alpha_loss",
-    "clip_range",
-    "n_updates",
-    "best_fitness",
-    "mean_fitness",
-    "worst_fitness",
-    "best_fitness_ever",
-];
+use rlevo_metrics_registry::CANONICAL_METRICS;
+
+use crate::wire::{EpisodeRecord, PopulationSample};
 
 /// Per-episode total reward — sum of every frame's reward, indexed by
 /// episode position in the input slice.
@@ -102,8 +64,8 @@ pub fn available_metric_names(records: &[EpisodeRecord]) -> Vec<String> {
     }
     let mut out: Vec<String> = Vec::new();
     for canonical in CANONICAL_METRICS {
-        if seen.remove(*canonical) {
-            out.push((*canonical).to_string());
+        if seen.remove(canonical.name) {
+            out.push(canonical.name.to_string());
         }
     }
     for leftover in seen {

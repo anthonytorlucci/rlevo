@@ -42,6 +42,7 @@ where
     let mut episode_steps = 0_usize;
     let mut last_loss = 0.0_f32;
     let mut last_q_mean = 0.0_f32;
+    let mut n_updates = 0_u64;
 
     for step in 0..total_steps {
         let obs_current = snapshot.observation().clone();
@@ -63,6 +64,7 @@ where
         {
             last_loss = outcome.loss;
             last_q_mean = outcome.q_mean;
+            n_updates += 1;
         }
         agent.sync_target();
         agent.decay_exploration();
@@ -96,6 +98,11 @@ where
                 avg_reward = %avg,
                 epsilon = agent.epsilon(),
                 buffer = agent.buffer_len(),
+                // Canonical metrics consumed by the TUI / record layers.
+                td_loss = last_loss,
+                q_values = last_q_mean,
+                learning_rate = agent.learning_rate(),
+                n_updates = n_updates,
                 "dqn training progress"
             );
         }

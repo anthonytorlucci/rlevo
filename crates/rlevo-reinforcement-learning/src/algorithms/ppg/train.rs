@@ -52,7 +52,9 @@ where
         value_loss: 0.0,
         entropy: 0.0,
         approx_kl: 0.0,
+        old_approx_kl: 0.0,
         clip_frac: 0.0,
+        explained_variance: 0.0,
         epochs_run: 0,
     };
     let mut last_done_in_rollout = false;

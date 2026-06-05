@@ -7,6 +7,7 @@
 
 use leptos::prelude::*;
 use leptos_chartistry::{AspectRatio, Chart, Line, Series};
+use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
     BoxStats, available_metric_names, diversity_series, episode_length_series,
@@ -149,71 +150,78 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     let length = episode_length_series(records);
     let length_smoothed = rolling_mean(&length, window);
 
-    let mut panels: Vec<AnyView> = Vec::new();
-    panels.push(line_chart_view(
+    // The shared episode-outcome panels render for every run.
+    let mut shared_panels: Vec<AnyView> = Vec::new();
+    shared_panels.push(line_chart_view(
         "Episode reward".to_string(),
         "reward".to_string(),
         &reward,
         Some(&reward_smoothed),
     ));
-    panels.push(line_chart_view(
+    shared_panels.push(line_chart_view(
         "Episode length".to_string(),
         "frames".to_string(),
         &length,
         Some(&length_smoothed),
     ));
 
+    // Remaining metrics split into RL diagnostics and EO diagnostics by the
+    // shared registry's `MetricKind` (ADR-0015 / [[2026-06-05-rl-vs-eo-learning]]),
+    // so the report distinguishes gradient-based RL signals (losses, KL,
+    // explained variance) from population-based EO signals (fitness, diversity).
+    let mut rl_panels: Vec<AnyView> = Vec::new();
+    let mut eo_panels: Vec<AnyView> = Vec::new();
     for name in available_metric_names(records) {
         let raw = metric_series(records, &name);
         if raw.is_empty() {
             continue;
         }
-        let title = pretty_metric_title(&name);
+        let title = title_for(&name).to_string();
         let panel = if is_per_generation(&name) {
             line_chart_view(title, name.clone(), &raw, None)
         } else {
             let smoothed = rolling_mean(&raw, METRIC_WINDOW);
             line_chart_view(title, name.clone(), &raw, Some(&smoothed))
         };
-        panels.push(panel);
+        match descriptor(&name).map(|d| d.kind) {
+            Some(MetricKind::Eo) => eo_panels.push(panel),
+            Some(MetricKind::Rl) => rl_panels.push(panel),
+            // Shared metrics (per-episode terminal triple) and any unknown
+            // metric land alongside the episode-outcome panels.
+            _ => shared_panels.push(panel),
+        }
     }
+
+    let rl_section = group_section("RL diagnostics", "rlevo-group-rl", rl_panels);
+    let eo_section = group_section("EO diagnostics", "rlevo-group-eo", eo_panels);
 
     view! {
         <section class="rlevo-convergence">
             <h2>"Convergence"</h2>
-            <div class="rlevo-chart-grid">{panels}</div>
+            <div class="rlevo-chart-grid">{shared_panels}</div>
+            {rl_section}
+            {eo_section}
         </section>
     }
     .into_any()
 }
 
-/// Returns `true` for metrics that are recorded once per EA generation rather
-/// than once per PPO update, so they are plotted without a rolling-mean overlay.
-fn is_per_generation(name: &str) -> bool {
-    matches!(
-        name,
-        "best_fitness" | "mean_fitness" | "worst_fitness" | "best_fitness_ever"
-    )
-}
-
-/// Converts a wire-format metric key into a human-readable panel title.
-///
-/// Known keys are mapped to title-cased phrases; any unrecognised key is
-/// returned unchanged so new metrics surface without a code change.
-fn pretty_metric_title(name: &str) -> String {
-    match name {
-        "policy_loss" => "Policy loss".into(),
-        "value_loss" => "Value loss".into(),
-        "loss" => "Loss".into(),
-        "entropy" => "Policy entropy".into(),
-        "approx_kl" => "Approx KL".into(),
-        "clip_frac" => "Clip fraction".into(),
-        "best_fitness" => "Best fitness".into(),
-        "mean_fitness" => "Mean fitness".into(),
-        "worst_fitness" => "Worst fitness".into(),
-        "best_fitness_ever" => "Best fitness (ever)".into(),
-        other => other.to_string(),
+/// Wraps a paradigm-specific panel group under its own heading, or renders
+/// nothing when the group is empty (so a pure-RL run shows no EO section and
+/// vice versa).
+fn group_section(heading: &str, class: &str, panels: Vec<AnyView>) -> AnyView {
+    if panels.is_empty() {
+        return ().into_any();
     }
+    let heading = heading.to_string();
+    let class = format!("rlevo-metric-group {class}");
+    view! {
+        <div class=class>
+            <h3>{heading}</h3>
+            <div class="rlevo-chart-grid">{panels}</div>
+        </div>
+    }
+    .into_any()
 }
 
 // ---------------------------------------------------------------------------
@@ -491,13 +499,14 @@ mod tests {
 
     #[test]
     fn pretty_metric_titles_known_names() {
-        assert_eq!(pretty_metric_title("policy_loss"), "Policy loss");
-        assert_eq!(pretty_metric_title("approx_kl"), "Approx KL");
-        assert_eq!(pretty_metric_title("entropy"), "Policy entropy");
+        // Titles now come from the shared registry (ADR-0015).
+        assert_eq!(title_for("policy_loss"), "Policy loss");
+        assert_eq!(title_for("approx_kl"), "Approx KL");
+        assert_eq!(title_for("entropy"), "Policy entropy");
     }
 
     #[test]
     fn pretty_metric_title_unknown_passes_through() {
-        assert_eq!(pretty_metric_title("my_custom_metric"), "my_custom_metric");
+        assert_eq!(title_for("my_custom_metric"), "my_custom_metric");
     }
 }

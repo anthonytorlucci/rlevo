@@ -14,6 +14,8 @@
 //!   tanh-Gaussian policy head (or any policy whose `raw_to_env_row` produces
 //!   `ContinuousAction::from_slice`-compatible values).
 
+use std::time::Instant;
+
 use rand::Rng;
 
 use burn::tensor::backend::AutodiffBackend;
@@ -124,11 +126,14 @@ where
         value_loss: 0.0,
         entropy: 0.0,
         approx_kl: 0.0,
+        old_approx_kl: 0.0,
         clip_frac: 0.0,
+        explained_variance: 0.0,
         epochs_run: 0,
     };
     let mut last_done_in_rollout = false;
     let mut global_step = 0_usize;
+    let loop_start = Instant::now();
 
     while global_step < total_timesteps {
         // -------- Collect rollout --------
@@ -185,6 +190,16 @@ where
                 .avg_score()
                 .map(|v| format!("{v:.2}"))
                 .unwrap_or_else(|| "n/a".to_string());
+            // Per-iteration episode-return statistics over the recent-episode
+            // window. Cheap: a handful of arithmetic ops on a bounded VecDeque,
+            // gated behind the periodic-log guard so the hot path is untouched.
+            let ret_stats = EpisodeReturnStats::from_window(&agent.stats().recent_history);
+            let elapsed = loop_start.elapsed().as_secs_f64();
+            let steps_per_sec = if elapsed > 0.0 {
+                global_step as f64 / elapsed
+            } else {
+                0.0
+            };
             tracing::info!(
                 step = global_step,
                 total_steps = total_timesteps,
@@ -194,13 +209,81 @@ where
                 value_loss = last_update_stats.value_loss,
                 entropy = last_update_stats.entropy,
                 approx_kl = last_update_stats.approx_kl,
+                old_approx_kl = last_update_stats.old_approx_kl,
                 clip_frac = last_update_stats.clip_frac,
+                explained_variance = last_update_stats.explained_variance,
+                episode_return_mean = ret_stats.mean,
+                episode_return_std = ret_stats.std,
+                episode_return_min = ret_stats.min,
+                episode_return_max = ret_stats.max,
+                episode_length_mean = ret_stats.length_mean,
+                env_steps_sampled = global_step,
+                steps_per_sec = steps_per_sec,
+                learning_rate = agent.current_learning_rate(),
                 "ppo training progress"
             );
         }
     }
 
     Ok(())
+}
+
+/// Summary statistics over a window of recently completed episodes.
+///
+/// Used only to populate the periodic `tracing` progress event; computed off
+/// the agent's bounded recent-episode window, never per step.
+struct EpisodeReturnStats {
+    mean: f32,
+    std: f32,
+    min: f32,
+    max: f32,
+    length_mean: f32,
+}
+
+impl EpisodeReturnStats {
+    /// Folds a window of [`PerformanceRecord`]s into return/length summaries.
+    ///
+    /// An empty window yields all-zero stats (the value the report suppresses).
+    fn from_window<'a, T, I>(window: I) -> Self
+    where
+        T: crate::metrics::PerformanceRecord + 'a,
+        I: IntoIterator<Item = &'a T>,
+    {
+        let mut n = 0_usize;
+        let mut sum = 0.0_f32;
+        let mut sum_len = 0.0_f32;
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        let mut scores: Vec<f32> = Vec::new();
+        for rec in window {
+            let s = rec.score();
+            scores.push(s);
+            sum += s;
+            sum_len += rec.duration() as f32;
+            min = min.min(s);
+            max = max.max(s);
+            n += 1;
+        }
+        if n == 0 {
+            return Self {
+                mean: 0.0,
+                std: 0.0,
+                min: 0.0,
+                max: 0.0,
+                length_mean: 0.0,
+            };
+        }
+        let n_f = n as f32;
+        let mean = sum / n_f;
+        let var = scores.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / n_f;
+        Self {
+            mean,
+            std: var.sqrt(),
+            min,
+            max,
+            length_mean: sum_len / n_f,
+        }
+    }
 }
 
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> PpoAgentError {

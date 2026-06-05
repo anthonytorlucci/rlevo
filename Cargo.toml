@@ -9,6 +9,7 @@ members = [
     "crates/rlevo-evolution",
     "crates/rlevo-examples",
     "crates/rlevo-hybrid",
+    "crates/rlevo-metrics-registry",
     "crates/rlevo-reinforcement-learning",
 ]
 

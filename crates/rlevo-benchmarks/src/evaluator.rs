@@ -119,6 +119,7 @@ impl Evaluator {
             name: suite.name.clone(),
             env_names: suite.envs.iter().map(|(n, _)| n.clone()).collect(),
             num_trials_per_env: cfg.num_trials_per_env,
+            success_threshold: cfg.success_threshold,
         };
 
         // Load checkpoint (if any) and start report.

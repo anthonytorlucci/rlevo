@@ -20,8 +20,8 @@ use rlevo_core::environment::EpisodeStatus;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::ppo::losses::{
-    approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, normalize_advantages,
-    unclipped_value_loss,
+    approx_kl, clip_fraction, clipped_surrogate, clipped_value_loss, explained_variance,
+    normalize_advantages, old_approx_kl, unclipped_value_loss,
 };
 use crate::algorithms::ppo::ppo_config::{PpoTrainingConfig, annealed_learning_rate};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
@@ -106,10 +106,20 @@ pub struct PpoUpdateStats {
     pub value_loss: f32,
     /// Mean entropy across minibatches.
     pub entropy: f32,
-    /// Last-epoch approx-KL (for `target_kl` gating).
+    /// Last-epoch approx-KL (Schulman k3, for `target_kl` gating).
     pub approx_kl: f32,
+    /// First-minibatch pre-update approx-KL (Schulman k1, `mean(−log r)`).
+    ///
+    /// Captured on the very first minibatch of the first epoch, before any
+    /// gradient step, so it reflects the policy that generated the rollout.
+    pub old_approx_kl: f32,
     /// Mean clip fraction across minibatches.
     pub clip_frac: f32,
+    /// Fraction of return variance the value net explains over this rollout.
+    ///
+    /// `1 − Var(returns − values) / Var(returns)`; `0.0` for a degenerate
+    /// (zero-variance) rollout. See [`losses::explained_variance`].
+    pub explained_variance: f32,
     /// Number of update epochs actually completed (≤ `config.update_epochs`).
     pub epochs_run: usize,
 }
@@ -385,6 +395,7 @@ where
         let mut entropy_acc = 0.0_f32;
         let mut clip_frac_acc = 0.0_f32;
         let mut last_kl = 0.0_f32;
+        let mut first_old_kl = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
 
@@ -461,6 +472,11 @@ where
                 let kl = approx_kl(eval.log_prob.clone(), old_lp.clone());
                 let cf =
                     clip_fraction(eval.log_prob.clone(), old_lp.clone(), self.config.clip_coef);
+                // Capture the pre-update (k1) KL on the very first minibatch,
+                // before any gradient step has perturbed the policy.
+                if mb_count == 0 {
+                    first_old_kl = old_approx_kl(eval.log_prob.clone(), old_lp.clone());
+                }
                 kl_sum += kl;
                 kl_count += 1;
 
@@ -506,6 +522,11 @@ where
             }
         }
 
+        // Value-net health over the whole rollout, computed before the buffer
+        // is cleared. Returns/values are the CPU-resident slices the buffer
+        // already holds, so this adds no forward pass.
+        let ev = explained_variance(self.buffer.returns(), self.buffer.values());
+
         self.buffer.clear();
         self.iteration += 1;
 
@@ -515,7 +536,9 @@ where
             value_loss: value_loss_acc / denom,
             entropy: entropy_acc / denom,
             approx_kl: last_kl,
+            old_approx_kl: first_old_kl,
             clip_frac: clip_frac_acc / denom,
+            explained_variance: ev,
             epochs_run,
         }
     }

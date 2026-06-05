@@ -6480,6 +6480,7 @@ dependencies = [
  "rlevo-benchmarks-report-client",
  "rlevo-core",
  "rlevo-evolution",
+ "rlevo-metrics-registry",
  "serde",
  "serde_json",
  "tempfile",
@@ -6501,6 +6502,7 @@ dependencies = [
  "js-sys",
  "leptos",
  "leptos-chartistry",
+ "rlevo-metrics-registry",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6581,6 +6583,10 @@ dependencies = [
  "rlevo-reinforcement-learning",
  "serde",
 ]
+
+[[package]]
+name = "rlevo-metrics-registry"
+version = "0.1.0"
 
 [[package]]
 name = "rlevo-reinforcement-learning"

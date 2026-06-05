@@ -60,7 +60,10 @@ pub fn App() -> impl IntoView {
     view! {
         <header>
             {match manifest {
-                Ok(m) => manifest_view(&m).into_any(),
+                Ok(m) => view! {
+                    {manifest_view(&m)}
+                    {checkpoints_view(&m)}
+                }.into_any(),
                 Err(e) => view! { <p class="rlevo-error">"manifest load error: " {e.to_string()}</p> }.into_any(),
             }}
             {warnings_view(warnings)}
@@ -89,25 +92,128 @@ pub fn App() -> impl IntoView {
     }
 }
 
+/// One `<dt>/<dd>` row, used to build the manifest definition list.
+fn meta_row(label: &str, value: String) -> AnyView {
+    let label = label.to_string();
+    view! { <dt>{label}</dt><dd>{value}</dd> }.into_any()
+}
+
 /// Renders the manifest header block as a `<h1>` and definition list.
+///
+/// Always shows core fields; the v6 run-provenance fields (algorithm, crate /
+/// toolchain / backend versions, git commit, device, seed count, success
+/// threshold) render only when present, so older records degrade cleanly.
 fn manifest_view(m: &RunManifest) -> impl IntoView {
     let run_id = m.run_id.0.clone();
-    let env_family = format!("{:?}", m.env_family);
-    let seed = m.seed;
-    let format_version = m.format_version;
-    let frame_stride = m.frame_stride;
-    let episode_count = m.episode_count;
-    view! {
-        <h1>"rlevo report — " {run_id.clone()}</h1>
-        <dl class="rlevo-meta">
-            <dt>"run id"</dt><dd>{run_id}</dd>
-            <dt>"env family"</dt><dd>{env_family}</dd>
-            <dt>"seed"</dt><dd>{seed.to_string()}</dd>
-            <dt>"format version"</dt><dd>{format_version.to_string()}</dd>
-            <dt>"frame stride"</dt><dd>{frame_stride.to_string()}</dd>
-            <dt>"episodes"</dt><dd>{episode_count.to_string()}</dd>
-        </dl>
+
+    let mut rows: Vec<AnyView> = vec![
+        meta_row("run id", run_id.clone()),
+        meta_row("env family", format!("{:?}", m.env_family)),
+        meta_row("seed", m.seed.to_string()),
+        meta_row("format version", m.format_version.to_string()),
+        meta_row("frame stride", m.frame_stride.to_string()),
+        meta_row("episodes", m.episode_count.to_string()),
+    ];
+
+    // v6 run provenance — each row appears only when the field is populated.
+    if let Some(algo) = &m.algorithm {
+        rows.push(meta_row("algorithm", algo.clone()));
     }
+    if let Some(n) = m.num_seeds {
+        rows.push(meta_row("seeds", n.to_string()));
+    }
+    if let Some(t) = m.success_threshold {
+        rows.push(meta_row("success threshold", format_f64(t)));
+    }
+    if let Some(d) = &m.device {
+        rows.push(meta_row("device", d.clone()));
+    }
+    if let Some(v) = &m.rlevo_version {
+        rows.push(meta_row("rlevo version", v.clone()));
+    }
+    if let Some(v) = &m.burn_version {
+        rows.push(meta_row("burn version", v.clone()));
+    }
+    if let Some(v) = &m.rustc_version {
+        rows.push(meta_row("rustc", v.clone()));
+    }
+    if let Some(p) = &m.platform {
+        rows.push(meta_row("platform", p.clone()));
+    }
+    if let Some(commit) = &m.git_commit {
+        let dirty = if m.git_dirty == Some(true) { " (dirty)" } else { "" };
+        rows.push(meta_row("git", format!("{commit}{dirty}")));
+    }
+
+    view! {
+        <h1>"rlevo report — " {run_id}</h1>
+        <dl class="rlevo-meta">{rows}</dl>
+    }
+}
+
+/// Formats an `f64` for display without a trailing `.0` on whole numbers.
+fn format_f64(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{v:.0}")
+    } else {
+        format!("{v}")
+    }
+}
+
+/// Renders the learner-checkpoint table from the manifest, or nothing when no
+/// checkpoints were registered (EA runs and un-wired RL). Added for v6.
+fn checkpoints_view(m: &RunManifest) -> AnyView {
+    if m.checkpoints.is_empty() {
+        return ().into_any();
+    }
+    let rows: Vec<AnyView> = m
+        .checkpoints
+        .iter()
+        .map(|c| {
+            let kind = format!("{:?}", c.kind);
+            let fmt = format!("{:?}", c.format);
+            let step = c.step.to_string();
+            let path = c.path.clone();
+            let metric = c.metric.map_or_else(|| "—".to_string(), format_f64);
+            let digest = c.digest.map_or_else(
+                || "—".to_string(),
+                |d| {
+                    // Short 8-hex-char prefix of the 128-bit content digest.
+                    use std::fmt::Write as _;
+                    d[..4].iter().fold(String::with_capacity(8), |mut s, byte| {
+                        let _ = write!(s, "{byte:02x}");
+                        s
+                    })
+                },
+            );
+            view! {
+                <tr>
+                    <td>{step}</td>
+                    <td>{kind}</td>
+                    <td>{fmt}</td>
+                    <td class="rlevo-ckpt-path">{path}</td>
+                    <td>{metric}</td>
+                    <td><code>{digest}</code></td>
+                </tr>
+            }
+            .into_any()
+        })
+        .collect();
+    view! {
+        <section class="rlevo-checkpoints">
+            <h2>"Checkpoints"</h2>
+            <table class="rlevo-ckpt-table">
+                <thead>
+                    <tr>
+                        <th>"step"</th><th>"kind"</th><th>"format"</th>
+                        <th>"path"</th><th>"metric"</th><th>"digest"</th>
+                    </tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </section>
+    }
+    .into_any()
 }
 
 /// Renders a collapsible warning section, or an empty span when there are none.
