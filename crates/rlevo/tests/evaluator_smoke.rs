@@ -18,6 +18,7 @@ struct ToyEnv {
 
 impl ToyEnv {
     #[allow(clippy::cast_precision_loss)]
+    /// Constructs a `ToyEnv` with a seed-derived constant reward offset.
     fn with_seed(seed: u64) -> Self {
         Self {
             offset: (seed % 7) as f64,
@@ -56,6 +57,8 @@ impl BenchableAgent<usize, f64> for ConstAgent {
     }
 }
 
+/// Returns a reusable `EvaluatorConfig` for evaluator smoke tests. Uses 2 threads and sets
+/// `success_threshold: Some(5.0)` so that the success-rate scalar is exercised in every run.
 fn basic_cfg() -> EvaluatorConfig {
     EvaluatorConfig {
         num_episodes: 4,
@@ -69,6 +72,7 @@ fn basic_cfg() -> EvaluatorConfig {
     }
 }
 
+/// Verifies that the suite evaluator runs 2 envs × 2 trials and populates reward/success-rate scalars.
 #[test]
 fn runs_suite_and_collects_trials() {
     let cfg = basic_cfg();
@@ -90,6 +94,7 @@ fn runs_suite_and_collects_trials() {
     assert!(!report.in_progress);
 }
 
+/// Confirms two runs with identical seeds produce bit-equal scalars, excluding wall-clock metrics.
 #[test]
 fn determinism_same_seed_same_metrics() {
     let cfg = basic_cfg();
@@ -125,6 +130,7 @@ impl BenchableAgent<usize, f64> for PanicAgent {
     }
 }
 
+/// Verifies that a panicking agent is caught, marked as errored, and the suite completes the remaining trials.
 #[test]
 fn panicking_trial_does_not_abort_suite() {
     let cfg = EvaluatorConfig {

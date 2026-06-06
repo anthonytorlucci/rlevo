@@ -64,6 +64,31 @@ type Be = Autodiff<Flex>;
 
 static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Build a `PpgAgent` for CartPole discrete (4 obs, 2 actions) with seeded weights.
+///
+/// Calls `Backend::seed` to seed the process-global Flex RNG before initialising
+/// the `PpgCategoricalPolicyHead` + `ValueMlp` networks, making weight init
+/// deterministic.  The env and `StdRng` are seeded by the caller.
+///
+/// PPG-specific config: `e_aux=6` aux epochs per phase, `beta_clone=1.0` KL
+/// distillation weight, `aux_batch_size=128`.  The PPO sub-config mirrors
+/// `ppo_integration.rs` (lr=2.5e-4, clip=0.2, 4 epochs, 4 minibatches,
+/// 128-step rollout).
+///
+/// `n_iteration` controls how many policy-phase iterations occur between
+/// consecutive aux phases.  Callers pass it explicitly so tests can disable
+/// the aux phase (set it above the total iteration count) or force it to
+/// fire early (set it to a small value).
+///
+/// # Caller responsibilities
+///
+/// - Hold `BACKEND_LOCK` for the duration of the call and the subsequent
+///   training run to prevent concurrent mutation of the process-global RNG.
+/// - Pin rayon to 1 thread (`rayon::ThreadPoolBuilder::num_threads(1)`) before
+///   calling this function; the Flex backend's gemm kernels are nondeterministic
+///   under multi-threaded rayon even when the RNG seed is fixed.
+/// - Seed the `CartPole` env and `StdRng` independently with the same `seed`
+///   value for full reproducibility.
 fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
@@ -105,7 +130,7 @@ fn make_cart_pole_agent(
 }
 
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "50 000-step discrete PPG CartPole run (several minutes on CPU); confirms avg reward ≥ 25 above the ~20 random baseline — aux phase slows CartPole convergence vs PPO; run with `cargo test -- --ignored`"]
 fn ppg_cart_pole_reaches_modest_threshold() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -139,7 +164,7 @@ fn ppg_cart_pole_reaches_modest_threshold() {
 }
 
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "50 000-step PPG CartPole run with aux phase disabled (n_iteration=10 000); confirms PPO-parity avg reward ≥ 80 — run with `cargo test -- --ignored`"]
 fn ppg_without_aux_phase_matches_ppo_baseline() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -178,7 +203,7 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
 }
 
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "2 048-step PPG run (n_iteration=4) verifying the aux phase fires and produces finite KL/value-loss metrics — run with `cargo test -- --ignored`"]
 fn ppg_aux_phase_actually_runs() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -250,7 +275,7 @@ fn ppg_short_run_produces_finite_rewards() {
 }
 
 #[test]
-#[ignore = "macro convergence; ~2-5 min on Flex"]
+#[ignore = "macro PPG CartPole convergence (~2–5 min on Flex); confirms avg reward ≥ 475 — run with `cargo test -- --ignored`"]
 fn ppg_cart_pole_reaches_475() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

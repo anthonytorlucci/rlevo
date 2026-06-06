@@ -87,14 +87,31 @@ type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1
 
 static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Build a `QrDqnAgent` for CartPole with `num_quantiles = 21` and `kappa = 1.0`.
+///
+/// Seeds the process-global Flex backend RNG via `Backend::seed` before
+/// constructing the model, which makes weight initialisation deterministic.
+///
+/// # Caller obligations
+///
+/// - **Hold `BACKEND_LOCK`** before calling. Without it, concurrent tests
+///   corrupt the global RNG and produce non-reproducible results.
+/// - **Pin rayon to 1 thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
+///   before calling. Flex dispatches matmuls through rayon; with multiple
+///   threads the floating-point reduction order becomes non-deterministic.
+///
+/// The `CartPole` environment and `StdRng` are seeded by the caller, not here.
+///
+/// # Quantile count
+///
+/// `num_quantiles = 21` rather than the canonical 200. QR-DQN's quantile
+/// Huber loss uses a `(batch, N, N)` broadcast — O(N²) per learn step — so
+/// a smaller N keeps CI wall-clock practical on Flex CPU without changing the
+/// algorithmic correctness being tested.
 fn fresh_agent(seed: u64) -> Agent {
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
-    // QR-DQN's quantile Huber loss uses a `(batch, N, N)` broadcast — one
-    // factor of `N` slower per learn step than C51's categorical loss. Use
-    // a smaller quantile count than C51 to keep the integration test's
-    // wall-clock on Flex practical for CI.
-    let num_quantiles = 21;
+    let num_quantiles = 21; // smaller than canonical 200; see doc comment above
     let config = QrDqnTrainingConfigBuilder::new()
         .batch_size(64)
         .gamma(0.99)
@@ -189,7 +206,7 @@ fn qrdqn_reproducibility_flex() {
 /// smaller quantile count used in CI. A stricter 195-at-500k-steps test
 /// lives behind `#[ignore]` below for manual validation.
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "20 000-step QR-DQN CartPole run (several minutes on Flex CPU); confirms avg reward ≥ 50 — run with `cargo test -- --ignored`"]
 fn qrdqn_cart_pole_reaches_50() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -213,7 +230,7 @@ fn qrdqn_cart_pole_reaches_50() {
 /// Run with:
 /// `cargo test -p rlevo --test qrdqn_integration --release -- --ignored qrdqn_solves_cart_pole_flex_seed_42`.
 #[test]
-#[ignore = "long-running acceptance target; ~500k steps on Flex CPU"]
+#[ignore = "500 000-step QR-DQN CartPole acceptance run (~hours on Flex CPU); confirms avg reward ≥ 195 — run with `cargo test --release -- --ignored qrdqn_solves_cart_pole_flex_seed_42`"]
 fn qrdqn_solves_cart_pole_flex_seed_42() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

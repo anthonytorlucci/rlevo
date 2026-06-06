@@ -45,6 +45,7 @@ impl BenchableAgent<(), ()> for Passive {
     fn act(&mut self, (): &(), _: &mut dyn Rng) {}
 }
 
+/// Creates a GA harness on Rastrigin-D10 with tournament selection, BLX-α crossover, and elitist replacement.
 fn ga_factory(
     seed: u64,
 ) -> EvolutionaryHarness<B, GeneticAlgorithm<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
@@ -68,6 +69,7 @@ fn ga_factory(
     )
 }
 
+/// Creates a (5+30)-ES harness on Rastrigin-D10 with self-adaptive step sizes.
 fn es_factory(
     seed: u64,
 ) -> EvolutionaryHarness<B, EvolutionStrategy<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
@@ -83,6 +85,7 @@ fn es_factory(
     )
 }
 
+/// Creates an EP harness on Rastrigin-D10 with population size 30.
 fn ep_factory(
     seed: u64,
 ) -> EvolutionaryHarness<B, EvolutionaryProgramming<B>, FromFitnessEvaluable<Minimizer, Rastrigin>>
@@ -99,6 +102,7 @@ fn ep_factory(
     )
 }
 
+/// Creates a DE/Rand/1/bin harness on Rastrigin-D10 with F=0.5 and CR=0.9.
 fn de_factory(
     seed: u64,
 ) -> EvolutionaryHarness<B, DifferentialEvolution<B>, FromFitnessEvaluable<Minimizer, Rastrigin>> {
@@ -117,15 +121,20 @@ fn de_factory(
     )
 }
 
+/// Returns a minimal [`EvaluatorConfig`] for the Rastrigin run-suite tests.
+///
+/// `num_threads` is pinned to `Some(1)` because Burn Flex seeds via a
+/// process-wide mutex — parallel trials race on seeding and produce
+/// non-reproducible trajectories. Forcing one thread is the simplest
+/// honest option.
+///
+/// Runs 2 trials per env over 80 generations (matching `MAX_GENS`).
 fn cfg() -> EvaluatorConfig {
     EvaluatorConfig {
         num_episodes: 1,
         num_trials_per_env: 2,
         max_steps: MAX_GENS,
         base_seed: 17,
-        // Single-threaded: Burn Flex seeds via a process-wide mutex,
-        // so parallel trials race on seeding and produce non-reproducible
-        // trajectories. Forcing one thread is the simplest honest option.
         num_threads: Some(1),
         checkpoint_dir: None,
         fail_fast: false,
@@ -133,6 +142,18 @@ fn cfg() -> EvaluatorConfig {
     }
 }
 
+/// Runs the env factory through the suite and returns one `f64` per trial
+/// (mean best-fitness over steps).
+///
+/// Each step emits reward `−best_fitness_ever`, so `return_value` (sum
+/// over steps) equals `−Σ best_fitness_ever`. Dividing by `steps` gives
+/// `−e.return_value / steps`: the mean best-fitness-so-far, a proxy for
+/// final convergence (best-so-far is monotonically non-increasing so the
+/// mean is an upper bound on the terminal value).
+///
+/// Returns `Vec<f64>` with one entry per trial. Unlike the scalar-mean
+/// variant in `swarm_rastrigin_suite.rs`, the per-trial values are kept
+/// separate so callers can inspect per-trial spread.
 fn collect_best_returns<E>(
     suite_name: &str,
     env_name: &str,
@@ -146,12 +167,6 @@ where
     let evaluator = Evaluator::new(cfg.clone());
     let mut reporter = LoggingReporter::new();
     let report = evaluator.run_suite(&suite, |_| Passive, &mut reporter);
-    // Each step emits reward = −best_fitness_ever, so `return_value`
-    // (sum over steps) equals −Σ best_fitness_ever. The mean across
-    // steps bounds the final best_fitness_ever from above (best-so-far
-    // is monotonically non-increasing) and is the honest "area under
-    // curve" proxy we can recover here — the harness only exposes
-    // episode-level returns, not per-step rewards.
     #[allow(clippy::cast_precision_loss)]
     let steps = cfg.max_steps as f64;
     report

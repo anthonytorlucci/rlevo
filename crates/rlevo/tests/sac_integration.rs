@@ -522,7 +522,7 @@ fn sac_alpha_frozen_when_autotune_disabled() {
 
 /// Pendulum macro-smoke: gated at 500k steps.
 #[test]
-#[ignore = "macro run (~500k Pendulum steps)"]
+#[ignore = "500 000-step continuous SAC Pendulum run (~several minutes on CPU); confirms avg reward > −800 above the zero-torque baseline (≈ −1 200) — run with `cargo test -- --ignored`"]
 fn sac_pendulum_smoke() {
     rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");

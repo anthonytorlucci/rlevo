@@ -402,7 +402,7 @@ fn ddpg_act_with_matches_deterministic_act() {
 /// Pendulum smoke test: 50k steps with small networks, verifies training runs
 /// without crashing and produces a reward above the zero-torque baseline.
 #[test]
-#[ignore = "smoke run (~50k Pendulum steps)"]
+#[ignore = "50 000-step continuous DDPG Pendulum run (~several minutes on CPU); confirms avg reward > −1 200 — beats the zero-torque baseline — run with `cargo test -- --ignored`"]
 fn ddpg_pendulum_smoke() {
     rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");

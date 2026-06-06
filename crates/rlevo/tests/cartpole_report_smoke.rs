@@ -46,6 +46,11 @@ impl Drop for TempDir {
 
 /// Unique temp directory under the system temp root — no `tempfile` dep,
 /// no collisions across concurrent test binaries.
+///
+/// The path is `<tmp>/rlevo-report-smoke-{pid}-{n}` where `pid` is the
+/// current process ID (isolates parallel test *binaries*) and `n` is a
+/// process-local [`AtomicU32`] counter (isolates parallel calls within
+/// the same binary).
 fn temp_dir() -> TempDir {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -56,7 +61,14 @@ fn temp_dir() -> TempDir {
     TempDir(path)
 }
 
-/// Records a random rollout into `root`, returning the run directory.
+/// Records a random [`CartPole`] rollout into `root` and returns the run
+/// directory path.
+///
+/// The loop stops on the `TARGET_EPISODES`-th terminal step without calling
+/// [`RecordingTap::reset`] afterward. A trailing reset would open a new
+/// episode header that `on_run_end` never closes, causing
+/// `RecordedRun::open` to emit an `EpisodeCountMismatch` warning on
+/// round-trip.
 fn record_run(root: &Path) -> PathBuf {
     let record_cfg = RecordingConfig::new(EnvFamily::Classic, SEED);
     let writer = RecordWriter::open(root, record_cfg).expect("open writer");

@@ -482,7 +482,7 @@ fn td3_delayed_update_skips_actor_step() {
 /// Pendulum macro-smoke: 500k steps, checks the moving average is finite
 /// and better than the zero-torque baseline.
 #[test]
-#[ignore = "macro run (~500k Pendulum steps)"]
+#[ignore = "500 000-step continuous TD3 Pendulum run (~several minutes on CPU); confirms avg reward > −800 above the zero-torque baseline (≈ −1 200) — run with `cargo test -- --ignored`"]
 fn td3_pendulum_smoke() {
     rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
