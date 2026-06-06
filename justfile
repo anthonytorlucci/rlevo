@@ -76,19 +76,19 @@ report-ppo-cartpole: client-build
     cargo run -p rlevo-examples --features viz-report --example report_ppo_cartpole_with_client --release
 
 report-sphere: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client
+    cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client --release
 
 report-grids: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_grids_with_client
+    cargo run -p rlevo-examples --features viz-report --example report_grids_with_client  --release
 
 report-toy-text: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_toy_text_with_client
+    cargo run -p rlevo-examples --features viz-report --example report_toy_text_with_client --release
 
 report-inverted-pendulum: client-build
-    cargo run -p rlevo-examples --features locomotion,viz-report --example report_inverted_pendulum_with_client
+    cargo run -p rlevo-examples --features locomotion,viz-report --example report_inverted_pendulum_with_client  --release
 
 report-lunar-lander: client-build
-    cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client
+    cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client  --release
 
 # ── Common checks ────────────────────────────────────────────────────────────
 
