@@ -54,7 +54,7 @@ jobs:
       - name: Build viz examples (full feature set)
         run: |
           cargo build -p rlevo-examples --examples \
-            --features viz-tui,viz-record,viz-report,box2d,locomotion
+            --features viz-tui,viz-report,box2d,locomotion
 
       - name: Clippy viz examples (full feature set)
         run: |

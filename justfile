@@ -73,7 +73,7 @@ client-build:
     cd crates/rlevo-benchmarks-report-client && trunk build --release
 
 report-ppo-cartpole: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_ppo_cartpole_with_client
+    cargo run -p rlevo-examples --features viz-report --example report_ppo_cartpole_with_client --release
 
 report-sphere: client-build
     cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client
