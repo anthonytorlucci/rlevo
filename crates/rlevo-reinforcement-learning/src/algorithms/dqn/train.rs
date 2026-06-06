@@ -42,6 +42,7 @@ where
     let mut episode_steps = 0_usize;
     let mut last_loss = 0.0_f32;
     let mut last_q_mean = 0.0_f32;
+    let mut n_updates = 0_u64;
 
     for step in 0..total_steps {
         let obs_current = snapshot.observation().clone();
@@ -63,6 +64,7 @@ where
         {
             last_loss = outcome.loss;
             last_q_mean = outcome.q_mean;
+            n_updates += 1;
         }
         agent.sync_target();
         agent.decay_exploration();
@@ -79,7 +81,12 @@ where
             agent.record_episode(metrics);
             episode_reward = 0.0;
             episode_steps = 0;
-            snapshot = env.reset().map_err(io_from_env)?;
+            // Skip the reset on the final step: that phantom episode never
+            // reaches a terminal `step`, so a recording env writes an episode
+            // file the manifest's count omits (`EpisodeCountMismatch`).
+            if step + 1 < total_steps {
+                snapshot = env.reset().map_err(io_from_env)?;
+            }
         } else {
             snapshot = next_snapshot;
         }
@@ -96,6 +103,11 @@ where
                 avg_reward = %avg,
                 epsilon = agent.epsilon(),
                 buffer = agent.buffer_len(),
+                // Canonical metrics consumed by the TUI / record layers.
+                td_loss = last_loss,
+                q_values = last_q_mean,
+                learning_rate = agent.learning_rate(),
+                n_updates = n_updates,
                 "dqn training progress"
             );
         }

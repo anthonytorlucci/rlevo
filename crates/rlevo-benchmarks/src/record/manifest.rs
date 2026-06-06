@@ -15,10 +15,13 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::schema::{EnvFamily, FORMAT_VERSION, Hyperparameters, RunId};
+use super::schema::{CheckpointRef, EnvFamily, FORMAT_VERSION, Hyperparameters, RunId};
 
 /// Run-level metadata written once per recording at suite end.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is intentionally not derived: `success_threshold` and the metrics
+/// carried by [`CheckpointRef`] are `f64`, which is not `Eq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunManifest {
     /// Unique identifier for this recording run.
     pub run_id: RunId,
@@ -39,6 +42,42 @@ pub struct RunManifest {
     /// Agent / algorithm hyperparameters logged alongside the run.
     #[serde(default)]
     pub hyperparameters: Hyperparameters,
+    /// Algorithm identity (e.g. `"ppo"`, `"dqn"`, `"ga"`). Lets the report
+    /// tier choose loss panels without grepping `hyperparameters`. `None`
+    /// if the producer did not declare it. Added in `FORMAT_VERSION = 6`.
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// `rlevo` crate version (`env!("CARGO_PKG_VERSION")`). Added in v6.
+    #[serde(default)]
+    pub rlevo_version: Option<String>,
+    /// Rust toolchain version string (`rustc -V`). Added in v6.
+    #[serde(default)]
+    pub rustc_version: Option<String>,
+    /// Resolved `burn` dependency version. Added in v6.
+    #[serde(default)]
+    pub burn_version: Option<String>,
+    /// `std::env::consts::OS` + `ARCH`. Added in v6.
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// Git commit hash of the build, if known. Added in v6.
+    #[serde(default)]
+    pub git_commit: Option<String>,
+    /// Whether the working tree had uncommitted changes at build time. Added in v6.
+    #[serde(default)]
+    pub git_dirty: Option<bool>,
+    /// Backend device descriptor (CPU/GPU). Added in v6.
+    #[serde(default)]
+    pub device: Option<String>,
+    /// Distinct seeds used across the trial suite (for IQM/CI aggregation). Added in v6.
+    #[serde(default)]
+    pub num_seeds: Option<u32>,
+    /// Threshold that produced `success_rate`, lifted from `EvaluatorConfig`. Added in v6.
+    #[serde(default)]
+    pub success_threshold: Option<f64>,
+    /// Deep-RL learner checkpoints (Burn-`Recorder` files referenced, never
+    /// embedded). Empty for EA and un-wired RL. Added in v6.
+    #[serde(default)]
+    pub checkpoints: Vec<CheckpointRef>,
 }
 
 impl RunManifest {
@@ -57,7 +96,79 @@ impl RunManifest {
             frame_stride,
             format_version: FORMAT_VERSION,
             hyperparameters: BTreeMap::new(),
+            algorithm: None,
+            rlevo_version: None,
+            rustc_version: None,
+            burn_version: None,
+            platform: None,
+            git_commit: None,
+            git_dirty: None,
+            device: None,
+            num_seeds: None,
+            success_threshold: None,
+            checkpoints: Vec::new(),
         }
+    }
+
+    /// Stamps the algorithm identity (e.g. `"ppo"`, `"dqn"`, `"ga"`) the
+    /// report tier uses to choose loss panels. Added in `FORMAT_VERSION = 6`.
+    #[must_use]
+    pub fn with_algorithm(mut self, algorithm: impl Into<String>) -> Self {
+        self.algorithm = Some(algorithm.into());
+        self
+    }
+
+    /// Records the distinct seed count across the trial suite (for
+    /// cross-seed IQM/CI aggregation at the report tier). Added in v6.
+    #[must_use]
+    pub fn with_num_seeds(mut self, num_seeds: u32) -> Self {
+        self.num_seeds = Some(num_seeds);
+        self
+    }
+
+    /// Records the success threshold that produced `success_rate`. Added in v6.
+    #[must_use]
+    pub fn with_success_threshold(mut self, threshold: f64) -> Self {
+        self.success_threshold = Some(threshold);
+        self
+    }
+
+    /// Records the backend device descriptor (CPU/GPU). Added in v6.
+    #[must_use]
+    pub fn with_device(mut self, device: impl Into<String>) -> Self {
+        self.device = Some(device.into());
+        self
+    }
+
+    /// Stamps build-time + platform provenance onto the manifest:
+    /// `rlevo_version` (always), and — when the `build.rs` provided them —
+    /// `git_commit`, `git_dirty`, `rustc_version`, `burn_version`, plus the
+    /// runtime `platform`. Missing build-time values resolve to `None`, so
+    /// this is safe to call outside a git checkout or without `build.rs`.
+    ///
+    /// The `option_env!` reads resolve against *this* crate's build script,
+    /// which is why provenance lives on the manifest rather than at call
+    /// sites in downstream crates. Added in v6.
+    #[must_use]
+    pub fn with_build_provenance(mut self) -> Self {
+        fn non_empty(s: &str) -> Option<String> {
+            (!s.is_empty()).then(|| s.to_string())
+        }
+        self.rlevo_version = non_empty(env!("CARGO_PKG_VERSION"));
+        self.git_commit = option_env!("GIT_COMMIT").and_then(non_empty);
+        self.git_dirty = match option_env!("GIT_DIRTY") {
+            Some("1") => Some(true),
+            Some("0") => Some(false),
+            _ => None,
+        };
+        self.rustc_version = option_env!("RUSTC_VERSION").and_then(non_empty);
+        self.burn_version = option_env!("BURN_VERSION").and_then(non_empty);
+        self.platform = Some(format!(
+            "{}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+        self
     }
 
     /// Atomically write the manifest to `dir/run.toml`. Writes to
@@ -88,6 +199,7 @@ impl RunManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record::schema::{CheckpointFormat, CheckpointKind};
     use tempfile::tempdir;
 
     fn sample_manifest() -> RunManifest {
@@ -95,16 +207,37 @@ mod tests {
         hp.insert("lr".into(), "3e-4".into());
         hp.insert("clip_eps".into(), "0.2".into());
         RunManifest {
-            run_id: RunId("20260527-120000-abc123".into()),
-            seed: 42,
-            env_family: EnvFamily::Classic,
             created_at: 1_700_000_000,
             finished_at: 1_700_000_100,
             episode_count: 4,
-            frame_stride: 1,
-            format_version: FORMAT_VERSION,
             hyperparameters: hp,
+            // Exercise the v6 provenance + checkpoint fields through round-trip.
+            algorithm: Some("ppo".into()),
+            rlevo_version: Some("0.1.0".into()),
+            num_seeds: Some(10),
+            success_threshold: Some(195.0),
+            checkpoints: vec![CheckpointRef {
+                step: 1000,
+                kind: CheckpointKind::Final,
+                format: CheckpointFormat::NamedMpk,
+                path: "checkpoints/final.mpk".into(),
+                metric: Some(200.0),
+                digest: Some([2u8; 16]),
+            }],
+            ..RunManifest::new(RunId("20260527-120000-abc123".into()), 42, EnvFamily::Classic, 1)
         }
+    }
+
+    #[test]
+    fn manifest_round_trips_with_all_provenance_none_and_empty_checkpoints() {
+        let dir = tempdir().unwrap();
+        let m = RunManifest::new(RunId("bare".into()), 1, EnvFamily::Grids, 1);
+        m.write_atomic(dir.path()).unwrap();
+        let body = std::fs::read_to_string(dir.path().join("run.toml")).unwrap();
+        let parsed: RunManifest = toml::from_str(&body).unwrap();
+        assert_eq!(m, parsed);
+        assert!(parsed.algorithm.is_none());
+        assert!(parsed.checkpoints.is_empty());
     }
 
     #[test]

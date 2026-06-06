@@ -522,7 +522,11 @@ where
             value_loss: value_loss_acc / denom,
             entropy: entropy_acc / denom,
             approx_kl: last_kl,
+            // PPG does not yet surface the v6 PPO diagnostics; left at their
+            // neutral defaults so the shared struct stays consistent.
+            old_approx_kl: 0.0,
             clip_frac: clip_frac_acc / denom,
+            explained_variance: 0.0,
             epochs_run,
         }
     }

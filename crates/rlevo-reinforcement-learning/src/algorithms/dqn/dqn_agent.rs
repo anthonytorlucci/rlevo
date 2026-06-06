@@ -174,6 +174,11 @@ where
         self.exploration.value()
     }
 
+    /// Configured optimiser learning rate (DQN uses a fixed rate, no annealing).
+    pub fn learning_rate(&self) -> f64 {
+        self.config.learning_rate
+    }
+
     /// Current agent statistics.
     pub fn stats(&self) -> &AgentStats<DqnMetrics> {
         &self.stats

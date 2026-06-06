@@ -69,6 +69,11 @@ pub struct SuiteInfo {
     pub env_names: Vec<String>,
     /// Number of independent seeds evaluated per environment.
     pub num_trials_per_env: usize,
+    /// Success threshold from the evaluator config, surfaced so recording
+    /// reporters can stamp it onto the run manifest without reaching into
+    /// [`EvaluatorConfig`](crate::evaluator::EvaluatorConfig). `None` when the
+    /// suite defines no success criterion.
+    pub success_threshold: Option<f64>,
 }
 
 /// Identifies a single trial within a suite run.
@@ -152,6 +157,7 @@ mod tests {
             name: "s".into(),
             env_names: vec!["e1".into(), "e2".into()],
             num_trials_per_env: 3,
+            success_threshold: None,
         };
         assert_eq!(info.env_names.len(), 2);
         assert_eq!(info.num_trials_per_env, 3);

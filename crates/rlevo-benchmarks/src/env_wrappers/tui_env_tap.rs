@@ -54,8 +54,9 @@ pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
 }
 
 impl<E, const D: usize, const SD: usize, const AD: usize> TuiEnvTap<E, D, SD, AD> {
-    /// Wrap `inner`, forwarding rendered frames and episode-return events
-    /// through `handle`.
+    /// Wrap `inner`, emitting per-episode return events through `handle`.
+    /// The live TUI is metrics-only (ADR-0013): no env frames are
+    /// captured, only the summed reward + step count on episode end.
     pub const fn new(inner: E, handle: TuiHandle) -> Self {
         Self {
             inner,

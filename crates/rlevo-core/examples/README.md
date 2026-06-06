@@ -1,19 +1,19 @@
 # burn-evorl Examples
 
-Example implementations for the `burn-evorl` library demonstrating core trait patterns.
+Example implementations for the `rlevo` library demonstrating core trait patterns.
 
 ## Directory Structure
 
 ```
 examples/
 ├── README.md (this file)
-├── continuous_state_with_constraints.rs
+├── state_constraints.rs
 └── grid_agent.rs
 ```
 
 ## Examples
 
-### `continuous_state_with_constraints.rs`
+### `state_constraints.rs`
 
 Implements `RobotPose`, a 2D robot state bounded to a 1000 mm × 1000 mm workspace with
 orientation clamped to [−180°, 180°]. Demonstrates the builder/validator pattern
@@ -21,7 +21,7 @@ orientation clamped to [−180°, 180°]. Demonstrates the builder/validator pat
 reward-shaping helpers (`distance_to`, `normalize_orientation`).
 
 ```bash
-cargo run -p rlevo-core --example continuous_state_with_constraints --release
+cargo run -p rlevo-core --example state_constraints --release
 ```
 
 ### `grid_agent.rs`

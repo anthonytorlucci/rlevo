@@ -91,6 +91,10 @@ impl PerformanceRecord for SacMetrics {
 pub struct LearnOutcome {
     /// Sum of the two critics' MSE Bellman errors on this batch.
     pub critic_loss: f32,
+    /// Critic-1 MSE Bellman error on this batch (`qf1_loss`).
+    pub qf1_loss: f32,
+    /// Critic-2 MSE Bellman error on this batch (`qf2_loss`).
+    pub qf2_loss: f32,
     /// Actor loss, or `None` on critic-only iterations (delayed-update
     /// skips).
     pub actor_loss: Option<f32>,
@@ -657,6 +661,8 @@ where
 
         Some(LearnOutcome {
             critic_loss,
+            qf1_loss: loss_1,
+            qf2_loss: loss_2,
             actor_loss: actor_loss_opt,
             alpha: self.last_alpha,
             entropy: entropy_opt,

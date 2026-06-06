@@ -333,6 +333,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 
 type Be = Autodiff<Flex>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -343,6 +345,8 @@ type Be = Autodiff<Flex>;
 /// policy approaches `0`.
 #[test]
 fn td3_solves_linear_1d_continuous() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -397,6 +401,8 @@ fn td3_solves_linear_1d_continuous() {
 /// the bench's faster greedy path stays faithful to the eval policy.
 #[test]
 fn td3_act_with_matches_deterministic_act() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -448,6 +454,8 @@ fn td3_act_with_matches_deterministic_act() {
 /// .is_some()` emissions across a fixed number of manual `learn_step` calls.
 #[test]
 fn td3_delayed_update_skips_actor_step() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -515,11 +523,12 @@ fn td3_delayed_update_skips_actor_step() {
 }
 
 /// Pendulum macro-smoke: 500k steps, checks the moving average is finite
-/// and better than the zero-torque baseline. Gated — Burn's Flex backend
-/// shares a global RNG with other tests so this runs at `--test-threads=1`.
+/// and better than the zero-torque baseline.
 #[test]
-#[ignore = "macro run (~500k Pendulum steps); --test-threads=1 for isolated Burn RNG"]
+#[ignore = "macro run (~500k Pendulum steps)"]
 fn td3_pendulum_smoke() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);

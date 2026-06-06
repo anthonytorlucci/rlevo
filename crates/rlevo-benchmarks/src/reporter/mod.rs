@@ -174,6 +174,7 @@ mod tests {
             name: "S".into(),
             env_names: vec!["E".into()],
             num_trials_per_env: 1,
+            success_threshold: None,
         };
         let trial = TrialInfo {
             key: TrialKey {

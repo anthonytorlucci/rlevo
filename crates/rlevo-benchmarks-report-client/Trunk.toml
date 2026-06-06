@@ -3,3 +3,20 @@ target = "index.html"
 release = true
 dist = "dist"
 filehash = false
+
+# Stamp the wire FORMAT_VERSION the bundle was compiled against into
+# `dist/wire-version.txt`. The native report emitter
+# (`ClientAssets::from_trunk_dist`) reads this stamp and refuses a `dist/`
+# that lags the source wire format — catching a stale bundle at example-run
+# time instead of as a cryptic `file=N client=M` error in the browser.
+#
+# `cargo run --bin wire_version` builds for the host target, so the printed
+# number is the same const that was just compiled into the wasm. Writing to
+# $TRUNK_STAGING_DIR lands the file in `dist/` after staging is published.
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = [
+    "-c",
+    "cargo run --quiet --bin wire_version > \"$TRUNK_STAGING_DIR/wire-version.txt\"",
+]

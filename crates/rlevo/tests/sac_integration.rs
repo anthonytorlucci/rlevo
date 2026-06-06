@@ -368,6 +368,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 
 type Be = Autodiff<Flex>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -378,6 +380,8 @@ type Be = Autodiff<Flex>;
 /// approaches `0`.
 #[test]
 fn sac_solves_linear_1d_continuous() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -432,6 +436,8 @@ fn sac_solves_linear_1d_continuous() {
 /// no-op case.
 #[test]
 fn sac_alpha_moves_under_autotune() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -497,6 +503,8 @@ fn sac_alpha_moves_under_autotune() {
 /// learn steps.
 #[test]
 fn sac_alpha_frozen_when_autotune_disabled() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 11;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -552,11 +560,12 @@ fn sac_alpha_frozen_when_autotune_disabled() {
     );
 }
 
-/// Pendulum macro-smoke: gated at 500k steps, `--test-threads=1` so the
-/// Flex backend global RNG stays isolated.
+/// Pendulum macro-smoke: gated at 500k steps.
 #[test]
-#[ignore = "macro run (~500k Pendulum steps); --test-threads=1 for isolated Burn RNG"]
+#[ignore = "macro run (~500k Pendulum steps)"]
 fn sac_pendulum_smoke() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -609,11 +618,12 @@ fn sac_pendulum_smoke() {
 }
 
 /// Seeded reproducibility: two identical runs on the same seed must produce
-/// bit-equal metrics. Gated — shares the Flex backend's global RNG with
-/// other tests.
+/// bit-equal metrics. The `BACKEND_LOCK` serializes execution within this
+/// binary so Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "reproducibility run; --test-threads=1 for isolated Burn RNG"]
 fn sac_reproducibility_flex() {
+    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     fn run_once() -> f32 {
         let seed: u64 = 42;
         let device = Default::default();

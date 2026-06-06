@@ -284,6 +284,7 @@ mod tests {
             name: "demo".to_string(),
             env_names: vec!["env-0".to_string()],
             num_trials_per_env: 1,
+            success_threshold: None,
         };
         reporter.on_suite_start(&suite);
         assert!(handle.try_push_metric("entropy".to_string(), 1.0));
@@ -306,6 +307,7 @@ mod tests {
             name: "legacy".to_string(),
             env_names: vec![],
             num_trials_per_env: 1,
+            success_threshold: None,
         };
         reporter.on_suite_start(&suite);
         match rx.try_recv().expect("event") {

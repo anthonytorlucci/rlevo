@@ -46,6 +46,15 @@ pub struct EpisodeMeta {
     /// Stable identifier used as the `<script>` element id for this episode's
     /// base64 bincode payload.
     pub script_id: String,
+    /// `"training"` or `"evaluation"` (v6). Defaults to `"training"` for
+    /// pre-v6 indices that omit the field.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+}
+
+/// Default episode kind for index entries written before the field existed.
+fn default_kind() -> String {
+    "training".to_string()
 }
 
 /// JSON wire form for an `OpenWarning` emitted into `rlevo-warnings`.
@@ -221,4 +230,42 @@ pub fn read_all_population_samples() -> &'static Vec<PopulationSample> {
             .flat_map(|r| r.population_samples.iter().cloned())
             .collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EpisodeMeta;
+
+    /// Guards the JSON contract against the host emitter's `EpisodeMeta` in
+    /// `rlevo-benchmarks/src/report/html.rs`, which has no compile-time link to
+    /// this struct (architecture review finding R6). The field names and the
+    /// `kind` string values ("training"/"evaluation") must match.
+    #[test]
+    fn episode_meta_decodes_emitter_json_with_kind() {
+        let json = r#"{
+            "episode": 3,
+            "frame_count": 120,
+            "episode_reward": 42.5,
+            "length": 120,
+            "script_id": "rlevo-episode-000003",
+            "kind": "evaluation"
+        }"#;
+        let m: EpisodeMeta = serde_json::from_str(json).expect("decodes");
+        assert_eq!(m.episode, 3);
+        assert_eq!(m.kind, "evaluation");
+    }
+
+    /// A pre-v6 index omitting `kind` must still decode, defaulting to training.
+    #[test]
+    fn episode_meta_defaults_kind_to_training() {
+        let json = r#"{
+            "episode": 0,
+            "frame_count": 10,
+            "episode_reward": 1.0,
+            "length": 10,
+            "script_id": "rlevo-episode-000000"
+        }"#;
+        let m: EpisodeMeta = serde_json::from_str(json).expect("decodes without kind");
+        assert_eq!(m.kind, "training");
+    }
 }

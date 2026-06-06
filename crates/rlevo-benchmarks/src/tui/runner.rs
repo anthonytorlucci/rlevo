@@ -502,6 +502,7 @@ mod tests {
                 name: "smoke".to_string(),
                 env_names: vec!["e1".to_string(), "e2".to_string()],
                 num_trials_per_env: 3,
+                success_threshold: None,
             }),
         );
         assert_eq!(state.status.suite_name.as_deref(), Some("smoke"));

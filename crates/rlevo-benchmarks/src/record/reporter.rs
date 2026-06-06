@@ -90,10 +90,71 @@ impl RecordingReporter {
         self.manifest.hyperparameters.insert(key.into(), value.into());
         self
     }
+
+    /// Stamps the algorithm identity (e.g. `"ppo"`, `"dqn"`, `"ga"`) the
+    /// report tier uses to choose loss panels. Delegates to
+    /// [`RunManifest::with_algorithm`].
+    #[must_use]
+    pub fn with_algorithm(mut self, algorithm: impl Into<String>) -> Self {
+        self.manifest = self.manifest.with_algorithm(algorithm);
+        self
+    }
+
+    /// Records the distinct seed count across the trial suite (for
+    /// cross-seed IQM/CI aggregation at the report tier). Delegates to
+    /// [`RunManifest::with_num_seeds`].
+    #[must_use]
+    pub fn with_num_seeds(mut self, num_seeds: u32) -> Self {
+        self.manifest = self.manifest.with_num_seeds(num_seeds);
+        self
+    }
+
+    /// Records the success threshold that produced `success_rate`.
+    /// Delegates to [`RunManifest::with_success_threshold`].
+    #[must_use]
+    pub fn with_success_threshold(mut self, threshold: f64) -> Self {
+        self.manifest = self.manifest.with_success_threshold(threshold);
+        self
+    }
+
+    /// Records the backend device descriptor (CPU/GPU). Delegates to
+    /// [`RunManifest::with_device`].
+    #[must_use]
+    pub fn with_device(mut self, device: impl Into<String>) -> Self {
+        self.manifest = self.manifest.with_device(device);
+        self
+    }
+
+    /// Stamps build-time + platform provenance onto the manifest.
+    /// Delegates to [`RunManifest::with_build_provenance`] (the build-time
+    /// `option_env!` reads resolve in the `rlevo-benchmarks` crate, where
+    /// `build.rs` lives).
+    #[must_use]
+    pub fn with_build_provenance(mut self) -> Self {
+        self.manifest = self.manifest.with_build_provenance();
+        self
+    }
 }
 
 impl Reporter for RecordingReporter {
-    fn on_suite_start(&mut self, _suite: &SuiteInfo) {}
+    fn on_suite_start(&mut self, suite: &SuiteInfo) {
+        // Auto-stamp the seed count from the suite layout unless the caller
+        // set it explicitly. In the harness's default layout each trial per
+        // env runs under a distinct seed, so `num_trials_per_env` is the
+        // distinct-seed count the report tier needs for cross-seed
+        // aggregation. An explicit `with_num_seeds` always wins.
+        if self.manifest.num_seeds.is_none() {
+            let n = u32::try_from(suite.num_trials_per_env).unwrap_or(u32::MAX);
+            self.manifest = self.manifest.clone().with_num_seeds(n);
+        }
+        // Same policy for the success threshold: stamp from the suite unless
+        // the caller already set one explicitly.
+        if self.manifest.success_threshold.is_none()
+            && let Some(threshold) = suite.success_threshold
+        {
+            self.manifest = self.manifest.clone().with_success_threshold(threshold);
+        }
+    }
 
     fn on_trial_start(&mut self, trial: &TrialInfo) {
         // Stamp provenance in both modes so recorded episodes carry their
@@ -170,6 +231,7 @@ mod tests {
             name: "S".into(),
             env_names: vec!["stub".into()],
             num_trials_per_env: 1,
+            success_threshold: None,
         }
     }
 
@@ -261,6 +323,30 @@ mod tests {
     }
 
     #[test]
+    fn provenance_builders_land_in_manifest() {
+        let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
+        let mut r = RecordingReporter::new(dyn_sink, sample_manifest())
+            .with_algorithm("ppo")
+            .with_num_seeds(10)
+            .with_success_threshold(195.0)
+            .with_device("wgpu")
+            .with_build_provenance();
+
+        r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
+
+        let probe = probe.lock();
+        let m = &probe.manifests[0];
+        assert_eq!(m.algorithm.as_deref(), Some("ppo"));
+        assert_eq!(m.num_seeds, Some(10));
+        assert_eq!(m.success_threshold, Some(195.0));
+        assert_eq!(m.device.as_deref(), Some("wgpu"));
+        // `with_build_provenance` always sets rlevo_version + platform.
+        assert!(m.rlevo_version.is_some());
+        assert!(m.platform.is_some());
+    }
+
+    #[test]
     fn composes_with_multi_reporter() {
         // Both a counting reporter (sees lifecycle) and a recording reporter
         // (writes to the sink) share the suite lifecycle through MultiReporter.
@@ -305,6 +391,52 @@ mod tests {
         assert!(probe.episodes.contains_key(&0));
         assert!(probe.episodes.contains_key(&1));
         assert_eq!(*counter.lock(), 1);
+    }
+
+    #[test]
+    fn on_suite_start_auto_stamps_num_seeds() {
+        let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
+        let mut r = RecordingReporter::new(dyn_sink, sample_manifest());
+
+        let info = SuiteInfo {
+            name: "S".into(),
+            env_names: vec!["stub".into()],
+            num_trials_per_env: 5,
+            success_threshold: Some(195.0),
+        };
+        r.on_suite_start(&info);
+        r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
+
+        let probe = probe.lock();
+        assert_eq!(probe.manifests[0].num_seeds, Some(5));
+        assert_eq!(
+            probe.manifests[0].success_threshold,
+            Some(195.0),
+            "success_threshold should auto-stamp from the suite"
+        );
+    }
+
+    #[test]
+    fn explicit_num_seeds_survives_on_suite_start() {
+        let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
+        let mut r = RecordingReporter::new(dyn_sink, sample_manifest()).with_num_seeds(99);
+
+        r.on_suite_start(&SuiteInfo {
+            name: "S".into(),
+            env_names: vec!["stub".into()],
+            num_trials_per_env: 5,
+            success_threshold: None,
+        });
+        r.on_suite_end(&BenchmarkReport::new("S".into(), 0));
+
+        let probe = probe.lock();
+        assert_eq!(
+            probe.manifests[0].num_seeds,
+            Some(99),
+            "explicit num_seeds must not be overwritten by the auto-stamp"
+        );
     }
 
     #[test]

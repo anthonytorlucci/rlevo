@@ -20,6 +20,7 @@
 
 use leptos::prelude::*;
 
+use crate::series::landscape_field;
 use crate::wire::{FamilyPayload, FrameRecord, Landscape2DPayload};
 
 /// SVG viewport size in user units (square canvas).
@@ -27,6 +28,8 @@ const VB_SIZE: f32 = 320.0;
 /// Padding inside the viewBox on each edge; the affine map places the
 /// landscape bounds onto `[VB_PAD, VB_SIZE − VB_PAD]` along both axes.
 const VB_PAD: f32 = 16.0;
+/// Heatmap grid resolution (`HEATMAP_N × HEATMAP_N` cells).
+const HEATMAP_N: usize = 24;
 
 /// Renders one landscapes-family frame, dispatching on the payload variant.
 ///
@@ -93,6 +96,38 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
     let bg_w = VB_SIZE - 2.0 * VB_PAD;
     let bg_h = VB_SIZE - 2.0 * VB_PAD;
 
+    // Closed-form heatmap background for known surfaces (sphere / ackley /
+    // rastrigin). Monochrome ramp: basins (low value) bright, ridges dark, so
+    // the topography reads in B/W and the candidate markers stay visible on
+    // top. Unknown surfaces produce no field and the deferred note shows.
+    let field = landscape_field(&payload.label, payload.bounds_x, payload.bounds_y, HEATMAP_N);
+    let has_heatmap = field.is_some();
+    let heatmap_cells: Vec<AnyView> = field
+        .map(|f| {
+            let cell = bg_w / f.n as f32;
+            let mut out = Vec::with_capacity(f.n * f.n);
+            for row in 0..f.n {
+                for col in 0..f.n {
+                    let t = f.cells[row * f.n + col];
+                    // t=0 (best) → bright (~235), t=1 (worst) → dark (~55).
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let g = (235.0 - t * 180.0).clamp(0.0, 255.0) as u8;
+                    let fill = format!("#{g:02x}{g:02x}{g:02x}");
+                    let x = VB_PAD + col as f32 * cell;
+                    let y = VB_PAD + row as f32 * cell;
+                    // +0.6 overlap hides hairline seams between cells.
+                    out.push(
+                        view! {
+                            <rect x=x y=y width=cell + 0.6 height=cell + 0.6 fill=fill />
+                        }
+                        .into_any(),
+                    );
+                }
+            }
+            out
+        })
+        .unwrap_or_default();
+
     view! {
         <figure class="rlevo-family-landscape">
             <svg
@@ -108,6 +143,7 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
                     height=bg_h
                     class="rlevo-landscape-bg"
                 />
+                <g class="rlevo-landscape-heatmap">{heatmap_cells}</g>
                 <polyline
                     points=trail_str
                     class="rlevo-landscape-trail"
@@ -146,7 +182,11 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
                     " recent trail"
                 </span>
                 <span class="rlevo-legend-key">
-                    <em>"heatmap deferred — only candidate dynamics ship today"</em>
+                    {if has_heatmap {
+                        view! { <em>"heatmap: bright = lower (better) objective value"</em> }.into_any()
+                    } else {
+                        view! { <em>"heatmap unavailable for this surface — candidate dynamics only"</em> }.into_any()
+                    }}
                 </span>
             </figcaption>
         </figure>

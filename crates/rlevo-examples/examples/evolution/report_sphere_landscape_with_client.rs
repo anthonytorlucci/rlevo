@@ -9,7 +9,7 @@
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_sphere_landscape_with_client \
-//!     --features viz-record,viz-report
+//!     --features viz-report
 //! ```
 //!
 //! Opening the emitted `index.html` shows the manifest, episode table,
@@ -47,7 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::new(EnvFamily::Landscapes, SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
-    let manifest = writer.manifest_template();
+    // v6 manifest provenance: a stochastic hill-climber over the landscape
+    // (the EA-side analog — no deep-RL learner, so `checkpoints` stays empty),
+    // plus build/platform reproducibility metadata.
+    let manifest = writer
+        .manifest_template()
+        .with_algorithm("hill_climber")
+        .with_num_seeds(1)
+        .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
     let sphere = Sphere::new(2);

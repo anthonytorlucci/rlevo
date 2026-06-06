@@ -79,17 +79,31 @@ pub struct ClientAssets {
     pub css: String,
 }
 
+/// Name of the wire-version stamp `trunk build` writes into `dist/` (see
+/// the `post_build` hook in the client crate's `Trunk.toml`). Read back by
+/// [`ClientAssets::from_trunk_dist`] to reject a bundle that lags the source
+/// wire format.
+const WIRE_VERSION_STAMP: &str = "wire-version.txt";
+
 impl ClientAssets {
     /// Load assets from a `trunk build` output directory. The directory
     /// must contain exactly one `.wasm` file, one `.js` file, and at
     /// most one `.css` file. Filenames are read by extension so trunk's
     /// `filehash` mode is fine.
     ///
+    /// Also verifies the `wire-version.txt` stamp `trunk build` writes
+    /// matches this crate's [`FORMAT_VERSION`](crate::record::FORMAT_VERSION),
+    /// so a `dist/` left over from before a schema bump is rejected here —
+    /// at emit time, with an actionable message — rather than surfacing as a
+    /// cryptic `file=N client=M` decode error in the browser.
+    ///
     /// # Errors
     ///
-    /// Returns an [`io::Error`] if the directory cannot be listed, if
-    /// the expected file count does not match, or if any read fails.
+    /// Returns an [`io::Error`] if the directory cannot be listed, if the
+    /// expected file count does not match, if any read fails, or if the
+    /// wire-version stamp is missing, unparseable, or mismatched.
     pub fn from_trunk_dist(dir: &Path) -> io::Result<Self> {
+        Self::verify_wire_stamp(dir)?;
         let mut wasm_path: Option<PathBuf> = None;
         let mut js_path: Option<PathBuf> = None;
         let mut css_path: Option<PathBuf> = None;
@@ -125,6 +139,56 @@ impl ClientAssets {
             None => String::new(),
         };
         Ok(Self { js_shim, wasm, css })
+    }
+
+    /// Confirms `dir/wire-version.txt` matches this crate's
+    /// [`FORMAT_VERSION`](crate::record::FORMAT_VERSION).
+    ///
+    /// A missing stamp is treated as stale: it means the bundle predates the
+    /// stamp mechanism (i.e. an old `trunk build`), which is exactly the case
+    /// this check exists to catch. Every failure points the user at the fix.
+    fn verify_wire_stamp(dir: &Path) -> io::Result<()> {
+        let expected = crate::record::FORMAT_VERSION;
+        let stamp_path = dir.join(WIRE_VERSION_STAMP);
+        let rebuild_hint = format!(
+            "re-run `trunk build` in crates/rlevo-benchmarks-report-client \
+             (expected wire v{expected})"
+        );
+        let raw = match fs::read_to_string(&stamp_path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "client bundle in {} has no {WIRE_VERSION_STAMP} stamp \
+                         (built before the wire-version check existed) — {rebuild_hint}",
+                        dir.display(),
+                    ),
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        let found: u16 = raw.trim().parse().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "unparseable {WIRE_VERSION_STAMP} stamp {:?} in {} — {rebuild_hint}",
+                    raw.trim(),
+                    dir.display(),
+                ),
+            )
+        })?;
+        if found != expected {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "client bundle in {} was built for wire v{found} but source is \
+                     v{expected} — {rebuild_hint}",
+                    dir.display(),
+                ),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -166,6 +230,9 @@ struct EpisodeMeta {
     episode_reward: f64,
     length: u32,
     script_id: String,
+    /// `"training"` or `"evaluation"` (v6 `EpisodeKind`), as a string so the
+    /// JSON index stays decoupled from the enum's wire shape.
+    kind: &'static str,
 }
 
 #[derive(Serialize)]
@@ -219,6 +286,10 @@ pub fn emit_static_html(
             episode_reward: ep.episode_reward,
             length: ep.length,
             script_id,
+            kind: match ep.kind {
+                crate::record::EpisodeKind::Training => "training",
+                crate::record::EpisodeKind::Evaluation => "evaluation",
+            },
         });
     }
     let index_json = serde_json::to_string(&episode_metas).map_err(EmitError::ManifestJson)?;
@@ -662,14 +733,23 @@ mod tests {
         assert!(body.contains("id=\"rlevo-episode-000000\""));
     }
 
+    /// Writes a minimal trunk-style `dist/` with a wire-version stamp.
+    fn write_fake_dist(dist: &Path, stamp: Option<&str>) {
+        fs::create_dir_all(dist).unwrap();
+        fs::write(dist.join("rlevo-abc123.wasm"), b"\x00asm\x01\x00\x00\x00").unwrap();
+        fs::write(dist.join("rlevo-abc123.js"), "export default () => {};\n").unwrap();
+        fs::write(dist.join("rlevo-abc123.css"), "body { color: red; }").unwrap();
+        if let Some(v) = stamp {
+            fs::write(dist.join(WIRE_VERSION_STAMP), v).unwrap();
+        }
+    }
+
     #[test]
     fn from_trunk_dist_picks_up_wasm_js_css_by_extension() {
         let dir = tempdir().unwrap();
         let dist = dir.path().join("dist");
-        fs::create_dir(&dist).unwrap();
-        fs::write(dist.join("rlevo-abc123.wasm"), b"\x00asm\x01\x00\x00\x00").unwrap();
-        fs::write(dist.join("rlevo-abc123.js"), "export default () => {};\n").unwrap();
-        fs::write(dist.join("rlevo-abc123.css"), "body { color: red; }").unwrap();
+        // Stamp the current version so the freshness check passes.
+        write_fake_dist(&dist, Some(&format!("{}\n", crate::record::FORMAT_VERSION)));
 
         let assets = ClientAssets::from_trunk_dist(&dist).unwrap();
         assert_eq!(assets.wasm.len(), 8);
@@ -682,5 +762,42 @@ mod tests {
         let dir = tempdir().unwrap();
         let res = ClientAssets::from_trunk_dist(dir.path());
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn from_trunk_dist_rejects_stale_version_stamp() {
+        let dir = tempdir().unwrap();
+        let dist = dir.path().join("dist");
+        // A bundle built for a previous wire version must be rejected.
+        let stale = crate::record::FORMAT_VERSION - 1;
+        write_fake_dist(&dist, Some(&stale.to_string()));
+
+        let err = ClientAssets::from_trunk_dist(&dist).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        let msg = err.to_string();
+        assert!(msg.contains(&format!("built for wire v{stale}")), "{msg}");
+        assert!(msg.contains("trunk build"), "{msg}");
+    }
+
+    #[test]
+    fn from_trunk_dist_rejects_missing_version_stamp() {
+        let dir = tempdir().unwrap();
+        let dist = dir.path().join("dist");
+        // No stamp at all → bundle predates the check → treated as stale.
+        write_fake_dist(&dist, None);
+
+        let err = ClientAssets::from_trunk_dist(&dist).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains(WIRE_VERSION_STAMP));
+    }
+
+    #[test]
+    fn from_trunk_dist_rejects_unparseable_version_stamp() {
+        let dir = tempdir().unwrap();
+        let dist = dir.path().join("dist");
+        write_fake_dist(&dist, Some("not-a-number"));
+
+        let err = ClientAssets::from_trunk_dist(&dist).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

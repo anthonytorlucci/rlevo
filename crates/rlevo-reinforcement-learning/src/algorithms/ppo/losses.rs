@@ -89,6 +89,64 @@ pub fn approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<
     kl.mean().into_scalar().elem::<f32>()
 }
 
+/// Schulman's "k1" approximate KL: `mean(old_log_probs − new_log_probs)`.
+///
+/// This is the *pre-update* / naive KL estimator `mean(−log r)`, reported
+/// alongside the k3 estimator from [`approx_kl`]. Together they bracket the
+/// true KL and help diagnose PPO step size (Huang et al. 2022, detail #16).
+/// Unlike k3 it can be negative for a finite sample.
+pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Tensor<B, 1>) -> f32 {
+    let log_ratio = new_log_probs - old_log_probs;
+    log_ratio.neg().mean().into_scalar().elem::<f32>()
+}
+
+/// Fraction of return variance explained by the value-network predictions.
+///
+/// `ev = 1 − mean((returns − values)²) / Var(returns)`, computed over the whole
+/// rollout. `ev ≈ 1` means the value net tracks returns well; `ev ≈ 0` means it
+/// predicts no better than the mean; negative means worse than the mean. This is
+/// the single most informative value-net health signal.
+///
+/// # CleanRL / SB3 convention (non-centered residual)
+///
+/// The residual term is the raw mean-square `mean((returns − values)²)`, not the
+/// *centered* variance `Var(returns − values)` of the scikit-learn R² formula.
+/// The two agree once the value net is unbiased (`E[returns − values] ≈ 0`), but
+/// the non-centered form additionally penalises a constant value-net **bias**.
+/// So during early warm-up a value net that has the right shape but a constant
+/// offset reads `ev < 0` — this is expected, not a code bug. This matches CleanRL
+/// and Stable-Baselines3 so curves are comparable across implementations.
+///
+/// Returns `0.0` when `Var(returns) == 0` (a degenerate rollout) rather than
+/// dividing by zero — never emits `NaN`/`Inf`.
+#[must_use]
+pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
+    debug_assert_eq!(returns.len(), values.len());
+    let n = returns.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let n_f = n as f32;
+    let mean_ret = returns.iter().sum::<f32>() / n_f;
+    let var_ret = returns.iter().map(|r| (r - mean_ret).powi(2)).sum::<f32>() / n_f;
+    if var_ret <= f32::EPSILON {
+        return 0.0;
+    }
+    let var_resid = returns
+        .iter()
+        .zip(values)
+        .map(|(r, v)| {
+            let resid = r - v;
+            resid * resid
+        })
+        .sum::<f32>()
+        / n_f;
+    // Note: residual variance uses the raw mean-square (CleanRL convention),
+    // which is exact since E[returns − values] ≈ 0 for a fitted value net.
+    let ev = 1.0 - var_resid / var_ret;
+    if ev.is_finite() { ev } else { 0.0 }
+}
+
 /// Fraction of batch entries whose importance ratio was clipped.
 pub fn clip_fraction<B: Backend>(
     new_log_probs: Tensor<B, 1>,
@@ -193,6 +251,58 @@ mod tests {
         let lp = t1(&[0.1_f32.ln(), 0.9_f32.ln()]);
         let kl = approx_kl(lp.clone(), lp);
         assert!(kl.abs() < 1e-6, "expected 0 kl, got {kl}");
+    }
+
+    #[test]
+    fn old_approx_kl_is_mean_neg_logratio() {
+        // old_lp = 0, new_lp = ln(r) ⇒ old_approx_kl = mean(−ln r)
+        let new_lp = t1(&[2.0_f32.ln(), 0.5_f32.ln()]);
+        let old_lp = t1(&[0.0, 0.0]);
+        let v = old_approx_kl(new_lp, old_lp);
+        let expected = (-(2.0_f32.ln()) - 0.5_f32.ln()) / 2.0;
+        assert!((v - expected).abs() < 1e-6, "expected {expected}, got {v}");
+    }
+
+    #[test]
+    fn explained_variance_perfect_fit_is_one() {
+        let returns = [1.0, 2.0, 3.0, 4.0];
+        let values = [1.0, 2.0, 3.0, 4.0];
+        assert!((explained_variance(&returns, &values) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn explained_variance_mean_predictor_is_zero() {
+        // Predicting the constant mean explains none of the variance.
+        let returns = [1.0, 2.0, 3.0, 4.0];
+        let mean = 2.5;
+        let values = [mean; 4];
+        assert!(explained_variance(&returns, &values).abs() < 1e-6);
+    }
+
+    #[test]
+    fn explained_variance_penalises_constant_bias_cleanrl_convention() {
+        // Perfectly-shaped value net with a constant +1 offset. The scikit R²
+        // (centered) form would give 1.0; the CleanRL non-centered form we use
+        // penalises the bias. returns var = 2/3, residual mean-sq = 1.0 ⇒
+        // ev = 1 - 1.0/(2/3) = -0.5. This documents the intentional divergence.
+        let returns = [10.0, 11.0, 12.0];
+        let values = [9.0, 10.0, 11.0];
+        let ev = explained_variance(&returns, &values);
+        assert!((ev - (-0.5)).abs() < 1e-6, "expected -0.5 (CleanRL), got {ev}");
+    }
+
+    #[test]
+    fn explained_variance_zero_variance_returns_zero_not_nan() {
+        let returns = [5.0; 8];
+        let values = [3.0; 8];
+        let ev = explained_variance(&returns, &values);
+        assert!(ev.is_finite(), "ev must be finite, got {ev}");
+        assert_eq!(ev, 0.0);
+    }
+
+    #[test]
+    fn explained_variance_empty_is_zero() {
+        assert_eq!(explained_variance(&[], &[]), 0.0);
     }
 
     #[test]

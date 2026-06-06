@@ -410,19 +410,40 @@ figure.rlevo-chart-card figcaption {
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
 }
-.rlevo-chart-stack { display: flex; flex-direction: column; gap: 0.25rem; }
 .rlevo-chart-no-data {
     font-style: italic;
     opacity: 0.6;
     margin: 0.5rem 0;
 }
 figure.rlevo-chart-empty { opacity: 0.7; }
-/* leptos-chartistry emits inline-styled SVG; the wrapper border-radius
-   keeps the chart visually framed without overriding its internal
-   colour palette. */
 .rlevo-chart-card svg { width: 100%; height: auto; }
 @media (prefers-color-scheme: dark) {
     figure.rlevo-chart-card { background: rgba(255,255,255,0.04); }
+}
+
+/* Shared axis furniture for every hand-rolled SVG panel (axis lines, nice
+   ticks + numeric labels, rotated axis titles). One styling system so all
+   panels read consistently. Counter-scaled? No — the `.rlevo-line` /
+   `.rlevo-band` SVGs keep the viewBox aspect (width:100%; height:auto), so
+   `preserveAspectRatio="none"` does not distort the label text. */
+.rlevo-axis-line { stroke: rgba(80, 90, 110, 0.55); stroke-width: 1; }
+.rlevo-axis-tick { stroke: rgba(80, 90, 110, 0.45); stroke-width: 1; }
+.rlevo-axis-num {
+    fill: rgba(60, 70, 90, 0.85);
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+}
+.rlevo-axis-title {
+    fill: rgba(60, 70, 90, 0.8);
+    font-size: 11px;
+    font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-axis-line { stroke: rgba(200, 205, 215, 0.5); }
+    .rlevo-axis-tick { stroke: rgba(200, 205, 215, 0.4); }
+    .rlevo-axis-num { fill: rgba(220, 225, 235, 0.85); }
+    .rlevo-axis-title { fill: rgba(225, 230, 240, 0.85); }
 }
 
 /* --- Population panel (M8.1) ---------------------------------------- */
@@ -450,16 +471,6 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     stroke: #c0392b;
     stroke-width: 1.2;
 }
-.rlevo-boxplot-axis {
-    stroke: rgba(127,127,127,0.6);
-    stroke-width: 1;
-}
-.rlevo-boxplot-axis-label {
-    font-size: 10px;
-    fill: rgba(127,127,127,0.9);
-    font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, monospace;
-}
 /* Best/median/worst overlay traces — three distinct dash patterns so
    the trio remains distinguishable in a B/W screenshot. */
 .rlevo-boxplot-best {
@@ -484,9 +495,135 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     .rlevo-boxplot-whisker { stroke: #5dade2; }
     .rlevo-boxplot-median { stroke: #aed6f1; }
     .rlevo-boxplot-outlier { stroke: #ec7063; }
-    .rlevo-boxplot-axis { stroke: rgba(200,200,200,0.45); }
-    .rlevo-boxplot-axis-label { fill: rgba(220,220,220,0.85); }
     .rlevo-boxplot-best { stroke: #58d68d; }
     .rlevo-boxplot-median-trace { stroke: #f1c40f; }
     .rlevo-boxplot-worst { stroke: #ec7063; }
 }
+
+/* Episode-kind badge (eval/train). Colour is paired with a text label and a
+   border/shape difference so the distinction survives a B/W screenshot. */
+.rlevo-kind {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.8em;
+    font-variant: small-caps;
+    border: 1px solid currentColor;
+}
+.rlevo-kind-train { color: #2e7d32; border-style: solid; }
+.rlevo-kind-eval  { color: #6a1b9a; border-style: dashed; font-weight: 600; }
+
+/* RL vs EO metric-group sections in the convergence panel. */
+.rlevo-metric-group { margin-top: 1.25rem; }
+.rlevo-metric-group > h3 {
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.2rem;
+    border-bottom: 2px solid rgba(127, 127, 127, 0.4);
+}
+.rlevo-group-rl > h3 { border-bottom-style: solid; }
+.rlevo-group-eo > h3 { border-bottom-style: dashed; }
+
+/* Checkpoint table. */
+.rlevo-ckpt-table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+.rlevo-ckpt-table th, .rlevo-ckpt-table td {
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.4);
+    text-align: left;
+}
+.rlevo-ckpt-path { font-family: monospace; font-size: 0.85em; word-break: break-all; }
+
+@media (prefers-color-scheme: dark) {
+    .rlevo-kind-train { color: #81c784; }
+    .rlevo-kind-eval  { color: #ce93d8; }
+}
+
+/* Multi-seed mean±std band (hand-rolled SVG; chartistry has no area type). */
+.rlevo-band { width: 100%; height: auto; }
+.rlevo-band-fill { fill: rgba(80, 140, 220, 0.22); stroke: none; }
+.rlevo-band-mean { stroke: #2c6fb5; stroke-width: 2; }
+.rlevo-group-seed > h3 { border-bottom-style: dotted; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-band-fill { fill: rgba(93, 173, 226, 0.25); }
+    .rlevo-band-mean { stroke: #5dade2; }
+}
+
+/* x-axis mode toggle for the episode-outcome panels. */
+.rlevo-axis-toggle { display: flex; align-items: center; gap: 0.25rem; margin: 0.5rem 0; }
+.rlevo-axis-label { font-size: 0.85em; opacity: 0.8; margin-right: 0.25rem; }
+.rlevo-axis-btn {
+    padding: 0.1rem 0.6rem;
+    border: 1px solid rgba(127, 127, 127, 0.5);
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-variant: small-caps;
+}
+.rlevo-axis-btn.active {
+    border-color: #2c6fb5;
+    background: rgba(80, 140, 220, 0.18);
+    font-weight: 600;
+}
+
+/* Hand-rolled interactive line panel with hover crosshair. */
+.rlevo-line { width: 100%; height: auto; cursor: crosshair; }
+.rlevo-line-raw { stroke: rgba(80, 140, 220, 0.55); stroke-width: 1; }
+.rlevo-line-smoothed { stroke: #2c6fb5; stroke-width: 2.5; }
+.rlevo-crosshair { stroke: rgba(120, 120, 120, 0.8); stroke-width: 1; stroke-dasharray: 3 3; }
+.rlevo-crosshair-dot { fill: #e67e22; stroke: #fff; stroke-width: 0.5; }
+.rlevo-crosshair-label { fill: currentColor; font-size: 11px; font-variant-numeric: tabular-nums; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-line-raw { stroke: rgba(93, 173, 226, 0.55); }
+    .rlevo-line-smoothed { stroke: #5dade2; }
+    .rlevo-crosshair-dot { fill: #f39c12; stroke: #222; }
+}
+
+/* Box-plot strip-plot overlay toggle + jitter dots. */
+.rlevo-boxplot-toolbar { margin: 0.25rem 0; }
+.rlevo-strip-toggle {
+    padding: 0.1rem 0.6rem;
+    border: 1px solid rgba(127, 127, 127, 0.5);
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-variant: small-caps;
+}
+.rlevo-strip-toggle.active {
+    border-color: #2c6fb5;
+    background: rgba(80, 140, 220, 0.18);
+    font-weight: 600;
+}
+.rlevo-strip-dot { fill: rgba(90, 90, 90, 0.35); stroke: none; }
+@media (prefers-color-scheme: dark) {
+    .rlevo-strip-dot { fill: rgba(210, 210, 210, 0.30); }
+}
+
+/* Diversity panel: low-diversity guideline + breach pulse. */
+.rlevo-diversity-toolbar { font-size: 0.8em; opacity: 0.85; margin: 0.2rem 0; }
+.rlevo-threshold-input { width: 7rem; margin-left: 0.25rem; }
+.rlevo-diversity-guide { stroke: #c0392b; stroke-width: 1.5; stroke-dasharray: 6 3; }
+/* Breach alert: a brief border pulse (colour-redundant with the ⚠ title glyph). */
+.rlevo-pulse { animation: rlevo-pulse-kf 1s ease-in-out 3; border-radius: 0.25rem; }
+@keyframes rlevo-pulse-kf {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.0); }
+    50% { box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.6); }
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-diversity-guide { stroke: #ec7063; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rlevo-pulse { animation: none; outline: 2px solid rgba(192, 57, 43, 0.7); }
+}
+
+/* Per-panel SVG export button. */
+.rlevo-export-btn {
+    padding: 0.05rem 0.5rem;
+    border: 1px solid rgba(127, 127, 127, 0.5);
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8em;
+    margin-left: 0.25rem;
+}
+.rlevo-export-btn:hover { border-color: #2c6fb5; background: rgba(80, 140, 220, 0.12); }

@@ -3,26 +3,13 @@
 //! These transform decoded [`EpisodeRecord`]s into `(x, y)` arrays that
 //! the [`crate::charts`] module feeds into `leptos-chartistry`. No DOM,
 //! no Leptos — every function here is testable as a native unit test.
+//!
+//! The canonical metric table is the shared [`rlevo_metrics_registry`] crate
+//! (ADR-0015) — there is no client-side copy to keep in sync.
+
+use rlevo_metrics_registry::CANONICAL_METRICS;
 
 use crate::wire::{EpisodeRecord, PopulationSample};
-
-/// Canonical metric names, ordered for a stable panel layout across
-/// runs. Mirrors `rlevo_benchmarks::record::tracing_layer::CANONICAL_METRICS`
-/// — drift is caught by the cross-crate wire-format compat test on the
-/// host side, and any name not in this list still surfaces via
-/// [`available_metric_names`] (just at the end).
-pub const CANONICAL_METRICS: &[&str] = &[
-    "policy_loss",
-    "value_loss",
-    "loss",
-    "entropy",
-    "approx_kl",
-    "clip_frac",
-    "best_fitness",
-    "mean_fitness",
-    "worst_fitness",
-    "best_fitness_ever",
-];
 
 /// Per-episode total reward — sum of every frame's reward, indexed by
 /// episode position in the input slice.
@@ -64,6 +51,377 @@ pub fn metric_series(records: &[EpisodeRecord], name: &str) -> Vec<(u32, f64)> {
         .collect()
 }
 
+/// Series length above which [`downsample_minmax`] decimates before charting.
+pub const DOWNSAMPLE_THRESHOLD: usize = 10_000;
+/// Target bucket count for [`downsample_minmax`]; the decimated series has at
+/// most `2 * DOWNSAMPLE_BUCKETS` points (a min and a max per bucket).
+pub const DOWNSAMPLE_BUCKETS: usize = 2_048;
+
+/// Min/max-per-bucket decimation that preserves visual extremes.
+///
+/// Series at or below [`DOWNSAMPLE_THRESHOLD`] points are returned unchanged.
+/// Longer series are split into `DOWNSAMPLE_BUCKETS` equal-width index buckets;
+/// each bucket contributes its minimum-y and maximum-y points, emitted in x
+/// order, so peaks and troughs survive decimation (a plain stride would alias
+/// them away). Non-finite (`NaN`/`±Inf`) y-values are dropped. The first and
+/// last finite points are always retained so the curve spans its full domain.
+///
+/// This is a *display* transform — keep the raw series for exact-value tooltips.
+#[must_use]
+pub fn downsample_minmax(points: &[(u32, f64)]) -> Vec<(u32, f64)> {
+    if points.len() <= DOWNSAMPLE_THRESHOLD {
+        return points.iter().copied().filter(|(_, y)| y.is_finite()).collect();
+    }
+    let n = points.len();
+    let buckets = DOWNSAMPLE_BUCKETS;
+    let mut out: Vec<(u32, f64)> = Vec::with_capacity(buckets * 2 + 2);
+    for b in 0..buckets {
+        let start = b * n / buckets;
+        let end = ((b + 1) * n / buckets).max(start + 1).min(n);
+        let mut lo: Option<(u32, f64)> = None;
+        let mut hi: Option<(u32, f64)> = None;
+        for &(x, y) in &points[start..end] {
+            if !y.is_finite() {
+                continue;
+            }
+            if lo.is_none_or(|(_, ly)| y < ly) {
+                lo = Some((x, y));
+            }
+            if hi.is_none_or(|(_, hy)| y > hy) {
+                hi = Some((x, y));
+            }
+        }
+        // Emit min then max in x order so the rendered path stays monotone in x.
+        match (lo, hi) {
+            (Some(a), Some(b)) if a.0 <= b.0 => {
+                out.push(a);
+                if a != b {
+                    out.push(b);
+                }
+            }
+            (Some(a), Some(b)) => {
+                out.push(b);
+                out.push(a);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Global x-axis mode for the episode-outcome panels.
+///
+/// Per-update metric panels stay on their native training-step axis; this
+/// toggle remaps the per-episode series (reward / length) between the three
+/// well-defined episode-level axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AxisMode {
+    /// Cumulative environment steps elapsed when each episode began.
+    Step,
+    /// Episode index (0-based). The default.
+    #[default]
+    Episode,
+    /// Cumulative wall-clock seconds elapsed when each episode began.
+    Wallclock,
+}
+
+impl AxisMode {
+    /// Short axis label for the toggle / x-axis caption.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            AxisMode::Step => "step",
+            AxisMode::Episode => "episode",
+            AxisMode::Wallclock => "wallclock",
+        }
+    }
+}
+
+/// Per-episode x-axis values for `mode`, one entry per record in input order.
+///
+/// - `Episode`: the episode index `0..n`.
+/// - `Step`: exclusive prefix sum of per-episode frame counts (env steps
+///   elapsed *before* each episode).
+/// - `Wallclock`: exclusive prefix sum of each episode's
+///   `episode_wall_clock_secs` terminal metric. If no episode carries that
+///   metric the axis would be all-zero, so it falls back to the episode index.
+#[must_use]
+pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
+    let n = records.len();
+    match mode {
+        AxisMode::Episode => (0..n).map(|i| i as f64).collect(),
+        AxisMode::Step => {
+            let mut acc = 0.0;
+            let mut out = Vec::with_capacity(n);
+            for r in records {
+                out.push(acc);
+                acc += r.frames.len() as f64;
+            }
+            out
+        }
+        AxisMode::Wallclock => {
+            let per_ep: Vec<f64> = records
+                .iter()
+                .map(|r| {
+                    r.metrics
+                        .iter()
+                        .filter(|m| m.name == "episode_wall_clock_secs" && m.value.is_finite())
+                        .map(|m| m.value)
+                        .fold(0.0_f64, f64::max)
+                })
+                .collect();
+            if per_ep.iter().all(|&v| v == 0.0) {
+                // No wall-clock data recorded — degrade to episode index.
+                return (0..n).map(|i| i as f64).collect();
+            }
+            let mut acc = 0.0;
+            let mut out = Vec::with_capacity(n);
+            for v in per_ep {
+                out.push(acc);
+                acc += v;
+            }
+            out
+        }
+    }
+}
+
+/// Closed-form value of a known 2-D benchmark landscape at `(x, y)`.
+///
+/// Recognises `sphere`, `ackley`, and `rastrigin` (case-insensitive, by
+/// substring so decorated labels like `"sphere-2d"` still match). Returns
+/// `None` for any other label so the caller can skip the heatmap rather than
+/// draw a wrong surface. All three are minimisation problems with their global
+/// optimum at the origin.
+#[must_use]
+pub fn landscape_value(label: &str, x: f64, y: f64) -> Option<f64> {
+    use core::f64::consts::{E, PI};
+    let l = label.to_ascii_lowercase();
+    if l.contains("sphere") {
+        Some(x * x + y * y)
+    } else if l.contains("rastrigin") {
+        let term = |v: f64| v * v - 10.0 * (2.0 * PI * v).cos();
+        Some(20.0 + term(x) + term(y))
+    } else if l.contains("ackley") {
+        let sq = 0.5 * (x * x + y * y);
+        let cos = 0.5 * ((2.0 * PI * x).cos() + (2.0 * PI * y).cos());
+        Some(-20.0 * (-0.2 * sq.sqrt()).exp() - cos.exp() + E + 20.0)
+    } else {
+        None
+    }
+}
+
+/// A normalised scalar field sampled over a landscape's search domain, for the
+/// report's heatmap background.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandscapeField {
+    /// Grid resolution (the field is `n × n` cells).
+    pub n: usize,
+    /// Row-major normalised values in `[0, 1]` (0 = grid minimum = best for a
+    /// minimisation surface). Row 0 is the top of the view (high `y`), column 0
+    /// is the left (low `x`), matching the adapter's SVG paint order.
+    pub cells: Vec<f32>,
+}
+
+/// Samples a known landscape over `bounds_x × bounds_y` into an `n × n`
+/// normalised [`LandscapeField`] (cell-centre evaluation).
+///
+/// Returns `None` for an unknown `label`, a non-positive `n`, or degenerate
+/// bounds. Values are min/max-normalised across the grid so the ramp uses the
+/// full range regardless of the surface's absolute scale.
+#[must_use]
+pub fn landscape_field(
+    label: &str,
+    bounds_x: (f32, f32),
+    bounds_y: (f32, f32),
+    n: usize,
+) -> Option<LandscapeField> {
+    let (xlo, xhi) = (f64::from(bounds_x.0), f64::from(bounds_x.1));
+    let (ylo, yhi) = (f64::from(bounds_y.0), f64::from(bounds_y.1));
+    if n == 0 || (xhi - xlo).abs() < f64::EPSILON || (yhi - ylo).abs() < f64::EPSILON {
+        return None;
+    }
+    landscape_value(label, xlo, ylo)?; // bail early on unknown labels.
+
+    let mut raw: Vec<f64> = Vec::with_capacity(n * n);
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for row in 0..n {
+        // Row 0 = top of view = high y; sample at cell centres.
+        let fy = (row as f64 + 0.5) / n as f64;
+        let y = yhi - fy * (yhi - ylo);
+        for col in 0..n {
+            let fx = (col as f64 + 0.5) / n as f64;
+            let x = xlo + fx * (xhi - xlo);
+            let v = landscape_value(label, x, y).unwrap_or(0.0);
+            if v.is_finite() {
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+            raw.push(v);
+        }
+    }
+    let range = hi - lo;
+    let cells: Vec<f32> = raw
+        .iter()
+        .map(|&v| {
+            let t = if range.abs() < f64::EPSILON { 0.0 } else { (v - lo) / range };
+            t.clamp(0.0, 1.0) as f32
+        })
+        .collect();
+    Some(LandscapeField { n, cells })
+}
+
+/// Wraps a serialized `<svg>…</svg>` fragment into a standalone, downloadable
+/// SVG document: prepends the XML prolog and injects the SVG namespace if the
+/// opening tag lacks one (browsers omit it from `outerHTML`). Idempotent w.r.t.
+/// an already-namespaced tag. Non-`<svg>` input is returned with only the
+/// prolog so the caller still gets well-formed XML.
+#[must_use]
+pub fn ensure_svg_header(svg: &str) -> String {
+    const PROLOG: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    let trimmed = svg.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("<svg") {
+        if trimmed.contains("xmlns=") {
+            format!("{PROLOG}{trimmed}")
+        } else {
+            format!("{PROLOG}<svg xmlns=\"http://www.w3.org/2000/svg\"{rest}")
+        }
+    } else {
+        format!("{PROLOG}{trimmed}")
+    }
+}
+
+/// Default "low diversity" guideline: the 5th percentile of the diversity
+/// values over the first ten generations (or all of them if fewer).
+///
+/// Returns `None` when there are no finite diversity values. A trace dipping
+/// below this line signals the population is collapsing toward premature
+/// convergence (see `research/2026-06-05-rl-vs-eo-learning.md` §4.3).
+#[must_use]
+pub fn low_diversity_threshold(diversity: &[(u32, f64)]) -> Option<f64> {
+    let take = diversity.len().min(10);
+    let mut firsts: Vec<f64> = diversity[..take]
+        .iter()
+        .map(|&(_, y)| y)
+        .filter(|y| y.is_finite())
+        .collect();
+    if firsts.is_empty() {
+        return None;
+    }
+    firsts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(quantile(&firsts, 0.05))
+}
+
+/// Nearest point to `x` in a series sorted ascending by x, by absolute x
+/// distance. Returns `None` for an empty series. Used by the hover crosshair to
+/// report the *raw* sample under the cursor, independent of any decimation
+/// applied to the drawn path.
+#[must_use]
+pub fn nearest_by_x(points: &[(f64, f64)], x: f64) -> Option<(f64, f64)> {
+    if points.is_empty() {
+        return None;
+    }
+    // Points are x-sorted; binary-search the insertion point then compare the
+    // straddling neighbours.
+    let idx = points.partition_point(|&(px, _)| px < x);
+    let mut best = points[idx.min(points.len() - 1)];
+    let mut best_d = (best.0 - x).abs();
+    if idx > 0 {
+        let prev = points[idx - 1];
+        let d = (prev.0 - x).abs();
+        if d < best_d {
+            best = prev;
+            best_d = d;
+        }
+    }
+    // Guard against NaN x in the data leaving best_d NaN.
+    if best_d.is_nan() {
+        return points.first().copied();
+    }
+    Some(best)
+}
+
+/// Remaps a per-episode series (x = episode index) onto an `axis` vector
+/// produced by [`episode_axis`], pairing each `(episode_idx, y)` with
+/// `axis[episode_idx]`. Out-of-range indices are dropped.
+#[must_use]
+pub fn remap_episode_series(series: &[(u32, f64)], axis: &[f64]) -> Vec<(f64, f64)> {
+    series
+        .iter()
+        .filter_map(|&(idx, y)| axis.get(idx as usize).map(|&x| (x, y)))
+        .collect()
+}
+
+/// One aggregated point of a multi-seed metric band: the cross-seed mean and
+/// (population) standard deviation at a given step, plus how many distinct
+/// seeds contributed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BandPoint {
+    /// Training step / generation the aggregate is computed at.
+    pub step: u32,
+    /// Mean across the seeds present at this step.
+    pub mean: f64,
+    /// Population standard deviation across those seeds (`0.0` for one seed).
+    pub std: f64,
+    /// Number of distinct seeds that contributed a value at this step.
+    pub n: usize,
+}
+
+/// Returns the number of distinct run seeds (`EpisodeRecordHeader::seed`) in the record set.
+///
+/// A count of `>= 2` means the report can draw a cross-seed mean±std band.
+#[must_use]
+pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
+    let mut seeds: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+    for r in records {
+        seeds.insert(r.header.seed);
+    }
+    seeds.len()
+}
+
+/// Cross-seed aggregation of one metric into a mean±std band.
+///
+/// Records are grouped by `header.seed`; within a seed, repeated samples at the
+/// same step are averaged. At each step the per-seed values are reduced to a
+/// cross-seed mean and population standard deviation (`std = 0` when a single
+/// seed has data there). Steps are returned in ascending order. Non-finite
+/// values are ignored. Returns empty when no seed has a finite sample.
+#[must_use]
+pub fn metric_band(records: &[EpisodeRecord], name: &str) -> Vec<BandPoint> {
+    use std::collections::BTreeMap;
+    // step -> seed -> (sum, count) for averaging within a seed.
+    let mut by_step: BTreeMap<u32, BTreeMap<u64, (f64, u32)>> = BTreeMap::new();
+    for r in records {
+        let seed = r.header.seed;
+        for m in r.metrics.iter().filter(|m| m.name == name) {
+            if !m.value.is_finite() {
+                continue;
+            }
+            let entry = by_step.entry(m.step).or_default().entry(seed).or_insert((0.0, 0));
+            entry.0 += m.value;
+            entry.1 += 1;
+        }
+    }
+    by_step
+        .into_iter()
+        .map(|(step, per_seed)| {
+            let means: Vec<f64> = per_seed
+                .values()
+                .map(|&(sum, count)| sum / f64::from(count))
+                .collect();
+            let n = means.len();
+            let mean = means.iter().sum::<f64>() / n as f64;
+            let var = means.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
+            BandPoint {
+                step,
+                mean,
+                std: var.sqrt(),
+                n,
+            }
+        })
+        .collect()
+}
+
 /// Distinct metric names present anywhere in the run, ordered by
 /// [`CANONICAL_METRICS`] first (so the panel grid is stable across
 /// runs), then any non-canonical names appended in lexical order.
@@ -77,8 +435,8 @@ pub fn available_metric_names(records: &[EpisodeRecord]) -> Vec<String> {
     }
     let mut out: Vec<String> = Vec::new();
     for canonical in CANONICAL_METRICS {
-        if seen.remove(*canonical) {
-            out.push((*canonical).to_string());
+        if seen.remove(canonical.name) {
+            out.push(canonical.name.to_string());
         }
     }
     for leftover in seen {
@@ -138,7 +496,15 @@ pub struct BoxStats {
     pub max: f64,
     /// Values outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]`; rendered as open circles.
     pub outliers: Vec<f64>,
+    /// Per-individual fitness values for the optional strip-plot overlay.
+    ///
+    /// Evenly sub-sampled to at most [`STRIP_SAMPLE_CAP`] points per generation
+    /// so a large population does not bloat the SVG. Sorted ascending.
+    pub points: Vec<f64>,
 }
+
+/// Maximum per-generation jitter points retained for the strip-plot overlay.
+pub const STRIP_SAMPLE_CAP: usize = 256;
 
 /// Per-generation box-plot summary, one entry per population sample in
 /// the input slice. Samples with empty `fitnesses` are skipped.
@@ -196,7 +562,20 @@ fn box_stats_for(generation: u32, fitnesses: &[f32]) -> BoxStats {
         q3,
         max: whisker_hi,
         outliers,
+        points: subsample(&sorted, STRIP_SAMPLE_CAP),
     }
+}
+
+/// Evenly sub-samples `sorted` down to at most `cap` elements, preserving the
+/// first and last. Returns a clone when already within the cap.
+fn subsample(sorted: &[f64], cap: usize) -> Vec<f64> {
+    let n = sorted.len();
+    if n <= cap || cap == 0 {
+        return sorted.to_vec();
+    }
+    (0..cap)
+        .map(|i| sorted[i * (n - 1) / (cap - 1).max(1)])
+        .collect()
 }
 
 /// Linear-interpolation quantile (`p` in `[0.0, 1.0]`). Input must be
@@ -281,9 +660,361 @@ pub fn fitness_range_series(
 mod tests {
     use super::*;
     use crate::wire::{
-        EnvFamily, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample, RunId,
-        FORMAT_VERSION,
+        EnvFamily, EpisodeKind, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample,
+        RunId, FORMAT_VERSION,
     };
+
+    #[test]
+    fn downsample_passthrough_below_threshold() {
+        let pts: Vec<(u32, f64)> = (0..100).map(|i| (i, f64::from(i))).collect();
+        assert_eq!(downsample_minmax(&pts), pts);
+    }
+
+    #[test]
+    fn downsample_drops_non_finite_below_threshold() {
+        let pts = vec![(0, 1.0), (1, f64::NAN), (2, f64::INFINITY), (3, 2.0)];
+        let out = downsample_minmax(&pts);
+        assert_eq!(out, vec![(0, 1.0), (3, 2.0)]);
+        assert!(out.iter().all(|(_, y)| y.is_finite()));
+    }
+
+    #[test]
+    fn downsample_preserves_global_extremes() {
+        // A long ramp with a single planted spike and dip; decimation must keep both.
+        let mut pts: Vec<(u32, f64)> = (0..50_000u32).map(|i| (i, f64::from(i % 7))).collect();
+        pts[12_345].1 = 9_999.0; // global max
+        pts[37_000].1 = -9_999.0; // global min
+        let out = downsample_minmax(&pts);
+        assert!(out.len() <= DOWNSAMPLE_BUCKETS * 2 + 2, "bounded point count");
+        let max = out.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+        let min = out.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
+        assert!((max - 9_999.0).abs() < 1e-9, "global max survived: {max}");
+        assert!((min + 9_999.0).abs() < 1e-9, "global min survived: {min}");
+    }
+
+    #[test]
+    fn downsample_constant_series_stays_constant() {
+        let pts: Vec<(u32, f64)> = (0..20_000u32).map(|i| (i, 3.0)).collect();
+        let out = downsample_minmax(&pts);
+        assert!(!out.is_empty());
+        assert!(out.iter().all(|(_, y)| (*y - 3.0).abs() < 1e-12));
+    }
+
+    #[test]
+    fn downsample_x_is_non_decreasing() {
+        let pts: Vec<(u32, f64)> = (0..30_000u32)
+            .map(|i| (i, ((f64::from(i) * 0.01).sin())))
+            .collect();
+        let out = downsample_minmax(&pts);
+        assert!(out.windows(2).all(|w| w[0].0 <= w[1].0), "x monotone");
+    }
+
+    /// Builds a one-episode record under `seed` carrying the given
+    /// `(step, value)` samples for metric `name`.
+    fn seeded_metric_record(seed: u64, name: &str, samples: &[(u32, f64)]) -> EpisodeRecord {
+        let header = EpisodeRecordHeader {
+            format_version: FORMAT_VERSION,
+            run_id: RunId("r".into()),
+            seed,
+            env_family: EnvFamily::Classic,
+            created_at: 0,
+            trial: None,
+            kind: EpisodeKind::Training,
+        };
+        let metrics = samples
+            .iter()
+            .map(|&(step, value)| MetricSample {
+                step,
+                name: name.to_string(),
+                value,
+            })
+            .collect();
+        EpisodeRecord {
+            header,
+            frames: vec![],
+            metrics,
+            population_samples: vec![],
+        }
+    }
+
+    #[test]
+    fn distinct_seed_count_counts_unique_seeds() {
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0)]),
+            seeded_metric_record(1, "loss", &[(1, 1.0)]),
+            seeded_metric_record(2, "loss", &[(0, 1.0)]),
+        ];
+        assert_eq!(distinct_seed_count(&recs), 2);
+    }
+
+    #[test]
+    fn metric_band_computes_cross_seed_mean_and_std() {
+        // Three seeds at step 0 with values 1, 2, 3 → mean 2, popvar = 2/3.
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0)]),
+            seeded_metric_record(2, "loss", &[(0, 2.0)]),
+            seeded_metric_record(3, "loss", &[(0, 3.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        let p = band[0];
+        assert_eq!(p.step, 0);
+        assert_eq!(p.n, 3);
+        assert!((p.mean - 2.0).abs() < 1e-12);
+        assert!((p.std - (2.0_f64 / 3.0).sqrt()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn metric_band_single_seed_has_zero_std() {
+        let recs = vec![seeded_metric_record(7, "loss", &[(0, 5.0), (1, 6.0)])];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 2);
+        assert!(band.iter().all(|p| p.n == 1 && p.std == 0.0));
+    }
+
+    #[test]
+    fn metric_band_averages_within_seed_then_across() {
+        // Seed 1 has two samples at step 0 (avg 2.0); seed 2 has one (4.0).
+        // Cross-seed mean = 3.0.
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, 1.0), (0, 3.0)]),
+            seeded_metric_record(2, "loss", &[(0, 4.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        assert_eq!(band[0].n, 2);
+        assert!((band[0].mean - 3.0).abs() < 1e-12);
+    }
+
+    /// Record with `frame_count` frames and an optional wall-clock metric.
+    fn timed_record(frames: u32, wall: Option<f64>) -> EpisodeRecord {
+        let header = EpisodeRecordHeader {
+            format_version: FORMAT_VERSION,
+            run_id: RunId("r".into()),
+            seed: 0,
+            env_family: EnvFamily::Classic,
+            created_at: 0,
+            trial: None,
+            kind: EpisodeKind::Training,
+        };
+        let metrics = wall
+            .map(|w| {
+                vec![MetricSample {
+                    step: 0,
+                    name: "episode_wall_clock_secs".to_string(),
+                    value: w,
+                }]
+            })
+            .unwrap_or_default();
+        EpisodeRecord {
+            header,
+            frames: (0..frames).map(|s| frame(s, 0.0)).collect(),
+            metrics,
+            population_samples: vec![],
+        }
+    }
+
+    #[test]
+    fn episode_axis_episode_mode_is_index() {
+        let recs = vec![timed_record(3, None), timed_record(5, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Episode), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn episode_axis_step_mode_is_exclusive_prefix_sum() {
+        let recs = vec![timed_record(3, None), timed_record(5, None), timed_record(2, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Step), vec![0.0, 3.0, 8.0]);
+    }
+
+    #[test]
+    fn episode_axis_wallclock_prefix_sum() {
+        let recs = vec![
+            timed_record(1, Some(1.5)),
+            timed_record(1, Some(2.5)),
+            timed_record(1, Some(4.0)),
+        ];
+        assert_eq!(episode_axis(&recs, AxisMode::Wallclock), vec![0.0, 1.5, 4.0]);
+    }
+
+    #[test]
+    fn episode_axis_wallclock_falls_back_to_index_without_data() {
+        let recs = vec![timed_record(1, None), timed_record(1, None)];
+        assert_eq!(episode_axis(&recs, AxisMode::Wallclock), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn remap_episode_series_pairs_with_axis() {
+        let series = vec![(0u32, 10.0), (1, 20.0), (2, 30.0)];
+        let axis = vec![0.0, 5.0, 12.0];
+        assert_eq!(
+            remap_episode_series(&series, &axis),
+            vec![(0.0, 10.0), (5.0, 20.0), (12.0, 30.0)]
+        );
+    }
+
+    #[test]
+    fn remap_episode_series_drops_out_of_range() {
+        let series = vec![(0u32, 1.0), (9, 2.0)];
+        let axis = vec![0.0];
+        assert_eq!(remap_episode_series(&series, &axis), vec![(0.0, 1.0)]);
+    }
+
+    #[test]
+    fn box_stats_points_retained_when_small() {
+        let s = PopulationSample {
+            generation: 0,
+            fitnesses: vec![3.0, 1.0, 2.0],
+            diversity: None,
+            best_index: 1,
+            best_genome_digest: None,
+            parents_of_best: vec![],
+            inner_rl_returns: None,
+        };
+        let stats = population_box_data(std::slice::from_ref(&s));
+        // Sorted ascending, all retained (below the cap).
+        assert_eq!(stats[0].points, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn box_stats_points_capped_for_large_population() {
+        let fitnesses: Vec<f32> = (0..2000).map(|i| i as f32).collect();
+        let s = PopulationSample {
+            generation: 0,
+            fitnesses,
+            diversity: None,
+            best_index: 0,
+            best_genome_digest: None,
+            parents_of_best: vec![],
+            inner_rl_returns: None,
+        };
+        let stats = population_box_data(std::slice::from_ref(&s));
+        assert!(stats[0].points.len() <= STRIP_SAMPLE_CAP);
+        // First and last extremes preserved.
+        assert_eq!(stats[0].points.first(), Some(&0.0));
+        assert_eq!(stats[0].points.last(), Some(&1999.0));
+    }
+
+    #[test]
+    fn landscape_value_known_surfaces() {
+        assert_eq!(landscape_value("sphere", 0.0, 0.0), Some(0.0));
+        assert_eq!(landscape_value("sphere-2d", 1.0, 2.0), Some(5.0));
+        // Rastrigin and Ackley both have their global minimum 0 at the origin.
+        assert!(landscape_value("rastrigin", 0.0, 0.0).unwrap().abs() < 1e-9);
+        assert!(landscape_value("ackley", 0.0, 0.0).unwrap().abs() < 1e-9);
+    }
+
+    #[test]
+    fn landscape_value_unknown_is_none() {
+        assert_eq!(landscape_value("mystery", 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn landscape_field_normalised_and_sized() {
+        let f = landscape_field("sphere", (-2.0, 2.0), (-2.0, 2.0), 8).unwrap();
+        assert_eq!(f.n, 8);
+        assert_eq!(f.cells.len(), 64);
+        let min = f.cells.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = f.cells.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!((min - 0.0).abs() < 1e-6, "min normalised to 0, got {min}");
+        assert!((max - 1.0).abs() < 1e-6, "max normalised to 1, got {max}");
+        // Sphere: centre cells (near origin) are lower than corners.
+        let centre = f.cells[4 * 8 + 4];
+        let corner = f.cells[0];
+        assert!(centre < corner, "basin brighter than corner: {centre} < {corner}");
+    }
+
+    #[test]
+    fn landscape_field_rejects_unknown_and_degenerate() {
+        assert_eq!(landscape_field("nope", (-1.0, 1.0), (-1.0, 1.0), 4), None);
+        assert_eq!(landscape_field("sphere", (1.0, 1.0), (-1.0, 1.0), 4), None);
+        assert_eq!(landscape_field("sphere", (-1.0, 1.0), (-1.0, 1.0), 0), None);
+    }
+
+    #[test]
+    fn ensure_svg_header_injects_namespace_and_prolog() {
+        let out = ensure_svg_header("<svg viewBox=\"0 0 10 10\"><line/></svg>");
+        assert!(out.starts_with("<?xml version=\"1.0\""));
+        assert!(out.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(out.contains("viewBox=\"0 0 10 10\""));
+    }
+
+    #[test]
+    fn ensure_svg_header_does_not_duplicate_namespace() {
+        let src = "<svg xmlns=\"http://www.w3.org/2000/svg\"><g/></svg>";
+        let out = ensure_svg_header(src);
+        assert_eq!(out.matches("xmlns=").count(), 1);
+    }
+
+    #[test]
+    fn low_diversity_threshold_5th_pct_of_first_ten() {
+        // 12 generations; only the first 10 count. Values 10..=19 over gens 0..9.
+        let div: Vec<(u32, f64)> = (0..12).map(|g| (g, 10.0 + f64::from(g))).collect();
+        // First ten sorted = [10..19]; 5th percentile ≈ 10 + 0.05*(9) = 10.45.
+        let t = low_diversity_threshold(&div).unwrap();
+        assert!((t - 10.45).abs() < 1e-9, "got {t}");
+    }
+
+    #[test]
+    fn low_diversity_threshold_uses_all_when_fewer_than_ten() {
+        let div = vec![(0u32, 4.0), (1, 2.0), (2, 8.0)];
+        let t = low_diversity_threshold(&div).unwrap();
+        // sorted [2,4,8]; 5th pct interpolates near the low end.
+        assert!(t >= 2.0 && t < 4.0, "got {t}");
+    }
+
+    #[test]
+    fn low_diversity_threshold_none_without_finite() {
+        assert_eq!(low_diversity_threshold(&[]), None);
+        assert_eq!(low_diversity_threshold(&[(0, f64::NAN)]), None);
+    }
+
+    #[test]
+    fn nearest_by_x_finds_closest() {
+        let pts = vec![(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)];
+        assert_eq!(nearest_by_x(&pts, 3.0), Some((0.0, 10.0)));
+        assert_eq!(nearest_by_x(&pts, 6.0), Some((10.0, 20.0)));
+        assert_eq!(nearest_by_x(&pts, 100.0), Some((20.0, 30.0)));
+        assert_eq!(nearest_by_x(&pts, -5.0), Some((0.0, 10.0)));
+    }
+
+    #[test]
+    fn nearest_by_x_exact_hit_returns_that_point() {
+        let pts = vec![(0.0, 1.0), (5.0, 2.0), (9.0, 3.0)];
+        assert_eq!(nearest_by_x(&pts, 5.0), Some((5.0, 2.0)));
+    }
+
+    #[test]
+    fn nearest_by_x_empty_is_none() {
+        assert_eq!(nearest_by_x(&[], 1.0), None);
+    }
+
+    #[test]
+    fn nearest_by_x_uses_raw_not_decimated() {
+        // A raw series with a spike the cursor lands on; nearest must report
+        // the exact raw value, not an interpolated/decimated one.
+        let raw = vec![(0.0, 0.0), (1.0, 99.0), (2.0, 0.0)];
+        assert_eq!(nearest_by_x(&raw, 1.1), Some((1.0, 99.0)));
+    }
+
+    #[test]
+    fn axis_mode_labels() {
+        assert_eq!(AxisMode::Step.label(), "step");
+        assert_eq!(AxisMode::Episode.label(), "episode");
+        assert_eq!(AxisMode::Wallclock.label(), "wallclock");
+        assert_eq!(AxisMode::default(), AxisMode::Episode);
+    }
+
+    #[test]
+    fn metric_band_skips_non_finite() {
+        let recs = vec![
+            seeded_metric_record(1, "loss", &[(0, f64::NAN)]),
+            seeded_metric_record(2, "loss", &[(0, 2.0)]),
+        ];
+        let band = metric_band(&recs, "loss");
+        assert_eq!(band.len(), 1);
+        assert_eq!(band[0].n, 1);
+        assert!((band[0].mean - 2.0).abs() < 1e-12);
+    }
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
         FrameRecord {
@@ -313,6 +1044,7 @@ mod tests {
                 env_family: EnvFamily::Classic,
                 created_at: 0,
                 trial: None,
+                kind: EpisodeKind::Training,
             },
             frames,
             metrics,

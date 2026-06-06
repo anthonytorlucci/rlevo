@@ -19,7 +19,7 @@ rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-feat
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.1.0" }
 
 [dev-dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0", features = ["report"] }
 rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
 approx = { workspace = true }
 burn = { workspace = true }
@@ -29,6 +29,7 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+tempfile = "3"
 tracing-subscriber = { workspace = true }
 
 [features]
@@ -39,14 +40,13 @@ box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
 # Custom CubeCL GPU kernels for evolutionary algorithm hot paths
 custom-kernels = ["rlevo-evolution/custom-kernels"]
-# Live ratatui TUI dashboard for `rlevo-benchmarks` runs (Milestone 2).
+# Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
-# On-disk per-episode recording for `rlevo-benchmarks` runs (Milestone 4).
-# Also turns on the env-side `RecordedEnvFamily` impls so examples can derive
-# the recording family from the env type.
-viz-record = ["rlevo-benchmarks/record", "rlevo-environments/record"]
-# Static-HTML report emitter consuming the M4 record format (Milestone 5).
-viz-report = ["rlevo-benchmarks/report"]
+# Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
+# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
+# the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
+# umbrella forwards only the two products (ADR-0013 §5).
+viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
 
 [lints]
 workspace = true
@@ -126,4 +126,4 @@ harness = false
 [[test]]
 name = "cartpole_report_smoke"
 path = "tests/cartpole_report_smoke.rs"
-required-features = ["viz-record", "viz-report"]
+required-features = ["viz-report"]

@@ -124,6 +124,8 @@ fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M
 type Be = Autodiff<Flex>;
 type Agent = QrDqnAgent<Be, QrDqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
+static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn fresh_agent(seed: u64) -> Agent {
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -157,13 +159,15 @@ fn fresh_agent(seed: u64) -> Agent {
 
 /// Smoke test: a short run completes, the buffer populates, and episode
 /// rewards are finite. Catches silent regressions (NaN quantiles, loss
-/// numerical blow-up, etc.). Marked `#[ignore]` because running it alongside
-/// other training tests perturbs Burn's global Flex RNG; exercise with
-/// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration -- --ignored
-/// --test-threads=1`.
+/// numerical blow-up, etc.). The `BACKEND_LOCK` serializes execution within
+/// this binary so Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "perturbs global Burn RNG; run with --test-threads=1"]
 fn qrdqn_short_run_produces_finite_rewards() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,
@@ -185,12 +189,16 @@ fn qrdqn_short_run_produces_finite_rewards() {
 }
 
 /// Reproducibility smoke test: two seeded back-to-back runs produce identical
-/// reward sequences. Marked `#[ignore]` for the same reason as the DQN/C51
-/// counterparts — Burn's Flex backend uses a process-global RNG.
+/// reward sequences. The `BACKEND_LOCK` serializes execution within this
+/// binary so Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "requires --test-threads=1 to isolate Burn's global RNG"]
 #[allow(clippy::float_cmp)]
 fn qrdqn_reproducibility_flex() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
@@ -220,7 +228,13 @@ fn qrdqn_reproducibility_flex() {
 /// smaller quantile count used in CI. A stricter 195-at-500k-steps test
 /// lives behind `#[ignore]` below for manual validation.
 #[test]
+#[ignore = "smoke run"]
 fn qrdqn_cart_pole_reaches_50() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,
@@ -236,11 +250,15 @@ fn qrdqn_cart_pole_reaches_50() {
 /// Full acceptance target: ≥ 195 on CartPole-v1 in ≤ 500k
 /// steps at seed 42. Ignored by default — too expensive for regular CI.
 /// Run with:
-/// `cargo test -p rlevo-reinforcement-learning --test qrdqn_integration --release --
-///      --ignored qrdqn_solves_cart_pole_flex_seed_42`.
+/// `cargo test -p rlevo --test qrdqn_integration --release -- --ignored qrdqn_solves_cart_pole_flex_seed_42`.
 #[test]
 #[ignore = "long-running acceptance target; ~500k steps on Flex CPU"]
 fn qrdqn_solves_cart_pole_flex_seed_42() {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
+    let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {
         seed,

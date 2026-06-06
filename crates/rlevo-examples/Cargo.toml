@@ -24,9 +24,13 @@ tracing-subscriber = { workspace = true }
 default = []
 box2d = ["rlevo-environments/box2d"]
 locomotion = ["rlevo-environments/locomotion"]
+# Live metrics TUI product (ADR-0013).
 viz-tui = ["rlevo-benchmarks/tui"]
-viz-record = ["rlevo-benchmarks/record", "rlevo-environments/record"]
-viz-report = ["rlevo-benchmarks/report"]
+# Post-run product (ADR-0013): recording + static-HTML report. `report` pulls
+# `record` transitively in rlevo-benchmarks; `rlevo-environments/record` adds
+# the per-family `RecordedEnvFamily` impls. No separate `viz-record` — the
+# umbrella forwards only the two products (ADR-0013 §5).
+viz-report = ["rlevo-benchmarks/report", "rlevo-environments/record"]
 
 [lints]
 workspace = true
@@ -38,74 +42,39 @@ path = "examples/classic/tui_ppo_cartpole.rs"
 required-features = ["viz-tui"]
 
 [[example]]
-name = "record_ppo_cartpole"
-path = "examples/classic/record_ppo_cartpole.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
 name = "report_ppo_cartpole_with_client"
 path = "examples/classic/report_ppo_cartpole_with_client.rs"
-required-features = ["viz-record", "viz-report"]
+required-features = ["viz-report"]
 
 # Examples — evolution / landscapes
 [[example]]
-name = "record_sphere_landscape"
-path = "examples/evolution/record_sphere_landscape.rs"
-required-features = ["viz-record"]
-
-[[example]]
 name = "report_sphere_landscape_with_client"
 path = "examples/evolution/report_sphere_landscape_with_client.rs"
-required-features = ["viz-record", "viz-report"]
-
-[[example]]
-name = "record_evolution_sphere_with_client"
-path = "examples/evolution/record_evolution_sphere_with_client.rs"
-required-features = ["viz-record", "viz-report"]
+required-features = ["viz-report"]
 
 # Examples — grids
 [[example]]
-name = "record_grids"
-path = "examples/grids/record_grids.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
 name = "report_grids_with_client"
 path = "examples/grids/report_grids_with_client.rs"
-required-features = ["viz-record", "viz-report"]
+required-features = ["viz-report"]
 
 # Examples — toy_text
 [[example]]
-name = "record_toy_text"
-path = "examples/toy_text/record_toy_text.rs"
-required-features = ["viz-tui", "viz-record"]
-
-[[example]]
 name = "report_toy_text_with_client"
 path = "examples/toy_text/report_toy_text_with_client.rs"
-required-features = ["viz-record", "viz-report"]
+required-features = ["viz-report"]
 
 # Examples — locomotion
 [[example]]
-name = "record_inverted_pendulum"
-path = "examples/locomotion/record_inverted_pendulum.rs"
-required-features = ["locomotion", "viz-record"]
-
-[[example]]
 name = "report_inverted_pendulum_with_client"
 path = "examples/locomotion/report_inverted_pendulum_with_client.rs"
-required-features = ["locomotion", "viz-record", "viz-report"]
+required-features = ["locomotion", "viz-report"]
 
 # Examples — box2d
 [[example]]
-name = "record_lunar_lander"
-path = "examples/box2d/record_lunar_lander.rs"
-required-features = ["box2d", "viz-record"]
-
-[[example]]
 name = "report_lunar_lander_with_client"
 path = "examples/box2d/report_lunar_lander_with_client.rs"
-required-features = ["box2d", "viz-record", "viz-report"]
+required-features = ["box2d", "viz-report"]
 
 # Examples — benchmarks harness
 [[example]]

@@ -10,7 +10,7 @@
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_inverted_pendulum_with_client \
-//!     --features locomotion,viz-record,viz-report
+//!     --features locomotion,viz-report
 //! ```
 
 use std::path::PathBuf;
@@ -39,7 +39,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let record_cfg = RecordingConfig::for_env::<InvertedPendulumRapier>(SEED);
     let writer = RecordWriter::open_default(record_cfg)?;
     let run_dir: PathBuf = writer.run_dir().to_path_buf();
-    let manifest = writer.manifest_template();
+    // v6 manifest provenance: a random forcing policy (no learner), plus
+    // build/platform reproducibility metadata.
+    let manifest = writer
+        .manifest_template()
+        .with_algorithm("random")
+        .with_num_seeds(1)
+        .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
     let env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {

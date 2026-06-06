@@ -52,7 +52,9 @@ where
         value_loss: 0.0,
         entropy: 0.0,
         approx_kl: 0.0,
+        old_approx_kl: 0.0,
         clip_frac: 0.0,
+        explained_variance: 0.0,
         epochs_run: 0,
     };
     let mut last_done_in_rollout = false;
@@ -94,7 +96,15 @@ where
                 agent.record_episode(metrics);
                 episode_reward = 0.0;
                 episode_steps = 0;
-                snapshot = env.reset().map_err(io_from_env)?;
+                // Only re-open an episode if training will continue. Resetting
+                // on the *final* done opens a fresh episode that we never step
+                // to completion — for recording envs that leaves a phantom
+                // episode file the manifest's count omits, tripping
+                // `EpisodeCountMismatch`. The stale `snapshot` is safe here:
+                // `last_done_in_rollout == true` zeroes the terminal bootstrap.
+                if global_step < total_timesteps {
+                    snapshot = env.reset().map_err(io_from_env)?;
+                }
             } else {
                 last_done_in_rollout = false;
                 snapshot = next_snapshot;

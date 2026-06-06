@@ -14,7 +14,7 @@
 //!
 //! # 2) Run this example.
 //! cargo run -p rlevo-examples --example report_grids_with_client \
-//!     --features viz-record,viz-report
+//!     --features viz-report
 //! ```
 
 use std::path::PathBuf;
@@ -98,7 +98,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    let mut reporter = RecordingReporter::without_lifecycle(sink.clone(), manifest);
+    // v6 manifest provenance: a random grid agent, plus build/platform
+    // reproducibility metadata stamped through the reporter's builders.
+    let mut reporter = RecordingReporter::without_lifecycle(sink.clone(), manifest)
+        .with_algorithm("random")
+        .with_num_seeds(1)
+        .with_build_provenance();
     let evaluator = Evaluator::new(cfg);
     let _report = evaluator.run_suite(&suite, |_| RandomGridAgent::new(), &mut reporter);
     drop(reporter);
