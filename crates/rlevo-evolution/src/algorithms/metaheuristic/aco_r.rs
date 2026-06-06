@@ -20,8 +20,9 @@
 use std::f32::consts::PI;
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -152,12 +153,19 @@ where
         assert!(params.archive_size >= 2, "ACO_R requires archive_size >= 2");
         assert!(params.m >= 1, "ACO_R requires m >= 1");
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let archive = Tensor::<B, 2>::random(
-            [params.archive_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial archive from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let rows = params.archive_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut archive_rows = Vec::with_capacity(rows * genome_dim);
+        for _ in 0..rows * genome_dim {
+            archive_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let archive =
+            Tensor::<B, 2>::from_data(TensorData::new(archive_rows, [rows, genome_dim]), device);
         AcoRState {
             archive,
             archive_fitness: Vec::new(),
@@ -220,7 +228,6 @@ where
 
         for i in 0..m {
             for j in 0..d {
-                use rand::RngExt;
                 let u: f32 = stream.random::<f32>();
                 let l = pick(u);
                 mean_rows[i * d + j] = archive_host[l * d + j];

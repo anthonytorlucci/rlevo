@@ -28,7 +28,7 @@
 //! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
 //!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
 //!   Bellman backup and auto-tuned temperature α per Haarnoja et al. 2018.
-//! - [`utils`] — Shared helpers (e.g., Bellman target computation).
+//! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
 
 pub mod algorithms {
     //! Reinforcement learning algorithm implementations.

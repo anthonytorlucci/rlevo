@@ -32,8 +32,9 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
 
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -115,12 +116,18 @@ impl<B: Backend> GreyWolfOptimizer<B> {
 
     fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        )
+        // Host-sample from a deterministic `seed_stream` rather than the
+        // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
+        // interleave with sibling tests under the parallel runner and are
+        // not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 }
 
@@ -179,36 +186,28 @@ where
         let a = 2.0 * (1.0 - (t / max_t).min(1.0));
 
         let mut update = Tensor::<B, 2>::zeros([pop_size, genome_dim], device);
+        // Host-sample r1, r2 ∈ U[0,1) per leader from deterministic
+        // `seed_stream`s (distinct purposes) so the draws stay reproducible
+        // across thread schedules, rather than racing the global Flex RNG.
         #[allow(clippy::cast_sign_loss)]
         for k in 0..3 {
-            B::seed(
-                device,
-                seed_stream(
-                    rng.next_u64(),
-                    state.generation as u64 * 3 + k as u64,
-                    SeedPurpose::Other,
-                )
-                .next_u64(),
-            );
-            let r1 = Tensor::<B, 2>::random(
-                [pop_size, genome_dim],
-                Distribution::Uniform(0.0, 1.0),
-                device,
-            );
-            B::seed(
-                device,
-                seed_stream(
-                    rng.next_u64(),
-                    state.generation as u64 * 3 + k as u64,
-                    SeedPurpose::Mutation,
-                )
-                .next_u64(),
-            );
-            let r2 = Tensor::<B, 2>::random(
-                [pop_size, genome_dim],
-                Distribution::Uniform(0.0, 1.0),
-                device,
-            );
+            let gen_k = state.generation as u64 * 3 + k as u64;
+            let r1 = {
+                let mut s = seed_stream(rng.next_u64(), gen_k, SeedPurpose::Other);
+                let mut rows = Vec::with_capacity(pop_size * genome_dim);
+                for _ in 0..pop_size * genome_dim {
+                    rows.push(s.random::<f32>());
+                }
+                Tensor::<B, 2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
+            };
+            let r2 = {
+                let mut s = seed_stream(rng.next_u64(), gen_k, SeedPurpose::Mutation);
+                let mut rows = Vec::with_capacity(pop_size * genome_dim);
+                for _ in 0..pop_size * genome_dim {
+                    rows.push(s.random::<f32>());
+                }
+                Tensor::<B, 2>::from_data(TensorData::new(rows, [pop_size, genome_dim]), device)
+            };
             let a_mat = r1.mul_scalar(2.0 * a).sub_scalar(a);
             let c_mat = r2.mul_scalar(2.0);
 

@@ -24,11 +24,7 @@ use burn::tensor::Tensor;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
 
-// Nested via `#[path]` so this module stays self-contained regardless of how
-// the including bench names its top-level modules; we use only `polyak_update`.
-#[path = "value_nets.rs"]
-mod value_nets;
-use value_nets::polyak_update;
+use rlevo_reinforcement_learning::utils::polyak_update;
 
 // ---------------------------------------------------------------------------
 // ActorMlp — deterministic tanh-scaled actor for DDPG and TD3

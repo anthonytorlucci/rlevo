@@ -30,8 +30,9 @@
 use std::f32::consts::PI;
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -163,12 +164,19 @@ where
 
     fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let nests = Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial nests from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut nest_rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            nest_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let nests =
+            Tensor::<B, 2>::from_data(TensorData::new(nest_rows, [pop, genome_dim]), device);
         CuckooState {
             nests,
             fitness: Vec::new(),
@@ -277,12 +285,17 @@ where
             rank.sort_by(|&a, &b| state.fitness[b].partial_cmp(&state.fitness[a]).unwrap());
             let worst: Vec<usize> = rank.into_iter().take(n_abandon).collect();
             let (lo, hi) = params.bounds;
-            B::seed(&device, rng.next_u64());
-            let fresh = Tensor::<B, 2>::random(
-                [n_abandon, d],
-                Distribution::Uniform(f64::from(lo), f64::from(hi)),
-                &device,
-            );
+            // Host-sample abandoned-nest replacements from a deterministic
+            // `seed_stream` so the refill is reproducible across thread
+            // schedules rather than racing the global Flex RNG.
+            let mut abandon_stream =
+                seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Replacement);
+            let mut fresh_rows = Vec::with_capacity(n_abandon * d);
+            for _ in 0..n_abandon * d {
+                fresh_rows.push(lo + (hi - lo) * abandon_stream.random::<f32>());
+            }
+            let fresh =
+                Tensor::<B, 2>::from_data(TensorData::new(fresh_rows, [n_abandon, d]), &device);
             #[allow(clippy::cast_possible_wrap)]
             let mut rs2: Vec<i64> = (0..pop).map(|i| i as i64).collect();
             for (k, &slot) in worst.iter().enumerate() {

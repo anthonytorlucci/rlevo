@@ -51,13 +51,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libudev-dev
 
+      - name: Install just
+        uses: taiki-e/install-action@just
+
       - name: Build viz examples (full feature set)
-        run: |
-          cargo build -p rlevo-examples --examples \
-            --features viz-tui,viz-report,box2d,locomotion
+        run: just build-viz-examples
 
       - name: Clippy viz examples (full feature set)
-        run: |
-          cargo clippy -p rlevo-examples --examples \
-            --features viz-tui,viz-record,viz-report,box2d,locomotion \
-            -- -D warnings
+        run: just clippy-viz-examples

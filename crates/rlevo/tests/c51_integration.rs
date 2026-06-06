@@ -5,13 +5,13 @@
 //! reproducibility checks gated behind `#[ignore]` because Burn's flex
 //! backend shares a global RNG.
 
-use std::collections::HashMap;
-
 use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData, activation};
+use burn::tensor::{Tensor, activation};
+
+use rlevo_reinforcement_learning::utils::polyak_update;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -77,51 +77,42 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
     }
 }
 
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self.active.remove(&id).expect("paired active param");
-        let tau = self.tau;
-        param.map(move |t| {
-            let device = t.device();
-            let a = Tensor::<B, D>::from_data(active, &device);
-            t.mul_scalar(1.0 - tau) + a.mul_scalar(tau)
-        })
-    }
-}
-fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    let mut c = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: std::marker::PhantomData,
-    };
-    active.visit(&mut c);
-    let mut m = PolyakMapper::<B> {
-        active: c.tensors,
-        tau,
-        _marker: std::marker::PhantomData,
-    };
-    target.map(&mut m)
-}
 
 type Be = Autodiff<Flex>;
 type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Constructs a [`C51Agent`] with a fully-seeded, deterministic configuration
+/// for CartPole experiments.
+///
+/// The Burn `Flex` backend exposes a **process-global** RNG that governs weight
+/// initialisation. This function seeds it via [`Backend::seed`] before building
+/// the model so that two calls with the same `seed` produce identical initial
+/// weights — a prerequisite for the `c51_reproducibility_flex` test.
+///
+/// # Caller responsibilities
+///
+/// - **Hold `BACKEND_LOCK` before calling.** The lock serialises access to
+///   the global Flex RNG across test threads; without it a concurrent test
+///   could interleave a `seed` call and silently corrupt the weight
+///   initialisation sequence.
+/// - **Pin rayon to one thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
+///   before the training loop. Flex dispatches matrix operations through rayon;
+///   floating-point reduction order is non-deterministic under multi-threading,
+///   introducing a second source of run-to-run variance independent of the RNG.
+///
+/// The environment and `StdRng` are seeded separately by each test body and
+/// are not managed here. This function is responsible solely for backend-side
+/// weight initialisation determinism.
+///
+/// The hyperparameters are tuned for the 4-observation / 2-action CartPole
+/// task. C51-specific settings: `num_atoms = 51` discretises the return
+/// distribution; `v_min = 0.0` / `v_max = 500.0` spans CartPole's full
+/// 500-step cumulative-return range. The distributional loss is a categorical
+/// projection (cross-entropy over the projected Bellman target), in contrast
+/// to DQN's scalar Bellman MSE. The ε-greedy schedule and replay configuration
+/// are otherwise equivalent to the DQN integration test.
 fn fresh_agent(seed: u64) -> Agent {
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -217,7 +208,7 @@ fn c51_reproducibility_flex() {
 /// integration test; the modest budget keeps CI fast while still catching
 /// wholesale training failures.
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "30 000-step C51 CartPole run (several minutes on CPU); confirms avg reward ≥ 100 — run with `cargo test -- --ignored`"]
 fn c51_cart_pole_reaches_100() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

@@ -23,7 +23,7 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
@@ -173,12 +173,19 @@ where
     fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AbcState<B> {
         assert!(params.pop_size >= 2, "ABC requires pop_size >= 2");
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let colony = Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial colony from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut colony_rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            colony_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let colony =
+            Tensor::<B, 2>::from_data(TensorData::new(colony_rows, [pop, genome_dim]), device);
         AbcState {
             colony,
             fitness: Vec::new(),
@@ -346,10 +353,17 @@ where
         }
         if !scouts.is_empty() {
             let (lo, hi) = params.bounds;
-            B::seed(&device, rng.next_u64());
-            let fresh = Tensor::<B, 2>::random(
-                [scouts.len(), genome_dim],
-                Distribution::Uniform(f64::from(lo), f64::from(hi)),
+            // Host-sample scout replacements from a deterministic
+            // `seed_stream` so the refill is reproducible across thread
+            // schedules rather than racing the global Flex RNG.
+            let mut scout_stream =
+                seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Replacement);
+            let mut fresh_rows = Vec::with_capacity(scouts.len() * genome_dim);
+            for _ in 0..scouts.len() * genome_dim {
+                fresh_rows.push(lo + (hi - lo) * scout_stream.random::<f32>());
+            }
+            let fresh = Tensor::<B, 2>::from_data(
+                TensorData::new(fresh_rows, [scouts.len(), genome_dim]),
                 &device,
             );
             // Overwrite those rows via gather-trick.

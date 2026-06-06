@@ -6,14 +6,14 @@
 //! The Pendulum macro-smoke is gated behind `#[ignore]` per the project's
 //! integration-test budget convention, mirroring `ddpg_integration.rs`.
 
-use std::collections::HashMap;
-
 use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
+
+use rlevo_reinforcement_learning::utils::polyak_update;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
@@ -288,49 +288,6 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
 // Polyak averaging (shared copy of the example helper).
 // ---------------------------------------------------------------------------
 
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self
-            .active
-            .remove(&id)
-            .expect("param not collected from active network");
-        let tau = self.tau;
-        param.map(move |t| {
-            let device = t.device();
-            let active_tensor = Tensor::<B, D>::from_data(active, &device);
-            t.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
-        })
-    }
-}
-fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    let mut collector = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: std::marker::PhantomData,
-    };
-    active.visit(&mut collector);
-    let mut mapper = PolyakMapper::<B> {
-        active: collector.tensors,
-        tau,
-        _marker: std::marker::PhantomData,
-    };
-    target.map(&mut mapper)
-}
-
 type Be = Autodiff<Flex>;
 
 static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -525,7 +482,7 @@ fn td3_delayed_update_skips_actor_step() {
 /// Pendulum macro-smoke: 500k steps, checks the moving average is finite
 /// and better than the zero-torque baseline.
 #[test]
-#[ignore = "macro run (~500k Pendulum steps)"]
+#[ignore = "500 000-step continuous TD3 Pendulum run (~several minutes on CPU); confirms avg reward > −800 above the zero-torque baseline (≈ −1 200) — run with `cargo test -- --ignored`"]
 fn td3_pendulum_smoke() {
     rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");

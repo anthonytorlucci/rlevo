@@ -5,13 +5,13 @@
 //! `cargo test` remains tractable; the longer macro-bench targets live in
 //! `benches/dqn_bench.rs`.
 
-use std::collections::HashMap;
-
 use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData, activation};
+use burn::tensor::{Tensor, activation};
+
+use rlevo_reinforcement_learning::utils::polyak_update;
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -73,58 +73,38 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     }
 }
 
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: std::marker::PhantomData<B>,
-}
-
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: std::marker::PhantomData<B>,
-}
-
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self
-            .active
-            .remove(&id)
-            .expect("param not collected from active network");
-        let tau = self.tau;
-        param.map(move |target_tensor| {
-            let device = target_tensor.device();
-            let active_tensor = Tensor::<B, D>::from_data(active, &device);
-            target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
-        })
-    }
-}
-
-fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    let mut collector = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: std::marker::PhantomData,
-    };
-    active.visit(&mut collector);
-    let mut mapper = PolyakMapper::<B> {
-        active: collector.tensors,
-        tau,
-        _marker: std::marker::PhantomData,
-    };
-    target.map(&mut mapper)
-}
-
 type Be = Autodiff<Flex>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
 static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Constructs a [`DqnAgent`] with a fully-seeded, deterministic configuration
+/// for CartPole experiments.
+///
+/// The Burn `Flex` backend exposes a **process-global** RNG that governs weight
+/// initialisation. This function seeds it via [`Backend::seed`] before
+/// constructing the model, so that two calls with identical `seed` values
+/// produce bit-for-bit identical initial weights — a hard requirement for the
+/// `dqn_reproducibility_flex` test.
+///
+/// # Caller responsibilities
+///
+/// - **Hold `BACKEND_LOCK` before calling.** The lock serialises access to
+///   the global Flex RNG across test threads; without it a concurrent test
+///   could interleave a `seed` call and silently corrupt the weight
+///   initialisation sequence.
+/// - **Pin rayon to one thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
+///   before the training loop. Flex dispatches matrix operations through rayon;
+///   floating-point reduction order is non-deterministic under multi-threading,
+///   introducing a second source of run-to-run variance independent of the RNG.
+///
+/// The environment and `StdRng` are seeded separately by each test body and
+/// are not managed here. This function is responsible solely for backend-side
+/// weight initialisation determinism.
+///
+/// The hyperparameters (ε-greedy schedule, τ, γ, learning rate, buffer
+/// capacity) are tuned for the 4-observation / 2-action CartPole task and
+/// intentionally conservative so training converges well within 30 000 steps.
 fn fresh_agent(seed: u64) -> Agent {
     let device = Default::default();
     <Be as Backend>::seed(&device, seed);
@@ -142,7 +122,6 @@ fn fresh_agent(seed: u64) -> Agent {
         .replay_buffer_capacity(50_000)
         .double_q(false)
         .build();
-    let _ = seed; // seeds env + rng externally; agent is deterministic given those inputs.
     let model: DqnMlp<Be> = DqnMlp::new(&device);
     DqnAgent::new(model, config, device)
 }
@@ -155,7 +134,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// average should comfortably exceed 100. The smoke run during development
 /// reached ~183 on seed=42; we assert a conservative floor of 100.
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "30 000-step CartPole training run (several minutes on CPU); confirms avg reward ≥ 100 — run with `cargo test -- --ignored`"]
 fn dqn_cart_pole_reaches_100() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -218,7 +197,7 @@ fn dqn_reproducibility_flex() {
 /// The `BACKEND_LOCK` serializes execution within this binary so
 /// Burn's process-global Flex RNG stays isolated.
 #[test]
-#[ignore = "smoke run"]
+#[ignore = "2 500-step Flex backend smoke run (~30 s); checks for NaN rewards and non-empty replay buffer — run with `cargo test -- --ignored`"]
 fn dqn_short_run_produces_finite_rewards() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

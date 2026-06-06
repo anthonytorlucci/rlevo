@@ -1,0 +1,72 @@
+name: integration-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: integration tests (non-ignored)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Cross-crate integration
+        run: just test-integration
+
+      - name: Recording episode-count regression
+        run: just test-recording
+
+      - name: Evaluator harness smoke
+        run: just test-evaluator
+
+      - name: Rastrigin-D10 EA suite
+        run: just test-rastrigin
+
+      - name: Swarm strategies suite
+        run: just test-swarm
+
+      - name: Report pipeline smoke
+        run: just test-report-smoke
+
+      - name: DQN
+        run: just test-dqn
+
+      - name: C51
+        run: just test-c51
+
+      - name: QR-DQN
+        run: just test-qrdqn
+
+      - name: PPO
+        run: just test-ppo
+
+      - name: PPG
+        run: just test-ppg
+
+      - name: DDPG
+        run: just test-ddpg
+
+      - name: TD3
+        run: just test-td3
+
+      - name: SAC
+        run: just test-sac

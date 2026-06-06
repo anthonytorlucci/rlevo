@@ -27,6 +27,7 @@ use std::ops::Add;
 // 0 otherwise. Truncated after 20 steps.
 // ---------------------------------------------------------------------------
 
+/// Agent-visible observation for `RandomWalkEnv`: a single integer position on `[0, 6]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct WalkObservation {
     position: i32,
@@ -54,6 +55,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservat
     }
 }
 
+/// Full internal state for `RandomWalkEnv`: position on the 1-D lattice `[0, 6]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WalkState {
     position: i32,
@@ -77,6 +79,7 @@ impl State<1> for WalkState {
     }
 }
 
+/// Two-move action space for `RandomWalkEnv`: step left (index 0) or right (index 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WalkAction {
     Left,
@@ -165,6 +168,12 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
     }
 }
 
+/// Toy 1-D random-walk environment used across all integration tests.
+///
+/// The agent starts at position 3 on a lattice `[0, 6]`. Reaching position 6
+/// terminates the episode with reward `+1`; falling below 0 terminates with
+/// reward `-1`. All other steps yield reward `0`. The episode is truncated
+/// after `MAX_STEPS` steps regardless of outcome.
 struct RandomWalkEnv {
     state: WalkState,
     steps: usize,
@@ -175,6 +184,8 @@ impl RandomWalkEnv {
     const GOAL: i32 = 6;
     const MAX_STEPS: usize = 20;
 
+    /// Creates a new `RandomWalkEnv`. The `_render` flag is accepted for API
+    /// symmetry with production environments but has no effect in tests.
     fn new(_render: bool) -> Self {
         Self {
             state: WalkState {
@@ -248,6 +259,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 // Tests
 // ---------------------------------------------------------------------------
 
+/// Verifies a random-walk episode loop terminates and accumulates a positive total reward.
 #[test]
 #[allow(clippy::float_cmp)]
 fn full_episode_loop_reaches_goal() {
@@ -272,6 +284,7 @@ fn full_episode_loop_reaches_goal() {
     assert_eq!(last.observation().position, RandomWalkEnv::GOAL);
 }
 
+/// Confirms sampled training batches have the correct tensor rank and shape for the observation/action dimensions.
 #[test]
 fn replay_buffer_sample_batch_tensor_shapes() {
     type B = Flex;
@@ -321,6 +334,7 @@ fn replay_buffer_sample_batch_tensor_shapes() {
     assert_eq!(batch.dones.dims(), [8]);
 }
 
+/// Minimal `PerformanceRecord` implementation used to exercise `AgentStats` in isolation.
 #[derive(Debug, Clone, Copy)]
 struct EpisodeResult {
     score: f32,
@@ -336,6 +350,7 @@ impl PerformanceRecord for EpisodeResult {
     }
 }
 
+/// Verifies that `AgentStats` correctly tracks episode count and the sliding-window score average.
 #[test]
 fn agent_stats_tracks_episodes_and_sliding_window() {
     let mut stats = AgentStats::<EpisodeResult>::new(2);
