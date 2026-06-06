@@ -23,8 +23,10 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
+use rand::SeedableRng;
 
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -168,9 +170,15 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let weighted = diff.mul(weight); // (N, N, D)
         let attr_sum = weighted.sum_dim(1).squeeze::<2>(); // (N, D)
 
-        // Noise: α · (U[0,1] - 0.5).
-        B::seed(device, noise_seed);
-        let noise = Tensor::<B, 2>::random([pop, d], Distribution::Uniform(-0.5, 0.5), device);
+        // Noise: α · (U[0,1] - 0.5). Host-sample from the supplied seed so
+        // the draw is reproducible across thread schedules rather than
+        // racing the process-wide Flex RNG.
+        let mut noise_rng = rand::rngs::StdRng::seed_from_u64(noise_seed);
+        let mut noise_rows = Vec::with_capacity(pop * d);
+        for _ in 0..pop * d {
+            noise_rows.push(noise_rng.random::<f32>() - 0.5);
+        }
+        let noise = Tensor::<B, 2>::from_data(TensorData::new(noise_rows, [pop, d]), device);
         attr_sum + noise.mul_scalar(alpha)
     }
 }
@@ -207,12 +215,19 @@ where
              the placeholder kernel module still runs the pure-tensor path"
         );
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let positions = Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial swarm from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut position_rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            position_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let positions =
+            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
         FireflyState {
             positions,
             fitness: Vec::new(),

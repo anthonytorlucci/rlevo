@@ -33,7 +33,7 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{Distribution, Int, Tensor, TensorData, backend::Backend};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
@@ -126,12 +126,19 @@ where
     fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
         assert!(params.pop_size >= 2, "SSA requires pop_size >= 2");
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let positions = Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial swarm from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel
+        // runner and are therefore not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut position_rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            position_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let positions =
+            Tensor::<B, 2>::from_data(TensorData::new(position_rows, [pop, genome_dim]), device);
         SalpState {
             positions,
             fitness: Vec::new(),
