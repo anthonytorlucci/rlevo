@@ -18,21 +18,20 @@
 //!   `(batch, actions, quantiles)`.
 //! - [`ValueMlp`] — scalar PPG critic: `(batch, obs)` → `(batch,)`.
 //!
-//! The four target-network models share one Polyak update built on Burn's
-//! `ModuleVisitor`/`ModuleMapper`.
+//! The four target-network models share one Polyak update via
+//! [`rlevo_reinforcement_learning::utils::polyak_update`].
 
 // Each bench includes this module but uses only the models it needs, so the
 // other models (and their helpers) are legitimately unused per compilation unit.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-use std::marker::PhantomData;
-
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::{Tensor, TensorData, activation};
+use burn::tensor::{Tensor, activation};
+
+use rlevo_reinforcement_learning::utils::polyak_update;
 
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
@@ -337,57 +336,3 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Polyak averaging via Burn's ModuleVisitor / ModuleMapper
-// ---------------------------------------------------------------------------
-
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: PhantomData<B>,
-}
-
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: PhantomData<B>,
-}
-
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self
-            .active
-            .remove(&id)
-            .expect("param not collected from active network");
-        let tau = self.tau;
-        param.map(move |target_tensor| {
-            let device = target_tensor.device();
-            let active_tensor = Tensor::<B, D>::from_data(active, &device);
-            target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
-        })
-    }
-}
-
-/// Polyak-averages `active` into `target`: `target ← (1 - τ)·target + τ·active`.
-///
-/// Public so sibling support modules (e.g. `pendulum.rs`) can share this one
-/// implementation rather than re-deriving it.
-pub fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
-    let mut collector = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: PhantomData,
-    };
-    active.visit(&mut collector);
-    let mut mapper = PolyakMapper::<B> {
-        active: collector.tensors,
-        tau,
-        _marker: PhantomData,
-    };
-    target.map(&mut mapper)
-}

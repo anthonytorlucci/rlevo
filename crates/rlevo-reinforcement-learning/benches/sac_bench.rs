@@ -5,14 +5,14 @@
 //! Mirrors `td3_bench`'s pattern so the two algorithms can be compared
 //! side-by-side.
 
-use std::collections::HashMap;
-
 use burn::backend::{Autodiff, Flex};
-use burn::module::{AutodiffModule, Module, ModuleMapper, ModuleVisitor, Param, ParamId};
+use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::Tensor;
+
+use rlevo_reinforcement_learning::utils::polyak_update;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -146,51 +146,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     }
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
-            active.valid(),
+            &active.valid(),
             target,
             tau as f32,
         )
     }
-}
-
-struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
-    fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
-    }
-}
-struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
-    tau: f32,
-    _marker: std::marker::PhantomData<B>,
-}
-impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
-    fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
-        let id = param.id;
-        let active = self.active.remove(&id).expect("paired active param");
-        let tau = self.tau;
-        param.map(move |t| {
-            let device = t.device();
-            let a = Tensor::<B, D>::from_data(active, &device);
-            t.mul_scalar(1.0 - tau) + a.mul_scalar(tau)
-        })
-    }
-}
-fn polyak_update<B: Backend, M: Module<B>>(active: M, target: M, tau: f32) -> M {
-    let mut c = ParamCollector::<B> {
-        tensors: HashMap::new(),
-        _marker: std::marker::PhantomData,
-    };
-    active.visit(&mut c);
-    let mut m = PolyakMapper::<B> {
-        active: c.tensors,
-        tau,
-        _marker: std::marker::PhantomData,
-    };
-    target.map(&mut m)
 }
 
 type Be = Autodiff<Flex>;

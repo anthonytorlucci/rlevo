@@ -90,10 +90,142 @@ report-inverted-pendulum: client-build
 report-lunar-lander: client-build
     cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client  --release
 
+# ── Integration tests (rlevo umbrella) ──────────────────────────────────────
+
+# Cross-crate integration: core + RL replay/metrics.
+test-integration:
+    cargo test -p rlevo --test integration_test
+
+# Recording/episode-count off-by-one regression.
+test-recording:
+    cargo test -p rlevo --test recording_episode_count
+
+# Evaluator harness smoke tests.
+test-evaluator:
+    cargo test -p rlevo --test evaluator_smoke
+
+# Rastrigin-D10 end-to-end suite (real-valued EA strategies via harness).
+test-rastrigin:
+    cargo test -p rlevo --test rastrigin_run_suite
+
+# Every shipping swarm strategy on Rastrigin-D10 and Ackley-D10.
+test-swarm:
+    cargo test -p rlevo --test swarm_rastrigin_suite
+
+# Post-run record → report pipeline smoke [requires viz-report feature].
+test-report-smoke:
+    cargo test -p rlevo --test cartpole_report_smoke --features viz-report
+
+# DQN — normal (non-ignored) tests.
+test-dqn:
+    cargo test -p rlevo --test dqn_integration
+
+# DQN — CartPole reaches 100 [ignored: smoke run].
+test-dqn-cart-pole:
+    cargo test -p rlevo --test dqn_integration -- dqn_cart_pole_reaches_100 --ignored
+
+# DQN — short-run finite-rewards check [ignored: smoke run].
+test-dqn-short:
+    cargo test -p rlevo --test dqn_integration -- dqn_short_run_produces_finite_rewards --ignored
+
+# C51 — normal (non-ignored) tests.
+test-c51:
+    cargo test -p rlevo --test c51_integration
+
+# C51 — CartPole reaches 100 [ignored: smoke run].
+test-c51-cart-pole:
+    cargo test -p rlevo --test c51_integration -- c51_cart_pole_reaches_100 --ignored
+
+# QR-DQN — normal (non-ignored) tests.
+test-qrdqn:
+    cargo test -p rlevo --test qrdqn_integration
+
+# QR-DQN — CartPole reaches 50 [ignored: smoke run].
+test-qrdqn-cart-pole:
+    cargo test -p rlevo --test qrdqn_integration -- qrdqn_cart_pole_reaches_50 --ignored
+
+# QR-DQN — full acceptance target [ignored: ~500k Flex CPU steps].
+test-qrdqn-full:
+    cargo test -p rlevo --test qrdqn_integration -- qrdqn_solves_cart_pole_flex_seed_42 --ignored
+
+# PPO — normal (non-ignored) tests.
+test-ppo:
+    cargo test -p rlevo --test ppo_integration
+
+# PPO — CartPole reaches 100 [ignored: smoke run].
+test-ppo-cart-pole:
+    cargo test -p rlevo --test ppo_integration -- ppo_cart_pole_reaches_100 --ignored
+
+# PPO — Pendulum improves over random [ignored: ~30s on Flex].
+test-ppo-pendulum:
+    cargo test -p rlevo --test ppo_integration -- ppo_pendulum_improves_over_random --ignored
+
+# PPG — normal (non-ignored) tests.
+test-ppg:
+    cargo test -p rlevo --test ppg_integration
+
+# PPG — CartPole reaches modest threshold [ignored: smoke run].
+test-ppg-cart-pole:
+    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_reaches_modest_threshold --ignored
+
+# PPG — without aux phase matches PPO baseline [ignored: smoke run].
+test-ppg-no-aux:
+    cargo test -p rlevo --test ppg_integration -- ppg_without_aux_phase_matches_ppo_baseline --ignored
+
+# PPG — aux phase actually runs [ignored: smoke run].
+test-ppg-aux:
+    cargo test -p rlevo --test ppg_integration -- ppg_aux_phase_actually_runs --ignored
+
+# PPG — CartPole reaches 475 [ignored: macro convergence, ~2–5 min on Flex].
+test-ppg-full:
+    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_reaches_475 --ignored
+
+# DDPG — normal (non-ignored) tests.
+test-ddpg:
+    cargo test -p rlevo --test ddpg_integration
+
+# DDPG — Pendulum smoke [ignored: ~50k Pendulum steps].
+test-ddpg-pendulum:
+    cargo test -p rlevo --test ddpg_integration -- ddpg_pendulum_smoke --ignored
+
+# TD3 — normal (non-ignored) tests.
+test-td3:
+    cargo test -p rlevo --test td3_integration
+
+# TD3 — Pendulum smoke [ignored: macro run, ~500k steps].
+test-td3-pendulum:
+    cargo test -p rlevo --test td3_integration -- td3_pendulum_smoke --ignored
+
+# SAC — normal (non-ignored) tests.
+test-sac:
+    cargo test -p rlevo --test sac_integration
+
+# SAC — Pendulum smoke [ignored: macro run, ~500k steps].
+test-sac-pendulum:
+    cargo test -p rlevo --test sac_integration -- sac_pendulum_smoke --ignored
+
+# Run all ignored integration tests as independent jobs.
+# Use `just --parallel test-all-ignored` in CI to run each job concurrently.
+test-all-ignored: \
+    test-dqn-cart-pole \
+    test-dqn-short \
+    test-c51-cart-pole \
+    test-qrdqn-cart-pole \
+    test-qrdqn-full \
+    test-ppo-cart-pole \
+    test-ppo-pendulum \
+    test-ppg-cart-pole \
+    test-ppg-no-aux \
+    test-ppg-aux \
+    test-ppg-full \
+    test-ddpg-pendulum \
+    test-td3-pendulum \
+    test-sac-pendulum
+
 # ── Common checks ────────────────────────────────────────────────────────────
 
 test:
-    cargo test
+    cargo test --workspace
 
 lint:
     cargo clippy --all-targets --all-features

@@ -127,3 +127,55 @@ harness = false
 name = "cartpole_report_smoke"
 path = "tests/cartpole_report_smoke.rs"
 required-features = ["viz-report"]
+
+[[test]]
+name = "c51_integration"
+path = "tests/c51_integration.rs"
+
+[[test]]
+name = "ddpg_integration"
+path = "tests/ddpg_integration.rs"
+
+[[test]]
+name = "dqn_integration"
+path = "tests/dqn_integration.rs"
+
+[[test]]
+name = "evaluator_smoke"
+path = "tests/evaluator_smoke.rs"
+
+[[test]]
+name = "integration_test"
+path = "tests/integration_test.rs"
+
+[[test]]
+name = "ppg_integration"
+path = "tests/ppg_integration.rs"
+
+[[test]]
+name = "ppo_integration"
+path = "tests/ppo_integration.rs"
+
+[[test]]
+name = "qrdqn_integration"
+path = "tests/qrdqn_integration.rs"
+
+[[test]]
+name = "rastrigin_run_suite"
+path = "tests/rastrigin_run_suite.rs"
+
+[[test]]
+name = "recording_episode_count"
+path = "tests/recording_episode_count.rs"
+
+[[test]]
+name = "sac_integration"
+path = "tests/sac_integration.rs"
+
+[[test]]
+name = "swarm_rastrigin_suite"
+path = "tests/swarm_rastrigin_suite.rs"
+
+[[test]]
+name = "td3_integration"
+path = "tests/td3_integration.rs"
