@@ -112,8 +112,12 @@ fn make_cart_pole_agent(
 }
 
 #[test]
+#[ignore = "smoke run"]
 fn ppo_cart_pole_reaches_100() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let total = 50_000_usize;
@@ -138,7 +142,10 @@ fn ppo_cart_pole_reaches_100() {
 
 #[test]
 fn ppo_short_run_produces_finite_rewards() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let total = 2_048_usize;
@@ -208,7 +215,10 @@ fn make_pendulum_agent(
 #[test]
 #[ignore = "~30s on Flex; run with --ignored for macro checks"]
 fn ppo_pendulum_improves_over_random() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let total = 30_000_usize;

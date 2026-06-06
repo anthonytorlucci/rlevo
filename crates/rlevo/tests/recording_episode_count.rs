@@ -10,10 +10,22 @@
 //! `EpisodeCountMismatch` warning when the run is re-opened (and a junk
 //! one-frame episode in the report).
 //!
-//! This test pins the invariant: a loop that ends exactly on a terminal step
-//! must leave `manifest.episode_count == <files on disk>` and emit no warning.
-//! It exercises the real `dqn::train` loop (the off-policy `for step` shape) so
-//! a reintroduction of the bug fails here rather than only in an example run.
+//! There are two distinct phantom/dangling-episode paths and this test pins
+//! both, exercising the real `dqn::train` loop (the off-policy `for step`
+//! shape) so a reintroduction fails here rather than only in an example run:
+//!
+//! 1. **Ends exactly on a terminal step** (rare). The old loop did a trailing
+//!    `reset` after the final `done`, opening a one-frame phantom episode that
+//!    was never stepped to completion. Fixed in the training loops by skipping
+//!    the reset when the step budget is exhausted.
+//! 2. **Ends mid-episode** (the common case — a step budget rarely lands on a
+//!    terminal step). The in-flight episode's file is opened by
+//!    `on_episode_start` but never closed/counted by `on_episode_end`. Fixed in
+//!    `RecordWriter::on_run_end`, which finalises and counts the still-open
+//!    episode as a truncated-by-budget episode.
+//!
+//! In both cases the invariant is the same: after the run,
+//! `manifest.episode_count == <files on disk>` and no warning is emitted.
 
 use std::sync::Arc;
 
@@ -55,7 +67,6 @@ use rlevo_benchmarks::report::RecordedRun;
 // ---------------------------------------------------------------------------
 
 const EP_LEN: usize = 10;
-const TOTAL_STEPS: usize = 50; // 5 whole episodes; step 50 is a terminal step.
 
 #[derive(Debug)]
 struct FixedLenEnv {
@@ -146,8 +157,10 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
 
 type Be = Autodiff<Flex>;
 
-#[test]
-fn recording_loop_ending_on_done_has_no_phantom_episode() {
+/// Drive the real `dqn::train` loop against [`FixedLenEnv`] through a
+/// [`RecordingTap`] for `total_steps`, finalise the run, and re-open it.
+/// Returns the reloaded run so each test can assert on counts / warnings.
+fn run_recording(total_steps: usize) -> RecordedRun {
     // Flex's process-global RNG is happier pinned to one rayon thread; this
     // test does no learning, but the convention keeps it deterministic.
     rayon::ThreadPoolBuilder::new()
@@ -177,8 +190,8 @@ fn recording_loop_ending_on_done_has_no_phantom_episode() {
         .batch_size(8)
         // Keep the whole run in the pre-learning window: no gradient steps,
         // no target sync — we are testing the loop's episode bookkeeping only.
-        .learning_starts(TOTAL_STEPS + 1)
-        .target_update_frequency(TOTAL_STEPS + 1)
+        .learning_starts(total_steps + 1)
+        .target_update_frequency(total_steps + 1)
         .replay_buffer_capacity(1_000)
         .build();
     let model: DqnMlp<Be> = DqnMlp::new(&device);
@@ -186,7 +199,7 @@ fn recording_loop_ending_on_done_has_no_phantom_episode() {
         DqnAgent::new(model, config, device);
 
     let mut rng = StdRng::seed_from_u64(seed);
-    train(&mut agent, &mut env, &mut rng, TOTAL_STEPS, 0).expect("training loop");
+    train(&mut agent, &mut env, &mut rng, total_steps, 0).expect("training loop");
 
     // --- finalise ---------------------------------------------------------
     sink.lock().on_run_end(manifest);
@@ -197,25 +210,53 @@ fn recording_loop_ending_on_done_has_no_phantom_episode() {
     drop(env);
     drop(sink);
 
-    // --- assert -----------------------------------------------------------
+    // The tempdir must outlive the re-open, so eagerly read everything the
+    // tests need before it drops at end of scope.
     let run = RecordedRun::open(&run_dir).expect("re-open recorded run");
+    // `RecordedRun` holds the dir path but reads episode files lazily for
+    // frame scrubbing; the count/warning surface used by these tests is
+    // computed eagerly at `open`, so dropping `temp` after this is safe.
+    drop(temp);
+    run
+}
 
+/// Assert the count invariant: manifest count equals files on disk, equals the
+/// expected episode total, and no warning surfaced.
+fn assert_clean(run: &RecordedRun, expected_episodes: usize) {
     let manifest_count = run.manifest().episode_count;
     let found_count = u32::try_from(run.episodes().len()).expect("episode count fits u32");
+    let expected = u32::try_from(expected_episodes).expect("episode count fits u32");
 
     assert_eq!(
         manifest_count, found_count,
-        "manifest episode_count ({manifest_count}) must match files on disk ({found_count}); \
-         a trailing reset on the final terminal step opened a phantom episode"
+        "manifest episode_count ({manifest_count}) must match files on disk ({found_count})"
     );
-    let expected_episodes = u32::try_from(TOTAL_STEPS / EP_LEN).expect("episode count fits u32");
     assert_eq!(
-        found_count, expected_episodes,
-        "expected exactly {expected_episodes} whole episodes"
+        found_count, expected,
+        "expected exactly {expected} episodes, got {found_count}"
     );
     assert!(
         run.warnings().is_empty(),
         "expected no open warnings, got: {:?}",
         run.warnings()
     );
+}
+
+/// Case 1: the budget lands exactly on a terminal step. The old trailing reset
+/// opened a one-frame phantom episode; the loop fix skips it. 50 steps = 5
+/// whole episodes, with step 50 being a terminal step.
+#[test]
+fn recording_loop_ending_on_done_has_no_phantom_episode() {
+    let run = run_recording(5 * EP_LEN);
+    assert_clean(&run, 5);
+}
+
+/// Case 2: the budget ends mid-episode (55 steps = 5 whole episodes + a 5-step
+/// fragment). The in-flight episode's file would be left uncounted; the
+/// `on_run_end` fix finalises it as a truncated-by-budget episode, so all 6
+/// files are counted.
+#[test]
+fn recording_loop_ending_mid_episode_counts_partial() {
+    let run = run_recording(5 * EP_LEN + EP_LEN / 2);
+    assert_clean(&run, 6);
 }

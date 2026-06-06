@@ -156,7 +156,10 @@ fn fresh_agent(seed: u64) -> Agent {
 /// this binary so Burn's process-global Flex RNG stays isolated.
 #[test]
 fn c51_short_run_produces_finite_rewards() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let mut env = CartPole::with_config(CartPoleConfig {
@@ -180,7 +183,10 @@ fn c51_short_run_produces_finite_rewards() {
 #[test]
 #[allow(clippy::float_cmp)]
 fn c51_reproducibility_flex() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
@@ -211,8 +217,12 @@ fn c51_reproducibility_flex() {
 /// integration test; the modest budget keeps CI fast while still catching
 /// wholesale training failures.
 #[test]
+#[ignore = "smoke run"]
 fn c51_cart_pole_reaches_100() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {

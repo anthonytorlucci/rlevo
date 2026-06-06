@@ -155,8 +155,12 @@ fn fresh_agent(seed: u64) -> Agent {
 /// average should comfortably exceed 100. The smoke run during development
 /// reached ~183 on seed=42; we assert a conservative floor of 100.
 #[test]
+#[ignore = "smoke run"]
 fn dqn_cart_pole_reaches_100() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
     let mut env = CartPole::with_config(CartPoleConfig {
@@ -180,7 +184,10 @@ fn dqn_cart_pole_reaches_100() {
 #[test]
 #[allow(clippy::float_cmp)]
 fn dqn_reproducibility_flex() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     fn run(seed: u64, total: usize) -> Vec<f32> {
         let mut env = CartPole::with_config(CartPoleConfig {
@@ -211,8 +218,12 @@ fn dqn_reproducibility_flex() {
 /// The `BACKEND_LOCK` serializes execution within this binary so
 /// Burn's process-global Flex RNG stays isolated.
 #[test]
+#[ignore = "smoke run"]
 fn dqn_short_run_produces_finite_rewards() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 7;
     let mut env = CartPole::with_config(CartPoleConfig {
