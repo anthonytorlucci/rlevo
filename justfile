@@ -222,6 +222,17 @@ test-all-ignored: \
     test-td3-pendulum \
     test-sac-pendulum
 
+# ── viz-examples CI targets ─────────────────────────────────────────────────
+
+build-viz-examples:
+    cargo build -p rlevo-examples --examples \
+        --features viz-tui,viz-report,box2d,locomotion
+
+clippy-viz-examples:
+    cargo clippy -p rlevo-examples --examples \
+        --features viz-tui,viz-record,viz-report,box2d,locomotion \
+        -- -D warnings
+
 # ── Common checks ────────────────────────────────────────────────────────────
 
 test:
