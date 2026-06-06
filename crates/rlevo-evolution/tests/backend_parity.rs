@@ -119,6 +119,7 @@ where
 }
 
 #[test]
+#[ignore = "requires a wgpu/Vulkan adapter; CI runners have no GPU and cubecl-wgpu aborts on device init — run on a GPU host with `cargo test -p rlevo-evolution --test backend_parity -- --ignored`"]
 fn wgpu_matches_flex_on_sphere_d10() {
     const SEED: u64 = 999;
     const GENS: usize = 400;
@@ -128,11 +129,13 @@ fn wgpu_matches_flex_on_sphere_d10() {
     let flex_ga = run_sphere_ga::<Flex>(SEED, GENS, Default::default());
     let flex_pso = run_sphere_pso::<Flex>(SEED, GENS, Default::default());
 
-    // Initializing a wgpu device can fail on CI machines without a GPU
-    // or without system-level wgpu support. Treat initialization
-    // failure as "skip" rather than an outright test failure — the
-    // Flex run still validates the operators, and the parity
-    // assertion is only meaningful when the device actually exists.
+    // Initializing a wgpu device aborts (not a catchable error) on hosts
+    // without a GPU adapter: cubecl-wgpu panics on a worker thread and the
+    // calling thread then panics on the severed channel. There is no clean
+    // in-process probe across the cubecl boundary, so this whole test is
+    // gated behind `#[ignore]` and only runs when explicitly requested on a
+    // GPU-equipped host. Flex operator correctness is independently covered
+    // by `tests/determinism.rs` and the per-algorithm convergence tests.
     let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
     let wgpu_ga = run_sphere_ga::<Wgpu>(SEED, GENS, wgpu_device.clone());
     let wgpu_pso = run_sphere_pso::<Wgpu>(SEED, GENS, wgpu_device);
