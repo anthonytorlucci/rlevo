@@ -187,12 +187,18 @@ impl<B: Backend> DifferentialEvolution<B> {
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            burn::tensor::Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        )
+        // Host-sample the initial population from a deterministic
+        // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
+        // `Tensor::random`), whose draws interleave with sibling tests under
+        // the parallel runner and are not reproducible across schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 
     /// Samples `k` indices from `0..pop_size`, all distinct and all

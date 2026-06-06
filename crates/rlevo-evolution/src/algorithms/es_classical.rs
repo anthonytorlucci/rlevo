@@ -24,6 +24,8 @@ use std::marker::PhantomData;
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
+use rand_distr::{Distribution as _, Normal};
 
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::ops::replacement::{mu_comma_lambda, mu_plus_lambda};
@@ -156,12 +158,18 @@ impl<B: Backend> EvolutionStrategy<B> {
     ) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let mu = Self::mu(params.kind);
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let parents = Tensor::<B, 2>::random(
-            [mu, params.genome_dim],
-            burn::tensor::Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial parents from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut parent_rows = Vec::with_capacity(mu * genome_dim);
+        for _ in 0..mu * genome_dim {
+            parent_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let parents =
+            Tensor::<B, 2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
         let sigmas = Tensor::<B, 1>::from_data(
             TensorData::new(vec![params.initial_sigma; mu], [mu]),
             device,
@@ -221,12 +229,9 @@ where
         // selection — no fitness pressure applied at this stage in
         // classical ES; survivor selection provides the pressure.
         let mut parent_indices: Vec<i64> = Vec::with_capacity(lambda);
-        {
-            use rand::RngExt;
-            for _ in 0..lambda {
-                #[allow(clippy::cast_possible_wrap)]
-                parent_indices.push(sigma_rng.random_range(0..mu) as i64);
-            }
+        for _ in 0..lambda {
+            #[allow(clippy::cast_possible_wrap)]
+            parent_indices.push(sigma_rng.random_range(0..mu) as i64);
         }
         let idx_tensor = Tensor::<B, 1, burn::tensor::Int>::from_data(
             TensorData::new(parent_indices.clone(), [lambda]),
@@ -244,19 +249,25 @@ where
         let offspring_sigmas = if is_one_plus {
             duplicated_sigmas
         } else {
-            B::seed(device, sigma_rng.next_u64());
-            let noise = Tensor::<B, 1>::random(
-                [lambda],
-                burn::tensor::Distribution::Normal(0.0, 1.0),
-                device,
-            );
+            // Host-sample the N(0,1) noise from the deterministic `sigma_rng`
+            // so the log-normal σ update is reproducible across schedules.
+            let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
+            let mut noise_rows = Vec::with_capacity(lambda);
+            for _ in 0..lambda {
+                noise_rows.push(normal.sample(&mut sigma_rng));
+            }
+            let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [lambda]), device);
             duplicated_sigmas * noise.mul_scalar(params.tau).exp()
         };
 
-        // Mutate parents by the per-offspring σ.
-        B::seed(device, mutation_rng.next_u64());
-        let mutated =
-            gaussian_mutation_per_row(duplicated_parents, offspring_sigmas.clone(), device);
+        // Mutate parents by the per-offspring σ, drawing from the host
+        // `mutation_rng`.
+        let mutated = gaussian_mutation_per_row(
+            duplicated_parents,
+            offspring_sigmas.clone(),
+            &mut mutation_rng,
+            device,
+        );
 
         // Clamp to bounds.
         let (lo, hi) = params.bounds;

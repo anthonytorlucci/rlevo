@@ -15,6 +15,7 @@ use std::marker::PhantomData;
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
 
 use crate::ops::crossover::binary_uniform_crossover;
 use crate::ops::mutation::bit_flip_mutation;
@@ -105,12 +106,18 @@ impl<B: Backend> BinaryGeneticAlgorithm<B> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2, Int> {
-        B::seed(device, rng.next_u64());
-        let u = Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            burn::tensor::Distribution::Uniform(0.0, 1.0),
-            device,
-        );
+        // Host-sample U[0,1) from a deterministic `seed_stream` rather than
+        // the process-wide Flex RNG (`B::seed` + `Tensor::random`), whose
+        // draws interleave with sibling tests under the parallel runner and
+        // are not reproducible across thread schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            rows.push(stream.random::<f32>());
+        }
+        let u = Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device);
         u.lower_elem(0.5).int()
     }
 }
@@ -186,11 +193,15 @@ where
             Tensor::<B, 1, Int>::from_data(TensorData::new(idx_b, [params.pop_size]), device),
         );
 
-        B::seed(device, crossover_rng.next_u64());
-        let offspring = binary_uniform_crossover(parents_a, parents_b, params.crossover_p, device);
+        let offspring = binary_uniform_crossover(
+            parents_a,
+            parents_b,
+            params.crossover_p,
+            &mut crossover_rng,
+            device,
+        );
 
-        B::seed(device, mutation_rng.next_u64());
-        let offspring = bit_flip_mutation(offspring, params.mutation_rate, device);
+        let offspring = bit_flip_mutation(offspring, params.mutation_rate, &mut mutation_rng, device);
 
         (offspring, state.clone())
     }

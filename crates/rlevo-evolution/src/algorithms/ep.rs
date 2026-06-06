@@ -22,6 +22,8 @@ use std::marker::PhantomData;
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
+use rand_distr::{Distribution as _, Normal};
 
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::rng::{SeedPurpose, seed_stream};
@@ -118,12 +120,19 @@ where
 
     fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
         let (lo, hi) = params.bounds;
-        B::seed(device, rng.next_u64());
-        let parents = Tensor::<B, 2>::random(
-            [params.mu, params.genome_dim],
-            burn::tensor::Distribution::Uniform(f64::from(lo), f64::from(hi)),
-            device,
-        );
+        // Host-sample the initial parents from a deterministic `seed_stream`
+        // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
+        // whose draws interleave with sibling tests under the parallel runner
+        // and are not reproducible across thread schedules.
+        let mu = params.mu;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut parent_rows = Vec::with_capacity(mu * genome_dim);
+        for _ in 0..mu * genome_dim {
+            parent_rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        let parents =
+            Tensor::<B, 2>::from_data(TensorData::new(parent_rows, [mu, genome_dim]), device);
         let sigmas = Tensor::<B, 1>::from_data(
             TensorData::new(vec![params.initial_sigma; params.mu], [params.mu]),
             device,
@@ -159,16 +168,25 @@ where
             SeedPurpose::Mutation,
         );
 
-        // Log-normal σ update for every parent.
-        B::seed(device, sigma_rng.next_u64());
-        let noise =
-            Tensor::<B, 1>::random([mu], burn::tensor::Distribution::Normal(0.0, 1.0), device);
+        // Log-normal σ update for every parent. Host-sample the N(0,1)
+        // noise from the deterministic `sigma_rng` so it is reproducible
+        // across thread schedules.
+        let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
+        let mut noise_rows = Vec::with_capacity(mu);
+        for _ in 0..mu {
+            noise_rows.push(normal.sample(&mut sigma_rng));
+        }
+        let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [mu]), device);
         let offspring_sigmas = state.sigmas.clone() * noise.mul_scalar(params.tau).exp();
 
-        // Mutate each parent exactly once using its own σ.
-        B::seed(device, mutation_rng.next_u64());
-        let offspring =
-            gaussian_mutation_per_row(state.parents.clone(), offspring_sigmas.clone(), device);
+        // Mutate each parent exactly once using its own σ, drawing from the
+        // host `mutation_rng`.
+        let offspring = gaussian_mutation_per_row(
+            state.parents.clone(),
+            offspring_sigmas.clone(),
+            &mut mutation_rng,
+            device,
+        );
         let (lo, hi) = params.bounds;
         let offspring = offspring.clamp(lo, hi);
 
@@ -231,7 +249,6 @@ where
         let mut win_counts: Vec<u32> = vec![0; n];
         for (i, &my_fit) in combined_fit.iter().enumerate() {
             for _ in 0..params.tournament_q {
-                use rand::RngExt;
                 let opp = selection_rng.random_range(0..n);
                 if my_fit < combined_fit[opp] {
                     win_counts[i] += 1;

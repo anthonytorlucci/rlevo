@@ -25,6 +25,7 @@ use std::marker::PhantomData;
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
+use rand::RngExt;
 
 use crate::ops::{
     crossover::{blx_alpha, uniform_crossover},
@@ -153,15 +154,18 @@ impl<B: Backend> GeneticAlgorithm<B> {
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
         let (lo, hi) = params.bounds;
-        let range = f64::from(hi - lo);
-        let lo_f = f64::from(lo);
-        B::seed(device, rng.next_u64());
-        
-        Tensor::<B, 2>::random(
-            [params.pop_size, params.genome_dim],
-            burn::tensor::Distribution::Uniform(lo_f, lo_f + range),
-            device,
-        )
+        // Host-sample the initial population from a deterministic
+        // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
+        // `Tensor::random`), whose draws interleave with sibling tests under
+        // the parallel runner and are not reproducible across schedules.
+        let pop = params.pop_size;
+        let genome_dim = params.genome_dim;
+        let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
+        let mut rows = Vec::with_capacity(pop * genome_dim);
+        for _ in 0..pop * genome_dim {
+            rows.push(lo + (hi - lo) * stream.random::<f32>());
+        }
+        Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
     }
 }
 
@@ -243,16 +247,18 @@ where
             ),
         };
 
-        // 2. Recombine.
-        B::seed(device, crossover_rng.next_u64());
+        // 2. Recombine. Crossover draws from the host `crossover_rng`.
         let offspring = match crossover {
-            GaCrossover::BlxAlpha { alpha } => blx_alpha(parents_a, parents_b, *alpha, device),
-            GaCrossover::Uniform { p } => uniform_crossover(parents_a, parents_b, *p, device),
+            GaCrossover::BlxAlpha { alpha } => {
+                blx_alpha(parents_a, parents_b, *alpha, &mut crossover_rng, device)
+            }
+            GaCrossover::Uniform { p } => {
+                uniform_crossover(parents_a, parents_b, *p, &mut crossover_rng, device)
+            }
         };
 
-        // 3. Mutate.
-        B::seed(device, mutation_rng.next_u64());
-        let offspring = gaussian_mutation(offspring, *mutation_sigma, device);
+        // 3. Mutate from the host `mutation_rng`.
+        let offspring = gaussian_mutation(offspring, *mutation_sigma, &mut mutation_rng, device);
 
         // 4. Clamp to bounds.
         let (lo, hi) = params.bounds;
