@@ -410,19 +410,40 @@ figure.rlevo-chart-card figcaption {
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
 }
-.rlevo-chart-stack { display: flex; flex-direction: column; gap: 0.25rem; }
 .rlevo-chart-no-data {
     font-style: italic;
     opacity: 0.6;
     margin: 0.5rem 0;
 }
 figure.rlevo-chart-empty { opacity: 0.7; }
-/* leptos-chartistry emits inline-styled SVG; the wrapper border-radius
-   keeps the chart visually framed without overriding its internal
-   colour palette. */
 .rlevo-chart-card svg { width: 100%; height: auto; }
 @media (prefers-color-scheme: dark) {
     figure.rlevo-chart-card { background: rgba(255,255,255,0.04); }
+}
+
+/* Shared axis furniture for every hand-rolled SVG panel (axis lines, nice
+   ticks + numeric labels, rotated axis titles). One styling system so all
+   panels read consistently. Counter-scaled? No — the `.rlevo-line` /
+   `.rlevo-band` SVGs keep the viewBox aspect (width:100%; height:auto), so
+   `preserveAspectRatio="none"` does not distort the label text. */
+.rlevo-axis-line { stroke: rgba(80, 90, 110, 0.55); stroke-width: 1; }
+.rlevo-axis-tick { stroke: rgba(80, 90, 110, 0.45); stroke-width: 1; }
+.rlevo-axis-num {
+    fill: rgba(60, 70, 90, 0.85);
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+}
+.rlevo-axis-title {
+    fill: rgba(60, 70, 90, 0.8);
+    font-size: 11px;
+    font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+    .rlevo-axis-line { stroke: rgba(200, 205, 215, 0.5); }
+    .rlevo-axis-tick { stroke: rgba(200, 205, 215, 0.4); }
+    .rlevo-axis-num { fill: rgba(220, 225, 235, 0.85); }
+    .rlevo-axis-title { fill: rgba(225, 230, 240, 0.85); }
 }
 
 /* --- Population panel (M8.1) ---------------------------------------- */
@@ -450,16 +471,6 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     stroke: #c0392b;
     stroke-width: 1.2;
 }
-.rlevo-boxplot-axis {
-    stroke: rgba(127,127,127,0.6);
-    stroke-width: 1;
-}
-.rlevo-boxplot-axis-label {
-    font-size: 10px;
-    fill: rgba(127,127,127,0.9);
-    font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, monospace;
-}
 /* Best/median/worst overlay traces — three distinct dash patterns so
    the trio remains distinguishable in a B/W screenshot. */
 .rlevo-boxplot-best {
@@ -484,8 +495,6 @@ figure.rlevo-boxplot-card svg.rlevo-boxplot-svg { max-width: 100%; }
     .rlevo-boxplot-whisker { stroke: #5dade2; }
     .rlevo-boxplot-median { stroke: #aed6f1; }
     .rlevo-boxplot-outlier { stroke: #ec7063; }
-    .rlevo-boxplot-axis { stroke: rgba(200,200,200,0.45); }
-    .rlevo-boxplot-axis-label { fill: rgba(220,220,220,0.85); }
     .rlevo-boxplot-best { stroke: #58d68d; }
     .rlevo-boxplot-median-trace { stroke: #f1c40f; }
     .rlevo-boxplot-worst { stroke: #ec7063; }

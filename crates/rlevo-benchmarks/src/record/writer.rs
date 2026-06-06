@@ -171,6 +171,13 @@ pub struct RecordWriter {
     current: Option<EpisodeFile>,
     pending_metrics: Vec<MetricSample>,
     frames_seen: u64,
+    /// Cumulative env steps across the whole run; unlike [`Self::frames_seen`]
+    /// it is never reset between episodes. Supplies the monotonic `step`
+    /// coordinate stamped on the per-episode terminal `(r, l, t)` triple so the
+    /// report plots them against a strictly-increasing global timestep rather
+    /// than the per-episode frame count (which bounces episode-to-episode and
+    /// makes the line criss-cross).
+    run_frames: u64,
     /// First non-fatal write error seen this run; surfaced via
     /// [`RecordSink::take_error`].
     first_error: Option<RecordError>,
@@ -204,6 +211,7 @@ impl std::fmt::Debug for RecordWriter {
             .field("current", &self.current.is_some())
             .field("pending_metrics", &self.pending_metrics.len())
             .field("frames_seen", &self.frames_seen)
+            .field("run_frames", &self.run_frames)
             .field("first_error", &self.first_error)
             .field("owner", &self.owner)
             .field("current_trial", &self.current_trial)
@@ -266,6 +274,7 @@ impl RecordWriter {
             current: None,
             pending_metrics: Vec::new(),
             frames_seen: 0,
+            run_frames: 0,
             first_error: None,
             owner: None,
             current_trial: None,
@@ -467,6 +476,7 @@ impl RecordSink for RecordWriter {
         let stride = u64::from(self.stride.max(1));
         let idx = self.frames_seen;
         self.frames_seen = self.frames_seen.saturating_add(1);
+        self.run_frames = self.run_frames.saturating_add(1);
         if !idx.is_multiple_of(stride) {
             return;
         }
@@ -511,7 +521,10 @@ impl RecordSink for RecordWriter {
         // open file's metric buffer *before* the flush+close drains it.
         // `r` and `l` arrive on this call; only `t` (wall-clock) is new.
         if let Some(current) = self.current.as_ref() {
-            let step = u32::try_from(self.frames_seen.saturating_sub(1)).unwrap_or(u32::MAX);
+            // Cumulative env step at episode end — monotonic across the run so
+            // the per-episode triple charts cleanly. (Using `frames_seen`, the
+            // per-episode count, made x bounce episode-to-episode.)
+            let step = u32::try_from(self.run_frames.saturating_sub(1)).unwrap_or(u32::MAX);
             let wall_clock = current.open_instant.elapsed().as_secs_f64();
             self.pending_metrics.push(MetricSample {
                 step,
@@ -537,6 +550,18 @@ impl RecordSink for RecordWriter {
     }
 
     fn on_run_end(&mut self, mut manifest: RunManifest) {
+        // A run that ends mid-episode — the common case, since a step budget
+        // rarely lands exactly on a terminal step — leaves one episode still
+        // open: its file was written by `on_episode_start` but never closed or
+        // counted by `on_episode_end`. Finalise it here as a
+        // truncated-by-budget episode and count it, so the on-disk file count
+        // matches `episode_count` (otherwise the reader trips
+        // `EpisodeCountMismatch`). This mirrors how every TimeLimit truncation
+        // is already counted; the report derives per-episode reward/length from
+        // frames, so the absent terminal (r, l, t) triple is immaterial.
+        if self.flush_and_close_current() {
+            self.episode_count = self.episode_count.saturating_add(1);
+        }
         manifest.episode_count = self.episode_count;
         manifest.finished_at = now_unix();
         if manifest.checkpoints.is_empty() {
@@ -1179,6 +1204,61 @@ mod tests {
             "metrics buffer must reset across the reset boundary"
         );
         assert!(ep1_names.contains(&"episode_return"));
+    }
+
+    #[test]
+    fn terminal_triple_step_is_monotonic_across_episodes() {
+        // Regression: the per-episode (r, l, t) triple must be stamped with a
+        // cumulative env step that strictly increases across episodes, NOT the
+        // per-episode frame count (which resets each episode and made the
+        // report's metric line criss-cross). Two episodes of *different*
+        // lengths whose per-episode counts would NOT be monotonic if reused.
+        let dir = tempdir().unwrap();
+        let cfg = RecordingConfig {
+            frame_stride: Some(1),
+            env_family: EnvFamily::Classic,
+            seed: 0,
+            run_id: Some(RunId("triple-step-run".into())),
+        };
+        let mut w = RecordWriter::open(dir.path(), cfg).unwrap();
+
+        // Episode 0: 5 frames → cumulative step ends at 4.
+        w.on_episode_start(0);
+        for s in 0..5 {
+            w.on_frame(frame(s, 1.0));
+        }
+        w.on_episode_end(5.0, 5);
+
+        // Episode 1: only 2 frames. The per-episode count (1) is *less* than
+        // episode 0's (4) — if step came from `frames_seen` the x would move
+        // backwards. With the cumulative counter it must advance to 6.
+        w.on_episode_start(1);
+        for s in 0..2 {
+            w.on_frame(frame(s, 1.0));
+        }
+        w.on_episode_end(2.0, 2);
+        w.on_run_end(w.manifest_template());
+
+        let step_for = |path: &str, name: &str| -> u32 {
+            let rec = read_episode_record(&w.run_dir().join(path)).unwrap();
+            rec.metrics
+                .iter()
+                .find(|m| m.name == name)
+                .unwrap_or_else(|| panic!("missing metric {name} in {path}"))
+                .step
+        };
+
+        // Episode 0 ended after 5 cumulative frames (steps 0..=4) → step 4.
+        assert_eq!(step_for("episode_000000.rec", "episode_return"), 4);
+        // Episode 1 ended after 7 cumulative frames (steps 0..=6) → step 6,
+        // strictly greater than episode 0 despite being the shorter episode.
+        assert_eq!(step_for("episode_000001.rec", "episode_return"), 6);
+
+        // The whole triple shares one step coordinate per episode.
+        for name in ["episode_return", "episode_length", "episode_wall_clock_secs"] {
+            assert_eq!(step_for("episode_000000.rec", name), 4, "ep0 {name}");
+            assert_eq!(step_for("episode_000001.rec", name), 6, "ep1 {name}");
+        }
     }
 
     #[test]

@@ -6,7 +6,6 @@
 //! screenshot still distinguishes the two per the project a11y contract.
 
 use leptos::prelude::*;
-use leptos_chartistry::{AspectRatio, Chart, Line, Series};
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
@@ -18,18 +17,6 @@ use crate::series::{
 };
 use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
 
-/// Two-coordinate datum passed to `leptos-chartistry`.
-///
-/// `leptos-chartistry`'s `Tick` trait is implemented for `f64`; `u32` step
-/// and generation values are widened to `f64` at the chart boundary.
-#[derive(Debug, Clone, Copy)]
-struct Point {
-    /// Horizontal axis value (episode index or generation number, widened to `f64`).
-    x: f64,
-    /// Vertical axis value (reward, loss, fitness, etc.).
-    y: f64,
-}
-
 /// Default rolling-mean window for per-episode panels. Falls back to
 /// `len/4` when the run is shorter than the window, so even a 4-episode
 /// run still shows a smoothed overlay.
@@ -40,108 +27,24 @@ const EPISODE_WINDOW: usize = 50;
 /// samples already fire per PPO update, not per env step.
 const METRIC_WINDOW: usize = 20;
 
-/// Builds a line-chart panel with a thin raw line and a thicker smoothed overlay.
+/// Hand-rolled line panel with labeled axes and a hover crosshair that reports
+/// the *raw* (un-decimated) sample under the cursor.
 ///
-/// The width difference (1.0 vs 2.5) is the hue-redundant a11y signal — the
-/// two traces remain distinguishable in a B/W screenshot without relying on
-/// colour alone.
-///
-/// Pass `smoothed = None` to draw only the raw line, which is appropriate for
-/// series that are already aggregated per-generation (e.g. `best_fitness`).
-#[must_use]
-pub fn line_chart_view(
-    title: String,
-    y_label: String,
-    raw: &[(u32, f64)],
-    smoothed: Option<&[(u32, f64)]>,
-) -> AnyView {
-    let raw_xy: Vec<(f64, f64)> = raw.iter().map(|&(x, y)| (f64::from(x), y)).collect();
-    let smoothed_xy: Option<Vec<(f64, f64)>> =
-        smoothed.map(|s| s.iter().map(|&(x, y)| (f64::from(x), y)).collect());
-    line_chart_view_xy(title, y_label, &raw_xy, smoothed_xy.as_deref())
-}
-
-/// Builds a thin/smoothed line-chart panel with floating-point x-coordinates.
-///
-/// Identical to [`line_chart_view`] except the x values are `f64`, used when
-/// the x-axis is a remapped continuous quantity (e.g. wall-clock seconds under
-/// the axis-mode toggle).
-#[must_use]
-pub fn line_chart_view_xy(
-    title: String,
-    y_label: String,
-    raw: &[(f64, f64)],
-    smoothed: Option<&[(f64, f64)]>,
-) -> AnyView {
-    if raw.is_empty() {
-        return view! {
-            <figure class="rlevo-chart-card rlevo-chart-empty">
-                <figcaption>{title}</figcaption>
-                <p class="rlevo-chart-no-data">"no samples"</p>
-            </figure>
-        }
-        .into_any();
-    }
-
-    let raw_points: Vec<Point> = raw.iter().map(|&(x, y)| Point { x, y }).collect();
-    let smoothed_points: Option<Vec<Point>> =
-        smoothed.map(|s| s.iter().map(|&(x, y)| Point { x, y }).collect());
-
-    let raw_signal: Signal<Vec<Point>> = Signal::derive(move || raw_points.clone());
-
-    let chart = match smoothed_points {
-        Some(sm) => {
-            let sm_signal: Signal<Vec<Point>> = Signal::derive(move || sm.clone());
-            view! {
-                <div class="rlevo-chart-stack">
-                    <Chart
-                        aspect_ratio=AspectRatio::from_outer_ratio(420.0, 200.0)
-                        series=Series::new(|p: &Point| p.x)
-                            .line(Line::new(|p: &Point| p.y).with_name("raw").with_width(1.0))
-                        data=raw_signal
-                    />
-                    <Chart
-                        aspect_ratio=AspectRatio::from_outer_ratio(420.0, 200.0)
-                        series=Series::new(|p: &Point| p.x)
-                            .line(Line::new(|p: &Point| p.y).with_name("smoothed").with_width(2.5))
-                        data=sm_signal
-                    />
-                </div>
-            }
-            .into_any()
-        }
-        None => view! {
-            <Chart
-                aspect_ratio=AspectRatio::from_outer_ratio(420.0, 200.0)
-                series=Series::new(|p: &Point| p.x)
-                    .line(Line::new(|p: &Point| p.y).with_name("value").with_width(2.0))
-                data=raw_signal
-            />
-        }
-        .into_any(),
-    };
-
-    view! {
-        <figure class="rlevo-chart-card">
-            <figcaption>{title}</figcaption>
-            {export_button("rlevo-panel.svg")}
-            {chart}
-            <span class="rlevo-chart-y">{y_label}</span>
-        </figure>
-    }
-    .into_any()
-}
-
-/// Hand-rolled line panel with a hover crosshair that reports the *raw*
-/// (un-decimated) sample under the cursor.
-///
-/// `decimated` drives the drawn path (kept light for long runs); `raw_full` is
-/// the full-resolution series used only for the tooltip lookup, so the readout
-/// is exact even when the path is decimated (M8.2 accuracy requirement). An
-/// optional `smoothed` overlay is drawn at greater width for B/W legibility.
+/// This is the single line renderer for the whole report: episode-outcome
+/// curves, per-step RL/EA metrics, and the selection-pressure trace all flow
+/// through it. `decimated` drives the drawn path (kept light for long runs);
+/// `raw_full` is the full-resolution series used only for the tooltip lookup,
+/// so the readout is exact even when the path is decimated (M8.2 accuracy
+/// requirement). An optional `smoothed` overlay is drawn at greater width for
+/// B/W legibility. `x_title` / `y_title` label the axes; pass `x_as_int = true`
+/// for discrete x axes (episode / generation / step) and `false` for
+/// continuous ones (wall-clock seconds).
 #[must_use]
 pub fn interactive_line_view(
     title: String,
+    x_title: &str,
+    y_title: &str,
+    x_as_int: bool,
     raw_full: Vec<(f64, f64)>,
     decimated: Vec<(f64, f64)>,
     smoothed: Option<Vec<(f64, f64)>>,
@@ -180,10 +83,11 @@ pub fn interactive_line_view(
         y_max = y_min + 1.0;
     }
 
-    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
-    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    let plot_w = PLOT_RIGHT - BOX_M_L;
+    let plot_h = PLOT_BOTTOM - BOX_M_T;
     // Pixel→data and data→pixel maps share these scalars (all Copy), so both
-    // the static path build and the mousemove handler can use them.
+    // the static path build and the mousemove handler can use them. They match
+    // `axis_layer`'s maps exactly so the line registers with its tick marks.
     let sx_of = move |x: f64| BOX_M_L + (x - x_min) / (x_max - x_min) * plot_w;
     let sy_of = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h;
 
@@ -221,8 +125,8 @@ pub fn interactive_line_view(
     };
     let on_leave = move |_| set_hover.set(None);
 
-    let x_axis_y = BOX_VB_H - BOX_M_B;
     let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
+    let axes = axis_layer(x_min, x_max, y_min, y_max, x_title, y_title, x_as_int);
     let smoothed_poly = smoothed_path.map(|pts| {
         view! { <polyline class="rlevo-line-smoothed" points={pts} fill="none" /> }.into_any()
     });
@@ -233,7 +137,7 @@ pub fn interactive_line_view(
             let label_x = sx.min(BOX_VB_W - 90.0).max(BOX_M_L);
             let label = format!("{dx:.2}, {dy:.4}");
             view! {
-                <line class="rlevo-crosshair" x1={sx} y1={BOX_M_T} x2={sx} y2={x_axis_y} />
+                <line class="rlevo-crosshair" x1={sx} y1={BOX_M_T} x2={sx} y2={PLOT_BOTTOM} />
                 <circle class="rlevo-crosshair-dot" cx={sx} cy={sy} r=3.0 />
                 <text class="rlevo-crosshair-label" x={label_x} y={BOX_M_T + 10.0}>{label}</text>
             }
@@ -248,7 +152,7 @@ pub fn interactive_line_view(
             {export_button("rlevo-metric.svg")}
             <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none"
                 role="img" on:mousemove=on_move on:mouseleave=on_leave>
-                <line class="rlevo-boxplot-axis" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
+                {axes}
                 <polyline class="rlevo-line-raw" points={raw_path} fill="none" />
                 {smoothed_poly}
                 {overlay}
@@ -296,6 +200,13 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
     let mut rl_panels: Vec<AnyView> = Vec::new();
     let mut eo_panels: Vec<AnyView> = Vec::new();
     for name in available_metric_names(records) {
+        // `episode_return` / `episode_length` are already drawn by the
+        // dedicated episode-outcome panels above (with the step/episode/
+        // wallclock x-axis toggle). Skip them here so we don't render a
+        // second, redundant copy on the native step axis.
+        if matches!(name.as_str(), "episode_return" | "episode_length") {
+            continue;
+        }
         let full = metric_series(records, &name);
         if full.is_empty() {
             continue;
@@ -313,14 +224,18 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
         let dec_xy: Vec<(f64, f64)> =
             decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         let title = title_for(&name).to_string();
+        let y_title = unit_for(&name);
+        // Per-generation EA metrics run over the generation axis; per-update RL
+        // metrics over the training-step axis. Both are discrete integers.
+        let x_title = if is_per_generation(&name) { "generation" } else { "step" };
         let panel = if is_per_generation(&name) {
-            interactive_line_view(title, raw_full, dec_xy, None)
+            interactive_line_view(title, x_title, &y_title, true, raw_full, dec_xy, None)
         } else {
             let smoothed: Vec<(f64, f64)> = rolling_mean(&decimated, METRIC_WINDOW)
                 .iter()
                 .map(|&(x, y)| (f64::from(x), y))
                 .collect();
-            interactive_line_view(title, raw_full, dec_xy, Some(smoothed))
+            interactive_line_view(title, x_title, &y_title, true, raw_full, dec_xy, Some(smoothed))
         };
         match descriptor(&name).map(|d| d.kind) {
             Some(MetricKind::Eo) => eo_panels.push(panel),
@@ -369,23 +284,31 @@ fn episode_outcome_panels(records: &[EpisodeRecord], window: usize) -> AnyView {
             AxisMode::Wallclock => &axis_wall,
         };
         let x_label = mode.get().label().to_string();
+        // Episode / env-step axes are discrete integers; wall-clock is continuous.
+        let x_as_int = mode.get() != AxisMode::Wallclock;
         let reward_xy = remap_episode_series(&reward, axis);
         let reward_sm = remap_episode_series(&reward_smoothed, axis);
         let length_xy = remap_episode_series(&length, axis);
         let length_sm = remap_episode_series(&length_smoothed, axis);
         view! {
             <div class="rlevo-chart-grid">
-                {line_chart_view_xy(
+                {interactive_line_view(
                     format!("Episode reward (x: {x_label})"),
-                    "reward".to_string(),
-                    &reward_xy,
-                    Some(&reward_sm),
+                    &x_label,
+                    "reward",
+                    x_as_int,
+                    reward_xy.clone(),
+                    reward_xy,
+                    Some(reward_sm),
                 )}
-                {line_chart_view_xy(
+                {interactive_line_view(
                     format!("Episode length (x: {x_label})"),
-                    "frames".to_string(),
-                    &length_xy,
-                    Some(&length_sm),
+                    &x_label,
+                    "frames",
+                    x_as_int,
+                    length_xy.clone(),
+                    length_xy,
+                    Some(length_sm),
                 )}
             </div>
         }
@@ -433,7 +356,11 @@ fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
         if !band.iter().any(|p| p.n >= 2) {
             continue;
         }
-        panels.push(band_chart_view(title_for(&name).to_string(), &band));
+        panels.push(band_chart_view(
+            title_for(&name).to_string(),
+            &unit_for(&name),
+            &band,
+        ));
     }
     if panels.is_empty() {
         return ().into_any();
@@ -455,7 +382,7 @@ fn multi_seed_section(records: &[EpisodeRecord]) -> AnyView {
 /// solid mean `<polyline>`. The fill/line pairing keeps the band legible in
 /// B/W per the a11y contract.
 #[must_use]
-pub fn band_chart_view(title: String, band: &[BandPoint]) -> AnyView {
+pub fn band_chart_view(title: String, y_title: &str, band: &[BandPoint]) -> AnyView {
     use std::fmt::Write as _;
     if band.is_empty() {
         return view! {
@@ -491,8 +418,8 @@ pub fn band_chart_view(title: String, band: &[BandPoint]) -> AnyView {
         y_max = y_min + 1.0;
     }
 
-    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
-    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    let plot_w = PLOT_RIGHT - BOX_M_L;
+    let plot_h = PLOT_BOTTOM - BOX_M_T;
     let scale_x = move |g: f64| -> f64 { BOX_M_L + (g - x_min) / (x_max - x_min) * plot_w };
     let scale_y = move |v: f64| -> f64 { BOX_M_T + (1.0 - (v - y_min) / (y_max - y_min)) * plot_h };
 
@@ -525,21 +452,16 @@ pub fn band_chart_view(title: String, band: &[BandPoint]) -> AnyView {
     }
 
     let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
-    let y_min_label = format!("{y_min:.3}");
-    let y_max_label = format!("{y_max:.3}");
-    let x_axis_y = BOX_VB_H - BOX_M_B;
+    let axes = axis_layer(x_min, x_max, y_min, y_max, "step", y_title, true);
 
     view! {
         <figure class="rlevo-chart-card">
             <figcaption>{title}</figcaption>
             {export_button("rlevo-band.svg")}
             <svg class="rlevo-band" viewBox={view_box} preserveAspectRatio="none" role="img">
+                {axes}
                 <polygon class="rlevo-band-fill" points={poly} />
                 <polyline class="rlevo-band-mean" points={mean_pts} fill="none" />
-                <line class="rlevo-boxplot-axis"
-                    x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
-                <text class="rlevo-boxplot-axis-label" x=4.0 y={BOX_M_T + 8.0}>{y_max_label}</text>
-                <text class="rlevo-boxplot-axis-label" x=4.0 y={x_axis_y}>{y_min_label}</text>
             </svg>
         </figure>
     }
@@ -574,18 +496,174 @@ fn group_section(heading: &str, class: &str, panels: Vec<AnyView>) -> AnyView {
 // selection-pressure indicator reuse `line_chart_view`.
 // ---------------------------------------------------------------------------
 
-/// SVG viewBox width for the hand-rolled box plot, in user units.
+/// SVG viewBox width shared by every hand-rolled panel, in user units.
 const BOX_VB_W: f64 = 640.0;
-/// SVG viewBox height for the hand-rolled box plot, in user units.
+/// SVG viewBox height shared by every hand-rolled panel, in user units.
 const BOX_VB_H: f64 = 300.0;
-/// Left margin reserved for the y-axis labels.
-const BOX_M_L: f64 = 56.0;
-/// Right margin between the last box and the viewBox edge.
-const BOX_M_R: f64 = 16.0;
+/// Left margin reserved for the rotated y-axis title + y tick labels.
+const BOX_M_L: f64 = 64.0;
+/// Right margin between the plot area and the viewBox edge.
+const BOX_M_R: f64 = 18.0;
 /// Top margin above the plot area.
 const BOX_M_T: f64 = 20.0;
-/// Bottom margin reserved for the x-axis labels.
-const BOX_M_B: f64 = 32.0;
+/// Bottom margin reserved for the x tick labels + x-axis title.
+const BOX_M_B: f64 = 46.0;
+
+/// Right edge of the plot area (pixels in the shared viewBox).
+const PLOT_RIGHT: f64 = BOX_VB_W - BOX_M_R;
+/// Bottom edge of the plot area — the y-pixel of the x-axis line.
+const PLOT_BOTTOM: f64 = BOX_VB_H - BOX_M_B;
+
+/// "Nice" axis ticks: at most `target`-ish round values spanning `[min, max]`.
+///
+/// Picks a 1/2/5×10ⁿ step so labels land on human-readable numbers (0, 100,
+/// 200 … rather than 0, 137, 274 …). Degenerate ranges collapse to a single
+/// tick so callers can still render an axis without dividing by zero.
+fn nice_ticks(min: f64, max: f64, target: usize) -> Vec<f64> {
+    let target = target.max(2);
+    if !(min.is_finite() && max.is_finite()) || (max - min).abs() < f64::EPSILON {
+        return vec![min];
+    }
+    let raw_step = (max - min) / target as f64;
+    let mag = 10f64.powf(raw_step.abs().log10().floor());
+    let norm = raw_step / mag;
+    let nice = if norm < 1.5 {
+        1.0
+    } else if norm < 3.0 {
+        2.0
+    } else if norm < 7.0 {
+        5.0
+    } else {
+        10.0
+    };
+    let step = nice * mag;
+    let mut ticks = Vec::new();
+    let mut t = (min / step).ceil() * step;
+    while t <= max + step * 0.5 && ticks.len() <= target + 2 {
+        if t >= min - step * 0.5 {
+            ticks.push(t);
+        }
+        t += step;
+    }
+    if ticks.is_empty() {
+        ticks.push(min);
+    }
+    ticks
+}
+
+/// Formats a tick value: integers when `as_int`, else adaptive precision so
+/// both `500` and `0.012` stay legible without trailing-zero noise.
+fn fmt_tick(v: f64, as_int: bool) -> String {
+    if as_int {
+        return format!("{:.0}", v.round());
+    }
+    let a = v.abs();
+    if a < f64::EPSILON {
+        "0".to_string()
+    } else if a >= 10.0 {
+        format!("{v:.0}")
+    } else if a >= 1.0 {
+        format!("{v:.2}")
+    } else if a >= 0.01 {
+        format!("{v:.3}")
+    } else {
+        format!("{v:.1e}")
+    }
+}
+
+/// y-axis title for a metric panel: its registry unit (e.g. `steps`, `s`), or
+/// an empty string when the metric is unitless.
+fn unit_for(name: &str) -> String {
+    descriptor(name)
+        .and_then(|d| d.unit)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Shared axis furniture for every hand-rolled SVG panel: the x/y axis lines,
+/// "nice" tick marks with numeric labels, and rotated axis titles.
+///
+/// All panels share the `BOX_*` layout, so this recomputes the linear
+/// data→pixel maps from the data ranges rather than taking each panel's scale
+/// closures. `x_as_int` formats the x ticks as whole numbers (episode /
+/// generation / step axes); pass `false` for continuous axes (wall-clock).
+fn axis_layer(
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+    x_title: &str,
+    y_title: &str,
+    x_as_int: bool,
+) -> AnyView {
+    let plot_w = PLOT_RIGHT - BOX_M_L;
+    let plot_h = PLOT_BOTTOM - BOX_M_T;
+    let x_span = if (x_max - x_min).abs() < f64::EPSILON { 1.0 } else { x_max - x_min };
+    let y_span = if (y_max - y_min).abs() < f64::EPSILON { 1.0 } else { y_max - y_min };
+    let sx = move |x: f64| BOX_M_L + (x - x_min) / x_span * plot_w;
+    let sy = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / y_span) * plot_h;
+
+    let x_ticks: Vec<AnyView> = nice_ticks(x_min, x_max, 6)
+        .into_iter()
+        .filter(|&t| t >= x_min - f64::EPSILON && t <= x_max + f64::EPSILON)
+        .map(|t| {
+            let px = sx(t);
+            let label = fmt_tick(t, x_as_int);
+            view! {
+                <line class="rlevo-axis-tick" x1={px} y1={PLOT_BOTTOM} x2={px} y2={PLOT_BOTTOM + 4.0} />
+                <text class="rlevo-axis-num" x={px} y={PLOT_BOTTOM + 15.0}
+                    text-anchor="middle">{label}</text>
+            }
+            .into_any()
+        })
+        .collect();
+
+    let y_ticks: Vec<AnyView> = nice_ticks(y_min, y_max, 4)
+        .into_iter()
+        .filter(|&t| t >= y_min - f64::EPSILON && t <= y_max + f64::EPSILON)
+        .map(|t| {
+            let py = sy(t);
+            let label = fmt_tick(t, false);
+            view! {
+                <line class="rlevo-axis-tick" x1={BOX_M_L - 4.0} y1={py} x2={BOX_M_L} y2={py} />
+                <text class="rlevo-axis-num" x={BOX_M_L - 7.0} y={py + 3.0}
+                    text-anchor="end">{label}</text>
+            }
+            .into_any()
+        })
+        .collect();
+
+    let cx = f64::midpoint(BOX_M_L, PLOT_RIGHT);
+    let cy = f64::midpoint(BOX_M_T, PLOT_BOTTOM);
+    let x_title = x_title.to_string();
+    let y_title = y_title.to_string();
+    let y_title_view = (!y_title.is_empty()).then(|| {
+        view! {
+            <text class="rlevo-axis-title" x=12.0 y={cy} text-anchor="middle"
+                transform={format!("rotate(-90 12 {cy})")}>{y_title}</text>
+        }
+        .into_any()
+    });
+    let x_title_view = (!x_title.is_empty()).then(|| {
+        view! {
+            <text class="rlevo-axis-title" x={cx} y={BOX_VB_H - 4.0}
+                text-anchor="middle">{x_title}</text>
+        }
+        .into_any()
+    });
+
+    view! {
+        <g class="rlevo-axes">
+            <line class="rlevo-axis-line" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={PLOT_BOTTOM} />
+            <line class="rlevo-axis-line" x1={BOX_M_L} y1={PLOT_BOTTOM} x2={PLOT_RIGHT} y2={PLOT_BOTTOM} />
+            {x_ticks}
+            {y_ticks}
+            {y_title_view}
+            {x_title_view}
+        </g>
+    }
+    .into_any()
+}
 
 /// Returns a small "⤓ SVG" toolbar button that downloads the panel's SVG.
 ///
@@ -800,13 +878,7 @@ pub fn population_box_view(
     let worst_pts = polyline_str(&worst);
 
     let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
-    let x_axis_y = BOX_VB_H - BOX_M_B;
-    let y_min_label = format!("{y_min:.3}");
-    let y_max_label = format!("{y_max:.3}");
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let x_min_label = format!("gen {}", x_min as u32);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let x_max_label = format!("gen {}", x_max as u32);
+    let axes = axis_layer(x_min, x_max, y_min, y_max, "generation", "fitness", true);
 
     view! {
         <figure class="rlevo-chart-card rlevo-boxplot-card">
@@ -827,13 +899,7 @@ pub fn population_box_view(
                 viewBox=view_box
                 role="img"
                 aria-label="per-generation fitness box plot">
-                // axes
-                <line class="rlevo-boxplot-axis"
-                    x1={BOX_M_L} y1={x_axis_y}
-                    x2={BOX_VB_W - BOX_M_R} y2={x_axis_y} />
-                <line class="rlevo-boxplot-axis"
-                    x1={BOX_M_L} y1={BOX_M_T}
-                    x2={BOX_M_L} y2={x_axis_y} />
+                {axes}
                 // strip-plot jitter cloud beneath the boxes (toggle)
                 {strip_view}
                 // boxes + whiskers + medians + outliers
@@ -842,18 +908,6 @@ pub fn population_box_view(
                 <polyline class="rlevo-boxplot-best" points={best_pts} />
                 <polyline class="rlevo-boxplot-median-trace" points={median_pts} />
                 <polyline class="rlevo-boxplot-worst" points={worst_pts} />
-                // axis labels
-                <text class="rlevo-boxplot-axis-label"
-                    x={BOX_M_L - 6.0} y={BOX_M_T + 4.0}
-                    text-anchor="end">{y_max_label}</text>
-                <text class="rlevo-boxplot-axis-label"
-                    x={BOX_M_L - 6.0} y={x_axis_y}
-                    text-anchor="end">{y_min_label}</text>
-                <text class="rlevo-boxplot-axis-label"
-                    x={BOX_M_L} y={x_axis_y + 16.0}>{x_min_label}</text>
-                <text class="rlevo-boxplot-axis-label"
-                    x={BOX_VB_W - BOX_M_R} y={x_axis_y + 16.0}
-                    text-anchor="end">{x_max_label}</text>
             </svg>
             <figcaption class="rlevo-chart-y">
                 "lines: best (solid) · median (dashed) · worst (dotted) — lower is better"
@@ -900,8 +954,8 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
         y_max = y_min + 1.0;
     }
 
-    let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
-    let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
+    let plot_w = PLOT_RIGHT - BOX_M_L;
+    let plot_h = PLOT_BOTTOM - BOX_M_T;
     let sx_of = move |x: f64| BOX_M_L + (x - x_min) / (x_max - x_min) * plot_w;
     let sy_of = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h;
 
@@ -923,9 +977,9 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
         values.iter().any(|&y| y.is_finite() && y < t)
     });
     let guide_y = move || sy_of(threshold.get().clamp(y_min, y_max));
-    let x_axis_y = BOX_VB_H - BOX_M_B;
     let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
-    let right_x = BOX_VB_W - BOX_M_R;
+    let right_x = PLOT_RIGHT;
+    let axes = axis_layer(x_min, x_max, y_min, y_max, "generation", "diversity", true);
     let title = move || if breached.get() { "⚠ Diversity" } else { "Diversity" };
     let on_threshold = move |ev: leptos::ev::Event| {
         if let Ok(v) = leptos::prelude::event_target_value(&ev).parse::<f64>() {
@@ -946,7 +1000,7 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
             </div>
             <svg class="rlevo-line" viewBox={view_box} preserveAspectRatio="none" role="img"
                 aria-label="population diversity over generations">
-                <line class="rlevo-boxplot-axis" x1={BOX_M_L} y1={BOX_M_T} x2={BOX_M_L} y2={x_axis_y} />
+                {axes}
                 <polyline class="rlevo-line-smoothed" points={path} fill="none" />
                 <line class="rlevo-diversity-guide"
                     x1={BOX_M_L} y1=guide_y x2={right_x} y2=guide_y />
@@ -980,10 +1034,15 @@ pub fn population_panel_view(samples: &[PopulationSample]) -> AnyView {
         panels.push(diversity_panel_view(&diversity));
     }
     if !pressure.is_empty() {
-        panels.push(line_chart_view(
+        let pressure_xy: Vec<(f64, f64)> =
+            pressure.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+        panels.push(interactive_line_view(
             "Selection pressure (best / median)".to_string(),
-            "ratio".to_string(),
-            &pressure,
+            "generation",
+            "ratio",
+            true,
+            pressure_xy.clone(),
+            pressure_xy,
             None,
         ));
     }
