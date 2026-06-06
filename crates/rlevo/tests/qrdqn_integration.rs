@@ -206,7 +206,7 @@ fn qrdqn_reproducibility_flex() {
 /// smaller quantile count used in CI. A stricter 195-at-500k-steps test
 /// lives behind `#[ignore]` below for manual validation.
 #[test]
-#[ignore = "20 000-step QR-DQN CartPole run (several minutes on Flex CPU); confirms avg reward ≥ 50 — run with `cargo test -- --ignored`"]
+#[ignore = "20 000-step QR-DQN CartPole run (several minutes on Flex CPU); confirms avg reward ≥ 50 — run with `cargo test --release -- --ignored`"]
 fn qrdqn_cart_pole_reaches_50() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

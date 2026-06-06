@@ -1,0 +1,41 @@
+name: crate-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: crate-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.crate }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - rlevo-core
+          - rlevo-benchmarks
+          - rlevo-environments
+          - rlevo-evolution
+          - rlevo-reinforcement-learning
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: crate-tests-${{ matrix.crate }}
+
+      - name: Test ${{ matrix.crate }}
+        run: cargo test --package ${{ matrix.crate }}

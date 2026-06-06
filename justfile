@@ -142,11 +142,11 @@ test-qrdqn:
 
 # QR-DQN — CartPole reaches 50 [ignored: smoke run].
 test-qrdqn-cart-pole:
-    cargo test -p rlevo --test qrdqn_integration -- qrdqn_cart_pole_reaches_50 --ignored
+    cargo test -p rlevo --test qrdqn_integration --release -- qrdqn_cart_pole_reaches_50 --ignored
 
 # QR-DQN — full acceptance target [ignored: ~500k Flex CPU steps].
 test-qrdqn-full:
-    cargo test -p rlevo --test qrdqn_integration -- qrdqn_solves_cart_pole_flex_seed_42 --ignored
+    cargo test -p rlevo --test qrdqn_integration --release -- qrdqn_solves_cart_pole_flex_seed_42 --ignored
 
 # PPO — normal (non-ignored) tests.
 test-ppo:
@@ -230,7 +230,7 @@ build-viz-examples:
 
 clippy-viz-examples:
     cargo clippy -p rlevo-examples --examples \
-        --features viz-tui,viz-record,viz-report,box2d,locomotion \
+        --features viz-tui,viz-report,box2d,locomotion \
         -- -D warnings
 
 # ── Common checks ────────────────────────────────────────────────────────────
