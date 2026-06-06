@@ -19,7 +19,7 @@ rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-feat
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.1.0" }
 
 [dev-dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0", features = ["report"] }
 rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
 approx = { workspace = true }
 burn = { workspace = true }
@@ -29,6 +29,7 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+tempfile = "3"
 tracing-subscriber = { workspace = true }
 
 [features]

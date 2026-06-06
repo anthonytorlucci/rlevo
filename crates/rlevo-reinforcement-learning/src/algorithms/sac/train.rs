@@ -93,7 +93,12 @@ where
             agent.record_episode(metrics);
             episode_reward = 0.0;
             episode_steps = 0;
-            snapshot = env.reset().map_err(env_to_err)?;
+            // Skip the reset on the final step: that phantom episode never
+            // reaches a terminal `step`, so a recording env writes an episode
+            // file the manifest's count omits (`EpisodeCountMismatch`).
+            if step + 1 < total_steps {
+                snapshot = env.reset().map_err(env_to_err)?;
+            }
         } else {
             snapshot = next_snapshot;
         }

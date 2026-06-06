@@ -96,7 +96,15 @@ where
                 agent.record_episode(metrics);
                 episode_reward = 0.0;
                 episode_steps = 0;
-                snapshot = env.reset().map_err(io_from_env)?;
+                // Only re-open an episode if training will continue. Resetting
+                // on the *final* done opens a fresh episode that we never step
+                // to completion — for recording envs that leaves a phantom
+                // episode file the manifest's count omits, tripping
+                // `EpisodeCountMismatch`. The stale `snapshot` is safe here:
+                // `last_done_in_rollout == true` zeroes the terminal bootstrap.
+                if global_step < total_timesteps {
+                    snapshot = env.reset().map_err(io_from_env)?;
+                }
             } else {
                 last_done_in_rollout = false;
                 snapshot = next_snapshot;
