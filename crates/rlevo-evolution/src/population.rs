@@ -103,6 +103,10 @@ impl<B: Backend> Population<B, Real> {
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 2);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_real(tensor: Tensor<B, 2>) -> Self {
         let dims = tensor.dims();
@@ -121,6 +125,11 @@ impl<B: Backend> Population<B, Real> {
     /// The returned tensor has shape `[pop_size, genome_dim]`. Use this
     /// to pass the population to fitness functions or operator kernels
     /// without giving up ownership.
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: a real-valued population always holds a
+    /// real tensor by construction.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2> {
         self.tensor_real
@@ -133,6 +142,11 @@ impl<B: Backend> Population<B, Real> {
     /// Prefer this over [`tensor`](Population::tensor) when handing the
     /// population off to a strategy or operator that needs ownership (e.g.
     /// to avoid a clone on the hot path).
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: a real-valued population always holds a
+    /// real tensor by construction.
     #[must_use]
     pub fn into_tensor(self) -> Tensor<B, 2> {
         self.tensor_real
@@ -165,6 +179,10 @@ impl<B: Backend> Population<B, Binary> {
     /// assert_eq!(pop.pop_size(), 3);
     /// assert_eq!(pop.genome_dim(), 4);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
@@ -183,6 +201,11 @@ impl<B: Backend> Population<B, Binary> {
     /// The returned tensor has shape `[pop_size, genome_dim]` and element
     /// type `Int`. Callers performing crossover or mutation should work
     /// directly with this tensor.
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: a binary population always holds an integer
+    /// tensor by construction.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int
@@ -216,6 +239,10 @@ impl<B: Backend> Population<B, Integer> {
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 5);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
@@ -234,6 +261,11 @@ impl<B: Backend> Population<B, Integer> {
     /// The returned tensor has shape `[pop_size, genome_dim]` and element
     /// type `Int`. Element values are non-negative indices whose domain is
     /// determined by the problem (e.g. `0..n_nodes` for CGP).
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: an integer population always holds an integer
+    /// tensor by construction.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int
