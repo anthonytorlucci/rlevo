@@ -23,12 +23,12 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `State<D>` | Full MDP state; produces an `Observation<D>` via `observe()` |
-| `Observation<D>` | What the agent perceives (may be a partial view of state) |
-| `Action<D>` | Base action constraint (`is_valid()`) |
+| `State<R>` | Full MDP state; produces an `Observation<R>` via `observe()` |
+| `Observation<R>` | What the agent perceives (may be a partial view of state) |
+| `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
-| `TensorConvertible<D, B>` | Bidirectional conversion between domain types and Burn tensors |
-| `TransitionDynamics<SD, AD, S, A>` | Deterministic state-transition function |
+| `TensorConvertible<R, B>` | Bidirectional conversion between domain types and Burn tensors |
+| `TransitionDynamics<SR, AR, S, A>` | Deterministic state-transition function |
 | `UpdateFunction<Input, Output>` | Generic parameterized update (policy gradient step, etc.) |
 
 `TensorConvertible` is the integration point with Burn: implement it on your state/action types to enable neural-network-based agents.
@@ -39,22 +39,22 @@ Three orthogonal action abstractions cover the standard taxonomy:
 
 | Trait | Use Case |
 |---|---|
-| `DiscreteAction<D>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
-| `MultiDiscreteAction<D>` | Multiple independent discrete dimensions (e.g., direction × attack). Combinatorial enumeration and weighted random sampling. |
-| `ContinuousAction<D>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[−1, 1\]). |
-| `BoundedAction<D>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
+| `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
+| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction × attack). Combinatorial enumeration and weighted random sampling. |
+| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[−1, 1\]). |
+| `BoundedAction<R>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
 
 ### `state` — Advanced State Abstractions
 
-Extensions to `State<D>` for partial observability, recurrence, and hierarchy:
+Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
 
 | Trait | Purpose |
 |---|---|
 | `MarkovState` | Asserts the Markov property holds for this state representation |
-| `BeliefState<SD, AD, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
-| `HiddenState<D>` | RNN-style recurrent memory (`update`, `reset`) |
-| `LatentState<D, AD>` | World-model compressed representation (`encode`, `predict`, `decode`) |
-| `StateAggregation<SD, S>` | Maps concrete states to abstract representatives for hierarchical RL |
+| `BeliefState<SR, AR, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
+| `HiddenState<R>` | RNN-style recurrent memory (`update`, `reset`) |
+| `LatentState<R, AR>` | World-model compressed representation (`encode`, `predict`, `decode`) |
+| `StateAggregation<SR, S>` | Maps concrete states to abstract representatives for hierarchical RL |
 
 ### `environment` — Environment Protocol
 
@@ -98,7 +98,7 @@ Minimal trait surface that `rlevo-evolution` builds on:
 | Trait | Description |
 |---|---|
 | `Fitness` | Scalar fitness score: `worst()`, `is_finite()`, `as_f32()`. Blanket impls for `f32` and `f64`. Convention: **higher is better**. |
-| `GenomeKind` | Zero-sized marker with `const DIM: usize` and associated `Element` type; lets evolutionary strategies select operators at compile time. |
+| `GenomeKind` | Zero-sized marker with `const GENOME_LEN: usize` and associated `Element` type; lets evolutionary strategies select operators at compile time. |
 | `MultiFitness` | Multi-objective fitness: `objectives() -> &[f32]`. Pareto/NSGA machinery lives in `rlevo-evolution`. |
 
 ### `metrics` — Performance Tracking
@@ -126,7 +126,7 @@ once the API stabilizes.
 
 **Const generics for shapes.** Every trait is parameterised by a const `D` (or `SD`, `AD`) so that dimension mismatches fail at compile time, not at runtime.
 
-**Separation of state and observation.** `State<D>` represents the true MDP state; `Observation<D>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
+**Separation of state and observation.** `State<R>` represents the true MDP state; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
 
 **Terminated vs. Truncated.** `EpisodeStatus` distinguishes a natural terminal state from a step-limit cutoff. Algorithms that bootstrap values (e.g., TD-learning) need this distinction to avoid incorrect target computation.
 

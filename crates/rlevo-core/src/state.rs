@@ -63,7 +63,7 @@ pub trait MarkovState {
 /// Belief states are used in partially-observable settings where the agent
 /// cannot observe the true state directly. The belief is updated via Bayes'
 /// rule as the most recent action and new observation arrive.
-pub trait BeliefState<const SD: usize, const AD: usize, S: State<SD>, A: Action<AD>>: Clone {
+pub trait BeliefState<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>>: Clone {
     /// Updates the belief distribution given the last action taken and the
     /// newly received observation.
     fn update(&self, action: &A, observation: &S::Observation) -> Self;
@@ -76,9 +76,9 @@ pub trait BeliefState<const SD: usize, const AD: usize, S: State<SD>, A: Action<
 }
 
 /// Recurrent agent memory analogous to an RNN hidden state.
-pub trait HiddenState<const D: usize>: Clone {
+pub trait HiddenState<const R: usize>: Clone {
     /// The observation type used to update this hidden state.
-    type Observation: Observation<D>;
+    type Observation: Observation<R>;
 
     /// Incorporates `observation` into the hidden state in-place.
     fn update(&mut self, observation: &Self::Observation);
@@ -91,15 +91,15 @@ pub trait HiddenState<const D: usize>: Clone {
 ///
 /// Used by world-model agents (e.g., DreamerV3) that operate in a learned
 /// latent space rather than the raw observation space.
-pub trait LatentState<const D: usize, const AD: usize>: Clone {
+pub trait LatentState<const R: usize, const AR: usize>: Clone {
     /// The observation type this latent state is derived from.
-    type Observation: Observation<D>;
+    type Observation: Observation<R>;
 
     /// Projects `observation` into the latent space.
     fn encode(observation: &Self::Observation) -> Self;
 
     /// Rolls the latent state forward by one step given `action`.
-    fn predict_next<A: Action<AD>>(&self, action: &A) -> Self;
+    fn predict_next<A: Action<AR>>(&self, action: &A) -> Self;
 
     /// Reconstructs an observation from the latent representation.
     fn decode(&self) -> Self::Observation;
@@ -109,7 +109,7 @@ pub trait LatentState<const D: usize, const AD: usize>: Clone {
 ///
 /// State aggregation is used in function approximation and hierarchical RL to
 /// group similar states under a shared abstract representation.
-pub trait StateAggregation<const SD: usize, S: State<SD>> {
+pub trait StateAggregation<const SR: usize, S: State<SR>> {
     /// The abstract state type produced by aggregation.
     type AbstractState: Clone + Eq;
 

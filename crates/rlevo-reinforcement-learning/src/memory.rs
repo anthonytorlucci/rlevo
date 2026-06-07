@@ -54,7 +54,7 @@ impl std::error::Error for ReplayBufferError {}
 ///
 /// `BD` and `BAD` are **batched** tensor ranks — they are one greater than
 /// the unbatched ranks of the source [`Observation`] and [`Action`]:
-/// `BD = Observation::DIM + 1`, `BAD = Action::DIM + 1`. Stacking a batch of
+/// `BD = Observation::RANK + 1`, `BAD = Action::RANK + 1`. Stacking a batch of
 /// rank-`D` tensors produces rank-`D + 1` output, and Rust cannot express
 /// `D + 1` in a generic position on stable, so the caller of
 /// [`PrioritizedExperienceReplay::sample_batch`] supplies both ranks.
@@ -289,12 +289,12 @@ where
         assert_eq!(
             BD,
             D + 1,
-            "batched observation rank BD must equal Observation::DIM + 1"
+            "batched observation rank BD must equal Observation::RANK + 1"
         );
         assert_eq!(
             BAD,
             AD + 1,
-            "batched action rank BAD must equal Action::DIM + 1"
+            "batched action rank BAD must equal Action::RANK + 1"
         );
         if batch_size > self.buffer.len() {
             return Err(ReplayBufferError::InsufficientData {

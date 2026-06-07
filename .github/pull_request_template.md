@@ -85,3 +85,7 @@ cargo clippy --all-targets --all-features
 - [ ] Bug fixes include a regression test that fails on the previous code and passes on this PR.
 - [ ] This PR addresses a single concern. (If it grew into something larger, it has been split.)
 - [ ] This PR is marked **Ready for Review** (not Draft).
+
+## Notes
+
+<!--any caveats, follow-up items, or migration steps if apparent from the diff; omit section if none-->

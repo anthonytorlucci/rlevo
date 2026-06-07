@@ -27,35 +27,43 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 /// The `Observation` trait defines how an agent perceives the world. It
 /// represents something that can be observed from the environment.
 /// Implements `Serialize` and `Deserialize` for storage in a replay buffer.
-pub trait Observation<const D: usize>:
+pub trait Observation<const R: usize>:
     Debug + Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>
 {
-    /// The number of independent dimensions in this observation space.
+    /// The rank of this observation space — i.e. the number of axes (tensor
+    /// order), *not* the size of any axis.
     ///
-    /// This is automatically set to match the const generic parameter `D`.
-    const DIM: usize = D;
+    /// "Rank" here means the count of indices needed to address an element
+    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// rank. This is automatically set to match the const generic parameter `R`.
+    const RANK: usize = R;
 
-    /// Returns the cardinality of each dimension in this observation space.
+    /// Returns the size of each axis in this observation space.
     ///
-    /// The returned array has length `D`, where each element specifies the number
-    /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D];
+    /// The returned array has length `R` (the rank), where each element is the
+    /// cardinality of that axis — the number of possible values along it. All
+    /// values must be greater than zero.
+    fn shape() -> [usize; R];
 }
 
 /// The complete state of an environment (Markov property)
-pub trait State<const D: usize>: Debug + Clone + Send + Sync {
-    /// The number of independent dimensions in this state space.
+pub trait State<const R: usize>: Debug + Clone + Send + Sync {
+    /// The rank of this state space — i.e. the number of axes (tensor order),
+    /// *not* the size of any axis.
     ///
-    /// This is automatically set to match the const generic parameter `D`.
-    const DIM: usize = D;
+    /// "Rank" here means the count of indices needed to address an element
+    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// rank. This is automatically set to match the const generic parameter `R`.
+    const RANK: usize = R;
 
-    type Observation: Observation<D>;
+    type Observation: Observation<R>;
 
-    /// Returns the cardinality of each dimension in this state space.
+    /// Returns the size of each axis in this state space.
     ///
-    /// The returned array has length `D`, where each element specifies the number
-    /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D];
+    /// The returned array has length `R` (the rank), where each element is the
+    /// cardinality of that axis — the number of possible values along it. All
+    /// values must be greater than zero.
+    fn shape() -> [usize; R];
 
     /// Generate an observation from this state (may be partial)
     fn observe(&self) -> Self::Observation;
@@ -111,17 +119,21 @@ pub trait State<const D: usize>: Debug + Clone + Send + Sync {
 /// - Finiteness for floating-point values
 /// - Structural invariants (e.g., array dimensions)
 /// - Environment-specific rules (e.g., available moves in a game state)
-pub trait Action<const D: usize>: Debug + Clone + Sized {
-    /// The number of independent dimensions in this action space.
+pub trait Action<const R: usize>: Debug + Clone + Sized {
+    /// The rank of this action space — i.e. the number of axes (tensor order),
+    /// *not* the size of any axis.
     ///
-    /// This is automatically set to match the const generic parameter `D`.
-    const DIM: usize = D;
+    /// "Rank" here means the count of indices needed to address an element
+    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// rank. This is automatically set to match the const generic parameter `R`.
+    const RANK: usize = R;
 
-    /// Returns the cardinality of each dimension in this action space.
+    /// Returns the size of each axis in this action space.
     ///
-    /// The returned array has length `D`, where each element specifies the number
-    /// of possible values for that dimension. All values must be greater than zero.
-    fn shape() -> [usize; D];
+    /// The returned array has length `R` (the rank), where each element is the
+    /// cardinality of that axis — the number of possible values along it. All
+    /// values must be greater than zero.
+    fn shape() -> [usize; R];
 
     /// Validates whether this action satisfies all constraints.
     ///
@@ -136,7 +148,7 @@ pub trait Action<const D: usize>: Debug + Clone + Sized {
 }
 
 /// Deterministic environment transition dynamics: s_{t+1} = f(s_t, a_t).
-pub trait TransitionDynamics<const SD: usize, const AD: usize, S: State<SD>, A: Action<AD>> {
+pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>> {
     /// Returns the successor state after applying `action` to `state`.
     fn transition(&self, state: &S, action: &A) -> S;
 }
@@ -164,7 +176,7 @@ impl Error for TensorConversionError {}
 ///
 /// # Type Parameters
 ///
-/// - `D`: Rank of the tensor produced.
+/// - `R`: Rank of the tensor produced.
 /// - `B`: Burn backend.
 ///
 /// # Errors
@@ -172,9 +184,9 @@ impl Error for TensorConversionError {}
 /// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
 /// dtype, or contents violate the domain type's invariants (see
 /// [`State::is_valid`] / [`Action::is_valid`]).
-pub trait TensorConvertible<const D: usize, B: Backend>: Sized {
+pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
     /// Converts `self` into a tensor on `device`.
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, D>;
+    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, R>;
 
     /// Reconstructs a value from a tensor.
     ///
@@ -182,7 +194,7 @@ pub trait TensorConvertible<const D: usize, B: Backend>: Sized {
     ///
     /// Returns [`TensorConversionError`] if the tensor's shape or contents
     /// do not describe a valid instance of `Self`.
-    fn from_tensor(tensor: Tensor<B, D>) -> Result<Self, TensorConversionError>;
+    fn from_tensor(tensor: Tensor<B, R>) -> Result<Self, TensorConversionError>;
 }
 
 #[cfg(test)]
@@ -638,9 +650,9 @@ mod tests {
             "GameStateObservation should have shape [3]"
         );
         assert_eq!(
-            GameStateObservation::DIM,
+            GameStateObservation::RANK,
             1,
-            "GameStateObservation should have dimension 1"
+            "GameStateObservation should have rank 1"
         );
     }
 
@@ -800,9 +812,9 @@ mod tests {
             "GridObservation should have shape [2]"
         );
         assert_eq!(
-            GridObservation::DIM,
+            GridObservation::RANK,
             1,
-            "GridObservation should have dimension 1"
+            "GridObservation should have rank 1"
         );
     }
 
@@ -824,18 +836,18 @@ mod tests {
         assert_eq!(numel, 2, "GridPosition should have numel of 2");
     }
 
-    /// Test State trait const DIM value
+    /// Test State trait const RANK value
     #[test]
-    fn test_state_dim_constant() {
+    fn test_state_rank_constant() {
         assert_eq!(
-            <GameState as State<1>>::DIM,
+            <GameState as State<1>>::RANK,
             1,
-            "GameState should have DIM = 1"
+            "GameState should have RANK = 1"
         );
         assert_eq!(
-            <GridPosition as State<1>>::DIM,
+            <GridPosition as State<1>>::RANK,
             1,
-            "GridPosition should have DIM = 1"
+            "GridPosition should have RANK = 1"
         );
     }
 }

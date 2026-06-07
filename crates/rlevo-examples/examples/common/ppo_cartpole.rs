@@ -56,7 +56,7 @@ pub const LOG_EVERY: usize = 1_024;
 pub const EPISODE_TIME_LIMIT: usize = 500;
 
 const HIDDEN: usize = 64;
-const OBS_DIM: usize = 4;
+const OBS_RANK: usize = 4;
 const NUM_ACTIONS: usize = 2;
 
 /// Autodiff backend the cartpole viz examples train on.
@@ -118,12 +118,12 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     let device = Default::default();
 
     let policy: CategoricalPolicyHead<Be> = CategoricalPolicyHeadConfig {
-        obs_dim: OBS_DIM,
+        obs_dim: OBS_RANK,
         hidden: HIDDEN,
         num_actions: NUM_ACTIONS,
     }
     .init::<Be>(&device);
-    let value: ValueMlp<Be> = ValueMlp::new(OBS_DIM, HIDDEN, &device);
+    let value: ValueMlp<Be> = ValueMlp::new(OBS_RANK, HIDDEN, &device);
 
     let config = PpoTrainingConfigBuilder::new()
         .num_envs(1)

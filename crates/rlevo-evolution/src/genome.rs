@@ -17,12 +17,13 @@ use std::fmt::Debug;
 /// `Permutation`) live below; new kinds can be added by implementing this
 /// trait on a fresh marker type.
 ///
-/// The associated constant [`DIM`](GenomeKind::DIM) records the genome
-/// dimensionality at the type level when it is compile-time known (for
-/// variable-length representations like trees, impls set it to `0`).
+/// The associated constant [`GENOME_LEN`](GenomeKind::GENOME_LEN) records the
+/// genome length (number of genes) at the type level when it is compile-time
+/// known (for variable-length representations like trees, impls set it to `0`).
 pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
-    /// Compile-time genome dimensionality, or `0` for variable-length kinds.
-    const DIM: usize;
+    /// Compile-time genome length (number of genes), or `0` for
+    /// variable-length kinds.
+    const GENOME_LEN: usize;
 
     /// Element type of the genome (typically `f32`, `i32`, or `bool`).
     type Element: Copy + Debug + Send + Sync + 'static;
@@ -36,7 +37,7 @@ pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
 pub struct Real;
 
 impl GenomeKind for Real {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = f32;
 }
 
@@ -48,7 +49,7 @@ impl GenomeKind for Real {
 pub struct Binary;
 
 impl GenomeKind for Binary {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
@@ -78,17 +79,17 @@ pub struct Tree;
 pub struct Permutation;
 
 impl GenomeKind for Integer {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Tree {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Permutation {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 

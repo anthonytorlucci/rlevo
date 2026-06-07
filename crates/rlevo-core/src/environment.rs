@@ -133,8 +133,8 @@ impl From<std::io::Error> for EnvironmentError {
 /// including the observed state, reward received, and episode status.
 /// The required method is `status()`; `is_done`, `is_terminated`, `is_truncated`,
 /// and `metadata` are provided as defaults.
-pub trait Snapshot<const D: usize>: Debug {
-    type ObservationType: Observation<D>;
+pub trait Snapshot<const R: usize>: Debug {
+    type ObservationType: Observation<R>;
 
     /// The type of reward contained in this snapshot.
     type RewardType: Reward;
@@ -177,11 +177,11 @@ pub trait Snapshot<const D: usize>: Debug {
 ///
 /// # Type Parameters
 ///
-/// * `D` - The observation tensor rank
-/// * `ObservationType` - The type of observation (must implement `Observation<D>`)
+/// * `R` - The observation tensor rank
+/// * `ObservationType` - The type of observation (must implement `Observation<R>`)
 /// * `RewardType` - The type of reward (must implement `Reward`)
 #[derive(Debug, Clone)]
-pub struct SnapshotBase<const D: usize, ObservationType: Observation<D>, RewardType: Reward> {
+pub struct SnapshotBase<const R: usize, ObservationType: Observation<R>, RewardType: Reward> {
     /// The observation derived from the state.
     pub observation: ObservationType,
     /// The reward received from the last action.
@@ -190,8 +190,8 @@ pub struct SnapshotBase<const D: usize, ObservationType: Observation<D>, RewardT
     pub status: EpisodeStatus,
 }
 
-impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
-    SnapshotBase<D, ObservationType, RewardType>
+impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
+    SnapshotBase<R, ObservationType, RewardType>
 {
     /// Snapshot for a step where the episode is still running.
     pub fn running(observation: ObservationType, reward: RewardType) -> Self {
@@ -221,8 +221,8 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
     }
 }
 
-impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapshot<D>
-    for SnapshotBase<D, ObservationType, RewardType>
+impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapshot<R>
+    for SnapshotBase<R, ObservationType, RewardType>
 {
     type ObservationType = ObservationType;
     type RewardType = RewardType;
@@ -248,9 +248,9 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
 ///
 /// # Type Parameters
 ///
-/// * `D`  - Rank of the observation tensor (matches `Observation<D>` and `Snapshot<D>`).
-/// * `SD` - Rank of the state tensor (matches `State<SD>`).
-/// * `AD` - Rank of the action tensor (matches `Action<AD>`).
+/// * `R`  - Rank of the observation tensor (matches `Observation<R>` and `Snapshot<R>`).
+/// * `SR` - Rank of the state tensor (matches `State<SR>`).
+/// * `AR` - Rank of the action tensor (matches `Action<AR>`).
 ///
 /// # Associated Types
 ///
@@ -259,21 +259,21 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
 /// * `ActionType`      - The action type this environment accepts.
 /// * `RewardType`      - The reward scalar type returned each step.
 /// * `SnapshotType`    - The snapshot type returned by `reset` and `step`.
-pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
+pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// The concrete state type for this environment.
-    type StateType: State<SD>;
+    type StateType: State<SR>;
 
     /// The observation type exposed to the agent.
-    type ObservationType: Observation<D>;
+    type ObservationType: Observation<R>;
 
     /// The concrete action type this environment accepts.
-    type ActionType: Action<AD>;
+    type ActionType: Action<AR>;
 
     /// The reward scalar type returned by this environment.
     type RewardType: Reward;
 
     /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<D, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
+    type SnapshotType: Snapshot<R, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
     /// Reset the environment to its initial state.
     ///

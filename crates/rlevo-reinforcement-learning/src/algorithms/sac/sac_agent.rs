@@ -261,7 +261,7 @@ where
         let initial_alpha = config.initial_alpha;
         let log_alpha_init = initial_alpha.max(f32::MIN_POSITIVE).ln();
         let log_alpha = LogAlpha::new(log_alpha_init);
-        let target_entropy = config.target_entropy.unwrap_or_else(|| -(A::DIM as f32));
+        let target_entropy = config.target_entropy.unwrap_or_else(|| -(A::RANK as f32));
         let buffer_capacity = config.buffer_capacity;
         let stats = AgentStats::<SacMetrics>::new(100);
         Self {
@@ -362,7 +362,7 @@ where
     /// deterministic policy mean (tanh-squashed) otherwise.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
-            let sample: Vec<f32> = (0..A::DIM)
+            let sample: Vec<f32> = (0..A::RANK)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
                 .collect();
             return A::from_slice(&sample);
@@ -394,7 +394,7 @@ where
         // Actions are already squashed into `[bias - scale, bias + scale]`
         // by the policy; still clip against `low/high` to be robust to users
         // whose scale/bias disagree with the action type's bounds.
-        let out: Vec<f32> = (0..A::DIM)
+        let out: Vec<f32> = (0..A::RANK)
             .map(|i| slice[i].clamp(self.low[i], self.high[i]))
             .collect();
         A::from_slice(&out)

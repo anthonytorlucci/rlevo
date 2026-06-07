@@ -354,7 +354,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         width: 5,
         height: 5,
     };
-    println!("AgentState::DIM     = {}", AgentState::DIM);
+    println!("AgentState::RANK    = {}", AgentState::RANK);
     println!("AgentState::shape() = {:?}", AgentState::shape());
     println!("state.numel()       = {}", state.numel());
     println!("state.is_valid()    = {}", state.is_valid()); // true
@@ -364,7 +364,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Observation + tensor round-trip ===");
     let obs = state.observe();
     println!("obs                          = {:?}", obs);
-    println!("AgentObservation::DIM        = {}", AgentObservation::DIM);
+    println!("AgentObservation::RANK       = {}", AgentObservation::RANK);
     println!(
         "AgentObservation::shape()    = {:?}",
         AgentObservation::shape()
