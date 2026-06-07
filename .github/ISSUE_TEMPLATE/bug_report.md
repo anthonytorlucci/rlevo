@@ -10,29 +10,37 @@ assignees: ''
 **Describe the bug**
 A clear and concise description of what the bug is.
 
+**Affected crate(s)**
+Which `rlevo-*` crate(s) are involved? (e.g. `rlevo-core`, `rlevo-environments`, `rlevo-evolution`)
+
 **To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+Minimal reproducible example or cargo invocation:
+
+```rust
+// paste code here
+```
+
+```bash
+# or paste the cargo command here, e.g.:
+# cargo test -p rlevo-core -- my_test --nocapture
+```
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+**Actual behavior / error output**
+Paste the full compiler error, panic message, or incorrect output verbatim:
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+```
+// paste error here
+```
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+**Environment**
+- OS and GPU model (relevant for `wgpu` backend): [e.g. macOS 15.2, Apple M2]
+- `rustc --version`: 
+- `cargo --version`: 
+- Burn backend in use: [e.g. `wgpu`, `ndarray`, `tch`]
+- Workspace features enabled: [e.g. `--features tui,metrics`]
 
 **Additional context**
 Add any other context about the problem here.
