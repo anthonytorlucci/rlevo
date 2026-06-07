@@ -40,7 +40,7 @@ tempfile = "3"
 # Cross-crate compatibility test only: guards the wire-format mirror in
 # the report client against schema drift. The client itself is not a
 # build-time dep of any production crate.
-rlevo-benchmarks-report-client = { path = "../rlevo-benchmarks-report-client", version = "0.2.0" }
+rlevo-benchmarks-report-client = { path = "../rlevo-benchmarks-report-client" }
 
 [features]
 default = ["json"]
