@@ -1,8 +1,15 @@
-//! End-to-end training loop for C51.
+//! End-to-end training loop for C51 (Categorical DQN).
 //!
-//! Mirrors [`crate::algorithms::dqn::train`]. The only behavioural difference
-//! is the metrics type emitted per completed episode — [`C51Metrics`] carries
-//! an additional `entropy` field in place of DQN's `value_loss` mirror.
+//! Provides a single entry-point, [`train`], that drives a [`C51Agent`]
+//! against any [`Environment`] for a fixed number of environment steps. The
+//! loop handles ε-greedy action selection, replay-buffer ingestion, periodic
+//! gradient updates, target-network synchronisation, episode boundary resets,
+//! and optional `tracing` progress logging.
+//!
+//! The structure mirrors [`crate::algorithms::dqn::train`]; the only
+//! behavioural difference is the metrics type emitted per completed episode —
+//! [`C51Metrics`] carries an additional `entropy` field that tracks the
+//! predicted return-distribution entropy and is absent from DQN's metrics.
 
 use rand::Rng;
 
@@ -16,8 +23,38 @@ use crate::algorithms::c51::c51_model::C51Model;
 
 /// Drives C51 training for `total_steps` environment steps.
 ///
-/// Pass `log_every > 0` to enable periodic progress logging via `tracing`;
-/// `log_every == 0` disables it.
+/// The loop runs one environment step per iteration. After collecting each
+/// transition, it calls [`C51Agent::learn_step`] whenever
+/// [`C51Agent::should_train`] returns `true`, synchronises the target network
+/// via [`C51Agent::sync_target`], and decays ε via
+/// [`C51Agent::decay_exploration`]. On episode termination the loop records
+/// per-episode [`C51Metrics`] into the agent's rolling statistics window and
+/// calls [`Environment::reset`] to begin a new episode, except on the very
+/// last step (to avoid recording a phantom episode in recording environments).
+///
+/// # Const generics
+///
+/// - `DO` — rank of a single observation tensor (e.g. `1` for flat vector
+///   observations).
+/// - `SD` — rank of the state tensor (unused by the loop itself; forwarded to
+///   the environment bound).
+/// - `DB` — rank of a batched observation tensor (`DO + 1`).
+///
+/// # Arguments
+///
+/// - `agent` — mutable reference to the agent being trained.
+/// - `env` — mutable reference to the environment.
+/// - `rng` — random number generator used for ε-greedy exploration and
+///   uniform replay-buffer sampling.
+/// - `total_steps` — number of environment steps to execute.
+/// - `log_every` — emit a `tracing::info!` progress line every this many
+///   steps. Pass `0` to disable logging.
+///
+/// # Errors
+///
+/// Returns [`C51AgentError::InvalidAction`] (wrapping the underlying
+/// [`rlevo_core::environment::EnvironmentError`]) if the environment's
+/// `reset` or `step` call fails.
 pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut C51Agent<B, M, O, A, DO, DB>,
     env: &mut E,

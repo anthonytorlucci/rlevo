@@ -59,7 +59,12 @@ impl<T: PerformanceRecord> AgentStats<T> {
         self.recent_history.push_back(record);
     }
 
-    /// Calculate average main score
+    /// Returns the mean [`PerformanceRecord::score`] over the sliding window of
+    /// recent episodes, or `None` when no episodes have been recorded yet.
+    ///
+    /// The average is computed only over the episodes currently held in
+    /// `recent_history` (at most `window_size` entries), not over the full
+    /// episode history.
     pub fn avg_score(&self) -> Option<f32> {
         if self.recent_history.is_empty() {
             None

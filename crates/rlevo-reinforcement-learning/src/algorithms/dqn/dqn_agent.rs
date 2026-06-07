@@ -75,12 +75,22 @@ impl PerformanceRecord for DqnMetrics {
     }
 }
 
+/// A single `(s, a, r, s', done)` experience tuple stored in the replay buffer.
+///
+/// Observations are stored in their original typed form and converted to
+/// tensors lazily inside [`DqnAgent::learn_step`], which avoids keeping
+/// a large flat tensor buffer in memory.
 #[derive(Debug, Clone)]
 struct Transition<O: Clone> {
+    /// Observation at time `t`.
     obs: O,
+    /// Index into the discrete action space (see [`DiscreteAction::to_index`]).
     action_idx: usize,
+    /// Scalar reward received after taking the action.
     reward: f32,
+    /// Observation at time `t + 1`.
     next_obs: O,
+    /// `true` if the episode terminated after this transition.
     done: bool,
 }
 
@@ -95,13 +105,27 @@ pub struct LearnOutcome {
 
 /// Deep Q-Network agent.
 ///
+/// `DqnAgent` owns the full DQN training state: policy network, frozen target
+/// network, Adam optimizer, uniform replay buffer, and the ε-greedy
+/// exploration schedule. It is the primary entry point for the collect-learn
+/// cycle; the end-to-end training loop is assembled by
+/// [`crate::algorithms::dqn::train::train`].
+///
 /// # Const generics
 ///
-/// - `DO` — rank of a single observation tensor (e.g. `1` for vector
-///   observations of shape `[features]`).
-/// - `DB` — rank of a batched observation tensor (= `DO + 1`, e.g. `2` for
-///   `[batch, features]`). Rust cannot express `DO + 1` in generic position
-///   on stable, so both are supplied by the caller.
+/// - `DO` — rank of a *single* observation tensor (e.g. `1` for a flat vector
+///   of shape `[features]`, `3` for an image of shape `[channels, H, W]`).
+/// - `DB` — rank of a *batched* observation tensor (`= DO + 1`; e.g. `2` for
+///   `[batch, features]`). Rust's const-generic system cannot express `DO + 1`
+///   in generic position on stable, so the caller supplies both.
+///
+/// # Field notes
+///
+/// - `policy_net` is wrapped in `Option` only to allow the temporary `take`
+///   inside [`learn_step`](Self::learn_step) while holding a mutable reference
+///   to the optimizer. It is always `Some` outside of that method.
+/// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so
+///   that computing bootstrap targets never builds an autodiff graph.
 pub struct DqnAgent<B, M, O, A, const DO: usize, const DB: usize>
 where
     B: AutodiffBackend,
@@ -146,6 +170,13 @@ where
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and training config.
+    ///
+    /// The target network is initialized as a frozen copy of `policy_net` via
+    /// [`AutodiffModule::valid`](burn::module::AutodiffModule::valid). Gradient
+    /// clipping is applied to the Adam optimizer when
+    /// [`DqnTrainingConfig::clip_grad`] is `Some`. The replay buffer is
+    /// pre-allocated to `config.replay_buffer_capacity` entries, and the
+    /// running-average statistics window is fixed at 100 episodes.
     pub fn new(policy_net: M, config: DqnTrainingConfig, device: B::Device) -> Self {
         let target_net = policy_net.valid();
         let adam = config.optimizer.clone();

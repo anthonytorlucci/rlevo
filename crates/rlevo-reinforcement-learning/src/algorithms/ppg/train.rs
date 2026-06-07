@@ -25,7 +25,47 @@ use crate::algorithms::ppo::ppo_agent::PpoUpdateStats;
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
 
-/// PPG training loop against a **discrete** action environment.
+/// Run the PPG training loop against a **discrete** action environment.
+///
+/// Executes the five-step PPG iteration — rollout collection, GAE, auxiliary-
+/// buffer snapshot, policy-phase update, and optional auxiliary phase — until
+/// `total_timesteps` environment steps have been taken.
+///
+/// Episode boundaries inside a rollout are handled transparently: the
+/// environment is reset immediately after a terminal step and a new episode
+/// begins in the same rollout. A reset is deliberately skipped on the *final*
+/// terminal step to avoid opening a phantom episode that the recording
+/// infrastructure would never close.
+///
+/// # Parameters
+///
+/// - `agent` — mutable PPG agent; holds all network weights and buffers.
+/// - `env` — mutable environment instance; reset internally on episode end.
+/// - `rng` — random number generator; used for action sampling and minibatch
+///   shuffling.
+/// - `total_timesteps` — total environment steps to collect before returning.
+/// - `log_every` — emit a `tracing::info!` log line every this many global
+///   steps; pass `0` to disable logging.
+///
+/// # Errors
+///
+/// Returns `PpgAgentError::Environment` if the environment's `reset` or `step`
+/// returns an error.
+///
+/// # Type parameters
+///
+/// - `B` — Burn autodiff backend.
+/// - `P` — Policy network: must implement `PpoPolicy<B, DB>` and
+///   `PpgAuxValueHead<B, DB>`.
+/// - `V` — Main value network implementing `PpoValue<B, DB>`.
+/// - `E` — Environment with `ObservationType = O`, `ActionType = A`,
+///   `RewardType = R`, and an action space of rank `1` (discrete).
+/// - `O` — Observation type convertible to a rank-`DO` tensor.
+/// - `A` — Discrete action implementing `DiscreteAction<1>`.
+/// - `R` — Scalar reward implementing `Reward + Copy`.
+/// - `DO` — Observation tensor rank.
+/// - `SD` — State tensor rank (consumed by the environment bound only).
+/// - `DB` — Batched observation tensor rank (`DO + 1`).
 pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut PpgAgent<B, P, V, O, DO, DB>,
     env: &mut E,
@@ -148,6 +188,8 @@ where
     Ok(())
 }
 
+/// Maps an [`EnvironmentError`](rlevo_core::environment::EnvironmentError)
+/// into [`PpgAgentError::Environment`] for use with `?` in the training loop.
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> PpgAgentError {
     PpgAgentError::Environment(err.to_string())
 }

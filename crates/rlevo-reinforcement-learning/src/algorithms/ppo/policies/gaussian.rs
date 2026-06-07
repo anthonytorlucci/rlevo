@@ -127,10 +127,18 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
 impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     type ActionTensor = Tensor<B, 2>;
 
+    /// Number of continuous action dimensions `A` this head was built for.
     fn action_dim(&self) -> usize {
         self.action_dim
     }
 
+    /// Samples actions via reparameterisation `z = μ + σ·ε` with `ε ∼ N(0,1)`
+    /// drawn on CPU, then returns `z` (the pre-squash sample), its Gaussian
+    /// log-probability, and the per-row Gaussian entropy.
+    ///
+    /// `z` is stored in the rollout buffer, not the tanh-squashed env action
+    /// `a = scale · tanh(z)`. See the module-level note on why the tanh
+    /// Jacobian is omitted.
     fn sample_with_logprob(
         &self,
         obs: Tensor<B, 2>,
@@ -165,10 +173,19 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         }
     }
 
+    /// Evaluates log-probability and entropy of the pre-squash samples
+    /// `actions` (shape `(batch, action_dim)`) under the current Gaussian
+    /// policy given `obs`. The tanh Jacobian cancels in the PPO importance
+    /// ratio and is not included.
     fn evaluate(&self, obs: Tensor<B, 2>, actions: Self::ActionTensor) -> LogProbEntropy<B> {
         self.log_prob_entropy(obs, actions)
     }
 
+    /// Extracts the pre-squash `z` row at `row` as `action_dim` `f32` values.
+    ///
+    /// This is the buffer representation for continuous actions. The
+    /// environment-facing value (`scale · tanh(z)`) is produced separately by
+    /// [`raw_to_env_row`](Self::raw_to_env_row).
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("gaussian action is f32");
@@ -177,6 +194,8 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         slice[start..start + action_dim].to_vec()
     }
 
+    /// Rebuilds a `(n_rows, action_dim)` tensor from row-major pre-squash
+    /// `f32` data. `action_dim` is inferred as `flat.len() / n_rows`.
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
@@ -189,6 +208,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
         )
     }
 
+    /// Converts a pre-squash `z` row to the env-facing action
+    /// `scale · tanh(z)`, squashing each component into
+    /// `(−action_scale, +action_scale)`.
     fn raw_to_env_row(&self, raw_row: &[f32]) -> Vec<f32> {
         raw_row
             .iter()
@@ -196,6 +218,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             .collect()
     }
 
+    /// Returns `scale · tanh(μ(obs))` as the deterministic (noise-free) action
+    /// for the first batch row, evaluated on the frozen inner backend.
+    ///
+    /// No σ·ε noise is added — appropriate for evaluation and benchmarking.
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,
@@ -209,8 +235,14 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     }
 }
 
-/// Convenience: build a `ContinuousAction` from the env-action row produced
-/// by [`TanhGaussianPolicyHead::raw_to_env_row`].
+/// Converts the env-action row produced by
+/// [`TanhGaussianPolicyHead::raw_to_env_row`] (the tanh-squashed, scaled
+/// values) into a typed [`ContinuousAction`](rlevo_core::action::ContinuousAction)
+/// via [`from_slice`](rlevo_core::action::ContinuousAction::from_slice).
+///
+/// Use this as the `action_from_row` closure in custom train loops; the
+/// built-in [`train_continuous`](crate::algorithms::ppo::train::train_continuous)
+/// calls it automatically.
 pub fn continuous_action_from_row<const AD: usize, A: rlevo_core::action::ContinuousAction<AD>>(
     row: &[f32],
 ) -> A {

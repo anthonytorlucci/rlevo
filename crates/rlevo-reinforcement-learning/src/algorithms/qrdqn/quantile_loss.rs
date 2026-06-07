@@ -55,7 +55,7 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 /// L_κ(u_ij) / κ`. Aggregated as `mean_j → sum_i → mean_batch` following
 /// Dabney Eq. 10.
 ///
-/// The pred axis is processed in chunks of [`QUANTILE_CHUNK_SIZE`] to avoid
+/// The pred axis is processed in chunks of `QUANTILE_CHUNK_SIZE` to avoid
 /// materialising the full `(B, N, N)` tensor at once.
 pub fn quantile_huber_loss<B: Backend>(
     pred_quantiles: Tensor<B, 2>,

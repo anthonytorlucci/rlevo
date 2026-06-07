@@ -19,7 +19,43 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 
 /// Drives SAC training for `total_steps` environment steps.
 ///
-/// Pass `log_every = 0` to disable progress logging.
+/// Runs the standard collect-then-learn cycle:
+///
+/// 1. Calls [`SacAgent::act`] to select an action (uniform random during
+///    warm-up; reparameterized squashed-Gaussian sample afterwards).
+/// 2. Steps the environment and stores the transition via
+///    [`SacAgent::remember`].
+/// 3. Invokes [`SacAgent::learn_step`] once warm-up is complete (returns
+///    `None` until then).
+/// 4. On episode termination, records [`SacMetrics`] and resets the
+///    environment (the reset is skipped on the very last step to avoid
+///    writing a phantom episode that would cause an `EpisodeCountMismatch`
+///    in a recording environment).
+///
+/// # Const generics
+///
+/// - `DO` — rank of a single observation tensor.
+/// - `SD` — rank of the environment's state tensor (passed through to the
+///   `Environment` bound; typically `DO`).
+/// - `DB` — rank of a batched observation tensor (`DO + 1`).
+/// - `DA` — rank of a single action tensor.
+/// - `DAB` — rank of a batched action tensor (`DA + 1`).
+///
+/// # Arguments
+///
+/// - `agent` — mutable reference to the constructed [`SacAgent`].
+/// - `env` — mutable reference to the environment to interact with.
+/// - `rng` — seeded random number generator forwarded to the agent for
+///   action sampling and batch sampling.
+/// - `total_steps` — total number of environment steps to execute.
+/// - `log_every` — emit a [`tracing::info!`] log every this many steps.
+///   Pass `0` to disable all progress logging.
+///
+/// # Errors
+///
+/// Returns [`SacAgentError::InvalidAction`] (wrapping the underlying
+/// [`EnvironmentError`](rlevo_core::environment::EnvironmentError)) if
+/// `env.reset()` or `env.step()` fails at any point during training.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
     B,

@@ -20,10 +20,22 @@ use std::collections::VecDeque;
 #[derive(Debug)]
 pub enum ReplayBufferError {
     /// A general batch-assembly failure.
+    ///
+    /// Carries a human-readable description of what went wrong during
+    /// tensor stacking or batch construction.
     BatchError(String),
     /// The buffer holds fewer experiences than the requested batch size.
+    ///
+    /// Returned by [`PrioritizedExperienceReplay::sample_batch`] when
+    /// `batch_size > self.len()`. The caller should either reduce the batch
+    /// size or wait until more transitions have been collected.
     InsufficientData { requested: usize, available: usize },
     /// A domain type could not be converted to or from a tensor.
+    ///
+    /// Wraps errors surfaced by [`TensorConvertible`] implementations during
+    /// observation, action, or reward tensor conversion.
+    ///
+    /// [`TensorConvertible`]: rlevo_core::base::TensorConvertible
     TensorConversionError(String),
 }
 
@@ -217,10 +229,13 @@ where
     /// Appends a transition to the buffer and records its sampling priority.
     ///
     /// When the buffer is at capacity the oldest transition (and its priority)
-    /// is evicted before the new one is inserted. New transitions are usually
-    /// given the current maximum priority so they are sampled at least once
-    /// before their TD error is known; callers can pass `None` to get that
-    /// behaviour, or an explicit value to override it.
+    /// is evicted before the new one is inserted.
+    ///
+    /// Pass `priority = None` to assign the current maximum priority across
+    /// all stored transitions, with a floor of `1.0` when the buffer is empty.
+    /// This ensures new transitions are sampled at least once before their
+    /// TD error is known. Pass `Some(p)` to assign an explicit priority
+    /// instead.
     pub fn add(
         &mut self,
         observation: O,

@@ -121,6 +121,13 @@ pub(crate) fn compute_twin_critic_target<BI: Backend>(
 
 /// Twin Delayed DDPG (TD3) agent.
 ///
+/// Holds the live actor, two independent critics, their three Polyak-averaged
+/// target networks, three separate Adam optimizers, a FIFO replay buffer, and
+/// per-episode statistics. The public surface is intentionally narrow: callers
+/// interact through [`act`](Self::act), [`remember`](Self::remember),
+/// [`on_env_step`](Self::on_env_step), and [`learn_step`](Self::learn_step).
+/// The high-level collect-learn loop is driven by [`super::train::train`].
+///
 /// # Const generics
 ///
 /// Same layout as [`DdpgAgent`](crate::algorithms::ddpg::ddpg_agent::DdpgAgent):
@@ -128,6 +135,13 @@ pub(crate) fn compute_twin_critic_target<BI: Backend>(
 /// - `DB` — rank of a batched observation tensor (= `DO + 1`).
 /// - `DA` — rank of a single action tensor.
 /// - `DAB` — rank of a batched action tensor (= `DA + 1`).
+///
+/// # Panics
+///
+/// `learn_step` stores the actor and critics in `Option` fields and temporarily
+/// takes ownership during each backward pass. If a previous call to
+/// `learn_step` panicked mid-step, the `Option` may be `None` and subsequent
+/// calls will panic with a message indicating which module was not restored.
 pub struct Td3Agent<
     B,
     Actor,
@@ -391,16 +405,25 @@ where
 
     /// Runs one learning step.
     ///
-    /// 1. Samples a batch from the replay buffer.
-    /// 2. Builds the twin-critic TD target:
+    /// 1. Samples a uniformly random batch of size `batch_size` (with
+    ///    replacement) from the replay buffer.
+    /// 2. Builds the twin-critic TD target on the inner (non-autodiff) backend:
     ///    `y = r + γ(1−d)·min(target_q1(s', ã), target_q2(s', ã))`
-    ///    where `ã = clip(target_actor(s') + clip(N(0, σ²), -c, c),
-    ///    low, high)` (target-policy smoothing).
-    /// 3. Runs an independent backward + optimizer step for each critic.
-    /// 4. Every `policy_frequency`-th critic step, runs an actor update
-    ///    against `critic_1` and Polyak-averages all three targets.
+    ///    where `ã = clip(target_actor(s') + clip(N(0, σ²), −c, c), low, high)`
+    ///    (target-policy smoothing; see [`super::target_smoothing`]).
+    /// 3. Runs an independent backward pass and Adam step for each critic.
+    /// 4. Every `policy_frequency`-th critic step, updates the actor with
+    ///    deterministic policy gradient against `critic_1`, then Polyak-averages
+    ///    all three target networks.
     ///
-    /// Returns `None` if the agent is still in warm-up.
+    /// Returns `None` if the agent is still in warm-up
+    /// ([`can_learn`](Self::can_learn) returns `false`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if an earlier call to this method left the actor or either critic
+    /// `Option` as `None` (which can happen if the previous call panicked
+    /// during the backward pass).
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;

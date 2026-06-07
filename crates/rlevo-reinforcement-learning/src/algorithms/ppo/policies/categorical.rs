@@ -66,10 +66,19 @@ impl<B: Backend> CategoricalPolicyHead<B> {
 impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     type ActionTensor = Tensor<B, 2, Int>;
 
+    /// Always `1`: a discrete action is a single index stored as one `f32` in
+    /// the rollout buffer.
     fn action_dim(&self) -> usize {
         1
     }
 
+    /// Samples one action per batch row using **Gumbel-max** on CPU, then
+    /// returns the sampled index, its log-probability under the softmax
+    /// distribution, and per-row entropy.
+    ///
+    /// Gumbel-max (`argmax(logits + Gumbel(0,1))`) is equivalent to categorical
+    /// sampling but uses the explicit `rng` argument, keeping results
+    /// bitwise-reproducible under seeded host RNGs regardless of backend.
     fn sample_with_logprob(
         &self,
         obs: Tensor<B, 2>,
@@ -133,6 +142,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         }
     }
 
+    /// Computes log-probability and entropy of `actions` (integer indices, shape
+    /// `(batch, 1)`) under the current softmax distribution given `obs`.
+    ///
+    /// Called by the PPO update loop for importance-ratio recomputation.
     fn evaluate(&self, obs: Tensor<B, 2>, actions: Self::ActionTensor) -> LogProbEntropy<B> {
         let logits = self.logits(obs);
         let log_probs = log_softmax(logits, 1);
@@ -143,6 +156,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         LogProbEntropy { log_prob, entropy }
     }
 
+    /// Extracts the action index at `row` as a single-element `Vec<f32>`.
+    ///
+    /// The buffer representation for discrete actions is the integer index
+    /// cast to `f32`, so `action_tensor_from_flat` can invert this by casting
+    /// back to `i64`.
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<i64>();
         let slice = data
@@ -151,6 +169,9 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         vec![slice[row] as f32]
     }
 
+    /// Rebuilds the action tensor from a flat `f32` buffer slice of length
+    /// `n_rows` (one index per row), casting each value to `i64` and reshaping
+    /// to `(n_rows, 1)`.
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
@@ -166,6 +187,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
         t.unsqueeze_dim::<2>(1)
     }
 
+    /// Returns the categorical mode (`argmax` over logits) as a single-element
+    /// `Vec<f32>`, evaluated on the frozen inner (non-autodiff) backend.
+    ///
+    /// No sampling noise — appropriate for evaluation and throughput benchmarking.
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,

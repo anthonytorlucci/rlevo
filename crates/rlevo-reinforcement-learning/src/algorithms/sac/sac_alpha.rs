@@ -16,7 +16,12 @@
 //! registered". Keeping `log α` as a plain `f32` with hand-rolled Adam
 //! sidesteps the interaction entirely.
 
-/// Stateful `log α` with its own Adam first/second-moment estimates.
+/// Stateful `log α` with its own scalar Adam first/second-moment estimates.
+///
+/// The Adam hyperparameters are fixed at CleanRL's defaults (β₁ = 0.9,
+/// β₂ = 0.999, ε = 1 × 10⁻⁸) and are not exposed as configuration. The
+/// learning rate is passed per-step via [`LogAlpha::adam_step`] so callers
+/// can derive it from [`SacTrainingConfig::alpha_lr`](super::sac_config::SacTrainingConfig).
 #[derive(Debug, Clone)]
 pub struct LogAlpha {
     log_alpha: f32,

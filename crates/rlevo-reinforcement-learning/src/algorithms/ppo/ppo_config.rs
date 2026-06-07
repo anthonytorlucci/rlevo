@@ -158,6 +158,7 @@ impl Default for PpoTrainingConfigBuilder {
 }
 
 impl PpoTrainingConfigBuilder {
+    /// Creates a builder pre-populated with [`PpoTrainingConfig::default`] values.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -165,101 +166,125 @@ impl PpoTrainingConfigBuilder {
         }
     }
 
+    /// Sets [`PpoTrainingConfig::num_envs`]. v1 only supports `1`.
     pub fn num_envs(mut self, num_envs: usize) -> Self {
         self.config.num_envs = num_envs;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::num_steps`] (rollout horizon per env).
     pub fn num_steps(mut self, num_steps: usize) -> Self {
         self.config.num_steps = num_steps;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::num_minibatches`].
     pub fn num_minibatches(mut self, num_minibatches: usize) -> Self {
         self.config.num_minibatches = num_minibatches;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::update_epochs`].
     pub fn update_epochs(mut self, update_epochs: usize) -> Self {
         self.config.update_epochs = update_epochs;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::learning_rate`].
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
         self.config.learning_rate = learning_rate;
         self
     }
 
+    /// Enables or disables linear learning-rate annealing to zero.
     pub fn anneal_lr(mut self, anneal_lr: bool) -> Self {
         self.config.anneal_lr = anneal_lr;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::max_grad_norm`] (global gradient-norm clip).
     pub fn max_grad_norm(mut self, max_grad_norm: f32) -> Self {
         self.config.max_grad_norm = max_grad_norm;
         self
     }
 
+    /// Replaces the entire Adam optimizer config (e.g. to override epsilon).
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self
     }
 
+    /// Sets the optional Burn gradient-clipping config applied inside the
+    /// optimizer step. `None` disables it (the default).
     pub fn clip_grad(mut self, clip_grad: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = clip_grad;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::gamma`] (discount factor γ).
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::gae_lambda`] (GAE bootstrap parameter λ).
     pub fn gae_lambda(mut self, gae_lambda: f32) -> Self {
         self.config.gae_lambda = gae_lambda;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::clip_coef`] (PPO clipping coefficient ε).
     pub fn clip_coef(mut self, clip_coef: f32) -> Self {
         self.config.clip_coef = clip_coef;
         self
     }
 
+    /// Enables or disables the clipped value-function loss variant.
     pub fn clip_value_loss(mut self, clip_value_loss: bool) -> Self {
         self.config.clip_value_loss = clip_value_loss;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::entropy_coef`] (entropy bonus weight).
     pub fn entropy_coef(mut self, entropy_coef: f32) -> Self {
         self.config.entropy_coef = entropy_coef;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::value_coef`] (value-loss weight `c_v`).
     pub fn value_coef(mut self, value_coef: f32) -> Self {
         self.config.value_coef = value_coef;
         self
     }
 
+    /// Enables or disables per-minibatch advantage normalisation.
     pub fn normalize_advantages(mut self, normalize_advantages: bool) -> Self {
         self.config.normalize_advantages = normalize_advantages;
         self
     }
 
+    /// Sets [`PpoTrainingConfig::target_kl`]. `None` disables early stopping.
     pub fn target_kl(mut self, target_kl: Option<f32>) -> Self {
         self.config.target_kl = target_kl;
         self
     }
 
+    /// Sets the initial value for the state-independent `log_std` parameter
+    /// used by the tanh-Gaussian policy head. Ignored for categorical policies.
     pub fn action_log_std_init(mut self, v: f32) -> Self {
         self.config.action_log_std_init = v;
         self
     }
 
+    /// Sets the tanh-squash scale applied before the env sees a continuous
+    /// action. Match this to the env's action-bound magnitude. Ignored for
+    /// categorical policies.
     pub fn action_scale(mut self, v: f32) -> Self {
         self.config.action_scale = v;
         self
     }
 
+    /// Consumes the builder and returns the assembled [`PpoTrainingConfig`].
     pub fn build(self) -> PpoTrainingConfig {
         self.config
     }

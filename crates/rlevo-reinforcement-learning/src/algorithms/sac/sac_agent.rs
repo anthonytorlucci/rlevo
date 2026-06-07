@@ -107,6 +107,10 @@ pub struct LearnOutcome {
     pub q_mean: f32,
 }
 
+/// A single environment transition stored in the replay buffer.
+///
+/// Actions are stored as `Vec<f32>` rather than `A` so the buffer can hold
+/// them without an additional `Clone + 'static` bound on the action type.
 #[derive(Debug, Clone)]
 struct Transition<O: Clone> {
     obs: O,

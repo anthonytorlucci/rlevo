@@ -1,9 +1,19 @@
 //! End-to-end training loop for DDPG.
 //!
-//! [`train`] drives the collect-learn cycle: reset the environment, act via
-//! [`DdpgAgent::act`] (uniform random during
-//! warm-up, noisy actor afterwards), push each transition into the replay
-//! buffer, and invoke [`DdpgAgent::learn_step`] once the warm-up is complete.
+//! [`train`] drives the standard collect-learn cycle:
+//!
+//! 1. Reset the environment at the start of each episode.
+//! 2. Act via [`DdpgAgent::act`] — uniform random during warm-up, noisy actor
+//!    output afterwards.
+//! 3. Push each `(obs, action, reward, next_obs, done)` transition into the
+//!    replay buffer via [`DdpgAgent::remember`].
+//! 4. Invoke [`DdpgAgent::learn_step`] — a no-op during warm-up, one critic
+//!    update plus a conditional actor + Polyak update thereafter.
+//! 5. Log progress via [`tracing::info!`] every `log_every` steps when
+//!    `log_every > 0`.
+//!
+//! The function returns when `total_steps` environment interactions have been
+//! collected, or immediately on the first environment error.
 
 use burn::tensor::backend::AutodiffBackend;
 use rand::Rng;
@@ -17,7 +27,36 @@ use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 
 /// Drives DDPG training for `total_steps` environment steps.
 ///
-/// Pass `log_every = 0` to disable progress logging.
+/// On every done step the episode metrics are committed to the agent's
+/// [`AgentStats`](crate::metrics::AgentStats) via
+/// [`DdpgAgent::record_episode`]. The environment is not reset after the
+/// final done step to avoid creating a phantom episode that the record
+/// manifest would not account for.
+///
+/// # Arguments
+///
+/// - `agent` — mutable reference to the DDPG agent.
+/// - `env` — mutable reference to an environment compatible with the agent's
+///   observation and action types.
+/// - `rng` — any [`Rng`] implementation; must remain consistent between calls
+///   if reproducibility is required.
+/// - `total_steps` — number of environment interactions to run.
+/// - `log_every` — emit a [`tracing::info!`] progress line every this many
+///   steps; pass `0` to disable logging.
+///
+/// # Errors
+///
+/// Returns [`DdpgAgentError::InvalidAction`] (wrapping the underlying
+/// [`EnvironmentError`](rlevo_core::environment::EnvironmentError) message)
+/// if either [`Environment::reset`]
+/// or [`Environment::step`] fails.
+///
+/// # Const generics
+///
+/// The same const-generic parameters as [`DdpgAgent`]: `DO`/`DB` are the
+/// single and batched observation ranks, `DA`/`DAB` the single and batched
+/// action ranks. `SD` is the state rank required by the `Environment` bound
+/// and is not used directly by this function.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
     B,

@@ -19,7 +19,29 @@ use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 
 /// Drives TD3 training for `total_steps` environment steps.
 ///
-/// Pass `log_every = 0` to disable progress logging.
+/// The loop runs the standard collect-then-learn cycle:
+///
+/// 1. Observe the current state and call [`Td3Agent::act`] (uniform random
+///    during warm-up, noisy actor afterwards).
+/// 2. Step the environment and store the transition with
+///    [`Td3Agent::remember`].
+/// 3. Call [`Td3Agent::learn_step`]; all TD3-specific logic (twin critics,
+///    target-policy smoothing, delayed actor updates) happens inside that
+///    method.
+/// 4. On episode termination, record metrics via
+///    [`Td3Agent::record_episode`] and reset the environment — except on
+///    the final step, where the reset is skipped to avoid writing a
+///    partial episode to any recording sink.
+///
+/// Progress is logged via [`tracing::info!`] every `log_every` steps.
+/// Pass `log_every = 0` to disable all progress logging.
+///
+/// # Errors
+///
+/// Returns [`Td3AgentError::InvalidAction`] if `env.reset()` or `env.step()`
+/// returns an [`rlevo_core::environment::EnvironmentError`]. The agent's
+/// internal state (buffer, step counter, statistics) reflects all transitions
+/// completed before the error.
 #[allow(clippy::too_many_arguments)]
 pub fn train<
     B,
@@ -117,6 +139,8 @@ where
     Ok(())
 }
 
+/// Converts an [`rlevo_core::environment::EnvironmentError`] into a
+/// [`Td3AgentError`] for use as a `map_err` adapter in [`train`].
 fn env_to_err(err: rlevo_core::environment::EnvironmentError) -> Td3AgentError {
     Td3AgentError::InvalidAction(err.to_string())
 }

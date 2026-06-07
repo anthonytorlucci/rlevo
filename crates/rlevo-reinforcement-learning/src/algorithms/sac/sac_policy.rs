@@ -51,7 +51,12 @@ pub struct SquashedGaussianPolicyHeadConfig {
 }
 
 impl SquashedGaussianPolicyHeadConfig {
-    /// Constructs the module on `device`.
+    /// Constructs a [`SquashedGaussianPolicyHead`] on `device`.
+    ///
+    /// All four linear layers (`fc1`, `fc2`, `mean`, `log_std`) are
+    /// initialized with Burn's default weight initializer. Call this after
+    /// seeding the backend's RNG if reproducible weight initialization is
+    /// required.
     pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SquashedGaussianPolicyHead<B> {
         SquashedGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
@@ -133,10 +138,28 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
     }
 }
 
-/// Shared math: given `(μ, log σ, ε)`, returns the squashed sample and its
-/// log-probability (Jacobian-corrected) as a `(batch, action_dim)` /
-/// `(batch,)` pair. Generic over the backend so the agent can call it on
-/// both `B` (autodiff) and `B::InnerBackend` via the SAC policy trait.
+/// Shared reparameterized-sample math for the squashed-Gaussian policy.
+///
+/// Given pre-computed `(μ, log σ)` tensors of shape `(batch, action_dim)`
+/// and a noise tensor `ε` of the same shape, computes:
+///
+/// ```text
+/// z          = μ + exp(log σ) · ε                  (reparameterization)
+/// log π(z)   = log N(z | μ, σ²) − log|det J_tanh|  (Jacobian-corrected)
+/// a          = action_scale · tanh(z) + action_bias  (squashed action)
+/// ```
+///
+/// The Jacobian term `log(1 − tanh²(z))` is evaluated as
+/// `2·(ln 2 − z − softplus(−2z))` for numerical stability near saturation.
+/// The `log|action_scale|` contribution is subtracted once per action
+/// dimension to account for the scale of the squashed sample.
+///
+/// Returns `(action, log_prob)` where `action` has shape `(batch, action_dim)`
+/// and `log_prob` has shape `(batch,)`.
+///
+/// Generic over the backend so the agent can call this on both `B`
+/// (autodiff forward pass) and `B::InnerBackend` (no-autodiff target
+/// computation) without code duplication.
 fn squashed_sample_log_prob<BB: Backend>(
     mean: Tensor<BB, 2>,
     log_std: Tensor<BB, 2>,

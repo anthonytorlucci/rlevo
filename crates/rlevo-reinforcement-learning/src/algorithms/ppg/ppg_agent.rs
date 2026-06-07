@@ -64,12 +64,20 @@ pub enum PpgAgentError {
 /// Per-episode statistics emitted by the PPG training loop.
 #[derive(Debug, Clone, Copy)]
 pub struct PpgMetrics {
+    /// Undiscounted total reward for this episode.
     pub reward: f32,
+    /// Number of environment steps in this episode.
     pub steps: usize,
+    /// Mean policy (clipped surrogate) loss from the most recent policy-phase
+    /// update preceding this episode's end.
     pub policy_loss: f32,
+    /// Mean value loss from the most recent policy-phase update.
     pub value_loss: f32,
+    /// Mean per-step policy entropy from the most recent policy-phase update.
     pub entropy: f32,
+    /// Approximate KL divergence from the most recent policy-phase update.
     pub approx_kl: f32,
+    /// Fraction of samples that hit the PPO clip boundary.
     pub clip_frac: f32,
     /// Most recent auxiliary-phase main-value loss (`0.0` if none has run yet).
     pub aux_main_value_loss: f32,
@@ -106,6 +114,29 @@ pub struct AuxPhaseStats {
 }
 
 /// Phasic Policy Gradient agent.
+///
+/// Owns the policy network (`P`, which must implement both
+/// [`PpoPolicy`] and
+/// [`PpgAuxValueHead`]), a separate main value network (`V`), two Adam
+/// optimizers, a PPO [`RolloutBuffer`], an [`AuxRolloutBuffer`], and the
+/// [`PpgConfig`].
+///
+/// # Type parameters
+///
+/// - `B` — Burn autodiff backend.
+/// - `P` — Policy network module implementing both `PpoPolicy<B, DB>` and
+///   `PpgAuxValueHead<B, DB>`.
+/// - `V` — Main value network implementing `PpoValue<B, DB>`.
+/// - `O` — Observation type; must be convertible to a rank-`DO` tensor.
+/// - `DO` — Rank of the observation tensor (e.g. `1` for flat vectors).
+/// - `DB` — Rank of the batched observation tensor (`DO + 1`; e.g. `2` for a
+///   batch of flat vectors).
+///
+/// # Usage
+///
+/// Construct with [`PpgAgent::new`], then drive the training loop via
+/// [`train_discrete`](crate::algorithms::ppg::train::train_discrete) or
+/// manually via the five-step sequence described in the module header.
 pub struct PpgAgent<B, P, V, O, const DO: usize, const DB: usize>
 where
     B: AutodiffBackend,
@@ -187,6 +218,16 @@ where
     O: Observation<DO> + TensorConvertible<DO, B>,
 {
     /// Construct a new agent from a pre-built policy and value network.
+    ///
+    /// Initialises both Adam optimizers from `config.ppo.optimizer` (with
+    /// optional gradient clipping), creates an empty rollout buffer sized to
+    /// `config.ppo.batch_size()`, and an empty auxiliary buffer. The
+    /// `total_iterations` value is used only for learning-rate annealing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.ppo.num_envs != 1`. PPG v1 supports sequential rollout
+    /// only.
     pub fn new(
         policy: P,
         value: V,
@@ -237,30 +278,53 @@ where
         }
     }
 
+    /// Number of policy-phase updates completed so far.
     pub fn iteration(&self) -> usize {
         self.iteration
     }
+
+    /// Total environment steps taken across all rollouts.
     pub fn step(&self) -> usize {
         self.step
     }
+
+    /// Number of transitions currently held in the rollout buffer.
     pub fn buffer_len(&self) -> usize {
         self.buffer.len()
     }
+
+    /// Number of rollout slices currently held in the auxiliary buffer.
+    ///
+    /// The auxiliary phase fires when this reaches `config.n_iteration`.
     pub fn aux_buffer_slices(&self) -> usize {
         self.aux_buffer.num_slices()
     }
+
+    /// Total policy-phase iterations the agent was initialised to run.
+    ///
+    /// Used only for learning-rate annealing; has no effect when
+    /// `config.ppo.anneal_lr` is `false`.
     pub fn total_iterations(&self) -> usize {
         self.total_iterations
     }
+
+    /// Per-episode statistics accumulated over the last 100 episodes.
     pub fn stats(&self) -> &AgentStats<PpgMetrics> {
         &self.stats
     }
+
+    /// Records one completed episode's metrics into the rolling stats window.
     pub fn record_episode(&mut self, metrics: PpgMetrics) {
         self.stats.record(metrics);
     }
+
+    /// The active configuration.
     pub fn config(&self) -> &PpgConfig {
         &self.config
     }
+
+    /// Statistics from the most recent auxiliary phase, or `None` if no
+    /// auxiliary phase has run yet.
     pub fn last_aux_phase(&self) -> Option<AuxPhaseStats> {
         self.last_aux
     }
@@ -277,6 +341,10 @@ where
             .expect("value is populated outside transient step() calls")
     }
 
+    /// Current effective learning rate, accounting for linear annealing.
+    ///
+    /// Returns `config.ppo.learning_rate` unchanged when `anneal_lr` is
+    /// `false`; otherwise linearly decays toward zero over `total_iterations`.
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.ppo.anneal_lr {
             annealed_learning_rate(
@@ -289,7 +357,16 @@ where
         }
     }
 
-    /// Sample one action for a single observation.
+    /// Sample one action for a single observation during a training rollout.
+    ///
+    /// Runs forward passes through both the policy (to obtain action, log-prob,
+    /// and entropy) and the main value network (to obtain the baseline value
+    /// estimate). All values are pushed into the rollout buffer via
+    /// [`record_step`](Self::record_step).
+    ///
+    /// For evaluation use [`act_greedy`](Self::act_greedy) (no exploration
+    /// noise) or [`act_greedy_env_row_with`](Self::act_greedy_env_row_with)
+    /// (no autodiff graph overhead).
     pub fn act(&self, obs: &O, rng: &mut dyn Rng) -> ActOutcome {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
