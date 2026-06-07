@@ -2,13 +2,23 @@
 //! static-HTML report that mounts the Leptos/WASM client. Mirrors
 //! `report_ppo_cartpole_with_client.rs` for the `toy_text` family — the
 //! manifest carries `EnvFamily::ToyText`, dispatching to the interactive
-//! `toy_text` playback adapter.
+//! `toy_text` playback adapter (scrubber + play/pause + grid rendering).
+//!
+//! A random agent plays [`NUM_EPISODES`] episodes on the 4×4 [`FrozenLake`]
+//! preset (non-slippery). Each step is recorded as a [`FrameRecord`] via
+//! [`RecordingTap`]; the completed run is serialised to a per-run directory
+//! under the workspace `target/` tree. `emit_static_html` writes a single
+//! `index.html` into that same directory — open it in a browser to replay the
+//! episodes.
 //!
 //! # Run with
 //!
 //! ```bash
+//! # 1) Build the client (one-time per code change).
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
 //! cd ../../
+//!
+//! # 2) Run this example.
 //! cargo run -p rlevo-examples --example report_toy_text_with_client \
 //!     --features viz-report
 //! ```

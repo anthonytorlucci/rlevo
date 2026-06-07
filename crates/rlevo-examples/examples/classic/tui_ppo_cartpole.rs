@@ -47,7 +47,8 @@
 //! ```
 //!
 //! The `--release` matters: PPO's training loop is unusable at debug
-//! speed.
+//! speed. After training completes the dashboard stays open; press any
+//! key to exit.
 //!
 //! [`TuiEnvTap`]: rlevo_benchmarks::env_wrappers::TuiEnvTap
 

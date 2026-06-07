@@ -1,12 +1,11 @@
 //! Shared PPO-on-[`CartPole`] scaffolding for the viz examples.
 //!
-//! The three cartpole viz examples ([`tui_ppo_cartpole`],
-//! [`record_ppo_cartpole`], [`report_ppo_cartpole_with_client`]) differ
-//! only in which visualisation tier they wire up — the *agent*, the
-//! *value network*, the *hyperparameters*, and the *training call* are
-//! byte-for-byte identical. That shared core lives here so each example
-//! is a thin wrapper around its viz tier rather than a copy of the PPO
-//! boilerplate.
+//! The two cartpole viz examples ([`tui_ppo_cartpole`] and
+//! [`report_ppo_cartpole_with_client`]) differ only in which
+//! visualisation tier they wire up — the *agent*, the *value network*,
+//! the *hyperparameters*, and the *training call* are byte-for-byte
+//! identical. That shared core lives here so each example is a thin
+//! wrapper around its viz tier rather than a copy of the PPO boilerplate.
 //!
 //! Included from each example via:
 //!

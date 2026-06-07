@@ -1,9 +1,17 @@
-//! [`LunarLanderDiscrete`] recording → static-HTML report mounting the
+//! [`LunarLanderDiscrete`] recording → static-HTML report that mounts the
 //! Leptos/WASM client with the **box2d SVG adapter** (rigid-body
 //! polygons: lander, legs, helipad).
 //!
+//! Box2d environments have no `AsciiRenderable` impl, so the rigid-body SVG
+//! payload is the only rendering of the env in the stack. The example runs a
+//! random policy for [`NUM_EPISODES`] episodes and writes a single-file
+//! `index.html` into the run directory under the default record root.
+//!
 //! ```bash
+//! # 1) Build the WASM client (one-time per code change).
 //! cd crates/rlevo-benchmarks-report-client && trunk build --release
+//!
+//! # 2) Run this example from the repo root.
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_lunar_lander_with_client \
 //!     --features box2d,viz-report
