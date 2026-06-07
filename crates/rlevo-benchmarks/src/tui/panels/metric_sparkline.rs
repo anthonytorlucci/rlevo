@@ -34,12 +34,12 @@ const LABEL_WIDTH: u16 = 18;
 #[derive(Debug, Clone, Copy)]
 pub struct MetricSparkline<'a> {
     state: &'a AppState,
-    /// Key into `AppState.metric_rings`.
+    /// Key into [`AppState::metric_rings`].
     name: &'a str,
     /// Display label rendered to the left of the bars. Usually the same
     /// as `name` but can be shortened for the panel column.
     label: &'a str,
-    /// When `false`, skip the label column and let the bars fill the area.
+    /// When `false`, the label column is omitted and bars fill the entire area.
     show_label: bool,
 }
 

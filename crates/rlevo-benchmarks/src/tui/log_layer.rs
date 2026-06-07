@@ -97,6 +97,12 @@ struct CaptureVisitor {
 }
 
 impl CaptureVisitor {
+    /// Gate a numeric field against the canonical metric registry and,
+    /// if it matches, append `(name, value)` to `self.metrics`.
+    ///
+    /// Non-canonical fields are silently dropped; they still appear in the
+    /// log line via `record_debug` / `record_str`, but never drive a
+    /// sparkline panel.
     fn record_canonical(&mut self, field: &Field, value: f64) {
         let name = field.name();
         if is_canonical_metric(name) {
@@ -331,6 +337,8 @@ mod tests {
         tracing::error!("also lost");
     }
 
+    /// Re-exported `is_canonical_metric` accepts known registry entries
+    /// and rejects unknown names and the empty string.
     #[test]
     fn is_canonical_metric_accepts_registry_entries() {
         assert!(is_canonical_metric("policy_loss"));

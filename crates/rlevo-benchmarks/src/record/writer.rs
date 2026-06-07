@@ -358,6 +358,10 @@ impl RecordWriter {
         m
     }
 
+    /// Create and initialise a new episode file at
+    /// `<dir>/episode_<episode_idx:06>.rec`, writing the 16-byte preamble and
+    /// the length-prefixed [`EpisodeRecordHeader`] chunk. Sets [`Self::current`]
+    /// and [`Self::owner`] on success.
     fn open_episode_file(&mut self, episode_idx: u32) -> io::Result<()> {
         let path = self.dir.join(format!("episode_{episode_idx:06}.rec"));
         let f = File::create(&path)?;
@@ -433,12 +437,17 @@ impl RecordWriter {
     }
 }
 
+/// Returns the current wall-clock time as seconds since the Unix epoch,
+/// saturating to 0 on the (impossible in practice) pre-epoch or overflow case.
 fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0))
 }
 
+/// Encode `value` with bincode and write it as a length-prefixed chunk
+/// (`u32 LE` byte count followed by the payload). Returns an error if the
+/// encoded payload exceeds `u32::MAX` bytes or if any write fails.
 fn write_chunk_raw<T: Serialize, W: Write>(w: &mut W, value: &T) -> io::Result<()> {
     let bytes = bincode::serde::encode_to_vec(value, bincode_config()).map_err(io::Error::other)?;
     let len = u32::try_from(bytes.len())

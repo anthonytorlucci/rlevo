@@ -46,10 +46,27 @@ use crate::reporter::tui::TuiHandle;
 /// # }
 /// ```
 pub struct TuiEnvTap<E, const D: usize, const SD: usize, const AD: usize> {
+    /// The wrapped environment. All `Environment` calls delegate here.
     inner: E,
+    /// Channel handle used to push [`TuiEvent::EpisodeReturn`] events.
+    /// Pushes are best-effort (`try_push_episode_return`); a closed
+    /// receiver is silently ignored so the rollout loop never stalls.
+    ///
+    /// [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
     handle: TuiHandle,
+    /// Monotonically increasing step counter within the current episode.
+    /// Reset to `0` by `reset`. Exposed via [`step_count`](Self::step_count).
     step: u32,
+    /// Accumulated sum of per-step rewards for the current episode.
+    /// Stored as `f64` to avoid precision loss when summing many `f32`
+    /// rewards; sent as-is in [`TuiEvent::EpisodeReturn`].
+    ///
+    /// [`TuiEvent::EpisodeReturn`]: crate::reporter::tui::TuiEvent::EpisodeReturn
     episode_return: f64,
+    /// Number of steps taken in the current episode. Mirrors `step` in
+    /// normal usage but is the value reported to the TUI (distinct from
+    /// the wrapper's own `step` counter so the two remain independently
+    /// auditable in `Debug` output).
     episode_length: u32,
 }
 

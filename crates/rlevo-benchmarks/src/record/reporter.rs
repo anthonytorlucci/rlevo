@@ -187,7 +187,11 @@ impl Reporter for RecordingReporter {
         );
     }
 
-    fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {}
+    fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {
+        // Intentional no-op: per-trial aggregation is the caller's
+        // responsibility; the record surface finalises at suite end, not
+        // trial end.
+    }
 
     fn on_suite_end(&mut self, _report: &BenchmarkReport) {
         self.sink.lock().on_run_end(self.manifest.clone());

@@ -13,6 +13,7 @@
 //! [`Environment`]: rlevo_core::environment::Environment
 //! [`Evaluator`]: crate::evaluator::Evaluator
 
+/// [`TuiEnvTap`] — transparent env wrapper that emits per-episode returns to the live TUI.
 pub mod tui_env_tap;
 
 pub use tui_env_tap::TuiEnvTap;
