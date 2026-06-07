@@ -98,7 +98,7 @@ test-integration:
 
 # Recording/episode-count off-by-one regression.
 test-recording:
-    cargo test -p rlevo --test recording_episode_count
+    cargo test -p rlevo --test recording_episode_count --features="viz-report"
 
 # Evaluator harness smoke tests.
 test-evaluator:
