@@ -7,6 +7,101 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.2.0] – 2026-06-07
+
+### Breaking changes
+
+- **`DIM` → `RANK`** — the const generic parameter on `State<D>`, `Observation<D>`, `Action<D>`, and `Environment<D, SD, AD>` is renamed to `RANK` (or `R`, `SR`, `AR` at usage sites) across all crates. Update any downstream `impl State<D>` / `impl Environment<D, …>` declarations accordingly.
+- **`fn new` removed from `Environment` trait** (ADR 0011) — construction is no longer part of the shared trait contract. Replace call sites with the new `ConstructableEnv` factory trait or a concrete `new` method.
+
+### New crates
+
+- **`rlevo-examples`** — heavy visualisation, recording, and report examples extracted from the `rlevo` umbrella (ADR 0012). Lightweight environment/algorithm examples stay in `crates/rlevo/`.
+- **`rlevo-metrics-registry`** — wasm32-compatible leaf crate that owns the canonical metric descriptor list (`CANONICAL_METRICS`, `MetricDescriptor`, domain grouping). Eliminates the hand-copied duplicate that previously existed between `rlevo-benchmarks` and `rlevo-benchmarks-report-client` (ADR 0015).
+- **`rlevo-benchmarks-report-client`** — Leptos/WASM static-HTML post-run report viewer. Served from an embedded `axum` server. Shares the metric registry with `rlevo-benchmarks` without pulling in `burn` or `rand`.
+
+### Dependency upgrades
+
+- **burn** `0.20.0` → `0.21.0`; migrated `ndarray` backend to the new `flex` backend.
+- **rand** `0.9.x` → `0.10.1`, **rand_distr** → `0.6.0`.
+
+### `rlevo-core`
+
+**Added**
+
+- `ConstructableEnv` factory trait — standalone `fn new(render: bool) -> Self` replacement for the removed `Environment::new` (ADR 0011).
+- `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, semantic `palette` module, and `AsciiRenderable`/`AsciiRenderer` hoisted from `rlevo-environments::render` into `rlevo-core::render` (ADR 0009). Import paths inside `rlevo-environments` are preserved via a re-export shim.
+
+**Changed**
+
+- `AsciiRenderable` demoted from a required library invariant to an optional debug helper; implementing it is no longer implied by `Environment` (ADR 0013).
+
+### `rlevo-environments`
+
+**Changed**
+
+- Render types (`StyledFrame`, `AsciiRenderable`, etc.) re-exported from `rlevo-core::render`; originals removed (ADR 0009).
+- `Environment::new` removed; each environment exposes its own `new` constructor and may opt into `ConstructableEnv` (ADR 0011).
+
+### `rlevo-evolution`
+
+**Changed**
+
+- All EA algorithms and shared ops (`selection`, `crossover`, `mutation`, `replacement`) now draw random values through `seed_stream` on the host CPU rather than calling `B::seed + Tensor::random`, eliminating the process-wide RNG mutex contention that caused non-determinism in parallel tests.
+- `SharedPopulationObserver` unified to `parking_lot::Mutex` (was split between `std::sync` and `parking_lot` lock types, causing type mismatches in recording examples) (ADR 0010).
+
+### `rlevo-reinforcement-learning`
+
+**Added**
+
+- `polyak_update` hoisted as a shared utility function available to all RL algorithm crates.
+
+### `rlevo-benchmarks`
+
+**Added**
+
+- Record schema **v6** (`FORMAT_VERSION` bumped `5 → 6`, ADR 0014):
+  - Expanded `CANONICAL_METRICS` (explained variance, per-iteration episode-return statistics, DQN/SAC loss terms) — list now owned by `rlevo-metrics-registry`.
+  - Typed run-provenance fields on `RunManifest`: algorithm name, crate versions, git ref, device, seed count, success threshold.
+  - `EpisodeKind { Training, Evaluation }` field in episode headers.
+  - Episode wall-clock duration as a terminal metric.
+  - `checkpoints: Vec<CheckpointRef>` seam for deep-RL Burn-`Recorder` model files (EA runs unaffected).
+- Metrics-only live `ratatui` TUI replaces the earlier three-tier visualisation plan (ADR 0013 supersedes ADR 0008); no environment render panel in the TUI.
+
+**Changed**
+
+- `CANONICAL_METRICS` constant moved to `rlevo-metrics-registry`; `rlevo-benchmarks` re-exports it for back-compat.
+
+### `rlevo-benchmarks-report-client`
+
+**Added**
+
+- Interactive post-run static HTML report (Leptos + WASM):
+  - Min/max downsampling for long metric series (ADR 0013 / M8.2).
+  - Multi-seed mean ± std band aggregation.
+  - Hover crosshair with exact raw-value tooltip.
+  - Per-panel SVG export buttons.
+  - Step / episode / wall-clock x-axis toggle for episode panels.
+  - Eval/training split via `EpisodeKind` in the episode index and table badge.
+  - Landscape heatmap background for EA optimisation landscape runs.
+  - Diversity-threshold guideline line with breach-pulse highlight.
+  - Strip-plot overlay toggle on the population box-plot panel.
+
+### `rlevo` (umbrella)
+
+**Changed**
+
+- Lightweight examples retained; heavy viz/record/report examples migrated to `rlevo-examples` (ADR 0012).
+
+### Infrastructure
+
+**Added**
+
+- GitHub Actions CI: integration-test matrix (Linux × stable toolchain) and weekly full-workspace test run.
+- `BACKEND_LOCK` per-binary synchronisation for wgpu-backed integration tests; removes the previous `--test-threads=1` requirement.
+
+---
+
 ## [0.1.0] – 2026-04-28
 
 Initial alpha release. All crates are published together at the same version.
@@ -102,4 +197,5 @@ Initial alpha release. All crates are published together at the same version.
 
 ---
 
+[0.2.0]: https://github.com/anthonytorlucci/rlevo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/anthonytorlucci/rlevo/releases/tag/v0.1.0
