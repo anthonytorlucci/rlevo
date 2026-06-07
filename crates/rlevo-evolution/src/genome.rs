@@ -56,7 +56,10 @@ impl GenomeKind for Binary {
 /// Integer-valued genome (each gene is a non-negative integer index).
 ///
 /// Populations are stored as `Tensor<B, 2, Int>` of shape
-/// `(pop_size, dim)`. Permutation-coded GA and Cartesian GP use this kind.
+/// `(pop_size, dim)`. Cartesian GP (node indices), discrete parameter
+/// search, and other problems where genes are bounded integer values use
+/// this kind. For ordered-sequence problems (TSP, QAP) use [`Permutation`]
+/// instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Integer;
 
@@ -64,7 +67,9 @@ pub struct Integer;
 ///
 /// Reserved for classical Koza-style GP in a future release. Tree
 /// genomes cannot be batched on a GPU and therefore have no tensor
-/// representation in this crate.
+/// representation in this crate. The associated `Element` type is `i32`
+/// as a placeholder (structural node IDs); the actual in-memory
+/// representation will be defined when this kind is fully implemented.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Tree;
 

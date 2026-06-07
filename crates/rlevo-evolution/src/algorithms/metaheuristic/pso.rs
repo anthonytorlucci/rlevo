@@ -20,6 +20,25 @@
 //! bit-reproducible initial populations independent of the velocity
 //! clamp.
 //!
+//! # First-generation protocol
+//!
+//! `ask` detects the first call by checking whether `personal_best_fitness`
+//! is empty and, if so, returns the current positions unchanged (no velocity
+//! update). `tell` detects the same condition and uses the received fitness
+//! to seed `personal_best_fitness` and `global_best` before returning.
+//! Any caller that bypasses [`EvolutionaryHarness`] must therefore call
+//! `ask` → evaluate → `tell` **twice** before the velocity update is live.
+//!
+//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
+//!
+//! # Position and velocity clamping
+//!
+//! After every velocity update the velocities are clamped to
+//! `[−v_max, v_max]` (per [`PsoConfig::v_max`]), and the resulting
+//! positions are clamped to [`PsoConfig::bounds`]. Particles that hit a
+//! boundary keep their clamped position but retain the (clamped) velocity,
+//! so they may escape on the next step.
+//!
 //! # References
 //!
 //! - Kennedy & Eberhart (1995), *Particle Swarm Optimization*.
@@ -74,6 +93,12 @@ impl PsoConfig {
     /// (`ω = 0.7298`, `c1 = c2 = 1.49618`) — the constriction-equivalent
     /// values so Inertia and Constriction variants agree in behaviour
     /// under the same default.
+    ///
+    /// The default variant is [`PsoVariant::Inertia`]. To switch to the
+    /// constriction form, set `variant = PsoVariant::Constriction` and
+    /// update `c1` and `c2` so that `c1 + c2 > 4` (the Clerc & Kennedy
+    /// requirement — the default `c1 = c2 = 1.49618` gives `φ ≈ 2.99`,
+    /// which violates this); a canonical choice is `c1 = c2 = 2.05`.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -88,7 +113,14 @@ impl PsoConfig {
         }
     }
 
-    /// Constriction factor `χ = 2 / |2 − φ − √(φ² − 4φ)|`.
+    /// Computes the constriction factor `χ = 2 / |2 − φ − √(φ² − 4φ)|`
+    /// where `φ = c1 + c2`.
+    ///
+    /// Clerc & Kennedy (2002) require `φ > 4` for the closed form to be
+    /// real-valued. If `φ ≤ 4` the discriminant is clamped to zero and
+    /// `χ` falls back to `1.0` (no contraction) so the strategy remains
+    /// numerically well-defined. A `debug_assert!` fires in debug builds
+    /// when this fallback is triggered; it is silent in release builds.
     #[must_use]
     pub fn constriction_chi(&self) -> f32 {
         let phi = self.c1 + self.c2;

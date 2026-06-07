@@ -14,6 +14,23 @@ use burn::tensor::{backend::Backend, Tensor};
 ///
 /// The std-dev floor is `1e-8`; degenerate populations (all-equal fitness)
 /// therefore map to a vector of zeros rather than producing NaNs.
+///
+/// # Examples
+///
+/// ```
+/// use burn::backend::Flex;
+/// use burn::tensor::Tensor;
+/// use rlevo_evolution::shaping::z_score;
+///
+/// let device = Default::default();
+/// // Five fitness values: mean 3.0, all distinct.
+/// let t = Tensor::<Flex, 1>::from_floats([1.0f32, 2.0, 3.0, 4.0, 5.0], &device);
+/// let z = z_score(t);
+/// let values = z.into_data().into_vec::<f32>().unwrap();
+/// // After z-scoring the mean of the output is 0 (within floating-point tolerance).
+/// let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
+/// assert!(mean.abs() < 1e-5);
+/// ```
 #[must_use]
 pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     let mean = fitness.clone().mean().into_scalar().elem::<f32>();
@@ -37,10 +54,27 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 ///
 /// An empty input returns an empty tensor.
 ///
+/// # Examples
+///
+/// ```
+/// use burn::backend::Flex;
+/// use burn::tensor::Tensor;
+/// use rlevo_evolution::shaping::centered_rank;
+///
+/// let device = Default::default();
+/// let t = Tensor::<Flex, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
+/// let r = centered_rank(t, &device);
+/// let values = r.into_data().into_vec::<f32>().unwrap();
+/// // Smallest value maps to -0.5, largest to +0.5.
+/// assert!((values[0] - (-0.5)).abs() < 1e-6);
+/// assert!((values[3] - 0.5).abs() < 1e-6);
+/// ```
+///
 /// # Panics
 ///
-/// Panics if `fitness`'s data cannot be read as `f32` (e.g. an integer
-/// backend tensor was passed in).
+/// Panics if the tensor's element data cannot be converted to `f32` —
+/// for example, when using a backend that stores integer-typed tensors
+/// and `into_vec::<f32>()` returns an error.
 #[must_use]
 pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
     let data = fitness

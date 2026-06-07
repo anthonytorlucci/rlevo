@@ -1,15 +1,40 @@
 //! Binary-coded Genetic Algorithm.
 //!
-//! Operates on a `Tensor<B, 2, Int>` population where each gene is
-//! restricted to `{0, 1}`. Selection and elitism reuse the host-side
-//! fitness indexing helpers shared with the real-coded GA; crossover
-//! and mutation use the binary-specific operators in
-//! [`crate::ops::crossover::binary_uniform_crossover`] and
-//! [`crate::ops::mutation::bit_flip_mutation`].
+//! A canonical GA over `Tensor<B, 2, Int>` populations where every gene is
+//! restricted to `{0, 1}`:
 //!
-//! Fitness is treated as cost (lower is better) to match the rest of
-//! the strategies in this crate; benchmarks like `OneMax` must be phrased
-//! as minimization (`D − count_ones`) before being plugged in.
+//! 1. Evaluate the current population (done externally by the harness).
+//! 2. Select two independent sets of parents via
+//!    [`crate::ops::selection::tournament_indices_host`] (k-tournament).
+//! 3. Recombine via [`crate::ops::crossover::binary_uniform_crossover`]
+//!    (per-gene coin flip with probability `crossover_p`).
+//! 4. Mutate via [`crate::ops::mutation::bit_flip_mutation`]
+//!    (per-gene flip with probability `mutation_rate`).
+//! 5. Replace via fixed elitist policy: the `elitism_k` best parents
+//!    survive; the remaining `pop_size − elitism_k` slots are filled by
+//!    the best offspring.
+//!
+//! Unlike [`crate::algorithms::ga::GeneticAlgorithm`], there is no
+//! enum-selectable replacement policy — only elitist replacement is
+//! supported. Extend [`BinaryGaConfig`] and the `tell` impl if a
+//! generational variant is needed.
+//!
+//! All random draws go through [`crate::rng::seed_stream`] — never
+//! `B::seed` + `Tensor::random` — so per-run results are reproducible
+//! across thread schedules.
+//!
+//! # Fitness convention
+//!
+//! Fitness is treated as cost (lower is better), matching all other
+//! strategies in this crate. Maximization benchmarks like `OneMax` must be
+//! phrased as minimization before being plugged in, e.g.:
+//! `cost = D − count_ones(genome)`.
+//!
+//! # References
+//!
+//! - Holland (1975), *Adaptation in Natural and Artificial Systems*.
+//! - Goldberg (1989), *Genetic Algorithms in Search, Optimization, and
+//!   Machine Learning*.
 
 use std::marker::PhantomData;
 
@@ -130,6 +155,12 @@ where
     type State = BinaryGaState<B>;
     type Genome = Tensor<B, 2, Int>;
 
+    /// Build the initial state.
+    ///
+    /// Samples an `(pop_size, D)` binary population uniformly at random
+    /// (each gene independently `Bernoulli(0.5)`) using a host RNG derived
+    /// from `rng`. Sets `fitness` to empty and `best_fitness` to
+    /// `f32::INFINITY`; the first [`tell`](Self::tell) call populates both.
     fn init(
         &self,
         params: &BinaryGaConfig,
@@ -145,6 +176,23 @@ where
         }
     }
 
+    /// Propose the next offspring population.
+    ///
+    /// On the very first call (before any [`tell`](Self::tell)), `state.fitness`
+    /// is empty — the harness has not evaluated the seed population yet. In
+    /// that case the unchanged seed population is returned so the harness can
+    /// evaluate and pass it back to `tell`.
+    ///
+    /// On subsequent calls the method runs one full selection → crossover →
+    /// mutation pipeline, deriving three independent host sub-streams from
+    /// `rng` via [`crate::rng::seed_stream`]:
+    ///
+    /// - `SeedPurpose::Selection` — two independent tournament draws
+    ///   (parents A and parents B);
+    /// - `SeedPurpose::Crossover` — per-gene coin flip
+    ///   (probability `crossover_p`);
+    /// - `SeedPurpose::Mutation` — per-gene bit-flip
+    ///   (probability `mutation_rate`).
     fn ask(
         &self,
         params: &BinaryGaConfig,
@@ -206,6 +254,19 @@ where
         (offspring, state.clone())
     }
 
+    /// Consume offspring fitness and produce the next generation's state.
+    ///
+    /// The first call (when `state.fitness` is empty) caches the seed
+    /// population's fitness and increments the generation counter; no
+    /// replacement is performed.
+    ///
+    /// On subsequent calls the method performs elitist replacement: the
+    /// `elitism_k` lowest-cost parents survive directly, and the remaining
+    /// `pop_size − elitism_k` slots are filled with the best offspring.
+    /// Both selections use [`crate::ops::selection::truncation_indices_host`].
+    ///
+    /// `fitness` must have shape `(pop_size,)` with values in the
+    /// minimization (cost) convention — lower is better.
     fn tell(
         &self,
         params: &BinaryGaConfig,
@@ -270,6 +331,10 @@ where
         (state, m)
     }
 
+    /// Return the best-so-far genome and its fitness.
+    ///
+    /// Returns `None` before the first [`tell`](Self::tell) call.
+    /// The fitness value uses the minimization convention (lower is better).
     fn best(&self, state: &BinaryGaState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
         state
             .best_genome

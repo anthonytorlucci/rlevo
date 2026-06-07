@@ -149,6 +149,18 @@ where
     type State = AcoRState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Initialises the archive by host-sampling `archive_size × genome_dim`
+    /// values uniformly from `params.bounds`.
+    ///
+    /// All random draws go through [`seed_stream`] derived from `rng` rather
+    /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
+    /// thread schedules when multiple tests or harnesses share the same
+    /// process-wide Burn RNG state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.archive_size < 2` or `params.m < 1`; see
+    /// [`AntColonyReal`] struct-level docs for details.
     fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AcoRState<B> {
         assert!(params.archive_size >= 2, "ACO_R requires archive_size >= 2");
         assert!(params.m >= 1, "ACO_R requires m >= 1");
@@ -176,6 +188,25 @@ where
         }
     }
 
+    /// Proposes the next population.
+    ///
+    /// **First call** (`state.archive_fitness.is_empty()`): returns the
+    /// initial archive as-is so the harness scores it before any generation
+    /// update occurs.
+    ///
+    /// **Subsequent calls**: draws `m` offspring by, for each dimension `d`
+    /// of each offspring `i`:
+    ///
+    /// 1. Selecting an archive index `l` by CDF-weighted roulette from
+    ///    `state.weights` (host-side, via `seed_stream`).
+    /// 2. Computing `σ_{l,d} = ξ · mean_e |archive_{e,d} − archive_{l,d}|`
+    ///    on-device.
+    /// 3. Sampling `x_{i,d} ~ N(archive_{l,d}, σ_{l,d})` host-side via
+    ///    `rand_distr::Normal` and a second `seed_stream`.
+    ///
+    /// Offspring are clamped to `params.bounds` before upload to the device.
+    /// The returned state is the same object passed in (no mutation occurs in
+    /// `ask`; all state changes are deferred to [`tell`](Self::tell)).
     #[allow(clippy::many_single_char_names)]
     fn ask(
         &self,
@@ -257,6 +288,19 @@ where
         (new_pop, state.clone())
     }
 
+    /// Merges `population` with the current archive and updates state.
+    ///
+    /// **First tell** (`state.archive_fitness.is_empty()`): `population` is
+    /// the initial archive returned verbatim by the first `ask`; this call
+    /// sorts it by fitness and records `best_genome` and `best_fitness`.
+    ///
+    /// **Steady-state tell**: concatenates `state.archive` (shape `(k, D)`)
+    /// with `population` (shape `(m, D)`), sorts the combined `k + m` rows by
+    /// fitness, and retains only the top `k`. Updates `best_genome` if the new
+    /// archive leader improves on `state.best_fitness`.
+    ///
+    /// Returns the updated state and a [`StrategyMetrics`] snapshot built from
+    /// `fitness` (the offspring scores, not the full archive).
     fn tell(
         &self,
         params: &AcoRConfig,
@@ -324,6 +368,10 @@ where
         (state, m)
     }
 
+    /// Returns the best genome seen across all generations, or `None` before
+    /// the first [`tell`](Self::tell) call.
+    ///
+    /// The returned tensor has shape `(1, genome_dim)`.
     fn best(&self, state: &AcoRState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

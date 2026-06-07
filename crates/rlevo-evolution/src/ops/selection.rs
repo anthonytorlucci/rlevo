@@ -1,24 +1,55 @@
 //! Parent-selection operators.
 //!
-//! Selection operators turn a fitness tensor into winner indices that the
+//! Selection operators turn a fitness slice into winner indices that the
 //! caller uses (via `Tensor::select`) to gather parents out of the
 //! population. The baseline is host-side sampling + a single device
 //! gather; a fused [kernel](super::kernels) variant is tracked as
 //! follow-up work.
 //!
+//! All operators that draw random numbers accept an explicit `&mut dyn Rng`
+//! (the host-RNG convention). Operators never touch thread-local or
+//! process-wide backend RNG state (`B::seed` / `Tensor::random`), which
+//! would race with sibling tests under the parallel test runner.
+//!
 //! # Fitness convention
 //!
 //! Fitness values are interpreted as "lower is better" (cost).
-//! Tournament selection picks the smaller of the two sampled fitnesses.
+//! Tournament selection retains the *smallest* fitness seen across all
+//! candidates in a single draw; truncation selection returns the `top_k`
+//! entries with the smallest fitnesses.
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-/// Binary tournament selection over a fitness slice.
+/// K-ary tournament selection over a fitness slice.
 ///
-/// Samples two indices uniformly at random and keeps the one with the
-/// smaller fitness. Repeats `n_winners` times, returning one winner
-/// index per draw.
+/// Draws `tournament_size` candidate indices uniformly at random (with
+/// replacement) and retains the one with the smallest fitness. Repeats
+/// the draw `n_winners` times and returns the winning index for each
+/// draw. Randomness is drawn entirely from the caller-supplied `rng`;
+/// no global or backend RNG state is touched.
+///
+/// `fitness` is a flat slice where index `i` is the cost of population
+/// member `i` (lower is better). `tournament_size` controls selection
+/// pressure: larger values yield stronger pressure toward lower-cost
+/// members.
+///
+/// # Examples
+///
+/// ```
+/// use rand::SeedableRng;
+/// use rand::rngs::StdRng;
+/// use rlevo_evolution::ops::selection::tournament_indices_host;
+///
+/// let fitness = [10.0_f32, 1.0, 10.0, 10.0];
+/// let mut rng = StdRng::seed_from_u64(0);
+/// let winners = tournament_indices_host(&fitness, 2, 100, &mut rng);
+/// // The unique best member (index 1) is selected far more often than any
+/// // single higher-cost member.
+/// let best_wins = winners.iter().filter(|&&w| w == 1).count();
+/// let high_cost_wins = winners.iter().filter(|&&w| w == 0).count();
+/// assert!(best_wins > high_cost_wins);
+/// ```
 ///
 /// # Panics
 ///
@@ -50,10 +81,15 @@ pub fn tournament_indices_host(
     winners
 }
 
-/// Gather `n_winners` rows out of the population by tournament.
+/// Gathers `n_winners` rows out of a population tensor by tournament.
 ///
-/// Convenience wrapper that lifts [`tournament_indices_host`] into a
-/// device gather on the population tensor.
+/// Convenience wrapper that runs [`tournament_indices_host`] on the
+/// host and then performs a single `Tensor::select` gather on the
+/// device. The returned tensor has shape `(n_winners, genome_dim)`.
+///
+/// `population` must have shape `(N, D)` where `N` matches
+/// `fitness.len()`. `tournament_size` and `n_winners` are forwarded
+/// directly to [`tournament_indices_host`].
 ///
 /// # Panics
 ///
@@ -73,8 +109,29 @@ pub fn tournament_select<B: Backend>(
     population.clone().select(0, indices)
 }
 
-/// Truncation selection: returns the indices of the `top_k` lowest-
-/// fitness members.
+/// Returns the indices of the `top_k` lowest-fitness members.
+///
+/// Sorts the population by fitness (ascending, i.e. lowest cost first)
+/// and returns the first `top_k` indices. The returned `Vec` is ordered
+/// from best to worst among the selected members. Ties are broken by
+/// `f32::partial_cmp`, with `NaN` values sorted last.
+///
+/// This is the host-side building block; call [`truncation_select`] when
+/// you need the corresponding population rows as a tensor.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_evolution::ops::selection::truncation_indices_host;
+///
+/// let fitness = [5.0_f32, 1.0, 3.0, 2.0, 4.0];
+/// let idx = truncation_indices_host(&fitness, 3);
+/// assert_eq!(idx.len(), 3);
+/// // The three cheapest members are at original indices 1 (1.0), 3 (2.0), 2 (3.0).
+/// assert!(idx.contains(&1));
+/// assert!(idx.contains(&3));
+/// assert!(idx.contains(&2));
+/// ```
 ///
 /// # Panics
 ///
@@ -94,7 +151,15 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
         .collect()
 }
 
-/// Gather the `top_k` lowest-fitness rows out of the population.
+/// Gathers the `top_k` lowest-fitness rows out of a population tensor.
+///
+/// Convenience wrapper that runs [`truncation_indices_host`] on the
+/// host and then performs a single `Tensor::select` gather on the
+/// device. The returned tensor has shape `(top_k, genome_dim)` with
+/// rows ordered from best to worst fitness.
+///
+/// `population` must have shape `(N, D)` where `N` matches
+/// `fitness.len()`.
 ///
 /// # Panics
 ///

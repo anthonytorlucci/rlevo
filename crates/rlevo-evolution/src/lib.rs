@@ -12,13 +12,21 @@
 //!   the [`EvolutionaryHarness`] adapter that
 //!   wraps any strategy into `rlevo-core::evaluation::BenchEnv`.
 //! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
-//!   `Tree`) that parameterize the operator set.
+//!   `Tree`, `Permutation`) that parameterize the operator set.
 //! - [`population`] — [`Population<B, K>`](population::Population), a thin
 //!   wrapper around `Tensor<B, 2>` carrying shape metadata.
 //! - [`fitness`] — [`FitnessFn`](fitness::FitnessFn) /
-//!   [`BatchFitnessFn`](fitness::BatchFitnessFn) and the
+//!   [`BatchFitnessFn`](fitness::BatchFitnessFn), the
 //!   [`FromFitnessEvaluable`](fitness::FromFitnessEvaluable) adapter for
-//!   `rlevo-core::fitness::FitnessEvaluable`.
+//!   `rlevo-core::fitness::FitnessEvaluable`, and the
+//!   [`FromLandscape`](fitness::FromLandscape) adapter for landscapes that
+//!   carry their own `evaluate` method.
+//! - [`observer`] — [`PopulationObserver`] /
+//!   [`PopulationSnapshot`] /
+//!   [`SharedPopulationObserver`]:
+//!   structured per-generation callback for recorders that need more than
+//!   the scalar `tracing` events (full fitness vector, best-individual
+//!   index, lineage).
 //! - [`rng`] — deterministic seed streams (splitmix64) for reproducibility.
 //! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.

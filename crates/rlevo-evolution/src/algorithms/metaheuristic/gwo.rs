@@ -48,7 +48,7 @@ pub struct GwoConfig {
     pub genome_dim: usize,
     /// Search-space bounds.
     pub bounds: (f32, f32),
-    /// Budget used to schedule `a = a_start · (1 − t/max_generations)`.
+    /// Budget used to schedule `a = 2·(1 − t/max_generations)`.
     /// The strategy itself is memoryless with respect to the harness's
     /// stopping criterion, so this value simply paces the exploration
     /// coefficient and need not equal the harness budget.
@@ -139,6 +139,12 @@ where
     type State = GwoState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial pack uniformly within [`GwoConfig::bounds`] using
+    /// the host-RNG convention and sets the generation counter to zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.pop_size < 3`.
     fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GwoState<B> {
         assert!(params.pop_size >= 3, "GWO requires pop_size >= 3");
         let pack = Self::sample_initial(params, rng, device);
@@ -151,6 +157,13 @@ where
         }
     }
 
+    /// Proposes the next pack positions.
+    ///
+    /// On the first call (before any [`tell`](Strategy::tell)), returns the
+    /// initial pack unchanged so it can be evaluated before the first rank
+    /// step. On subsequent calls, promotes the three lowest-fitness wolves to
+    /// `α`, `β`, `δ` and computes the weighted-average update, then clamps
+    /// the result to [`GwoConfig::bounds`].
     fn ask(
         &self,
         params: &GwoConfig,
@@ -227,6 +240,11 @@ where
         (new_pack, next)
     }
 
+    /// Records evaluated fitness, updates best-so-far, and increments the
+    /// generation counter.
+    ///
+    /// Returns the updated [`GwoState`] and a [`StrategyMetrics`] snapshot
+    /// for the completed generation.
     fn tell(
         &self,
         _params: &GwoConfig,
@@ -256,6 +274,8 @@ where
         (state, m)
     }
 
+    /// Returns the α (best-so-far) genome and its fitness, or `None` before
+    /// the first [`tell`](Strategy::tell) call.
     fn best(&self, state: &GwoState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

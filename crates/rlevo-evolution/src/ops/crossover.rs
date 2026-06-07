@@ -35,11 +35,28 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
     rows
 }
 
-/// BLX-α crossover between two parent populations.
+/// BLX-α (Blend Crossover α) between two parent populations.
+///
+/// For each gene position `i`, the child's value is drawn uniformly from the
+/// extended interval
+///
+/// ```text
+/// U(min(a_i, b_i) − α·|a_i − b_i|,  max(a_i, b_i) + α·|a_i − b_i|)
+/// ```
+///
+/// When `α = 0` the child lies strictly within the parents' bounding box.
+/// `α = 0.5` is the conventional default and allows mild extrapolation beyond
+/// either parent. All `n·d` draws are taken from the caller-supplied host `rng`
+/// and loaded onto the device via [`Tensor::from_data`]; no backend-global RNG
+/// state is touched.
+///
+/// Both parent tensors must have shape `(N, D)` where `N` is the population
+/// size and `D` is the genome length; the returned offspring tensor has the
+/// same shape.
 ///
 /// # Panics
 ///
-/// Panics if the parents do not have matching shapes.
+/// Panics if `parent_a` and `parent_b` do not have identical shapes.
 #[must_use]
 pub fn blx_alpha<B: Backend>(
     parent_a: Tensor<B, 2>,
@@ -65,13 +82,29 @@ pub fn blx_alpha<B: Backend>(
     lo.clone() + u * (hi - lo)
 }
 
-/// Uniform crossover: per-gene Bernoulli swap between parents.
+/// Uniform crossover: per-gene Bernoulli swap between two parents.
 ///
-/// `p` is the probability of keeping parent A's gene.
+/// For each gene position, the child inherits the value from `parent_a` with
+/// probability `p` and from `parent_b` with probability `1 − p`. No blending
+/// occurs; the child's gene values are drawn exclusively from the two parents'
+/// existing alleles, so the distribution over individual gene values is
+/// exactly preserved.
+///
+/// `p = 0.5` gives an unbiased mix; `p = 1.0` returns a clone of `parent_a`;
+/// `p = 0.0` returns a clone of `parent_b`. All `n·d` Bernoulli draws are
+/// taken from the caller-supplied host `rng` and loaded onto the device via
+/// [`Tensor::from_data`]; no backend-global RNG state is touched.
+///
+/// Both parent tensors must have shape `(N, D)` where `N` is the population
+/// size and `D` is the genome length; the returned offspring tensor has the
+/// same shape.
+///
+/// For binary genomes (`Tensor<B, 2, Int>` with values in `{0, 1}`) see
+/// [`binary_uniform_crossover`].
 ///
 /// # Panics
 ///
-/// Panics if the parents do not have matching shapes.
+/// Panics if `parent_a` and `parent_b` do not have identical shapes.
 #[must_use]
 pub fn uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2>,
@@ -93,12 +126,19 @@ pub fn uniform_crossover<B: Backend>(
 
 /// Binary uniform crossover on `Tensor<B, 2, Int>` populations.
 ///
-/// For each gene, keep parent A with probability `p`, else parent B.
-/// `parent_a` and `parent_b` must hold values in `{0, 1}`.
+/// The Int-tensor counterpart of [`uniform_crossover`], intended for binary
+/// genomes. For each gene, the child inherits `parent_a`'s allele with
+/// probability `p` and `parent_b`'s allele with probability `1 − p`. No
+/// blending is performed; the operation is a pure bitwise swap.
+///
+/// Both parents must hold values in `{0, 1}`. The returned tensor has the
+/// same shape and element type as the inputs. All `n·d` Bernoulli draws are
+/// taken from the caller-supplied host `rng` and loaded onto the device via
+/// [`Tensor::from_data`]; no backend-global RNG state is touched.
 ///
 /// # Panics
 ///
-/// Panics if the parents do not have matching shapes.
+/// Panics if `parent_a` and `parent_b` do not have identical shapes.
 #[must_use]
 pub fn binary_uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2, Int>,

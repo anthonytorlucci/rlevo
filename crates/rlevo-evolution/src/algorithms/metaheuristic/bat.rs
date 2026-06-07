@@ -135,6 +135,15 @@ where
     type State = BatState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Build the initial colony by host-sampling `pop_size` positions
+    /// uniformly in `[bounds.lo, bounds.hi]`.
+    ///
+    /// Velocities are zeroed, loudness is set to `params.a0`, pulse rate
+    /// to `params.r0`, and `fitness` left empty so that the first
+    /// [`ask`](Strategy::ask) → [`tell`](Strategy::tell) pair initialises
+    /// those fields before any acceptance logic runs.  Positions are drawn
+    /// from a deterministic [`seed_stream`]; the process-wide Flex RNG is
+    /// never touched.
     fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> BatState<B> {
         let (lo, hi) = params.bounds;
         // Sample initial positions on the host from a deterministic
@@ -167,6 +176,30 @@ where
         }
     }
 
+    /// Propose candidate positions for the current generation.
+    ///
+    /// On the first call (`state.fitness` is empty) returns the initial
+    /// positions unchanged so the caller can evaluate generation zero.
+    ///
+    /// On subsequent calls the update proceeds in three host/device steps:
+    ///
+    /// 1. **Frequency** — sample `f_i = f_min + (f_max − f_min)·β_i`,
+    ///    `β_i ∈ U[0,1]`.
+    /// 2. **Global move** — `v_i ← v_i + (x_i − x_best)·f_i`,
+    ///    `x'_i = x_i + v_i`.
+    /// 3. **Local walk** (when `rand > r_i`) — override with
+    ///    `x'_i = x_best + ε·mean(A)`, `ε ∈ U[−1,1]`.
+    ///
+    /// All random draws are host-sampled through [`seed_stream`] for
+    /// bit-stable reproduction across thread schedules.  The
+    /// per-bat acceptance decisions (`pending_accept`) are recorded in the
+    /// returned state and consumed by [`tell`](Strategy::tell).
+    ///
+    /// # Panics
+    ///
+    /// Panics if called when `state.best_genome` is `None` after the first
+    /// generation has been evaluated (i.e. if `state.fitness` is non-empty
+    /// but `state.best_genome` was not set by a preceding `tell` call).
     fn ask(
         &self,
         params: &BatConfig,
@@ -261,6 +294,18 @@ where
         (candidates, next)
     }
 
+    /// Ingest candidate fitness values, apply the acceptance gate, and
+    /// advance the generation counter.
+    ///
+    /// On the first call (generation zero bootstrap) all candidates are
+    /// unconditionally accepted and loudness/pulse-rate updates are
+    /// skipped.
+    ///
+    /// On subsequent calls candidate `i` replaces position `i` iff
+    /// `pending_accept[i]` (drawn in [`ask`](Strategy::ask)) **and**
+    /// `fitness[i] ≤ state.fitness[i]`.  On acceptance, loudness decays
+    /// (`A_i *= α`) and pulse rate grows
+    /// (`r_i = r₀·(1 − exp(−γ·t))`).
     fn tell(
         &self,
         params: &BatConfig,
@@ -340,6 +385,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
+    /// the first [`tell`](Strategy::tell) call.
     fn best(&self, state: &BatState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

@@ -9,14 +9,20 @@
 //!   returns a device-resident `Tensor<B, 1>` of shape `(pop_size,)`. This
 //!   is the hot path — strategies call it once per generation.
 //!
-//! The [`FromFitnessEvaluable`] adapter bridges
-//! `rlevo-core::fitness::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>`
-//! into a [`BatchFitnessFn`] over `Tensor<B, 2>`. It pulls each row to
-//! host, evaluates on the CPU, then stacks the results back onto the
-//! device. That is the straightforward (and only) path for fitness
-//! functions defined in terms of host-side scalar code. Purpose-built
-//! batched-on-device landscapes should implement [`BatchFitnessFn`]
-//! directly to avoid the round-trip.
+//! Two adapters bridge host-side scalar fitness code into [`BatchFitnessFn`]:
+//!
+//! - [`FromFitnessEvaluable`] — wraps
+//!   `rlevo-core::fitness::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>`.
+//!   Use this when an evaluator and a landscape type are already defined
+//!   separately (e.g. `RastriginEvaluator` + `RastriginLandscape`).
+//! - [`FromLandscape`] — wraps `rlevo-core::fitness::Landscape` directly.
+//!   Use this when the landscape is self-evaluating (Sphere, Ackley, Rastrigin)
+//!   and a separate evaluator shim would add no value.
+//!
+//! Both adapters pull each population row to host as `f32`, widen to `f64`,
+//! evaluate on the CPU, and re-upload the results as a `Tensor<B, 1>`.
+//! Purpose-built batched-on-device landscapes should implement
+//! [`BatchFitnessFn`] directly to avoid that round-trip.
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
@@ -37,7 +43,11 @@ pub trait FitnessFn<G>: Send {
 /// Implementors must preserve row order — `fitness[i]` refers to the
 /// individual at row `i` of `population`.
 pub trait BatchFitnessFn<B: Backend, G>: Send {
-    /// Evaluates every member of `population` and stacks fitnesses.
+    /// Evaluates every member of `population` and returns a fitness tensor.
+    ///
+    /// The returned `Tensor<B, 1>` has shape `(pop_size,)` and is placed on
+    /// `device`. Row order is preserved: `fitness[i]` corresponds to the
+    /// individual at row `i` of `population`.
     fn evaluate_batch(&mut self, population: &G, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1>;
 }
 

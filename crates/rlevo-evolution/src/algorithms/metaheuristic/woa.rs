@@ -85,6 +85,16 @@ pub struct WoaState<B: Backend> {
 
 /// Whale Optimization Algorithm strategy.
 ///
+/// # Panics
+///
+/// [`Strategy::ask`] panics if called a second time without an intervening
+/// [`Strategy::tell`] — specifically, if `state.best_genome` is `None` after
+/// the first generation. In normal harness-driven usage this cannot happen:
+/// `ask` on the first call returns the initial positions unevaluated;
+/// `tell` then sets `best_genome`; and every subsequent `ask` finds it
+/// populated. Bypassing the harness and calling `ask` twice in a row without
+/// a `tell` in between will trigger the assert.
+///
 /// # Example
 ///
 /// ```no_run
@@ -118,6 +128,9 @@ where
     type State = WoaState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial whale positions uniformly within
+    /// [`WoaConfig::bounds`] using the host-RNG convention and sets the
+    /// generation counter to zero.
     fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> WoaState<B> {
         let (lo, hi) = params.bounds;
         // Host-sample the initial population from a deterministic
@@ -142,6 +155,19 @@ where
         }
     }
 
+    /// Proposes the next whale positions.
+    ///
+    /// On the first call returns the initial positions unchanged. On
+    /// subsequent calls, each whale independently selects one of three
+    /// moves based on host-sampled scalars `p` and `|A|`:
+    ///
+    /// - `p < 0.5, |A| < 1` — encircle the current best,
+    /// - `p < 0.5, |A| ≥ 1` — search toward a random other whale,
+    /// - `p ≥ 0.5` — spiral toward the current best.
+    ///
+    /// The three candidate tensors are computed in parallel and composed
+    /// with boolean masks; no divergent kernel paths are used. Results are
+    /// clamped to [`WoaConfig::bounds`].
     #[allow(clippy::many_single_char_names)]
     fn ask(
         &self,
@@ -256,6 +282,11 @@ where
         (new_positions, next)
     }
 
+    /// Records evaluated fitness, updates the best-so-far (food source), and
+    /// increments the generation counter.
+    ///
+    /// Returns the updated [`WoaState`] and a [`StrategyMetrics`] snapshot
+    /// for the completed generation.
     fn tell(
         &self,
         _params: &WoaConfig,
@@ -285,6 +316,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far (food-source) genome and its fitness, or
+    /// `None` before the first [`tell`](Strategy::tell) call.
     fn best(&self, state: &WoaState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

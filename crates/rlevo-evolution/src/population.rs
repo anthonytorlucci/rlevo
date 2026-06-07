@@ -7,6 +7,29 @@
 //! The wrapper exists so operators and strategies have a single shape
 //! contract to validate against (they check `pop_size` and `genome_dim`
 //! rather than repeatedly interrogating `tensor.dims()`).
+//!
+//! # Constructing a population
+//!
+//! Each genome kind has a dedicated constructor that takes the
+//! already-allocated tensor:
+//!
+//! ```no_run
+//! use burn::backend::Flex;
+//! use burn::tensor::{Tensor, TensorData};
+//! use rlevo_evolution::genome::Real;
+//! use rlevo_evolution::population::Population;
+//!
+//! let device = Default::default();
+//! // 4 individuals, each with a 3-gene real-valued genome.
+//! let data = TensorData::new(vec![0.1f32, 0.2, 0.3,
+//!                                 0.4, 0.5, 0.6,
+//!                                 0.7, 0.8, 0.9,
+//!                                 1.0, 1.1, 1.2], [4, 3]);
+//! let tensor = Tensor::<Flex, 2>::from_data(data, &device);
+//! let pop = Population::<Flex, Real>::new_real(tensor);
+//! assert_eq!(pop.pop_size(), 4);
+//! assert_eq!(pop.genome_dim(), 3);
+//! ```
 
 use std::marker::PhantomData;
 
@@ -39,12 +62,18 @@ pub struct Population<B: Backend, K> {
 
 impl<B: Backend, K> Population<B, K> {
     /// Returns the number of individuals (rows) in the population.
+    ///
+    /// This value equals `tensor.dims()[0]` for any population produced by
+    /// the public constructors.
     #[must_use]
     pub fn pop_size(&self) -> usize {
         self.pop_size
     }
 
-    /// Returns the genome dimensionality (columns).
+    /// Returns the genome dimensionality (number of genes, i.e. columns).
+    ///
+    /// This value equals `tensor.dims()[1]` for any population produced by
+    /// the public constructors.
     #[must_use]
     pub fn genome_dim(&self) -> usize {
         self.genome_dim
@@ -54,9 +83,26 @@ impl<B: Backend, K> Population<B, K> {
 impl<B: Backend> Population<B, Real> {
     /// Constructs a real-valued population from a `Tensor<B, 2>`.
     ///
-    /// # Panics
+    /// Shape is read from `tensor.dims()` at construction time; subsequent
+    /// calls to [`pop_size`](Population::pop_size) and
+    /// [`genome_dim`](Population::genome_dim) reflect those dimensions.
     ///
-    /// Panics if the tensor is not rank 2.
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use burn::backend::Flex;
+    /// use burn::tensor::{Tensor, TensorData};
+    /// use rlevo_evolution::genome::Real;
+    /// use rlevo_evolution::population::Population;
+    ///
+    /// let device = Default::default();
+    /// let data = TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0], [2, 2]);
+    /// let pop = Population::<Flex, Real>::new_real(
+    ///     Tensor::from_data(data, &device),
+    /// );
+    /// assert_eq!(pop.pop_size(), 2);
+    /// assert_eq!(pop.genome_dim(), 2);
+    /// ```
     #[must_use]
     pub fn new_real(tensor: Tensor<B, 2>) -> Self {
         let dims = tensor.dims();
@@ -72,9 +118,9 @@ impl<B: Backend> Population<B, Real> {
 
     /// Borrows the backing real-valued tensor.
     ///
-    /// # Panics
-    ///
-    /// Never panics for a correctly constructed `Population<B, Real>`.
+    /// The returned tensor has shape `[pop_size, genome_dim]`. Use this
+    /// to pass the population to fitness functions or operator kernels
+    /// without giving up ownership.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2> {
         self.tensor_real
@@ -84,9 +130,9 @@ impl<B: Backend> Population<B, Real> {
 
     /// Consumes the wrapper and returns the owned tensor.
     ///
-    /// # Panics
-    ///
-    /// Never panics for a correctly constructed `Population<B, Real>`.
+    /// Prefer this over [`tensor`](Population::tensor) when handing the
+    /// population off to a strategy or operator that needs ownership (e.g.
+    /// to avoid a clone on the hot path).
     #[must_use]
     pub fn into_tensor(self) -> Tensor<B, 2> {
         self.tensor_real
@@ -97,9 +143,28 @@ impl<B: Backend> Population<B, Real> {
 impl<B: Backend> Population<B, Binary> {
     /// Constructs a binary population from a `Tensor<B, 2, Int>`.
     ///
-    /// # Panics
+    /// Each element is expected to be `0` or `1`; the constructor does not
+    /// validate element values. Shape is read from `tensor.dims()`.
     ///
-    /// Panics if the tensor is not rank 2.
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use burn::backend::Flex;
+    /// use burn::tensor::{Int, Tensor, TensorData};
+    /// use rlevo_evolution::genome::Binary;
+    /// use rlevo_evolution::population::Population;
+    ///
+    /// let device = Default::default();
+    /// // 3 individuals, each with a 4-bit binary genome.
+    /// let data = TensorData::new(vec![0i64, 1, 0, 1,
+    ///                                 1, 0, 1, 0,
+    ///                                 0, 0, 1, 1], [3, 4]);
+    /// let pop = Population::<Flex, Binary>::new_binary(
+    ///     Tensor::from_data(data, &device),
+    /// );
+    /// assert_eq!(pop.pop_size(), 3);
+    /// assert_eq!(pop.genome_dim(), 4);
+    /// ```
     #[must_use]
     pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
@@ -115,9 +180,9 @@ impl<B: Backend> Population<B, Binary> {
 
     /// Borrows the backing integer tensor holding 0/1 values.
     ///
-    /// # Panics
-    ///
-    /// Never panics for a correctly constructed `Population<B, Binary>`.
+    /// The returned tensor has shape `[pop_size, genome_dim]` and element
+    /// type `Int`. Callers performing crossover or mutation should work
+    /// directly with this tensor.
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int
@@ -129,9 +194,28 @@ impl<B: Backend> Population<B, Binary> {
 impl<B: Backend> Population<B, Integer> {
     /// Constructs an integer population from a `Tensor<B, 2, Int>`.
     ///
-    /// # Panics
+    /// Elements represent non-negative integer indices (e.g. node indices in
+    /// CGP, symbol indices in integer-coded GA). The constructor does not
+    /// validate element bounds. Shape is read from `tensor.dims()`.
     ///
-    /// Panics if the tensor is not rank 2.
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use burn::backend::Flex;
+    /// use burn::tensor::{Int, Tensor, TensorData};
+    /// use rlevo_evolution::genome::Integer;
+    /// use rlevo_evolution::population::Population;
+    ///
+    /// let device = Default::default();
+    /// // 2 individuals, each with a 5-gene integer-valued genome.
+    /// let data = TensorData::new(vec![0i64, 3, 1, 4, 2,
+    ///                                 2, 0, 4, 1, 3], [2, 5]);
+    /// let pop = Population::<Flex, Integer>::new_integer(
+    ///     Tensor::from_data(data, &device),
+    /// );
+    /// assert_eq!(pop.pop_size(), 2);
+    /// assert_eq!(pop.genome_dim(), 5);
+    /// ```
     #[must_use]
     pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
@@ -147,9 +231,9 @@ impl<B: Backend> Population<B, Integer> {
 
     /// Borrows the backing integer tensor.
     ///
-    /// # Panics
-    ///
-    /// Never panics for a correctly constructed `Population<B, Integer>`.
+    /// The returned tensor has shape `[pop_size, genome_dim]` and element
+    /// type `Int`. Element values are non-negative indices whose domain is
+    /// determined by the problem (e.g. `0..n_nodes` for CGP).
     #[must_use]
     pub fn tensor(&self) -> &Tensor<B, 2, Int> {
         self.tensor_int

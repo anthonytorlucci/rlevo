@@ -90,6 +90,12 @@ pub struct SalpState<B: Backend> {
 /// [`Strategy::init`] panics if `params.pop_size < 2`, since the
 /// leader/follower split requires at least one of each.
 ///
+/// [`Strategy::ask`] panics if called a second time without an intervening
+/// [`Strategy::tell`] — `state.best_genome` is `None` until the first
+/// `tell` populates it. Normal harness-driven usage prevents this: the
+/// first `ask` returns initial positions unevaluated, `tell` sets
+/// `best_genome`, and every subsequent `ask` finds it populated.
+///
 /// # Example
 ///
 /// ```no_run
@@ -123,6 +129,12 @@ where
     type State = SalpState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial swarm uniformly within [`SalpConfig::bounds`]
+    /// using the host-RNG convention and sets the generation counter to zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.pop_size < 2`.
     fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
         assert!(params.pop_size >= 2, "SSA requires pop_size >= 2");
         let (lo, hi) = params.bounds;
@@ -148,6 +160,19 @@ where
         }
     }
 
+    /// Proposes the next swarm positions.
+    ///
+    /// On the first call returns the initial positions unchanged. On
+    /// subsequent calls, applies the two-phase update:
+    ///
+    /// - **Leaders** (`0..pop_size/2`): each leader moves toward the food
+    ///   source with a signed, decaying step proportional to `c1` and a
+    ///   host-sampled uniform offset over [`SalpConfig::bounds`].
+    /// - **Followers** (`pop_size/2..pop_size`): each follower averages its
+    ///   current position with the position of the salp directly ahead (a
+    ///   parallel stencil over the updated leader block).
+    ///
+    /// Results are clamped to [`SalpConfig::bounds`].
     fn ask(
         &self,
         params: &SalpConfig,
@@ -226,6 +251,11 @@ where
         (new_positions, next)
     }
 
+    /// Records evaluated fitness, updates the food-source (best-so-far), and
+    /// increments the generation counter.
+    ///
+    /// Returns the updated [`SalpState`] and a [`StrategyMetrics`] snapshot
+    /// for the completed generation.
     fn tell(
         &self,
         _params: &SalpConfig,
@@ -255,6 +285,8 @@ where
         (state, m)
     }
 
+    /// Returns the food-source genome and its fitness, or `None` before the
+    /// first [`tell`](Strategy::tell) call.
     fn best(&self, state: &SalpState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome
