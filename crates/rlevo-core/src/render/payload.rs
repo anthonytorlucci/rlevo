@@ -38,6 +38,7 @@ pub struct Point2 {
 }
 
 impl Point2 {
+    /// Constructs a new [`Point2`] from the given `x` and `y` coordinates.
     #[must_use]
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
@@ -74,6 +75,7 @@ pub struct Landscape2DSnapshot {
 /// Producer-side trait. An env implements this when it wants its
 /// recording to ship a `FamilyPayload::Landscape2D` instead of `Ascii`.
 pub trait Landscape2DPayloadSource {
+    /// Returns a [`Landscape2DSnapshot`] capturing the current frame.
     fn landscape2d_snapshot(&self) -> Landscape2DSnapshot;
 }
 
@@ -103,9 +105,13 @@ pub enum BodyKind {
 /// stays compact when a body moves but does not deform.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RigidBody2D {
+    /// Polygon corners in the body's **local** frame, counter-clockwise.
     pub vertices: Vec<Point2>,
+    /// World-space position of the body's local origin.
     pub position: Point2,
+    /// Rotation of the body about its local origin, in radians.
     pub rotation_rad: f32,
+    /// Semantic class used by the renderer to choose colour / stroke / fill.
     pub kind: BodyKind,
 }
 
@@ -115,11 +121,16 @@ pub struct Box2dSnapshot {
     /// World-space rectangle the renderer fits its viewport to.
     /// `(min, max)` corners.
     pub world_bounds: (Point2, Point2),
+    /// All rigid bodies in the scene, in paint order.
     pub bodies: Vec<RigidBody2D>,
+    /// Active contact points between bodies this frame.
     pub contacts: Vec<Point2>,
 }
 
+/// Producer-side trait. A box2d env implements this when it wants its
+/// recording to ship a `FamilyPayload::Box2D` instead of `Ascii`.
 pub trait Box2dPayloadSource {
+    /// Returns a [`Box2dSnapshot`] capturing the current frame.
     fn box2d_snapshot(&self) -> Box2dSnapshot;
 }
 
@@ -143,14 +154,27 @@ pub trait Box2dPayloadSource {
 /// [`AsciiRenderable`]: super::AsciiRenderable
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Locomotion2DSnapshot {
+    /// Positions of each joint in the sagittal-plane frame.
     pub joints: Vec<Point2>,
+    /// Rigid-bone connectivity: each `(a, b)` pair connects `joints[a]` to
+    /// `joints[b]`.
     pub bones: Vec<(u32, u32)>,
+    /// Y-coordinate of the ground line in the same frame as the joints.
     pub ground_y: f32,
+    /// Projected centre of mass. `None` when the env does not track it.
     pub com: Option<Point2>,
+    /// Footstep contact points; rendered as small open rings on the report
+    /// tier.
     pub contacts: Vec<Point2>,
 }
 
+/// Producer-side trait. A locomotion env implements this to supply the only
+/// rendering pathway in the stack — locomotion envs do not implement
+/// [`AsciiRenderable`], so this payload is the canonical view.
+///
+/// [`AsciiRenderable`]: super::AsciiRenderable
 pub trait Locomotion2DPayloadSource {
+    /// Returns a [`Locomotion2DSnapshot`] capturing the current frame.
     fn locomotion2d_snapshot(&self) -> Locomotion2DSnapshot;
 }
 
@@ -248,6 +272,7 @@ pub struct GridSnapshot {
 /// a `FamilyPayload::Grid` rendered from structured tile state instead of
 /// `Ascii` text.
 pub trait GridPayloadSource {
+    /// Returns a [`GridSnapshot`] capturing the current frame.
     fn grid_snapshot(&self) -> GridSnapshot;
 }
 
@@ -290,8 +315,11 @@ pub enum TabularMarkerKind {
 /// A point-of-interest overlaid on a grid cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabularMarker {
+    /// Column (0-based, left to right).
     pub x: u16,
+    /// Row (0-based, top to bottom).
     pub y: u16,
+    /// Semantic role that determines the glyph the renderer draws.
     pub kind: TabularMarkerKind,
 }
 
@@ -299,9 +327,14 @@ pub struct TabularMarker {
 /// `len == width * height`; `markers` overlay agent / passenger / destination.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabularGrid {
+    /// Grid width in cells.
     pub width: u16,
+    /// Grid height in cells.
     pub height: u16,
+    /// Row-major cells, `len == width * height`; cell `(x, y)` is
+    /// `cells[y * width + x]`.
     pub cells: Vec<TabularCell>,
+    /// Points-of-interest overlaid on top of the background cells.
     pub markers: Vec<TabularMarker>,
 }
 
@@ -330,6 +363,7 @@ pub enum TabularLayout {
 /// A snapshot of a tabular (toy-text) environment at one frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabularSnapshot {
+    /// The layout discriminant, carrying either a grid or a card-table view.
     pub layout: TabularLayout,
 }
 
@@ -337,6 +371,7 @@ pub struct TabularSnapshot {
 /// ships a `FamilyPayload::TabularText` rendered from structured layout
 /// state instead of `Ascii` text.
 pub trait TabularPayloadSource {
+    /// Returns a [`TabularSnapshot`] capturing the current frame.
     fn tabular_snapshot(&self) -> TabularSnapshot;
 }
 
@@ -392,6 +427,7 @@ pub struct Classic2DSnapshot {
 /// recording ships a `FamilyPayload::Classic2D` rendered as SVG line-art
 /// instead of `Ascii` text.
 pub trait Classic2DPayloadSource {
+    /// Returns a [`Classic2DSnapshot`] capturing the current frame.
     fn classic2d_snapshot(&self) -> Classic2DSnapshot;
 }
 

@@ -1,9 +1,9 @@
 //! Styled-output primitives consumed by the live TUI and report tiers.
 //!
-//! These types form the second projection of `AsciiRenderable` (defined in
-//! `rlevo-environments`): the plain method returns a `String` for logs,
-//! snapshot tests, and `EpisodeRecord.ascii`, while the styled method returns
-//! a [`StyledFrame`] carrying foreground/background colour and modifier hints.
+//! These types form the second projection of [`super::AsciiRenderable`]: the
+//! plain method returns a `String` for logs, snapshot tests, and
+//! `EpisodeRecord.ascii`, while the styled method returns a [`StyledFrame`]
+//! carrying foreground/background colour and modifier hints.
 //! The type set is intentionally a small subset of the ratatui vocabulary so
 //! that `rlevo-core` ships zero terminal-side dependencies — the
 //! `From<StyledFrame>` conversion into ratatui types lives in
@@ -31,6 +31,16 @@ impl StyledFrame {
     /// Every line becomes a single span with the default style. Used by the
     /// default `AsciiRenderable::render_styled` impl so that environments
     /// without bespoke colouring still produce a well-typed frame.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_core::render::styled::StyledFrame;
+    ///
+    /// let frame = StyledFrame::unstyled("line one\nline two".to_string());
+    /// assert_eq!(frame.lines.len(), 2);
+    /// assert_eq!(frame.plain_text(), "line one\nline two");
+    /// ```
     #[must_use]
     pub fn unstyled(s: String) -> Self {
         if s.is_empty() {
@@ -86,6 +96,19 @@ impl StyledLine {
     }
 
     /// Build a line from any iterable of spans.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_core::render::styled::{Color, SpanStyle, StyledLine, StyledSpan};
+    ///
+    /// let spans = vec![
+    ///     StyledSpan::new("agent", SpanStyle::default().fg(Color::Cyan).bold()),
+    ///     StyledSpan::raw(" at (3, 4)"),
+    /// ];
+    /// let line = StyledLine::from_spans(spans);
+    /// assert_eq!(line.spans.len(), 2);
+    /// ```
     #[must_use]
     pub fn from_spans<I: IntoIterator<Item = StyledSpan>>(spans: I) -> Self {
         Self {
@@ -242,6 +265,26 @@ pub enum Color {
 /// Implemented as a plain `u8` rather than `bitflags!` to keep the crate's
 /// dependency cone untouched. The bit layout is private; use the named
 /// constants and `BitOr` operator to compose values.
+///
+/// Combining modifiers with `|` and testing membership with [`Modifier::contains`]
+/// is the intended composition pattern. Pair [`Modifier::REVERSED`] with a
+/// semantic colour from [`super::palette`] to satisfy the project's
+/// accessibility contract (color is never the sole distinguishing signal).
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_core::render::styled::Modifier;
+///
+/// let m = Modifier::BOLD | Modifier::UNDERLINED;
+/// assert!(m.contains(Modifier::BOLD));
+/// assert!(m.contains(Modifier::UNDERLINED));
+/// assert!(!m.contains(Modifier::ITALIC));
+///
+/// // Hue-redundant hazard signal: combine REVERSED with a red foreground.
+/// let hazard = Modifier::BOLD | Modifier::REVERSED;
+/// assert!(hazard.contains(Modifier::REVERSED));
+/// ```
 #[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Modifier(u8);
 

@@ -7,7 +7,7 @@
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
-//! - [`Action`]: Base trait providing validation and cloning semantics
+//! - [`Action`](crate::base::Action): Base trait providing validation and cloning semantics
 //! - [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`]: Type-specific extensions
 //!
 //! # Action Types
@@ -314,11 +314,12 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
     /// - Recovering from numerical instability
     fn clip(&self, min: f32, max: f32) -> Self;
 
-    /// Samples a random action with components uniformly distributed in `[-1, 1]`.
+    /// Samples a random action with components uniformly distributed in `[-1.0, 1.0)`.
     ///
-    /// The default implementation generates uniform random values. Override this
-    /// method if you need different sampling behavior (e.g., Gaussian noise,
-    /// domain-specific distributions).
+    /// The default implementation generates uniform random values in the half-open
+    /// range `[-1.0, 1.0)` using `rand::random_range`. Override this method if you
+    /// need different sampling behavior (e.g., Gaussian noise, domain-specific
+    /// distributions, or bounds derived from [`BoundedAction`]).
     fn random() -> Self
     where
         Self: Sized,
@@ -357,9 +358,16 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 /// - [`ContinuousAction::clip`] must be a no-op on an action whose components
 ///   already lie in `[low, high]`.
 pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
-    /// Per-component lower bounds.
+    /// Returns the per-component lower bounds of this action space.
+    ///
+    /// The returned array must satisfy `low()[i] < high()[i]` for every component
+    /// `i`. See the trait-level invariants for the full contract.
     fn low() -> [f32; R];
-    /// Per-component upper bounds.
+
+    /// Returns the per-component upper bounds of this action space.
+    ///
+    /// The returned array must satisfy `low()[i] < high()[i]` for every component
+    /// `i`. See the trait-level invariants for the full contract.
     fn high() -> [f32; R];
 }
 

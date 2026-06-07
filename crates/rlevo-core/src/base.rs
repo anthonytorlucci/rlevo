@@ -75,7 +75,7 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     ///
     /// # Returns
     ///
-    /// Returns `true` if the action satisfies all structural constraints, `false` otherwise.
+    /// Returns `true` if the state satisfies all structural constraints, `false` otherwise.
     fn is_valid(&self) -> bool;
 
     /// Returns the total number of scalar elements in this state's representation.
@@ -88,7 +88,8 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     /// # Relationship to Shape
     ///
     /// For consistency, `numel()` must equal the product of all dimensions returned by
-    /// [`shape()`](State::shape):
+    /// [`shape()`](State::shape). The default implementation enforces this by computing
+    /// the product directly. Override only if the state uses a non-product layout.
     ///
     /// # Returns
     ///
@@ -148,6 +149,11 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
 }
 
 /// Deterministic environment transition dynamics: s_{t+1} = f(s_t, a_t).
+///
+/// This trait covers only **deterministic** transitions. Stochastic dynamics
+/// (where the successor state is drawn from a distribution) are not modeled
+/// here; environments with stochastic transitions implement that logic internally
+/// inside [`crate::environment::Environment::step`].
 pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>> {
     /// Returns the successor state after applying `action` to `state`.
     fn transition(&self, state: &S, action: &A) -> S;

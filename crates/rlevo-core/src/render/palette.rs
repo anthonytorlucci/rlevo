@@ -40,12 +40,16 @@ pub const HAZARD_FG: Color = Color::Red;
 /// Modifier that pairs with [`HAZARD_FG`]. `REVERSED` swaps foreground and
 /// background so the cell flashes as a solid block — visible at a glance
 /// regardless of red/green discrimination.
+///
+/// See also [`GOAL_MODIFIER`] for the complementary success signal.
 pub const HAZARD_MODIFIER: Modifier = Modifier::REVERSED;
 
 /// Foreground colour for static structural elements (walls, ground line,
 /// track outline). Should fade into the background visually.
 pub const WALL_FG: Color = Color::DarkGray;
-/// Modifier for walls. Empty by default — structural elements stay quiet.
+/// Modifier pairing with [`WALL_FG`]. Empty by default — structural elements
+/// stay quiet and do not compete with [`AGENT_FG`] or [`GOAL_FG`] for
+/// attention.
 pub const WALL_MODIFIER: Modifier = Modifier::EMPTY;
 
 /// Foreground colour for the "best-so-far" candidate in landscape and

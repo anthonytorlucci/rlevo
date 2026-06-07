@@ -6,6 +6,8 @@
 //! schemes (distributional, vector-valued, etc.) can implement [`Reward`]
 //! directly.
 //!
+//! [`Reward`]: crate::base::Reward
+//!
 //! ```
 //! use rlevo_core::base::Reward;
 //! use rlevo_core::reward::ScalarReward;
@@ -29,12 +31,30 @@ pub struct ScalarReward(pub f32);
 
 impl ScalarReward {
     /// Construct a new reward from a scalar value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_core::reward::ScalarReward;
+    ///
+    /// let r = ScalarReward::new(-1.0);
+    /// assert_eq!(f32::from(r), -1.0_f32);
+    /// ```
     #[must_use]
     pub const fn new(value: f32) -> Self {
         Self(value)
     }
 
     /// Unwrap the inner scalar value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_core::reward::ScalarReward;
+    ///
+    /// let r = ScalarReward::new(3.14);
+    /// assert!((r.value() - 3.14_f32).abs() < 1e-6);
+    /// ```
     #[must_use]
     pub const fn value(self) -> f32 {
         self.0

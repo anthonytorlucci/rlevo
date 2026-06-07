@@ -1,7 +1,12 @@
 //! Shared utilities used across `rlevo-core` consumers.
 //!
 //! Currently houses small helpers ([`combinations`]) and the
-//! [`seed`] module's deterministic seed-derivation primitives.
+//! [`seed`] module's deterministic seed-derivation primitives
+//! (see [`seed::SeedStream`]).
+//!
+//! [`combinations`]: crate::util::combinations
+//! [`seed`]: crate::util::seed
+//! [`seed::SeedStream`]: crate::util::seed::SeedStream
 
 pub mod seed;
 

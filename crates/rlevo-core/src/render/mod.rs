@@ -1,13 +1,32 @@
 //! Rendering abstractions for environment visualization.
 //!
-//! The [`Renderer`] trait is generic over frame type, so ASCII, image, and
-//! no-op renderers all share the same interface. Use [`NullRenderer`] when
-//! rendering is not required — all calls are eliminated by the compiler.
+//! # Module layout
 //!
-//! The [`styled`] submodule defines the colour-aware projection consumed by
-//! the live `ratatui` TUI (in `rlevo-benchmarks`) and the static-HTML report
-//! tier. The [`palette`] submodule supplies the project-wide semantic
-//! colour constants every styled-output implementor should reach for.
+//! | Submodule          | What it provides                                                    |
+//! |--------------------|---------------------------------------------------------------------|
+//! | [`ascii`]          | [`AsciiRenderable`] trait and [`AsciiRenderer`] — optional text dump helper (ADR-0013). |
+//! | [`styled`]         | [`StyledFrame`] / [`StyledLine`] / [`StyledSpan`] / [`SpanStyle`] / [`Color`] / [`Modifier`] — colour-aware projection consumed by the `ratatui` TUI and the static-HTML report tier. |
+//! | [`palette`]        | Project-wide semantic colour constants (`AGENT_FG`, `GOAL_FG`, `HAZARD_FG`, …). Every styled-output implementor should reach for these rather than raw [`Color`] values to satisfy the accessibility contract. |
+//! | [`payload`]        | Per-family structured snapshot types ([`Landscape2DSnapshot`], [`Box2dSnapshot`], [`Locomotion2DSnapshot`], …) and the corresponding opt-in payload-source traits consumed by the report tier. |
+//!
+//! # Renderer trait
+//!
+//! [`Renderer`] is generic over frame type, so ASCII, image, and no-op
+//! renderers all share the same interface. Use [`NullRenderer`] when
+//! rendering is not required — `Frame = ()` means no allocation occurs and
+//! the compiler eliminates every call site.
+//!
+//! [`AsciiRenderer`]: crate::render::AsciiRenderer
+//! [`StyledFrame`]: crate::render::StyledFrame
+//! [`StyledLine`]: crate::render::StyledLine
+//! [`StyledSpan`]: crate::render::StyledSpan
+//! [`SpanStyle`]: crate::render::SpanStyle
+//! [`Color`]: crate::render::Color
+//! [`Modifier`]: crate::render::Modifier
+//! [`Landscape2DSnapshot`]: crate::render::Landscape2DSnapshot
+//! [`Box2dSnapshot`]: crate::render::Box2dSnapshot
+//! [`Locomotion2DSnapshot`]: crate::render::Locomotion2DSnapshot
+//! [`NullRenderer`]: crate::render::NullRenderer
 
 pub mod ascii;
 pub mod palette;
