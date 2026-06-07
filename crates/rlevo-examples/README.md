@@ -1,76 +1,137 @@
 # rlevo-examples
 
-Application-tier examples for `rlevo`: visualisation, recording, reporting, and benchmarking harness demos. Lightweight library examples live in `crates/rlevo/examples/` instead — see ADR 0012 for the boundary rule.
+Runnable, application-tier examples for the [`rlevo`](../rlevo/) library:
+benchmarking-harness demos, a live training dashboard, and post-run HTML
+reports with interactive environment playback.
 
-## When to use this crate
+This is a **leaf crate** — nothing in the `rlevo` library depends on it. It
+exists so heavyweight examples that pull in the benchmarking/visualisation
+stack live in one place, isolated from the lean library crates (ADR 0012).
 
-Any example that imports `rlevo-benchmarks` (harness, suites, recording, reporting) belongs here. If your example only uses the five library sub-crates (`rlevo-core`, `rlevo-environments`, `rlevo-evolution`, `rlevo-reinforcement-learning`, `rlevo-hybrid`), add it to `crates/rlevo/examples/` instead.
+## What belongs here vs. in `rlevo/examples/`
+
+| Example uses…                                                                 | Lives in                  |
+| ----------------------------------------------------------------------------- | ------------------------- |
+| `rlevo-benchmarks` (harness, suites, recording, reporting, TUI)               | **`rlevo-examples`** (here) |
+| only the library crates (`rlevo-core`, `-environments`, `-evolution`, `-reinforcement-learning`, `-hybrid`) | [`rlevo/examples/`](../rlevo/examples/) |
 
 ## Running examples
 
-This crate is excluded from `default-members` — address it explicitly with `-p rlevo-examples`:
+`rlevo-examples` is excluded from the workspace `default-members`, so a bare
+`cargo build` skips it. Address it explicitly with `-p rlevo-examples`, and
+**run from the repository root** (the report emitter resolves the WASM client
+assets at the relative path `crates/rlevo-benchmarks-report-client/dist`):
 
 ```bash
-cargo run -p rlevo-examples --example <name> --features <flags>
+cargo run -p rlevo-examples --example <name> [--features <flags>] [--release]
 ```
 
-### Benchmarking harness
+Each example's source file opens with a doc comment explaining what it builds
+and which report/TUI panels it lights up — read it alongside the entry below.
 
-No feature flags required.
+## Example catalog
+
+### Benchmarking harness — no features required
+
+These run the `Suite` → `Evaluator::run_suite` → `BenchmarkReport` path and
+print results to stdout. The quickest way to see the harness in action.
+
+| Example          | What it demonstrates                                                                                          | Run                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `tabular_bandit` | An ε-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
+| `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `BenchEnv` harness contracts. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
+
+### Live TUI — `--features viz-tui`
+
+The live product (ADR 0013): a metrics-only `ratatui` dashboard that answers
+*"is it learning?"* from streaming sparklines. No environment is rendered —
+env playback is the report tier's job.
+
+| Example            | What it demonstrates                                                                                                       | Run                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `tui_ppo_cartpole` | A live dashboard wrapping a PPO-on-`CartPole` training loop; reward + loss sparklines climb as PPO learns. Use `--release`. | `cargo run -p rlevo-examples --example tui_ppo_cartpole --features viz-tui --release` |
+
+### Post-run reports — `--features viz-report`
+
+The post-run product (ADR 0013): training is recorded to disk, then emitted as
+a single self-contained `index.html` that mounts the Leptos/WASM report client.
+Each example targets a different environment family so you can see every
+playback adapter. See [the report workflow](#report-workflow) below for the
+one-time client build step.
+
+| Example                                 | Family / adapter                                            | Extra features        |
+| --------------------------------------- | ---------------------------------------------------------- | --------------------- |
+| `report_ppo_cartpole_with_client`       | Classic control — RL convergence plots + Classic2D playback | —                     |
+| `report_sphere_landscape_with_client`   | Landscapes — search-space trail + candidate/best markers    | —                     |
+| `report_grids_with_client`              | Grids — Minigrid-style tile playback (`EmptyEnv`)           | —                     |
+| `report_toy_text_with_client`           | Toy-text — tabular tile playback (`FrozenLake`)             | —                     |
+| `report_inverted_pendulum_with_client`  | Locomotion — sagittal-plane stick-figure SVG                | `locomotion`          |
+| `report_lunar_lander_with_client`       | Box2D — rigid-body polygon SVG (`LunarLanderDiscrete`)      | `box2d`               |
+
+## Report workflow
+
+The `*_with_client` examples inline a pre-built WASM client into the emitted
+HTML — there is **no server and nothing streams**. The flow is two steps:
 
 ```bash
-cargo run -p rlevo-examples --example tabular_bandit
-cargo run -p rlevo-examples --example ga_rastrigin
+# 1) One-time per client code change: build the WASM bundle into `dist/`.
+#    Requires the wasm target + trunk:
+#      rustup target add wasm32-unknown-unknown
+#      cargo install trunk
+cd crates/rlevo-benchmarks-report-client
+trunk build --release
+cd ../..   # back to the repository root
+
+# 2) Run a report example. It trains, records frames + metrics to a run
+#    directory, then inlines `dist/` into a single-file index.html.
+cargo run -p rlevo-examples --example report_ppo_cartpole_with_client \
+    --features viz-report --release
 ```
 
-The two viz products (ADR-0013): the live metrics TUI (`viz-tui`) and the
-post-run record + report pipeline (`viz-report`). `viz-report` pulls recording
-in transitively — there is no separate `viz-record` flag.
+The example prints the path of the emitted file (e.g.
+`…/<run-dir>/index.html`) along with the episode count and byte size; open
+that file in any browser. `--release` matters for the RL examples — PPO is
+unusably slow in debug builds.
 
-### Live TUI (`--features viz-tui`)
-
-```bash
-cargo run -p rlevo-examples --example tui_ppo_cartpole --features viz-tui
-```
-
-### Report (`--features viz-report`)
-
-The `*_with_client` variants stream data to the report server. Start the client first:
+Family-specific examples need their environment feature alongside `viz-report`:
 
 ```bash
-cargo run -p rlevo-benchmarks-report-client
-```
-
-Then in a second terminal:
-
-```bash
-cargo run -p rlevo-examples --example report_ppo_cartpole_with_client      --features viz-report
-cargo run -p rlevo-examples --example report_sphere_landscape_with_client  --features viz-report
-cargo run -p rlevo-examples --example report_grids_with_client             --features viz-report
-cargo run -p rlevo-examples --example report_toy_text_with_client          --features viz-report
-cargo run -p rlevo-examples --example report_inverted_pendulum_with_client --features locomotion,viz-report
-cargo run -p rlevo-examples --example report_lunar_lander_with_client      --features box2d,viz-report
+cargo run -p rlevo-examples --example report_inverted_pendulum_with_client \
+    --features locomotion,viz-report --release
+cargo run -p rlevo-examples --example report_lunar_lander_with_client \
+    --features box2d,viz-report --release
 ```
 
 ## Example layout
 
 ```
 examples/
-  common/         shared helpers (ppo_cartpole model/config)
-  harness/        benchmarking harness demos (tabular_bandit, ga_rastrigin)
-  classic/        PPO on CartPole — live TUI + report
-  evolution/      sphere landscape — report, with EA run
-  grids/          grid environments — report
-  toy_text/       toy-text environments — report
-  locomotion/     inverted pendulum — report
-  box2d/          lunar lander — report
+  common/       shared PPO-on-CartPole model/config, included by the cartpole examples
+  harness/      benchmarking-harness demos      (tabular_bandit, ga_rastrigin)
+  classic/      PPO on CartPole                 (tui_ppo_cartpole, report_ppo_cartpole_with_client)
+  evolution/    Sphere landscape report          (report_sphere_landscape_with_client)
+  grids/        grid environments report         (report_grids_with_client)
+  toy_text/     toy-text environments report     (report_toy_text_with_client)
+  locomotion/   inverted pendulum report         (report_inverted_pendulum_with_client)
+  box2d/        lunar lander report              (report_lunar_lander_with_client)
 ```
+
+`common/ppo_cartpole.rs` is shared scaffolding (model, config, training loop)
+pulled in via `#[path = …] mod` by the cartpole examples — it is not a
+standalone target.
 
 ## Features
 
-| Feature | Enables |
-|---|---|
-| `viz-tui` | Live metrics TUI dashboard (`rlevo-benchmarks/tui`) |
-| `viz-report` | Post-run record + static-HTML report (`rlevo-benchmarks/report` → `record` transitively, plus `rlevo-environments/record`) |
-| `locomotion` | Rapier3D locomotion environments |
-| `box2d` | Rapier2D Box2D-style environments |
+| Feature      | Enables                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `viz-tui`    | Live metrics TUI dashboard (`rlevo-benchmarks/tui`).                                                                 |
+| `viz-report` | Post-run recording + static-HTML report (`rlevo-benchmarks/report`, which pulls `record` transitively, plus `rlevo-environments/record` for the per-family `RecordedEnvFamily` impls). |
+| `locomotion` | Rapier3D locomotion environments (`rlevo-environments/locomotion`).                                                  |
+| `box2d`      | Rapier2D Box2D-style environments (`rlevo-environments/box2d`).                                                      |
+
+There is no separate `viz-record` flag — `viz-report` is the single post-run
+product and carries recording transitively (ADR 0013 §5).
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

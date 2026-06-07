@@ -330,6 +330,52 @@ The following algorithms are deferred stubs — scope is parked until prerequisi
 
 `compute_target_q_values` — Bellman target computation shared by DQN variants.
 
+### Experience Replay (`memory`)
+
+Off-policy replay storage shared across the value-based and actor-critic algorithms. Moved here from `rlevo-core` per ADR 0003 (replay/experience/metrics live where they are consumed).
+
+| Item | Description |
+|------|-------------|
+| `PrioritizedExperienceReplay<D, AD, O, A, R>` | Off-policy replay buffer with priority-weighted sampling. Priorities are raised to power `alpha` before normalization. FIFO eviction at capacity. |
+| `PrioritizedExperienceReplayBuilder<D, AD, O, A, R>` | Fluent builder: `.with_capacity(n).with_alpha(0.6).build()` |
+| `TrainingBatch<BD, BAD, B>` | GPU-ready tensor bundle (`observations`, `actions`, `rewards`, `next_observations`, `dones`) consumed by learning algorithms |
+
+```rust
+use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
+
+let mut buffer = PrioritizedExperienceReplayBuilder::default()
+    .with_capacity(100_000)
+    .with_alpha(0.6)
+    .build();
+
+// buffer.add(obs, action, reward, next_obs, is_done, priority);
+// let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
+```
+
+Prioritized Experience Replay follows the algorithm of Schaul et al.:
+
+> T. Schaul, J. Quan, I. Antonoglou, and D. Silver, "Prioritized experience replay," in Proc. Int. Conf. Learn. Represent. (ICLR), 2016. [arXiv:1511.05952](https://arxiv.org/abs/1511.05952)
+
+### Trajectory Storage (`experience`)
+
+Per-transition records and the FIFO trajectory buffer the replay buffer is built on. Moved here from `rlevo-core` per ADR 0003.
+
+| Item | Description |
+|------|-------------|
+| `ExperienceTuple<D, AD, O, A, R>` | Single `(s, a, r, s′, done)` transition |
+| `History<D, AD, O, A, R>` | Fixed-capacity FIFO buffer (`VecDeque`); indexable, iterable |
+| `HistoryRepresentation` | Trait for summaries built from a `History` |
+| `SufficientStatistic` | Extends `HistoryRepresentation + MarkovState`; checks whether a history summary is Markov-sufficient |
+
+### Performance Tracking (`metrics`)
+
+Episode-level outcome tracking for training loops. Moved here from `rlevo-core` per ADR 0003.
+
+| Item | Description |
+|------|-------------|
+| `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
+| `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average (`avg_score`) |
+
 ---
 
 ## Configuration Pattern

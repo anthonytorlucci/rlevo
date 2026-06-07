@@ -42,7 +42,7 @@ inlines into every report:
 
 | Script id | Type | Content |
 |-----------|------|---------|
-| `rlevo-manifest` | `application/json` | `RunManifest` (run id, env family, seed, hyperparameters) |
+| `rlevo-manifest` | `application/json` | `RunManifest` (run id, env family, seed, hyperparameters, plus ADR-0014 run provenance) |
 | `rlevo-warnings` | `application/json` | `[OpenWarning]` non-fatal load conditions |
 | `rlevo-episode-index` | `application/json` | `[EpisodeMeta]` summary per episode |
 | `rlevo-episode-NNNNNN` | `application/octet-stream` | Base64-encoded raw `.rec` bytes (16-byte preamble + bincode header + length-prefixed `RecordChunk`s) |
@@ -98,9 +98,9 @@ stays at bincode tag 0, so the v1 tag layout is preserved.
 
 - **`Landscape2D`** payload — search-domain bounds, current candidate,
   best-so-far, capped trail, landscape label. The
-  `adapters/landscape.rs` SVG renders a bounded rectangle background +
+  `adapters/landscape.rs` SVG renders a closed-form fitness heatmap
+  background (sphere / ackley / rastrigin, monochrome low→high ramp) +
   trail polyline + current-position disk + best-so-far cross-ring.
-  Heatmap is deferred to M7.1 — only the candidate dynamics ship in M7.
 - **`Locomotion2D`** payload — **the canonical view for the family**,
   since locomotion envs do not implement `AsciiRenderable` per
   ADR-0008. The `adapters/locomotion.rs` SVG renders a sagittal-plane
@@ -146,9 +146,12 @@ The umbrella crate ships paired M7 examples:
 
 M8 lights up the report tier's training-diagnostic surface: a new
 **Convergence** section between the episode table and the per-episode
-playback pane renders per-run scalar charts via
-[`leptos-chartistry`](https://docs.rs/leptos-chartistry) (pure-Rust
-SVG, no JS interop per umbrella spec §3 constraint #6). Wire format is
+playback pane renders per-run scalar charts as hand-rolled pure-Rust
+SVG (`src/charts.rs` / `src/series.rs`) — no JS interop and no charting
+dependency, per umbrella spec §3 constraint #6. (`leptos-chartistry`
+was evaluated but dropped: its 0.2 `Line`/`Bar` primitives don't cover
+the box-plot and ±std-band panels, so the whole chart layer is
+hand-rolled — it appears nowhere in `Cargo.toml`.) Wire format is
 unchanged — every panel below consumes data already in the M4-era
 record (`MetricSample` stream, per-frame rewards).
 
@@ -199,12 +202,18 @@ new [`PopulationSample`](../rlevo-benchmarks/src/record/schema.rs) chunk
 (bincode tag 2). v1 and v2 records continue to decode through the v3
 loader because the new chunk tag never appears in older streams.
 
+> The record format has since advanced to **`FORMAT_VERSION = 6`** (ADR
+> 0014 — typed run-provenance fields, expanded canonical metrics,
+> checkpoint refs, `EpisodeKind { Training, Evaluation }`). `src/wire.rs`
+> mirrors the current schema, and the host crate's
+> `tests/wire_format_compat.rs` round-trip fails on any field drift.
+
 Panel inventory (rendered when `population_samples` is non-empty in
 the run):
 
 - **Fitness distribution per generation** — hand-rolled SVG box plot
-  ([`leptos-chartistry`](https://docs.rs/leptos-chartistry) 0.2 ships
-  only `Line` and `Bar`, no box-plot primitive). Per generation: filled
+  (no charting dependency — see the M8 note; the box-plot, whisker, and
+  outlier primitives have no off-the-shelf equivalent). Per generation: filled
   `[Q1, Q3]` rectangle, horizontal median tick, vertical whiskers
   clipped at the Tukey 1.5×IQR fence, outliers as small open circles.
   Three overlay polylines (best / median / worst) pair colour with
@@ -217,7 +226,7 @@ the run):
   M8.2 deferral below).
 - **Selection-pressure indicator** — `best / median` ratio per
   generation, skipping zero-median degeneracy. Reuses the M8
-  `line_chart_view`.
+  `interactive_line_view`.
 
 ### Producer surface
 
@@ -258,7 +267,30 @@ record's `population_samples` vector behind its own `OnceLock`. RL-only
 runs return an empty slice and the Population section `view!`'s out to
 an empty span — non-EA reports add nothing to the rendered tree.
 
-## Deferred to M8.2+
+## Shipped since M8.1
+
+The M8.2 chart-polish items have since landed in `src/charts.rs` /
+`src/series.rs`:
+
+- **Hover crosshair** with an exact raw-sample readout, accurate even on
+  a decimated path (`interactive_line_view`).
+- **Per-panel static SVG export** — a per-chart download button builds an
+  `HtmlAnchorElement` and triggers it.
+- **Downsampling for long series** — `downsample_minmax` decimates the
+  drawn path (peaks/troughs preserved) while the tooltip still reads the
+  full-resolution series.
+- **Axis-mode toggle** (`step | episode | wallclock`) via the `AxisMode`
+  enum and a reactive UI switch.
+- **Multi-seed ±std bands** — `metric_band` / `BandPoint` /
+  `distinct_seed_count` feed `band_chart_view`'s filled envelope.
+- **Strip-plot overlay** on the box plot, toggleable via an "Individual
+  points" button.
+- **Threshold horizontal-rule annotation** on the diversity trace
+  (`low_diversity_threshold`, user-editable).
+- **Landscape heatmap background** (closed-form sphere / ackley /
+  rastrigin, monochrome ramp) — `adapters/landscape.rs`.
+
+## Still deferred
 
 - **Lineage DAG** ([`evolution-population`](../../docs/specs.md) §3.3) —
   requires per-Strategy parent tracking. `Strategy::tell` returns
@@ -273,27 +305,14 @@ an empty span — non-EA reports add nothing to the rendered tree.
 - **Diversity computation** — `PopulationSnapshot::diversity` is
   emitted as `None` from `EvolutionaryHarness` because the harness has
   no strategy-agnostic geometry over the population tensor. A
-  `Strategy::diversity(state) -> Option<f32>` extension is the
-  natural M8.2 follow-up; until it lands the diversity panel
+  `Strategy::diversity(state) -> Option<f32>` extension is the natural
+  follow-up; until it lands the diversity panel (and its threshold rule)
   suppresses cleanly.
-- **Multi-seed aggregation** — `run_group` field on `MetricSample::aux`
-  + cross-record loading + ±std band rendering.
-- **Static SVG export per panel** — `leptos-chartistry` is already
-  SVG-native; the toolbar export button + page-level tile export are
-  M8.2 polish.
-- **Axis-mode toggle** (`step | episode | wallclock`), **panel reorder**,
-  **`localStorage` layout persistence**, **hover crosshair with raw
-  values**, **downsampling for >10 k-sample series** — all M8.2.
-- **Strip-plot overlay** on the box plot (always-on in M8.1; toggle UI
-  is M8.2 polish).
-- **Threshold horizontal-rule annotations** on the diversity +
-  selection-pressure traces — chartistry exposes no annotation
-  primitive; CSS-overlay treatment is M8.2.
-- **Landscape heatmap background** — sampled per known label
-  client-side; M7.1.
+- **Panel reorder + `localStorage` layout persistence** — the panel grid
+  is still fixed-order and non-persistent across reloads.
 - **BipedalWalker / CarRacing / Swimmer / Reacher / DoublePendulum**
   examples — fall out structurally from the shared `Box2dBodies` /
-  `Locomotion2D` SVG renderer; M7.1.
+  `Locomotion2D` SVG renderer.
 
 ## Standalone development
 

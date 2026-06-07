@@ -10,7 +10,7 @@
 //!
 //! - [`strategy`] — the central [`Strategy`] trait and
 //!   the [`EvolutionaryHarness`] adapter that
-//!   wraps any strategy into `rlevo-benchmarks::BenchEnv`.
+//!   wraps any strategy into `rlevo-core::evaluation::BenchEnv`.
 //! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
 //!   `Tree`) that parameterize the operator set.
 //! - [`population`] — [`Population<B, K>`](population::Population), a thin
@@ -18,7 +18,7 @@
 //! - [`fitness`] — [`FitnessFn`](fitness::FitnessFn) /
 //!   [`BatchFitnessFn`](fitness::BatchFitnessFn) and the
 //!   [`FromFitnessEvaluable`](fitness::FromFitnessEvaluable) adapter for
-//!   `rlevo-benchmarks::FitnessEvaluable`.
+//!   `rlevo-core::fitness::FitnessEvaluable`.
 //! - [`rng`] — deterministic seed streams (splitmix64) for reproducibility.
 //! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.

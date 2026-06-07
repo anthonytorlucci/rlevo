@@ -42,7 +42,7 @@ Most ERL implementations are Python research prototypes built around flat vector
 
 **Box2D Physics**
 - `BipedalWalker` — bipedal locomotion over varied terrain
-- `LunarLander` / `LunarLanderContinuous` — fuel-efficient touchdown
+- `LunarLanderDiscrete` / `LunarLanderContinuous` — fuel-efficient touchdown
 - `CarRacing` — top-down racing with visual observations
 
 **MuJoCo-style Locomotion**
@@ -95,17 +95,17 @@ rlevo = "0.1"
 ```
 
 ```rust
-use rlevo::envs::classic::CartPole;
-use rlevo::core::{Environment, EpisodeStatus};
+use rlevo::prelude::*;
+use rlevo::envs::classic::{CartPole, CartPoleAction, CartPoleConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut env = CartPole::new(false);
+    let mut env = CartPole::with_config(CartPoleConfig::default());
     let snapshot = env.reset()?;
     println!("Initial observation: {:?}", snapshot.observation());
 
     loop {
-        // Replace with your policy — here we pick action 0 unconditionally
-        let action = env.sample_action();
+        // Replace with your policy — here we sample a random action
+        let action = CartPoleAction::random();
         let snapshot = env.step(action)?;
 
         if matches!(snapshot.status(), EpisodeStatus::Terminated | EpisodeStatus::Truncated) {

@@ -6,9 +6,9 @@ the [Burn](https://burn.dev/) framework.
 ## Status
 
 **Alpha.** v1 of the `classical-evolutionary-algorithms` spec. The
-trait surface and five algorithm families below are shipping; custom
-CubeCL kernels on hot paths are preserved as design docs
-(`src/ops/kernels/mod.rs`) for a follow-up.
+trait surface, the five classical families, and a swarm/metaheuristic
+suite below are shipping; custom CubeCL kernels on hot paths are
+preserved as design docs (`src/ops/kernels/mod.rs`) for a follow-up.
 
 ## Algorithm families
 
@@ -21,12 +21,33 @@ CubeCL kernels on hot paths are preserved as design docs
 | Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<B, 2>` | < 1e-22 (rand/1/bin) |
 | Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<B, 2, Int>` | see symbolic regression test |
 
+## Swarm & metaheuristic suite
+
+A second family of population-based metaheuristics, all implementing the same
+[`Strategy<B>`](src/strategy.rs) trait over real-valued `Tensor<B, 2>`
+populations.
+
+| Algorithm | Entry point |
+|---|---|
+| Particle Swarm Optimization | `algorithms::metaheuristic::pso::ParticleSwarm` |
+| Ant Colony (continuous, ACOᵣ) | `algorithms::metaheuristic::aco_r::AntColonyReal` |
+| Artificial Bee Colony | `algorithms::metaheuristic::abc::ArtificialBeeColony` |
+| Grey Wolf Optimizer | `algorithms::metaheuristic::gwo::GreyWolfOptimizer` |
+| Whale Optimization | `algorithms::metaheuristic::woa::WhaleOptimization` |
+| Cuckoo Search | `algorithms::metaheuristic::cuckoo::CuckooSearch` |
+| Firefly Algorithm | `algorithms::metaheuristic::firefly::FireflyAlgorithm` |
+| Bat Algorithm | `algorithms::metaheuristic::bat::BatAlgorithm` |
+| Salp Swarm | `algorithms::metaheuristic::salp::SalpSwarm` |
+
+> `algorithms::metaheuristic::aco_perm::AntColonyPermutation` (combinatorial ACO)
+> is a deferred stub — its `Strategy` methods `todo!()` pending a permutation
+> genome path.
+
 ## Quick start
 
 ```rust,no_run
 use burn::backend::NdArray;
-use rlevo_benchmarks::agent::FitnessEvaluable;
-use rlevo_benchmarks::env::BenchEnv;
+use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::EvolutionaryHarness;
@@ -58,9 +79,10 @@ fn main() {
 }
 ```
 
-The quick start uses `rlevo_benchmarks` (a sibling workspace crate) to supply the
-`FitnessEvaluable` trait and `BenchEnv` driver; add it to your `[dev-dependencies]`
-or swap in your own fitness function.
+The quick start's `FitnessEvaluable` trait lives in `rlevo-core` (already a
+dependency — it was hoisted there per ADR 0004), and the `EvolutionaryHarness`
+exposes the strategy as a `rlevo_core::evaluation::BenchEnv`. Swap in your own
+objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
 
 Run the showcase across every shipping family:
 
@@ -82,11 +104,11 @@ The fitness function is a separate trait
 ([`BatchFitnessFn`](src/fitness.rs)), so users plug in any
 device-resident evaluator; the
 [`FromFitnessEvaluable`](src/fitness.rs) adapter lifts any
-`evorl-benchmarks::FitnessEvaluable` (host-side `Vec<f64>` in,
+`rlevo_core::fitness::FitnessEvaluable` (host-side `Vec<f64>` in,
 `f64` out) onto a device tensor.
 
 The [`EvolutionaryHarness<B, S, F>`](src/strategy.rs) wraps a strategy
-into `rlevo_benchmarks::env::BenchEnv`, so the benchmark evaluator
+into `rlevo_core::evaluation::BenchEnv`, so the benchmark evaluator
 drives it identically to an RL environment — one generation per
 `step`, reward = `-best_fitness_ever`.
 

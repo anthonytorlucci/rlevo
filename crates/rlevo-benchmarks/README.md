@@ -33,12 +33,13 @@ Suite<E>
 
 ### `env` — Environment Interface
 
-`BenchEnv` is a narrow, object-safe environment trait intentionally lighter than `rlevo_core::Environment`. It avoids const-generic threading so that heterogeneous environments can be boxed and dispatched at runtime.
+`BenchEnv` is a narrow, object-safe environment trait intentionally lighter than `rlevo_core::Environment`. It avoids const-generic threading so that heterogeneous environments can be boxed and dispatched at runtime. The trait surface itself lives in `rlevo-core` (`rlevo_core::evaluation`, hoisted there per ADR 0004); this crate re-exports it under `rlevo_benchmarks::env` for convenience.
 
 | Item | Description |
 |------|-------------|
-| `BenchEnv` | `reset() → Obs`, `step(act) → BenchStep<Obs>` |
+| `BenchEnv` | `reset() → Result<Obs, BenchError>`, `step(act) → Result<BenchStep<Obs>, BenchError>` |
 | `BenchStep<Obs>` | Step result: `observation`, `reward: f64`, `done: bool` |
+| `BenchError` | Recoverable error wrapping the upstream `EnvironmentError` |
 
 ### `agent` — Agent Interface
 
@@ -90,6 +91,10 @@ Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram
 | `metrics::ea` | `ea/population_diversity`, `ea/best_fitness`, `ea/generations_to_converge`, `ea/fitness_variance` |
 | `metrics::rl` | Metric name constants for RL agents: `rl/policy_loss`, `rl/value_loss`, `rl/approx_kl`, `rl/entropy`, `rl/epsilon`, `rl/learning_rate` |
 
+### `metrics_registry` — Canonical Metric Names
+
+Always-on re-export of the `rlevo-metrics-registry` leaf crate (ADR 0015). Supplies the single source of truth for canonical metric field names — `CANONICAL_METRICS`, `is_canonical_metric`, `MetricDescriptor`/`MetricKind`, `Cadence`, `descriptor`, `is_per_generation`, `title_for` — so the recorder (`RecordingLayer`) and live TUI (`tui::log_layer`) agree on which `tracing` fields are promoted to metrics.
+
 ### `report` — Result Types
 
 | Item | Description |
@@ -100,7 +105,7 @@ Three metric variants are represented by the `Metric` enum (`Scalar`, `Histogram
 
 ### `reporter` — Event Sink
 
-The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode_end`, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. Three built-in implementations are provided:
+The `Reporter` trait receives lifecycle events (`on_suite_start`, `on_trial_start`, `on_episode_end`, `on_trial_end`, `on_suite_end`) with no metric-computation responsibility. Five built-in implementations are provided:
 
 | Reporter | Feature gate | Behaviour |
 |----------|-------------|-----------|
@@ -153,7 +158,7 @@ runs/<run_id>/index.html
 | `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
 | `export-report` (binary) | CLI front-end: `cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>`. |
 
-M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is stable as of `FORMAT_VERSION = 1`.
+M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `6`, per ADR 0014); the loader rejects inlined payloads stamped with any other version.
 
 ### Optional Leptos/WASM client (Milestone 5.1)
 
@@ -179,6 +184,10 @@ emit_static_html(
 ```
 
 The emitter replaces the M5 placeholder body with a `<div id="rlevo-app">` mount point and inlines the WASM blob + JS shim + bundled CSS. When `client_assets` is `None`, the M5 placeholder body ships unchanged.
+
+### `env_wrappers` — Live-TUI Env Taps (feature `tui`)
+
+Composable `Environment` wrappers that feed the metrics-only live TUI (ADR 0013). `TuiEnvTap` wraps an env and emits per-episode returns into the TUI's metric stream without the dashboard ever owning an environment panel. Gated behind the `tui` feature.
 
 ### `checkpoint` — Resume Support
 
@@ -211,7 +220,7 @@ rlevo-benchmarks = { path = "../rlevo-benchmarks" }
 ```rust
 use rlevo_benchmarks::{
     agent::BenchableAgent,
-    env::{BenchEnv, BenchStep},
+    env::{BenchEnv, BenchError, BenchStep},
     evaluator::{Evaluator, EvaluatorConfig},
     reporter::logging::LoggingReporter,
     suite::Suite,
@@ -246,11 +255,12 @@ let cfg = EvaluatorConfig {
 let suite: Suite<MyEnv> = Suite::new("my-suite", cfg.clone())
     .with_env("env-a", |_seed| MyEnv { /* ... */ });
 
+let mut reporter = LoggingReporter::default();
 let report = Evaluator::new(cfg)
     .run_suite::<_, MyAgent, _, _>(
         &suite,
         |_seed| MyAgent,
-        LoggingReporter::default(),
+        &mut reporter,
     );
 ```
 
@@ -260,10 +270,11 @@ let report = Evaluator::new(cfg)
 
 ```bash
 # ε-greedy sample-average agent on the 10-armed bandit
-cargo run -p rlevo-benchmarks --example tabular_bandit
+# (examples live in the rlevo-examples crate per ADR 0012)
+cargo run -p rlevo-examples --example tabular_bandit
 
 # Hand-rolled genetic algorithm minimising the 10-D Rastrigin function
-cargo run -p rlevo-benchmarks --example ga_rastrigin
+cargo run -p rlevo-examples --example ga_rastrigin
 ```
 
 ---
