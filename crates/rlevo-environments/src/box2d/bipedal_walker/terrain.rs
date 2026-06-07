@@ -1,4 +1,19 @@
-//! Terrain generation for BipedalWalker.
+//! Terrain generation for the BipedalWalker environment.
+//!
+//! The [`TerrainGenerator`] trait is the extension point for ground geometry.
+//! Three concrete generators ship with the crate:
+//!
+//! | Type | Description |
+//! |---|---|
+//! | [`FlatTerrain`] | Constant y = 0 over 200 world units |
+//! | [`RoughTerrain`] | Random height variation after a flat spawn zone |
+//! | [`HardcoreTerrain`] | Pits and stumps with tunable frequency |
+//!
+//! All generators preserve a flat 10-unit spawn zone at the left end so the
+//! walker starts on solid ground regardless of the difficulty setting.
+//!
+//! Points are in **world space** (not scaled by `SCALE`). Scaling is applied
+//! inside `BipedalWalker::build_ground` when constructing Rapier2D colliders.
 
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -15,7 +30,10 @@ pub trait TerrainGenerator: std::fmt::Debug + Send + Sync {
     fn generate(&self, rng: &mut StdRng) -> Vec<[f32; 2]>;
 }
 
-/// Flat terrain: a straight horizontal ground plane.
+/// Flat terrain: a straight horizontal ground plane at y = 0.
+///
+/// Produces 201 evenly spaced points spanning x ∈ `[-10, 190]`.
+/// No randomness is used; `rng` is ignored.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FlatTerrain;
 
@@ -26,12 +44,17 @@ impl TerrainGenerator for FlatTerrain {
     }
 }
 
-/// Rough terrain: randomly varying height.
+/// Rough terrain: randomly varying height after a flat spawn zone.
+///
+/// Each point beyond the 10-unit spawn zone receives a y coordinate sampled
+/// uniformly from `[-roughness, roughness]`. The default values are
+/// `roughness = 1.5` and `step = 1.0`.
 #[derive(Debug, Clone)]
 pub struct RoughTerrain {
-    /// Amplitude of height variation (world units).
+    /// Half-amplitude of height variation in world units. The y coordinate of
+    /// each post-spawn point is drawn from `Uniform(-roughness, roughness)`.
     pub roughness: f32,
-    /// Horizontal spacing between height samples.
+    /// Horizontal distance between consecutive height samples (world units).
     pub step: f32,
 }
 
@@ -61,12 +84,22 @@ impl TerrainGenerator for RoughTerrain {
     }
 }
 
-/// Hardcore terrain: stumps, pits, and stair-like features.
+/// Hardcore terrain: randomly placed pits and stumps over a flat baseline.
+///
+/// At each 1-unit step a Bernoulli draw decides whether to insert a pit, a
+/// stump, or flat ground. Pits drop to y = −2 for a randomly sampled width of
+/// 2–5 units; stumps rise to y = 1.5 for a fixed width of 0.5 units.
+///
+/// The default values are `pit_frequency = 0.5` and `stump_frequency = 0.5`,
+/// giving an effective obstacle probability of 0.1 per unit (each divided by 10
+/// in the generator loop).
 #[derive(Debug, Clone)]
 pub struct HardcoreTerrain {
-    /// Expected number of pits per 10 world units.
+    /// Controls how often pits appear. At each step the pit branch is taken
+    /// when a uniform draw is less than `pit_frequency / 10`.
     pub pit_frequency: f32,
-    /// Expected number of stumps per 10 world units.
+    /// Controls how often stumps appear. The stump branch fires when the draw
+    /// falls in `[pit_frequency / 10, (pit_frequency + stump_frequency) / 10)`.
     pub stump_frequency: f32,
 }
 

@@ -21,13 +21,15 @@ Because evaluating individuals is independent, ERL maps naturally onto Rust's fe
 
 ## Why `rlevo`?
 
-Most ERL implementations are Python research prototypes built around flat vector observations and fixed-dimension action spaces. `rlevo` is designed differently from the ground up:
+The ERL research community has produced a rich ecosystem of Python implementations, many optimized for rapid experimentation with flat vector observations and fixed-dimension action spaces. `rlevo` builds on those foundations while exploring a different set of design priorities, rooted in Rust:
 
-**Const-generic dimensional safety.** `State<D>`, `Observation<D>`, and `Action<AD>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — a guarantee no existing Rust RL crate provides.
+**Const-generic dimensional safety.** `State<SR>`, `Observation<R>`, and `Action<AR>` carry their dimensionality as const generic parameters. Dimension mismatches are compile-time errors, not runtime panics — to our knowledge, a guarantee no other Rust RL crate currently offers at the type level.
 
-**Unified evolutionary and gradient-based RL.** Evolutionary and gradient-based agents share the same core trait abstractions, so they run against identical environments and compose naturally in a single training loop.
+**Shared abstractions for evolutionary and gradient-based RL.** Evolutionary and gradient-based agents implement the same `rlevo::core` traits and run against identical environments. Hybrid algorithms that interleave the two — the evolution-guided injection loop pioneered by [Khadka & Tumer (2018)](https://arxiv.org/abs/1805.07917) and extended by work like [EvoRainbow](https://github.com/yeshenpy/EvoRainbow) (ICML 2024) — are in active design in `rlevo-hybrid`. JAX-based libraries such as [EvoRL](https://github.com/EMI-Group/evorl) already ship implemented hybrids; `rlevo` aims to bring that pairing to a type-safe Rust stack.
 
 **Backend-agnostic tensors via Burn.** Neural network weights, population tensors, and replay buffers are all Burn tensors. Hardware backends (CPU, WGPU, CUDA) swap without touching algorithm code.
+
+**Reproducible, structured run records.** Every run can emit a typed, versioned `EpisodeRecord` with full provenance (algorithm, versions, git SHA, device, seeds), replayable in a self-contained static-HTML report — built for reproducible experiments and shareable results.
 
 ## What's Included
 
@@ -42,7 +44,7 @@ Most ERL implementations are Python research prototypes built around flat vector
 
 **Box2D Physics**
 - `BipedalWalker` — bipedal locomotion over varied terrain
-- `LunarLander` / `LunarLanderContinuous` — fuel-efficient touchdown
+- `LunarLanderDiscrete` / `LunarLanderContinuous` — fuel-efficient touchdown
 - `CarRacing` — top-down racing with visual observations
 
 **MuJoCo-style Locomotion**
@@ -95,17 +97,17 @@ rlevo = "0.1"
 ```
 
 ```rust
-use rlevo::envs::classic::CartPole;
-use rlevo::core::{Environment, EpisodeStatus};
+use rlevo::prelude::*;
+use rlevo::envs::classic::{CartPole, CartPoleAction, CartPoleConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut env = CartPole::new(false);
+    let mut env = CartPole::with_config(CartPoleConfig::default());
     let snapshot = env.reset()?;
     println!("Initial observation: {:?}", snapshot.observation());
 
     loop {
-        // Replace with your policy — here we pick action 0 unconditionally
-        let action = env.sample_action();
+        // Replace with your policy — here we sample a random action
+        let action = CartPoleAction::random();
         let snapshot = env.step(action)?;
 
         if matches!(snapshot.status(), EpisodeStatus::Terminated | EpisodeStatus::Truncated) {
@@ -121,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 cargo build
 
 # Run tests
-cargo test
+cargo test --workspace
 
 # Generate documentation
 cargo doc --workspace --no-deps --open
@@ -157,6 +159,21 @@ cargo doc --workspace --no-deps --open
 - **criterion 0.8** — statistical microbenchmarking
 - **pprof 0.15** — CPU profiling with flamegraph and criterion integration
 - **approx 0.5** — floating-point approximate equality for tests
+
+## Prior Work and Acknowledgements
+
+`rlevo` stands on the shoulders of a large body of research and open-source work. The evolutionary-RL field is rich and active, and several projects directly shaped this library's design:
+
+- **[Evolution-Guided Policy Gradient in Reinforcement Learning](https://arxiv.org/abs/1805.07917)** (Khadka & Tumer, NeurIPS 2018) and its [reference implementation](https://github.com/ShawK91/Evolutionary-Reinforcement-Learning) — the canonical ERL injection loop that `rlevo-hybrid` is built around.
+- **[EvoRainbow](https://github.com/yeshenpy/EvoRainbow)** (Li et al., ICML 2024) — demonstrated that pairing distributional RL with evolutionary search is empirically strong; a direct motivator for combining `rlevo`'s C51/QR-DQN with its evolutionary algorithms.
+- **[EvoRL](https://github.com/EMI-Group/evorl)** (EMI-Group) — its JAX population-as-tensor evaluation pattern is the architectural target for batched, single-kernel population evaluation in `rlevo-evolution`, and its implemented hybrid algorithms are a valuable reference.
+- **[Evolutionary Constrained Reinforcement Learning](https://github.com/HcPlu/Evolutionary-Constrained-Reinforcement-Learning)** (Hu et al.) — informs the constraint-aware directions on the roadmap.
+- **[EvoJAX](https://github.com/google/evojax)** and **[evosax](https://github.com/RobertTLange/evosax)** — references for hardware-accelerated neuroevolution and evolution-strategy API design.
+- **[CleanRL](https://docs.cleanrl.dev/)** — clear, single-file algorithm references that guided several deep-RL implementations.
+- **[Gymnasium](https://gymnasium.farama.org/)** (Farama Foundation) — the environment specifications that `rlevo`'s classic-control, Box2D, and MuJoCo-style environments follow.
+- **[Burn](https://burn.dev/)** (Tracel AI) — the backend-agnostic tensor and deep-learning framework that makes the whole library possible.
+
+Any mischaracterization of these projects is ours alone; corrections are welcome. If your work belongs here and isn't credited, please open an issue or PR.
 
 ## Contributing
 

@@ -2,7 +2,7 @@
 
 Standard benchmark environments and landscapes for the `rlevo` workspace.
 
-This crate provides a collection of reinforcement learning environments ranging from classic tabular problems through continuous-control physics simulations. All environments implement the `rlevo-core` `Environment` trait — a common `reset` / `step` interface that makes them drop-in compatible with every algorithm in `rlevo-deeprl`.
+This crate provides a collection of reinforcement learning environments ranging from classic tabular problems through continuous-control physics simulations. All environments implement the `rlevo-core` `Environment` trait — a common `reset` / `step` interface that makes them drop-in compatible with every algorithm in `rlevo-reinforcement-learning` and `rlevo-evolution`.
 
 ---
 
@@ -64,7 +64,8 @@ Continuous-control environments powered by [Rapier2D](https://rapier.rs). Enable
 | Environment | Module | Observation | Action |
 |---|---|---|---|
 | `BipedalWalker` | `box2d::BipedalWalker` | 24-D continuous | Continuous(4) |
-| `LunarLander` | `box2d::LunarLander` | 8-D continuous | Discrete(4) or Continuous(2) |
+| `LunarLanderDiscrete` | `box2d::lunar_lander` | 8-D continuous | Discrete(4) |
+| `LunarLanderContinuous` | `box2d::lunar_lander` | 8-D continuous | Continuous(2) |
 | `CarRacing` | `box2d::CarRacing` | 96×96 pixel | Continuous(3) |
 
 ---
@@ -106,8 +107,8 @@ Continuous single-objective fitness functions for evaluating evolutionary algori
 
 ```rust,no_run
 use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_envs::classic::{CartPole, CartPoleConfig, CartPoleAction};
-use rlevo_envs::wrappers::TimeLimit;
+use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
+use rlevo_environments::wrappers::TimeLimit;
 
 let env = CartPole::with_config(CartPoleConfig::default());
 let mut env = TimeLimit::new(env, 500);
@@ -122,8 +123,8 @@ Gridworld environments use the shared `GridAction` type:
 
 ```rust,no_run
 use rlevo_core::environment::{Environment, Snapshot};
-use rlevo_envs::grids::{EmptyEnv, EmptyConfig};
-use rlevo_envs::grids::core::GridAction;
+use rlevo_environments::grids::{EmptyEnv, EmptyConfig};
+use rlevo_environments::grids::core::GridAction;
 
 let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
 let mut snap = env.reset().expect("reset");
@@ -140,6 +141,8 @@ while !snap.is_done() {
 |---|---|---|
 | `box2d` | yes | Box2D-style physics environments via `rapier2d` |
 | `locomotion` | yes | Locomotion environments via `rapier3d` + `nalgebra` |
+| `bench` | no | `BenchAdapter` and preset `Suite` factories for the `rlevo-benchmarks` harness; keeps the base dep cone lean when off |
+| `record` | no | `RecordedEnvFamily` impls tying each env to its recording family (implies `bench`) |
 
 Disable physics environments to shrink compile time:
 
@@ -164,10 +167,10 @@ cargo run -p rlevo-environments --example grid_door_key_scripted
 
 # Several former `*_random` examples are now random-vs-DQN benches in the
 # `rlevo` umbrella crate (see `crates/rlevo/benches`):
-#   cargo bench -p rlevo --bench grid_empty_dqn
-#   cargo bench -p rlevo --bench grid_memory_dqn
-#   cargo bench -p rlevo --bench acrobot_dqn
-#   cargo bench -p rlevo --bench mountain_car_dqn
+#   cargo bench -p rlevo --bench grid_empty_rl
+#   cargo bench -p rlevo --bench grid_memory_rl
+#   cargo bench -p rlevo --bench acrobot_rl
+#   cargo bench -p rlevo --bench mountain_car_rl
 
 # Bandits
 cargo run -p rlevo-environments --example ten_armed_bandit_training

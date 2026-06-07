@@ -177,6 +177,12 @@ where
     type State = GaState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Build the initial state.
+    ///
+    /// Samples an `(pop_size, genome_dim)` real-valued population uniformly
+    /// within `params.bounds` using a host RNG derived from `rng`. Sets
+    /// `fitness` to empty and `best_fitness` to `f32::INFINITY`; the first
+    /// [`tell`](Self::tell) call populates both.
     fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GaState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         GaState {
@@ -188,6 +194,23 @@ where
         }
     }
 
+    /// Propose the next offspring population.
+    ///
+    /// On the very first call (before any [`tell`](Self::tell)), `state.fitness`
+    /// is empty — the harness has not evaluated the seed population yet. In
+    /// that case the unchanged seed population is returned so the harness can
+    /// evaluate and pass it back to `tell`.
+    ///
+    /// On subsequent calls the method runs selection → crossover → mutation,
+    /// deriving three independent host sub-streams from `rng` via
+    /// [`crate::rng::seed_stream`]:
+    ///
+    /// - `SeedPurpose::Selection` — two independent tournament draws
+    ///   (parents A and parents B);
+    /// - `SeedPurpose::Crossover` — BLX-α or uniform crossover;
+    /// - `SeedPurpose::Mutation` — isotropic Gaussian perturbation.
+    ///
+    /// After mutation, offspring are clamped to `params.bounds`.
     fn ask(
         &self,
         params: &GaConfig,
@@ -267,6 +290,21 @@ where
         (offspring, state.clone())
     }
 
+    /// Consume offspring fitness and produce the next generation's state.
+    ///
+    /// The first call (when `state.fitness` is empty) caches the seed
+    /// population's fitness and increments the generation counter; no
+    /// replacement is performed.
+    ///
+    /// On subsequent calls the replacement policy is applied:
+    ///
+    /// - [`GaReplacement::Generational`] — offspring completely replace
+    ///   parents.
+    /// - [`GaReplacement::Elitist`] — the `elitism_k` lowest-cost parents
+    ///   survive; the remainder come from offspring.
+    ///
+    /// `fitness` must have shape `(pop_size,)` with values in the
+    /// minimization (cost) convention — lower is better.
     fn tell(
         &self,
         params: &GaConfig,
@@ -319,6 +357,10 @@ where
         (state, m)
     }
 
+    /// Return the best-so-far genome and its fitness.
+    ///
+    /// Returns `None` before the first [`tell`](Self::tell) call.
+    /// The fitness value uses the minimization convention (lower is better).
     fn best(&self, state: &GaState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

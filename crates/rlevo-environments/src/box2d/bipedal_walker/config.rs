@@ -6,7 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Terrain difficulty variants (design decision D3).
+/// Terrain difficulty preset for a [`super::BipedalWalker`] episode.
+///
+/// The variant is stored in [`BipedalWalkerConfig`] and determines which
+/// [`super::terrain::TerrainGenerator`] is used when the environment resets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BipedalTerrain {
     /// Flat ground — no obstacles.
@@ -18,6 +21,11 @@ pub enum BipedalTerrain {
 }
 
 /// Configuration for [`super::BipedalWalker`].
+///
+/// Construct via [`BipedalWalkerConfig::builder`] for named-field ergonomics,
+/// or use [`Default`] which produces a flat-terrain, seeded-at-zero, 1600-step
+/// episode with `motors_torque = 80`, `speed_hip = 4`, `speed_knee = 6`,
+/// `lidar_range = 160`, `dt = 1/50 s`, and `gravity = -9.8`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BipedalWalkerConfig {
     /// Terrain difficulty.

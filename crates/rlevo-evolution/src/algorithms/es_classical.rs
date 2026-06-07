@@ -76,6 +76,10 @@ pub struct EsConfig {
 
 impl EsConfig {
     /// Default configuration for a given ES variant and dimensionality.
+    ///
+    /// Sets `bounds = (-5.12, 5.12)` (the standard Rastrigin/sphere domain),
+    /// `initial_sigma = 1.0`, and τ via the standard formula
+    /// `1 / sqrt(2 · sqrt(D))` (Beyer & Schwefel 2002, eq. 12).
     #[must_use]
     pub fn default_for(kind: EsKind, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -186,6 +190,9 @@ where
     type State = EsState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial parent population uniformly from `params.bounds`
+    /// via a deterministic `seed_stream` (host-RNG convention) and
+    /// initializes all σ values to `params.initial_sigma`.
     fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EsState<B> {
         let (parents, sigmas) = Self::sample_initial_parents(params, rng, device);
         EsState {
@@ -200,6 +207,16 @@ where
         }
     }
 
+    /// Generates the offspring population for the current generation.
+    ///
+    /// On the very first call (before any `tell`), returns the initial parents
+    /// unchanged so that they can be fitness-evaluated as the seed population.
+    /// On subsequent calls, duplicates parents by uniform random selection,
+    /// applies log-normal σ adaptation (multi-parent variants) or inherits the
+    /// shared σ (`(1+1)` / `(1+λ)`), then mutates via per-individual Gaussian
+    /// noise. All stochastic draws go through `seed_stream`
+    /// (host-RNG convention); offspring σ values are appended to
+    /// `state.sigmas` for consumption by `tell`.
     fn ask(
         &self,
         params: &EsConfig,
@@ -286,6 +303,22 @@ where
         (mutated, state)
     }
 
+    /// Applies variant-specific selection and σ adaptation, then returns the
+    /// updated state and a per-generation metrics snapshot.
+    ///
+    /// Variant behaviour:
+    /// - `(1+1)`: greedy replacement; σ updated by Rechenberg's 1/5th
+    ///   success rule every `10·D` steps.
+    /// - `(1+λ)`: best offspring replaces the parent only if it strictly
+    ///   improves fitness; σ is carried over unchanged.
+    /// - `(μ,λ)`: selects the μ best offspring; parent pool discarded.
+    ///   Survivor σ values are gathered by the same truncation indices.
+    /// - `(μ+λ)`: selects the μ best of the combined parent + offspring
+    ///   pool. Survivor σ values are drawn from the concatenated σ vector
+    ///   by the same indices.
+    ///
+    /// The first `tell` after `init` bootstraps `parent_fitness` from the
+    /// initial-population evaluation rather than running selection.
     #[allow(clippy::too_many_lines)]
     fn tell(
         &self,
@@ -433,6 +466,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far genome and its fitness, or `None` before the
+    /// first `tell` call.
     fn best(&self, state: &EsState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

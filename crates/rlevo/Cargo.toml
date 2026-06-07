@@ -19,7 +19,7 @@ rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0", default-feat
 rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.1.0" }
 
 [dev-dependencies]
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0", features = ["report"] }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.1.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.1.0", features = ["bench"] }
 approx = { workspace = true }
 burn = { workspace = true }
@@ -167,6 +167,7 @@ path = "tests/rastrigin_run_suite.rs"
 [[test]]
 name = "recording_episode_count"
 path = "tests/recording_episode_count.rs"
+required-features = ["viz-report"]
 
 [[test]]
 name = "sac_integration"

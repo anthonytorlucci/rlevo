@@ -2,7 +2,7 @@
 //!
 //! Each sub-module (`classic`, `box2d`, `grids`, …) exposes a single
 //! `render(frame)` or `render(family, frame)` function that wraps the
-//! shared [`frame_body`] helper with family-specific `<figure>` framing and
+//! shared `frame_body` helper with family-specific `<figure>` framing and
 //! a glyph/colour legend.
 //!
 //! The top-level [`render`] function dispatches a [`FrameRecord`] to the
@@ -13,7 +13,8 @@
 //!
 //! Every legend must pair hue with at least one other signal (glyph shape,
 //! stroke pattern, or plain-language label) so the report remains readable in
-//! greyscale and for colour-blind users — see ADR 0008.
+//! greyscale and for colour-blind users — see ADR 0013 §accessibility and the
+//! project accessibility-first design constraint.
 
 pub mod box2d;
 pub mod classic;

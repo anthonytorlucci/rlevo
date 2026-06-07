@@ -138,19 +138,35 @@ impl DeConfig {
 }
 
 /// Generation state for [`DifferentialEvolution`].
+///
+/// The two-phase ask/tell handshake uses `fitness.is_empty()` as a
+/// sentinel: on the very first [`Strategy::ask`] call the initial
+/// population is returned unchanged; on the very first
+/// [`Strategy::tell`] call `fitness` is populated and
+/// `best_genome`/`best_fitness` are initialized. Subsequent
+/// ask/tell cycles produce and evaluate trial vectors.
 #[derive(Debug, Clone)]
 pub struct DeState<B: Backend> {
     /// Current population, shape `(pop_size, D)`.
     pub population: Tensor<B, 2>,
-    /// Current fitness (host-side cache).
+    /// Host-side fitness cache for the current population.
+    ///
+    /// Empty before the first [`Strategy::tell`] call; length `pop_size`
+    /// thereafter. The `is_empty()` check is the sentinel that
+    /// distinguishes the initial evaluation phase from subsequent
+    /// trial-vector generations.
     pub fitness: Vec<f32>,
-    /// Index of the current best within `population`.
+    /// Index of the current best individual within `population`.
     pub best_index: usize,
     /// Best-so-far genome, shape `(1, D)`.
+    ///
+    /// `None` before the first [`Strategy::tell`] call.
     pub best_genome: Option<Tensor<B, 2>>,
-    /// Best-so-far fitness.
+    /// Best-so-far fitness across all completed generations.
+    ///
+    /// `f32::INFINITY` before the first [`Strategy::tell`] call.
     pub best_fitness: f32,
-    /// Generation counter.
+    /// Number of completed `tell` calls (zero-based generation index + 1).
     pub generation: usize,
 }
 
@@ -237,6 +253,14 @@ where
     type State = DeState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial population uniformly within `params.bounds`
+    /// and returns a [`DeState`] with an empty fitness cache, signalling
+    /// that the first ask/tell cycle should evaluate the initial
+    /// population rather than generate trial vectors.
+    ///
+    /// Initial sampling goes through [`seed_stream`] rather than
+    /// `B::seed + Tensor::random` to keep results reproducible across
+    /// parallel test threads.
     fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> DeState<B> {
         let population = Self::sample_initial_population(params, rng, device);
         DeState {
@@ -249,6 +273,26 @@ where
         }
     }
 
+    /// Proposes the next population of candidate solutions.
+    ///
+    /// **First call (fitness cache empty):** returns the initial
+    /// population from [`DeState::population`] unchanged so the caller
+    /// can evaluate it before any mutation/crossover step.
+    ///
+    /// **Subsequent calls:** for each individual `i` in `0..pop_size`:
+    ///
+    /// 1. Sample the required number of distinct random indices
+    ///    (excluding `i`) via [`seed_stream`] with [`SeedPurpose::Trial`].
+    /// 2. Compute the mutant vector `v_i` according to
+    ///    [`DeConfig::variant`].
+    /// 3. Apply binomial or exponential crossover (also seeded through
+    ///    [`seed_stream`] with [`SeedPurpose::Crossover`]) to blend `v_i`
+    ///    with the current individual, ensuring at least one gene comes
+    ///    from `v_i` (`j_rand` guarantee).
+    /// 4. Clamp the trial genome to `params.bounds`.
+    ///
+    /// The returned state is a clone of the input state; no fitness
+    /// update occurs here — that happens in [`Strategy::tell`].
     #[allow(clippy::too_many_lines, clippy::many_single_char_names)]
     fn ask(
         &self,
@@ -384,6 +428,21 @@ where
         (trial, state.clone())
     }
 
+    /// Consumes the evaluated trial population and advances the state.
+    ///
+    /// **First call (fitness cache empty):** stores the initial
+    /// population's fitness, initializes `best_genome`/`best_fitness`,
+    /// and increments the generation counter. No replacement occurs
+    /// because there are no previous individuals to compare against.
+    ///
+    /// **Subsequent calls:** applies greedy per-slot replacement — each
+    /// trial individual replaces its corresponding current individual if
+    /// and only if `trial_fitness[i] <= state.fitness[i]`. The best-ever
+    /// genome and fitness are updated if the new generation improves on
+    /// `state.best_fitness`.
+    ///
+    /// Returns the updated [`DeState`] and a [`StrategyMetrics`] snapshot
+    /// covering the current generation's fitness distribution.
     fn tell(
         &self,
         _params: &DeConfig,
@@ -445,6 +504,10 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far genome and its raw (minimization) fitness.
+    ///
+    /// Returns `None` before the first [`Strategy::tell`] call, when
+    /// `DeState::best_genome` is still `None`.
     fn best(&self, state: &DeState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

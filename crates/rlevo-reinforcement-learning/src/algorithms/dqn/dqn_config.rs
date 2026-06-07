@@ -44,8 +44,15 @@ pub struct DqnTrainingConfig {
     /// Multiplicative factor applied to epsilon after each step or episode to reduce exploration over time.
     pub epsilon_decay: f64,
 
-    /// The number of steps between strict syncs of the target network (if not using soft updates)
-    /// or frequency of logging/evaluation.
+    /// Interval (in environment steps) between hard target-network syncs.
+    ///
+    /// When [`tau`](Self::tau) is `0.0`, the target network is updated by
+    /// copying the policy network weights wholesale every
+    /// `target_update_frequency` steps. When `tau > 0.0`, soft Polyak
+    /// averaging is used inside every [`DqnAgent::learn_step`] call and this
+    /// field is ignored. Set to `0` to disable hard syncing entirely.
+    ///
+    /// [`DqnAgent::learn_step`]: crate::algorithms::dqn::dqn_agent::DqnAgent::learn_step
     pub target_update_frequency: usize,
 
     /// The maximum number of steps allowed per episode.
@@ -86,7 +93,16 @@ pub struct DqnTrainingConfig {
 }
 
 impl Default for DqnTrainingConfig {
-    /// Returns standard default values suitable for most gym-style environments.
+    /// Returns sensible defaults suited to small discrete-action environments.
+    ///
+    /// Key values: `batch_size = 32`, `gamma = 0.99`, `tau = 0.005`
+    /// (soft updates active), `learning_rate = 1e-3`, `epsilon_start = 1.0`
+    /// decaying to `0.01` at rate `0.995`, `replay_buffer_capacity = 10_000`,
+    /// `learning_starts = 1_000`, `train_frequency = 4`, `double_q = false`,
+    /// gradient clipping at norm 100.
+    ///
+    /// Because `tau > 0.0`, `target_update_frequency` is ignored by the
+    /// default configuration — soft updates run every learn step.
     fn default() -> Self {
         Self {
             batch_size: 32,

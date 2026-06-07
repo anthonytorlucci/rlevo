@@ -191,6 +191,21 @@ pub struct UnlockPickupEnv {
 
 impl UnlockPickupEnv {
     /// Constructs an [`UnlockPickupEnv`] from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_environments::grids::unlock_pickup::{UnlockPickupConfig, UnlockPickupEnv};
+    ///
+    /// let env = UnlockPickupEnv::with_config(
+    ///     UnlockPickupConfig::new(7, 196, 0),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: UnlockPickupConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);

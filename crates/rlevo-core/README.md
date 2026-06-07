@@ -23,12 +23,12 @@ The primitive building blocks of the RL abstraction.
 
 | Trait | Description |
 |---|---|
-| `State<D>` | Full MDP state; produces an `Observation<D>` via `observe()` |
-| `Observation<D>` | What the agent perceives (may be a partial view of state) |
-| `Action<D>` | Base action constraint (`is_valid()`) |
+| `State<R>` | Full MDP state; produces an `Observation<R>` via `observe()` |
+| `Observation<R>` | What the agent perceives (may be a partial view of state) |
+| `Action<R>` | Base action constraint (`is_valid()`) |
 | `Reward` | Scalar feedback signal; must be `Clone + Add + Into<f32> + Debug` and provide `zero()` |
-| `TensorConvertible<D, B>` | Bidirectional conversion between domain types and Burn tensors |
-| `TransitionDynamics<SD, AD, S, A>` | Deterministic state-transition function |
+| `TensorConvertible<R, B>` | Bidirectional conversion between domain types and Burn tensors |
+| `TransitionDynamics<SR, AR, S, A>` | Deterministic state-transition function |
 | `UpdateFunction<Input, Output>` | Generic parameterized update (policy gradient step, etc.) |
 
 `TensorConvertible` is the integration point with Burn: implement it on your state/action types to enable neural-network-based agents.
@@ -39,22 +39,22 @@ Three orthogonal action abstractions cover the standard taxonomy:
 
 | Trait | Use Case |
 |---|---|
-| `DiscreteAction<D>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
-| `MultiDiscreteAction<D>` | Multiple independent discrete dimensions (e.g., direction × attack). Combinatorial enumeration and weighted random sampling. |
-| `ContinuousAction<D>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[−1, 1\]). |
-| `BoundedAction<D>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
+| `DiscreteAction<R>` | Finite enumerable actions (e.g., 4-directional movement). Provides `from_index`, `to_index`, `enumerate`, `random`. |
+| `MultiDiscreteAction<R>` | Multiple independent discrete dimensions (e.g., direction × attack). Combinatorial enumeration and weighted random sampling. |
+| `ContinuousAction<R>` | Real-valued vectors with `clip`, `from_slice`, `as_slice`, `random` (uniform in \[−1, 1\]). |
+| `BoundedAction<R>` | Extends `ContinuousAction<D>` with per-component `low()` / `high()` bounds. |
 
 ### `state` — Advanced State Abstractions
 
-Extensions to `State<D>` for partial observability, recurrence, and hierarchy:
+Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
 
 | Trait | Purpose |
 |---|---|
 | `MarkovState` | Asserts the Markov property holds for this state representation |
-| `BeliefState<SD, AD, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
-| `HiddenState<D>` | RNN-style recurrent memory (`update`, `reset`) |
-| `LatentState<D, AD>` | World-model compressed representation (`encode`, `predict`, `decode`) |
-| `StateAggregation<SD, S>` | Maps concrete states to abstract representatives for hierarchical RL |
+| `BeliefState<SR, AR, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
+| `HiddenState<R>` | RNN-style recurrent memory (`update`, `reset`) |
+| `LatentState<R, AR>` | World-model compressed representation (`encode`, `predict`, `decode`) |
+| `StateAggregation<SR, S>` | Maps concrete states to abstract representatives for hierarchical RL |
 
 ### `environment` — Environment Protocol
 
@@ -70,43 +70,34 @@ Extensions to `State<D>` for partial observability, recurrence, and hierarchy:
 
 `ScalarReward(f32)` is a thin newtype implementing `Reward`. It covers the vast majority of environments. Custom reward types can implement `Reward` directly.
 
-### `memory` — Experience Replay Buffers
+### `evaluation` — Benchmark Environment Protocol
+
+A lightweight evaluation surface for the benchmark harness (`rlevo-benchmarks`), moved into core per ADR 0004 so it can be shared without a cross-crate dependency.
 
 | Item | Description |
 |---|---|
-| `PrioritizedExperienceReplay<D, AD, O, A, R>` | Off-policy replay buffer with priority-weighted sampling. Priorities are raised to power `alpha` before normalization. FIFO eviction at capacity. |
-| `PrioritizedExperienceReplayBuilder` | Fluent builder: `.with_capacity(n).with_alpha(0.6).build()` |
-| `TrainingBatch<BD, BAD, B>` | GPU-ready tensor bundle (`observations`, `actions`, `rewards`, `next_observations`, `dones`) consumed by learning algorithms |
+| `BenchEnv` | Minimal stateful-environment interface an external evaluator drives |
+| `BenchStep<Obs>` | Per-step result returned by a `BenchEnv` |
+| `BenchError` | Recoverable error wrapping the typed upstream `EnvironmentError` |
 
-Prioritized Experience Replay follows the algorithm described in:
+### `fitness` — Evaluation & Fitness Traits
 
-> Schaul, T., Quan, J., Antonoglou, I., & Silver, D. (2016). **Prioritized Experience Replay**. *ICLR 2016*. [arXiv:1511.05952](https://arxiv.org/abs/1511.05952)
+The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `Fitness`/`MultiFitness`/`GenomeKind` evolutionary traits now live in `rlevo-evolution` per ADR 0002 — they are **not** in this crate.)
 
-### `experience` — Trajectory Storage
+| Trait / Type | Description |
+|---|---|
+| `BenchableAgent<Obs, Act>` | Minimal inference interface (`act`) for an externally-driven evaluator; deterministic given a harness-owned RNG |
+| `FitnessEvaluable` | Optimizer-vs-landscape evaluation, used when the benchmark *is* the fitness function |
+| `Landscape` | Self-evaluating numerical landscape (Sphere, Ackley, Rastrigin) carrying both parameters and `f(x)` |
+| `MetricsProvider` | Reports method-specific `Metric` values at trial boundaries |
+| `Metric` | Method-specific signal emitted by an agent or aggregator |
+
+### `util` — Shared Utilities
 
 | Item | Description |
 |---|---|
-| `ExperienceTuple<D, AD, O, A, R>` | Single `(s, a, r, s′, done)` transition |
-| `History<D, AD, O, A, R>` | Fixed-capacity FIFO buffer (VecDeque); indexable, iterable |
-| `HistoryRepresentation` | Trait for summaries built from a `History` |
-| `SufficientStatistic` | Extends `HistoryRepresentation + MarkovState`; checks whether a history summary is Markov-sufficient |
-
-### `evolution` — Evolutionary Optimization
-
-Minimal trait surface that `rlevo-evolution` builds on:
-
-| Trait | Description |
-|---|---|
-| `Fitness` | Scalar fitness score: `worst()`, `is_finite()`, `as_f32()`. Blanket impls for `f32` and `f64`. Convention: **higher is better**. |
-| `GenomeKind` | Zero-sized marker with `const DIM: usize` and associated `Element` type; lets evolutionary strategies select operators at compile time. |
-| `MultiFitness` | Multi-objective fitness: `objectives() -> &[f32]`. Pareto/NSGA machinery lives in `rlevo-evolution`. |
-
-### `metrics` — Performance Tracking
-
-| Item | Description |
-|---|---|
-| `PerformanceRecord` | Per-episode outcome: `score() -> f32`, `duration() -> usize` |
-| `AgentStats<T>` | Running counters (`total_episodes`, `total_steps`, `best_score`) with a configurable sliding-window average |
+| `combinations(n, k)` | Binomial coefficient (folded in from the former `rlevo-utils` crate per ADR 0003) |
+| `seed::SeedStream` | Reproducible host-side seed source for downstream RNGs |
 
 ### `agent` — Agent Traits (reserved)
 
@@ -117,16 +108,49 @@ once the API stabilizes.
 
 ### `render` — Rendering Abstractions
 
+The rendering surface feeds the two visualisation products (ADR 0013): a live metrics-only `ratatui` TUI and a post-run static-HTML report that replays env state from structured payloads. `rlevo-core` ships zero terminal-side dependencies — the conversions into `ratatui`/HTML live downstream in `rlevo-benchmarks`.
+
+**Core renderer trait**
+
 | Item | Description |
 |---|---|
 | `Renderer<E>` | Generic over environment and associated `Frame` type (`String`, `Vec<u8>`, `()`, …) |
 | `NullRenderer` | Zero-cost no-op; compiles away entirely |
 
+**`ascii` — optional text rendering**
+
+| Item | Description |
+|---|---|
+| `AsciiRenderable` | Optional debug helper (not a library invariant, per ADR 0013): a grep-friendly text dump for logs, snapshot tests, and the report's legacy `<pre>` fallback |
+| `AsciiRenderer` | Renderer adapter over an `AsciiRenderable` env |
+
+**`styled` — colour-aware projection** (consumed by the live TUI and report tiers)
+
+| Item | Description |
+|---|---|
+| `StyledFrame` / `StyledLine` / `StyledSpan` | A small, ratatui-shaped vocabulary for styled text output |
+| `SpanStyle` | Foreground/background `Color` plus a `Modifier` set |
+| `Color` | Semantic colour enum |
+| `Modifier` | Bitset of `BOLD` / `REVERSED` / `UNDERLINED` / … hints |
+
+**`palette` — semantic colours.** Project-wide named colour constants, each paired with a `*_MODIFIER` companion so meaning is never carried by hue alone (accessibility contract — see ADR/feedback on hue-redundant signalling).
+
+**`payload` — per-family structured snapshots** (the report tier's rich view). Pure-data snapshot types plus an opt-in `*PayloadSource` trait per family; envs that don't implement one fall back to the ASCII payload.
+
+| Family | Snapshot type | Opt-in source trait |
+|---|---|---|
+| Landscapes | `Landscape2DSnapshot` (`Point2`) | `Landscape2DPayloadSource` |
+| Box2D | `Box2dSnapshot` (`RigidBody2D`, `BodyKind`) | `Box2dPayloadSource` |
+| Locomotion | `Locomotion2DSnapshot` | `Locomotion2DPayloadSource` |
+| Grid | `GridSnapshot` (`GridTile`, `GridDir`, `GridColor`, `GridDoorState`, `GridAgentMarker`) | `GridPayloadSource` |
+| Tabular | `TabularSnapshot` (`TabularGrid`, `TabularCell`, `TabularMarker`, `TabularLayout`, `CardTable`) | `TabularPayloadSource` |
+| Classic 2D | `Classic2DSnapshot` (`Classic2DBody`, `Classic2DRole`) | `Classic2DPayloadSource` |
+
 ## Design Principles
 
 **Const generics for shapes.** Every trait is parameterised by a const `D` (or `SD`, `AD`) so that dimension mismatches fail at compile time, not at runtime.
 
-**Separation of state and observation.** `State<D>` represents the true MDP state; `Observation<D>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
+**Separation of state and observation.** `State<R>` represents the true MDP state; `Observation<R>` is what the agent receives. This separation makes POMDPs first-class citizens rather than workarounds.
 
 **Terminated vs. Truncated.** `EpisodeStatus` distinguishes a natural terminal state from a step-limit cutoff. Algorithms that bootstrap values (e.g., TD-learning) need this distinction to avoid incorrect target computation.
 
@@ -177,12 +201,12 @@ impl Environment<1, 1, 1> for MyEnv {
 
 ### Replay Buffer
 
-The prioritized replay buffer lives in `rlevo-rl`, not `rlevo-core`
+The prioritized replay buffer lives in `rlevo-reinforcement-learning`, not `rlevo-core`
 (per ADR 0003 — replay/experience/metrics moved to where they are
 consumed):
 
 ```rust
-use rlevo_rl::memory::PrioritizedExperienceReplayBuilder;
+use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
 
 let mut buffer = PrioritizedExperienceReplayBuilder::default()
     .with_capacity(100_000)
@@ -208,9 +232,7 @@ cargo run -p rlevo-core --example state_constraints
 
 The following papers directly informed the algorithms and concepts in this crate:
 
-- Schaul, T., Quan, J., Antonoglou, I., & Silver, D. (2016). **Prioritized Experience Replay**. *International Conference on Learning Representations (ICLR)*. [arXiv:1511.05952](https://arxiv.org/abs/1511.05952) — basis for `PrioritizedExperienceReplay` and the priority-weighted sampling scheme.
-
-- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design, Bellman targets in `ExperienceTuple`, and the Terminated vs. Truncated episode status distinction.
+- Sutton, R. S., & Barto, A. G. (2018). **Reinforcement Learning: An Introduction** (2nd ed.). MIT Press. — foundational framework for the `Environment` / `Snapshot` / `Reward` trait design and the Terminated vs. Truncated episode status distinction.
 
 - Puterman, M. L. (1994). **Markov Decision Processes: Discrete Stochastic Dynamic Programming**. Wiley [acm digital library](https://dl.acm.org/doi/10.5555/528623). — theoretical grounding for `MarkovState`, `BeliefState`, and `TransitionDynamics`.
 

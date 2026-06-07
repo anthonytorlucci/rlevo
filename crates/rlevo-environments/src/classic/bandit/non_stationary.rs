@@ -55,7 +55,9 @@ use super::k_armed::{
 pub struct NonStationaryBanditConfig {
     /// Maximum number of steps before the episode terminates.
     pub max_steps: usize,
-    /// RNG seed.
+    /// RNG seed. [`Environment::reset`] re-seeds from this value and
+    /// re-draws initial arm means, so `(config, action sequence)` fully
+    /// determines the trajectory. Default: `42`.
     pub seed: u64,
     /// Standard deviation of the per-step Gaussian random walk applied to
     /// every arm mean. Sutton & Barto §2.5 uses `0.01`. Setting this to `0.0`
@@ -75,6 +77,12 @@ impl Default for NonStationaryBanditConfig {
 
 /// Parses `"N"` (sets `max_steps`) or comma-separated `key=value` pairs over
 /// `max_steps`, `seed`, and `sigma_walk`.
+///
+/// # Errors
+///
+/// Returns a `String` error if the input is neither a bare integer nor a
+/// comma-separated list of `key=value` pairs with keys `max_steps`, `seed`,
+/// and `sigma_walk`, or if any numeric value fails to parse.
 impl FromStr for NonStationaryBanditConfig {
     type Err = String;
 

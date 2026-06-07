@@ -1,9 +1,27 @@
 //! CLI front-end for [`rlevo_benchmarks::report::emit_static_html`].
 //!
-//! Usage:
+//! Reads a previously recorded benchmark run from `<run-dir>` and emits a
+//! self-contained static HTML file at `<out.html>` that renders per-episode
+//! metrics and environment playback without a running server.
+//!
+//! Requires the `report` feature:
 //! ```text
 //! cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>
 //! ```
+//!
+//! # Arguments
+//!
+//! - `<run-dir>` — path to a directory produced by a previous benchmark run
+//!   (must contain a `manifest.json` and one or more episode record files).
+//! - `<out.html>` — destination path for the generated HTML file.
+//!
+//! # Exit codes
+//!
+//! | Code | Meaning |
+//! |------|---------|
+//! | 0    | Report written successfully. |
+//! | 1    | `<run-dir>` could not be opened, or HTML emission failed. |
+//! | 2    | Wrong number of arguments. |
 
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -97,7 +97,11 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
         self.slices.clear();
     }
 
-    /// Returns the `(slice, inner)` address for a global step index.
+    /// Resolves a global step index to `(slice_index, within_slice_index)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `global` is out of range (i.e. `>= len_steps()`).
     fn locate(&self, mut global: usize) -> (usize, usize) {
         for (i, s) in self.slices.iter().enumerate() {
             if global < s.obs.len() {
@@ -152,7 +156,10 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
         (obs_tensor, returns_tensor)
     }
 
-    /// Shuffled global step indices for one auxiliary epoch.
+    /// Returns a shuffled list of all global step indices for one auxiliary epoch.
+    ///
+    /// The returned `Vec` has length `len_steps()`. Pass `rng` from the
+    /// caller's seeded source to keep sampling deterministic across runs.
     pub fn indices_shuffled<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Vec<usize> {
         use rand::seq::SliceRandom;
         let total = self.len_steps();

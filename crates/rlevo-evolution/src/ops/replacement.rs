@@ -2,16 +2,39 @@
 //!
 //! Each function takes the current generation's population and fitness
 //! plus the offspring population and fitness, and returns the
-//! (population, fitness) pair for the next generation.
+//! `(population, fitness)` pair that becomes the next generation's
+//! starting state.
 //!
-//! The helpers work on host-side fitness slices for selection logic and
-//! lift winners back to the device via [`Tensor::select`].
+//! All selection logic operates on host-side `&[f32]` fitness slices
+//! (lower is better), and winners are lifted back to the device via a
+//! single [`Tensor::select`] gather. None of these functions draw
+//! random numbers; they are deterministic given their inputs.
+//!
+//! # Fitness convention
+//!
+//! Fitness is treated as a cost: smaller values are better. This
+//! matches the convention used throughout [`crate::ops::selection`].
+//!
+//! # Choosing a replacement strategy
+//!
+//! | Strategy | Parent survival | Use when |
+//! |---|---|---|
+//! | [`generational`] | none | offspring quality is trusted; GA / CMA-ES |
+//! | [`elitist`] | top-k | preserving known-good solutions matters |
+//! | [`mu_plus_lambda`] | best of μ+λ pool | ES / DE with strong elitism |
+//! | [`mu_comma_lambda`] | none (offspring only) | ES with deliberate age-based forgetting |
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 
 use crate::ops::selection::truncation_indices_host;
 
-/// Replace the entire current generation with offspring (no elitism).
+/// Replaces the entire current generation with the offspring (no elitism).
+///
+/// Discards `_current_pop` and `_current_fitness` entirely; the returned
+/// pair is `(offspring_pop, offspring_fitness)` unchanged. This is the
+/// standard generational replacement used in classic GAs and CMA-ES: the
+/// offspring generation fully succeeds the parent generation with no
+/// carry-over of parent individuals.
 #[must_use]
 pub fn generational<B: Backend>(
     _current_pop: Tensor<B, 2>,
@@ -22,9 +45,17 @@ pub fn generational<B: Backend>(
     (offspring_pop, offspring_fitness)
 }
 
-/// Elitist replacement: keep the `k` best members of the current
-/// generation and fill the rest from offspring, preserving the best
-/// offspring first.
+/// Elitist replacement: keeps the `k` best parents and the best remaining offspring.
+///
+/// Selects the `k` lowest-fitness members of the current generation
+/// (elites) and the `pop_size − k` lowest-fitness offspring, then
+/// concatenates them to form the next generation of size `pop_size`.
+/// Both selections use [`truncation_indices_host`] and are therefore
+/// deterministic.
+///
+/// The returned fitness vector has the elites' fitnesses first,
+/// followed by the kept offspring fitnesses, in the same order as the
+/// corresponding rows of the returned tensor.
 ///
 /// # Panics
 ///
@@ -71,8 +102,16 @@ pub fn elitist<B: Backend>(
     (combined, combined_fitness)
 }
 
-/// (μ + λ) replacement: merge the μ parents with the λ offspring and
-/// keep the μ lowest-fitness members overall.
+/// (μ + λ) replacement: keeps the μ best individuals from the merged parent and offspring pool.
+///
+/// Concatenates the μ parent rows with the λ offspring rows into a
+/// combined pool of size μ + λ, then retains the `mu` members with
+/// the lowest fitness. Parents and offspring compete on equal footing,
+/// so a highly-fit parent can survive indefinitely.
+///
+/// The returned tensor has shape `(mu, genome_dim)` and the returned
+/// fitness vector has length `mu`, both ordered by selection rank
+/// (best first).
 ///
 /// # Panics
 ///
@@ -106,8 +145,17 @@ pub fn mu_plus_lambda<B: Backend>(
     (combined.select(0, indices), next_fitness)
 }
 
-/// (μ, λ) replacement: discard parents; keep the μ best of the λ
-/// offspring. Requires `lambda >= mu`.
+/// (μ, λ) replacement: discards parents and keeps the μ best offspring.
+///
+/// Parents are not passed to this function; only the λ offspring
+/// compete for the μ survivor slots. This strategy deliberately
+/// discards parent solutions each generation, which can help the
+/// population escape local optima and tracks moving optima better than
+/// (μ + λ). Requires `lambda >= mu` (`offspring_fitness.len() >= mu`).
+///
+/// The returned tensor has shape `(mu, genome_dim)` and the returned
+/// fitness vector has length `mu`, both ordered by selection rank
+/// (best first).
 ///
 /// # Panics
 ///

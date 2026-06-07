@@ -52,10 +52,16 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 ///
 /// # Example
 ///
+/// The example below uses [`GeneticAlgorithm`] as a concrete strategy and
+/// drives one ask/tell cycle by hand. Concrete strategies expose their state
+/// fields directly; generic code over `S: Strategy<B>` must access state
+/// only through [`Strategy::best`] and the tuple returns of `ask`/`tell`.
+///
 /// ```no_run
 /// use burn::backend::Flex;
-/// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
+/// use burn::tensor::TensorData;
 /// use rlevo_evolution::Strategy;
+/// use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 /// use rand::{rngs::StdRng, SeedableRng};
 ///
 /// let device = Default::default();
@@ -63,8 +69,11 @@ use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
 /// let params = GaConfig::default_for(64, 10);
 /// let mut rng = StdRng::seed_from_u64(0);
 /// let state = strategy.init(&params, &mut rng, &device);
+/// // state.population is a GaState field; dims() is (pop_size, genome_dim).
 /// assert_eq!(state.population.dims(), [64, 10]);
 /// ```
+///
+/// [`GeneticAlgorithm`]: crate::algorithms::ga::GeneticAlgorithm
 ///
 /// # Type Parameters
 ///
@@ -129,6 +138,9 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// Best-so-far accessor.
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
+    /// The tuple is `(genome, fitness)` where `fitness` is the raw
+    /// (minimization-convention) scalar — the smallest value seen across
+    /// all completed generations.
     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
 }
 
@@ -314,15 +326,15 @@ where
 
     /// Attach a per-generation [`PopulationObserver`].
     ///
-    /// Used by the EA-population recorder
-    /// (`rlevo_benchmarks::record::PopulationReporter`) to capture the
-    /// full population vector. The observer fires once per
-    /// [`step`](Self::step) call, after the canonical
-    /// `tracing::info!("evolution generation", …)` event.
+    /// The observer is called once per [`step`](Self::step) call, after the
+    /// canonical `tracing::info!("evolution generation", …)` event. It
+    /// receives a [`PopulationSnapshot`]
+    /// carrying the full per-individual fitness vector for the completed
+    /// generation. The intended consumer is a benchmark-tier recording sink
+    /// that persists population-level data alongside the scalar metric stream.
     ///
-    /// Attaching an observer adds one device→host transfer of the
-    /// fitness tensor per generation; runs without an observer pay
-    /// nothing.
+    /// Attaching an observer adds one device→host transfer of the fitness
+    /// tensor per generation; runs without an observer pay nothing.
     ///
     /// [`PopulationObserver`]: crate::observer::PopulationObserver
     #[must_use]

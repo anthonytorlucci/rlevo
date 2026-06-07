@@ -70,6 +70,15 @@ use std::str::FromStr;
 const MIN_SIZE: usize = 4;
 
 /// Configuration for [`EmptyEnv`].
+///
+/// # Examples
+///
+/// ```rust
+/// use rlevo_environments::grids::empty::EmptyConfig;
+///
+/// let cfg = EmptyConfig::new(8, 256, 0);
+/// assert_eq!(cfg.size, 8);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmptyConfig {
     /// Grid side length in cells (including perimeter walls).
@@ -171,7 +180,7 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 /// environments.
 ///
 /// Construct via [`EmptyEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (size 8, seed 0).
+/// [`ConstructableEnv::new`] for default settings (size 8, seed 0).
 ///
 /// # Examples
 ///

@@ -1,4 +1,11 @@
 //! 7×7×3 egocentric observation emitted by every grid environment.
+//!
+//! The agent sits at the bottom-center of its view window and looks toward
+//! the top. Every visible cell is encoded into three bytes — entity type,
+//! color, and door state — laid out as a `[VIEW_SIZE][VIEW_SIZE][OBS_CHANNELS]`
+//! array. The agent's facing direction is stored separately as a fourth byte
+//! and is **not** encoded into the tensor representation (see
+//! [`TensorConvertible::from_tensor`] for the implication).
 
 use super::direction::Direction;
 use super::entity::Entity;
@@ -6,9 +13,20 @@ use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
-/// Side length (height and width) of the agent's local view window.
+/// Side length (height and width) of the agent's local view window in cells.
+///
+/// Matches the Minigrid default of 7, giving the agent a `7 × 7` field of
+/// view centered one cell in front of its current position.
 pub const VIEW_SIZE: usize = 7;
-/// Number of channels in the observation: `(type, color, state)`.
+
+/// Number of per-cell encoding channels: entity type, color index, and door state.
+///
+/// Maps to the three `Entity` methods: [`Entity::type_u8`], [`Entity::color_u8`],
+/// and [`Entity::state_u8`].
+///
+/// [`Entity::type_u8`]: super::entity::Entity::type_u8
+/// [`Entity::color_u8`]: super::entity::Entity::color_u8
+/// [`Entity::state_u8`]: super::entity::Entity::state_u8
 pub const OBS_CHANNELS: usize = 3;
 
 /// Egocentric observation of the 7×7 cells around the agent.
@@ -26,7 +44,14 @@ pub const OBS_CHANNELS: usize = 3;
 pub struct GridObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's current facing, encoded via [`Direction::to_u8`].
+    /// Agent's current facing direction, encoded via [`Direction::to_u8`].
+    ///
+    /// This field is **not** included in the tensor produced by
+    /// [`TensorConvertible::to_tensor`]; round-tripping through a tensor
+    /// resets it to [`Direction::North`] (byte `3`). Carry the direction
+    /// out-of-band if full fidelity is required.
+    ///
+    /// [`Direction::North`]: super::direction::Direction::North
     pub agent_direction: u8,
 }
 

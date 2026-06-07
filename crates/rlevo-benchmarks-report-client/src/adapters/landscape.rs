@@ -34,7 +34,7 @@ const HEATMAP_N: usize = 24;
 /// Renders one landscapes-family frame, dispatching on the payload variant.
 ///
 /// Extracts a [`FamilyPayload::Landscape2D`] payload and forwards it to
-/// [`view_with_payload`].  Any other variant falls through to
+/// `view_with_payload`.  Any other variant falls through to
 /// [`super::fallback::render`].
 ///
 /// [`FamilyPayload::Landscape2D`]: crate::wire::FamilyPayload::Landscape2D

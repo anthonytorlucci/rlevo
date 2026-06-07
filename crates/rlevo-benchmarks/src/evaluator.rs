@@ -97,6 +97,11 @@ impl Evaluator {
     /// `agent_factory` is called once per trial with the derived agent seed;
     /// it is the implementor's contract to initialize the agent deterministically.
     ///
+    /// Returns a [`BenchmarkReport`] containing every trial result. The function
+    /// never returns an `Err`: environment panics and step/reset errors are caught
+    /// and folded into the corresponding [`TrialReport`] via `errored`/`error_message`
+    /// rather than aborting the run.
+    ///
     /// # Panics
     /// Panics if the rayon thread pool cannot be built.
     #[allow(clippy::too_many_lines)]

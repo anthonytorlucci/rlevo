@@ -185,7 +185,7 @@ impl FromStr for FourRoomsConfig {
 /// systematic search and planning policies.
 ///
 /// Construct via [`FourRoomsEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (size 11, seed 0).
+/// [`ConstructableEnv::new`] for default settings (size 11, seed 0).
 ///
 /// # Examples
 ///

@@ -6,6 +6,8 @@
 //! - [`SnapshotBase`] — default `Snapshot` implementation for most environments
 //! - [`EpisodeStatus`] — distinguishes running, terminated, and truncated episodes
 //! - [`SnapshotMetadata`] — optional named reward components and 3D positions
+//!
+//! [`SnapshotMetadata`]: crate::environment::SnapshotMetadata
 
 use crate::base::{Action, Observation, Reward, State};
 use std::collections::BTreeMap;
@@ -79,13 +81,7 @@ impl SnapshotMetadata {
 ///
 /// `EnvironmentError` captures failures that can occur during environment
 /// initialization, reset, or stepping. It provides detailed error messages
-/// and supports error chaining via the standard `Error` trait.
-///
-/// # Variants
-///
-/// * `InvalidAction` - The provided action is not valid in the current state
-/// * `RenderFailed` - Rendering/display operation failed
-/// * `IoError` - An I/O operation failed (wrapped std::io::Error)
+/// and supports error chaining via the standard [`std::error::Error`] trait.
 #[derive(Debug)]
 pub enum EnvironmentError {
     /// An invalid or out-of-bounds action was provided.
@@ -133,8 +129,9 @@ impl From<std::io::Error> for EnvironmentError {
 /// including the observed state, reward received, and episode status.
 /// The required method is `status()`; `is_done`, `is_terminated`, `is_truncated`,
 /// and `metadata` are provided as defaults.
-pub trait Snapshot<const D: usize>: Debug {
-    type ObservationType: Observation<D>;
+pub trait Snapshot<const R: usize>: Debug {
+    /// The observation type exposed to the agent at each step.
+    type ObservationType: Observation<R>;
 
     /// The type of reward contained in this snapshot.
     type RewardType: Reward;
@@ -177,11 +174,11 @@ pub trait Snapshot<const D: usize>: Debug {
 ///
 /// # Type Parameters
 ///
-/// * `D` - The observation tensor rank
-/// * `ObservationType` - The type of observation (must implement `Observation<D>`)
+/// * `R` - The observation tensor rank
+/// * `ObservationType` - The type of observation (must implement `Observation<R>`)
 /// * `RewardType` - The type of reward (must implement `Reward`)
 #[derive(Debug, Clone)]
-pub struct SnapshotBase<const D: usize, ObservationType: Observation<D>, RewardType: Reward> {
+pub struct SnapshotBase<const R: usize, ObservationType: Observation<R>, RewardType: Reward> {
     /// The observation derived from the state.
     pub observation: ObservationType,
     /// The reward received from the last action.
@@ -190,8 +187,8 @@ pub struct SnapshotBase<const D: usize, ObservationType: Observation<D>, RewardT
     pub status: EpisodeStatus,
 }
 
-impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
-    SnapshotBase<D, ObservationType, RewardType>
+impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
+    SnapshotBase<R, ObservationType, RewardType>
 {
     /// Snapshot for a step where the episode is still running.
     pub fn running(observation: ObservationType, reward: RewardType) -> Self {
@@ -221,8 +218,8 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward>
     }
 }
 
-impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapshot<D>
-    for SnapshotBase<D, ObservationType, RewardType>
+impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapshot<R>
+    for SnapshotBase<R, ObservationType, RewardType>
 {
     type ObservationType = ObservationType;
     type RewardType = RewardType;
@@ -248,9 +245,9 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
 ///
 /// # Type Parameters
 ///
-/// * `D`  - Rank of the observation tensor (matches `Observation<D>` and `Snapshot<D>`).
-/// * `SD` - Rank of the state tensor (matches `State<SD>`).
-/// * `AD` - Rank of the action tensor (matches `Action<AD>`).
+/// * `R`  - Rank of the observation tensor (matches `Observation<R>` and `Snapshot<R>`).
+/// * `SR` - Rank of the state tensor (matches `State<SR>`).
+/// * `AR` - Rank of the action tensor (matches `Action<AR>`).
 ///
 /// # Associated Types
 ///
@@ -259,46 +256,46 @@ impl<const D: usize, ObservationType: Observation<D>, RewardType: Reward> Snapsh
 /// * `ActionType`      - The action type this environment accepts.
 /// * `RewardType`      - The reward scalar type returned each step.
 /// * `SnapshotType`    - The snapshot type returned by `reset` and `step`.
-pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
+pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// The concrete state type for this environment.
-    type StateType: State<SD>;
+    type StateType: State<SR>;
 
     /// The observation type exposed to the agent.
-    type ObservationType: Observation<D>;
+    type ObservationType: Observation<R>;
 
     /// The concrete action type this environment accepts.
-    type ActionType: Action<AD>;
+    type ActionType: Action<AR>;
 
     /// The reward scalar type returned by this environment.
     type RewardType: Reward;
 
     /// The snapshot type returned by reset and step operations.
-    type SnapshotType: Snapshot<D, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
+    type SnapshotType: Snapshot<R, ObservationType = Self::ObservationType, RewardType = Self::RewardType>;
 
-    /// Reset the environment to its initial state.
+    /// Reset the environment to its initial state and return the first snapshot.
     ///
-    /// This method should reset all state and return an initial observation (snapshot)
-    /// of the environment. This is typically called at the start of each episode.
+    /// The returned snapshot carries the initial observation, a reward of zero, and
+    /// [`EpisodeStatus::Running`]. Call this at the start of every episode before
+    /// calling [`step`](Self::step).
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// A snapshot containing the initial state, reward (typically 0), and done=false,
-    /// or an error if reset fails.
+    /// Returns [`EnvironmentError`] if the environment cannot be initialised (e.g.
+    /// an I/O failure when loading level data).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError>;
 
-    /// Execute one step of the environment with the given action.
+    /// Execute one transition of the environment with the given action.
     ///
-    /// This method processes the action, updates internal state, and returns
-    /// an observation of the new state along with the reward received.
+    /// Applies `action` to the current state, updates internal state, and
+    /// returns a snapshot containing the next observation, the immediate reward,
+    /// and the new [`EpisodeStatus`]. When [`Snapshot::is_done`] returns `true`
+    /// the episode is over; call [`reset`](Self::reset) to begin a new one.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `action` - The action to execute in the current state
-    ///
-    /// # Returns
-    ///
-    /// A snapshot containing the next state, reward, and done flag,
-    /// or an error if the step fails.
+    /// Returns [`EnvironmentError::InvalidAction`] if the action is not legal in
+    /// the current state, or another [`EnvironmentError`] variant if the step
+    /// cannot complete (e.g. physics simulation failure).
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
 }
 
@@ -318,13 +315,10 @@ pub trait Environment<const D: usize, const SD: usize, const AD: usize> {
 pub trait ConstructableEnv {
     /// Create a new environment instance.
     ///
-    /// # Arguments
-    ///
-    /// * `render` - Whether to render/display the environment (if supported)
-    ///
-    /// # Returns
-    ///
-    /// A new instance of this environment.
+    /// `render` controls whether the environment emits display output on each
+    /// step; pass `false` for training runs where rendering overhead is
+    /// unwanted. Implementations that do not support rendering may ignore the
+    /// flag.
     fn new(render: bool) -> Self;
 }
 

@@ -29,18 +29,28 @@ impl Action<1> for InvertedPendulumAction {
 }
 
 impl ContinuousAction<1> for InvertedPendulumAction {
+    /// Returns the raw force value as a single-element slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
     }
 
+    /// Returns a new action with the force value clamped to `[min, max]`.
     fn clip(&self, min: f32, max: f32) -> Self {
         Self([self.0[0].clamp(min, max)])
     }
 
+    /// Constructs an action from the first element of `values`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values` is empty.
     fn from_slice(values: &[f32]) -> Self {
         Self([values[0]])
     }
 
+    /// Samples a uniformly random force from `[-3.0, 3.0)` using the
+    /// thread-local RNG. Not deterministic; do not use in reproducibility-
+    /// sensitive paths.
     fn random() -> Self {
         Self([rand::random::<f32>() * 6.0 - 3.0])
     }

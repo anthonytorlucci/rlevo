@@ -1,4 +1,13 @@
-//! Reacher environment implementation.
+//! [`Reacher`] environment — `Environment` implementation and world builder.
+//!
+//! This module wires the Rapier3D physics backend to the `rlevo-core`
+//! `Environment` trait. The public entry-points are:
+//!
+//! - [`Reacher::with_config`] — construct from an explicit [`ReacherConfig`].
+//! - [`ConstructableEnv::new`] — construct with default config (render flag is
+//!   a no-op; there is no render path in this environment).
+//! - [`METADATA_KEY_REWARD_DISTANCE`] / [`METADATA_KEY_REWARD_CONTROL`] — keys
+//!   for per-step reward components stored in `SnapshotMetadata`.
 
 use std::marker::PhantomData;
 
@@ -227,6 +236,18 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<ReacherObservation>;
 
+    /// Reset the environment to a freshly sampled initial state.
+    ///
+    /// Re-seeds the internal RNG from `config.seed` so that every call to
+    /// `reset` on the same config produces an identical initial state, making
+    /// rollouts reproducible. The returned snapshot has reward `0.0` and
+    /// `EpisodeStatus::Running`; both reward-component metadata keys are set
+    /// to `0.0` to satisfy the invariant that Σ components = total reward.
+    ///
+    /// # Errors
+    ///
+    /// This implementation never returns `Err`; the signature is required by
+    /// the `Environment` trait.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
@@ -246,6 +267,18 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
     }
 
+    /// Advance the simulation by one environment timestep (`dt * frame_skip`).
+    ///
+    /// The action is clipped to `config.action_clip` before the gear ratio is
+    /// applied. The snapshot metadata carries the two reward components under
+    /// [`METADATA_KEY_REWARD_DISTANCE`] and [`METADATA_KEY_REWARD_CONTROL`],
+    /// and the world-space positions of the fingertip and target under the
+    /// keys `"fingertip"` and `"target"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::InvalidAction`] if either action element is
+    /// non-finite (`NaN` or ±∞).
     fn step(&mut self, action: ReacherAction) -> Result<Self::SnapshotType, EnvironmentError> {
         if !action.0.iter().all(|v| v.is_finite()) {
             return Err(EnvironmentError::InvalidAction(format!(

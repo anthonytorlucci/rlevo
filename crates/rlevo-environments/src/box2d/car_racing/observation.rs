@@ -1,4 +1,13 @@
-//! Observation type for CarRacing.
+//! Observation type for CarRacing: a 96×96×3 RGB pixel buffer.
+//!
+//! [`CarRacingObservation`] wraps the raw pixel output of the software
+//! rasterizer. The buffer is stored row-major (top to bottom), with three `u8`
+//! bytes per pixel in RGB order. The camera is fixed on the car's current
+//! position, so the car always appears near the centre of the frame.
+//!
+//! When fed to a neural network via `TensorConvertible`, callers are expected to
+//! normalise pixel values from `[0, 255]` to `[0.0, 1.0]`; that normalisation
+//! is the caller's responsibility and is not performed here.
 
 use rlevo_core::base::Observation;
 

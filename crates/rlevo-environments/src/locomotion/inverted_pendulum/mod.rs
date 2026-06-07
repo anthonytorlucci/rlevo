@@ -1,6 +1,6 @@
 //! # InvertedPendulum-v5 (Rapier3D-backed)
 //!
-//! # Physics note
+//! ## Physics note
 //!
 //! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
 //! action dimensionality, reward structure, and termination conditions match

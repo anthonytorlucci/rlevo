@@ -7,7 +7,7 @@
 //! # Design Philosophy
 //!
 //! The action traits follow a layered design:
-//! - [`Action`]: Base trait providing validation and cloning semantics
+//! - [`Action`](crate::base::Action): Base trait providing validation and cloning semantics
 //! - [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`]: Type-specific extensions
 //!
 //! # Action Types
@@ -106,7 +106,7 @@ use std::fmt::Debug;
 /// For performance-critical code, prefer `from_index()` over `random()` when you
 /// already have an index (e.g., from a neural network's argmax). The `random()`
 /// method allocates a thread-local RNG on each call.
-pub trait DiscreteAction<const D: usize>: Action<D> {
+pub trait DiscreteAction<const R: usize>: Action<R> {
     /// The total number of distinct actions in this action space.
     ///
     /// This constant defines the cardinality of the action space. It must be
@@ -178,7 +178,7 @@ pub trait DiscreteAction<const D: usize>: Action<D> {
 ///
 /// # Dimensionality
 ///
-/// The const generic `D` specifies the number of dimensions. Each dimension
+/// The const generic `R` (the rank) specifies the number of axes. Each axis
 /// can have a different cardinality, defined by [`shape()`](Action::shape).
 ///
 /// The total number of action combinations is the product of all dimension sizes:
@@ -191,21 +191,21 @@ pub trait DiscreteAction<const D: usize>: Action<D> {
 /// Be careful with [`enumerate()`](MultiDiscreteAction::enumerate) on large action spaces.
 /// A 3D action space with dimensions [10, 10, 10] produces 1000 actions, but
 /// [100, 100, 100] produces 1,000,000!
-pub trait MultiDiscreteAction<const D: usize>: Action<D> {
+pub trait MultiDiscreteAction<const R: usize>: Action<R> {
     /// Constructs an action from multi-dimensional indices.
     ///
-    /// Each index must be in the range `[0, shape()[i])` for dimension `i`.
+    /// Each index must be in the range `[0, shape()[i])` for axis `i`.
     ///
     /// # Panics
     ///
-    /// Implementations should panic if any index is out of bounds for its dimension.
-    fn from_indices(indices: [usize; D]) -> Self;
+    /// Implementations should panic if any index is out of bounds for its axis.
+    fn from_indices(indices: [usize; R]) -> Self;
 
     /// Converts this action to its multi-dimensional index representation.
     ///
     /// The returned array must satisfy: each element `i` is in `[0, shape()[i])`.
     /// This method must be the inverse of [`from_indices()`](MultiDiscreteAction::from_indices).
-    fn to_indices(&self) -> [usize; D];
+    fn to_indices(&self) -> [usize; R];
 
     /// Samples a uniformly random action from this multi-discrete action space.
     ///
@@ -254,23 +254,23 @@ pub trait MultiDiscreteAction<const D: usize>: Action<D> {
         let total: usize = space.iter().product();
         let mut actions = Vec::with_capacity(total);
 
-        fn generate<const D: usize, T: MultiDiscreteAction<D>>(
-            space: &[usize; D],
-            current: &mut [usize; D],
-            dim: usize,
+        fn generate<const R: usize, T: MultiDiscreteAction<R>>(
+            space: &[usize; R],
+            current: &mut [usize; R],
+            axis: usize,
             actions: &mut Vec<T>,
         ) {
-            if dim == D {
+            if axis == R {
                 actions.push(T::from_indices(*current));
                 return;
             }
-            for i in 0..space[dim] {
-                current[dim] = i;
-                generate(space, current, dim + 1, actions);
+            for i in 0..space[axis] {
+                current[axis] = i;
+                generate(space, current, axis + 1, actions);
             }
         }
 
-        let mut current = [0; D];
+        let mut current = [0; R];
         generate(&space, &mut current, 0, &mut actions);
         actions
     }
@@ -294,10 +294,10 @@ pub trait MultiDiscreteAction<const D: usize>: Action<D> {
 /// Continuous actions are typically produced by neural networks with `tanh` or
 /// `sigmoid` activation functions. Use [`clip()`](ContinuousAction::clip) to
 /// ensure outputs stay within valid ranges.
-pub trait ContinuousAction<const D: usize>: Action<D> {
+pub trait ContinuousAction<const R: usize>: Action<R> {
     /// Returns a slice view of this action's component values.
     ///
-    /// The returned slice must have exactly `DIM` elements. This is used for
+    /// The returned slice must have exactly `RANK` elements. This is used for
     /// efficient serialization and tensor conversion.
     fn as_slice(&self) -> &[f32];
 
@@ -314,11 +314,12 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
     /// - Recovering from numerical instability
     fn clip(&self, min: f32, max: f32) -> Self;
 
-    /// Samples a random action with components uniformly distributed in `[-1, 1]`.
+    /// Samples a random action with components uniformly distributed in `[-1.0, 1.0)`.
     ///
-    /// The default implementation generates uniform random values. Override this
-    /// method if you need different sampling behavior (e.g., Gaussian noise,
-    /// domain-specific distributions).
+    /// The default implementation generates uniform random values in the half-open
+    /// range `[-1.0, 1.0)` using `rand::random_range`. Override this method if you
+    /// need different sampling behavior (e.g., Gaussian noise, domain-specific
+    /// distributions, or bounds derived from [`BoundedAction`]).
     fn random() -> Self
     where
         Self: Sized,
@@ -326,7 +327,7 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
         use rand::RngExt;
         let mut rng = rand::rng();
         // Default implementation - override for custom behavior
-        let values: Vec<f32> = (0..Self::DIM)
+        let values: Vec<f32> = (0..Self::RANK)
             .map(|_| rng.random_range(-1.0..1.0))
             .collect();
         Self::from_slice(&values)
@@ -334,12 +335,12 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
 
     /// Constructs an action from a slice of component values.
     ///
-    /// The input slice must have exactly `DIM` elements. This is the inverse
+    /// The input slice must have exactly `RANK` elements. This is the inverse
     /// operation of [`as_slice()`](ContinuousAction::as_slice).
     ///
     /// # Panics
     ///
-    /// Implementations should panic if `values.len() != DIM`.
+    /// Implementations should panic if `values.len() != RANK`.
     fn from_slice(values: &[f32]) -> Self;
 }
 
@@ -356,11 +357,18 @@ pub trait ContinuousAction<const D: usize>: Action<D> {
 /// - `low()[i] < high()[i]` for every component `i`.
 /// - [`ContinuousAction::clip`] must be a no-op on an action whose components
 ///   already lie in `[low, high]`.
-pub trait BoundedAction<const D: usize>: ContinuousAction<D> {
-    /// Per-component lower bounds.
-    fn low() -> [f32; D];
-    /// Per-component upper bounds.
-    fn high() -> [f32; D];
+pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
+    /// Returns the per-component lower bounds of this action space.
+    ///
+    /// The returned array must satisfy `low()[i] < high()[i]` for every component
+    /// `i`. See the trait-level invariants for the full contract.
+    fn low() -> [f32; R];
+
+    /// Returns the per-component upper bounds of this action space.
+    ///
+    /// The returned array must satisfy `low()[i] < high()[i]` for every component
+    /// `i`. See the trait-level invariants for the full contract.
+    fn high() -> [f32; R];
 }
 
 /// Error indicating an action violated its type's constraints.
@@ -537,7 +545,7 @@ mod tests {
     #[test]
     fn test_discrete_action_shape() {
         assert_eq!(SimpleDiscreteAction::shape(), [4]);
-        assert_eq!(SimpleDiscreteAction::DIM, 1);
+        assert_eq!(SimpleDiscreteAction::RANK, 1);
     }
 
     #[test]
@@ -634,7 +642,7 @@ mod tests {
     #[test]
     fn test_multidiscrete_action_shape() {
         assert_eq!(MultiActionTest::shape(), [4, 3]);
-        assert_eq!(MultiActionTest::DIM, 2);
+        assert_eq!(MultiActionTest::RANK, 2);
     }
 
     #[test]
@@ -762,7 +770,7 @@ mod tests {
     #[test]
     fn test_continuous_action_shape() {
         assert_eq!(ContinuousActionTest::shape(), [1, 1, 1]);
-        assert_eq!(ContinuousActionTest::DIM, 3);
+        assert_eq!(ContinuousActionTest::RANK, 3);
     }
 
     #[test]

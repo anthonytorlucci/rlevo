@@ -1,12 +1,13 @@
 //! On-disk per-episode recording surface (feature `record`).
 //!
-//! Three parallel producers all push into the same [`RecordSink`], each
+//! Four parallel producers all push into the same [`RecordSink`], each
 //! owning a single concern:
 //!
 //! | Producer | Role |
 //! |---|---|
 //! | [`RecordingTap`] | Captures every `reset`/`step` frame from a raw env. |
 //! | [`RecordingReporter`] | Routes harness lifecycle events (episode boundaries, manifest). |
+//! | [`PopulationReporter`] | Forwards EA population snapshots (generation, fitness stats). |
 //! | [`RecordingLayer`] | Extracts canonical metric fields from `tracing` events. |
 //!
 //! The on-disk implementation is [`RecordWriter`], which creates one

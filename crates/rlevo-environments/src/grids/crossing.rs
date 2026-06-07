@@ -223,7 +223,7 @@ impl FromStr for CrossingConfig {
 /// have three components, reward is a scalar.
 ///
 /// Construct via [`CrossingEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (size 7, lava, seed 0).
+/// [`ConstructableEnv::new`] for default settings (size 7, lava, seed 0).
 ///
 /// # Examples
 ///

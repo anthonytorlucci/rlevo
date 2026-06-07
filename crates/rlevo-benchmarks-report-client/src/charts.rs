@@ -167,6 +167,11 @@ pub fn interactive_line_view(
 /// when the `*_fitness` metrics are present. Empty panels are
 /// suppressed entirely.
 ///
+/// `records` may arrive in any order and may span multiple seeds; the
+/// x-axis toggle lets readers choose episode-index, cumulative env-step,
+/// or wall-clock time without page reload.  Multi-seed runs also get a
+/// mean±std band section rendered by `multi_seed_section`.
+///
 /// `family` is currently unused — the suppression rule keys off
 /// per-metric presence, which already distinguishes RL from EA runs.
 /// Kept in the signature so future per-family panel choices (e.g. an
@@ -551,8 +556,13 @@ fn nice_ticks(min: f64, max: f64, target: usize) -> Vec<f64> {
     ticks
 }
 
-/// Formats a tick value: integers when `as_int`, else adaptive precision so
-/// both `500` and `0.012` stay legible without trailing-zero noise.
+/// Formats a tick value for axis labels.
+///
+/// When `as_int` is `true` the value is rounded to the nearest integer, which
+/// keeps episode/generation/step axes clean (e.g. `100` instead of `100.00`).
+/// When `false`, adaptive decimal precision is used: magnitude ≥10 → no
+/// decimals, ≥1 → two, ≥0.01 → three, smaller → scientific notation.  This
+/// keeps both `500` and `0.012` legible without trailing-zero noise.
 fn fmt_tick(v: f64, as_int: bool) -> String {
     if as_int {
         return format!("{:.0}", v.round());
@@ -583,10 +593,12 @@ fn unit_for(name: &str) -> String {
 /// Shared axis furniture for every hand-rolled SVG panel: the x/y axis lines,
 /// "nice" tick marks with numeric labels, and rotated axis titles.
 ///
-/// All panels share the `BOX_*` layout, so this recomputes the linear
-/// data→pixel maps from the data ranges rather than taking each panel's scale
-/// closures. `x_as_int` formats the x ticks as whole numbers (episode /
-/// generation / step axes); pass `false` for continuous axes (wall-clock).
+/// All panels share the `BOX_*` layout constants, so this function derives its
+/// own data→pixel maps from the supplied ranges.  Each calling panel also
+/// holds its own scale closures (built from the same constants and ranges) so
+/// that data points and axis labels are always in register.  `x_as_int` formats
+/// the x ticks as whole numbers (episode / generation / step axes); pass
+/// `false` for continuous axes (wall-clock).
 fn axis_layer(
     x_min: f64,
     x_max: f64,
@@ -703,6 +715,11 @@ fn export_panel_svg(ev: &leptos::ev::MouseEvent, filename: &str) {
 /// Deterministic jitter in `[-1, 1)` from an index — a cheap integer hash so
 /// the strip-plot scatter is stable across renders (no RNG; `Math.random` is
 /// unavailable and determinism keeps screenshots reproducible).
+///
+/// The multiplier `0x9E3779B97F4A7C15` is the 64-bit Fibonacci / golden-ratio
+/// mixing constant (Knuth multiplicative hashing).  It is the standard choice
+/// for turning a sequential index into a well-spread bit pattern; changing it
+/// would alter all jitter positions and break screenshot stability.
 fn jitter_unit(i: u64) -> f64 {
     let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
     // Top 53 bits → [0, 1), then map to [-1, 1).

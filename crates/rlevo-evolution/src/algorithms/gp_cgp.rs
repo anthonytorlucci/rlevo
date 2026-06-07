@@ -94,9 +94,10 @@ impl CgpConfig {
         }
     }
 
-    /// Genes per node in the genotype layout.
+    /// Genes per node in the genotype layout: `(function_id, input_0, input_1)`.
     pub const GENES_PER_NODE: usize = 3;
-    /// Number of output genes (one per program output).
+    /// Number of output genes per program (one index pointing to the node
+    /// whose value is taken as the program output).
     pub const OUTPUT_GENES: usize = 1;
 
     /// Total genome length (nodes × 3 + outputs).
@@ -313,6 +314,9 @@ where
     type State = CgpState<B>;
     type Genome = Tensor<B, 2, Int>;
 
+    /// Samples the initial parent genome by drawing random node functions and
+    /// feed-forward input connections via `rng`, then uploads the genotype as
+    /// a `(1, genome_len)` integer tensor.
     fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CgpState<B> {
         let genome_vec = Self::sample_initial_genome(params, rng);
         let parent = Tensor::<B, 2, Int>::from_data(
@@ -328,6 +332,13 @@ where
         }
     }
 
+    /// Returns the offspring population for the current generation.
+    ///
+    /// On the first call (parent fitness not yet set), returns the single
+    /// parent genome unchanged for initial fitness evaluation.
+    /// On subsequent calls, produces `params.lambda` children by cloning the
+    /// parent and applying per-gene point mutation, with mutation draws taken
+    /// from a deterministic `seed_stream` (host-RNG convention).
     fn ask(
         &self,
         params: &CgpConfig,
@@ -363,6 +374,15 @@ where
         (offspring, state.clone())
     }
 
+    /// Applies `(1+λ)` selection and returns the updated state.
+    ///
+    /// The canonical CGP tie-breaking rule is used: an offspring replaces the
+    /// parent when its fitness is **less than or equal to** the parent's,
+    /// allowing neutral mutations to accumulate and maintain genetic diversity
+    /// in the inactive (non-coding) portion of the genome.
+    ///
+    /// The first `tell` after `init` bootstraps the parent fitness from the
+    /// initial single-genome evaluation rather than running selection.
     fn tell(
         &self,
         _params: &CgpConfig,
@@ -415,6 +435,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far genome and its fitness, or `None` before the
+    /// first `tell` call.
     fn best(&self, state: &CgpState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
         state
             .best_genome

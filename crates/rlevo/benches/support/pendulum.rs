@@ -9,8 +9,8 @@
 //! - [`CriticMlp`] — concat(obs, action) Q-value head shared by DDPG, TD3, SAC
 //! - [`StochasticActor`] — squashed-Gaussian reparameterized actor for SAC
 //!
-//! The Polyak target-network update is shared with the value-based benches via
-//! [`value_nets::polyak_update`] rather than re-implemented here.
+//! The Polyak target-network update is shared across all actor-critic benches via
+//! [`rlevo_reinforcement_learning::utils::polyak_update`] rather than re-implemented here.
 
 #![allow(dead_code)]
 
@@ -31,6 +31,12 @@ use rlevo_reinforcement_learning::utils::polyak_update;
 // (batch, 3) → (batch, 1) ∈ [-2, 2]
 // ---------------------------------------------------------------------------
 
+/// Deterministic tanh-scaled actor for DDPG and TD3.
+///
+/// A two-hidden-layer `ReLU` MLP whose output is passed through `tanh` and
+/// then linearly scaled to the Pendulum action range `[-2, 2]`. Implements
+/// [`DeterministicPolicy`] so the same struct serves both DDPG and TD3 (TD3
+/// re-exports the trait from `ddpg_model`).
 #[derive(Module, Debug)]
 pub struct ActorMlp<B: Backend> {
     fc1: Linear<B>,
@@ -41,6 +47,10 @@ pub struct ActorMlp<B: Backend> {
 }
 
 impl<B: Backend> ActorMlp<B> {
+    /// Builds an `ActorMlp` with two `hidden`-wide rectified-linear layers.
+    ///
+    /// `action_scale` is fixed at `2.0` and `action_bias` at `0.0`, matching
+    /// the Pendulum-v1 torque range `[-2, 2]`.
     pub fn new(
         obs_dim: usize,
         hidden: usize,
@@ -56,6 +66,7 @@ impl<B: Backend> ActorMlp<B> {
         }
     }
 
+    /// Runs the forward pass: `ReLU → ReLU → tanh → scale → bias`.
     pub fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
         let h = relu(self.fc1.forward(obs));
         let h = relu(self.fc2.forward(h));
@@ -93,6 +104,13 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
 // Shared by DDPG, TD3, and SAC via the respective `ContinuousQ` trait impls.
 // ---------------------------------------------------------------------------
 
+/// Continuous Q-value critic shared by DDPG, TD3, and SAC.
+///
+/// Concatenates the observation and action tensors along the feature axis and
+/// passes the result through a two-hidden-layer `ReLU` MLP, producing a scalar
+/// Q-value per batch row. Implements [`ContinuousQ`] — TD3 and SAC re-export
+/// that trait from `ddpg_model`, so this single struct covers all three
+/// algorithms.
 #[derive(Module, Debug)]
 pub struct CriticMlp<B: Backend> {
     fc1: Linear<B>,
@@ -101,6 +119,10 @@ pub struct CriticMlp<B: Backend> {
 }
 
 impl<B: Backend> CriticMlp<B> {
+    /// Builds a `CriticMlp` with two `hidden`-wide rectified-linear layers.
+    ///
+    /// The first layer input width is `obs_dim + action_dim` to accommodate the
+    /// concatenated observation–action pair.
     pub fn new(
         obs_dim: usize,
         action_dim: usize,
@@ -114,6 +136,8 @@ impl<B: Backend> CriticMlp<B> {
         }
     }
 
+    /// Concatenates `obs` and `act`, then runs `ReLU → ReLU → squeeze` to a
+    /// rank-1 scalar tensor.
     pub fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
         let x = Tensor::cat(vec![obs, act], 1);
         let h = relu(self.fc1.forward(x));
@@ -151,9 +175,24 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
 // (batch, 3) → (batch, 1) ∈ [-2, 2]
 // ---------------------------------------------------------------------------
 
+/// Lower clamp on the log-standard-deviation output, preventing near-zero std
+/// from destabilizing the log-probability computation.
 const LOG_STD_MIN: f32 = -5.0;
+
+/// Upper clamp on the log-standard-deviation output, preventing excessively
+/// large std from making the policy nearly uniform.
 const LOG_STD_MAX: f32 = 2.0;
 
+/// Squashed-Gaussian reparameterized actor for SAC.
+///
+/// A two-hidden-layer `ReLU` MLP with two parallel heads — one for the
+/// Gaussian mean and one for the log-standard-deviation (clamped to
+/// `[LOG_STD_MIN, LOG_STD_MAX]`). Actions are drawn via the reparameterization
+/// trick, squashed through `tanh`, and scaled to `[-2, 2]`. The corresponding
+/// log-probabilities account for the tanh Jacobian correction.
+///
+/// Implements [`SquashedGaussianPolicy`] so the SAC trainer can drive both
+/// stochastic sampling (with entropy) and deterministic evaluation.
 #[derive(Module, Debug)]
 pub struct StochasticActor<B: Backend> {
     fc1: Linear<B>,
@@ -166,6 +205,11 @@ pub struct StochasticActor<B: Backend> {
 }
 
 impl<B: Backend> StochasticActor<B> {
+    /// Builds a `StochasticActor` with two `hidden`-wide rectified-linear
+    /// layers and parallel mean/log-std heads of width `action_dim`.
+    ///
+    /// `action_scale` is fixed at `2.0` and `action_bias` at `0.0`, matching
+    /// the Pendulum-v1 torque range `[-2, 2]`.
     pub fn new(
         obs_dim: usize,
         hidden: usize,
@@ -183,10 +227,13 @@ impl<B: Backend> StochasticActor<B> {
         }
     }
 
+    /// Shared trunk: `obs → ReLU(fc1) → ReLU(fc2)`.
     fn features(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
         relu(self.fc2.forward(relu(self.fc1.forward(obs))))
     }
 
+    /// Returns the Gaussian `(mean, log_std)` for the given observation batch.
+    /// `log_std` is clamped to `[LOG_STD_MIN, LOG_STD_MAX]`.
     fn mean_and_log_std(&self, obs: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
         let h = self.features(obs);
         let mean = self.mean.forward(h.clone());
@@ -194,6 +241,15 @@ impl<B: Backend> StochasticActor<B> {
         (mean, log_std)
     }
 
+    /// Draws one squashed-Gaussian sample per row using the pre-sampled noise
+    /// `eps ~ N(0, I)` (reparameterization trick) and returns the action
+    /// together with its log-probability.
+    ///
+    /// The log-probability is computed as the Gaussian log-density of the
+    /// pre-squash sample `z`, minus the tanh Jacobian correction
+    /// `sum_j 2(log 2 - z_j - softplus(-2 z_j))`, minus the log of
+    /// `|action_scale|` per action dimension. This matches the numerically
+    /// stable form from the SAC paper appendix.
     #[allow(clippy::cast_precision_loss)]
     fn squashed_sample(
         &self,

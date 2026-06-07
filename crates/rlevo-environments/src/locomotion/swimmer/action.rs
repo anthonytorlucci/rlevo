@@ -1,4 +1,8 @@
-//! Action type for [`super::Swimmer`].
+//! Action type for the [`super::Swimmer`] environment.
+//!
+//! [`SwimmerAction`] holds two pre-gear joint-torque targets, one per revolute
+//! joint, in the range `[-1.0, 1.0]`. The environment multiplies each by the
+//! configured `gear` scalar before applying the torque to the physics body.
 
 use burn::prelude::{Backend, Tensor};
 use rlevo_core::action::ContinuousAction;
@@ -11,6 +15,11 @@ use serde::{Deserialize, Serialize};
 pub struct SwimmerAction(pub [f32; 2]);
 
 impl SwimmerAction {
+    /// Construct an action from explicit joint-torque targets.
+    ///
+    /// Both values are expected to lie in `[-1.0, 1.0]`. Values outside that
+    /// range are accepted here but will fail [`Action::is_valid`] and will be
+    /// clamped by the environment before the gear multiplication is applied.
     #[must_use]
     pub const fn new(joint1: f32, joint2: f32) -> Self {
         Self([joint1, joint2])
@@ -28,18 +37,23 @@ impl Action<1> for SwimmerAction {
 }
 
 impl ContinuousAction<1> for SwimmerAction {
+    /// Returns the raw `[joint1, joint2]` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
     }
 
+    /// Returns a new action with both torque targets clamped to `[min, max]`.
     fn clip(&self, min: f32, max: f32) -> Self {
         Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
     }
 
+    /// Construct from a slice. Panics if `values.len() < 2`.
     fn from_slice(values: &[f32]) -> Self {
         Self([values[0], values[1]])
     }
 
+    /// Sample both torque targets uniformly from `[-1.0, 1.0]` using the
+    /// thread-local RNG.
     fn random() -> Self {
         Self([
             rand::random::<f32>() * 2.0 - 1.0,

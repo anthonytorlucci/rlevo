@@ -86,6 +86,12 @@ impl Default for AdversarialBanditConfig {
 
 /// Parses `"N"` (sets `max_steps`) or comma-separated `key=value` pairs over
 /// `max_steps`, `seed`, `period`, and `amplitude`.
+///
+/// # Errors
+///
+/// Returns a `String` error if the input is neither a bare integer nor a
+/// comma-separated list of `key=value` pairs with keys `max_steps`, `seed`,
+/// `period`, and `amplitude`, or if any numeric value fails to parse.
 impl FromStr for AdversarialBanditConfig {
     type Err = String;
 
@@ -158,6 +164,15 @@ impl FromStr for AdversarialBanditConfig {
 // ---------------------------------------------------------------------------
 
 /// Adversarial k-armed bandit with an oblivious periodic reward schedule.
+///
+/// Rewards are deterministic: each arm follows a cosine wave offset by a
+/// per-arm phase drawn once from the seeded RNG on construction and again on
+/// every [`Environment::reset`]. Because the schedule is fixed before the
+/// agent acts, the adversary is *oblivious* — the standard setting for EXP3
+/// and related algorithms.
+///
+/// See the module-level docs for the precise formula and the default parameter
+/// values exposed via [`AdversarialBanditConfig`].
 #[derive(Debug)]
 pub struct AdversarialBandit<const K: usize> {
     state: KArmedBanditState,
@@ -179,7 +194,10 @@ impl<const K: usize> Display for AdversarialBandit<K> {
 }
 
 impl<const K: usize> AdversarialBandit<K> {
-    /// Construct with a specific seed (other config fields default).
+    /// Construct with a specific seed; all other config fields take their
+    /// defaults (`max_steps = 500`, `period = 10`, `amplitude = 1.0`).
+    ///
+    /// Useful for reproducible benchmark trials where only the seed varies.
     pub fn with_seed(seed: u64) -> Self {
         let config = AdversarialBanditConfig {
             seed,
@@ -189,6 +207,10 @@ impl<const K: usize> AdversarialBandit<K> {
     }
 
     /// Construct with an explicit config.
+    ///
+    /// Seeds the RNG from `config.seed` and draws the per-arm phase offsets
+    /// from `Uniform(0, period)`. The same seed and config will always produce
+    /// the same phase array and therefore the same reward schedule.
     pub fn with_config(config: AdversarialBanditConfig) -> Self {
         let mut rng = StdRng::seed_from_u64(config.seed);
         let phases = sample_phases::<K>(&mut rng, config.period.max(1));

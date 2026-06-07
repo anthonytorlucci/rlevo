@@ -246,6 +246,22 @@ pub struct GoToDoorEnv {
 
 impl GoToDoorEnv {
     /// Constructs a [`GoToDoorEnv`] from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_environments::grids::go_to_door::{GoToDoorConfig, GoToDoorEnv};
+    /// use rlevo_environments::grids::core::color::Color;
+    ///
+    /// let env = GoToDoorEnv::with_config(
+    ///     GoToDoorConfig::new(6, 100, 0, Color::Blue),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: GoToDoorConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);

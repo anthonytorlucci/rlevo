@@ -2,7 +2,7 @@
 //!
 //! [`render`] is called by other adapters when a frame's [`FamilyPayload`]
 //! variant does not match what the adapter expects (e.g. a Box2D adapter
-//! receiving a Classic payload).  It delegates to [`crate::adapters::frame_body`],
+//! receiving a Classic payload).  It delegates to `frame_body`,
 //! which emits a styled ASCII projection when one is present and raw text
 //! otherwise, then appends a `<figcaption>` banner so users know they are
 //! seeing a generic view rather than a purpose-built one.
@@ -16,7 +16,7 @@ use crate::wire::{EnvFamily, FrameRecord};
 
 /// Renders a frame generically when no bespoke adapter exists for `family`.
 ///
-/// Wraps [`crate::adapters::frame_body`] in a `<figure>` and appends a
+/// Wraps `frame_body` in a `<figure>` and appends a
 /// warning banner in the `<figcaption>` naming the `family` so users can
 /// identify which env variant triggered the fallback path.
 #[must_use]

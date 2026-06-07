@@ -96,6 +96,21 @@ struct Transition<O: Clone> {
 
 /// Deep Deterministic Policy Gradient agent.
 ///
+/// Owns a deterministic actor, a continuous Q-critic, their Polyak-averaged
+/// target twins, two independent Adam optimizers, a uniform FIFO replay
+/// buffer, and a [`GaussianNoise`] exploration module.
+///
+/// The typical call sequence per environment step is:
+///
+/// 1. [`act`](Self::act) — choose an action (random during warm-up, noisy
+///    policy thereafter).
+/// 2. [`remember`](Self::remember) — store the resulting transition.
+/// 3. [`on_env_step`](Self::on_env_step) — advance the global step counter.
+/// 4. [`learn_step`](Self::learn_step) — run one gradient update (no-op
+///    during warm-up).
+///
+/// Drive the complete loop with [`crate::algorithms::ddpg::train::train`].
+///
 /// # Const generics
 ///
 /// - `DO` — rank of a single observation tensor (`1` for vector observations
@@ -173,6 +188,12 @@ where
     A: BoundedAction<DA>,
 {
     /// Constructs a new agent from pre-built actor and critic networks.
+    ///
+    /// Target networks are initialised as clones of the supplied modules via
+    /// [`AutodiffModule::valid`](burn::module::AutodiffModule::valid). Optimizers are built from
+    /// [`DdpgTrainingConfig::optimizer`]; if
+    /// [`DdpgTrainingConfig::clip_grad`] is `Some`, the same clipping
+    /// configuration is applied to both the actor and critic optimizers.
     pub fn new(
         actor: Actor,
         critic: Critic,
@@ -259,7 +280,7 @@ where
     /// `training == false`.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
-            let sample: Vec<f32> = (0..A::DIM)
+            let sample: Vec<f32> = (0..A::RANK)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
                 .collect();
             return A::from_slice(&sample);
@@ -270,7 +291,7 @@ where
         let raw: Tensor<B, DAB> = self.actor_ref().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let mean: Vec<f32> = slice.iter().take(A::DIM).copied().collect();
+        let mean: Vec<f32> = slice.iter().take(A::RANK).copied().collect();
         let out = if training {
             self.exploration.apply(&mean, &self.low, &self.high, rng)
         } else {
@@ -305,7 +326,7 @@ where
         let raw: Tensor<B::InnerBackend, DAB> = Actor::forward_inner(net, batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let out: Vec<f32> = (0..A::DIM)
+        let out: Vec<f32> = (0..A::RANK)
             .map(|i| slice[i].clamp(self.low[i], self.high[i]))
             .collect();
         A::from_slice(&out)
@@ -340,7 +361,21 @@ where
     /// Runs one learning step: a critic update and (every
     /// `policy_frequency`-th critic update) an actor + Polyak update.
     ///
-    /// Returns `None` if the agent is still in warm-up.
+    /// Returns `None` if the agent is still in warm-up (see
+    /// [`can_learn`](Self::can_learn)).
+    ///
+    /// The critic is updated every call via mean-squared Bellman error. The
+    /// actor is updated with the deterministic policy gradient (negative mean
+    /// Q-value over the batch). Both target networks are Polyak-averaged
+    /// toward the active networks with rate τ
+    /// ([`DdpgTrainingConfig::tau`]) after every actor update.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal actor or critic `Option` is unexpectedly `None`.
+    /// This can only happen if a previous call to `learn_step` panicked
+    /// mid-update and left the agent in an inconsistent state. Under normal
+    /// operation the `Option` is always `Some`.
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;

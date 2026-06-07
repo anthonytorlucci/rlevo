@@ -211,7 +211,7 @@ pub enum EmitError {
     #[error("io error writing output: {0}")]
     Io(#[source] io::Error),
     /// The manifest or episode-index could not be serialized to JSON.
-    #[error("could not encode manifest as JSON: {0}")]
+    #[error("could not encode run data as JSON: {0}")]
     ManifestJson(#[source] serde_json::Error),
     /// An episode `.rec` file could not be re-read from disk for inlining.
     #[error("could not re-encode episode {episode} for inlining: {source}")]
@@ -245,12 +245,18 @@ struct WarningJson<'a> {
 
 /// Emit a single-file HTML report at `out_path`.
 ///
+/// The output directory is created automatically via [`std::fs::create_dir_all`]
+/// if it does not exist. The file is written atomically: a `.tmp` sibling is
+/// flushed and `fsync`'d first, then renamed into place, so a crash mid-write
+/// cannot leave a partial `index.html`.
+///
 /// # Errors
 ///
-/// Returns [`EmitError::Io`] if the output file cannot be written,
-/// [`EmitError::ManifestJson`] if the manifest cannot be JSON-encoded,
-/// or [`EmitError::EpisodeReencode`] if an on-disk episode file cannot
-/// be re-read.
+/// Returns [`EmitError::Io`] if the output directory cannot be created, if the
+/// temporary file cannot be written, or if the atomic rename fails;
+/// [`EmitError::ManifestJson`] if the manifest or episode index cannot be
+/// JSON-encoded; or [`EmitError::EpisodeReencode`] if an on-disk episode file
+/// cannot be re-read for inlining.
 pub fn emit_static_html(
     run: &RecordedRun,
     out_path: &Path,
@@ -375,6 +381,8 @@ const shim = await import(shimUrl);
 await shim.default({ module_or_path: wasmBytes });
 "#;
 
+/// Returns a `.tmp`-suffixed sibling path used for the atomic write: the
+/// emitter writes and syncs to this path, then renames it to `out_path`.
 fn tmp_path(out_path: &Path) -> PathBuf {
     let mut name = out_path
         .file_name()

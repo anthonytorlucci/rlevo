@@ -122,8 +122,12 @@ impl<B: Backend> CuckooSearch<B> {
     }
 }
 
-/// Lanczos approximation for `Γ(z)` on positive reals. Only used
-/// host-side in [`CuckooSearch`] and [`super::bat`] for small constants.
+/// Lanczos approximation for `Γ(z)` on positive reals.
+///
+/// Used host-side by [`CuckooSearch::mantegna_sigma_u`] to evaluate the
+/// `σ_u` constant for Mantegna's Lévy-stable sampler. Accurate to `~1e-3`
+/// for `z ∈ [0.5, 5]`, which covers the valid range of the Lévy index
+/// `β ∈ (0, 2)`.
 #[allow(clippy::many_single_char_names)]
 fn gamma(z: f32) -> f32 {
     // 5-term Lanczos coefficients (g = 7). Enough for `z ∈ [0.5, 5]`
@@ -162,6 +166,16 @@ where
     type State = CuckooState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Build the initial nest population by host-sampling `pop_size`
+    /// positions uniformly in `[bounds.lo, bounds.hi]`.
+    ///
+    /// The `fitness` field is left empty so the first [`ask`] → [`tell`]
+    /// pair bootstraps the fitness cache before any greedy acceptance or
+    /// abandonment logic runs.  Positions are drawn from a deterministic
+    /// [`seed_stream`]; the process-wide Flex RNG is never touched.
+    ///
+    /// [`ask`]: Strategy::ask
+    /// [`tell`]: Strategy::tell
     fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
         let (lo, hi) = params.bounds;
         // Host-sample the initial nests from a deterministic `seed_stream`
@@ -186,6 +200,15 @@ where
         }
     }
 
+    /// Propose new egg positions via Mantegna's Lévy-stable step.
+    ///
+    /// On the first call (`state.fitness` is empty) returns the initial
+    /// nests unchanged so the caller can evaluate generation zero.
+    ///
+    /// On subsequent calls, samples `u ∼ N(0, σ_u²)` and `v ∼ N(0, 1)`
+    /// host-side from a deterministic [`seed_stream`], then forms
+    /// `step = u / |v|^(1/β)` and proposes
+    /// `x'_i = x_i + α · step`, clipped to `params.bounds`.
     fn ask(
         &self,
         params: &CuckooConfig,
@@ -224,6 +247,20 @@ where
         (new_nests, next)
     }
 
+    /// Ingest egg fitness values, apply greedy per-slot acceptance, abandon
+    /// the worst nests, and advance the generation counter.
+    ///
+    /// On the first call (generation zero bootstrap) all eggs are
+    /// unconditionally accepted and nest abandonment is skipped.
+    ///
+    /// On subsequent calls:
+    ///
+    /// 1. **Greedy accept** — egg `i` replaces nest `i` iff
+    ///    `fitness[i] ≤ state.fitness[i]`.
+    /// 2. **Abandonment** — the `⌊p_a · pop_size⌋` worst nests are
+    ///    re-initialized from `bounds` via [`seed_stream`]; abandoned
+    ///    slots carry sentinel `+∞` fitness so the next generation's Lévy
+    ///    proposal always lands on them.
     fn tell(
         &self,
         params: &CuckooConfig,
@@ -329,6 +366,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
+    /// the first [`tell`](Strategy::tell) call.
     fn best(&self, state: &CuckooState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

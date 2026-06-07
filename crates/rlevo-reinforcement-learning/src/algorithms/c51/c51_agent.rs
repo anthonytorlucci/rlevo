@@ -325,8 +325,16 @@ where
         self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
-    /// Hard-syncs the target network with the policy network when
-    /// `self.step` is a multiple of `config.target_update_frequency`.
+    /// Synchronises the target network with the current policy network.
+    ///
+    /// When [`C51TrainingConfig::tau`] is greater than zero, a per-call
+    /// Polyak soft update `target ← (1 − τ) · target + τ · policy` is
+    /// performed inside [`learn_step`](Self::learn_step) and this method is a
+    /// no-op unless `target_update_frequency` is also set.
+    ///
+    /// When `tau` is zero, this method performs a hard sync — a full copy of
+    /// the policy weights into the target — every `target_update_frequency`
+    /// steps. If `target_update_frequency` is `0`, hard sync is disabled.
     pub fn sync_target(&mut self) {
         if self.config.target_update_frequency == 0 {
             return;
@@ -340,9 +348,36 @@ where
         }
     }
 
-    /// Runs one learning step: samples a batch uniformly, projects the
-    /// target distribution, and minimises the categorical cross-entropy
-    /// between it and the policy's log-probabilities.
+    /// Samples a minibatch, projects the bootstrap distribution, and
+    /// performs one gradient update on the policy network.
+    ///
+    /// The sequence of operations:
+    ///
+    /// 1. Sample `batch_size` transitions uniformly from the replay buffer.
+    /// 2. Run the frozen target network on next-observations (inner backend,
+    ///    no autodiff graph) and pick the greedy bootstrap action via
+    ///    `argmax E[Z]` (the double-DQN selection step).
+    /// 3. Project the bootstrap distribution through the Bellman operator
+    ///    onto the fixed support via
+    ///    [`project_distribution`].
+    /// 4. Run the policy network on current-observations (autodiff backend).
+    /// 5. Compute categorical cross-entropy between the projected target and
+    ///    the policy's log-softmax probabilities at the taken action.
+    /// 6. Back-propagate and apply an Adam gradient step.
+    /// 7. If `tau > 0`, perform a Polyak soft update of the target network.
+    ///
+    /// # Returns
+    ///
+    /// `Some(LearnOutcome)` with loss, mean Q-value, and distribution entropy
+    /// when a gradient step was taken. Returns `None` without side-effects
+    /// when [`can_learn`](Self::can_learn) is false (buffer too small or
+    /// step count below `learning_starts`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `policy_net` is `None`, which can only happen if a previous
+    /// call to `learn_step` panicked after taking ownership of the network but
+    /// before restoring it.
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;

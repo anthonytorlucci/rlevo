@@ -208,7 +208,7 @@ impl FromStr for DynamicObstaclesConfig {
 /// action. The internal RNG is seeded, so resets are fully reproducible.
 ///
 /// Construct via [`DynamicObstaclesEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (size 6, 1 obstacle, seed 0).
+/// [`ConstructableEnv::new`] for default settings (size 6, 1 obstacle, seed 0).
 ///
 /// # Examples
 ///
@@ -241,7 +241,7 @@ impl DynamicObstaclesEnv {
     ///
     /// # Examples
     ///
-    /// ```run
+    /// ```rust
     /// use rlevo_environments::grids::dynamic_obstacles::{DynamicObstaclesConfig, DynamicObstaclesEnv};
     ///
     /// let env = DynamicObstaclesEnv::with_config(

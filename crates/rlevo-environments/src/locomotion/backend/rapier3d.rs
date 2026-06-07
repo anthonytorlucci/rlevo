@@ -97,10 +97,12 @@ impl Rapier3DWorld {
 
     // ─── Insertion helpers (used by env skeleton builders) ───────────────────
 
+    /// Insert a rigid body built from `desc` and return its handle.
     pub(crate) fn add_body(&mut self, desc: RigidBodyBuilder) -> RigidBodyHandle {
         self.bodies.insert(desc)
     }
 
+    /// Attach a collider to an existing body and return its handle.
     pub(crate) fn add_collider(
         &mut self,
         desc: ColliderBuilder,
@@ -109,11 +111,17 @@ impl Rapier3DWorld {
         self.colliders.insert_with_parent(desc, parent, &mut self.bodies)
     }
 
+    /// Insert a free-standing collider (e.g. the ground plane) with no rigid-body parent.
     #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
     pub(crate) fn add_ground_collider(&mut self, desc: ColliderBuilder) -> ColliderHandle {
         self.colliders.insert(desc)
     }
 
+    /// Link two bodies with an impulse-based joint and return the handle.
+    ///
+    /// Impulse joints are suitable for contact-rich or high-frequency connections
+    /// (e.g. wheels, feet). For serial articulated chains prefer
+    /// [`add_multibody_joint`](Self::add_multibody_joint).
     pub(crate) fn add_impulse_joint(
         &mut self,
         b1: RigidBodyHandle,
@@ -123,6 +131,11 @@ impl Rapier3DWorld {
         self.impulse_joints.insert(b1, b2, joint, true)
     }
 
+    /// Link two bodies with a multibody (generalised-coordinate) joint.
+    ///
+    /// Multibody joints behave closer to MuJoCo's generalised coordinates than
+    /// impulse joints and are preferred for articulated limb chains.  Returns
+    /// `None` if rapier3d rejects the insertion (e.g. cyclic topology).
     pub(crate) fn add_multibody_joint(
         &mut self,
         b1: RigidBodyHandle,
@@ -132,11 +145,14 @@ impl Rapier3DWorld {
         self.multibody_joints.insert(b1, b2, joint, true)
     }
 
+    /// Read-only access to the world's rigid-body set.
     #[allow(dead_code)] // v0.2: used by locomotion skeleton builders
     pub(crate) fn bodies(&self) -> &RigidBodySet {
         &self.bodies
     }
 
+    /// Mutable access to the world's rigid-body set (used by per-env skeleton
+    /// builders to set initial velocities and apply forces directly).
     pub(crate) fn bodies_mut(&mut self) -> &mut RigidBodySet {
         &mut self.bodies
     }
@@ -209,6 +225,18 @@ impl LocomotionBackend for Rapier3DBackend {
         )
     }
 
+    /// **Not yet implemented — panics at runtime.**
+    ///
+    /// Rapier3D lacks a first-class "apply torque to joint" primitive. The
+    /// planned v0.2 implementation will either (a) apply equal-and-opposite
+    /// angular impulses to the two bodies about the joint's free axis, or
+    /// (b) use the joint motor API with high damping / zero stiffness.
+    /// Until then, per-env skeleton builders apply torque directly via
+    /// `RigidBodySet::get_mut(…).add_torque(…)`.
+    ///
+    /// # Panics
+    ///
+    /// Always panics with an explanatory message.
     fn apply_joint_torque(
         _world: &mut Self::World,
         _joint: Self::JointHandle,

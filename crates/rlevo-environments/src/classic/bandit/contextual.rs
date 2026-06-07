@@ -70,8 +70,12 @@ impl<const C: usize> Display for ContextualBanditState<C> {
     }
 }
 
-/// Observation for the contextual bandit — a one-hot encoding of the current
-/// context revealed before the agent acts.
+/// Observation for the contextual bandit — the index of the context revealed
+/// to the agent before it acts.
+///
+/// The raw struct holds the context index as a `usize`. When converted via
+/// [`TensorConvertible::to_tensor`], the index is encoded as a one-hot vector
+/// of length `C` for use with neural-network policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct ContextualBanditObservation<const C: usize> {
     /// Index of the revealed context (`0..C`).
@@ -165,6 +169,12 @@ impl Default for ContextualBanditConfig {
 
 /// Parses the same `"N"` / `"max_steps=N,seed=S"` formats as
 /// [`super::k_armed::KArmedBanditConfig`].
+///
+/// # Errors
+///
+/// Returns a `String` error if the input is neither a bare integer nor a
+/// comma-separated list of `key=value` pairs with keys `max_steps` and
+/// `seed`, or if any numeric value fails to parse.
 impl FromStr for ContextualBanditConfig {
     type Err = String;
 
@@ -227,6 +237,16 @@ impl FromStr for ContextualBanditConfig {
 // ---------------------------------------------------------------------------
 
 /// Tabular contextual bandit with `C` discrete contexts and `K` arms.
+///
+/// On each step the environment draws the current context uniformly from
+/// `{0, …, C-1}` and the agent selects an arm `{0, …, K-1}`. Reward is
+/// sampled from `N(q*(context, arm), 1)` using a `C × K` table of means
+/// fixed at construction and reset by [`Environment::reset`].
+///
+/// The snapshot returned by [`Environment::step`] carries the *next* context
+/// in its observation (the one the agent will act on in the following step),
+/// not the context that produced the current reward. This matches the standard
+/// contextual-bandit loop where the context is revealed before each decision.
 #[derive(Debug)]
 pub struct ContextualBandit<const C: usize, const K: usize> {
     state: ContextualBanditState<C>,

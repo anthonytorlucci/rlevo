@@ -4,6 +4,16 @@
 //! a [`SeedPurpose`] so parallel streams (selection, mutation, crossover)
 //! do not alias. The mixer is splitmix64, matching the algorithm used by
 //! [`rlevo_core::util::seed::SeedStream`] for trial-level seed fan-out.
+//!
+//! # Host-RNG convention
+//!
+//! All randomness in `rlevo-evolution` **must** go through [`seed_stream`].
+//! Do **not** use `B::seed(…) + Tensor::random(…)` for stochastic EA
+//! operators. Burn's backend-level RNG is a process-wide mutex; seeding it
+//! from inside an operator races with parallel test threads and with other
+//! concurrent strategy calls, making results non-reproducible and causing
+//! intermittent test failures. [`seed_stream`] returns a fully-isolated
+//! [`rand::rngs::StdRng`] whose state is private to the call site.
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -49,8 +59,31 @@ impl SeedPurpose {
 
 /// Derives a seeded PRNG from a base seed, generation counter, and purpose.
 ///
-/// Each combination produces an independent stream; repeated calls with
-/// the same arguments return bit-identical sequences.
+/// Each combination of `(base, generation, purpose)` produces an
+/// independent [`rand::rngs::StdRng`]; repeated calls with the same
+/// arguments return bit-identical sequences.
+///
+/// The mixer is two rounds of splitmix64 applied to
+/// `base + generation * φ64 + purpose_constant`, where φ64 is the
+/// 64-bit golden-ratio constant `0x9E3779B97F4A7C15`. This produces
+/// well-distributed seeds even for small or sequential inputs.
+///
+/// # Examples
+///
+/// ```
+/// use rand::Rng;
+/// use rlevo_evolution::rng::{seed_stream, SeedPurpose};
+///
+/// // Same arguments → identical stream.
+/// let mut a = seed_stream(42, 0, SeedPurpose::Mutation);
+/// let mut b = seed_stream(42, 0, SeedPurpose::Mutation);
+/// assert_eq!(a.next_u64(), b.next_u64());
+///
+/// // Different purposes → independent streams from the same base/generation.
+/// let first_mutation  = seed_stream(42, 0, SeedPurpose::Mutation).next_u64();
+/// let first_selection = seed_stream(42, 0, SeedPurpose::Selection).next_u64();
+/// assert_ne!(first_mutation, first_selection);
+/// ```
 #[must_use]
 pub fn seed_stream(base: u64, generation: u64, purpose: SeedPurpose) -> StdRng {
     let mut x = base

@@ -20,7 +20,11 @@ use rand::{Rng, RngExt};
 use crate::algorithms::ppg::ppg_policy::PpgAuxValueHead;
 use crate::algorithms::ppo::ppo_policy::{LogProbEntropy, PolicyOutput, PpoPolicy};
 
-/// Construction-time knobs for [`PpgCategoricalPolicyHead`].
+/// Construction-time configuration for [`PpgCategoricalPolicyHead`].
+///
+/// Specifies the observation dimensionality, hidden layer width, and action
+/// count. All three values are needed before the Burn module can be
+/// initialised because Burn's linear layers require static shapes.
 #[derive(Debug, Clone)]
 pub struct PpgCategoricalPolicyHeadConfig {
     /// Observation feature count (flattened).
@@ -61,6 +65,10 @@ impl<B: Backend> PpgCategoricalPolicyHead<B> {
         self.num_actions
     }
 
+    /// Shared two-layer `tanh` trunk: `tanh(W2 · tanh(W1 · obs))`.
+    ///
+    /// Both the logits head and the auxiliary value head branch off this
+    /// intermediate representation.
     fn trunk(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
         let h = tanh(self.fc1.forward(obs));
         tanh(self.fc2.forward(h))
@@ -82,10 +90,24 @@ impl<B: AutodiffBackend> PpgAuxValueHead<B, 2> for PpgCategoricalPolicyHead<B> {
 impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     type ActionTensor = Tensor<B, 2, Int>;
 
+    /// Always `1`: one discrete action index per step.
     fn action_dim(&self) -> usize {
         1
     }
 
+    /// Samples one action per batch row using the Gumbel-max trick.
+    ///
+    /// Gumbel-max sampling (`argmax(logits + Gumbel noise)`) is equivalent to
+    /// categorical sampling from `softmax(logits)` but avoids materialising
+    /// a full probability vector on the accelerator. Noise is drawn from the
+    /// caller-supplied `rng` so action selection is fully reproducible given
+    /// the same seed — consistent with the host-RNG convention used across
+    /// `rlevo-evolution` and `rlevo-reinforcement-learning`.
+    ///
+    /// Returns a [`PolicyOutput`] containing:
+    /// - `action` — shape `(batch, 1)`, integer action index.
+    /// - `log_prob` — shape `(batch,)`, log-probability of the sampled action.
+    /// - `entropy` — shape `(batch,)`, per-row categorical entropy.
     fn sample_with_logprob(
         &self,
         obs: Tensor<B, 2>,
@@ -137,6 +159,12 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
         }
     }
 
+    /// Evaluates stored `actions` against the current policy to produce
+    /// log-probabilities and entropy used by the clipped surrogate loss.
+    ///
+    /// `actions` has shape `(batch, 1)` and contains integer action indices;
+    /// the function gathers the corresponding log-prob column from
+    /// `log_softmax(logits)`.
     fn evaluate(&self, obs: Tensor<B, 2>, actions: Self::ActionTensor) -> LogProbEntropy<B> {
         let logits = PpgAuxValueHead::logits(self, obs);
         let log_probs = log_softmax(logits, 1);
@@ -147,6 +175,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
         LogProbEntropy { log_prob, entropy }
     }
 
+    /// Extracts one row from an `(N, 1)` integer action tensor as a `Vec<f32>`.
+    ///
+    /// The returned vector always has length `1` (one action index). The `f32`
+    /// cast is lossless for action indices within the 24-bit float mantissa
+    /// range, which covers all practical discrete action spaces.
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<i64>();
         let slice = data
@@ -155,6 +188,13 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
         vec![slice[row] as f32]
     }
 
+    /// Rebuilds an `(n_rows, 1)` integer action tensor from a flat `f32` slice.
+    ///
+    /// `flat` must have exactly `n_rows` elements (one index per row).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `flat.len() != n_rows`.
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
@@ -170,6 +210,13 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
         t.unsqueeze_dim::<2>(1)
     }
 
+    /// Deterministic action on the inner (non-autodiff) backend — the argmax
+    /// over the policy logits.
+    ///
+    /// Operates on `B::InnerBackend` to avoid building an autodiff graph during
+    /// evaluation. Because [`PpgAuxValueHead::logits`] is only defined over
+    /// `AutodiffBackend`, the trunk and logits head are accessed directly
+    /// through the inner module's fields rather than via the trait method.
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,

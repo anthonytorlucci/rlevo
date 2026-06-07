@@ -20,8 +20,48 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 
 /// Drives DQN training for `total_steps` environment steps.
 ///
-/// The loop is intentionally unparameterised over logging: pass a `log_every`
-/// value to print a progress line; pass `0` to disable.
+/// Each iteration of the loop:
+///
+/// 1. Selects an action via [`DqnAgent::act`] (ε-greedy).
+/// 2. Steps the environment and pushes the resulting transition into the
+///    replay buffer with [`DqnAgent::remember`].
+/// 3. Calls [`DqnAgent::learn_step`] when `agent.should_train()` returns
+///    `true` (controlled by [`DqnTrainingConfig::train_frequency`]).
+/// 4. Syncs the target network with [`DqnAgent::sync_target`] (hard or soft
+///    depending on [`DqnTrainingConfig::tau`]).
+/// 5. Decays ε with [`DqnAgent::decay_exploration`].
+///
+/// When an episode ends the collected [`DqnMetrics`] are recorded via
+/// [`DqnAgent::record_episode`] and the environment is reset. To avoid
+/// writing a partial trailing episode record, the reset is skipped on the
+/// very last step.
+///
+/// # Const generics
+///
+/// | Parameter | Meaning |
+/// |-----------|---------|
+/// | `DO`      | Rank of a single observation tensor (e.g. `1` for flat vectors). |
+/// | `SD`      | Rank of a single state tensor (passed through to the `Environment` bound). |
+/// | `DB`      | Rank of a batched observation tensor (`= DO + 1`). |
+///
+/// # Arguments
+///
+/// - `agent` — mutable DQN agent holding network weights and replay buffer.
+/// - `env` — environment implementing [`Environment`]; must use the same
+///   observation type `O` and action type `A` as the agent.
+/// - `rng` — caller-owned RNG used for ε-greedy sampling and batch selection.
+/// - `total_steps` — total number of environment steps to run.
+/// - `log_every` — emit a [`tracing::info!`] progress line every this many
+///   steps. Pass `0` to disable all progress logging.
+///
+/// # Errors
+///
+/// Returns [`DqnAgentError::InvalidAction`] (wrapping the underlying
+/// [`EnvironmentError`] message) if `env.reset()` or `env.step()` fails.
+///
+/// [`DqnTrainingConfig::train_frequency`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::train_frequency
+/// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
+/// [`EnvironmentError`]: rlevo_core::environment::EnvironmentError
 pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut DqnAgent<B, M, O, A, DO, DB>,
     env: &mut E,
@@ -115,6 +155,14 @@ where
     Ok(())
 }
 
+/// Converts an [`EnvironmentError`] into a [`DqnAgentError`] so the training
+/// loop returns a single error type.
+///
+/// The environment error message is preserved as the `InvalidAction` payload,
+/// which is a slight semantic mismatch but avoids introducing an additional
+/// variant solely for environment I/O failures.
+///
+/// [`EnvironmentError`]: rlevo_core::environment::EnvironmentError
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> DqnAgentError {
     DqnAgentError::InvalidAction(err.to_string())
 }

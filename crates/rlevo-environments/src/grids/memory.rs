@@ -83,7 +83,7 @@ const DISTRACTOR_COLOR: Color = Color::Red;
 ///
 /// # Examples
 ///
-/// ```run
+/// ```rust
 /// use rlevo_environments::grids::memory::MemoryConfig;
 ///
 /// let cfg = MemoryConfig::new(140, 42, true);
@@ -209,6 +209,21 @@ pub struct MemoryEnv {
 
 impl MemoryEnv {
     /// Constructs a [`MemoryEnv`] from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_environments::grids::memory::{MemoryConfig, MemoryEnv};
+    ///
+    /// let env = MemoryEnv::with_config(
+    ///     MemoryConfig::new(140, 0, false),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: MemoryConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);

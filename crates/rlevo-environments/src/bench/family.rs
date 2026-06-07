@@ -1,4 +1,4 @@
-//! [`RecordedEnvFamily`] impls for the built-in environments.
+//! [`RecordedEnvFamily`](rlevo_benchmarks::record::RecordedEnvFamily) impls for the built-in environments.
 //!
 //! These tie each concrete env type to the [`EnvFamily`] its recordings
 //! belong to, so a driver can derive the family once from the env type

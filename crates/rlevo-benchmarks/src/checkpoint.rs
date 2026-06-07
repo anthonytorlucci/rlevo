@@ -37,12 +37,12 @@ pub fn completed_keys(report: &BenchmarkReport) -> HashSet<TrialKey> {
         .collect()
 }
 
-#[cfg(feature = "json")]
 /// Loads a [`BenchmarkReport`] from `path`, or returns `None` if the file does not exist.
 ///
 /// # Errors
 ///
 /// Returns an error if the file cannot be read or if deserialization fails.
+#[cfg(feature = "json")]
 pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
     if !path.exists() {
         return Ok(None);
@@ -53,12 +53,17 @@ pub fn load(path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
     Ok(Some(report))
 }
 
-#[cfg(feature = "json")]
 /// Atomically writes `report` to `path` via a tmp-then-rename strategy.
+///
+/// The parent directory is created if it does not already exist. The write
+/// is staged to a `.ckpt.json.tmp` sibling file and renamed into place so
+/// that a concurrent reader never sees a partial file.
 ///
 /// # Errors
 ///
-/// Returns an error if the file cannot be written or if serialization fails.
+/// Returns an error if the parent directory cannot be created, the temporary
+/// file cannot be written, serialization fails, or the rename fails.
+#[cfg(feature = "json")]
 pub fn save(path: &Path, report: &BenchmarkReport) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(parent) = path.parent()
@@ -77,11 +82,29 @@ pub fn save(path: &Path, report: &BenchmarkReport) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Loads a [`BenchmarkReport`] from `path`, or returns `None` if the file does not exist.
+///
+/// This is the no-op stub compiled when the `json` feature is disabled.
+/// It always returns `Ok(None)`; enable the `json` feature for real
+/// deserialization.
+///
+/// # Errors
+///
+/// This stub never returns an error.
 #[cfg(not(feature = "json"))]
 pub fn load(_path: &Path) -> std::io::Result<Option<BenchmarkReport>> {
     Ok(None)
 }
 
+/// Atomically writes `report` to `path` via a tmp-then-rename strategy.
+///
+/// This is the no-op stub compiled when the `json` feature is disabled.
+/// It always returns `Ok(())`; enable the `json` feature for real
+/// serialization.
+///
+/// # Errors
+///
+/// This stub never returns an error.
 #[cfg(not(feature = "json"))]
 pub fn save(_path: &Path, _report: &BenchmarkReport) -> std::io::Result<()> {
     Ok(())

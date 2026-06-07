@@ -14,6 +14,11 @@ use crate::evaluator::EvaluatorConfig;
 pub type EnvFactory<E> = Arc<dyn Fn(u64) -> E + Send + Sync>;
 
 /// A named collection of environments to benchmark against.
+///
+/// Constructed via [`Suite::new`] and extended with [`Suite::with_env`] in a
+/// builder style. Each environment is stored as an [`EnvFactory`] closure so
+/// that parallel workers can instantiate independent, deterministically seeded
+/// copies at trial time.
 pub struct Suite<E> {
     /// Display name of the suite, used as a label in reports and checkpoints.
     pub name: String,
@@ -60,7 +65,10 @@ impl<E> Suite<E> {
     }
 }
 
-/// Static metadata about a suite passed to reporters.
+/// Static metadata about a suite, passed to reporters before trials begin.
+///
+/// Derived from a [`Suite`] at run start and does not hold any closures, so it
+/// is cheaply cloneable and serializable.
 #[derive(Debug, Clone)]
 pub struct SuiteInfo {
     /// Display name of the suite.

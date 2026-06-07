@@ -19,16 +19,28 @@ use rand::Rng;
 
 /// Method-specific signal emitted by an agent or aggregator at trial
 /// boundaries.
+///
+/// Each variant carries a `name` that identifies the metric (e.g.
+/// `"q_loss"`, `"policy_entropy"`). Names are free-form strings; the harness
+/// records them verbatim without normalisation.
 #[derive(Debug, Clone)]
 pub enum Metric {
+    /// A single floating-point measurement (loss, reward, step count as f64).
     Scalar { name: String, value: f64 },
+    /// A distribution of values collected over a trial (per-step returns,
+    /// priority weights). Consumers may summarise via mean/variance.
     Histogram { name: String, values: Vec<f64> },
+    /// A monotonically increasing integer count (environment steps, gradient
+    /// updates) that the harness may accumulate across trials.
     Counter { name: String, count: u64 },
 }
 
 /// Trait implemented by agents (and internal collectors) that can report
 /// method-specific metrics at trial boundaries.
 pub trait MetricsProvider {
+    /// Returns all metrics accumulated since the last call (or since
+    /// construction). Implementations should drain internal accumulators so
+    /// that repeated calls do not double-count.
     fn emit(&self) -> Vec<Metric>;
 }
 
@@ -41,6 +53,12 @@ pub trait MetricsProvider {
 /// The `rng` argument is owned by the harness so reproducibility is
 /// guaranteed regardless of the agent's internal RNG discipline.
 pub trait BenchableAgent<Obs, Act> {
+    /// Selects an action given the current observation.
+    ///
+    /// `rng` is supplied by the harness and must be used for any randomness
+    /// the policy requires (e.g. epsilon-greedy exploration, stochastic
+    /// sampling). Do not source randomness from a privately held RNG; doing
+    /// so breaks the harness's reproducibility guarantees.
     fn act(&mut self, obs: &Obs, rng: &mut dyn Rng) -> Act;
 
     /// Optional hook to emit method-specific metrics at trial end.
@@ -55,9 +73,19 @@ pub trait BenchableAgent<Obs, Act> {
 /// than a stateful `Environment`. The `Evaluator::run_optimizer_trial` path
 /// in `rlevo-benchmarks` consumes this trait.
 pub trait FitnessEvaluable {
+    /// The optimizer's candidate solution type (e.g. a parameter vector or a
+    /// genome).
     type Individual;
+
+    /// The fitness landscape the individual is evaluated against.  May be a
+    /// marker type when the evaluator itself encodes the landscape (e.g.
+    /// `RastriginEvaluator` + `RastriginLandscape`).
     type Landscape;
 
+    /// Returns the scalar fitness of `individual` on `landscape`.
+    ///
+    /// Higher values must mean better fitness; callers may negate internally
+    /// if the landscape is formulated as a minimisation problem.
     fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
 }
 

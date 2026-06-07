@@ -28,23 +28,18 @@ use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::render::{AsciiRenderable, StyledFrame};
 use rlevo_core::reward::ScalarReward;
 
-/// Object-safe wrapper around a typed [`Environment`].
+/// Object-safe wrapper around a typed [`Environment`] for use with the
+/// benchmarking harness.
 ///
-/// # Example
-///
-/// ```rust
-/// # #[cfg(feature = "bench")] {
-/// use rlevo_environments::bench::BenchAdapter;
-/// use rlevo_environments::classic::{CartPole, CartPoleConfig};
-/// use rlevo_core::evaluation::BenchEnv;
-///
-/// let env = CartPole::with_config(CartPoleConfig::default());
-/// let mut adapter = BenchAdapter::new(env);
-/// let _obs = adapter.reset().expect("reset");
-/// # }
-/// ```
+/// Wrapping an env in `BenchAdapter` satisfies the [`BenchEnv`] bound
+/// required by [`Suite`] and [`Evaluator`] without requiring every env to
+/// implement that trait directly.  Construction infers all three const-generic
+/// parameters from the wrapped type, so callers write `BenchAdapter::new(env)`
+/// without a turbofish.
 ///
 /// [`Environment`]: rlevo_core::environment::Environment
+/// [`Suite`]: rlevo_benchmarks::suite::Suite
+/// [`Evaluator`]: rlevo_benchmarks::evaluator::Evaluator
 #[derive(Debug)]
 pub struct BenchAdapter<E, const D: usize, const SD: usize, const AD: usize> {
     env: E,
@@ -96,9 +91,10 @@ where
     }
 }
 
-/// Forward the optional [`AsciiRenderable`] debug helper through to the
-/// wrapped env, so a [`BenchAdapter`] over a renderable env stays renderable
-/// (e.g. for a text dump or the report's legacy `<pre>` fallback) without a
+/// Forwards [`AsciiRenderable`] through to the wrapped environment.
+///
+/// A [`BenchAdapter`] over a renderable env stays renderable — useful for
+/// text dumps and the report's legacy `<pre>` fallback — without requiring a
 /// per-env wrapper.
 impl<E, const D: usize, const SD: usize, const AD: usize> AsciiRenderable
     for BenchAdapter<E, D, SD, AD>

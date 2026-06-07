@@ -26,7 +26,12 @@ const VB_H: f32 = 320.0;
 /// Padding inside the viewBox on each edge, keeping bodies away from the border.
 const VB_PAD: f32 = 12.0;
 
-/// Render one box2d-family frame.
+/// Render one box2d-family frame as an SVG figure.
+///
+/// Dispatches on [`FamilyPayload::Box2dBodies`]; any other variant falls
+/// through to the generic [`super::fallback::render`] placeholder.
+///
+/// [`FamilyPayload::Box2dBodies`]: crate::wire::FamilyPayload::Box2dBodies
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
@@ -37,6 +42,10 @@ pub fn render(frame: &FrameRecord) -> AnyView {
 }
 
 /// Maps a [`BodyKind`] to its CSS class name for styling and a11y stroke patterns.
+///
+/// The returned string is a static CSS class applied directly to the SVG
+/// element.  Stylesheet rules keyed on these classes supply both hue and
+/// stroke-pattern signals so the rendering is distinguishable without colour.
 fn body_class(kind: BodyKind) -> &'static str {
     match kind {
         BodyKind::Hull => "rlevo-box2d-hull",
@@ -141,6 +150,9 @@ fn view_with_payload(payload: &Box2dPayload) -> AnyView {
 /// `xform`.  Wheel bodies receive an additional filled `<circle>` whose
 /// radius is derived from the maximum vertex extent so it never overflows the
 /// polygon hull.
+///
+/// The `'static` bound on `F` is required because Leptos `view!` macros
+/// capture closures into reactive nodes that may outlive the calling frame.
 fn render_body<F>(body: &RigidBody2D, scale: f32, xform: F) -> AnyView
 where
     F: Fn(&Point2) -> (f32, f32) + Copy + 'static,

@@ -17,12 +17,13 @@ use std::fmt::Debug;
 /// `Permutation`) live below; new kinds can be added by implementing this
 /// trait on a fresh marker type.
 ///
-/// The associated constant [`DIM`](GenomeKind::DIM) records the genome
-/// dimensionality at the type level when it is compile-time known (for
-/// variable-length representations like trees, impls set it to `0`).
+/// The associated constant [`GENOME_LEN`](GenomeKind::GENOME_LEN) records the
+/// genome length (number of genes) at the type level when it is compile-time
+/// known (for variable-length representations like trees, impls set it to `0`).
 pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
-    /// Compile-time genome dimensionality, or `0` for variable-length kinds.
-    const DIM: usize;
+    /// Compile-time genome length (number of genes), or `0` for
+    /// variable-length kinds.
+    const GENOME_LEN: usize;
 
     /// Element type of the genome (typically `f32`, `i32`, or `bool`).
     type Element: Copy + Debug + Send + Sync + 'static;
@@ -36,7 +37,7 @@ pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
 pub struct Real;
 
 impl GenomeKind for Real {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = f32;
 }
 
@@ -48,14 +49,17 @@ impl GenomeKind for Real {
 pub struct Binary;
 
 impl GenomeKind for Binary {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 /// Integer-valued genome (each gene is a non-negative integer index).
 ///
 /// Populations are stored as `Tensor<B, 2, Int>` of shape
-/// `(pop_size, dim)`. Permutation-coded GA and Cartesian GP use this kind.
+/// `(pop_size, dim)`. Cartesian GP (node indices), discrete parameter
+/// search, and other problems where genes are bounded integer values use
+/// this kind. For ordered-sequence problems (TSP, QAP) use [`Permutation`]
+/// instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Integer;
 
@@ -63,7 +67,9 @@ pub struct Integer;
 ///
 /// Reserved for classical Koza-style GP in a future release. Tree
 /// genomes cannot be batched on a GPU and therefore have no tensor
-/// representation in this crate.
+/// representation in this crate. The associated `Element` type is `i32`
+/// as a placeholder (structural node IDs); the actual in-memory
+/// representation will be defined when this kind is fully implemented.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Tree;
 
@@ -78,17 +84,17 @@ pub struct Tree;
 pub struct Permutation;
 
 impl GenomeKind for Integer {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Tree {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Permutation {
-    const DIM: usize = 0;
+    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 

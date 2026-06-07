@@ -1,4 +1,9 @@
-//! Action type for BipedalWalker.
+//! Action type for the BipedalWalker environment.
+//!
+//! [`BipedalWalkerAction`] wraps four motor velocity targets — one per joint —
+//! each clamped to `[-1, 1]`. The targets are scaled by the per-joint speed
+//! constants (`speed_hip`, `speed_knee`) inside `apply_motors` before being
+//! passed to the Rapier2D impulse-joint motor.
 
 use rlevo_core::action::ContinuousAction;
 use rlevo_core::base::Action;
@@ -12,8 +17,8 @@ use serde::{Deserialize, Serialize};
 /// * `[2]` hip2 motor target
 /// * `[3]` knee2 motor target
 ///
-/// Design decision D5: step() returns `Err(InvalidAction)` if any component
-/// is outside `[-1, 1]` or is non-finite.
+/// `BipedalWalker::step` returns `Err(InvalidAction)` if any component is
+/// outside `[-1, 1]` or is non-finite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BipedalWalkerAction(pub [f32; 4]);
 
@@ -38,14 +43,21 @@ impl Action<1> for BipedalWalkerAction {
 }
 
 impl ContinuousAction<1> for BipedalWalkerAction {
+    /// Returns the four motor targets as a contiguous `f32` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
     }
 
+    /// Returns a new action with every component clamped to `[min, max]`.
     fn clip(&self, min: f32, max: f32) -> Self {
         Self(self.0.map(|v| v.clamp(min, max)))
     }
 
+    /// Constructs an action from the first four elements of `values`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() < 4`.
     fn from_slice(values: &[f32]) -> Self {
         assert!(values.len() >= 4, "BipedalWalkerAction needs 4 values");
         let mut arr = [0.0f32; 4];

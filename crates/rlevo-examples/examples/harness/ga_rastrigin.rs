@@ -12,6 +12,30 @@
 //! The "action" is a unit type (the agent is passive); each "step" runs
 //! one GA generation and the reward is the negative best-fitness (so the
 //! harness's return-maximization framing lines up with minimization).
+//!
+//! # Running
+//!
+//! ```text
+//! cargo run -p rlevo-examples --example ga_rastrigin
+//! ```
+//!
+//! No feature flags are required.
+//!
+//! # Output
+//!
+//! Structured log lines from `LoggingReporter` followed by a per-trial
+//! summary printed to stdout:
+//!
+//! ```text
+//! === rastrigin-ga ===
+//! trial=0 seed=                   7 best_fitness≈0.9712  ea_metrics=1
+//! trial=1 seed=  ...              8 best_fitness≈1.0431  ea_metrics=1
+//! trial=2 seed=  ...              9 best_fitness≈0.8803  ea_metrics=1
+//! ```
+//!
+//! `best_fitness` is the best (lowest) Rastrigin value reached after
+//! `MAX_GENS` generations. The value is extracted by negating the
+//! episode return, reversing the sign convention used internally.
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};

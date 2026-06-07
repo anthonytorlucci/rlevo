@@ -323,6 +323,17 @@ where
     type RewardType = E::RewardType;
     type SnapshotType = E::SnapshotType;
 
+    /// Reset the wrapped environment, open a new episode in the sink, and
+    /// emit an initial [`FrameRecord`] with an empty action and zero reward.
+    ///
+    /// If `reset` is called again before the episode terminates (e.g. the
+    /// harness cuts an episode short), the in-flight episode index is
+    /// incremented before opening the new one; `on_episode_end` is **not**
+    /// called in that case — only `on_episode_start` fires on the next index.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`EnvironmentError`] returned by the inner env's `reset`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let snap = self.inner.reset()?;
         if self.started {
@@ -337,6 +348,23 @@ where
         Ok(snap)
     }
 
+    /// Step the wrapped environment and emit a [`FrameRecord`] to the sink.
+    ///
+    /// If the action cannot be serialized, the error is forwarded to
+    /// [`RecordSink::record_external_error`] and the frame is still emitted
+    /// with an empty action byte-vector — the trajectory stays decodable and
+    /// step bookkeeping is not disrupted. Call [`RecordSink::take_error`] after
+    /// the episode to detect encode failures.
+    ///
+    /// On termination or truncation ([`Snapshot::is_done`] is true),
+    /// [`RecordSink::on_episode_end`] is called with the cumulative episode
+    /// return and length before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`EnvironmentError`] returned by the inner env's `step`.
+    /// An action-encode failure is **not** returned as an error; it is routed
+    /// to [`RecordSink::record_external_error`] instead.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         // On encode failure, surface it through `take_error` rather than
         // letting the action silently collapse to the same empty-bytes

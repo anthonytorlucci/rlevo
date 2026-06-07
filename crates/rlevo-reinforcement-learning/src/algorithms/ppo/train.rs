@@ -54,6 +54,14 @@ where
 }
 
 /// PPO training loop against a **continuous** action environment.
+///
+/// Identical control flow to [`train_discrete`] but expects the environment's
+/// action type to implement [`ContinuousAction<AD>`] and reconstructs each
+/// action from the policy's `env_row` (the tanh-squashed, scaled output of
+/// [`PpoPolicy::raw_to_env_row`]) via [`ContinuousAction::from_slice`].
+///
+/// Pass `log_every > 0` to enable periodic `tracing::info!` progress; set
+/// `log_every == 0` to suppress logging.
 pub fn train_continuous<
     B,
     P,

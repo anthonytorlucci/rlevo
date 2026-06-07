@@ -50,6 +50,10 @@ pub struct EpConfig {
 
 impl EpConfig {
     /// Default configuration for a given dimensionality.
+    ///
+    /// Sets `initial_sigma = 1.0`, `tournament_q = 10`, and derives
+    /// `tau = 1.0 / sqrt(2.0 · sqrt(D))` — the standard EP learning-rate
+    /// recommendation from Fogel (1994). Bounds are `(-5.12, 5.12)`.
     #[must_use]
     pub fn default_for(mu: usize, genome_dim: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
@@ -67,19 +71,40 @@ impl EpConfig {
 }
 
 /// Generation-to-generation state for [`EvolutionaryProgramming`].
+///
+/// The two-phase ask/tell handshake uses `parent_fitness.is_empty()` as
+/// a sentinel: on the very first [`Strategy::ask`] call the initial
+/// parents are returned unchanged; on the very first [`Strategy::tell`]
+/// call `parent_fitness` is populated and
+/// `best_genome`/`best_fitness` are initialized. Subsequent
+/// ask/tell cycles produce, evaluate, and select from the `(μ + μ)` pool.
+///
+/// During `ask`, `sigmas` is temporarily expanded to length `2μ` (parent
+/// σ concatenated with offspring σ) so `tell` can apply q-tournament
+/// selection over the combined pool without re-deriving σ values. After
+/// `tell` completes, `sigmas` is back to length `μ`.
 #[derive(Debug, Clone)]
 pub struct EpState<B: Backend> {
-    /// Parents, shape `(μ, D)`.
+    /// Current parents, shape `(μ, D)`.
     pub parents: Tensor<B, 2>,
-    /// Per-parent σ, shape `(μ,)`.
+    /// Per-individual step-size σ, shape `(μ,)` between generations and
+    /// `(2μ,)` transiently inside an ask/tell cycle (parent σ ‖ offspring σ).
     pub sigmas: Tensor<B, 1>,
-    /// Parent fitnesses, host-side cache.
+    /// Host-side fitness cache for the current parents.
+    ///
+    /// Empty before the first [`Strategy::tell`] call; length `μ`
+    /// thereafter. The `is_empty()` check distinguishes the initial
+    /// evaluation phase from subsequent tournament-selection generations.
     pub parent_fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, D)`.
+    ///
+    /// `None` before the first [`Strategy::tell`] call.
     pub best_genome: Option<Tensor<B, 2>>,
-    /// Best-so-far fitness.
+    /// Best-so-far fitness across all completed generations.
+    ///
+    /// `f32::INFINITY` before the first [`Strategy::tell`] call.
     pub best_fitness: f32,
-    /// Generation counter.
+    /// Number of completed `tell` calls (zero-based generation index + 1).
     pub generation: usize,
 }
 
@@ -118,6 +143,14 @@ where
     type State = EpState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Samples the initial parent population uniformly within
+    /// `params.bounds`, initializes per-parent σ to
+    /// `params.initial_sigma`, and returns an [`EpState`] with an empty
+    /// fitness cache.
+    ///
+    /// Initial sampling goes through [`seed_stream`] rather than
+    /// `B::seed + Tensor::random` to keep results reproducible across
+    /// parallel test threads.
     fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
         let (lo, hi) = params.bounds;
         // Host-sample the initial parents from a deterministic `seed_stream`
@@ -147,6 +180,25 @@ where
         }
     }
 
+    /// Proposes the offspring population for this generation.
+    ///
+    /// **First call (fitness cache empty):** returns the initial parents
+    /// unchanged so the caller can evaluate them before any mutation step.
+    ///
+    /// **Subsequent calls:**
+    ///
+    /// 1. Applies the log-normal σ update to each parent:
+    ///    `σ'_i = σ_i · exp(τ · N(0, 1))`, host-sampled via
+    ///    [`seed_stream`] with [`SeedPurpose::Other`].
+    /// 2. Mutates each parent by its updated σ using
+    ///    [`gaussian_mutation_per_row`], host-sampled via [`seed_stream`]
+    ///    with [`SeedPurpose::Mutation`].
+    /// 3. Clamps offspring to `params.bounds`.
+    /// 4. Appends the offspring σ values to `state.sigmas`, making it
+    ///    length `2μ` so [`Strategy::tell`] can select over the combined
+    ///    pool without re-deriving them.
+    ///
+    /// Returns the offspring tensor and the updated state.
     fn ask(
         &self,
         params: &EpConfig,
@@ -196,6 +248,27 @@ where
         (offspring, state)
     }
 
+    /// Consumes the evaluated offspring and advances the state.
+    ///
+    /// **First call (fitness cache empty):** stores the initial parent
+    /// fitness, initializes `best_genome`/`best_fitness`, resets σ to
+    /// `params.initial_sigma`, and increments the generation counter.
+    ///
+    /// **Subsequent calls:**
+    ///
+    /// 1. Builds the `(μ + μ)` combined pool of parents and offspring
+    ///    (and their `2μ` σ values from [`Strategy::ask`]).
+    /// 2. Runs q-tournament selection: each of the `2μ` members plays
+    ///    `params.tournament_q` random opponents; the member wins a bout
+    ///    if its fitness is strictly lower. The μ members with the most
+    ///    wins survive; ties are broken by fitness (lower wins).
+    ///    Tournament indices are host-sampled via [`seed_stream`] with
+    ///    [`SeedPurpose::Selection`].
+    /// 3. Updates `best_genome`/`best_fitness` from the offspring
+    ///    fitness if improved.
+    ///
+    /// Returns the updated [`EpState`] and a [`StrategyMetrics`] snapshot
+    /// covering the current offspring generation's fitness distribution.
     fn tell(
         &self,
         params: &EpConfig,
@@ -292,6 +365,10 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far genome and its raw (minimization) fitness.
+    ///
+    /// Returns `None` before the first [`Strategy::tell`] call, when
+    /// `EpState::best_genome` is still `None`.
     fn best(&self, state: &EpState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

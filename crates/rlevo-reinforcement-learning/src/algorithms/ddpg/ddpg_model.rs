@@ -25,6 +25,10 @@ use burn::tensor::backend::AutodiffBackend;
 /// are expected to bake any tanh-squash + action-scale/bias into
 /// [`forward`](Self::forward) so that the emitted tensor is already in the
 /// env-visible action range.
+///
+/// Use [`forward`](Self::forward) during training (autodiff graph is active).
+/// Use [`forward_inner`](Self::forward_inner) against the frozen target
+/// module during target-Q computation (no gradient tracking).
 pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     AutodiffModule<B>
 {
@@ -51,6 +55,10 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: us
 /// value per batch row (shape `(batch,)`). Implementors typically concatenate
 /// the observation and action along the feature axis before running an MLP,
 /// but the trait does not prescribe the internal layout.
+///
+/// Use [`forward`](Self::forward) during the critic and actor gradient steps
+/// (autodiff graph active). Use [`forward_inner`](Self::forward_inner) for
+/// target-Q computation where no gradients should flow.
 pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     AutodiffModule<B>
 {
@@ -65,5 +73,8 @@ pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     ) -> Tensor<B::InnerBackend, 1>;
 
     /// Polyak-averages the target toward the active network.
+    ///
+    /// Returns `(1 − τ) · target + τ · active` element-wise for every
+    /// parameter, with `τ` drawn from [`DdpgTrainingConfig::tau`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig::tau).
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
 }

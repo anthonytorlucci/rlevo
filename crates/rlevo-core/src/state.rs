@@ -7,10 +7,33 @@
 //! - [`HiddenState`] — recurrent agent memory (e.g., RNN hidden state)
 //! - [`LatentState`] — learned compact representation with encode/predict/decode
 //! - [`StateAggregation`] — maps concrete states to abstract representatives
+//!
+//! [`State`]: crate::base::State
 
 use crate::base::{Action, Observation, State};
 
 /// Error type for state validation failures.
+///
+/// Returned by validation logic when a state's shape, contents, or element
+/// count do not match the expectations of the calling code.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_core::state::StateError;
+///
+/// let err = StateError::InvalidShape {
+///     expected: vec![4, 4],
+///     got: vec![4, 3],
+/// };
+/// assert!(err.to_string().contains("Invalid shape"));
+///
+/// let err = StateError::InvalidData("NaN in position field".into());
+/// assert!(err.to_string().contains("NaN in position field"));
+///
+/// let err = StateError::InvalidSize { expected: 16, got: 12 };
+/// assert!(err.to_string().contains("Invalid size"));
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum StateError {
     /// Shape dimensions do not match expectations.
@@ -63,7 +86,14 @@ pub trait MarkovState {
 /// Belief states are used in partially-observable settings where the agent
 /// cannot observe the true state directly. The belief is updated via Bayes'
 /// rule as the most recent action and new observation arrive.
-pub trait BeliefState<const SD: usize, const AD: usize, S: State<SD>, A: Action<AD>>: Clone {
+///
+/// # Type Parameters
+///
+/// - `SR`: Rank of the state space tensor (number of axes).
+/// - `AR`: Rank of the action space tensor (number of axes).
+/// - `S`: The underlying environment [`State`] type.
+/// - `A`: The [`Action`] type taken by the agent.
+pub trait BeliefState<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>>: Clone {
     /// Updates the belief distribution given the last action taken and the
     /// newly received observation.
     fn update(&self, action: &A, observation: &S::Observation) -> Self;
@@ -76,9 +106,18 @@ pub trait BeliefState<const SD: usize, const AD: usize, S: State<SD>, A: Action<
 }
 
 /// Recurrent agent memory analogous to an RNN hidden state.
-pub trait HiddenState<const D: usize>: Clone {
+///
+/// Implementations hold the internal summary of past observations (e.g., the
+/// `h_t` vector of a GRU or LSTM). The hidden state is updated at each step
+/// with the latest [`Observation`] and reset to a
+/// zero vector at episode start.
+///
+/// # Type Parameters
+///
+/// - `R`: Rank of the observation space tensor used to update this state.
+pub trait HiddenState<const R: usize>: Clone {
     /// The observation type used to update this hidden state.
-    type Observation: Observation<D>;
+    type Observation: Observation<R>;
 
     /// Incorporates `observation` into the hidden state in-place.
     fn update(&mut self, observation: &Self::Observation);
@@ -91,15 +130,20 @@ pub trait HiddenState<const D: usize>: Clone {
 ///
 /// Used by world-model agents (e.g., DreamerV3) that operate in a learned
 /// latent space rather than the raw observation space.
-pub trait LatentState<const D: usize, const AD: usize>: Clone {
+///
+/// # Type Parameters
+///
+/// - `R`: Rank of the observation space tensor this latent state is derived from.
+/// - `AR`: Rank of the action space tensor used in the transition prediction step.
+pub trait LatentState<const R: usize, const AR: usize>: Clone {
     /// The observation type this latent state is derived from.
-    type Observation: Observation<D>;
+    type Observation: Observation<R>;
 
     /// Projects `observation` into the latent space.
     fn encode(observation: &Self::Observation) -> Self;
 
     /// Rolls the latent state forward by one step given `action`.
-    fn predict_next<A: Action<AD>>(&self, action: &A) -> Self;
+    fn predict_next<A: Action<AR>>(&self, action: &A) -> Self;
 
     /// Reconstructs an observation from the latent representation.
     fn decode(&self) -> Self::Observation;
@@ -109,7 +153,12 @@ pub trait LatentState<const D: usize, const AD: usize>: Clone {
 ///
 /// State aggregation is used in function approximation and hierarchical RL to
 /// group similar states under a shared abstract representation.
-pub trait StateAggregation<const SD: usize, S: State<SD>> {
+///
+/// # Type Parameters
+///
+/// - `SR`: Rank of the concrete state space tensor.
+/// - `S`: The concrete [`State`] type being aggregated.
+pub trait StateAggregation<const SR: usize, S: State<SR>> {
     /// The abstract state type produced by aggregation.
     type AbstractState: Clone + Eq;
 

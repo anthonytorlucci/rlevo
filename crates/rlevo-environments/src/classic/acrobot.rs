@@ -424,7 +424,7 @@ impl AcrobotConfigBuilder {
 /// Internal 4-DOF state of the Acrobot.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AcrobotState {
-    /// Angle of link 1 from upright (rad).
+    /// Angle of link 1 measured from the downward vertical (rad); `0` = hanging straight down.
     pub theta1: f32,
     /// Angle of link 2 relative to link 1 (rad).
     pub theta2: f32,

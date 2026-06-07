@@ -188,11 +188,13 @@ impl Default for FrozenLakeConfig {
 }
 
 impl FrozenLakeConfig {
+    /// Returns a builder for constructing a `FrozenLakeConfig`.
     pub fn builder() -> FrozenLakeConfigBuilder {
         FrozenLakeConfigBuilder::default()
     }
 }
 
+/// Builder for [`FrozenLakeConfig`].
 #[derive(Default)]
 pub struct FrozenLakeConfigBuilder {
     map: Option<FrozenMapSpec>,
@@ -203,26 +205,39 @@ pub struct FrozenLakeConfigBuilder {
 }
 
 impl FrozenLakeConfigBuilder {
+    /// Sets the grid source: preset, custom, or randomly generated.
     pub fn map(mut self, m: FrozenMapSpec) -> Self {
         self.map = Some(m);
         self
     }
+
+    /// Enables or disables stochastic slip transitions.
     pub fn is_slippery(mut self, v: bool) -> Self {
         self.is_slippery = v;
         self
     }
+
+    /// Sets the probability of moving in the intended direction when slippery mode is active.
+    ///
+    /// The two perpendicular directions each receive probability `(1 − rate) / 2`. Default: `1/3`.
     pub fn success_rate(mut self, r: f32) -> Self {
         self.success_rate = Some(r);
         self
     }
+
+    /// Overrides the per-tile reward values.
     pub fn reward_schedule(mut self, rs: RewardSchedule) -> Self {
         self.reward_schedule = Some(rs);
         self
     }
+
+    /// Sets the RNG seed.
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
+
+    /// Builds the [`FrozenLakeConfig`].
     pub fn build(self) -> FrozenLakeConfig {
         FrozenLakeConfig {
             map: self.map.unwrap_or_default(),
@@ -520,8 +535,16 @@ pub struct FrozenLake {
 }
 
 impl FrozenLake {
-    /// Create with a specific configuration. Returns `Err(MapError)` if a custom map is invalid
-    /// or if random map generation fails.
+    /// Creates a [`FrozenLake`] environment with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MapError`] if the map cannot be constructed:
+    ///
+    /// - `Custom` maps: [`MapError::RowLengthMismatch`], [`MapError::WrongStartCount`],
+    ///   [`MapError::NoGoal`], [`MapError::GoalUnreachable`], or [`MapError::InvalidTile`].
+    /// - `Random` maps: [`MapError::MaxRetriesExceeded`] if 1000 attempts all produce
+    ///   unreachable goals (unlikely at the default `frozen_prob = 0.8`).
     pub fn with_config(config: FrozenLakeConfig) -> Result<Self, MapError> {
         let mut rng = StdRng::seed_from_u64(config.seed);
         let map = Self::resolve_map(&config.map, &mut rng)?;

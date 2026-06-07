@@ -83,7 +83,10 @@ pub struct RunManifest {
 impl RunManifest {
     /// Constructs a fresh manifest. `frame_stride` is the resolved
     /// value (per-family default + per-run override) the writer
-    /// actually applied.
+    /// actually applied. `created_at`, `finished_at`, and
+    /// `episode_count` are zero-initialised; the recording suite
+    /// sets them via direct field assignment before calling
+    /// [`RunManifest::write_atomic`].
     #[must_use]
     pub fn new(run_id: RunId, seed: u64, env_family: EnvFamily, frame_stride: u16) -> Self {
         Self {

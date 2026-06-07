@@ -16,6 +16,18 @@
 //! counter when no candidate improved it. Scout bees — those with
 //! `trial > limit` — are replaced by fresh uniform samples on device.
 //!
+//! # First-generation protocol
+//!
+//! `ask` detects the first call by checking whether `fitness` is empty
+//! and, if so, returns the current colony unchanged (no perturbation).
+//! `tell` detects the same condition and uses the received fitness to
+//! seed `AbcState::fitness` and `best_genome` before returning.
+//! Any caller that bypasses [`EvolutionaryHarness`] must therefore call
+//! `ask` → evaluate → `tell` **twice** before the employed/onlooker
+//! phases are active.
+//!
+//! [`EvolutionaryHarness`]: crate::strategy::EvolutionaryHarness
+//!
 //! # References
 //!
 //! - Karaboga (2005), *An idea based on honey bee swarm for numerical
@@ -51,6 +63,10 @@ pub struct AbcConfig {
 
 impl AbcConfig {
     /// Default configuration for a given population size and genome dimensionality.
+    ///
+    /// The scout `limit` is set to `(pop_size * genome_dim) / 2` following
+    /// Karaboga's canonical recommendation. The `tournament_size` defaults
+    /// to `3` (three-way tournament for onlooker selection).
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -73,8 +89,9 @@ pub struct AbcState<B: Backend> {
     /// Per-bee trial counter.
     pub trial: Vec<usize>,
     /// Target-bee mapping recorded by `ask` so `tell` knows which bee
-    /// each candidate belongs to. Length `2 · pop_size` after the
-    /// first productive `ask`.
+    /// each candidate belongs to. Empty after `init` and after the
+    /// bootstrap `ask` call (when `fitness` is still empty); populated
+    /// with `2 · pop_size` indices from the second `ask` onward.
     pub target_of_candidate: Vec<usize>,
     /// Best-so-far genome.
     pub best_genome: Option<Tensor<B, 2>>,

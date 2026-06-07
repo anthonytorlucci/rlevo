@@ -1,4 +1,4 @@
-//! Bincode-compatible mirror of [`rlevo_benchmarks::record::schema`].
+//! Bincode-compatible mirror of `rlevo_benchmarks::record::schema`.
 //!
 //! The native record schema is gated behind `feature = "record"` in
 //! `rlevo-benchmarks`, which itself doesn't compile to `wasm32` because
@@ -95,7 +95,9 @@ pub struct Modifier(pub u8);
 /// A 2-D point in world coordinates, shared by all rich family payloads.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point2 {
+    /// Horizontal component in world space.
     pub x: f32,
+    /// Vertical component in world space.
     pub y: f32,
 }
 
@@ -231,9 +233,13 @@ pub enum GridTile {
 /// `rlevo-core` `GridAgentMarker`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GridAgentMarker {
+    /// Column index of the agent (0 = left edge).
     pub x: u16,
+    /// Row index of the agent (0 = top edge).
     pub y: u16,
+    /// Cardinal direction the agent is currently facing.
     pub dir: GridDir,
+    /// Tile the agent is carrying, if any.
     pub carrying: Option<GridTile>,
 }
 
@@ -242,9 +248,13 @@ pub struct GridAgentMarker {
 /// `len == width * height`; cell `(x, y)` is `tiles[y * width + x]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GridPayload {
+    /// Number of columns in the grid.
     pub width: u16,
+    /// Number of rows in the grid.
     pub height: u16,
+    /// Row-major flat array of tile contents; length must equal `width * height`.
     pub tiles: Vec<GridTile>,
+    /// Current position, facing, and carried item of the agent.
     pub agent: GridAgentMarker,
 }
 
@@ -275,8 +285,11 @@ pub enum TabularMarkerKind {
 /// `rlevo-core` `TabularMarker`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabularMarker {
+    /// Column index of the cell (0 = left edge).
     pub x: u16,
+    /// Row index of the cell (0 = top edge).
     pub y: u16,
+    /// What kind of marker is overlaid on this cell.
     pub kind: TabularMarkerKind,
 }
 
@@ -284,19 +297,28 @@ pub struct TabularMarker {
 /// `TabularGrid`). `cells` is row-major, `len == width * height`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabularGrid {
+    /// Number of columns in the grid.
     pub width: u16,
+    /// Number of rows in the grid.
     pub height: u16,
+    /// Row-major flat array of background cell types; length must equal `width * height`.
     pub cells: Vec<TabularCell>,
+    /// Overlay markers (agent, passenger, destination, …) rendered on top of `cells`.
     pub markers: Vec<TabularMarker>,
 }
 
 /// Card-table layout for Blackjack (mirror of `rlevo-core` `CardTable`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardTable {
+    /// Cards held by the player (face values 1–10).
     pub player_cards: Vec<u8>,
+    /// Current sum of the player's hand.
     pub player_total: u8,
+    /// Whether the player holds a usable ace (counts as 11 without busting).
     pub usable_ace: bool,
+    /// All dealer cards, including the hidden hole card (revealed at episode end).
     pub dealer_cards: Vec<u8>,
+    /// The single dealer card visible to the player during play.
     pub dealer_showing: u8,
 }
 
@@ -311,6 +333,7 @@ pub enum TabularLayout {
 /// Structured toy-text layout (mirror of `rlevo-benchmarks::record::TabularPayload`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabularPayload {
+    /// Discriminated layout: either a tile grid or a card table.
     pub layout: TabularLayout,
 }
 
@@ -331,8 +354,11 @@ pub enum Classic2DRole {
 /// `rlevo-core` `Classic2DBody`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Classic2DBody {
+    /// World-space vertices of the polyline or polygon, in drawing order.
     pub points: Vec<Point2>,
+    /// Semantic role; used to select the CSS class for the web renderer.
     pub role: Classic2DRole,
+    /// When `true`, connect the last point back to the first (polygon); otherwise render as an open polyline.
     pub closed: bool,
 }
 
@@ -340,13 +366,26 @@ pub struct Classic2DBody {
 /// `rlevo-benchmarks::record::Classic2DPayload`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Classic2DPayload {
+    /// All bodies (track, cart, pole, …) that make up the scene.
     pub bodies: Vec<Classic2DBody>,
+    /// Axis-aligned bounding box of the visible world, as `(min, max)`.
     pub bounds: (Point2, Point2),
 }
 
 // ---- /payload mirror --------------------------------------------------
 
 /// Current wire-format version this client crate writes/expects.
+///
+/// # Version history
+///
+/// | Version | Changes |
+/// |---------|---------|
+/// | 1 | Initial format: header, frames, metrics. |
+/// | 2 | Added [`PopulationSample`] / [`RecordChunk::Population`]. |
+/// | 3 | Added `diversity`, `best_index`, `best_genome_digest`, `parents_of_best`, `inner_rl_returns` to [`PopulationSample`]. |
+/// | 4 | Added [`TrialRef`] (`trial` field) to [`EpisodeRecordHeader`]. |
+/// | 5 | Added [`FamilyPayload::Grid`], [`FamilyPayload::TabularText`], [`FamilyPayload::Classic2D`] rich payloads. |
+/// | 6 | Added [`EpisodeKind`] to [`EpisodeRecordHeader`]; added run-provenance fields (`algorithm`, `rlevo_version`, `rustc_version`, `burn_version`, `platform`, `git_commit`, `git_dirty`, `device`, `num_seeds`, `success_threshold`) and `checkpoints` ([`CheckpointRef`]) to [`RunManifest`]. Defined by ADR 0014. |
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
@@ -564,8 +603,11 @@ pub struct PopulationSample {
 /// the end so existing bincode tags keep decoding. `Population` is at tag 2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RecordChunk {
+    /// One simulation step (bincode tag 0).
     Frame(FrameRecord),
+    /// Batch of metric samples emitted together (bincode tag 1).
     Metrics(Vec<MetricSample>),
+    /// One EA population snapshot, present in v2+ records (bincode tag 2).
     Population(PopulationSample),
 }
 
@@ -728,10 +770,13 @@ fn read_chunk<T: for<'de> Deserialize<'de>>(
 /// Errors that can occur while decoding a `.rec` binary file.
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
+    /// The file ended before the named section was fully read.
     #[error("record file truncated at {0}")]
     Truncated(&'static str),
+    /// The 16-bit version tag in the file does not equal [`FORMAT_VERSION`].
     #[error("format version mismatch: file={file} client={client}")]
     VersionMismatch { file: u16, client: u16 },
+    /// A length-prefixed chunk failed bincode deserialization; carries the error message.
     #[error("bincode decode failed: {0}")]
     Bincode(String),
 }

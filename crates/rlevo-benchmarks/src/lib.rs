@@ -9,6 +9,8 @@
 //! - [`suite`] — grouping and factory type for environments under test.
 //! - [`metrics`] — core statistics (return, length, throughput), EA metrics, and
 //!   RL metric name constants.
+//! - [`metrics_registry`] — shared registry for metric name constants used
+//!   across evaluator and reporter.
 //! - [`reporter`] — event-sink trait plus `logging`, `json`, and `tui` sinks.
 //! - [`report`] — in-memory report types written by the evaluator.
 //! - [`checkpoint`] — atomic partial-report persistence for crash recovery.
@@ -48,4 +50,9 @@ pub mod seed {
     pub use rlevo_core::util::seed::SeedStream;
 }
 
+/// Flat crate-root re-export of the most commonly needed evaluation types.
+///
+/// These are the same items available through the [`env`] compatibility alias
+/// module; this re-export lets callers write `rlevo_benchmarks::BenchEnv`
+/// without navigating a sub-module.
 pub use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};

@@ -249,6 +249,21 @@ const fn du(
 }
 
 /// Looks up the descriptor for a metric field name, if it is canonical.
+///
+/// Returns `None` for any name not present in [`CANONICAL_METRICS`], including
+/// ad-hoc fields that algorithms may emit but have not yet been registered.
+///
+/// # Examples
+///
+/// ```rust
+/// use rlevo_metrics_registry::{descriptor, Cadence, MetricKind};
+///
+/// let desc = descriptor("policy_loss").expect("policy_loss is canonical");
+/// assert_eq!(desc.kind, MetricKind::Rl);
+/// assert_eq!(desc.cadence, Cadence::PerUpdate);
+///
+/// assert!(descriptor("batch_size").is_none());
+/// ```
 #[must_use]
 pub fn descriptor(name: &str) -> Option<&'static MetricDescriptor> {
     CANONICAL_METRICS.iter().find(|d| d.name == name)
@@ -262,6 +277,16 @@ pub fn is_canonical_metric(name: &str) -> bool {
 
 /// Human-readable title for a metric field name, falling back to the raw name
 /// (so an as-yet-undescribed metric still surfaces without a code change).
+///
+/// # Examples
+///
+/// ```rust
+/// use rlevo_metrics_registry::title_for;
+///
+/// assert_eq!(title_for("policy_loss"), "Policy loss");
+/// // Unregistered fields pass through unchanged so nothing silently disappears.
+/// assert_eq!(title_for("my_custom_metric"), "my_custom_metric");
+/// ```
 #[must_use]
 pub fn title_for(name: &str) -> &str {
     match descriptor(name) {

@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 pub struct InvertedDoublePendulumAction(pub [f32; 1]);
 
 impl InvertedDoublePendulumAction {
+    /// Construct an action from a pre-gear force target.
+    ///
+    /// `force` should lie in `[-1.0, 1.0]`; values outside that range are
+    /// accepted here but will be clipped by the environment before the gear
+    /// multiplier is applied.
     #[must_use]
     pub const fn new(force: f32) -> Self {
         Self([force])

@@ -477,6 +477,9 @@ pub struct PopulationSample {
     /// Optional behavioural or genotypic diversity estimate.
     pub diversity: Option<f32>,
     /// Index into `fitnesses` of the highest-scoring genome.
+    ///
+    /// Loaders must bounds-check this against `fitnesses.len()` before
+    /// indexing; a malformed producer could write an out-of-range value.
     pub best_index: u32,
     /// 128-bit hash of the best genome's serialised representation.
     pub best_genome_digest: Option<[u8; 16]>,
@@ -505,6 +508,10 @@ pub struct EpisodeRecord {
 /// Free-form hyperparameter map captured in the run manifest. Per-algorithm
 /// structured fields land in a follow-on milestone once an actual report-tier
 /// consumer needs them.
+///
+/// [`BTreeMap`] is used rather than `HashMap` so bincode serialisation is
+/// deterministic and key-sorted, which simplifies diff-based comparison of
+/// run manifests.
 pub type Hyperparameters = BTreeMap<String, String>;
 
 #[cfg(test)]

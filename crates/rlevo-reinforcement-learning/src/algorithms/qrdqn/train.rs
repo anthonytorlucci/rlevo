@@ -1,8 +1,19 @@
 //! End-to-end training loop for QR-DQN.
 //!
-//! Mirrors [`crate::algorithms::c51::train`]. The only behavioural difference
-//! is the metrics type emitted per completed episode — [`QrDqnMetrics`]
-//! carries a `quantile_spread` diagnostic in place of C51's `entropy`.
+//! The public surface is a single function, [`train`], which drives a
+//! [`QrDqnAgent`] against any [`Environment`] for a fixed number of
+//! environment steps. The loop follows the standard off-policy DQN cadence:
+//!
+//! 1. Select an action with ε-greedy exploration ([`QrDqnAgent::act`]).
+//! 2. Step the environment and store the transition in the replay buffer.
+//! 3. Every `train_frequency` steps, run one gradient update
+//!    ([`QrDqnAgent::learn_step`]) and optionally sync the target network.
+//! 4. On episode termination, record [`QrDqnMetrics`] (including
+//!    `quantile_spread`) and reset the environment.
+//!
+//! The only behavioural difference from [`crate::algorithms::c51::train`] is
+//! the metrics type emitted per completed episode — [`QrDqnMetrics`] carries
+//! a `quantile_spread` diagnostic in place of C51's `entropy`.
 
 use rand::Rng;
 
@@ -16,8 +27,27 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 
 /// Drives QR-DQN training for `total_steps` environment steps.
 ///
-/// Pass `log_every > 0` to enable periodic progress logging via `tracing`;
-/// `log_every == 0` disables it.
+/// The loop is step-oriented, not episode-oriented: exactly `total_steps`
+/// environment steps are taken regardless of how many episodes finish.
+/// The final episode is intentionally left open — if the last step does not
+/// land on a terminal transition, no final reset is issued, which prevents a
+/// phantom episode record that would cause an `EpisodeCountMismatch` in
+/// recording environments.
+///
+/// # Arguments
+///
+/// - `agent` — mutable reference to the [`QrDqnAgent`] being trained.
+/// - `env` — mutable reference to the environment; must implement
+///   [`Environment`] with matching type parameters.
+/// - `rng` — entropy source for ε-greedy exploration and replay sampling.
+/// - `total_steps` — number of environment steps to run.
+/// - `log_every` — emit a `tracing::info!` progress line every this many
+///   steps. Pass `0` to disable all logging.
+///
+/// # Errors
+///
+/// Returns [`QrDqnAgentError::InvalidAction`] if either [`Environment::reset`]
+/// or [`Environment::step`] returns an `EnvironmentError`.
 pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut QrDqnAgent<B, M, O, A, DO, DB>,
     env: &mut E,

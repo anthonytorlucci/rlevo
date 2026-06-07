@@ -77,22 +77,14 @@
 //! - **Discretization**: Each move can be converted to/from the indicies in (8,8,73), enabling
 //!   efficient neural network output layers and policy representations.
 //!
-//! # Example
+//! # Usage Notes
 //!
-//! ```ignore
-//! use rlevo_environments::games::chess::{ChessMove, Square};
-//!
-//! // Create a move from e2 to e4
-//! todo!
-//!
-//! // Convert to discrete action indices
-//! let indices = move_e2_e4.to_indices();
-//! assert!(todo!);  // assert the number of dimensions in indices == 3 i.e., the rank of the action space.
-//!
-//! // Reconstruct from indices
-//! let reconstructed = ChessMove::from_indices(indices);
-//! assert_eq!(move_e2_e4, reconstructed);
-//! ```
+//! `ChessMove` stores the source square, destination square, and an optional
+//! promotion piece. The `to_indices` / `from_indices` conversion methods that
+//! map a move into the `(8, 8, 73)` action tensor are scaffolded but not yet
+//! wired to the `Action` trait — see `compute_move_plane` and
+//! `decode_move_plane` for the encoding logic that will back those methods once
+//! the `Environment` impl lands.
 //!
 //! # Implementation Notes
 //!
@@ -177,16 +169,25 @@ impl ChessMove {
         self.to.file()
     }
 
-    /// Computes the move plane (0-72) for the AlphaZero action space.
+    /// Computes the move plane index (0–72) for this move in the AlphaZero action space.
     ///
-    /// # Move Plane Encoding
-    /// - Planes 0-55: Queen-like moves (8 directions × 7 distances)
-    ///   - Directions: N, NE, E, SE, S, SW, W, NW (in that order)
-    ///   - For each direction: distance 1-7
-    /// - Planes 56-63: Knight moves (8 L-shapes)
-    /// - Planes 64-72: Underpromotions (3 pieces × 3 directions)
-    ///   - Pieces: Knight, Bishop, Rook
-    ///   - Directions: left-capture, forward, right-capture
+    /// The plane index encodes the *type* of move made from the source square:
+    ///
+    /// | Range   | Category                                    |
+    /// |---------|---------------------------------------------|
+    /// | 0–55    | Queen-like: 8 directions × 7 distances      |
+    /// | 56–63   | Knight: 8 L-shaped jumps                    |
+    /// | 64–72   | Underpromotion: 3 pieces × 3 directions     |
+    ///
+    /// Queen promotions are encoded as a queen-like north move of distance 1
+    /// from rank 6 (no separate plane needed). Underpromotion planes cover
+    /// promotion to Knight, Bishop, or Rook only, each with three pawn-exit
+    /// directions (capture-left, push-straight, capture-right).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the move delta does not match any of the 73 encoded patterns
+    /// (i.e., the move is geometrically impossible on an 8×8 board).
     fn compute_move_plane(&self) -> usize {
         let from_rank = self.from_rank() as i8;
         let from_file = self.from_file() as i8;
@@ -275,7 +276,16 @@ impl ChessMove {
         direction_index * 7 + (distance - 1)
     }
 
-    /// Decodes a move plane (0-72) and source square to a destination square and promotion.
+    /// Decodes a move plane index (0–72) and source square into a destination square and optional
+    /// promotion piece.
+    ///
+    /// This is the inverse of [`Self::compute_move_plane`]. When the plane falls in the
+    /// underpromotion range (64–72) the returned `Option<PromotionPiece>` is `Some`; for all
+    /// other planes it is `None`. Queen promotions are recovered as plain queen-like north moves
+    /// with no promotion marker.
+    ///
+    /// Destination coordinates are clamped to the board boundary, so callers should validate the
+    /// result against the current legal-move list before use.
     fn decode_move_plane(from: Square, plane: usize) -> (Square, Option<PromotionPiece>) {
         let from_rank = (from.rank()) as i8;
         let from_file = (from.file()) as i8;

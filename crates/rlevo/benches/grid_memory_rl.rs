@@ -24,7 +24,7 @@
 //! # Run with
 //!
 //! ```bash
-//! cargo bench -p rlevo --bench grid_memory_dqn
+//! cargo bench -p rlevo --bench grid_memory_rl
 //! ```
 
 #[path = "support/value_nets.rs"]

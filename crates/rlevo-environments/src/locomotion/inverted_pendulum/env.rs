@@ -170,6 +170,11 @@ impl InvertedPendulum<Rapier3DBackend> {
 }
 
 impl ConstructableEnv for InvertedPendulum<Rapier3DBackend> {
+    /// Constructs the environment with [`InvertedPendulumConfig::default`].
+    ///
+    /// The `render` flag is accepted for interface conformance but has no
+    /// effect; this environment has no built-in renderer. Use
+    /// [`InvertedPendulum::with_config`] for full control.
     fn new(_render: bool) -> Self {
         Self::with_config(InvertedPendulumConfig::default())
     }
@@ -182,6 +187,19 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<InvertedPendulumObservation>;
 
+    /// Resets the environment to a new initial state sampled from
+    /// `U(-reset_noise_scale, reset_noise_scale)` on each of the four state
+    /// variables. Re-seeds the internal RNG from `config.seed`, so resets are
+    /// deterministic for a given seed.
+    ///
+    /// Returns a `Running` snapshot with reward `0.0` and the initial
+    /// observation. The `METADATA_KEY_ALIVE` component is set to `0.0` on
+    /// reset regardless of pole angle.
+    ///
+    /// # Errors
+    ///
+    /// This implementation is currently infallible, but returns `Result` for
+    /// trait conformance.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
@@ -196,6 +214,26 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
     }
 
+    /// Advances the simulation by one timestep (`dt * frame_skip` seconds).
+    ///
+    /// Steps:
+    /// 1. Clips the action to `config.action_clip`, multiplies by `config.gear`,
+    ///    and applies the result as a world-x force on the cart.
+    /// 2. Calls `Rapier3DBackend::step` to integrate the physics.
+    /// 3. Extracts a new observation `[cart_x, pole_angle, cart_vx, pole_angvel_y]`.
+    /// 4. Computes reward: `+1.0` if `|pole_angle| < 0.2`, else `0.0`.
+    /// 5. Determines episode status:
+    ///    - `Terminated` if unhealthy and `termination == OnUnhealthy`.
+    ///    - `Truncated` if `steps >= max_steps`.
+    ///    - `Running` otherwise.
+    ///
+    /// The snapshot metadata includes the `"alive"` component (0 or 1) and the
+    /// cart's 3-D position keyed as `"cart"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::InvalidAction`] if the action value is
+    /// non-finite (NaN or ±infinity).
     fn step(
         &mut self,
         action: InvertedPendulumAction,
@@ -254,6 +292,12 @@ fn cart_half_z(config: &InvertedPendulumConfig) -> f32 {
 // ---------------------------------------------------------------------------
 
 impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3DBackend> {
+    /// Returns a sagittal-plane (x–z) projection of the current physics state.
+    ///
+    /// Joint 0 is the cart centre; joint 1 is the pole tip, approximated as
+    /// `cart_centre + 2 * (pole_centre - cart_centre)`. The single bone
+    /// connects them. `ground_y` is `0.0` (world-z floor plane). `com` is set
+    /// to the pole's centre of mass. No contact points are reported.
     fn locomotion2d_snapshot(&self) -> rlevo_core::render::Locomotion2DSnapshot {
         use rlevo_core::render::{Locomotion2DSnapshot, Point2};
 

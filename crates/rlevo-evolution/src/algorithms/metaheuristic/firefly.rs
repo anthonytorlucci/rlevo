@@ -191,6 +191,18 @@ where
     type State = FireflyState<B>;
     type Genome = Tensor<B, 2>;
 
+    /// Build the initial swarm by host-sampling `pop_size` positions
+    /// uniformly in `[bounds.lo, bounds.hi]`.
+    ///
+    /// Positions are drawn from a deterministic [`seed_stream`] so
+    /// initialisation is bit-stable regardless of core count or test
+    /// ordering; the process-wide Flex RNG is never touched.
+    ///
+    /// # Panics
+    ///
+    /// Panics (in release builds without `custom-kernels`) if
+    /// `params.pop_size > FIREFLY_PURE_TENSOR_CAP`. See the struct-level
+    /// docs for the cap rationale.
     fn init(
         &self,
         params: &FireflyConfig,
@@ -237,6 +249,14 @@ where
         }
     }
 
+    /// Propose the next swarm positions.
+    ///
+    /// On the first call (`state.fitness` is empty) returns the initial
+    /// positions unchanged so the caller can evaluate generation zero.
+    /// On subsequent calls, computes the pairwise attractiveness update
+    /// via `pure_tensor_attract` and clips positions to
+    /// `params.bounds`. The noise seed is derived from the host RNG
+    /// through [`seed_stream`], keeping draws reproducible.
     fn ask(
         &self,
         params: &FireflyConfig,
@@ -271,6 +291,13 @@ where
         (new_positions, next)
     }
 
+    /// Ingest fitness values, update the swarm, and advance the generation counter.
+    ///
+    /// Pulls `fitness` to host, updates `state.positions` and
+    /// `state.fitness`, then refreshes the best-so-far genome if the
+    /// current generation contains a new minimum.  Returns the updated
+    /// state and a [`StrategyMetrics`] snapshot for the completed
+    /// generation.
     fn tell(
         &self,
         _params: &FireflyConfig,
@@ -301,6 +328,8 @@ where
         (state, m)
     }
 
+    /// Returns the best-so-far `(genome, fitness)` pair, or `None` before
+    /// the first [`tell`](Strategy::tell) call.
     fn best(&self, state: &FireflyState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome

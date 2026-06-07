@@ -134,6 +134,23 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
 }
 
 /// A summary representation constructed from an interaction history.
+///
+/// Implementors encode the information in a [`History`] buffer into a
+/// compact form that an agent can act on. The trait provides two construction
+/// paths:
+///
+/// - [`from_history`] — builds the representation from scratch by scanning
+///   the entire buffer; use this after a reset or when the full trajectory
+///   is available.
+/// - [`update_with`] — incrementally folds a single new transition into an
+///   existing representation without re-scanning the buffer; use this at
+///   each step for O(1) updates.
+///
+/// Implementations must be [`Clone`] so that representations can be stored
+/// alongside experience tuples in a replay buffer.
+///
+/// [`from_history`]: HistoryRepresentation::from_history
+/// [`update_with`]: HistoryRepresentation::update_with
 pub trait HistoryRepresentation<
     const D: usize,
     const AD: usize,

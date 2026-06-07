@@ -1,4 +1,4 @@
-//! [`InvertedPendulum`] recording → static-HTML report that mounts the
+//! [`InvertedPendulumRapier`] recording → static-HTML report that mounts the
 //! Leptos/WASM client with the **locomotion SVG adapter** (sagittal-plane
 //! stick figure).
 //!
@@ -6,8 +6,21 @@
 //! locomotion envs have no `AsciiRenderable` impl, so the sagittal-plane
 //! SVG is the only rendering of the env anywhere in the stack.
 //!
+//! The policy is purely random (uniform force in `[-2, 2]`); no learner is
+//! attached.  The run records [`NUM_EPISODES`] episodes capped at
+//! [`MAX_STEPS_PER_EPISODE`] steps each, writes the `EpisodeRecord` files to
+//! a timestamped run directory, then emits a single `index.html` alongside
+//! them.  Opening that file shows the run manifest, an episode table, and the
+//! sagittal-plane SVG replaying each episode.
+//!
+//! Two-step build flow:
+//!
 //! ```bash
-//! cd crates/rlevo-benchmarks-report-client && trunk build --release
+//! # 1) Build the WASM client (one-time per code change).
+//! cd crates/rlevo-benchmarks-report-client
+//! trunk build --release
+//!
+//! # 2) Run this example from the repo root.
 //! cd ../../
 //! cargo run -p rlevo-examples --example report_inverted_pendulum_with_client \
 //!     --features locomotion,viz-report
@@ -67,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Finalise the run manifest before we open the directory for emit.
     sink.lock().on_run_end(manifest);
 
     // Fail loud on a recording write error before building the report.

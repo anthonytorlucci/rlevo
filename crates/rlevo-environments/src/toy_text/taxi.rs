@@ -314,7 +314,14 @@ fn attempt_move(row: u8, col: u8, action: TaxiAction) -> (u8, u8) {
 
 // ── environment ───────────────────────────────────────────────────────────────
 
-/// Taxi-v3 environment.
+/// Taxi-v3 environment (5×5 grid, 500 discrete states, 6 actions).
+///
+/// Each episode begins with the taxi, passenger, and destination placed at randomly sampled
+/// positions. The episode ends only on a correct [`TaxiAction::Dropoff`]; there is no step
+/// limit built into the environment.
+///
+/// The RNG advances continuously across episodes — `reset()` does **not** reseed from
+/// `config.seed`. Two `Taxi` instances created with the same seed produce identical trajectories.
 #[derive(Debug)]
 pub struct Taxi {
     state: TaxiState,

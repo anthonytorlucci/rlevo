@@ -310,6 +310,16 @@ where
     /// Runs one learning step: samples a batch uniformly, computes target
     /// quantiles via a one-step Bellman backup, and minimises the quantile
     /// Huber loss against the policy's predicted quantiles.
+    ///
+    /// Returns `None` when [`can_learn`](Self::can_learn) is false (buffer too
+    /// small or fewer than `learning_starts` steps taken). Returns
+    /// [`Some(LearnOutcome)`](LearnOutcome) with the loss and diagnostic values
+    /// after a successful gradient update.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal `policy_net` slot is `None`, which can only
+    /// happen if a previous call panicked mid-update before restoring it.
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;

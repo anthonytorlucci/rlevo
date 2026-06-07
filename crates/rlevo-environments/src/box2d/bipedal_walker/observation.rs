@@ -1,4 +1,10 @@
-//! Observation type for BipedalWalker.
+//! Observation type for the BipedalWalker environment.
+//!
+//! [`BipedalWalkerObservation`] is a 24-element `f32` vector produced after
+//! every `reset()` and `step()`. The first 14 elements capture hull and joint
+//! kinematics; elements `[14..24]` contain 10 lidar range readings swept from
+//! −90° to +90° relative to the hull, normalised to `[0, 1]` by
+//! `lidar_range`.
 
 use rlevo_core::base::Observation;
 use serde::{Deserialize, Serialize};
@@ -28,18 +34,23 @@ pub struct BipedalWalkerObservation {
 }
 
 impl BipedalWalkerObservation {
-    /// Construct from a raw array.
+    /// Construct an observation from a pre-filled 24-element array.
     pub fn new(values: [f32; 24]) -> Self {
         Self { values }
     }
 
-    /// Returns true if all values are finite.
+    /// Returns `true` if every element is finite (not NaN or infinite).
+    ///
+    /// Used by `BipedalWalkerState::is_valid` to gate episode
+    /// continuation.
     pub fn is_finite(&self) -> bool {
         self.values.iter().all(|v| v.is_finite())
     }
 }
 
 impl Default for BipedalWalkerObservation {
+    /// Returns a zero-filled observation, used as the initial cached value
+    /// before the first `reset()` is called.
     fn default() -> Self {
         Self { values: [0.0; 24] }
     }

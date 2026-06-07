@@ -32,6 +32,11 @@ impl Action<1> for LunarLanderDiscreteAction {
 impl DiscreteAction<1> for LunarLanderDiscreteAction {
     const ACTION_COUNT: usize = 4;
 
+    /// Convert an index in `0..ACTION_COUNT` to the corresponding variant.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= 4`.
     fn from_index(index: usize) -> Self {
         match index {
             0 => Self::DoNothing,

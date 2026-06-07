@@ -166,11 +166,13 @@ pub enum TerminationMode {
 pub struct Gear<const N: usize>([f32; N]);
 
 impl<const N: usize> Gear<N> {
+    /// Construct a `Gear` from a fixed-size array of per-actuator ratios.
     #[must_use]
     pub const fn new(values: [f32; N]) -> Self {
         Self(values)
     }
 
+    /// Return a reference to the underlying ratio array.
     #[must_use]
     pub const fn values(&self) -> &[f32; N] {
         &self.0

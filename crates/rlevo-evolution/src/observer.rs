@@ -56,6 +56,11 @@ pub struct PopulationSnapshot {
 /// be shared across rayon worker threads — same shape as the
 /// `RecordSink` trait in `rlevo-benchmarks`.
 pub trait PopulationObserver: Send + 'static {
+    /// Receives one [`PopulationSnapshot`] per completed generation.
+    ///
+    /// Implementors should be cheap here: buffer the snapshot and do any
+    /// heavy I/O (serialization, channel sends) outside this call so the
+    /// harness loop is not blocked.
     fn on_population(&mut self, snapshot: PopulationSnapshot);
 }
 

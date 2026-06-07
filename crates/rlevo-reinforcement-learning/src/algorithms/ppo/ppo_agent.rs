@@ -118,7 +118,7 @@ pub struct PpoUpdateStats {
     /// Fraction of return variance the value net explains over this rollout.
     ///
     /// `1 − Var(returns − values) / Var(returns)`; `0.0` for a degenerate
-    /// (zero-variance) rollout. See [`losses::explained_variance`].
+    /// (zero-variance) rollout. See [`explained_variance`].
     pub explained_variance: f32,
     /// Number of update epochs actually completed (≤ `config.update_epochs`).
     pub epochs_run: usize,

@@ -66,8 +66,8 @@ use rlevo_reinforcement_learning::algorithms::td3::train::train as train_td3;
 use pendulum_support::{ActorMlp, CriticMlp, StochasticActor};
 
 const SEED: u64 = 2026;
-const OBS_DIM: usize = 3;
-const ACTION_DIM: usize = 1;
+const OBS_RANK: usize = 3; // the order of the observation space
+const ACTION_RANK: usize = 1; // the order of the action space
 const HIDDEN: usize = 256;
 const TIME_LIMIT: usize = 200;
 const TRAIN_TIMESTEPS: usize = 100_000;
@@ -122,6 +122,10 @@ type SacAgent_ = SacAgent<
 // PPO value network — two-layer tanh MLP → scalar
 // ---------------------------------------------------------------------------
 
+/// Two-layer tanh MLP that maps a batch of observations to scalar state-values
+/// for the PPO critic. Architecture: `obs_dim → 64 → 64 → 1` with `tanh`
+/// activations. Implements [`PpoValue`] and is local to this bench because PPO
+/// requires a separate value network that DDPG/TD3/SAC do not.
 #[derive(Module, Debug)]
 pub struct ValueMlp<B: Backend> {
     fc1: Linear<B>,
@@ -132,7 +136,7 @@ pub struct ValueMlp<B: Backend> {
 impl<B: Backend> ValueMlp<B> {
     fn new(device: &<B as BackendTypes>::Device) -> Self {
         Self {
-            fc1: LinearConfig::new(OBS_DIM, 64).init(device),
+            fc1: LinearConfig::new(OBS_RANK, 64).init(device),
             fc2: LinearConfig::new(64, 64).init(device),
             head: LinearConfig::new(64, 1).init(device),
         }
@@ -175,9 +179,9 @@ fn train_ppo_agent() -> PpoAgent_ {
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
     let policy: TanhGaussianPolicyHead<Backend_> = TanhGaussianPolicyHeadConfig {
-        obs_dim: OBS_DIM,
+        obs_dim: OBS_RANK,
         hidden: 64,
-        action_dim: ACTION_DIM,
+        action_dim: ACTION_RANK,
         log_std_init: 0.0,
         action_scale: 2.0,
     }
@@ -215,8 +219,8 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
-    let critic: CriticMlp<Backend_> = CriticMlp::new(OBS_DIM, ACTION_DIM, HIDDEN, &device);
+    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = DdpgTrainingConfigBuilder::new()
         .buffer_capacity(100_000)
         .batch_size(256)
@@ -245,9 +249,9 @@ fn train_td3_agent() -> Td3Agent_ {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
-    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_DIM, ACTION_DIM, HIDDEN, &device);
-    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_DIM, ACTION_DIM, HIDDEN, &device);
+    let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = Td3TrainingConfigBuilder::new()
         .buffer_capacity(100_000)
         .batch_size(256)
@@ -278,9 +282,10 @@ fn train_sac_agent() -> SacAgent_ {
     <Backend_ as Backend>::seed(&device, SEED);
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut env = make_env();
-    let actor: StochasticActor<Backend_> = StochasticActor::new(OBS_DIM, HIDDEN, ACTION_DIM, &device);
-    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_DIM, ACTION_DIM, HIDDEN, &device);
-    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_DIM, ACTION_DIM, HIDDEN, &device);
+    let actor: StochasticActor<Backend_> =
+        StochasticActor::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
+    let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
+    let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = SacTrainingConfigBuilder::new()
         .buffer_capacity(100_000)
         .batch_size(256)
@@ -310,6 +315,11 @@ fn train_sac_agent() -> SacAgent_ {
 // Evaluation helpers
 // ---------------------------------------------------------------------------
 
+/// Runs a single episode to completion and returns the undiscounted return.
+///
+/// Drives the environment with `next_action` until `snap.is_done()` is true.
+/// Because [`Env`] wraps [`Pendulum`] in a [`TimeLimit`] of 200 steps,
+/// termination is always by truncation — there is no natural episode end.
 fn roll_out(
     env: &mut Env,
     mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction,
@@ -326,6 +336,12 @@ fn roll_out(
     }
 }
 
+/// Evaluates a policy over [`EVAL_EPISODES`] episodes and returns the mean
+/// undiscounted return. Constructs its own fresh environment so the call is
+/// self-contained and does not interfere with a caller's environment state.
+///
+/// `cast_precision_loss` is allowed because dividing by [`EVAL_EPISODES`]
+/// (a `usize`) is exact for the episode counts used here.
 #[allow(clippy::cast_precision_loss)]
 fn evaluate(mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction) -> f32 {
     let mut env = make_env();
@@ -336,6 +352,9 @@ fn evaluate(mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction)
     total / EVAL_EPISODES as f32
 }
 
+/// Drives the environment for exactly `steps` environment steps, resetting
+/// automatically at episode boundaries. Used by the Criterion throughput
+/// benchmarks to measure per-step inference cost independent of episode length.
 fn rollout_steps(
     steps: usize,
     mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction,
@@ -360,12 +379,7 @@ fn random_action(rng: &mut StdRng) -> PendulumAction {
     PendulumAction::new(torque).expect("valid random torque")
 }
 
-fn print_quality_comparison(
-    ppo: &PpoAgent_,
-    ddpg: &DdpgAgent_,
-    td3: &Td3Agent_,
-    sac: &SacAgent_,
-) {
+fn print_quality_comparison(ppo: &PpoAgent_, ddpg: &DdpgAgent_, td3: &Td3Agent_, sac: &SacAgent_) {
     let mut rng = StdRng::seed_from_u64(SEED);
     let rand_ret = evaluate(|_| random_action(&mut rng));
 

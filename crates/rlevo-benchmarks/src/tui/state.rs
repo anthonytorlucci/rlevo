@@ -229,6 +229,11 @@ impl AppState {
     }
 
     /// Record suite-level metadata at the start of a run.
+    ///
+    /// Sets `status.suite_name`, initialises `status.episode` to
+    /// `(0, total_episodes)`, and resets `status.finished` to `false`. The
+    /// reward and log rings are **not** cleared; that is the caller's
+    /// responsibility if a clean slate is needed between consecutive suites.
     pub fn mark_suite_start(&mut self, suite_name: impl Into<String>, total_episodes: usize) {
         self.status.suite_name = Some(suite_name.into());
         self.status.episode = Some((0, total_episodes));

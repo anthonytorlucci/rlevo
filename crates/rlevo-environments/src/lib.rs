@@ -5,19 +5,6 @@
 //! classic control problems, gridworlds, tabular MDPs, physics-based
 //! continuous-control tasks, and optimisation benchmark functions.
 //!
-//! # Getting Started
-//!
-//! ```rust
-//! use rlevo_core::environment::{Environment, Snapshot};
-//! use rlevo_environments::grids::core::GridAction;
-//! use rlevo_environments::grids::{EmptyConfig, EmptyEnv};
-//!
-//! let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
-//! env.reset().expect("reset");
-//! let snapshot = env.step(GridAction::Forward).expect("step");
-//! assert!(!snapshot.is_done());
-//! ```
-//!
 //! # Module Organization
 //!
 //! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot, TenArmedBandit)
@@ -25,16 +12,23 @@
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
 //! - [`wrappers`]: Environment wrappers (TimeLimit)
-//! - [`render`]: ASCII and null renderers
+//! - [`render`]: Re-exports of the render surface defined in `rlevo-core`
 //! - [`box2d`]: Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
 //! - [`locomotion`]: MuJoCo-inspired locomotion environments via Rapier3D
 //!
 //! # Design Principles
 //!
-//! All environments implement a common interface:
-//! - `reset()` → initial state
-//! - `step(action)` → (next_state, reward, done)
-//! - Deterministic or stochastic based on configuration
+//! All environments implement the [`rlevo_core::environment::Environment`] trait.
+//! Every environment exposes two fallible operations:
+//!
+//! - [`reset`](rlevo_core::environment::Environment::reset) — returns an initial
+//!   [`SnapshotBase`](rlevo_core::environment::SnapshotBase) with
+//!   [`EpisodeStatus::Running`](rlevo_core::environment::EpisodeStatus::Running).
+//! - [`step`](rlevo_core::environment::Environment::step) — applies an action and
+//!   returns the next snapshot; status transitions to `Terminated` or `Truncated`
+//!   when the episode ends.
+//!
+//! Environments may be deterministic or stochastic depending on their configuration.
 
 pub mod landscapes {
     pub mod ackley;

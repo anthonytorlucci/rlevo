@@ -401,6 +401,8 @@ fn render_log_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     frame.render_widget(LogPanel::new(state), inner);
 }
 
+/// Wrap [`format_status`] in a dimmed [`Paragraph`] widget for the bottom
+/// status row.
 fn status_paragraph(status: &StatusLine) -> Paragraph<'static> {
     Paragraph::new(format_status(status))
         .style(Style::default().add_modifier(RatModifier::DIM))

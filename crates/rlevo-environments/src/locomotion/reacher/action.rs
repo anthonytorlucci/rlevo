@@ -1,4 +1,9 @@
-//! Action type for [`super::Reacher`].
+//! Action type for the [`super::Reacher`] environment.
+//!
+//! [`ReacherAction`] carries a 2-element `[shoulder, elbow]` torque command in
+//! pre-gear units. The environment clips each element to `[-1.0, 1.0]` before
+//! multiplying by the gear ratio (default `[200, 200]`) and applying the
+//! resulting torques to the Rapier rigid bodies.
 
 use burn::prelude::{Backend, Tensor};
 use rlevo_core::action::ContinuousAction;
@@ -11,6 +16,11 @@ use serde::{Deserialize, Serialize};
 pub struct ReacherAction(pub [f32; 2]);
 
 impl ReacherAction {
+    /// Construct an action from explicit shoulder and elbow torque targets.
+    ///
+    /// Values outside `[-1.0, 1.0]` are accepted here but will be clamped by
+    /// the environment before the gear ratio is applied. Prefer values in range
+    /// to match the declared action space.
     #[must_use]
     pub const fn new(shoulder: f32, elbow: f32) -> Self {
         Self([shoulder, elbow])
@@ -28,18 +38,24 @@ impl Action<1> for ReacherAction {
 }
 
 impl ContinuousAction<1> for ReacherAction {
+    /// Returns the raw `[shoulder, elbow]` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
     }
 
+    /// Returns a new action with both elements clamped to `[min, max]`.
     fn clip(&self, min: f32, max: f32) -> Self {
         Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
     }
 
+    /// Construct from a slice. The slice must contain at least two elements;
+    /// only `values[0]` (shoulder) and `values[1]` (elbow) are read.
     fn from_slice(values: &[f32]) -> Self {
         Self([values[0], values[1]])
     }
 
+    /// Sample a uniformly-random action in `[-1.0, 1.0]²` using the global
+    /// thread-local RNG.
     fn random() -> Self {
         Self([
             rand::random::<f32>() * 2.0 - 1.0,
