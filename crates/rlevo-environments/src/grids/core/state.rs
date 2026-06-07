@@ -39,6 +39,9 @@ impl State<3> for GridState {
         GridObservation::from_entity_view(view, self.agent.direction)
     }
 
+    /// Returns `true` when the agent's current position falls inside the grid
+    /// bounds. A freshly constructed state is always valid; a state produced
+    /// by replaying a corrupted action sequence may not be.
     fn is_valid(&self) -> bool {
         self.grid.in_bounds(self.agent.x, self.agent.y)
     }

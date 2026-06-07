@@ -123,10 +123,16 @@ impl Square {
     }
 }
 
-/// Side/color in chess.
+/// Side (color) to move or own pieces.
+///
+/// Used throughout the board representation to distinguish White's pieces and
+/// rights from Black's. The convention matches standard chess: White always
+/// occupies ranks 1–2 at the start of the game and moves first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
+    /// The player whose pieces start on ranks 1 and 2.
     White,
+    /// The player whose pieces start on ranks 7 and 8.
     Black,
 }
 
@@ -141,31 +147,53 @@ impl Color {
     }
 }
 
-/// Chess piece type.
+/// Chess piece type, ordered by their bitboard index (0–5).
+///
+/// The integer discriminants match the bitboard array offsets used inside
+/// [`super::observations::ChessState`]: indices 0–5 hold White pieces in this
+/// order, and indices 6–11 hold the corresponding Black pieces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PieceType {
+    /// Pawn — index 0.
     Pawn = 0,
+    /// Knight — index 1.
     Knight = 1,
+    /// Bishop — index 2.
     Bishop = 2,
+    /// Rook — index 3.
     Rook = 3,
+    /// Queen — index 4.
     Queen = 4,
+    /// King — index 5.
     King = 5,
 }
 
 impl PieceType {
-    /// Returns the index for bitboard access.
+    /// Returns the zero-based index used to address this piece type in a
+    /// per-color bitboard array.
     #[inline]
     pub const fn index(self) -> usize {
         self as usize
     }
 }
 
-/// Castling rights for both sides.
+/// Castling availability for both sides.
+///
+/// Tracks the four independent castling rights (White kingside, White queenside,
+/// Black kingside, Black queenside). A right is lost permanently once the
+/// relevant king or rook moves, or when the rook is captured.
+///
+/// The [`Default`] implementation grants all four rights, matching the standard
+/// starting position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CastlingRights {
+    /// White may castle kingside (king to g1, rook from h1).
     pub white_kingside: bool,
+    /// White may castle queenside (king to c1, rook from a1).
     pub white_queenside: bool,
+    /// Black may castle kingside (king to g8, rook from h8).
     pub black_kingside: bool,
+    /// Black may castle queenside (king to c8, rook from a8).
     pub black_queenside: bool,
 }
 

@@ -71,27 +71,25 @@
 //! - Performing position analysis and evaluation
 //! - Converting game states to neural network inputs
 //!
-//! # Validity Guarantees
+//! # Validity Invariants (planned)
 //!
-//! `ChessState` enforces invariant properties via `is_valid()`:
-//! - Exactly one king per side (required for legal positions)
-//! - No pawns on first or last rank (illegal by chess rules)
-//! - Piece counts consistent with bitboards
-//! - Castling rights match king/rook positions
+//! The commented-out `State` impl will enforce:
+//! - Exactly one king per side
+//! - No pawns on the first or last rank
+//! - Total piece count per side does not exceed 16
 //!
-//! # Example: Creating and Observing a State
+//! Until the `State` and `TensorConvertible` trait impls are activated (see the
+//! commented-out blocks below), callers can inspect individual bitboards directly
+//! via `BoardSnapshot` fields, but no top-level `is_valid()` method is available.
+//!
+//! # Creating a Starting Position
 //!
 //! ```ignore
-//! // Create the starting position
-//! let mut state = ChessState::default();
-//! assert!(state.is_valid());
-//!
-//! // Make a move
-//! state.apply_move(move_e2e4)?;
-//!
-//! // Convert to tensor for neural network input
-//! let tensor = state.to_tensor::<Nd, 3>();
-//! assert_eq!(tensor.shape(), vec![8, 8, 119]);
+//! // Create the standard starting position
+//! let state = ChessState::default();
+//! assert_eq!(state.to_move(), Color::White);
+//! assert_eq!(state.fullmove_number(), 1);
+//! assert_eq!(state.halfmove_clock(), 0);
 //! ```
 //!
 //! # Performance Considerations
@@ -112,10 +110,12 @@
 //! # Implementation Notes
 //!
 //! The state is designed to be:
-//! - **Immutable by default**: Use `apply_move()` to create new states (functional style)
-//! - **Deterministic**: Same state always converts to identical tensors
-//! - **Debuggable**: Implements `Debug` and `Display` for inspection
-//! - **Hashable**: Enables transposition tables and memoization for search
+//! - **Mutation-based**: Fields are `pub(super)` to the environment impl; move
+//!   application will mutate the struct in place and push a new `BoardSnapshot`
+//!   onto the history ring buffer.
+//! - **Deterministic**: Same state always converts to identical tensors.
+//! - **Debuggable**: Implements `Debug` for inspection.
+//! - **Hashable**: Enables transposition tables and memoization for search.
 
 use crate::games::chess::board::{CastlingRights, Color, PieceType, Square};
 // Required once the commented-out `impl State`, `TensorConvertible`, and `Observation` blocks are activated.
@@ -137,7 +137,12 @@ const PIECE_TYPES: usize = 6;
 /// - 7 planes: castling rights (4) + side to move (1) + move count (1) + no-progress (1)
 const TOTAL_PLANES: usize = 119;
 
-/// Single board position snapshot (one half-move).
+/// Bitboard snapshot for a single half-move position.
+///
+/// Stores twelve 64-bit bitboards — one per piece type per color — indexed as
+/// `[color_offset + PieceType::index()]`, where the White offset is 0 and the
+/// Black offset is 6. A set bit at position `sq` (0 = a1, 63 = h8) indicates
+/// that the corresponding piece occupies that square.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct BoardSnapshot {
     /// Bitboards for 12 piece types (6 white + 6 black).
@@ -147,7 +152,7 @@ struct BoardSnapshot {
 }
 
 impl BoardSnapshot {
-    /// Creates an empty board snapshot.
+    /// Returns an empty snapshot with no pieces on the board.
     fn empty() -> Self {
         Self {
             piece_boards: [0u64; 12],
@@ -309,8 +314,13 @@ impl ChessState {
         *self.repetition_history.get(&hash).unwrap_or(&0)
     }
 
-    /// Computes a hash of the current position for repetition detection.
-    /// Uses Zobrist hashing in practice; simplified here.
+    /// Computes a lightweight hash of the current position for repetition detection.
+    ///
+    /// The hash covers the current board snapshot, side to move, castling rights,
+    /// and en-passant square — the four factors that distinguish otherwise
+    /// identical-looking positions under FIDE rules. A full implementation would
+    /// use Zobrist hashing for incrementally updated keys; this version uses
+    /// `DefaultHasher` as a placeholder.
     fn position_hash(&self) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -323,7 +333,11 @@ impl ChessState {
         hasher.finish()
     }
 
-    /// Converts a bitboard to an 8×8 plane (array of 0s and 1s).
+    /// Expands a 64-bit bitboard into a flat `[f32; 64]` binary plane.
+    ///
+    /// Each element is `1.0` where the corresponding bit is set, `0.0` otherwise.
+    /// Index ordering follows the square encoding: index `i` corresponds to
+    /// `Square(i)` (rank `i / 8`, file `i % 8`).
     #[inline]
     fn bitboard_to_plane(bitboard: u64) -> [f32; 64] {
         let mut plane = [0.0f32; 64];
@@ -335,7 +349,13 @@ impl ChessState {
         plane
     }
 
-    /// Flips a plane vertically (for player perspective normalization).
+    /// Flips a binary plane vertically so that rank 1 becomes rank 8 and vice versa.
+    ///
+    /// AlphaZero always presents the board from the perspective of the side to move.
+    /// When it is Black's turn, the board is flipped so that Black's pieces appear at
+    /// the "bottom" (rank 1 in the output plane), matching the orientation used when
+    /// it is White's turn. This allows the network to learn a single set of positional
+    /// patterns regardless of which color is to move.
     #[inline]
     fn flip_plane_vertical(plane: &[f32; 64]) -> [f32; 64] {
         let mut flipped = [0.0f32; 64];

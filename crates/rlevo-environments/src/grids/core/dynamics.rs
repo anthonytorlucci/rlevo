@@ -31,12 +31,21 @@ pub enum StepOutcome {
     ReachedGoal,
     /// Agent issued the `Done` action.
     DoneAction,
-    /// The action had no effect (e.g. pickup with empty hand over empty cell).
+    /// The action had no observable effect. Covers: turns (which do change
+    /// direction but leave the grid unchanged), pickup when the hand is full or
+    /// the target cell is empty/non-pickable, drop with an empty hand or onto a
+    /// non-empty cell, and toggle on a non-door or a locked door without the
+    /// matching key.
     NoOp,
 }
 
 /// Apply `action` to `(grid, agent)`, mutating both in place, and return
 /// a classification of what happened.
+///
+/// Turning actions (`TurnLeft`, `TurnRight`) mutate `agent.direction` but
+/// return [`StepOutcome::NoOp`] because no grid cell changes — environments
+/// that want to distinguish turning from true no-ops should inspect the
+/// returned outcome together with the action that produced it.
 pub fn apply_action(grid: &mut Grid, agent: &mut AgentState, action: GridAction) -> StepOutcome {
     match action {
         GridAction::TurnLeft => {

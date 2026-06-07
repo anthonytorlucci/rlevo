@@ -214,7 +214,7 @@ impl FromStr for DistShiftConfig {
 /// row.
 ///
 /// Construct via [`DistShiftEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (variant One, 100 steps, seed 0).
+/// [`ConstructableEnv::new`] for default settings (variant One, 100 steps, seed 0).
 ///
 /// # Examples
 ///

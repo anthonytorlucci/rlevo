@@ -15,8 +15,8 @@
 //! ## Glyph and palette key
 //!
 //! - **Agent** — one of `→ ↗ ↑ ↖ ← ↙ ↓ ↘` based on rotation; styled
-//!   [`AGENT_FG`] + [`AGENT_MODIFIER`]. Off-screen agents fall back to
-//!   `<` / `>` markers along the viewport edge.
+//!   [`AGENT_FG`] + [`AGENT_MODIFIER`]. Agents outside the viewport are
+//!   omitted from the grid (no edge-marker fallback).
 //! - **Other dynamic bodies** — `o` styled [`Color::Cyan`].
 //! - **Ground / static line** — bottom row of `─` styled [`WALL_FG`].
 //! - **Empty** — space.
@@ -165,7 +165,23 @@ fn glyph_style(g: Glyph) -> SpanStyle {
     }
 }
 
-/// Render a Box2D scene as a plain string.
+/// Render a Box2D scene as a plain UTF-8 string.
+///
+/// Returns a header line followed by [`CELL_ROWS`] grid lines, each
+/// [`CELL_COLS`] characters wide, separated by `\n`.
+///
+/// # Parameters
+///
+/// - `label` — short environment name shown at the start of the header
+///   (e.g., `"LunarLander"`, `"BipedalWalker"`).
+/// - `bodies` — slice of [`Bodyish`] values describing every body to
+///   render. The first `Agent` variant found determines the header
+///   position and orientation readout; if there is no agent body the
+///   header defaults to `(0.0, 0.0, 0°)`.
+/// - `viewport` — world-space rectangle that maps onto the cell grid.
+/// - `ground_y` — if `Some(y)`, draws a horizontal `─` line at the
+///   corresponding world-space Y coordinate. Pass `None` to omit it.
+/// - `step` — episode step counter appended to the header.
 #[must_use]
 pub fn render_box2d_ascii(
     label: &str,
@@ -197,7 +213,16 @@ pub fn render_box2d_ascii(
     out
 }
 
-/// Render a Box2D scene as a styled frame.
+/// Render a Box2D scene as a [`StyledFrame`].
+///
+/// Produces the same layout and content as [`render_box2d_ascii`] but
+/// wraps each run of identically styled characters in a [`StyledSpan`]
+/// so the caller (e.g., a `ratatui` widget) can apply terminal colours
+/// and modifiers without reparsing plain text. The header label is
+/// styled with [`AGENT_FG`] + [`AGENT_MODIFIER`]; the position/angle
+/// suffix is unstyled.
+///
+/// Parameters are identical to [`render_box2d_ascii`].
 #[must_use]
 pub fn render_box2d_styled(
     label: &str,

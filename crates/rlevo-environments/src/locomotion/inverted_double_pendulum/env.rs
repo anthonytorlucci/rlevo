@@ -25,8 +25,19 @@ pub const METADATA_KEY_DISTANCE: &str = "distance";
 /// Reward-component key: angular-velocity penalty `−1e-3·|ω₁| − 5e-3·|ω₂|`.
 pub const METADATA_KEY_VELOCITY: &str = "velocity";
 
-/// InvertedDoublePendulum — cart-pole-pole balance in 3D. Cart slides along
-/// world-x; the two poles rotate about world-y joints (cart→pole1, pole1→pole2).
+/// Cart-pole-pole balance task backed by a pluggable physics engine.
+///
+/// The cart slides along world-x. Pole1 is attached to the cart top via a
+/// revolute-y joint, and pole2 is attached to pole1's top via a second
+/// revolute-y joint. The agent applies a horizontal force to the cart each
+/// step, attempting to keep the tip of pole2 as close as possible to
+/// `y_tip = 2.0` (world-z in this coordinate system).
+///
+/// Use [`InvertedDoublePendulumRapier`] for the default Rapier3D-backed
+/// variant, or supply an alternative `B: LocomotionBackend` for testing.
+///
+/// See the [module documentation](super) for the full observation layout,
+/// reward formula, and Gymnasium divergence notes.
 #[derive(Debug)]
 pub struct InvertedDoublePendulum<B: LocomotionBackend = Rapier3DBackend> {
     world: B::World,
@@ -37,11 +48,16 @@ pub struct InvertedDoublePendulum<B: LocomotionBackend = Rapier3DBackend> {
     _marker: PhantomData<B>,
 }
 
-/// Default backend alias.
+/// Convenience alias for the Rapier3D-backed environment. This is the type
+/// most callers should use directly.
 pub type InvertedDoublePendulumRapier = InvertedDoublePendulum<Rapier3DBackend>;
 
 impl InvertedDoublePendulum<Rapier3DBackend> {
-    /// Create with an explicit configuration.
+    /// Create an environment with an explicit configuration.
+    ///
+    /// The Rapier world and initial physics state are built immediately using
+    /// `config.seed` and `config.reset_noise_scale`. Call `reset` before the
+    /// first `step` to obtain the initial observation snapshot.
     #[must_use]
     pub fn with_config(config: InvertedDoublePendulumConfig) -> Self {
         let mut rng = StdRng::seed_from_u64(config.seed);
@@ -166,6 +182,9 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         (world, state)
     }
 
+    /// Sample the current physics state and pack it into a 9-element
+    /// observation. θ₂ is the **relative** elbow angle (pole2 world angle
+    /// minus pole1 world angle), wrapped to `(-π, π]`.
     fn extract_observation(&self) -> InvertedDoublePendulumObservation {
         let cart_pose = Rapier3DBackend::get_pose(&self.world, self.state.cart);
         let cart_vel = Rapier3DBackend::get_vel(&self.world, self.state.cart);
@@ -194,6 +213,9 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         ])
     }
 
+    /// Clip the action to `action_clip`, apply the gear multiplier, and
+    /// apply the resulting force to the cart along world-x for the current
+    /// substep.
     fn apply_action(&mut self, action: &InvertedDoublePendulumAction) {
         let (lo, hi) = self.config.action_clip;
         let clipped = [action.0[0].clamp(lo, hi)];
@@ -219,6 +241,10 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
 }
 
 impl ConstructableEnv for InvertedDoublePendulum<Rapier3DBackend> {
+    /// Create an environment with default configuration.
+    ///
+    /// The `render` flag is accepted for interface compatibility but has no
+    /// effect; this environment does not produce any visual output.
     fn new(_render: bool) -> Self {
         Self::with_config(InvertedDoublePendulumConfig::default())
     }
@@ -231,6 +257,16 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<InvertedDoublePendulumObservation>;
 
+    /// Reset the environment to a freshly sampled initial state and return an
+    /// opening snapshot with zero reward.
+    ///
+    /// The RNG is re-seeded from `config.seed` so each call to `reset`
+    /// produces the same initial perturbation for a given seed.
+    ///
+    /// # Errors
+    ///
+    /// This implementation does not currently return an error; the signature
+    /// is required by the `Environment` trait.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
@@ -255,6 +291,21 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
     }
 
+    /// Advance the simulation by one step (or `frame_skip` Rapier substeps)
+    /// and return the resulting snapshot.
+    ///
+    /// The snapshot status is:
+    /// - `Running` — tip is above the healthy threshold and `max_steps` not
+    ///   reached.
+    /// - `Terminated` — tip fell below `healthy.z_range` lower bound
+    ///   (`y_tip ≤ 1.0` by default) and `termination` is
+    ///   `OnUnhealthy`.
+    /// - `Truncated` — `steps >= max_steps`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EnvironmentError::InvalidAction` if the action value is
+    /// non-finite (`NaN` or infinity).
     fn step(
         &mut self,
         action: InvertedDoublePendulumAction,

@@ -187,6 +187,21 @@ pub struct UnlockEnv {
 
 impl UnlockEnv {
     /// Constructs an [`UnlockEnv`] from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_environments::grids::unlock::{UnlockConfig, UnlockEnv};
+    ///
+    /// let env = UnlockEnv::with_config(
+    ///     UnlockConfig::new(5, 200, 0),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: UnlockConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);

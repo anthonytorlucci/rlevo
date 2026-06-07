@@ -1,4 +1,13 @@
-//! Swimmer environment implementation.
+//! [`Swimmer`] environment implementation.
+//!
+//! This module contains the [`Swimmer`] struct and its [`Environment`] and
+//! [`ConstructableEnv`] impls. Physics setup, drag application, and action
+//! integration are kept private; the public surface is the two trait methods
+//! [`Environment::reset`] and [`Environment::step`].
+//!
+//! The type alias [`SwimmerRapier`] is the only concretisation shipped at
+//! present; the backend type parameter exists to allow a future mock or
+//! alternative physics backend without changing the public API.
 
 use std::marker::PhantomData;
 
@@ -23,8 +32,15 @@ pub const METADATA_KEY_FORWARD: &str = "forward";
 /// Reward-component key: `−ctrl_cost_weight · ‖action‖²` (≤ 0).
 pub const METADATA_KEY_CTRL: &str = "ctrl";
 
-/// Swimmer — a 3-segment planar swimmer with viscous drag. Generic in the
-/// physics backend; v1 only implements `B = Rapier3DBackend`.
+/// A 3-segment planar swimmer with viscous drag, generic over the physics
+/// backend.
+///
+/// The swimmer chain is described in detail in the
+/// [`crate::locomotion::swimmer`] module doc. The only shipped backend is
+/// `B = Rapier3DBackend`, accessible through the [`SwimmerRapier`] type alias.
+///
+/// Construct with [`ConstructableEnv::new`] (uses [`SwimmerConfig::default`])
+/// or with [`Swimmer::with_config`] for a custom configuration.
 #[derive(Debug)]
 pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     world: B::World,
@@ -35,7 +51,9 @@ pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     _marker: PhantomData<B>,
 }
 
-/// Default backend alias.
+/// Convenience alias: [`Swimmer`] using the Rapier3D backend.
+///
+/// This is the recommended concrete type for all production use.
 pub type SwimmerRapier = Swimmer<Rapier3DBackend>;
 
 impl Swimmer<Rapier3DBackend> {
@@ -273,6 +291,10 @@ impl Swimmer<Rapier3DBackend> {
 }
 
 impl ConstructableEnv for Swimmer<Rapier3DBackend> {
+    /// Create a [`Swimmer`] with [`SwimmerConfig::default`].
+    ///
+    /// The `render` parameter is accepted for trait compatibility but has no
+    /// effect; this environment has no visual output.
     fn new(_render: bool) -> Self {
         Self::with_config(SwimmerConfig::default())
     }
@@ -285,6 +307,20 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     type RewardType = ScalarReward;
     type SnapshotType = LocomotionSnapshot<SwimmerObservation>;
 
+    /// Reset the episode to a freshly sampled initial state.
+    ///
+    /// All generalised positions and velocities are sampled independently
+    /// from `U(-reset_noise_scale, reset_noise_scale)`. The RNG is
+    /// re-seeded from `config.seed` on every reset, so repeated calls
+    /// produce identical initial states for the same seed.
+    ///
+    /// The returned snapshot has `EpisodeStatus::Running`, reward `0.0`, and
+    /// metadata components `forward = 0.0` and `ctrl = 0.0`.
+    ///
+    /// # Errors
+    ///
+    /// This implementation does not currently return an error; the signature
+    /// reflects the `Environment` trait contract.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
@@ -306,6 +342,23 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
     }
 
+    /// Advance the simulation by one env step.
+    ///
+    /// Sequence: clip action → apply gear-scaled torques to joint children →
+    /// run `frame_skip` physics substeps (each preceded by viscous drag) →
+    /// extract observation → compute reward.
+    ///
+    /// Reward = `forward_reward_weight × vx_com − ctrl_cost_weight × ‖clipped_action‖²`.
+    /// Both components are stored in snapshot metadata under
+    /// [`METADATA_KEY_FORWARD`] and [`METADATA_KEY_CTRL`].
+    ///
+    /// The episode is never terminated on a health condition. Once `steps ≥
+    /// max_steps` the status becomes `EpisodeStatus::Truncated`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::InvalidAction`] if any element of `action`
+    /// is non-finite (`NaN` or `±∞`).
     fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
         if !action.0.iter().all(|v| v.is_finite()) {
             return Err(EnvironmentError::InvalidAction(format!(

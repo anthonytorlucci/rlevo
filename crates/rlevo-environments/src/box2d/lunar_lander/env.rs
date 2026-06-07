@@ -1,4 +1,28 @@
-//! LunarLander environment implementation (D1: discrete and continuous variants).
+//! LunarLander environment implementation — discrete and continuous variants.
+//!
+//! This module contains the two concrete environment types ([`LunarLanderDiscrete`]
+//! and [`LunarLanderContinuous`]) and the shared `LunarLanderCore` physics driver
+//! that both variants delegate to. Physics are simulated with Rapier2D at a fixed
+//! timestep (`config.dt`, default 1/50 s).
+//!
+//! ## Reward formula
+//!
+//! Each step applies potential-based shaping plus a control cost:
+//!
+//! ```text
+//! shaping(obs) = -100 * dist_to_helipad
+//!              - 100 * speed
+//!              - 100 * |angle|
+//!              +  10 * leg1_contact
+//!              +  10 * leg2_contact
+//!
+//! reward = shaping(t) - shaping(t-1)   -- potential difference
+//!        - 0.3 * (|main| + |lateral|)  -- control cost
+//! ```
+//!
+//! Terminal bonuses/penalties are applied on top: +100 for a soft landing,
+//! −100 for a crash or out-of-bounds exit. See [`LunarLanderSnapshot`] for
+//! how the raw shaping value is surfaced through step metadata.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -298,14 +322,22 @@ impl LunarLanderCore {
 /// LunarLander with a 4-way discrete action space.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// Wrap with `TimeLimit` is not supported for this environment (custom snapshot type).
+/// Wrapping with `TimeLimit` is not supported because this environment uses a
+/// custom snapshot type ([`LunarLanderSnapshot`]) rather than `SnapshotBase`.
+///
+/// Actions never return an error; all four [`LunarLanderDiscreteAction`] variants
+/// are always valid.
 #[derive(Debug)]
 pub struct LunarLanderDiscrete {
     core: LunarLanderCore,
 }
 
 impl LunarLanderDiscrete {
-    /// Create with default configuration.
+    /// Construct with the given configuration.
+    ///
+    /// The Rapier2D world is built immediately; the lander is placed at the spawn
+    /// position and the initial shaping value is computed so that the first call
+    /// to `reset` returns a valid snapshot without a prior physics step.
     pub fn with_config(config: LunarLanderConfig) -> Self {
         Self {
             core: LunarLanderCore::new(config),
@@ -326,6 +358,11 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     type RewardType = ScalarReward;
     type SnapshotType = LunarLanderSnapshot;
 
+    /// Rebuild the physics world and return the initial observation.
+    ///
+    /// The reward in the returned snapshot is always `0.0`. The shaping potential
+    /// is reset to the value computed from the spawn position so that the first
+    /// `step` call produces a meaningful potential difference.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.state.last_obs.clone();
@@ -336,6 +373,16 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
         ))
     }
 
+    /// Advance the simulation by one timestep and return the resulting snapshot.
+    ///
+    /// The returned snapshot status is:
+    /// - `Running` — episode continues.
+    /// - `Terminated` — lander crashed (hull touched ground without both legs
+    ///   down) or flew out of bounds (reward −100), or landed softly (reward
+    ///   +100).
+    /// - `Truncated` — `config.max_steps` reached without a terminal event.
+    ///
+    /// This variant never returns `Err`; the result is always `Ok`.
     fn step(
         &mut self,
         action: LunarLanderDiscreteAction,
@@ -367,14 +414,27 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
 
 /// LunarLander with a 2-dimensional continuous action space.
 ///
+/// Each action is a `[f32; 2]` vector wrapped in [`LunarLanderContinuousAction`].
+/// Both components must lie in `[-1, 1]` and be finite; `step` returns
+/// `Err(EnvironmentError::InvalidAction)` otherwise (design decision D5).
+///
+/// The main-engine component maps as follows: values in `[-1, 0]` are treated as
+/// off (no thrust); values in `(0, 1]` scale the main engine linearly. The lateral
+/// component drives the side engines symmetrically.
+///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
+/// Wrapping with `TimeLimit` is not supported because this environment uses a
+/// custom snapshot type ([`LunarLanderSnapshot`]) rather than `SnapshotBase`.
 #[derive(Debug)]
 pub struct LunarLanderContinuous {
     core: LunarLanderCore,
 }
 
 impl LunarLanderContinuous {
-    /// Create with default configuration.
+    /// Construct with the given configuration.
+    ///
+    /// The Rapier2D world is built immediately; see [`LunarLanderDiscrete::with_config`]
+    /// for notes that apply equally here.
     pub fn with_config(config: LunarLanderConfig) -> Self {
         Self {
             core: LunarLanderCore::new(config),
@@ -395,6 +455,10 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     type RewardType = ScalarReward;
     type SnapshotType = LunarLanderSnapshot;
 
+    /// Rebuild the physics world and return the initial observation.
+    ///
+    /// Identical in behaviour to [`LunarLanderDiscrete::reset`]: reward is `0.0`
+    /// and the shaping potential is initialised from the spawn position.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.state.last_obs.clone();
@@ -405,6 +469,15 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
         ))
     }
 
+    /// Advance the simulation by one timestep and return the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(EnvironmentError::InvalidAction)` if either component of
+    /// `action` is outside `[-1, 1]` or is non-finite (design decision D5).
+    ///
+    /// On success the snapshot status mirrors [`LunarLanderDiscrete::step`]:
+    /// `Running`, `Terminated` (crash/landing), or `Truncated` (step limit).
     fn step(
         &mut self,
         action: LunarLanderContinuousAction,

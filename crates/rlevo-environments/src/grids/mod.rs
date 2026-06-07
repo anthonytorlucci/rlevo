@@ -13,10 +13,22 @@
 //! The shared primitives live in [`core`]; each concrete environment lives
 //! in its own module alongside its config struct and test suite.
 //!
-//! # Roadmap
+//! # Environments
 //!
-//! This module currently ships [`empty::EmptyEnv`]; additional Minigrid
-//! ports (DoorKey, LavaGap, FourRooms, ...) land incrementally.
+//! | Environment | Module | Key challenge |
+//! |---|---|---|
+//! | [`EmptyEnv`] | [`empty`] | Baseline navigation, no obstacles |
+//! | [`CrossingEnv`] | [`crossing`] | Cross lava or wall strips through a single gap |
+//! | [`DistShiftEnv`] | [`dist_shift`] | Distribution shift between training and evaluation layouts |
+//! | [`DoorKeyEnv`] | [`door_key`] | Long-horizon: key pickup → door unlock → goal |
+//! | [`DynamicObstaclesEnv`] | [`dynamic_obstacles`] | Stochastic ball obstacles that random-walk each step |
+//! | [`FourRoomsEnv`] | [`four_rooms`] | Multi-room maze; must transit ≥ 2 openings |
+//! | [`GoToDoorEnv`] | [`go_to_door`] | Mission-conditioned: navigate to a colored door |
+//! | [`LavaGapEnv`] | [`lava_gap`] | Cross a vertical lava strip through one gap |
+//! | [`MemoryEnv`] | [`memory`] | Remember a cue object; match it at a fork |
+//! | [`MultiRoomEnv`] | [`multi_room`] | Toggle doors open across a configurable room count |
+//! | [`UnlockEnv`] | [`unlock`] | Pick up key, unlock and open a door |
+//! | [`UnlockPickupEnv`] | [`unlock_pickup`] | Unlock a door then retrieve a box from the far room |
 
 pub mod core;
 pub mod crossing;

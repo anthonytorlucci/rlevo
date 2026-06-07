@@ -1,4 +1,20 @@
-//! Bezier-curve track generation for CarRacing.
+//! Procedural track generation for the CarRacing environment.
+//!
+//! Each call to [`Track::generate`] builds a unique closed-loop road by:
+//!
+//! 1. Placing `track_n_checkpoints` control points uniformly around a circle of
+//!    radius ~30 world units.
+//! 2. Perturbing each point's angle (±0.4 rad) and radius (×0.7–1.3) with the
+//!    seeded RNG.
+//! 3. Fitting a Catmull-Rom spline through the control points (5 samples per
+//!    segment) to produce a smooth centreline.
+//! 4. Extruding each consecutive centreline pair into a quad [`TrackTile`]
+//!    perpendicular to the road direction. Every third tile is coloured white
+//!    (kerb); the rest are grey (asphalt).
+//!
+//! Tile-visit detection uses a nearest-centre scan ([`Track::nearest_tile`]),
+//! not physics contacts, so it works even when the car body overlaps multiple
+//! tiles simultaneously.
 
 use rand::RngExt;
 use rand::rngs::StdRng;

@@ -1,4 +1,21 @@
-//! BipedalWalker environment implementation.
+//! Core [`BipedalWalker`] environment implementation.
+//!
+//! This module wires together the Rapier2D physics world, terrain generation,
+//! motor control, observation computation, and reward shaping into a type that
+//! implements [`rlevo_core::environment::Environment`].
+//!
+//! The walker body is assembled from five rigid bodies (hull + two upper legs +
+//! two lower legs) connected by four revolute joints (two hips, two knees).
+//! Each joint has a velocity motor whose target speed is set by the action and
+//! capped by `motors_torque`. Physics advances one step of `dt` seconds per
+//! `step()` call.
+//!
+//! ## Reward shaping
+//!
+//! Each step the reward is `vel_x − 0.3 × Σᵢ aᵢ²`, where `vel_x` is the
+//! hull's horizontal velocity and `aᵢ` are the four action components.
+//! If the hull contacts the ground an additional −100 penalty is subtracted
+//! from that step's reward and the episode is terminated.
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -50,9 +67,11 @@ const GROUND_Y: f32 = -1.0;
 ///
 /// See [`BipedalWalkerObservation`] for the full field mapping.
 ///
-/// # Action (4 dims, D5: must be in `[−1, 1]`)
+/// # Action (4 dims, must be in `[−1, 1]`)
 ///
-/// `[hip1, knee1, hip2, knee2]` motor velocity targets.
+/// `[hip1, knee1, hip2, knee2]` motor velocity targets. Components outside
+/// the valid range or containing non-finite values cause `step()` to return
+/// `Err(InvalidAction)`.
 #[derive(Debug)]
 pub struct BipedalWalker {
     world: RapierWorld,
@@ -67,13 +86,26 @@ pub struct BipedalWalker {
 }
 
 impl BipedalWalker {
-    /// Create a new environment with default configuration.
+    /// Create a new environment from a [`BipedalWalkerConfig`].
+    ///
+    /// The terrain generator is chosen based on `config.terrain`: `Flat` uses
+    /// [`FlatTerrain`]; `Rough` and `Hardcore` require constructing the
+    /// environment via [`BipedalWalker::with_terrain`] and supplying the
+    /// corresponding generator explicitly, or by using the `BipedalTerrain`
+    /// dispatch in `with_config`.
+    ///
+    /// The physics world is fully built and warm-started during construction,
+    /// so the environment is ready to receive `reset()` immediately.
     pub fn with_config(config: BipedalWalkerConfig) -> Self {
         let terrain: Box<dyn TerrainGenerator> = Box::new(FlatTerrain);
         Self::build(config, terrain)
     }
 
-    /// Create with a custom terrain generator (D7).
+    /// Create with a custom [`TerrainGenerator`], overriding the terrain preset
+    /// stored in `config.terrain`.
+    ///
+    /// Use this to supply a custom terrain implementation or to inject a
+    /// seeded generator for reproducible test scenarios.
     pub fn with_terrain(config: BipedalWalkerConfig, terrain: Box<dyn TerrainGenerator>) -> Self {
         Self::build(config, terrain)
     }
@@ -366,6 +398,21 @@ impl BipedalWalker {
             .is_some_and(|c| self.world.is_in_contact(c))
     }
 
+    /// Compute the per-step reward.
+    ///
+    /// The formula is:
+    ///
+    /// ```text
+    /// reward = vel_x − 0.3 × (a₀² + a₁² + a₂² + a₃²)
+    /// ```
+    ///
+    /// where `vel_x` is the hull's horizontal velocity (world units per second)
+    /// and `aᵢ` are the four action components. The quadratic control penalty
+    /// discourages wasteful motor effort; the velocity term rewards forward
+    /// progress.
+    ///
+    /// If the hull contacts the ground the caller in `step()` subtracts an
+    /// additional −100 from the value returned here.
     fn compute_reward(&self, action: &BipedalWalkerAction, vel_x: f32) -> f32 {
         let ctrl_cost = 0.3 * action.0.iter().map(|a| a * a).sum::<f32>();
         vel_x - ctrl_cost
@@ -385,6 +432,8 @@ impl Environment<1, 1, 1> for BipedalWalker {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, BipedalWalkerObservation, ScalarReward>;
 
+    /// Rebuild the physics world, reset counters, and return the initial
+    /// observation with reward 0 and status `Running`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rebuild_world();
         self.steps = 0;
@@ -396,6 +445,12 @@ impl Environment<1, 1, 1> for BipedalWalker {
         Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
     }
 
+    /// Advance the simulation by one timestep and return the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::InvalidAction`] if any component of `action`
+    /// is outside `[-1, 1]` or is non-finite.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -471,7 +526,11 @@ impl crate::render::AsciiRenderable for BipedalWalker {
 }
 
 impl BipedalWalker {
-    /// Render-time view: gather hull + leg positions and the hull angle.
+    /// Collect hull and leg body positions for the ASCII/styled renderer.
+    ///
+    /// Returns up to five [`Bodyish`](super::super::render::Bodyish) entries:
+    /// one `Agent` for the hull (with rotation angle) and up to four `Dynamic`
+    /// entries for the leg segments.
     fn collect_bodies(&self) -> Vec<super::super::render::Bodyish> {
         use super::super::render::Bodyish;
 

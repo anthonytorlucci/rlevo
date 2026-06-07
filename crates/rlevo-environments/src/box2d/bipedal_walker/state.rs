@@ -44,18 +44,28 @@ pub struct BipedalWalkerState {
 impl State<1> for BipedalWalkerState {
     type Observation = BipedalWalkerObservation;
 
+    /// Returns `[24]` — the flat observation dimension of the state.
     fn shape() -> [usize; 1] {
         [24]
     }
 
+    /// Returns `true` when the cached observation is fully finite.
+    ///
+    /// A non-finite observation indicates a physics simulation divergence;
+    /// the environment should be reset when this returns `false`.
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()
     }
 
+    /// Returns 24 — the total number of scalar elements in the state.
     fn numel(&self) -> usize {
         24
     }
 
+    /// Returns a clone of the most recently computed observation.
+    ///
+    /// The cached value is updated by `BipedalWalker::step` and
+    /// `BipedalWalker::reset` before this is called by the environment loop.
     fn observe(&self) -> BipedalWalkerObservation {
         self.last_obs.clone()
     }

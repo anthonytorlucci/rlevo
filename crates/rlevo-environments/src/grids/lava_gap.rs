@@ -184,6 +184,21 @@ pub struct LavaGapEnv {
 
 impl LavaGapEnv {
     /// Constructs a [`LavaGapEnv`] from an explicit configuration.
+    ///
+    /// Immediately builds the initial grid state and seeds the internal RNG.
+    /// Call [`Environment::reset`] before the first [`Environment::step`] to
+    /// obtain the first observation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
+    ///
+    /// let env = LavaGapEnv::with_config(
+    ///     LavaGapConfig::new(7, 200, 42),
+    ///     true, // render ASCII grid to stdout
+    /// );
+    /// ```
     #[must_use]
     pub fn with_config(config: LavaGapConfig, render: bool) -> Self {
         let rng = StdRng::seed_from_u64(config.seed);

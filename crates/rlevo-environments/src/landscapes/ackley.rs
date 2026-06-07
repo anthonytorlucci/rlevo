@@ -50,6 +50,11 @@ impl Ackley {
         (-32.768, 32.768)
     }
 
+    /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.
+    ///
+    /// For 2-D landscapes this is the exact surface; for higher dimensions
+    /// the remaining coordinates are held at zero so the rendered slice
+    /// passes through the global optimum at the origin.
     fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.0_f64; self.dim];
         if !p.is_empty() {

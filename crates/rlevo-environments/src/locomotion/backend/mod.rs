@@ -27,7 +27,9 @@ pub struct Pose {
 /// Body twist: linear and angular velocity in the world frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Twist {
+    /// `[vx, vy, vz]` world-frame linear velocity (metres per second).
     pub linear: [f32; 3],
+    /// `[ωx, ωy, ωz]` world-frame angular velocity (radians per second).
     pub angular: [f32; 3],
 }
 

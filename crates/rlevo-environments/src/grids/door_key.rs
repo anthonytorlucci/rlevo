@@ -183,7 +183,7 @@ impl FromStr for DoorKeyConfig {
 /// reward is available.
 ///
 /// Construct via [`DoorKeyEnv::with_config`] for full control or via
-/// [`Environment::new`] for default settings (size 5, 100 steps, seed 0).
+/// [`ConstructableEnv::new`] for default settings (size 5, 100 steps, seed 0).
 ///
 /// # Examples
 ///

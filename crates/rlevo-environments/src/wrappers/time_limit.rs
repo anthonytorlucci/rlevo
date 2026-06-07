@@ -9,20 +9,18 @@ use rlevo_core::{
 /// The inner environment's physics and termination logic are unchanged.
 /// When the step counter reaches `max_steps` and the inner environment has
 /// not already terminated, the snapshot status is upgraded from `Running`
-/// to `Truncated`. This implements the Gymnasium `TimeLimit` wrapper
-/// semantics in pure Rust.
+/// to `Truncated`. This matches the Gymnasium `TimeLimit` wrapper
+/// semantics.
 ///
-/// # Usage
+/// Construct a `TimeLimit` with [`TimeLimit::new`], passing an already-built
+/// inner environment and the step budget. Call [`reset`](TimeLimit::reset)
+/// before the first [`step`](TimeLimit::step); the step counter resets to
+/// zero on every `reset` call.
 ///
-/// ```no_run,ignore
-/// use rlevo_environments::wrappers::TimeLimit;
-///
-/// let env = CartPole::with_config(CartPoleConfig::default());
-/// let mut timed = TimeLimit::new(env, 500);
-///
-/// let snap = timed.reset().unwrap();
-/// assert!(!snap.is_done());
-/// ```
+/// `TimeLimit` implements [`Environment`] for any inner env whose
+/// `SnapshotType` is [`SnapshotBase`], [`AsciiRenderable`] by forwarding
+/// to the wrapped env, and `Classic2DPayloadSource` for structured
+/// post-run playback.
 pub struct TimeLimit<E> {
     inner: E,
     max_steps: usize,

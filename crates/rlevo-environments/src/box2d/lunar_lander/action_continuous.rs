@@ -41,6 +41,11 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
         Self(self.0.map(|v| v.clamp(min, max)))
     }
 
+    /// Construct from a slice, taking the first two elements.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() < 2`.
     fn from_slice(values: &[f32]) -> Self {
         assert!(
             values.len() >= 2,

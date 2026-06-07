@@ -1,4 +1,27 @@
-//! CarRacing environment implementation.
+//! CarRacing environment: `Environment` and `ConstructableEnv` implementations.
+//!
+//! This module wires the Rapier2D physics world, the [`Track`] generator, the
+//! [`Rasterizer`], and the tile-visit logic into the [`CarRacing`] struct that
+//! implements [`Environment<3, 3, 1>`](rlevo_core::environment::Environment).
+//!
+//! Physics is integrated at a fixed timestep of `config.dt` (default 1/50 s)
+//! via [`RapierWorld::step`](crate::box2d::physics::RapierWorld). Car dynamics
+//! are approximated by direct force application:
+//!
+//! - **Gas**: forward force proportional to `gas × 500 × car_density`.
+//! - **Brake**: opposing force proportional to the current linear velocity scaled
+//!   by `brake × 200 × car_density`.
+//! - **Steer**: torque impulse proportional to `steer × speed × 2`, so steering
+//!   authority grows with speed.
+//! - **Lateral friction**: velocity component perpendicular to the car heading is
+//!   damped to prevent unrealistic sliding.
+//!
+//! Tile visits are detected by a nearest-centre scan on every step, not by
+//! physics collision callbacks. A tile can only be counted once per episode.
+//!
+//! The camera-following ASCII renderer ([`AsciiRenderable`](crate::render::AsciiRenderable))
+//! shows a 20-unit-wide window centred on the car body. Full track tile geometry
+//! is available only in the report tier via `FamilyPayload::Box2D`.
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -250,6 +273,11 @@ impl CarRacing {
 }
 
 impl ConstructableEnv for CarRacing {
+    /// Construct a `CarRacing` environment with default configuration and seed 0.
+    ///
+    /// The `render` flag is accepted for interface compatibility but has no
+    /// effect; the pixel observation is always produced regardless of this value.
+    /// Use [`CarRacing::with_config`] to control the seed and other parameters.
     fn new(_render: bool) -> Self {
         Self::with_config(CarRacingConfig::default())
     }

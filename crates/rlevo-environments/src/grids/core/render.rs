@@ -21,6 +21,10 @@ use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
 /// for the report tier (ADR-0013). Pure data — the env-side `Entity` /
 /// `Color` / `Direction` types map onto the wire-neutral payload enums in
 /// `rlevo-core::render::payload`.
+///
+/// Grid dimensions are stored as `u16`; grids larger than 65 535 cells in
+/// either dimension are not supported in practice (all built-in environments
+/// are far smaller).
 #[must_use]
 pub fn grid_snapshot(grid: &Grid, agent: &AgentState) -> GridSnapshot {
     let width = grid.width();
@@ -87,6 +91,24 @@ const fn dir_to_payload(d: Direction) -> GridDir {
 }
 
 /// Render the grid and the agent's position to a multi-line ASCII string.
+///
+/// Each cell is two characters wide (glyph + space) and each row ends with
+/// `'\n'`. The agent's position overrides the underlying entity glyph.
+/// Glyph mapping:
+///
+/// | Glyph | Entity |
+/// |-------|--------|
+/// | `#`   | Wall |
+/// | `.`   | Empty or Floor |
+/// | `G`   | Goal |
+/// | `L`   | Lava |
+/// | `/`   | Door (open) |
+/// | `+`   | Door (closed) |
+/// | `*`   | Door (locked) |
+/// | `k`   | Key |
+/// | `o`   | Ball |
+/// | `[`   | Box |
+/// | `>` `v` `<` `^` | Agent facing East / South / West / North |
 #[must_use]
 pub fn render_ascii(grid: &Grid, agent: &AgentState) -> String {
     let mut out = String::with_capacity(grid.width() * grid.height() * 2);

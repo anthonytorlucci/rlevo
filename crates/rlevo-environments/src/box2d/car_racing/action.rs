@@ -46,6 +46,11 @@ impl Action<1> for CarRacingAction {
 }
 
 impl ContinuousAction<1> for CarRacingAction {
+    /// Returns a slice containing only the `steer` component.
+    ///
+    /// Due to the struct's non-contiguous layout in memory, only a single-element
+    /// slice over `steer` can be produced safely here. Use [`CarRacingAction::as_array`]
+    /// to obtain all three components as an owned array.
     fn as_slice(&self) -> &[f32] {
         // Safety: CarRacingAction is repr(C) equivalent to 3 consecutive f32 fields.
         // Use a runtime slice instead of transmute.
@@ -55,6 +60,11 @@ impl ContinuousAction<1> for CarRacingAction {
         // See `as_array` below for now.
     }
 
+    /// Clamps all three components to `[min, max]`.
+    ///
+    /// Note that clamping `gas` or `brake` with a negative `min` will produce a
+    /// value that fails `is_valid`. Prefer [`CarRacingAction::as_array`] and manual
+    /// per-component clamping when asymmetric bounds matter.
     fn clip(&self, min: f32, max: f32) -> Self {
         Self {
             steer: self.steer.clamp(min, max),
@@ -63,6 +73,11 @@ impl ContinuousAction<1> for CarRacingAction {
         }
     }
 
+    /// Construct from a slice of at least 3 values `[steer, gas, brake]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() < 3`.
     fn from_slice(values: &[f32]) -> Self {
         assert!(values.len() >= 3, "CarRacingAction needs 3 values");
         Self {
@@ -79,7 +94,8 @@ impl CarRacingAction {
         [self.steer, self.gas, self.brake]
     }
 
-    /// Generate a random valid action (custom ranges per D5).
+    /// Generate a random valid action sampled uniformly within the asymmetric
+    /// bounds: `steer ∈ [−1, 1]`, `gas ∈ [0, 1]`, `brake ∈ [0, 1]`.
     pub fn random_valid(rng: &mut rand::rngs::StdRng) -> Self {
         use rand::RngExt;
         Self {
