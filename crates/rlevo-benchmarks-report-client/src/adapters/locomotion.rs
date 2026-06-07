@@ -1,6 +1,7 @@
 //! Locomotion adapter — the **canonical view** for the family.
 //!
-//! Locomotion envs do not implement [`AsciiRenderable`]; their only
+//! Locomotion envs do not implement `rlevo_core::render::AsciiRenderable`;
+//! their only
 //! rendering pathway in the entire stack is this SVG adapter consuming
 //! [`FamilyPayload::Locomotion2D`].
 //!
@@ -16,7 +17,6 @@
 //! distinct shape: joints are filled disks, com is a cross, contacts
 //! are open rings, ground is a solid horizontal line.
 //!
-//! [`AsciiRenderable`]: rlevo_core::render::AsciiRenderable
 //! [`FamilyPayload::Locomotion2D`]: crate::wire::FamilyPayload::Locomotion2D
 
 use leptos::prelude::*;
@@ -33,7 +33,7 @@ const VB_PAD: f32 = 20.0;
 /// Renders one locomotion-family frame, dispatching on the payload variant.
 ///
 /// Extracts a [`FamilyPayload::Locomotion2D`] payload and forwards it to
-/// [`view_with_payload`].  Any other variant falls through to
+/// `view_with_payload`.  Any other variant falls through to
 /// [`super::fallback::render`].  This is the only rendering pathway for
 /// locomotion environments — they do not implement `AsciiRenderable`.
 ///

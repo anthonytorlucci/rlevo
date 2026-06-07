@@ -27,7 +27,15 @@ const CELL: f32 = 24.0;
 /// Padding inside the viewBox on each edge.
 const PAD: f32 = 4.0;
 
-/// Renders one grids-family frame, dispatching on the payload variant.
+/// Renders one grids-family frame into a Leptos [`AnyView`].
+///
+/// Dispatches on the [`FamilyPayload`] variant:
+///
+/// - [`FamilyPayload::Grid`] — full structured SVG via `view_with_payload`.
+/// - Any other variant — delegates to [`super::fallback::render`], which
+///   renders a best-effort text representation and a family label.
+///
+/// Always returns a valid view; this function is infallible.
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
@@ -62,7 +70,12 @@ const fn color_class(c: GridColor) -> &'static str {
     }
 }
 
-/// Overlay glyph + colour class for a cell, or `None` for plain floor/empty.
+/// Returns the overlay glyph letter and its CSS colour class for a tile, or
+/// `None` for tiles that carry no object overlay (floor, wall, empty, and
+/// any variant not explicitly listed).
+///
+/// The glyph is always a distinct shape so colour is never the sole signal
+/// (per the project a11y contract in the module doc).
 const fn object_glyph(tile: GridTile) -> Option<(&'static str, &'static str)> {
     match tile {
         GridTile::Goal => Some(("G", "rlevo-grid-goal-fg")),
@@ -77,8 +90,16 @@ const fn object_glyph(tile: GridTile) -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// Three SVG polygon points for an agent triangle in cell `(ax, ay)`,
-/// pointing in `dir`. Returned as the `points` attribute string.
+/// Computes the three SVG `points` attribute vertices for an agent triangle
+/// centred in grid cell `(ax, ay)` and pointing in `dir`.
+///
+/// Coordinate convention: SVG origin is top-left; `x` increases east (right)
+/// and `y` increases south (down), matching Minigrid's row-major tile layout.
+/// `dir` maps to the tip vertex of the triangle — `East` tips right, `South`
+/// tips down, and so on — so the triangle visually encodes heading.
+///
+/// Returns a space-separated `"x1,y1 x2,y2 x3,y3"` string suitable for the
+/// `<polygon points="…">` attribute.
 fn agent_points(ax: u16, ay: u16, dir: GridDir) -> String {
     let cx = PAD + f32::from(ax) * CELL + CELL / 2.0;
     let cy = PAD + f32::from(ay) * CELL + CELL / 2.0;
@@ -93,7 +114,15 @@ fn agent_points(ax: u16, ay: u16, dir: GridDir) -> String {
     format!("{tx:.2},{ty:.2} {b1x:.2},{b1y:.2} {b2x:.2},{b2y:.2}")
 }
 
-/// Builds the full SVG figure for a [`GridPayload`].
+/// Builds the full SVG `<figure>` for a [`GridPayload`].
+///
+/// Returns a `<p class="rlevo-warnings">` error node if the payload is
+/// degenerate: either dimension is zero, or `tiles.len()` does not equal
+/// `width × height` (which would indicate a serialisation mismatch between
+/// the record producer and this client).
+///
+/// On success produces one `<rect>` per cell, overlay glyphs for objects,
+/// the agent `<polygon>` triangle, and a `<figcaption>` legend.
 fn view_with_payload(payload: &GridPayload) -> AnyView {
     let w = payload.width;
     let h = payload.height;

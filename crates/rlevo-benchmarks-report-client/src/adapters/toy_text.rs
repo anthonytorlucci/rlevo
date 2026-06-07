@@ -23,8 +23,14 @@ use crate::wire::{
 };
 
 /// Side length of one grid cell in SVG user units.
+///
+/// The `viewBox` width is `width * CELL + 2 * PAD`; height follows the same
+/// formula using `height`.
 const CELL: f32 = 26.0;
-/// Padding inside the viewBox on each edge.
+/// Uniform padding (in SVG user units) added to each edge of the viewBox.
+///
+/// Ensures cell borders at the grid perimeter are not clipped by the SVG
+/// viewport.
 const PAD: f32 = 4.0;
 
 /// Renders one toy-text frame, dispatching on the payload variant.
@@ -62,6 +68,10 @@ const fn marker_glyph(kind: TabularMarkerKind) -> (&'static str, &'static str) {
 }
 
 /// SVG tile-grid view (`FrozenLake` / `CliffWalking` / `Taxi`).
+///
+/// Returns an error paragraph when the `grid` payload is structurally invalid
+/// (zero dimension or `cells.len() != width * height`); otherwise returns an
+/// `<svg>` wrapped in a `<figure>` with an accessibility legend below it.
 fn grid_view(grid: &TabularGrid) -> AnyView {
     let w = grid.width;
     let h = grid.height;
@@ -148,6 +158,10 @@ fn grid_view(grid: &TabularGrid) -> AnyView {
 }
 
 /// Renders one hand as a row of card chips.
+///
+/// Each chip displays the card value as text. Value `1` is shown as `"A"`
+/// (ace) to match standard Blackjack notation; all other values are printed
+/// as their decimal representation.
 fn hand_view(cards: &[u8]) -> Vec<AnyView> {
     cards
         .iter()
@@ -162,6 +176,10 @@ fn hand_view(cards: &[u8]) -> Vec<AnyView> {
 }
 
 /// HTML card-table view (Blackjack).
+///
+/// Renders the player hand, player total, usable-ace badge, dealer hand, and
+/// `dealer_showing` (the dealer's running face-up total, not the hidden full
+/// hand). All values are expressed as text so the layout reads without colour.
 fn cards_view(cards: &CardTable) -> AnyView {
     let player = hand_view(&cards.player_cards);
     let dealer = hand_view(&cards.dealer_cards);

@@ -92,7 +92,10 @@ pub fn App() -> impl IntoView {
     }
 }
 
-/// One `<dt>/<dd>` row, used to build the manifest definition list.
+/// Produces one `<dt>`/`<dd>` pair for use inside the manifest definition list.
+///
+/// Extracted as a helper so each field in [`manifest_view`] stays a single
+/// call rather than an inline `view!` block.
 fn meta_row(label: &str, value: String) -> AnyView {
     let label = label.to_string();
     view! { <dt>{label}</dt><dd>{value}</dd> }.into_any()
@@ -151,7 +154,12 @@ fn manifest_view(m: &RunManifest) -> impl IntoView {
     }
 }
 
-/// Formats an `f64` for display without a trailing `.0` on whole numbers.
+/// Formats an `f64` for human-readable display, omitting the `.0` suffix on
+/// exact integers (e.g. `500` rather than `500.0`).
+///
+/// Non-finite values (`NaN`, `±∞`) pass through `format!("{v}")` unchanged and
+/// are not treated specially; callers are responsible for validating inputs
+/// before display.
 fn format_f64(v: f64) -> String {
     if v.fract() == 0.0 {
         format!("{v:.0}")
@@ -216,7 +224,8 @@ fn checkpoints_view(m: &RunManifest) -> AnyView {
     .into_any()
 }
 
-/// Renders a collapsible warning section, or an empty span when there are none.
+/// Renders the run warnings as a `<section>` block, or an empty `<span>` when
+/// there are none.
 fn warnings_view(warnings: Vec<WarningEntry>) -> impl IntoView {
     if warnings.is_empty() {
         return view! { <span></span> }.into_any();
@@ -240,7 +249,7 @@ fn warnings_view(warnings: Vec<WarningEntry>) -> impl IntoView {
     .into_any()
 }
 
-/// Renders the sortable episode list as an HTML `<table>`.
+/// Renders the episode list as an HTML `<table>`.
 ///
 /// Clicking a row updates `set_selected` with that episode's `script_id`.
 fn episode_table(

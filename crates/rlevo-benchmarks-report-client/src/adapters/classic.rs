@@ -18,12 +18,27 @@ use leptos::prelude::*;
 
 use crate::wire::{Classic2DBody, Classic2DPayload, Classic2DRole, FamilyPayload, FrameRecord, Point2};
 
-/// Square SVG viewport size in user units.
+/// Square SVG viewport size in user units.  The viewBox is always `0 0 VB VB`.
 const VB: f32 = 320.0;
-/// Padding inside the viewBox on each edge.
+/// Padding reserved on each edge of the viewBox, in the same user units as
+/// [`VB`].  The drawable inner square is therefore `VB - 2 * PAD` on each
+/// side.
 const PAD: f32 = 16.0;
 
-/// Renders one classic-family frame, dispatching on the payload variant.
+/// Renders one classic-family frame as a type-erased Leptos [`AnyView`].
+///
+/// Dispatches on the payload variant: [`FamilyPayload::Classic2D`] is handled
+/// by the SVG path; all other variants fall back to
+/// [`super::fallback::render`].  The returned view is ready to be mounted
+/// directly into the Leptos component tree.
+///
+/// # Must use
+///
+/// `AnyView` is a reactive node that must be returned to the caller and
+/// inserted into the view tree; silently dropping it means the frame is never
+/// rendered.
+///
+/// [`FamilyPayload::Classic2D`]: crate::wire::FamilyPayload::Classic2D
 #[must_use]
 pub fn render(frame: &FrameRecord) -> AnyView {
     match &frame.family_payload {
@@ -46,6 +61,13 @@ const fn role_class(role: Classic2DRole) -> &'static str {
 }
 
 /// Builds the SVG figure for a [`Classic2DPayload`].
+///
+/// Applies a uniform-scale affine map from the payload's world-space `bounds`
+/// onto the padded inner square (`VB - 2*PAD`), centering the shorter axis.
+/// The y-axis is flipped so physics-up renders as visually up in the SVG.
+///
+/// Returns a warning paragraph instead of an SVG when `bounds` is degenerate
+/// (either dimension is zero or sub-epsilon).
 fn view_with_payload(payload: &Classic2DPayload) -> AnyView {
     let (lo, hi) = payload.bounds;
     let (sx, sy) = (hi.x - lo.x, hi.y - lo.y);

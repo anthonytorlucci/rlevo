@@ -4,6 +4,16 @@
 //! episode changes — fresh `frame_idx` / `playing` / `speed` signals are
 //! created scoped to the current owner, so the previous panel's signals
 //! and interval handle are disposed cleanly by Leptos's owner tree.
+//!
+//! # Module layout
+//!
+//! - **Pure helpers** (`next_frame_idx`, `clamp_idx`, `play_interval_ms`) —
+//!   stateless functions that contain the playback arithmetic.  They are
+//!   `pub` so they can be unit-tested outside the WASM environment.
+//! - **`SPEEDS`** — the canonical list of speed multipliers shared between
+//!   the play-loop `Effect` and the speed-button renderer.
+//! - **[`playback_panel`]** — the Leptos component entry point; wires the
+//!   helpers and signals into a reactive DOM subtree.
 
 use std::time::Duration;
 
@@ -49,6 +59,11 @@ pub fn play_interval_ms(speed: u32) -> u64 {
 }
 
 /// Available playback speed multipliers surfaced as toggle buttons in the UI.
+///
+/// This is the canonical source of truth for speed choices.  Both the
+/// `Effect` that arms the play-loop interval and the speed-button renderer
+/// iterate over this slice, so adding or removing an entry here propagates
+/// to both automatically.
 const SPEEDS: &[u32] = &[1, 2, 5, 10];
 
 /// Renders the interactive playback panel for one episode.

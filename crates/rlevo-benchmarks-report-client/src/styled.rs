@@ -4,6 +4,8 @@
 //! [`StyledSpan`] types into a single `<pre class="rlevo-styled">` block
 //! whose colour and modifier classes are owned by `app.css`.
 //!
+//! [`StyledLine`]: crate::wire::StyledLine
+//!
 //! Per the project accessibility contract: every colour class is paired
 //! with a hue-redundant signal — BOLD becomes `font-weight: 700`,
 //! REVERSED swaps foreground/background. A B/W screenshot of the report
