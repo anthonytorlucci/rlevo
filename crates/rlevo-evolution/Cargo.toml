@@ -12,7 +12,7 @@ categories.workspace = true
 [dependencies]
 burn = { workspace = true }
 cubecl = { workspace = true, optional = true }
-rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 # Lock type for `SharedPopulationObserver`: unified on `parking_lot` so the

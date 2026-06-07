@@ -11,9 +11,9 @@ categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.1.0" }
-rlevo-evolution = { path = "../rlevo-evolution", version = "0.1.0" }
-rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.1.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.2.0" }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.2.0" }
 rand = { workspace = true }
 serde = { workspace = true }
 
