@@ -298,11 +298,23 @@ fn rollout_steps(steps: usize, mut next_action: impl FnMut(&AcrobotObservation) 
 // Quality comparison
 // ---------------------------------------------------------------------------
 
+/// Converts a PPG greedy-policy output row to an [`AcrobotAction`].
+///
+/// `act_greedy_env_row_with` returns a `Vec<f32>` whose first element is the
+/// chosen action index (already argmaxed by the policy head). This helper casts
+/// it to `usize` and delegates to [`AcrobotAction::from_index`].
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 fn action_from_row(row: &[f32]) -> AcrobotAction {
     AcrobotAction::from_index(row[0] as usize)
 }
 
+/// Prints a formatted quality table comparing the random baseline against each
+/// trained policy over [`EVAL_EPISODES`] episodes.
+///
+/// Each policy is evaluated on its greedy (non-exploratory) inference path via
+/// the respective `act_greedy_with` method. The table reports mean episode
+/// return and goal-reach rate (fraction of episodes that terminated on the goal
+/// rather than hitting the [`TIME_LIMIT`] cap).
 fn print_quality_comparison(
     dqn: &DqnAcrobotAgent,
     c51: &C51AcrobotAgent,

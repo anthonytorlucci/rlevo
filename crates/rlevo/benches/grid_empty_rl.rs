@@ -20,7 +20,7 @@
 //! # Run with
 //!
 //! ```bash
-//! cargo bench -p rlevo --bench grid_empty_dqn
+//! cargo bench -p rlevo --bench grid_empty_rl
 //! ```
 
 #[path = "support/value_nets.rs"]

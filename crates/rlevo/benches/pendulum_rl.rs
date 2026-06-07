@@ -122,6 +122,10 @@ type SacAgent_ = SacAgent<
 // PPO value network — two-layer tanh MLP → scalar
 // ---------------------------------------------------------------------------
 
+/// Two-layer tanh MLP that maps a batch of observations to scalar state-values
+/// for the PPO critic. Architecture: `obs_dim → 64 → 64 → 1` with `tanh`
+/// activations. Implements [`PpoValue`] and is local to this bench because PPO
+/// requires a separate value network that DDPG/TD3/SAC do not.
 #[derive(Module, Debug)]
 pub struct ValueMlp<B: Backend> {
     fc1: Linear<B>,
@@ -311,6 +315,11 @@ fn train_sac_agent() -> SacAgent_ {
 // Evaluation helpers
 // ---------------------------------------------------------------------------
 
+/// Runs a single episode to completion and returns the undiscounted return.
+///
+/// Drives the environment with `next_action` until `snap.is_done()` is true.
+/// Because [`Env`] wraps [`Pendulum`] in a [`TimeLimit`] of 200 steps,
+/// termination is always by truncation — there is no natural episode end.
 fn roll_out(
     env: &mut Env,
     mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction,
@@ -327,6 +336,12 @@ fn roll_out(
     }
 }
 
+/// Evaluates a policy over [`EVAL_EPISODES`] episodes and returns the mean
+/// undiscounted return. Constructs its own fresh environment so the call is
+/// self-contained and does not interfere with a caller's environment state.
+///
+/// `cast_precision_loss` is allowed because dividing by [`EVAL_EPISODES`]
+/// (a `usize`) is exact for the episode counts used here.
 #[allow(clippy::cast_precision_loss)]
 fn evaluate(mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction) -> f32 {
     let mut env = make_env();
@@ -337,6 +352,9 @@ fn evaluate(mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction)
     total / EVAL_EPISODES as f32
 }
 
+/// Drives the environment for exactly `steps` environment steps, resetting
+/// automatically at episode boundaries. Used by the Criterion throughput
+/// benchmarks to measure per-step inference cost independent of episode length.
 fn rollout_steps(
     steps: usize,
     mut next_action: impl FnMut(&PendulumObservation) -> PendulumAction,

@@ -238,6 +238,10 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
 // Evaluation helpers
 // ---------------------------------------------------------------------------
 
+/// Runs one complete episode and returns `(cumulative_return, truncated)`.
+///
+/// `truncated` is `true` when the episode ends because the [`TimeLimit`] fired
+/// (the pole survived) and `false` when it ended by termination (pole fell).
 fn roll_out(
     env: &mut Env,
     mut next_action: impl FnMut(&CartPoleObservation) -> CartPoleAction,
@@ -267,6 +271,9 @@ fn evaluate(mut next_action: impl FnMut(&CartPoleObservation) -> CartPoleAction)
     (total / n, solved as f32 / n)
 }
 
+/// Runs exactly `steps` environment steps across episode boundaries, discarding
+/// returns. Used by [`bench_policies`] to give Criterion a fixed-length loop
+/// whose cost is independent of episode length.
 fn rollout_steps(steps: usize, mut next_action: impl FnMut(&CartPoleObservation) -> CartPoleAction) {
     let mut env = make_env();
     let mut snap = env.reset().expect("reset");

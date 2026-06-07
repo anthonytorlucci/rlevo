@@ -70,6 +70,7 @@ use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn
 
 use value_nets::{C51Mlp, QrDqnMlp, ValueMlp, VecMlpDqn};
 
+/// Fixed seed for backend weight init, host RNG, and eval sampling.
 const SEED: u64 = 2026;
 /// Observation width: `[position, velocity]`.
 const OBS_FEATURES: usize = 2;
@@ -305,6 +306,12 @@ fn rollout_steps(
 // Quality comparison
 // ---------------------------------------------------------------------------
 
+/// Converts the first element of a PPG greedy-action row (a one-element `f32`
+/// slice holding the argmax index as a float) into a [`MountainCarAction`].
+///
+/// `act_greedy_env_row_with` returns action indices as `f32` values in a row
+/// slice; casting to `usize` here is safe because the value is always a
+/// non-negative integer in `[0, ACTIONS)`.
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 fn action_from_row(row: &[f32]) -> MountainCarAction {
     MountainCarAction::from_index(row[0] as usize)
