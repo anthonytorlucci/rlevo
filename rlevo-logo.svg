@@ -68,7 +68,7 @@
   <text x="192" y="156" fill="#818cf8" font-size="10" font-family="monospace" opacity="1" dominant-baseline="middle">gen 1</text>
   <text x="164" y="232" fill="#a3e635" font-size="10" font-family="monospace" opacity="1" dominant-baseline="middle">fittest</text>
   <!-- Wordmark -->
-  <text x="240" y="168" font-family="'Courier New', Courier, monospace" font-size="88" font-weight="700" fill="#fafafa" letter-spacing="-2" dominant-baseline="auto">rlevo</text>
+  <text x="240" y="168" font-family="'Courier New', Courier, monospace" font-size="50" font-weight="700" fill="#fafafa" letter-spacing="-2" dominant-baseline="auto">rlevo(lution)</text>
   <!-- Underline gradient -->
   <rect x="240" y="185" width="380" height="3" rx="1.5" fill="url(#underline)"/>
   <!-- Tagline -->

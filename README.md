@@ -1,5 +1,7 @@
 # rlevo
 
+![Alt Text](rlevo-logo.svg)
+
 **Survival of the fittest, implemented in Rust.**
 
 Gradient descent is powerful, but it is a local optimizer. If an agent finds a mediocre solution that is "good enough," it often gets trapped in a local optimum — a mathematical rut that no amount of hyperparameter tuning can escape.
