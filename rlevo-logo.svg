@@ -1,0 +1,78 @@
+<svg width="680" height="340" viewBox="0 0 680 340" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>rlevo logo</title>
+  <desc>rlevo project logo — a neural/evolutionary network showing generational selection, with wordmark and tagline</desc>
+  <defs>
+    <!-- Background remains dark to provide the canvas for high-contrast colors -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#171717"/>
+      <stop offset="100%" stop-color="#0a0a0a"/>
+    </linearGradient>
+    <!-- Underline: fuchsia-400 → teal-400 -->
+    <linearGradient id="underline" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#a3e635"/>
+    </linearGradient>
+    <!-- Glow for the "fittest" node: teal-300 → teal-400 -->
+    <linearGradient id="glowTeal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="100%" stop-color="#a3e635"/>
+    </linearGradient>
+    <!-- Generation edges: fuchsia-400 → fuchsia-300 -->
+    <linearGradient id="edgeGrad1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#a5b4fc" stop-opacity="1"/>
+    </linearGradient>
+    <!-- Selection spine: indigo-300 → teal-400 -->
+    <linearGradient id="edgeGrad2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a5b4fc" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#a3e635" stop-opacity="1"/>
+    </linearGradient>
+    <!-- Survivor radial glow: teal -->
+    <radialGradient id="survivorGlow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#bef264" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#a3e635" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Root radial glow: fuchsia -->
+    <radialGradient id="rootGlow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#a5b4fc" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Main Background -->
+  <rect width="680" height="340" fill="url(#bgGrad)" rx="16"/>
+  <!-- Visual Glows -->
+  <circle cx="130" cy="228" r="36" fill="url(#survivorGlow)"/>
+  <circle cx="130" cy="68" r="32" fill="url(#rootGlow)"/>
+  <!-- Neural Paths -->
+  <line x1="130" y1="80" x2="88" y2="141" stroke="#818cf8" stroke-width="1" fill="none" opacity="0.95"/>
+  <line x1="130" y1="80" x2="130" y2="141" stroke="#818cf8" stroke-width="2.5" fill="none" opacity="0.95"/>
+  <line x1="130" y1="80" x2="172" y2="141" stroke="#818cf8" stroke-width="1" fill="none" opacity="0.95"/>
+  <!-- Central spine -->
+  <line x1="88" y1="163" x2="126" y2="216" stroke="#a3e635" stroke-width="1" fill="none" opacity="0.85" stroke-dasharray="3,4"/>
+  <line x1="130" y1="163" x2="130" y2="216" stroke="#a3e635" stroke-width="3.5" fill="none" opacity="1"/>
+  <line x1="172" y1="163" x2="134" y2="216" stroke="#a3e635" stroke-width="1" fill="none" opacity="0.85" stroke-dasharray="3,4"/>
+  <!-- Nodes -->
+  <circle cx="88" cy="152" r="9" fill="#818cf8" stroke="#a5b4fc" stroke-width="1.5" opacity="0.9"/>
+  <circle cx="130" cy="152" r="11" fill="#818cf8" stroke="#a5b4fc" stroke-width="1.5" opacity="1"/>
+  <circle cx="172" cy="152" r="9" fill="#818cf8" stroke="#a5b4fc" stroke-width="1.5" opacity="0.9"/>
+  <!-- Top Node (Root) -->
+  <circle cx="130" cy="68" r="16" fill="#818cf8" stroke="#a5b4fc" stroke-width="2.0"/>
+  <circle cx="130" cy="68" r="6" fill="#c7d2fe" opacity="0.85"/>
+  <!-- Bottom Node (Fittest) -->
+  <circle cx="130" cy="228" r="17" fill="url(#glowTeal)" stroke="#a3e635" stroke-width="2"/>
+  <circle cx="130" cy="228" r="8" fill="#d9f99d" opacity="0.85"/>
+  <circle cx="130" cy="228" r="3.5" fill="#ecfccb"/>
+  <!-- Labels -->
+  <text x="162" y="72" fill="#818cf8" font-size="10" font-family="monospace" opacity="1" dominant-baseline="middle">gen 0</text>
+  <text x="192" y="156" fill="#818cf8" font-size="10" font-family="monospace" opacity="1" dominant-baseline="middle">gen 1</text>
+  <text x="164" y="232" fill="#a3e635" font-size="10" font-family="monospace" opacity="1" dominant-baseline="middle">fittest</text>
+  <!-- Wordmark -->
+  <text x="240" y="168" font-family="'Courier New', Courier, monospace" font-size="50" font-weight="700" fill="#fafafa" letter-spacing="-2" dominant-baseline="auto">rlevo(lution)</text>
+  <!-- Underline gradient -->
+  <rect x="240" y="185" width="380" height="3" rx="1.5" fill="url(#underline)"/>
+  <!-- Tagline -->
+  <text x="240" y="218" font-family="'Courier New', Courier, monospace" font-size="14" letter-spacing="3"><tspan fill="#818cf8">REINFORCEMENT</tspan><tspan fill="#a3a3a3"> · </tspan><tspan fill="#a3e635">EVOLUTION</tspan></text>
+  <!-- Subtitle -->
+  <text x="240" y="258" font-family="'Courier New', Courier, monospace" font-size="12" letter-spacing="1"><tspan fill="#e5e5e5">built with </tspan><tspan fill="#fb923c">Burn</tspan><tspan fill="#e5e5e5"> · written in </tspan><tspan fill="#f97316">Rust</tspan></text>
+</svg>
