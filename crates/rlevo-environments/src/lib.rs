@@ -8,7 +8,8 @@
 //! # Module Organization
 //!
 //! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot, TenArmedBandit)
-//! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin)
+//! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
+//!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
 //! - [`wrappers`]: Environment wrappers (TimeLimit)
@@ -35,6 +36,31 @@ pub mod landscapes {
     pub mod rastrigin;
     pub mod render;
     pub mod sphere;
+
+    // Tier 1 — scalable n-D landscapes.
+    pub mod griewank;
+    pub mod michalewicz;
+    pub mod penalized1;
+    pub mod rosenbrock;
+    pub mod schwefel;
+
+    // Tier 2 — classical 2-D landscapes.
+    pub mod branin;
+    pub mod bukin6;
+    pub mod cross_in_tray;
+    pub mod easom;
+    pub mod goldstein_price;
+    pub mod himmelblau;
+    pub mod six_hump_camel;
+
+    // Tier 3 — stress-test landscapes.
+    pub mod alpine1;
+    pub mod deb1;
+    pub mod eggholder;
+    pub mod lunacek_bi_rastrigin;
+    pub mod needle_eye;
+    pub mod rosenbrock_flat;
+    pub mod trefethen;
 }
 #[cfg(feature = "bench")]
 pub mod bench;

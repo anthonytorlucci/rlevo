@@ -18,7 +18,11 @@ impl Sphere {
         Self { dim }
     }
 
-    /// Evaluate the Sphere function at `x`. Panics if `x.len() != self.dim`.
+    /// Evaluate the Sphere function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
     #[must_use]
     pub fn evaluate(&self, x: &[f64]) -> f64 {
         assert_eq!(x.len(), self.dim, "input dimension mismatch");
