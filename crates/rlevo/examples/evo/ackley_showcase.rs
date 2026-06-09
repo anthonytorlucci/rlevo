@@ -4,7 +4,24 @@
 //! Ackley is multimodal with many local minima around a single global
 //! basin at the origin — a step harder than Sphere.
 //!
-//! Run with `cargo run --release -p rlevo-evolution --example ackley_showcase`.
+//! Run with `cargo run --release -p rlevo --example ackley_showcase`.
+//!
+//! # Interpreting the output
+//!
+//! Each strategy prints one row: `label | gens | best | mean`. Fitness is the
+//! raw landscape cost under the minimization convention, so **lower is better**.
+//! `best` is `best_fitness_ever` — the lowest cost seen by any individual across
+//! all generations (a rolling minimum) — and `mean` is the average cost of the
+//! final generation. A small `best`–`mean` gap means the whole population
+//! converged; a large gap suggests premature convergence, with a few good
+//! individuals leading a still spread-out population. Values print in scientific
+//! notation, so `e-6` is near-converged and `e+2` is far off.
+//!
+//! Ackley has global optimum `f* = 0` at the origin, searched over
+//! `[-32.768, 32.768]^10`. The many shallow local minima ring a single global
+//! basin, so the difficulty is escaping the outer ripples to reach that basin —
+//! a `best` near `0` is full convergence, while a `best` stuck around `2`–`5`
+//! means a run never crossed into the central funnel.
 
 use burn::backend::Flex;
 use rlevo_environments::landscapes::ackley::Ackley;
@@ -43,6 +60,13 @@ where
     let m = harness
         .latest_metrics()
         .expect("at least one generation ran");
+    // `best` = best_fitness_ever: the lowest fitness seen across *all*
+    // generations (rolling minimum). For Ackley the global optimum is 0,
+    // so this tells you how close the best individual ever found got to
+    // the true minimum.
+    // `mean` = mean_fitness: the average fitness of the *final* generation.
+    // A large gap between best and mean suggests premature convergence;
+    // a small gap means the whole population settled near the optimum.
     println!(
         "{label:>30} | gens={:>4} | best={:>.6e} | mean={:>.6e}",
         m.generation, m.best_fitness_ever, m.mean_fitness,

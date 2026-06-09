@@ -86,6 +86,85 @@ path = "examples/evo/ackley_showcase.rs"
 name = "rastrigin_showcase"
 path = "examples/evo/rastrigin_showcase.rs"
 
+# Tier 1 — scalable n-D landscapes
+[[example]]
+name = "rosenbrock_showcase"
+path = "examples/evo/rosenbrock_showcase.rs"
+
+[[example]]
+name = "griewank_showcase"
+path = "examples/evo/griewank_showcase.rs"
+
+[[example]]
+name = "schwefel_showcase"
+path = "examples/evo/schwefel_showcase.rs"
+
+[[example]]
+name = "michalewicz_showcase"
+path = "examples/evo/michalewicz_showcase.rs"
+
+[[example]]
+name = "penalized1_showcase"
+path = "examples/evo/penalized1_showcase.rs"
+
+# Tier 2 — classical 2-D landscapes
+[[example]]
+name = "branin_showcase"
+path = "examples/evo/branin_showcase.rs"
+
+[[example]]
+name = "himmelblau_showcase"
+path = "examples/evo/himmelblau_showcase.rs"
+
+[[example]]
+name = "six_hump_camel_showcase"
+path = "examples/evo/six_hump_camel_showcase.rs"
+
+[[example]]
+name = "easom_showcase"
+path = "examples/evo/easom_showcase.rs"
+
+[[example]]
+name = "goldstein_price_showcase"
+path = "examples/evo/goldstein_price_showcase.rs"
+
+[[example]]
+name = "cross_in_tray_showcase"
+path = "examples/evo/cross_in_tray_showcase.rs"
+
+[[example]]
+name = "bukin6_showcase"
+path = "examples/evo/bukin6_showcase.rs"
+
+# Tier 3 — stress-test landscapes
+[[example]]
+name = "lunacek_showcase"
+path = "examples/evo/lunacek_showcase.rs"
+
+[[example]]
+name = "deb1_showcase"
+path = "examples/evo/deb1_showcase.rs"
+
+[[example]]
+name = "needle_eye_showcase"
+path = "examples/evo/needle_eye_showcase.rs"
+
+[[example]]
+name = "eggholder_showcase"
+path = "examples/evo/eggholder_showcase.rs"
+
+[[example]]
+name = "alpine1_showcase"
+path = "examples/evo/alpine1_showcase.rs"
+
+[[example]]
+name = "rosenbrock_flat_showcase"
+path = "examples/evo/rosenbrock_flat_showcase.rs"
+
+[[example]]
+name = "trefethen_showcase"
+path = "examples/evo/trefethen_showcase.rs"
+
 # Random-baseline-vs-learned benches. Each prints a reward/success quality
 # comparison, then times per-step rollout throughput for both policies.
 # Shared DQN model + Polyak scaffolding lives in `benches/support/dqn.rs`.

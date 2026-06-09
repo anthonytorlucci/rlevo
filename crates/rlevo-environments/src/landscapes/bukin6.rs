@@ -9,8 +9,13 @@
 //! # Domain
 //!
 //! The true domain is asymmetric: `x₁ ∈ [-15, -5]`, `x₂ ∈ [-3, 3]`.
-//! [`bounds`](Bukin6::bounds) returns `(-15.0, -5.0)` (the `x₁` range) for the
-//! renderer. The evaluator never clamps.
+//! [`bounds`](Bukin6::bounds) returns a single `(lo, hi)` pair applied
+//! per-coordinate (the consuming renderer and search harnesses use one box for
+//! every axis), so it returns the *square bounding box* `(-15.0, 3.0)` of that
+//! asymmetric domain. This is the smallest square that still contains the full
+//! domain, the parabolic ridge, and the optimum `(−10, 1)` — a per-axis `x₁`
+//! range like `(-15, -5)` would exclude both the ridge (`x₂ = 0.01·x₁² ≈ 0..2.25`)
+//! and the optimum. The evaluator never clamps.
 
 // non-differentiable on the parabolic ridge x2 = 0.01*x1^2 and at x1 = -10
 
@@ -33,11 +38,13 @@ impl Bukin6 {
         100.0 * (x2 - 0.01 * x1 * x1).abs().sqrt() + 0.01 * (x1 + 10.0).abs()
     }
 
-    /// Renderer-safe symmetric search domain (the `x₁` range). See the type-level
-    /// docs for the full asymmetric domain.
+    /// Square bounding box `(-15.0, 3.0)` of the asymmetric domain, applied
+    /// per-coordinate. Contains the full domain, the parabolic ridge, and the
+    /// optimum `(−10, 1)`. See the type-level docs for the true asymmetric
+    /// domain.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
-        (-15.0, -5.0)
+        (-15.0, 3.0)
     }
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
@@ -109,6 +116,25 @@ mod tests {
     #[test]
     fn positive_off_ridge() {
         assert!(Bukin6::new().evaluate(-12.0, 0.0) > 0.0);
+    }
+
+    #[test]
+    fn bounds_box_contains_optimum_on_both_axes() {
+        // The single `(lo, hi)` pair is applied per-coordinate, so the optimum
+        // (-10, 1) must lie inside [lo, hi] on BOTH axes for search harnesses
+        // to be able to reach it.
+        let (lo, hi) = Bukin6::new().bounds();
+        let (opt_x1, opt_x2) = (-10.0_f64, 1.0_f64);
+        assert!(lo <= opt_x1 && opt_x1 <= hi, "x1 optimum outside bounds");
+        assert!(lo <= opt_x2 && opt_x2 <= hi, "x2 optimum outside bounds");
+    }
+
+    #[test]
+    fn bounds_box_contains_full_asymmetric_domain() {
+        // The square box must cover x1 ∈ [-15, -5] and x2 ∈ [-3, 3].
+        let (lo, hi) = Bukin6::new().bounds();
+        assert!(lo <= -15.0 && hi >= -5.0, "x1 domain not covered");
+        assert!(lo <= -3.0 && hi >= 3.0, "x2 domain not covered");
     }
 
     #[test]

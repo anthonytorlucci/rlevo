@@ -104,7 +104,12 @@ pub trait Strategy<B: Backend>: Send + Sync {
     ///
     /// Samples the initial population, primes adaptive quantities, and
     /// sets the generation counter to zero.
-    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self::State;
+    fn init(
+        &self,
+        params: &Self::Params,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self::State;
 
     /// Propose the next population.
     ///
@@ -148,6 +153,22 @@ pub trait Strategy<B: Backend>: Send + Sync {
 ///
 /// All statistics refer to the generation that just finished evaluating.
 /// Fitness values follow the minimization convention: lower is better.
+///
+/// When printed in a benchmark showcase (e.g. `ackley_showcase`), the
+/// two most informative fields are:
+///
+/// - **`best_fitness_ever`** — the smallest fitness seen across *all*
+///   generations so far. This is a rolling minimum that tells you how
+///   close the best individual ever found came to the global optimum.
+/// - **`mean_fitness`** — the arithmetic mean of the current generation's
+///   per-individual fitness vector. This tells you the average quality of
+///   the population in that generation.
+///
+/// A large gap between `best_fitness_ever` and `mean_fitness` in the final
+/// generation usually indicates premature convergence: a few elite
+/// individuals found a good basin while the rest of the population is still
+/// scattered. A small gap suggests the whole population has settled near the
+/// same optimum.
 #[derive(Debug, Clone)]
 pub struct StrategyMetrics {
     /// Zero-based generation index.
@@ -157,10 +178,22 @@ pub struct StrategyMetrics {
     /// Smallest fitness observed in this generation.
     pub best_fitness: f32,
     /// Mean fitness across this generation's population.
+    ///
+    /// This is the arithmetic mean of the per-individual fitness vector
+    /// for the generation that just finished. In a showcase table printed
+    /// after a run, this value reflects the *final* generation's average
+    /// quality. See the struct-level docs for how to interpret the gap
+    /// between this field and [`Self::best_fitness_ever`].
     pub mean_fitness: f32,
     /// Largest fitness observed in this generation.
     pub worst_fitness: f32,
     /// Best fitness seen across *all* generations to date.
+    ///
+    /// This is a rolling minimum (`previous_best.min(current_generation_best)`).
+    /// When printed in a benchmark showcase, it represents the best
+    /// solution quality found during the entire run. For landscapes whose
+    /// global optimum is known (e.g. Ackley → 0), this value tells you
+    /// how close the algorithm got to the theoretical minimum.
     pub best_fitness_ever: f32,
 }
 
@@ -437,15 +470,11 @@ where
             best_fitness_ever = f64::from(metrics.best_fitness_ever),
             "evolution generation",
         );
-        if let (Some(observer), Some(fitnesses)) =
-            (self.observer.as_ref(), snapshot_fitness)
-        {
+        if let (Some(observer), Some(fitnesses)) = (self.observer.as_ref(), snapshot_fitness) {
             let best_index = fitnesses
                 .iter()
                 .enumerate()
-                .min_by(|(_, a), (_, b)| {
-                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                })
+                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map_or(0, |(i, _)| u32::try_from(i).unwrap_or(0));
             let snapshot = PopulationSnapshot {
                 generation: u32::try_from(metrics.generation).unwrap_or(u32::MAX),
@@ -481,10 +510,7 @@ where
         Ok(())
     }
 
-    fn step(
-        &mut self,
-        action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError> {
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
         Ok(EvolutionaryHarness::<B, S, F>::step(self, action))
     }
 }
