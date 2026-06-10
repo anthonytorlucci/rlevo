@@ -35,6 +35,66 @@ evo-rastrigin:
 evo-sphere:
     cargo run -p rlevo --example sphere_showcase
 
+# Tier 1 — scalable n-D landscapes
+evo-rosenbrock:
+    cargo run -p rlevo --example rosenbrock_showcase
+
+evo-griewank:
+    cargo run -p rlevo --example griewank_showcase
+
+evo-schwefel:
+    cargo run -p rlevo --example schwefel_showcase
+
+evo-michalewicz:
+    cargo run -p rlevo --example michalewicz_showcase
+
+evo-penalized1:
+    cargo run -p rlevo --example penalized1_showcase
+
+# Tier 2 — classical 2-D landscapes
+evo-branin:
+    cargo run -p rlevo --example branin_showcase
+
+evo-himmelblau:
+    cargo run -p rlevo --example himmelblau_showcase
+
+evo-six-hump-camel:
+    cargo run -p rlevo --example six_hump_camel_showcase
+
+evo-easom:
+    cargo run -p rlevo --example easom_showcase
+
+evo-goldstein-price:
+    cargo run -p rlevo --example goldstein_price_showcase
+
+evo-cross-in-tray:
+    cargo run -p rlevo --example cross_in_tray_showcase
+
+evo-bukin6:
+    cargo run -p rlevo --example bukin6_showcase
+
+# Tier 3 — stress-test landscapes
+evo-lunacek:
+    cargo run -p rlevo --example lunacek_showcase
+
+evo-deb1:
+    cargo run -p rlevo --example deb1_showcase
+
+evo-needle-eye:
+    cargo run -p rlevo --example needle_eye_showcase
+
+evo-eggholder:
+    cargo run -p rlevo --example eggholder_showcase
+
+evo-alpine1:
+    cargo run -p rlevo --example alpine1_showcase
+
+evo-rosenbrock-flat:
+    cargo run -p rlevo --example rosenbrock_flat_showcase
+
+evo-trefethen:
+    cargo run -p rlevo --example trefethen_showcase
+
 cartpole-random:
     cargo run -p rlevo --example cartpole_random
 

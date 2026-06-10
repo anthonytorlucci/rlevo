@@ -21,7 +21,11 @@ impl Rastrigin {
         Self { dim, a: 10.0 }
     }
 
-    /// Evaluate the Rastrigin function at `x`. Panics if `x.len() != self.dim`.
+    /// Evaluate the Rastrigin function at `x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != self.dim`.
     #[must_use]
     pub fn evaluate(&self, x: &[f64]) -> f64 {
         assert_eq!(x.len(), self.dim, "input dimension mismatch");
