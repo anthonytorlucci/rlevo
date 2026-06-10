@@ -95,6 +95,10 @@ evo-rosenbrock-flat:
 evo-trefethen:
     cargo run -p rlevo --example trefethen_showcase
 
+# Memetic: bare DE vs MemeticWrapper<DE, HillClimbing>, Rastrigin-D10 evals-to-target.
+evo-memetic:
+    cargo run --release -p rlevo --example memetic_showcase
+
 cartpole-random:
     cargo run -p rlevo --example cartpole_random
 
@@ -171,6 +175,14 @@ test-rastrigin:
 # Every shipping swarm strategy on Rastrigin-D10 and Ackley-D10.
 test-swarm:
     cargo test -p rlevo --test swarm_rastrigin_suite
+
+# Memetic headline acceptance: wrapper beats bare DE on evals-to-target (>=30% fewer).
+test-memetic:
+    cargo test -p rlevo --test memetic_rastrigin
+
+# Memetic calibration explorer [ignored: multi-seed sweep for re-pinning the margin].
+test-memetic-calibration:
+    cargo test -p rlevo --test memetic_rastrigin --release -- calibration_explorer --ignored --nocapture
 
 # Post-run record → report pipeline smoke [requires viz-report feature].
 test-report-smoke:
