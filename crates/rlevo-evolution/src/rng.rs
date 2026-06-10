@@ -41,6 +41,12 @@ pub enum SeedPurpose {
     Trial = 5,
     /// Catch-all for strategy-specific stochastic steps.
     Other = 6,
+    /// Local-search refinement (memetic algorithms).
+    ///
+    /// Used by [`crate::local_search`] searchers so a memetic wrapper's
+    /// per-individual refinement draws from a stream independent of the
+    /// inner strategy's selection/mutation/crossover/replacement streams.
+    LocalSearch = 7,
 }
 
 impl SeedPurpose {
@@ -53,6 +59,7 @@ impl SeedPurpose {
             SeedPurpose::Replacement => 0x0123_4567_89AB_CDEF,
             SeedPurpose::Trial => 0xBAAD_F00D_DEAD_C0DE,
             SeedPurpose::Other => 0x9E37_79B9_7F4A_7C15,
+            SeedPurpose::LocalSearch => 0xC0FF_EE15_600D_F00D,
         }
     }
 }
@@ -120,9 +127,13 @@ mod tests {
         let a = seed_stream(42, 0, SeedPurpose::Init).next_u64();
         let b = seed_stream(42, 0, SeedPurpose::Selection).next_u64();
         let c = seed_stream(42, 0, SeedPurpose::Mutation).next_u64();
+        let d = seed_stream(42, 0, SeedPurpose::LocalSearch).next_u64();
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
+        assert_ne!(a, d);
+        assert_ne!(b, d);
+        assert_ne!(c, d);
     }
 
     #[test]

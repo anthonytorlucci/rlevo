@@ -30,11 +30,15 @@
 //! - [`rng`] — deterministic seed streams (splitmix64) for reproducibility.
 //! - [`shaping`] — fitness shaping transforms (centered rank, z-score).
 //! - [`ops`] — selection, crossover, mutation, and replacement operators.
+//! - [`local_search`] — host-side, gradient-free refinement
+//!   ([`LocalSearch`] and the four reference
+//!   searchers) for memetic algorithms.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;
 pub mod fitness;
 pub mod genome;
+pub mod local_search;
 pub mod observer;
 pub mod ops;
 pub mod population;
@@ -42,5 +46,9 @@ pub mod rng;
 pub mod shaping;
 pub mod strategy;
 
+pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
+pub use local_search::{
+    HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
+};
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
