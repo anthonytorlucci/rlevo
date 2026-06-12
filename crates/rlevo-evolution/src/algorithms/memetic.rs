@@ -98,6 +98,33 @@ impl Default for WritebackPolicy {
 }
 
 /// Determines which population members are refined each generation.
+///
+/// # Cost and tuning
+///
+/// Coverage is the dominant cost knob: each refined row spends up to
+/// `Params::max_iters` fitness evaluations (plus one mandatory seeding eval of
+/// its own input — see below), so [`Full`](Self::Full) costs `pop_size`× a
+/// [`TopK { k: 1 }`](Self::TopK) generation. When the budget that matters is
+/// *evaluations to reach a target* (not wall-clock or final-gen fitness), wide
+/// coverage with a heavy searcher can lose to bare evolution: it spends its
+/// eval budget polishing individuals that selection would have discarded
+/// anyway. **Tune against evals-to-target**, not against a fixed generation
+/// count — a fixed-gens comparison hides the refinement evals and flatters wide
+/// coverage. The default, [`TopK { k: 1 }`](Self::TopK), refines only the
+/// single best individual and is the cheapest sane starting point.
+///
+/// One caveat cuts the other way: on a *separable* landscape with basin-width
+/// search steps, axis-aligned hill climbing is nearly a direct solver, so wide
+/// coverage with an untuned high-`max_iters` searcher can dominate. That is a
+/// landscape artifact, not a config to copy — re-tune per problem.
+///
+/// Each refined row currently burns one extra eval re-scoring its own input,
+/// because [`LocalSearch::refine`] carries no input fitness. Under `TopK { k: 1 }` that is one wasted
+/// eval/generation; under `Full` it is `pop_size`/generation, which is part of
+/// what makes wide coverage expensive. The pre-cleared additive fix (ADR 0016,
+/// reversal criteria) is a defaulted `refine_with_known_fitness` method that
+/// seeds the searcher with the fitness the wrapper already holds; it is
+/// deferred until a second consumer of the seam lands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoveragePolicy {
     /// Refine every individual.

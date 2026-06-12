@@ -86,6 +86,13 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// `max_iters == 0` as an invalid configuration and **panic**; implementors
 /// should do the same rather than fabricate a fitness value.
 ///
+/// All reference searchers route every evaluation — including the seeding eval
+/// of the input — through a shared budget helper that maps a `NaN` fitness to
+/// [`f32::INFINITY`], so a `NaN` probe can never seed or displace a finite
+/// best-so-far and thus never propagates to the returned fitness. Custom
+/// implementors that probe a `fitness_fn` directly should apply the same
+/// sanitization rather than let a `NaN` seed their best-so-far tracker.
+///
 /// # Type parameters
 ///
 /// - `B`: Burn backend. **Currently unused** by every reference searcher (they
@@ -185,12 +192,24 @@ impl<'a> BudgetedEval<'a> {
     ///
     /// Returns `Some(fitness)` while budget remains, or `None` once the budget
     /// is exhausted (in which case no underlying evaluation is performed).
+    ///
+    /// A `NaN` fitness is sanitized to [`f32::INFINITY`] before it leaves this
+    /// method. Because every searcher routes *all* evaluations — including the
+    /// mandatory seeding eval of the input genome (contract item 3) — through
+    /// `BudgetedEval`, this is the single chokepoint that keeps `NaN` out of the
+    /// best-so-far trackers. Mapping `NaN` to `+inf` (the worst value under
+    /// minimization) means a `NaN` probe can never seed or displace a finite
+    /// best, so it never propagates to the returned fitness; if *every* probe is
+    /// `NaN` the searcher honestly returns `+inf` rather than `NaN`. For the
+    /// finite benchmark landscapes the searchers ship against this branch is
+    /// never taken, so it costs only one `is_nan` check per evaluation.
     pub(crate) fn eval(&mut self, genome: &Vec<f32>) -> Option<f32> {
         if self.remaining == 0 {
             return None;
         }
         self.remaining -= 1;
-        Some(self.inner.evaluate_one(genome))
+        let f: f32 = self.inner.evaluate_one(genome);
+        Some(if f.is_nan() { f32::INFINITY } else { f })
     }
 
     /// Number of evaluations still permitted.
@@ -236,6 +255,27 @@ mod tests {
         assert_eq!(budget.remaining(), 0);
         // Budget exhausted: no further evaluation, returns None.
         assert_eq!(budget.eval(&vec![0.0, 0.0]), None);
+    }
+
+    /// Returns `NaN` for the origin, sphere otherwise — exercises the
+    /// `BudgetedEval` NaN sanitization at the single evaluation chokepoint.
+    struct NanAtOrigin;
+    impl FitnessFn<Vec<f32>> for NanAtOrigin {
+        fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
+            let s: f32 = x.iter().map(|v| v * v).sum();
+            if s == 0.0 { f32::NAN } else { s }
+        }
+    }
+
+    #[test]
+    fn budgeted_eval_sanitizes_nan_to_infinity() {
+        let mut f = NanAtOrigin;
+        let mut budget = BudgetedEval::new(&mut f, 2);
+        // A NaN probe is mapped to +inf (the worst value under minimization),
+        // so it can never seed or displace a finite best-so-far.
+        assert_eq!(budget.eval(&vec![0.0, 0.0]), Some(f32::INFINITY));
+        // A finite probe is passed through unchanged.
+        assert_eq!(budget.eval(&vec![3.0, 4.0]), Some(25.0));
     }
 
     #[test]
