@@ -33,6 +33,8 @@
 //! - [`local_search`] — host-side, gradient-free refinement
 //!   ([`LocalSearch`] and the four reference
 //!   searchers) for memetic algorithms.
+//! - [`probability_model`] — the [`ProbabilityModel`] trait shared by the
+//!   estimation-of-distribution (EDA) strategies.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;
@@ -42,11 +44,18 @@ pub mod local_search;
 pub mod observer;
 pub mod ops;
 pub mod population;
+pub mod probability_model;
 pub mod rng;
 pub mod shaping;
 pub mod strategy;
 
+pub use algorithms::eda::{
+    CompactGenetic, CompactGeneticParams, DependencyChain, DependencyChainParams, EdaParams,
+    EdaState, EdaStrategy, UnivariateBernoulli, UnivariateBernoulliParams, UnivariateGaussian,
+    UnivariateGaussianParams,
+};
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
+pub use probability_model::ProbabilityModel;
 pub use local_search::{
     HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
 };
