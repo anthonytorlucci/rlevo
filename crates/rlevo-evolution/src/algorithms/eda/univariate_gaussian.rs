@@ -1,0 +1,350 @@
+//! Univariate Gaussian model (UMDA — Univariate Marginal Distribution
+//! Algorithm) for continuous search spaces.
+//!
+//! Each dimension is modelled by an independent Gaussian. [`fit`] performs an
+//! unweighted maximum-likelihood estimate over the `k` selected rows: the
+//! per-column mean and variance are computed via `÷k` (not `÷(k-1)`), and the
+//! variance is floored at [`UnivariateGaussianParams::min_variance`] to prevent
+//! collapse to a point mass. The `fitness` tensor is accepted by the
+//! [`ProbabilityModel`] interface but ignored; the fit is unweighted.
+//! [`sample`] draws each gene from its dimension's fitted Gaussian using the
+//! supplied host RNG (never `Tensor::random` / `B::seed`).
+//!
+//! Cross-dimension dependencies are not captured — for those, see
+//! [`super::dependency_chain`].
+//!
+//! # References
+//!
+//! - Mühlenbein & Paaß (1996), *From recombination of genes to the
+//!   estimation of distributions I. Binary parameters*.
+//!
+//! [`fit`]: crate::ProbabilityModel::fit
+//! [`sample`]: crate::ProbabilityModel::sample
+
+use burn::tensor::{Tensor, TensorData, backend::Backend};
+use rand::Rng;
+use rand_distr::{Distribution as _, Normal};
+
+use crate::probability_model::ProbabilityModel;
+
+/// Per-run configuration for the [`UnivariateGaussian`] model.
+///
+/// Held inside [`EdaParams::model`](crate::algorithms::eda::EdaParams::model)
+/// for the lifetime of a run. All fields are `pub` for struct-literal
+/// construction; use [`UnivariateGaussianParams::default_for`] for typical
+/// continuous-optimisation defaults.
+#[derive(Debug, Clone)]
+pub struct UnivariateGaussianParams {
+    /// Number of genes per genome; determines the length of
+    /// [`UnivariateGaussianState::mean`] and [`UnivariateGaussianState::variance`].
+    pub genome_dim: usize,
+    /// Prior mean for every dimension, used when `prev = None`.
+    pub init_mean: f32,
+    /// Prior standard deviation for every dimension, used when `prev = None`.
+    /// The prior variance is `init_std²`.
+    pub init_std: f32,
+    /// Minimum variance for any dimension; prevents the model from collapsing
+    /// to a point mass. The MLE estimate is floored at this value after each
+    /// [`ProbabilityModel::fit`] call.
+    pub min_variance: f32,
+}
+
+impl UnivariateGaussianParams {
+    /// Sensible defaults for a `genome_dim`-dimensional continuous problem.
+    #[must_use]
+    pub fn default_for(genome_dim: usize) -> Self {
+        Self {
+            genome_dim,
+            init_mean: 0.0,
+            init_std: 2.0,
+            min_variance: 1e-6,
+        }
+    }
+}
+
+/// Fitted statistics for the [`UnivariateGaussian`] model after one call to
+/// [`ProbabilityModel::fit`].
+///
+/// Both vectors have length `genome_dim`. On the prior path (`prev = None`)
+/// they are initialised from [`UnivariateGaussianParams::init_mean`] /
+/// `init_std²`; on subsequent calls they hold the unweighted MLE estimates
+/// computed from the truncation-selected population.
+#[derive(Debug, Clone)]
+pub struct UnivariateGaussianState {
+    /// Per-dimension MLE mean.
+    pub mean: Vec<f32>,
+    /// Per-dimension MLE variance, floored at
+    /// [`UnivariateGaussianParams::min_variance`].
+    pub variance: Vec<f32>,
+}
+
+/// Univariate Marginal Distribution Algorithm for continuous spaces (UMDA).
+///
+/// Implements [`ProbabilityModel`] with an unweighted per-dimension Gaussian
+/// fit (`÷k` MLE variance, [`UnivariateGaussianParams::min_variance`] floor)
+/// and independent per-dimension Gaussian sampling via the host RNG.
+/// The fitness tensor passed to [`ProbabilityModel::fit`] is accepted but
+/// ignored; the estimate is always unweighted.
+///
+/// See the [module docs](self) for the algorithm description and references.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnivariateGaussian;
+
+impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
+    type Params = UnivariateGaussianParams;
+    type State = UnivariateGaussianState;
+
+    /// Fit per-dimension Gaussian statistics to the selected population.
+    ///
+    /// When `prev = None` returns the prior (length-`genome_dim` vectors of
+    /// `init_mean` and `init_std²`); `population` and `fitness` are ignored
+    /// on that path. Otherwise computes the unweighted `÷k` MLE mean and
+    /// variance for every column and floors each variance at `min_variance`.
+    /// The `fitness` argument is accepted but always ignored.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic. The `expect` inside `sample` (not `fit`) is guarded
+    /// by the variance floor, which guarantees a positive, finite standard
+    /// deviation for every dimension.
+    fn fit(
+        &self,
+        params: &Self::Params,
+        prev: Option<&Self::State>,
+        population: Tensor<B, 2>,
+        fitness: Tensor<B, 1>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self::State {
+        let _ = device;
+        // Fitness is accepted but ignored: the MLE fit is unweighted.
+        let _ = fitness;
+        let Some(_prev) = prev else {
+            // Prior path: build purely from params, ignore population/fitness.
+            let d = params.genome_dim;
+            return UnivariateGaussianState {
+                mean: vec![params.init_mean; d],
+                variance: vec![params.init_std * params.init_std; d],
+            };
+        };
+        // `prev`'s contents are unused on this path — UMDA is a full refit.
+
+        let [k, d] = population.dims();
+        let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
+        // k is a selected-population count, far below f32's 2^24 exact-integer
+        // limit; the cast is lossless in practice.
+        #[allow(clippy::cast_precision_loss)]
+        let kf = k as f32;
+
+        let mut mean = vec![0.0_f32; d];
+        for i in 0..k {
+            for j in 0..d {
+                mean[j] += rows[i * d + j];
+            }
+        }
+        for m in &mut mean {
+            *m /= kf;
+        }
+
+        let mut variance = vec![0.0_f32; d];
+        for i in 0..k {
+            for j in 0..d {
+                let diff = rows[i * d + j] - mean[j];
+                variance[j] += diff * diff;
+            }
+        }
+        for v in &mut variance {
+            *v = (*v / kf).max(params.min_variance);
+        }
+
+        UnivariateGaussianState { mean, variance }
+    }
+
+    /// Draw `n` genomes from the fitted per-dimension Gaussians.
+    ///
+    /// All randomness is drawn from `rng` (host RNG only; never
+    /// `Tensor::random` / `B::seed`). The returned tensor has shape `(n, D)`.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic under normal operation. The internal `Normal::new`
+    /// constructor is guarded by `min_variance`, ensuring the standard
+    /// deviation is always strictly positive and finite.
+    fn sample(
+        &self,
+        state: &Self::State,
+        n: usize,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 2> {
+        let d = state.mean.len();
+        // One Normal per dimension; the floored std is positive and finite.
+        let normals: Vec<Normal<f32>> = (0..d)
+            .map(|j| {
+                Normal::new(state.mean[j], state.variance[j].sqrt())
+                    .expect("floored std is positive and finite")
+            })
+            .collect();
+        // Row-major fill: outer loop individuals, inner loop dimensions.
+        let mut rows = Vec::with_capacity(n * d);
+        for _ in 0..n {
+            for normal in &normals {
+                rows.push(normal.sample(rng));
+            }
+        }
+        Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    type TestBackend = Flex;
+
+    fn pop(rows: Vec<f32>, n: usize, d: usize) -> Tensor<TestBackend, 2> {
+        let device = Default::default();
+        Tensor::<TestBackend, 2>::from_data(TensorData::new(rows, [n, d]), &device)
+    }
+
+    fn fitness(values: Vec<f32>) -> Tensor<TestBackend, 1> {
+        let device = Default::default();
+        let n = values.len();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [n]), &device)
+    }
+
+    #[test]
+    fn prior_from_params() {
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(3);
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        assert_eq!(state.mean, vec![0.0, 0.0, 0.0]);
+        for v in &state.variance {
+            approx::assert_relative_eq!(*v, 4.0, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
+    fn mle_matches_hand_computed() {
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(2);
+        // Column 0: [0, 2, 4] → mean 2, var = (4+0+4)/3 = 8/3.
+        // Column 1: [1, 1, 4] → mean 2, var = (1+1+4)/3 = 2.
+        let population = pop(vec![0.0, 1.0, 2.0, 1.0, 4.0, 4.0], 3, 2);
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prior),
+            population,
+            fitness(vec![0.0, 1.0, 2.0]),
+            &device,
+        );
+        approx::assert_relative_eq!(state.mean[0], 2.0, epsilon = 1e-5);
+        approx::assert_relative_eq!(state.mean[1], 2.0, epsilon = 1e-5);
+        approx::assert_relative_eq!(state.variance[0], 8.0 / 3.0, epsilon = 1e-5);
+        approx::assert_relative_eq!(state.variance[1], 2.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn variance_floor_engages_on_constant_column() {
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(1);
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        // Constant column → raw variance 0, floored to min_variance.
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prior),
+            pop(vec![3.0, 3.0, 3.0], 3, 1),
+            fitness(vec![0.0, 0.0, 0.0]),
+            &device,
+        );
+        approx::assert_relative_eq!(state.variance[0], p.min_variance, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn fitness_is_ignored() {
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(2);
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        let rows = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        let a = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prior),
+            pop(rows.clone(), 3, 2),
+            fitness(vec![0.0, 1.0, 2.0]),
+            &device,
+        );
+        let b = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prior),
+            pop(rows, 3, 2),
+            fitness(vec![100.0, -7.0, 42.0]),
+            &device,
+        );
+        assert_eq!(a.mean, b.mean);
+        assert_eq!(a.variance, b.variance);
+    }
+
+    #[test]
+    fn seeded_sampling_mean_matches_state() {
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let state = UnivariateGaussianState {
+            mean: vec![3.0, -1.0],
+            variance: vec![1.0, 0.25],
+        };
+        let mut rng = StdRng::seed_from_u64(123);
+        let samples = <UnivariateGaussian as ProbabilityModel<TestBackend>>::sample(
+            &model, &state, 10_000, &mut rng, &device,
+        );
+        let dims = samples.dims();
+        assert_eq!(dims, [10_000, 2]);
+        let data = samples.into_data().into_vec::<f32>().unwrap();
+        let mut sum0 = 0.0_f32;
+        let mut sum1 = 0.0_f32;
+        for i in 0..10_000 {
+            sum0 += data[i * 2];
+            sum1 += data[i * 2 + 1];
+        }
+        approx::assert_relative_eq!(sum0 / 10_000.0, 3.0, epsilon = 0.1);
+        approx::assert_relative_eq!(sum1 / 10_000.0, -1.0, epsilon = 0.1);
+    }
+}

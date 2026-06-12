@@ -47,6 +47,12 @@ pub enum SeedPurpose {
     /// per-individual refinement draws from a stream independent of the
     /// inner strategy's selection/mutation/crossover/replacement streams.
     LocalSearch = 7,
+    /// Model sampling in estimation-of-distribution (EDA) strategies.
+    ///
+    /// Used by [`crate::algorithms::eda`] so each generation draws its new
+    /// population from an independent per-generation stream, isolated from
+    /// every other operator purpose.
+    EdaSampling = 8,
 }
 
 impl SeedPurpose {
@@ -60,6 +66,7 @@ impl SeedPurpose {
             SeedPurpose::Trial => 0xBAAD_F00D_DEAD_C0DE,
             SeedPurpose::Other => 0x9E37_79B9_7F4A_7C15,
             SeedPurpose::LocalSearch => 0xC0FF_EE15_600D_F00D,
+            SeedPurpose::EdaSampling => 0xEDA0_5EED_BEEF_CAFE,
         }
     }
 }
@@ -122,18 +129,26 @@ mod tests {
         }
     }
 
+    // One single-letter binding per purpose under test; the names index the
+    // purpose list rather than carrying independent meaning.
+    #[allow(clippy::many_single_char_names)]
     #[test]
     fn different_purposes_produce_different_streams() {
         let a = seed_stream(42, 0, SeedPurpose::Init).next_u64();
         let b = seed_stream(42, 0, SeedPurpose::Selection).next_u64();
         let c = seed_stream(42, 0, SeedPurpose::Mutation).next_u64();
         let d = seed_stream(42, 0, SeedPurpose::LocalSearch).next_u64();
+        let e = seed_stream(42, 0, SeedPurpose::EdaSampling).next_u64();
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
         assert_ne!(a, d);
         assert_ne!(b, d);
         assert_ne!(c, d);
+        assert_ne!(a, e);
+        assert_ne!(b, e);
+        assert_ne!(c, e);
+        assert_ne!(d, e);
     }
 
     #[test]

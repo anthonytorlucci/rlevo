@@ -12,6 +12,12 @@
 //!
 //! - [`metaheuristic`] — PSO, `ACO_R`, ABC, GWO, WOA, CS, FA, BA, SSA.
 //!
+//! # Estimation-of-distribution algorithms
+//!
+//! - [`eda`] — [`EdaStrategy`](eda::EdaStrategy) over a
+//!   [`ProbabilityModel`](crate::ProbabilityModel): UMDA, PBIL, compact-GA,
+//!   and a dependency-chain MIMIC model.
+//!
 //! # Hybrid / composite strategies
 //!
 //! - [`memetic`] — [`MemeticWrapper`](memetic::MemeticWrapper): wraps any
@@ -19,6 +25,7 @@
 //!   (Lamarckian / Baldwinian / Partial writeback).
 
 pub mod de;
+pub mod eda;
 pub mod ep;
 pub mod es_classical;
 pub mod ga;
