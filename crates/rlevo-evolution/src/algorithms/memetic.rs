@@ -102,9 +102,9 @@ impl Default for WritebackPolicy {
 /// # Cost and tuning
 ///
 /// Coverage is the dominant cost knob: each refined row spends up to
-/// `Params::max_iters` fitness evaluations (plus one mandatory seeding eval of
-/// its own input — see below), so [`Full`](Self::Full) costs `pop_size`× a
-/// [`TopK { k: 1 }`](Self::TopK) generation. When the budget that matters is
+/// `Params::max_iters` fitness evaluations, so [`Full`](Self::Full) costs
+/// `pop_size`× a [`TopK { k: 1 }`](Self::TopK) generation. When the budget that
+/// matters is
 /// *evaluations to reach a target* (not wall-clock or final-gen fitness), wide
 /// coverage with a heavy searcher can lose to bare evolution: it spends its
 /// eval budget polishing individuals that selection would have discarded
@@ -118,13 +118,10 @@ impl Default for WritebackPolicy {
 /// coverage with an untuned high-`max_iters` searcher can dominate. That is a
 /// landscape artifact, not a config to copy — re-tune per problem.
 ///
-/// Each refined row currently burns one extra eval re-scoring its own input,
-/// because [`LocalSearch::refine`] carries no input fitness. Under `TopK { k: 1 }` that is one wasted
-/// eval/generation; under `Full` it is `pop_size`/generation, which is part of
-/// what makes wide coverage expensive. The pre-cleared additive fix (ADR 0016,
-/// reversal criteria) is a defaulted `refine_with_known_fitness` method that
-/// seeds the searcher with the fitness the wrapper already holds; it is
-/// deferred until a second consumer of the seam lands.
+/// The wrapper avoids the seeding-eval waste that an unaware caller would pay:
+/// it hands each searcher the fitness the harness already computed via
+/// [`LocalSearch::refine_with_known_fitness`], so a refined row spends its evals
+/// on probes rather than re-scoring its own input (ADR 0016 reversal criteria).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoveragePolicy {
     /// Refine every individual.
@@ -463,9 +460,19 @@ where
             for &i in &indices {
                 let start: usize = i * dim;
                 let row: Vec<f32> = flat[start..start + dim].to_vec();
-                let (refined, f_refined): (Vec<f32>, f32) =
-                    self.local
-                        .refine(&params.local, row, &mut row_fitness, &mut ls_rng);
+                // The harness already scored this row this generation; hand that
+                // fitness to the searcher so it skips the seeding eval instead of
+                // re-scoring its own input. `refined_fit[i]` still holds the
+                // original harness value — it is overwritten only below, and each
+                // covered index `i` is distinct.
+                let known_fit: f32 = refined_fit[i];
+                let (refined, f_refined): (Vec<f32>, f32) = self.local.refine_with_known_fitness(
+                    &params.local,
+                    row,
+                    known_fit,
+                    &mut row_fitness,
+                    &mut ls_rng,
+                );
                 debug_assert_eq!(refined.len(), dim, "local search must preserve genome length");
                 // Baldwinian keeps the original genome but pays refined fitness;
                 // Lamarckian writes the genome too. Either way the fitness is

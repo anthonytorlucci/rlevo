@@ -29,8 +29,8 @@
 //! - The **headline** row (`TopK{1}`, best-improvement hill climbing,
 //!   `max_iters=20`, Lamarckian) reaches each target in substantially fewer
 //!   evaluations than bare DE — the same calibrated configuration pinned by
-//!   the `memetic_rastrigin` acceptance test (~54% fewer at target 30), which
-//!   verified the win across five seeds.
+//!   the `memetic_rastrigin` acceptance test (~74% fewer at target 30 on the
+//!   pinned seed), which verified the win across five seeds.
 //! - The **writeback** rows vary only `WritebackPolicy`. Lamarckian writes
 //!   refined genomes back into the population; Baldwinian keeps the genomes
 //!   untouched and only credits the refined fitness; `Partial(0.5)` (the
@@ -266,8 +266,8 @@ CR=0.9) and one seed.\n\n{:-<120}",
     println!(
         "{:-<120}
 Takeaway: the headline row is the robust, multi-seed-calibrated win the
-acceptance test pins (~54% fewer evals than bare DE to reach 30). The
-writeback rows show the policy choice alone can move — or lose — the
+acceptance test pins (~74% fewer evals than bare DE to reach 30 on the pinned
+seed). The writeback rows show the policy choice alone can move — or lose — the
 advantage at tight targets. The untuned-defaults row dominates only because
 Rastrigin is separable and axis-aligned hill climbing with basin-width steps
 exploits that perfectly; do not expect it to transfer to non-separable

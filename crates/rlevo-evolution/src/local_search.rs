@@ -35,6 +35,11 @@
 //! (including the mandatory first re-evaluation of the input genome). The
 //! shared `BudgetedEval` helper enforces this so the bound holds structurally
 //! even on flat landscapes where no probe ever improves.
+//!
+//! [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness) skips
+//! that seeding eval when the caller already knows the input's fitness, so the
+//! same `max_iters` then buys one extra *probe* evaluation. The seeding eval
+//! consumes no rng, so skipping it never shifts a searcher's random stream.
 
 use burn::tensor::backend::Backend;
 use rand::Rng;
@@ -84,14 +89,20 @@ pub use simulated_annealing::{CoolingSchedule, SimulatedAnnealing, SimulatedAnne
 /// Because the input genome is always evaluated once (contract item 3), a
 /// `max_iters` of `0` cannot be honored honestly. Reference searchers treat
 /// `max_iters == 0` as an invalid configuration and **panic**; implementors
-/// should do the same rather than fabricate a fitness value.
+/// should do the same rather than fabricate a fitness value. This holds on the
+/// [`refine_with_known_fitness`](Self::refine_with_known_fitness) path too: the
+/// reference searchers keep the `max_iters >= 1` panic even though that path
+/// performs no seeding eval, so the two entry points share one budget contract.
 ///
 /// All reference searchers route every evaluation — including the seeding eval
-/// of the input — through a shared budget helper that maps a `NaN` fitness to
-/// [`f32::INFINITY`], so a `NaN` probe can never seed or displace a finite
-/// best-so-far and thus never propagates to the returned fitness. Custom
-/// implementors that probe a `fitness_fn` directly should apply the same
-/// sanitization rather than let a `NaN` seed their best-so-far tracker.
+/// of the input — through a shared budget helper that
+/// maps a `NaN` fitness to [`f32::INFINITY`], so a `NaN` probe can never seed or
+/// displace a finite best-so-far and thus never propagates to the returned
+/// fitness. The same rule applies to the `known_fitness` hint, which arrives
+/// from a path that does *not* flow through the budget helper: every reference
+/// override sanitizes the hint before seeding. Custom implementors that probe a
+/// `fitness_fn` directly — or seed from a hint — should apply the same
+/// sanitization rather than let a `NaN` reach their best-so-far tracker.
 ///
 /// # Type parameters
 ///
@@ -163,6 +174,37 @@ pub trait LocalSearch<B: Backend>: Send + Sync {
         fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
         rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32);
+
+    /// Refines `genome`, seeding the best-so-far tracker with `known_fitness`
+    /// instead of re-evaluating the input — saving exactly one
+    /// [`FitnessFn::evaluate_one`] call per refinement.
+    ///
+    /// `known_fitness` **must** be the value `fitness_fn` assigns to `genome`
+    /// (for a stochastic `fitness_fn`, a value it plausibly assigned). A `NaN`
+    /// hint is sanitized to [`f32::INFINITY`] by the reference overrides, exactly
+    /// as a `NaN` probe would be (see the [contract](LocalSearch#contract)). All
+    /// other invariants — dimensionality, monotone non-worsening, budget, bounds
+    /// — are identical to [`refine`](Self::refine); the only difference is that
+    /// the seeding eval is elided, so a given `max_iters` buys one extra probe.
+    ///
+    /// Because the seeding eval consumes no rng, this method draws from the
+    /// supplied `rng` exactly as [`refine`](Self::refine) would, leaving
+    /// same-seed determinism intact.
+    ///
+    /// The default **ignores the hint** and delegates to
+    /// [`refine`](Self::refine), preserving current behavior (and the seeding
+    /// eval) for any implementor that does not override it.
+    fn refine_with_known_fitness(
+        &self,
+        params: &Self::Params,
+        genome: Vec<f32>,
+        known_fitness: f32,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        let _ = known_fitness;
+        self.refine(params, genome, fitness_fn, rng)
+    }
 }
 
 /// A fitness function wrapped with a hard evaluation budget.
@@ -193,28 +235,43 @@ impl<'a> BudgetedEval<'a> {
     /// Returns `Some(fitness)` while budget remains, or `None` once the budget
     /// is exhausted (in which case no underlying evaluation is performed).
     ///
-    /// A `NaN` fitness is sanitized to [`f32::INFINITY`] before it leaves this
-    /// method. Because every searcher routes *all* evaluations — including the
-    /// mandatory seeding eval of the input genome (contract item 3) — through
-    /// `BudgetedEval`, this is the single chokepoint that keeps `NaN` out of the
-    /// best-so-far trackers. Mapping `NaN` to `+inf` (the worst value under
-    /// minimization) means a `NaN` probe can never seed or displace a finite
-    /// best, so it never propagates to the returned fitness; if *every* probe is
-    /// `NaN` the searcher honestly returns `+inf` rather than `NaN`. For the
-    /// finite benchmark landscapes the searchers ship against this branch is
-    /// never taken, so it costs only one `is_nan` check per evaluation.
+    /// A `NaN` fitness is sanitized to [`f32::INFINITY`] via [`sanitize_fitness`]
+    /// before it leaves this method. Because every searcher routes *all*
+    /// evaluations — including the mandatory seeding eval of the input genome
+    /// (contract item 3) — through `BudgetedEval`, this is the single chokepoint
+    /// that keeps `NaN` out of the best-so-far trackers on the probe path; the
+    /// `refine_with_known_fitness` overrides apply the same helper to the
+    /// `known_fitness` hint. If *every* probe is `NaN` the searcher honestly
+    /// returns `+inf` rather than `NaN`.
     pub(crate) fn eval(&mut self, genome: &Vec<f32>) -> Option<f32> {
         if self.remaining == 0 {
             return None;
         }
         self.remaining -= 1;
-        let f: f32 = self.inner.evaluate_one(genome);
-        Some(if f.is_nan() { f32::INFINITY } else { f })
+        Some(sanitize_fitness(self.inner.evaluate_one(genome)))
     }
 
     /// Number of evaluations still permitted.
     pub(crate) fn remaining(&self) -> usize {
         self.remaining
+    }
+}
+
+/// Maps a `NaN` fitness to [`f32::INFINITY`], passing finite values through.
+///
+/// `+inf` is the worst value under minimization, so a sanitized `NaN` can never
+/// seed or displace a finite best-so-far and thus never propagates to a returned
+/// fitness. This is the single rule shared by [`BudgetedEval::eval`] (applied to
+/// every probe, including the seeding eval) and the searchers'
+/// [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness)
+/// overrides (applied to the `known_fitness` hint, which does not flow through
+/// `BudgetedEval`). For the finite benchmark landscapes the searchers ship
+/// against this branch is never taken, so it costs only one `is_nan` check.
+pub(crate) fn sanitize_fitness(f: f32) -> f32 {
+    if f.is_nan() {
+        f32::INFINITY
+    } else {
+        f
     }
 }
 

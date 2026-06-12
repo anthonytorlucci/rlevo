@@ -146,9 +146,17 @@ impl<L> RandomRestart<L> {
     }
 }
 
-impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
-    type Params = RandomRestartParams<L::Params>;
-
+impl<L> RandomRestart<L> {
+    /// Shared body for [`refine`](LocalSearch::refine) and
+    /// [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness).
+    ///
+    /// A `known` fitness describes the *unperturbed* input, so it is forwarded
+    /// only to **run 0** (which refines that input); the `restarts` perturbed
+    /// runs start from jittered points with no known fitness and always take the
+    /// plain `inner.refine` path. Because the inner seeding eval draws no rng,
+    /// forwarding the hint leaves run 0's rng consumption — and thus the
+    /// load-bearing run-0-first ordering — bit-identical to the no-hint path.
+    ///
     /// # Panics
     ///
     /// Panics if `params.restarts > 0` and `params.perturbation` is not
@@ -158,13 +166,17 @@ impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
     /// duplicate runs. `restarts == 0` is a valid configuration (a plain inner
     /// run) and never panics here. The inner searcher enforces its own
     /// `max_iters >= 1` invariant and will panic on a zero inner budget.
-    fn refine(
+    fn refine_impl<B: Backend>(
         &self,
         params: &RandomRestartParams<L::Params>,
-        genome: Vec<f32>,
+        genome: &[f32],
+        known: Option<f32>,
         fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
         rng: &mut dyn Rng,
-    ) -> (Vec<f32>, f32) {
+    ) -> (Vec<f32>, f32)
+    where
+        L: LocalSearch<B>,
+    {
         assert!(
             params.restarts == 0 || params.perturbation > 0.0,
             "RandomRestartParams::perturbation must be > 0 when restarts > 0 \
@@ -175,9 +187,20 @@ impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
         // docs): it makes run 0 consume the rng stream exactly as a bare
         // `inner.refine` call would, so monotonicity is structural and the
         // `restarts > 0` result is bit-exactly `<=` the `restarts == 0` result
-        // on the same seed.
-        let (mut best_genome, mut best_fit): (Vec<f32>, f32) =
-            self.inner.refine(&params.inner, genome.clone(), fitness_fn, rng);
+        // on the same seed. A known fitness describes this unperturbed input, so
+        // it is forwarded here and nowhere else.
+        let (mut best_genome, mut best_fit): (Vec<f32>, f32) = match known {
+            Some(f) => self.inner.refine_with_known_fitness(
+                &params.inner,
+                genome.to_vec(),
+                f,
+                fitness_fn,
+                rng,
+            ),
+            None => self
+                .inner
+                .refine(&params.inner, genome.to_vec(), fitness_fn, rng),
+        };
 
         // Runs 1..=restarts: perturb the input with per-coordinate Gaussian
         // noise drawn through the passed rng, clamp to bounds, refine. Replace
@@ -187,7 +210,7 @@ impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
             let normal: Normal<f32> = Normal::new(0.0_f32, params.perturbation)
                 .expect("perturbation std-dev is strictly positive (asserted above)");
             for _ in 0..params.restarts {
-                let mut start: Vec<f32> = genome.clone();
+                let mut start: Vec<f32> = genome.to_vec();
                 for coord in &mut start {
                     *coord += normal.sample(rng);
                 }
@@ -203,6 +226,43 @@ impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
         }
 
         (best_genome, best_fit)
+    }
+}
+
+impl<B: Backend, L: LocalSearch<B>> LocalSearch<B> for RandomRestart<L> {
+    type Params = RandomRestartParams<L::Params>;
+
+    /// # Panics
+    ///
+    /// Panics if `params.restarts > 0` and `params.perturbation` is not strictly
+    /// positive; see `refine_impl`.
+    fn refine(
+        &self,
+        params: &RandomRestartParams<L::Params>,
+        genome: Vec<f32>,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        self.refine_impl::<B>(params, &genome, None, fitness_fn, rng)
+    }
+
+    /// Forwards `known_fitness` to **run 0** (the unperturbed input) so its inner
+    /// searcher skips its seeding eval; perturbed runs are unaffected. See
+    /// `refine_impl`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.restarts > 0` and `params.perturbation` is not strictly
+    /// positive; see `refine_impl`.
+    fn refine_with_known_fitness(
+        &self,
+        params: &RandomRestartParams<L::Params>,
+        genome: Vec<f32>,
+        known_fitness: f32,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        self.refine_impl::<B>(params, &genome, Some(known_fitness), fitness_fn, rng)
     }
 }
 
@@ -529,5 +589,72 @@ mod tests {
 
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
+    }
+
+    #[test]
+    fn known_fitness_saves_exactly_one_eval_total() {
+        // The hint is forwarded only to run 0 (the unperturbed input); the
+        // perturbed runs are untouched. With an inner budget large enough that
+        // step-underflow (not the budget) terminates each run, total evals drop
+        // by exactly one: run 0's seeding eval.
+        let searcher = RandomRestart::new(HillClimbing);
+        let mut inner = HillClimbingParams::default_for(BOUNDS);
+        inner.max_iters = 10_000;
+        let params = rr_params(inner, 3);
+        let start = vec![1.0_f32, 2.0, 3.0];
+
+        let refine_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(51);
+            let _ = LocalSearch::<TestBackend>::refine(
+                &searcher,
+                &params,
+                start.clone(),
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        let hint_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(51);
+            let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
+                &searcher,
+                &params,
+                start.clone(),
+                1.0, // Flat fitness of the start
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        assert_eq!(
+            hint_evals + 1,
+            refine_evals,
+            "hint must save exactly run 0's seeding eval ({hint_evals} vs {refine_evals})"
+        );
+    }
+
+    #[test]
+    fn nan_hint_does_not_propagate() {
+        let searcher = RandomRestart::new(HillClimbing);
+        let inner = HillClimbingParams::default_for(BOUNDS);
+        let params = rr_params(inner, 3);
+        let mut fitness = Sphere;
+        let mut rng = StdRng::seed_from_u64(52);
+        let start = vec![2.0_f32, -1.0];
+        let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
+            &searcher,
+            &params,
+            start,
+            f32::NAN,
+            &mut fitness,
+            &mut rng,
+        );
+        assert!(fit.is_finite(), "NaN hint must be sanitized, got {fit}");
+        let fresh = fitness.evaluate_one(&g);
+        approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 }
