@@ -120,6 +120,11 @@ pendulum-random:
 harness-ga-rastrigin:
     cargo run -p rlevo-examples --example ga_rastrigin
 
+# EDAs: UMDA vs MIMIC on Rosenbrock (dependency capture) + PBIL vs cGA on OneMax
+# (probability-vector convergence). Prints model internals each generation.
+eda-showcase:
+    cargo run --release -p rlevo-examples --example eda_showcase
+
 harness-tabular-bandit:
     cargo run -p rlevo-examples --example tabular_bandit
 
@@ -183,6 +188,11 @@ test-memetic:
 # Memetic calibration explorer [ignored: multi-seed sweep for re-pinning the margin].
 test-memetic-calibration:
     cargo test -p rlevo --test memetic_rastrigin --release -- calibration_explorer --ignored --nocapture
+
+# EDA convergence: all four ProbabilityModels reach the Sphere-D10 gate, and
+# MIMIC beats UMDA's median on Rosenbrock-D10 across 9 fixed seeds.
+test-eda:
+    cargo test -p rlevo --test eda_convergence
 
 # Post-run record → report pipeline smoke [requires viz-report feature].
 test-report-smoke:

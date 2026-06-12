@@ -84,3 +84,8 @@ path = "examples/harness/ga_rastrigin.rs"
 [[example]]
 name = "tabular_bandit"
 path = "examples/harness/tabular_bandit.rs"
+
+# Examples — evolution (EDA probability models)
+[[example]]
+name = "eda_showcase"
+path = "examples/evolution/eda_showcase.rs"
