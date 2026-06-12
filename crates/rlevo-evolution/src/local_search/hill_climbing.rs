@@ -24,7 +24,7 @@ use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, BudgetedEval, LocalSearch};
+use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
 
 /// Acceptance strategy for [`HillClimbing`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,18 +114,25 @@ impl HillClimbingParams {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HillClimbing;
 
-impl<B: Backend> LocalSearch<B> for HillClimbing {
-    type Params = HillClimbingParams;
-
+impl HillClimbing {
+    /// Shared body for [`refine`](LocalSearch::refine) and
+    /// [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness).
+    ///
+    /// `known` is the input genome's fitness when the caller already holds it
+    /// (the hint path) or `None` when the input must be re-evaluated to seed the
+    /// tracker. Either way the seed is sanitized so a `NaN` never poisons the
+    /// best-so-far pair, and the budget meaning is identical: skipping the
+    /// seeding eval simply leaves one more probe within `max_iters`.
+    ///
     /// # Panics
     ///
     /// Panics if `params.max_iters == 0`: a zero evaluation budget makes it
     /// impossible to return an honestly evaluated fitness, so it is treated
     /// as an invalid configuration (programming error), not runtime data.
-    fn refine(
-        &self,
+    fn refine_impl(
         params: &HillClimbingParams,
         genome: Vec<f32>,
+        known: Option<f32>,
         fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
         rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
@@ -136,10 +143,17 @@ impl<B: Backend> LocalSearch<B> for HillClimbing {
         );
         let mut budget = BudgetedEval::new(fitness_fn, params.max_iters);
 
-        // First action: evaluate the input genome (1 eval) and seed the
-        // best-so-far tracker. The assert above guarantees this succeeds.
-        let Some(initial_fit) = budget.eval(&genome) else {
-            unreachable!("budget of >= 1 cannot be exhausted before the first eval");
+        // First action: seed the best-so-far tracker. With a known fitness we
+        // reuse it (sanitizing NaN exactly as a probe would); otherwise we spend
+        // one eval scoring the input. The assert above guarantees the eval path
+        // succeeds.
+        let initial_fit: f32 = if let Some(f) = known {
+            sanitize_fitness(f)
+        } else {
+            let Some(f) = budget.eval(&genome) else {
+                unreachable!("budget of >= 1 cannot be exhausted before the first eval");
+            };
+            f
         };
 
         let mut current: Vec<f32> = genome;
@@ -237,6 +251,40 @@ impl<B: Backend> LocalSearch<B> for HillClimbing {
         }
 
         (best, best_fit)
+    }
+}
+
+impl<B: Backend> LocalSearch<B> for HillClimbing {
+    type Params = HillClimbingParams;
+
+    /// # Panics
+    ///
+    /// Panics if `params.max_iters == 0`; see `refine_impl`.
+    fn refine(
+        &self,
+        params: &HillClimbingParams,
+        genome: Vec<f32>,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        Self::refine_impl(params, genome, None, fitness_fn, rng)
+    }
+
+    /// Seeds the best-so-far tracker with `known_fitness` (sanitizing `NaN` to
+    /// `+inf`) instead of re-scoring the input, saving one eval.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.max_iters == 0`; see `refine_impl`.
+    fn refine_with_known_fitness(
+        &self,
+        params: &HillClimbingParams,
+        genome: Vec<f32>,
+        known_fitness: f32,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        Self::refine_impl(params, genome, Some(known_fitness), fitness_fn, rng)
     }
 }
 
@@ -501,5 +549,73 @@ mod tests {
 
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
+    }
+
+    #[test]
+    fn known_fitness_skips_exactly_the_seeding_eval() {
+        // On a flat landscape the search terminates by step-underflow long
+        // before a large budget, so the eval count is the probe walk plus the
+        // seed. The seeding eval draws no rng, so both entry points walk the
+        // identical probe sequence — the hint path simply omits the seed, i.e.
+        // exactly one fewer evaluation.
+        let searcher = HillClimbing;
+        let mut params = HillClimbingParams::default_for(BOUNDS);
+        params.max_iters = 10_000;
+        let start = vec![1.0_f32, 2.0, 3.0];
+
+        let refine_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(21);
+            let _ = LocalSearch::<TestBackend>::refine(
+                &searcher,
+                &params,
+                start.clone(),
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        let hint_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(21);
+            let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
+                &searcher,
+                &params,
+                start.clone(),
+                1.0, // Flat fitness of the start
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        assert_eq!(
+            hint_evals + 1,
+            refine_evals,
+            "hint path must skip exactly the seeding eval ({hint_evals} vs {refine_evals})"
+        );
+    }
+
+    #[test]
+    fn nan_hint_does_not_propagate() {
+        // A NaN hint must be sanitized to +inf so finite probes displace it; the
+        // returned fitness is finite and honest for the returned genome.
+        let searcher = HillClimbing;
+        let params = HillClimbingParams::default_for(BOUNDS);
+        let mut fitness = Sphere;
+        let mut rng = StdRng::seed_from_u64(22);
+        let start = vec![2.0_f32, -1.0];
+        let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
+            &searcher,
+            &params,
+            start,
+            f32::NAN,
+            &mut fitness,
+            &mut rng,
+        );
+        assert!(fit.is_finite(), "NaN hint must be sanitized, got {fit}");
+        let fresh = fitness.evaluate_one(&g);
+        approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 }

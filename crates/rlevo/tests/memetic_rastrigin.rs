@@ -312,34 +312,45 @@ fn calibration_explorer() {
 // =====================================================================
 // Headline acceptance test (the only test that runs by default).
 //
-// Provenance (pinned from `calibration_explorer` output, 2026-06-10):
+// Provenance (re-pinned from `calibration_explorer` output, 2026-06-12, after
+// `refine_with_known_fitness` eliminated the per-refine seeding eval, issue #30):
 //   backend:   Flex (ndarray), rayon pinned to 1 thread, release profile.
 //   seed:      7
 //   target:    Rastrigin-D10 best_fitness_ever < 30.0
 //   inner DE:  pop=30, D=10, Rand1Bin, F=0.5, CR=0.9 (DeConfig::default_for).
 //   memetic:   HillClimbing BestImprovement, max_iters=20, step=0.4, decay=0.5,
 //              CoveragePolicy::TopK{1}, WritebackPolicy::Lamarckian.
-//   observed:  bare = 11_130 evals, memetic = 5_150 evals
-//              (memetic uses ~53.7% fewer evals than bare DE to reach 30.0).
+//   observed:  bare = 11_130 evals, memetic = 2_900 evals
+//              (memetic uses ~74% fewer evals than bare DE to reach 30.0).
+//
+// Why the pinned number dropped from 5_150 to 2_900:
+//   With max_iters=20 and D=10, one BestImprovement sweep costs 2*D = 20 evals.
+//   The old seeding eval left only 19 for the sweep, so it ran one probe short
+//   of completing and never committed a move; eliminating that eval lets the
+//   sweep finish and commit, so each refined generation makes real progress.
+//   The win is therefore larger than the bare "one eval/gen" saving — it crosses
+//   the sweep-granularity boundary.
 //
 // Why target=30 (not 20/10/5):
 //   - At target=10/5 bare DE often STALLS without ever reaching it (final
 //     best 6-17 on most seeds), so a "fewer evals to a SHARED target"
 //     comparison is not well-posed there — both configs must reach it.
-//   - At target=20 the `k1/it20/best/lam` config still wins on every seed but
-//     the headroom is thin on some (seed 101: only ~4% fewer).
-//   - At target=30 BOTH configs always reach the target and memetic has
-//     comfortable headroom on every calibration seed (ratio mem/bare ranged
-//     0.34-0.71; worst case still 29% fewer). Seed 7 sits mid-pack at 0.463.
+//   - At target=30 BOTH configs always reach the target and memetic WINS on
+//     every calibration seed {7,13,29,101,1234}, though the margin is now wider-
+//     spread than before: ratio mem/bare ranged ~0.08 (seed 29) to ~0.89
+//     (seed 101) — i.e. 11%-92% fewer. The spread comes from Lamarckian
+//     writeback: the extra committed sweep changes the genome fed back to DE, so
+//     each seed takes a genuinely different trajectory. Seed 7 is a strong,
+//     stable win at ~74% fewer (ratio 0.26).
 //
 // Margin choice:
-//   Calibration showed ≥30% fewer evals on every seed and ~54% on the pinned
-//   seed, so we assert the ≥30% margin via integer math
-//   `memetic_evals * 10 <= bare_evals * 7` (no float comparison). On the
-//   pinned data: 5_150*10 = 51_500 <= 11_130*7 = 77_910. We also assert an
-//   absolute tripwire `bare_evals >= 8_000` so a future regression that makes
-//   bare DE trivially slow (inflating the ratio) cannot mask a memetic
-//   slowdown.
+//   The cross-seed margin is no longer uniformly >=30% (seeds 101/1234 are now
+//   ~11%/~19% fewer), so the assertion is deliberately scoped to the PINNED seed,
+//   where the win is robust. We assert the >=30% margin via integer math
+//   `memetic_evals * 10 <= bare_evals * 7` (no float comparison). On the pinned
+//   data: 2_900*10 = 29_000 <= 11_130*7 = 77_910. We also assert an absolute
+//   tripwire `bare_evals >= 8_000` so a future regression that makes bare DE
+//   trivially slow (inflating the ratio) cannot mask a memetic slowdown.
 // =====================================================================
 
 const PINNED_SEED: u64 = 7;
@@ -381,7 +392,7 @@ fn memetic_beats_bare_de_on_rastrigin_evals_to_target() {
     );
 
     // (c) pinned margin: ≥30% fewer evals, integer math (no float comparison).
-    //     5_150*10 = 51_500 <= 11_130*7 = 77_910 on the pinned data.
+    //     2_900*10 = 29_000 <= 11_130*7 = 77_910 on the pinned data.
     assert!(
         memetic_evals * 10 <= bare_evals * 7,
         "memetic must use >=30% fewer evals: memetic={memetic_evals} bare={bare_evals} \

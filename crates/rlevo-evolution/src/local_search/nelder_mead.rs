@@ -33,7 +33,7 @@ use burn::tensor::backend::Backend;
 use rand::Rng;
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, BudgetedEval, LocalSearch};
+use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
 
 /// Static configuration for a [`NelderMead`] run.
 #[derive(Debug, Clone)]
@@ -133,21 +133,35 @@ struct Vertex {
     fitness: f32,
 }
 
-impl<B: Backend> LocalSearch<B> for NelderMead {
-    type Params = NelderMeadParams;
-
+impl NelderMead {
+    /// Shared body for [`refine`](LocalSearch::refine) and
+    /// [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness).
+    ///
+    /// `known` is the input genome's fitness when the caller already holds it
+    /// (the hint path) or `None` when vertex 0 must be evaluated to seed the
+    /// tracker.
+    ///
+    /// # Hint validity and the clamp guard
+    ///
+    /// Nelder–Mead clamps the input into `bounds` to form vertex 0 *before*
+    /// scoring it, so `known_fitness` — which describes the *raw* input — is only
+    /// valid for vertex 0 when the input is already in bounds (the clamp is a
+    /// no-op). When the raw input lies outside `bounds`, the hint is discarded
+    /// and the clamped vertex 0 is evaluated honestly, falling back to the same
+    /// cost as [`refine`](LocalSearch::refine). A valid hint is sanitized (`NaN`
+    /// → `+inf`) before it seeds the tracker.
+    ///
     /// # Panics
     ///
     /// Panics if `params.max_iters == 0`: a zero evaluation budget makes it
     /// impossible to return an honestly evaluated fitness, so it is treated
     /// as an invalid configuration (programming error), not runtime data.
     #[allow(clippy::too_many_lines)]
-    fn refine(
-        &self,
+    fn refine_impl(
         params: &NelderMeadParams,
         genome: Vec<f32>,
+        known: Option<f32>,
         fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
-        _rng: &mut dyn Rng,
     ) -> (Vec<f32>, f32) {
         assert!(
             params.max_iters >= 1,
@@ -163,13 +177,25 @@ impl<B: Backend> LocalSearch<B> for NelderMead {
         // structurally. The input genome is the first point evaluated.
         let (lo, hi): (f32, f32) = params.bounds;
 
-        // First action: evaluate the input genome (1 eval), clamped to bounds.
+        // Is the raw input already feasible? A known-fitness hint describes the
+        // raw input, so it is valid for vertex 0 only when clamping is a no-op.
+        let in_bounds: bool = genome.iter().all(|&x| x >= lo && x <= hi);
+
+        // First action: clamp the input into bounds to form vertex 0, then seed
+        // the tracker. With a valid hint (input in bounds) we reuse it; otherwise
+        // we spend one eval scoring vertex 0. The assert guarantees the eval path
+        // succeeds.
         let mut vertex0: Vec<f32> = genome;
         clamp_vec(&mut vertex0, params.bounds);
         let mut best: Vec<f32> = vertex0.clone();
-        // The assert above guarantees the first eval succeeds.
-        let Some(initial_fit) = budget.eval(&vertex0) else {
-            unreachable!("budget of >= 1 cannot be exhausted before the first eval");
+        let initial_fit: f32 = match known {
+            Some(f) if in_bounds => sanitize_fitness(f),
+            _ => {
+                let Some(f) = budget.eval(&vertex0) else {
+                    unreachable!("budget of >= 1 cannot be exhausted before the first eval");
+                };
+                f
+            }
         };
         let mut best_fit: f32 = initial_fit;
 
@@ -318,6 +344,45 @@ impl<B: Backend> LocalSearch<B> for NelderMead {
         }
 
         (best, best_fit)
+    }
+}
+
+impl<B: Backend> LocalSearch<B> for NelderMead {
+    type Params = NelderMeadParams;
+
+    /// # Panics
+    ///
+    /// Panics if `params.max_iters == 0`; see `refine_impl`.
+    fn refine(
+        &self,
+        params: &NelderMeadParams,
+        genome: Vec<f32>,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        _rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        Self::refine_impl(params, genome, None, fitness_fn)
+    }
+
+    /// Seeds vertex 0's fitness with `known_fitness` (sanitizing `NaN` to `+inf`)
+    /// instead of re-scoring the input, saving one eval — **but only when the
+    /// input is already in bounds**, since vertex 0 is the clamped input. An
+    /// out-of-bounds input falls back to evaluating the clamped vertex 0. See
+    /// `refine_impl`.
+    ///
+    /// Nelder–Mead is deterministic, so `rng` is unused on this path too.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `params.max_iters == 0`; see `refine_impl`.
+    fn refine_with_known_fitness(
+        &self,
+        params: &NelderMeadParams,
+        genome: Vec<f32>,
+        known_fitness: f32,
+        fitness_fn: &mut dyn FitnessFn<Vec<f32>>,
+        _rng: &mut dyn Rng,
+    ) -> (Vec<f32>, f32) {
+        Self::refine_impl(params, genome, Some(known_fitness), fitness_fn)
     }
 }
 
@@ -639,5 +704,116 @@ mod tests {
 
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
+    }
+
+    #[test]
+    fn known_fitness_skips_seeding_eval_when_in_bounds() {
+        // On a flat landscape the f-spread is zero, so the main loop breaks right
+        // after simplex initialization. Init scores vertex 0 plus `dim` nudged
+        // vertices; a valid (in-bounds) hint elides the vertex-0 eval, i.e. one
+        // fewer evaluation.
+        let searcher = NelderMead;
+        let params = NelderMeadParams::default_for(BOUNDS);
+        let start = vec![1.0_f32, 2.0, 3.0]; // in bounds
+
+        let refine_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(41);
+            let _ = LocalSearch::<TestBackend>::refine(
+                &searcher,
+                &params,
+                start.clone(),
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        let hint_evals = {
+            let mut base = Flat;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(41);
+            let _ = LocalSearch::<TestBackend>::refine_with_known_fitness(
+                &searcher,
+                &params,
+                start.clone(),
+                1.0, // Flat fitness of the start
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        assert_eq!(
+            hint_evals + 1,
+            refine_evals,
+            "in-bounds hint must skip exactly the vertex-0 eval ({hint_evals} vs {refine_evals})"
+        );
+    }
+
+    #[test]
+    fn out_of_bounds_hint_is_ignored() {
+        // Vertex 0 is the *clamped* input, so a hint describing the raw
+        // out-of-bounds input is invalid and must be discarded: the searcher
+        // falls back to evaluating vertex 0, spending the same evals as `refine`
+        // and returning an honest fitness — never the bogus hint value.
+        let searcher = NelderMead;
+        let params = NelderMeadParams::default_for(BOUNDS);
+        let start = vec![100.0_f32, 100.0]; // far above the upper bound
+
+        let refine_evals = {
+            let mut base = Sphere;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(42);
+            let _ = LocalSearch::<TestBackend>::refine(
+                &searcher,
+                &params,
+                start.clone(),
+                &mut counting,
+                &mut rng,
+            );
+            counting.calls
+        };
+        let (g, fit, hint_evals) = {
+            let mut base = Sphere;
+            let mut counting = Counting::new(&mut base);
+            let mut rng = StdRng::seed_from_u64(42);
+            let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
+                &searcher,
+                &params,
+                start.clone(),
+                -999.0, // bogus: must never be returned
+                &mut counting,
+                &mut rng,
+            );
+            (g, fit, counting.calls)
+        };
+        assert_eq!(
+            hint_evals, refine_evals,
+            "out-of-bounds hint must fall back to evaluating vertex 0"
+        );
+        let mut fresh_fn = Sphere;
+        let fresh = fresh_fn.evaluate_one(&g);
+        approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
+        assert!(fit >= 0.0, "sphere fitness is non-negative; bogus hint leaked: {fit}");
+    }
+
+    #[test]
+    fn nan_hint_does_not_propagate() {
+        let searcher = NelderMead;
+        let params = NelderMeadParams::default_for(BOUNDS);
+        let mut fitness = Sphere;
+        let mut rng = StdRng::seed_from_u64(43);
+        let start = vec![2.0_f32, -1.0]; // in bounds
+        let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
+            &searcher,
+            &params,
+            start,
+            f32::NAN,
+            &mut fitness,
+            &mut rng,
+        );
+        assert!(fit.is_finite(), "NaN hint must be sanitized, got {fit}");
+        let fresh = fitness.evaluate_one(&g);
+        approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
 }
