@@ -165,6 +165,13 @@ path = "examples/evo/rosenbrock_flat_showcase.rs"
 name = "trefethen_showcase"
 path = "examples/evo/trefethen_showcase.rs"
 
+# Memetic algorithms — evals-to-target comparison, not part of the
+# fixed-generation `common::showcase` panel (the panel's generation budget
+# would hide the extra evaluations local search spends per generation).
+[[example]]
+name = "memetic_showcase"
+path = "examples/evo/memetic_showcase.rs"
+
 # Random-baseline-vs-learned benches. Each prints a reward/success quality
 # comparison, then times per-step rollout throughput for both policies.
 # Shared DQN model + Polyak scaffolding lives in `benches/support/dqn.rs`.

@@ -29,7 +29,14 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
+use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
+use rlevo_evolution::algorithms::memetic::{
+    CoveragePolicy, MemeticParams, MemeticWrapper, WritebackPolicy,
+};
 use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
+use rlevo_evolution::local_search::{
+    HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
+};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
 type B = Flex;
@@ -136,6 +143,91 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
     run(FireflyAlgorithm::<B>::new(), params, seed, gens)
 }
 
+/// Drive a `MemeticWrapper<DE, HillClimbing>` for `gens` generations and
+/// collect the per-generation best-fitness trajectory.
+///
+/// Unlike [`run`], this builds the harness inline: a `MemeticWrapper` holds its
+/// *own* fitness instance (used to score local-search probes) in addition to
+/// the harness's, so it cannot go through the generic [`run`] path that supplies
+/// a single fitness. Both instances are independent `FromFitnessEvaluable`
+/// values over the same stateless [`SphereFit`], so they never diverge.
+fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let dim: usize = 5;
+    let bounds: (f32, f32) = (-5.12, 5.12);
+    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
+        DifferentialEvolution::<B>::new(),
+        HillClimbing,
+        FromFitnessEvaluable::new(SphereFit, Sphere),
+    );
+    let params: MemeticParams<DeConfig, HillClimbingParams> = MemeticParams {
+        inner: DeConfig::default_for(16, dim),
+        local: HillClimbingParams::default_for(bounds),
+        writeback: WritebackPolicy::Partial(0.5),
+        coverage: CoveragePolicy::TopK { k: 2 },
+    };
+    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+        strategy,
+        params,
+        FromFitnessEvaluable::new(SphereFit, Sphere),
+        seed,
+        device,
+        gens,
+    );
+    harness.reset();
+    let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
+    loop {
+        let step = harness.step(());
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        if step.done {
+            break;
+        }
+    }
+    trajectory
+}
+
+/// Drive a `MemeticWrapper<DE, SimulatedAnnealing>` for `gens` generations and
+/// collect the per-generation best-fitness trajectory.
+///
+/// Exercises the stochastic-searcher determinism path: SA draws Gaussian
+/// proposals and Metropolis acceptance probabilities through the wrapper's
+/// `seed_stream`-derived `ls_rng`, so a same-seed replay must still be
+/// bit-identical. See [`run_memetic_de`] for the two-fitness-instance note.
+fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
+    let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
+    let dim: usize = 5;
+    let bounds: (f32, f32) = (-5.12, 5.12);
+    let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
+        DifferentialEvolution::<B>::new(),
+        SimulatedAnnealing,
+        FromFitnessEvaluable::new(SphereFit, Sphere),
+    );
+    let params: MemeticParams<DeConfig, SimulatedAnnealingParams> = MemeticParams {
+        inner: DeConfig::default_for(16, dim),
+        local: SimulatedAnnealingParams::default_for(bounds),
+        writeback: WritebackPolicy::Partial(0.5),
+        coverage: CoveragePolicy::TopK { k: 2 },
+    };
+    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+        strategy,
+        params,
+        FromFitnessEvaluable::new(SphereFit, Sphere),
+        seed,
+        device,
+        gens,
+    );
+    harness.reset();
+    let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
+    loop {
+        let step = harness.step(());
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        if step.done {
+            break;
+        }
+    }
+    trajectory
+}
+
 #[test]
 fn same_seed_same_generations() {
     const SEED: u64 = 1_234_567;
@@ -177,4 +269,23 @@ fn same_seed_same_generations() {
     check!(run_aco_r, "ACO_R");
     check!(run_cuckoo, "Cuckoo");
     check!(run_firefly, "Firefly");
+
+    // Memetic wrappers. `MemeticWrapper<DE, HillClimbing>` and
+    // `MemeticWrapper<DE, SimulatedAnnealing>` route all refinement randomness
+    // through `seed_stream`, so same-seed runs must be bit-identical too — even
+    // for the stochastic SA searcher, whose Gaussian proposals and Metropolis
+    // acceptance draws flow through the wrapper's deterministic `ls_rng`.
+    let mem_de_a = run_memetic_de(SEED, GENS);
+    let mem_de_b = run_memetic_de(SEED, GENS);
+    assert_eq!(
+        mem_de_a, mem_de_b,
+        "MemeticWrapper<DE, HillClimbing> trajectories diverge under the same seed"
+    );
+
+    let mem_sa_a = run_memetic_sa(SEED, GENS);
+    let mem_sa_b = run_memetic_sa(SEED, GENS);
+    assert_eq!(
+        mem_sa_a, mem_sa_b,
+        "MemeticWrapper<DE, SimulatedAnnealing> trajectories diverge under the same seed"
+    );
 }
