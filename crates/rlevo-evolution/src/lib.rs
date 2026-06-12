@@ -50,9 +50,9 @@ pub mod shaping;
 pub mod strategy;
 
 pub use algorithms::eda::{
-    CompactGenetic, CompactGeneticParams, DependencyChain, DependencyChainParams, EdaParams,
-    EdaState, EdaStrategy, UnivariateBernoulli, UnivariateBernoulliParams, UnivariateGaussian,
-    UnivariateGaussianParams,
+    BayesianNetwork, BayesianNetworkParams, CompactGenetic, CompactGeneticParams, DependencyChain,
+    DependencyChainParams, EdaParams, EdaState, EdaStrategy, UnivariateBernoulli,
+    UnivariateBernoulliParams, UnivariateGaussian, UnivariateGaussianParams,
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
 pub use probability_model::ProbabilityModel;
