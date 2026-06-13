@@ -356,4 +356,86 @@ mod tests {
         let restored = reshaper.unflatten(flat.clone());
         approx_eq(&flat, &reshaper.flatten(&restored, &device));
     }
+
+    // --- Bounded-NAS enum-derive probe (issue #42, Step 1) -------------------
+    //
+    // Question: does Burn 0.21 `#[derive(Module)]` work on a Rust *enum* whose
+    // arms hold heterogeneous concrete `Module` variants? The bounded-NAS
+    // design (closure-erased `VariantEvaluator` registry) does NOT depend on
+    // the answer, but the finding is recorded in spec §3.D for the audit trail.
+    //
+    // If `#[derive(Module)]` below fails to compile, the whole crate fails to
+    // build and this probe never runs — a build failure IS the negative result.
+
+    /// Minimal one-hidden-layer MLP variant for the enum-derive probe.
+    #[derive(Module, Debug)]
+    struct SmallMlp<B: Backend> {
+        l1: Linear<B>,
+        l2: Linear<B>,
+    }
+
+    impl<B: Backend> SmallMlp<B> {
+        fn new(device: &B::Device) -> Self {
+            Self {
+                l1: LinearConfig::new(2, 4).init(device),
+                l2: LinearConfig::new(4, 1).init(device),
+            }
+        }
+    }
+
+    /// Minimal two-hidden-layer MLP variant for the enum-derive probe.
+    #[derive(Module, Debug)]
+    struct LargeMlp<B: Backend> {
+        l1: Linear<B>,
+        l2: Linear<B>,
+        l3: Linear<B>,
+    }
+
+    impl<B: Backend> LargeMlp<B> {
+        fn new(device: &B::Device) -> Self {
+            Self {
+                l1: LinearConfig::new(2, 8).init(device),
+                l2: LinearConfig::new(8, 4).init(device),
+                l3: LinearConfig::new(4, 1).init(device),
+            }
+        }
+    }
+
+    /// Two-arm enum with heterogeneous `Module` variants. The backend generic
+    /// must be named literally `B` for `#[derive(Module)]` to succeed.
+    // This is a derive-capability probe, not a runtime data structure — the
+    // size disparity between arms is irrelevant here.
+    #[allow(clippy::large_enum_variant)]
+    #[derive(Module, Debug)]
+    enum TestArch<B: Backend> {
+        Shallow(SmallMlp<B>),
+        Deep(LargeMlp<B>),
+    }
+
+    /// Probe: confirm `#[derive(Module)]` on a heterogeneous-arm enum compiles
+    /// and that the enum can be visited as a `Module` (flattened) — i.e. the
+    /// derive emits real `visit`/`map` traversals, not just a stub.
+    #[test]
+    fn burn_enum_derive_probe() {
+        let device = Default::default();
+
+        let shallow = TestArch::<TestBackend>::Shallow(SmallMlp::new(&device));
+        let deep = TestArch::<TestBackend>::Deep(LargeMlp::new(&device));
+
+        // SmallMlp: 2*4 + 4 + 4*1 + 1 = 17 ; LargeMlp: 2*8+8 + 8*4+4 + 4*1+1 = 65.
+        let shallow_reshaper = ModuleReshaper::new(shallow);
+        let deep_reshaper = ModuleReshaper::new(deep);
+
+        println!(
+            "burn_enum_derive_probe: #[derive(Module)] on enum COMPILES; \
+             enum is a Module. Shallow arm flattens to {} params, \
+             Deep arm flattens to {} params.",
+            shallow_reshaper.num_params(),
+            deep_reshaper.num_params(),
+        );
+
+        // The enum derive visits the active arm's leaves.
+        assert_eq!(shallow_reshaper.num_params(), 17);
+        assert_eq!(deep_reshaper.num_params(), 65);
+    }
 }
