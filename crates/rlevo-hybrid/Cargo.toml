@@ -19,3 +19,7 @@ serde = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+# CartPole for the policy-neuroevolution integration smoke test. Dev-only:
+# `PolicyNeuroevolution` is generic over `E: Environment`, so the production
+# crate carries no environment dependency.
+rlevo-environments = { path = "../rlevo-environments", version = "0.2.0" }
