@@ -1,0 +1,215 @@
+//! Drive loop adapting a [`CoEvolutionaryAlgorithm`] to `BenchEnv`.
+//!
+//! [`CoEvolutionaryHarness`] is to [`CoEvolutionaryAlgorithm`] what
+//! [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) is to
+//! [`Strategy`](crate::strategy::Strategy): it owns the joint state, the RNG,
+//! and the generation budget, and exposes the run to the `rlevo-benchmarks`
+//! evaluator through `rlevo-core::evaluation::BenchEnv` with no benchmark-side
+//! changes. One [`BenchEnv::step`] drives one simultaneous-update generation.
+
+use std::fmt::Debug;
+use std::marker::PhantomData;
+
+use burn::tensor::backend::Backend;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+
+use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+
+use super::CoEvolutionaryAlgorithm;
+
+/// Per-generation summary for a co-evolutionary run.
+///
+/// The [`CoEAMetrics`] analogue of
+/// [`StrategyMetrics`](crate::strategy::StrategyMetrics), but tracking both
+/// populations separately so a benchmark report can plot per-population
+/// dynamics. Fitness follows the minimization convention (lower is better).
+#[derive(Debug, Clone)]
+pub struct CoEAMetrics {
+    /// Number of completed simultaneous-update generations.
+    pub generation: u64,
+    /// Best (lowest) fitness population A has seen so far.
+    pub best_fitness_a: f32,
+    /// Best (lowest) fitness population B has seen so far.
+    pub best_fitness_b: f32,
+    /// Mean fitness of population A in this generation.
+    pub mean_fitness_a: f32,
+    /// Mean fitness of population B in this generation.
+    pub mean_fitness_b: f32,
+    /// Hall-of-fame archive size for population A (`0` if no archive).
+    pub hof_size_a: usize,
+    /// Hall-of-fame archive size for population B (`0` if no archive).
+    pub hof_size_b: usize,
+}
+
+/// Wraps a [`CoEvolutionaryAlgorithm`] into a `BenchEnv`.
+///
+/// Like [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), the
+/// harness is lazily initialized: [`reset`](BenchEnv::reset) materializes the
+/// joint state on the configured device, and each
+/// [`step`](BenchEnv::step) runs one generation. The reward exposed to the
+/// benchmark harness is `-min(best_a, best_b)` so the harness's
+/// "higher = better" convention matches the algorithm's minimization
+/// direction, with the weaker population as the binding constraint.
+///
+/// Per-generation metrics are emitted through `tracing` with structured
+/// per-population fields. (A dual-population [`PopulationObserver`] channel —
+/// the single-population
+/// [`PopulationSnapshot`](crate::observer::PopulationSnapshot) cannot carry
+/// both populations — is deferred to a follow-up.)
+///
+/// # Determinism
+///
+/// Determinism follows the same backend-RNG caveats documented on
+/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness): run one
+/// harness per process, or pin `EvaluatorConfig::num_threads = Some(1)`, for
+/// bit-reproducible runs.
+///
+/// [`PopulationObserver`]: crate::observer::PopulationObserver
+pub struct CoEvolutionaryHarness<B, C>
+where
+    B: Backend,
+    C: CoEvolutionaryAlgorithm<B>,
+{
+    algorithm: C,
+    params: C::Params,
+    state: Option<C::State>,
+    rng: StdRng,
+    base_seed: u64,
+    device: B::Device,
+    generation: usize,
+    max_generations: usize,
+    latest_metrics: Option<CoEAMetrics>,
+    _backend: PhantomData<B>,
+}
+
+impl<B, C> Debug for CoEvolutionaryHarness<B, C>
+where
+    B: Backend,
+    C: CoEvolutionaryAlgorithm<B>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoEvolutionaryHarness")
+            .field("base_seed", &self.base_seed)
+            .field("generation", &self.generation)
+            .field("max_generations", &self.max_generations)
+            .field("latest_metrics", &self.latest_metrics)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<B, C> CoEvolutionaryHarness<B, C>
+where
+    B: Backend,
+    C: CoEvolutionaryAlgorithm<B>,
+{
+    /// Build a new harness from an algorithm, its params, a seed, a device,
+    /// and a generation budget.
+    ///
+    /// The harness is lazily initialized — the first [`reset`](Self::reset)
+    /// call materializes the joint state on `device`.
+    pub fn new(
+        algorithm: C,
+        params: C::Params,
+        seed: u64,
+        device: B::Device,
+        max_generations: usize,
+    ) -> Self {
+        Self {
+            algorithm,
+            params,
+            state: None,
+            rng: StdRng::seed_from_u64(seed),
+            base_seed: seed,
+            device,
+            generation: 0,
+            max_generations,
+            latest_metrics: None,
+            _backend: PhantomData,
+        }
+    }
+
+    /// The most recent generation's metrics, if any.
+    #[must_use]
+    pub fn latest_metrics(&self) -> Option<&CoEAMetrics> {
+        self.latest_metrics.as_ref()
+    }
+
+    /// Number of completed generations.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Reset to a fresh joint state, re-seeding the RNG.
+    ///
+    /// Infallible; the [`BenchEnv`] impl wraps this in `Ok(())`.
+    pub fn reset(&mut self) {
+        self.rng = StdRng::seed_from_u64(self.base_seed);
+        self.generation = 0;
+        self.latest_metrics = None;
+        self.state = Some(
+            self.algorithm
+                .init(&self.params, &mut self.rng, &self.device),
+        );
+    }
+
+    /// Run one simultaneous-update generation.
+    ///
+    /// Infallible; the [`BenchEnv`] impl wraps the result in `Ok(...)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`reset`](Self::reset) has not been called first.
+    pub fn step(&mut self, _action: ()) -> BenchStep<()> {
+        let state = self
+            .state
+            .take()
+            .expect("CoEvolutionaryHarness::reset must be called before step");
+        let (new_state, metrics) =
+            self.algorithm
+                .step(&self.params, state, &mut self.rng, &self.device);
+        self.state = Some(new_state);
+        self.generation += 1;
+
+        let binding = metrics.best_fitness_a.min(metrics.best_fitness_b);
+        let reward = -f64::from(binding);
+
+        tracing::info!(
+            generation = metrics.generation,
+            best_fitness_a = f64::from(metrics.best_fitness_a),
+            best_fitness_b = f64::from(metrics.best_fitness_b),
+            mean_fitness_a = f64::from(metrics.mean_fitness_a),
+            mean_fitness_b = f64::from(metrics.mean_fitness_b),
+            hof_size_a = metrics.hof_size_a,
+            hof_size_b = metrics.hof_size_b,
+            "coevolution generation",
+        );
+
+        self.latest_metrics = Some(metrics);
+        let done = self.generation >= self.max_generations;
+        BenchStep {
+            observation: (),
+            reward,
+            done,
+        }
+    }
+}
+
+impl<B, C> BenchEnv for CoEvolutionaryHarness<B, C>
+where
+    B: Backend,
+    C: CoEvolutionaryAlgorithm<B>,
+{
+    type Observation = ();
+    type Action = ();
+
+    fn reset(&mut self) -> Result<Self::Observation, BenchError> {
+        CoEvolutionaryHarness::<B, C>::reset(self);
+        Ok(())
+    }
+
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
+        Ok(CoEvolutionaryHarness::<B, C>::step(self, action))
+    }
+}

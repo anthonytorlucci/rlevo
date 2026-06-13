@@ -53,6 +53,13 @@ pub enum SeedPurpose {
     /// population from an independent per-generation stream, isolated from
     /// every other operator purpose.
     EdaSampling = 8,
+    /// Representative selection in cooperative co-evolution (CCGA).
+    ///
+    /// Used by [`crate::coevolution`] so the `Random` and `Archive`
+    /// representative-selection policies draw their opposing-population
+    /// representatives from a stream independent of either sub-strategy's
+    /// selection/mutation/crossover/replacement streams.
+    Representative = 9,
 }
 
 impl SeedPurpose {
@@ -67,6 +74,7 @@ impl SeedPurpose {
             SeedPurpose::Other => 0x9E37_79B9_7F4A_7C15,
             SeedPurpose::LocalSearch => 0xC0FF_EE15_600D_F00D,
             SeedPurpose::EdaSampling => 0xEDA0_5EED_BEEF_CAFE,
+            SeedPurpose::Representative => 0xC0EA_5E1E_C7ED_0009,
         }
     }
 }
@@ -139,6 +147,7 @@ mod tests {
         let c = seed_stream(42, 0, SeedPurpose::Mutation).next_u64();
         let d = seed_stream(42, 0, SeedPurpose::LocalSearch).next_u64();
         let e = seed_stream(42, 0, SeedPurpose::EdaSampling).next_u64();
+        let f = seed_stream(42, 0, SeedPurpose::Representative).next_u64();
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
@@ -149,6 +158,8 @@ mod tests {
         assert_ne!(b, e);
         assert_ne!(c, e);
         assert_ne!(d, e);
+        assert_ne!(a, f);
+        assert_ne!(e, f);
     }
 
     #[test]

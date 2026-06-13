@@ -117,6 +117,14 @@ pendulum-random:
 # ── rlevo-examples (heavy: benchmarks + viz/record/report features) ──────────
 # Not in default-members; each recipe supplies the required feature flags.
 
+# Phase 3c: competitive co-evolution predator–prey arms race on a separable quadratic.
+coevo-competitive:
+    cargo run --release -p rlevo-examples --example competitive_predator_prey
+
+# Phase 3c: cooperative CCGA on 6-D Rastrigin split across two 3-D sub-populations.
+coevo-cooperative:
+    cargo run --release -p rlevo-examples --example cooperative_ccga_rastrigin
+
 harness-ga-rastrigin:
     cargo run -p rlevo-examples --example ga_rastrigin
 
@@ -159,6 +167,40 @@ report-inverted-pendulum: client-build
 report-lunar-lander: client-build
     cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client  --release
 
+# ── Crate-level integration tests ───────────────────────────────────────────
+
+# Wire-format mirror parity: native EpisodeRecord vs browser-client mirror round-trip.
+test-wire-format:
+    cargo test -p rlevo-benchmarks --test wire_format_compat --features record
+
+# Grid env solvability canary: scripted optimal rollout through every grids env.
+test-grids-solvable:
+    cargo test -p rlevo-environments --test grids_solvable
+
+# AsciiRenderable coverage: render contract across classic/grids/toy_text/landscapes/box2d.
+test-render-coverage:
+    cargo test -p rlevo-environments --test render_coverage
+
+# Cross-backend parity: GA drives Sphere-D10 to a non-trivial optimum on both Flex and wgpu.
+test-backend-parity:
+    cargo test -p rlevo-evolution --test backend_parity
+
+# Co-evolution forgetting prevention: HoF retains solver coverage in a non-stationary host–parasite game.
+test-coevo-forgetting:
+    cargo test -p rlevo-evolution --test coevolution_forgetting
+
+# Co-evolution forgetting observer [ignored: prints trajectory statistics, no assertion].
+test-coevo-forgetting-observe:
+    cargo test -p rlevo-evolution --test coevolution_forgetting -- observe_dynamics --ignored --nocapture
+
+# Bit-exact determinism: every EA strategy produces identical fitness trajectory from same seed.
+test-evolution-determinism:
+    cargo test -p rlevo-evolution --test determinism
+
+# EDA plumbing smoke: each ProbabilityModel completes ask→evaluate→tell with finite metrics.
+test-eda-smoke:
+    cargo test -p rlevo-evolution --test eda_smoke
+
 # ── Integration tests (rlevo umbrella) ──────────────────────────────────────
 
 # Cross-crate integration: core + RL replay/metrics.
@@ -193,6 +235,14 @@ test-memetic-calibration:
 # MIMIC beats UMDA's median on Rosenbrock-D10 across 9 fixed seeds.
 test-eda:
     cargo test -p rlevo --test eda_convergence
+
+# EDA determinism: all five ProbabilityModels produce bit-identical trajectories from the same seed.
+test-eda-determinism:
+    cargo test -p rlevo --test determinism
+
+# Co-evolution harness: CoEvolutionaryHarness driven by rlevo-benchmarks Evaluator end-to-end.
+test-coevo-harness:
+    cargo test -p rlevo --test coevolution_harness
 
 # Post-run record → report pipeline smoke [requires viz-report feature].
 test-report-smoke:

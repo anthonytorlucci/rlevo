@@ -89,3 +89,12 @@ path = "examples/harness/tabular_bandit.rs"
 [[example]]
 name = "eda_showcase"
 path = "examples/evolution/eda_showcase.rs"
+
+# Examples — evolution (co-evolution)
+[[example]]
+name = "competitive_predator_prey"
+path = "examples/evolution/competitive_predator_prey.rs"
+
+[[example]]
+name = "cooperative_ccga_rastrigin"
+path = "examples/evolution/cooperative_ccga_rastrigin.rs"
