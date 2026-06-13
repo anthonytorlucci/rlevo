@@ -31,6 +31,10 @@ criterion = { workspace = true }
 name = "operators"
 harness = false
 
+[[bench]]
+name = "neat_xor"
+harness = false
+
 [features]
 default = ["custom-kernels"]
 # Enables custom CubeCL kernels on hot paths. Two kernel slots are
