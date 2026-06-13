@@ -201,6 +201,14 @@ test-evolution-determinism:
 test-eda-smoke:
     cargo test -p rlevo-evolution --test eda_smoke
 
+# Weight-only neuroevolution: WeightOnly<GA> + ModuleEvalFn evolves an MLP to fit a noisy sine (directional MSE improvement).
+test-neuroevolution:
+    cargo test -p rlevo-evolution --test neuroevolution_supervised
+
+# Policy neuroevolution smoke: PolicyNeuroevolution runs 2 generations on CartPole without panic (correctness, not convergence).
+test-policy-neuroevolution:
+    cargo test -p rlevo-hybrid --test cartpole_smoke
+
 # ── Integration tests (rlevo umbrella) ──────────────────────────────────────
 
 # Cross-crate integration: core + RL replay/metrics.
