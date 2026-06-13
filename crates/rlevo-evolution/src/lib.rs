@@ -35,9 +35,14 @@
 //!   searchers) for memetic algorithms.
 //! - [`probability_model`] — the [`ProbabilityModel`] trait shared by the
 //!   estimation-of-distribution (EDA) strategies.
+//! - [`coevolution`] — competitive / cooperative co-evolution
+//!   ([`CompetitiveCoEA`], [`CooperativeCoEA`]), the [`CoupledFitness`] trait,
+//!   the [`HallOfFameFitness`] cycling mitigation, and the
+//!   [`CoEvolutionaryHarness`] `BenchEnv` adapter.
 //! - [`algorithms`] — concrete strategies.
 
 pub mod algorithms;
+pub mod coevolution;
 pub mod fitness;
 pub mod genome;
 pub mod local_search;
@@ -55,6 +60,11 @@ pub use algorithms::eda::{
     UnivariateBernoulliParams, UnivariateGaussian, UnivariateGaussianParams,
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
+pub use coevolution::{
+    CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
+    CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState, CoupledFitness,
+    HallOfFame, HallOfFameFitness, RepresentativePolicy,
+};
 pub use probability_model::ProbabilityModel;
 pub use local_search::{
     HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
