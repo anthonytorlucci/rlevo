@@ -13,8 +13,9 @@
 use rlevo_core::fitness::Landscape;
 
 use crate::landscapes::{
-    ackley::Ackley, alpine1::Alpine1, branin::Branin, bukin6::Bukin6, cross_in_tray::CrossInTray,
-    deb1::Deb1, easom::Easom, eggholder::Eggholder, goldstein_price::GoldsteinPrice,
+    ackley::Ackley, alpine1::Alpine1, branin::Branin, bukin6::Bukin6,
+    concatenated_trap::ConcatenatedTrap, cross_in_tray::CrossInTray, deb1::Deb1, easom::Easom,
+    eggholder::Eggholder, goldstein_price::GoldsteinPrice,
     griewank::Griewank, himmelblau::Himmelblau, lunacek_bi_rastrigin::LunacekBiRastrigin,
     michalewicz::Michalewicz, needle_eye::Needle, penalized1::Penalized1, rastrigin::Rastrigin,
     rosenbrock::Rosenbrock, rosenbrock_flat::RosenbrockFlat, schwefel::Schwefel,
@@ -28,6 +29,12 @@ use crate::landscapes::{
 impl Landscape for Sphere {
     fn evaluate(&self, x: &[f64]) -> f64 {
         Sphere::evaluate(self, x)
+    }
+}
+
+impl Landscape for ConcatenatedTrap {
+    fn evaluate(&self, x: &[f64]) -> f64 {
+        ConcatenatedTrap::evaluate(self, x)
     }
 }
 

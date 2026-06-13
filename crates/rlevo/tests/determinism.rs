@@ -1,6 +1,6 @@
 //! Bit-exact determinism for the EDA strategies (cross-crate).
 //!
-//! Runs each of the four `ProbabilityModel` implementations twice from
+//! Runs each of the five `ProbabilityModel` implementations twice from
 //! the same seed on the real [`Sphere`] landscape from
 //! `rlevo-environments` and asserts the per-generation best-fitness
 //! trajectories are bit-identical. EDA sampling draws exclusively from
@@ -13,14 +13,14 @@ use burn::backend::Flex;
 
 use rlevo_environments::landscapes::sphere::Sphere;
 use rlevo_evolution::algorithms::eda::{
-    CompactGeneticParams, DependencyChainParams, UnivariateBernoulliParams,
-    UnivariateGaussianParams,
+    BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
+    UnivariateBernoulliParams, UnivariateGaussianParams,
 };
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 use rlevo_evolution::{
-    CompactGenetic, DependencyChain, EdaParams, EdaStrategy, ProbabilityModel,
-    UnivariateBernoulli, UnivariateGaussian,
+    BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy,
+    ProbabilityModel, UnivariateBernoulli, UnivariateGaussian,
 };
 
 type B = Flex;
@@ -134,5 +134,22 @@ fn eda_same_seed_same_trajectories() {
     assert_eq!(
         a, b,
         "DependencyChain (MIMIC) trajectories diverge under the same seed"
+    );
+
+    // BOA — Bayesian network; raw {0,1} genes, bounds unused.
+    let a = run(
+        BayesianNetwork,
+        BayesianNetworkParams::default_for(DIM),
+        None,
+    );
+    let b = run(
+        BayesianNetwork,
+        BayesianNetworkParams::default_for(DIM),
+        None,
+    );
+    assert!(a.iter().all(|f| f.is_finite()));
+    assert_eq!(
+        a, b,
+        "BayesianNetwork (BOA) trajectories diverge under the same seed"
     );
 }

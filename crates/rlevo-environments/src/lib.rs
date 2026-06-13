@@ -38,6 +38,7 @@ pub mod landscapes {
     pub mod sphere;
 
     // Tier 1 — scalable n-D landscapes.
+    pub mod concatenated_trap;
     pub mod griewank;
     pub mod michalewicz;
     pub mod penalized1;

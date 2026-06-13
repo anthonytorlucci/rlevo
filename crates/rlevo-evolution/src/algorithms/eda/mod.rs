@@ -10,7 +10,7 @@
 //! 4. [`sample`](crate::ProbabilityModel::sample) a fresh population.
 //!
 //! The model is supplied as a [`ProbabilityModel`]; the generic
-//! [`EdaStrategy`] driver is model-agnostic. Four reference models ship here:
+//! [`EdaStrategy`] driver is model-agnostic. Five reference models ship here:
 //!
 //! - [`UnivariateGaussian`] — UMDA, a per-dimension Gaussian (unweighted MLE,
 //!   `÷k` variance, `min_variance` floor; fitness is accepted but ignored).
@@ -22,10 +22,13 @@
 //!   pairwise draw as in classic cGA).
 //! - [`DependencyChain`] — a continuous-Gaussian MIMIC chain capturing
 //!   pairwise dependencies (fitness accepted but ignored).
+//! - [`BayesianNetwork`] — BOA, a BIC-scored Bayesian network (bounded-in-degree
+//!   DAG over binary genes; non-incremental, unweighted fit; Pelikan, Goldberg
+//!   & Cantú-Paz 1999).
 //!
-//! Both binary models ([`UnivariateBernoulli`] and [`CompactGenetic`]) emit
-//! raw `{0, 1}` genes; the [`EdaParams::bounds`] clamp is therefore a no-op
-//! for them.
+//! The three binary models ([`UnivariateBernoulli`], [`CompactGenetic`], and
+//! [`BayesianNetwork`]) emit raw `{0, 1}` genes; the [`EdaParams::bounds`] clamp
+//! is therefore a no-op for them.
 //!
 //! # References
 //!
@@ -37,12 +40,16 @@
 //! - Harik, Lobo & Goldberg (1999), *The compact genetic algorithm*.
 //! - De Bonet, Isbell & Viola (1997), *MIMIC: Finding optima by estimating
 //!   probability densities*.
+//! - Pelikan, Goldberg & Cantú-Paz (1999), *BOA: The Bayesian optimization
+//!   algorithm*.
 
+pub mod bayesian_network;
 pub mod compact_genetic;
 pub mod dependency_chain;
 pub mod univariate_bernoulli;
 pub mod univariate_gaussian;
 
+pub use bayesian_network::{BayesianNetwork, BayesianNetworkParams, BayesianNetworkState};
 pub use compact_genetic::{CompactGenetic, CompactGeneticParams, CompactGeneticState};
 pub use dependency_chain::{DependencyChain, DependencyChainParams, DependencyChainState};
 pub use univariate_bernoulli::{
@@ -110,7 +117,7 @@ pub struct EdaState<B: Backend, MS> {
 ///
 /// Type parameter `M` must implement [`ProbabilityModel<B>`]; in practice
 /// this is one of [`UnivariateGaussian`], [`UnivariateBernoulli`],
-/// [`CompactGenetic`], or [`DependencyChain`].
+/// [`CompactGenetic`], [`DependencyChain`], or [`BayesianNetwork`].
 ///
 /// # Example
 ///
@@ -229,10 +236,10 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     /// and refits the model to them (passing `prev = Some(model_state)`).
     ///
     /// The `fitness` tensor is forwarded to [`ProbabilityModel::fit`]; models
-    /// that weight or rank their selected individuals can use it. The four
+    /// that weight or rank their selected individuals can use it. The five
     /// built-in models ([`UnivariateGaussian`], [`UnivariateBernoulli`],
-    /// [`CompactGenetic`], [`DependencyChain`]) all perform an unweighted fit
-    /// and ignore it.
+    /// [`CompactGenetic`], [`DependencyChain`], [`BayesianNetwork`]) all perform
+    /// an unweighted fit and ignore it.
     fn tell(
         &self,
         params: &Self::Params,
