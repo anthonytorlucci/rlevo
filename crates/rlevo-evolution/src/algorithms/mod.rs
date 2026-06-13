@@ -23,6 +23,8 @@
 //! - [`memetic`] — [`MemeticWrapper`](memetic::MemeticWrapper): wraps any
 //!   real-valued strategy with per-individual local-search refinement
 //!   (Lamarckian / Baldwinian / Partial writeback).
+//! - [`neuroevolution`] — [`WeightOnly`](neuroevolution::WeightOnly): wraps any
+//!   real-valued strategy to evolve the flattened weights of a Burn `Module`.
 
 pub mod de;
 pub mod eda;
@@ -33,3 +35,4 @@ pub mod ga_binary;
 pub mod gp_cgp;
 pub mod memetic;
 pub mod metaheuristic;
+pub mod neuroevolution;

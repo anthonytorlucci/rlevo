@@ -6463,6 +6463,7 @@ dependencies = [
  "burn",
  "rand 0.10.1",
  "rlevo-core",
+ "rlevo-environments",
  "rlevo-evolution",
  "rlevo-reinforcement-learning",
  "serde",

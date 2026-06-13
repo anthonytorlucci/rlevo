@@ -46,8 +46,10 @@ pub mod coevolution;
 pub mod fitness;
 pub mod genome;
 pub mod local_search;
+pub mod module_eval_fn;
 pub mod observer;
 pub mod ops;
+pub mod param_reshaper;
 pub mod population;
 pub mod probability_model;
 pub mod rng;
@@ -60,11 +62,14 @@ pub use algorithms::eda::{
     UnivariateBernoulliParams, UnivariateGaussian, UnivariateGaussianParams,
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
+pub use algorithms::neuroevolution::WeightOnly;
 pub use coevolution::{
     CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
     CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState, CoupledFitness,
     HallOfFame, HallOfFameFitness, RepresentativePolicy,
 };
+pub use module_eval_fn::ModuleEvalFn;
+pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
 pub use local_search::{
     HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
