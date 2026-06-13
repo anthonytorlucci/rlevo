@@ -62,7 +62,10 @@ pub use algorithms::eda::{
     UnivariateBernoulliParams, UnivariateGaussian, UnivariateGaussianParams,
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
-pub use algorithms::neuroevolution::WeightOnly;
+pub use algorithms::neuroevolution::{
+    ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NasGenome, NasParams,
+    NasState, VariantEvaluator, WeightOnly,
+};
 pub use coevolution::{
     CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
     CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState, CoupledFitness,
