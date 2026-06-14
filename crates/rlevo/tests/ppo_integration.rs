@@ -167,6 +167,7 @@ fn ppo_cart_pole_reaches_100() {
 }
 
 #[test]
+#[ignore = "2 048-timestep PPO training run; checks finite rewards and losses — run with `cargo test -- --ignored`"]
 fn ppo_short_run_produces_finite_rewards() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

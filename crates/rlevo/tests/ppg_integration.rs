@@ -242,6 +242,7 @@ fn ppg_aux_phase_actually_runs() {
 }
 
 #[test]
+#[ignore = "2 048-timestep PPG training run; checks finite rewards and losses — run with `cargo test -- --ignored`"]
 fn ppg_short_run_produces_finite_rewards() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)

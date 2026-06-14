@@ -146,6 +146,7 @@ fn fresh_agent(seed: u64) -> Agent {
 /// numerical blow-up, etc.). The `BACKEND_LOCK` serializes execution within
 /// this binary so Burn's process-global Flex RNG stays isolated.
 #[test]
+#[ignore = "2 500-step Flex backend smoke run; checks for NaN rewards — run with `cargo test -- --ignored`"]
 fn c51_short_run_produces_finite_rewards() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -172,6 +173,7 @@ fn c51_short_run_produces_finite_rewards() {
 /// reward sequences. The `BACKEND_LOCK` serializes execution within this
 /// binary so Burn's process-global Flex RNG stays isolated.
 #[test]
+#[ignore = "6 000-step reproducibility check (two sequential CartPole runs); run with `cargo test -- --ignored`"]
 #[allow(clippy::float_cmp)]
 fn c51_reproducibility_flex() {
     rayon::ThreadPoolBuilder::new()
