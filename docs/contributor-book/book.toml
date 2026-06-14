@@ -1,14 +1,16 @@
 [book]
 title = "rlevo: Contributor Guide"
+description = "A guide specifically for developers and contributors with Rust experience."
 authors = ["Anthony Torlucci"]
 language = "en"
-multilingual = false
 src = "src"
+text-direction = "ltr"
 
 [output.html]
 default-theme = "rust"
 git-repository-url = "https://github.com/anthonytorlucci/rlevo"
 edit-url-template = "https://github.com/anthonytorlucci/rlevo/edit/main/docs/contributor-book/{path}"
+mathjax-support = true
 
 [preprocessor.wikilinks]
 command = "mdbook-wikilinks"

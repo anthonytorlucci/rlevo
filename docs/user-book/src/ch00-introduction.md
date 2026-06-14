@@ -6,10 +6,9 @@ search for good behaviour — **evolution** (populations that mutate and select)
 and **gradient-based reinforcement learning** (agents that learn from reward) —
 and lets you mix them.
 
-This book is for **researchers**. You bring a problem from your own field; the
-book shows you how to express it in `rlevo` and turn the crank. We won't derive
-the algorithms — we'll *use* them, starting from a problem so small it fits in
-your head and ending with a custom environment of your own.
+This book is for **reinforcement learning** and **evolutionary computation** 
+**researchers** and **students** alike. We'll introduce topics in both of these 
+subjects and illustrate how they map to traits and structs in `rlevo`. 
 
 ## The shape of every problem
 
@@ -47,14 +46,6 @@ already own, or against a real experiment. Chapter 1 makes this concrete.
 | Chapter | You'll make rlevo… |
 | ------- | ------------------ |
 | 1 | minimise a function with a genetic algorithm |
-| 2 | balance a pole with a Deep Q-Network |
-| 3 | wrap your own problem as an `Environment` |
-| 4 | evolve the weights of a neural network instead of training them |
-| 5 | bolt local refinement onto any strategy (memetic algorithms) |
-| 6 | beat a deceptive landscape with estimation-of-distribution algorithms |
-| 7 | let evolution choose the network architecture |
-| 8 | combine evolutionary search with gradient learning |
-| 9 | watch a run live and replay it afterwards as an HTML report |
 
 ## Before you start
 
@@ -63,6 +54,12 @@ in this book live in the `rlevo-examples` crate and you can run any of them with
 
 ```bash
 cargo run -p rlevo-examples --example <name>
+```
+
+or
+
+```zsh
+just <example-name>
 ```
 
 Each chapter names the example it's built from. The code in the book *is* that

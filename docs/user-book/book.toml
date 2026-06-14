@@ -1,11 +1,13 @@
 [book]
 title = "rlevo: A Researcher's Guide"
+description = "A story-book style guide for new users and researchers."
 authors = ["Anthony Torlucci"]
 language = "en"
-multilingual = false
 src = "src"
+text-direction = "ltr"
 
 [output.html]
 default-theme = "rust"
 git-repository-url = "https://github.com/anthonytorlucci/rlevo"
 edit-url-template = "https://github.com/anthonytorlucci/rlevo/edit/main/docs/user-book/{path}"
+mathjax-support = true
