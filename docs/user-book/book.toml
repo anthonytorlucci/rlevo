@@ -10,4 +10,4 @@ text-direction = "ltr"
 default-theme = "rust"
 git-repository-url = "https://github.com/anthonytorlucci/rlevo"
 edit-url-template = "https://github.com/anthonytorlucci/rlevo/edit/main/docs/user-book/{path}"
-mathjax-support = true
+mathjax-support = false

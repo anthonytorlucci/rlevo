@@ -54,7 +54,7 @@ CI runs this command on every PR. A PR with lint warnings will not be merged.
 
 ## Outline
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-linting}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-linting}} -->
 
 1. The full workspace lint configuration walk-through.
 2. Common pedantic lints and how to satisfy them.

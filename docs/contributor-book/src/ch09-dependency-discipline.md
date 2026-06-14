@@ -10,7 +10,7 @@ requirement exist to make that cost visible and intentional.
 
 ## The approved dependency table
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-approved-deps}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-approved-deps}} -->
 
 Key workspace dependencies and their purpose:
 

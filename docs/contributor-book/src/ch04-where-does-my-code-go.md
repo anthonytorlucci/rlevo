@@ -30,7 +30,7 @@ cross-crate benchmark orchestration.
 
 ## Outline
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-placement}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-placement}} -->
 
 1. The full placement decision tree (flowchart).
 2. When to promote a unit test to an integration test.

@@ -31,7 +31,7 @@ referenced in crate `Cargo.toml` files without repeating the version.
 
 ## Outline
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-workspace-conventions}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-workspace-conventions}} -->
 
 1. Full naming convention table.
 2. Visibility policy — when `pub(crate)` and when `pub`.

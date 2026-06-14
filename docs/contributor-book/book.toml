@@ -10,10 +10,4 @@ text-direction = "ltr"
 default-theme = "rust"
 git-repository-url = "https://github.com/anthonytorlucci/rlevo"
 edit-url-template = "https://github.com/anthonytorlucci/rlevo/edit/main/docs/contributor-book/{path}"
-mathjax-support = true
-
-[preprocessor.wikilinks]
-command = "mdbook-wikilinks"
-# base_path configures how [[wikilinks]] resolve. Set to the vault's ADR
-# directory path or a URL prefix when building for GitHub Pages.
-base_path = "decisions"
+mathjax-support = false

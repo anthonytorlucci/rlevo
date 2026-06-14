@@ -32,7 +32,7 @@ implementation or add a new trait. Open an ADR before breaking any public trait.
 
 ## Outline
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-trait-design}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-trait-design}} -->
 
 1. The const-generic constraint system — how `R`, `SR`, `AR` flow through
    `State`, `Observation`, `Action`, `Snapshot`.

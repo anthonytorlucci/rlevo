@@ -66,7 +66,7 @@ RUSTDOCFLAGS="-D rustdoc::broken-intra-doc-links" cargo doc --workspace --no-dep
 
 ## Outline
 
-<!-- TODO: {{#include ../../../../rules.md:anchor-documentation}} -->
+<!-- TODO: \{{#include ../../../../rules.md:anchor-documentation}} -->
 
 1. The zero-exception policy — what it covers and why.
 2. Summary sentences — imperative mood, one line.
