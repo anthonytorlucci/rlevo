@@ -60,6 +60,13 @@ pub enum SeedPurpose {
     /// representatives from a stream independent of either sub-strategy's
     /// selection/mutation/crossover/replacement streams.
     Representative = 9,
+    /// Transposition operators (gene expression programming).
+    ///
+    /// Used by [`crate::algorithms::gep`] so IS/RIS transposition draws from a
+    /// stream independent of the point-mutation ([`Mutation`](Self::Mutation))
+    /// and crossover ([`Crossover`](Self::Crossover)) streams within the same
+    /// generation.
+    Transposition = 10,
 }
 
 impl SeedPurpose {
@@ -75,6 +82,7 @@ impl SeedPurpose {
             SeedPurpose::LocalSearch => 0xC0FF_EE15_600D_F00D,
             SeedPurpose::EdaSampling => 0xEDA0_5EED_BEEF_CAFE,
             SeedPurpose::Representative => 0xC0EA_5E1E_C7ED_0009,
+            SeedPurpose::Transposition => 0x7A05_9051_70F0_000A,
         }
     }
 }

@@ -161,6 +161,7 @@ fn dqn_cart_pole_reaches_100() {
 /// process. The `BACKEND_LOCK` serializes execution within this binary so
 /// Burn's process-global Flex RNG stays isolated.
 #[test]
+#[ignore = "6 000-step reproducibility check (two sequential CartPole runs); run with `cargo test -- --ignored`"]
 #[allow(clippy::float_cmp)]
 fn dqn_reproducibility_flex() {
     rayon::ThreadPoolBuilder::new()

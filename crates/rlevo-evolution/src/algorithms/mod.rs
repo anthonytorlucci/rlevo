@@ -7,6 +7,8 @@
 //! - [`de`] — Differential Evolution (rand/best/current-to-best × bin/exp).
 //! - [`ep`] — Evolutionary Programming (Fogel-style).
 //! - [`gp_cgp`] — Cartesian Genetic Programming.
+//! - [`gep`] — Gene Expression Programming (linear head/tail genome decoded to
+//!   an expression tree).
 //!
 //! # Swarm / nature-inspired metaheuristics
 //!
@@ -32,6 +34,7 @@ pub mod ep;
 pub mod es_classical;
 pub mod ga;
 pub mod ga_binary;
+pub mod gep;
 pub mod gp_cgp;
 pub mod memetic;
 pub mod metaheuristic;

@@ -19,6 +19,9 @@ rand_distr = { workspace = true }
 # observer handle and the recording-tier sinks in `rlevo-benchmarks` share
 # one `Mutex` type (ADR 0010). Already a transitive workspace dependency.
 parking_lot = { workspace = true }
+# Row-parallel host-side phenotype decode + evaluation in Gene Expression
+# Programming (3e-R1 §5). Pinned at the workspace version.
+rayon = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

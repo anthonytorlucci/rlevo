@@ -339,6 +339,7 @@ static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// env steps. Random actions average ≈ −6.67 per episode; a learned policy
 /// approaches `0`.
 #[test]
+#[ignore = "8 000-step LinearEnv convergence check; run with `cargo test -- --ignored`"]
 fn sac_solves_linear_1d_continuous() {
     rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");

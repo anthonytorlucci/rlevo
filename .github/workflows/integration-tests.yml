@@ -47,26 +47,26 @@ jobs:
       - name: Report pipeline smoke
         run: just test-report-smoke
 
-      - name: DQN
-        run: just test-dqn
+      - name: DQN (plumbing + short-run + reproducibility)
+        run: just test-dqn && just test-dqn-short && just test-dqn-repro
 
-      - name: C51
-        run: just test-c51
+      - name: C51 (plumbing + short-run + reproducibility)
+        run: just test-c51 && just test-c51-short && just test-c51-repro
 
-      - name: QR-DQN
-        run: just test-qrdqn
+      - name: QR-DQN (plumbing + short-run + reproducibility)
+        run: just test-qrdqn && just test-qrdqn-short && just test-qrdqn-repro
 
-      - name: PPO
-        run: just test-ppo
+      - name: PPO (plumbing + short-run)
+        run: just test-ppo && just test-ppo-short
 
-      - name: PPG
-        run: just test-ppg
+      - name: PPG (plumbing + short-run)
+        run: just test-ppg && just test-ppg-short
 
-      - name: DDPG
-        run: just test-ddpg
+      - name: DDPG (plumbing + LinearEnv convergence)
+        run: just test-ddpg && just test-ddpg-linear
 
-      - name: TD3
-        run: just test-td3
+      - name: TD3 (plumbing + LinearEnv convergence)
+        run: just test-td3 && just test-td3-linear
 
-      - name: SAC
-        run: just test-sac
+      - name: SAC (plumbing + LinearEnv convergence)
+        run: just test-sac && just test-sac-linear
