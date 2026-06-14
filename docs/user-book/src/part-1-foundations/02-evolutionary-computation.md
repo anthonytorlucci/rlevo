@@ -62,7 +62,7 @@ or binary genomes with three operators:
   \\([\min(p_1, p_2) - \alpha \cdot d,\ \max(p_1, p_2) + \alpha \cdot d]\\)
   where \\(d = |p_1 - p_2|\\). Larger \\(\alpha\\) → more exploration.
 - *Simulated Binary Crossover (SBX)*: mimics single-point on binary
-  representations but works in continuous space [[Deb95]](#bibliography).
+  representations but works in continuous space [[Deb and Agrawal, 1995]](#bibliography).
 
 <!-- todo! link or refer to crates/rlevo-evolution/src/ops/crossover.rs -->
 
@@ -124,7 +124,7 @@ parameter settings...
 
 Instead of maintaining individuals and applying variation operators, **Estimation
 of Distribution Algorithms** (EDAs) maintain an explicit probabilistic model of
-the search space and sample new candidates from it [[Larrañaga, 2002]](#bibliography).
+the search space and sample new candidates from it [[Larrañaga and Lozano, 2002]](#bibliography).
 
 The core loop:
 

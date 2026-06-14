@@ -20,11 +20,11 @@ optimise the weights (and sometimes the architecture) of neural networks.
 
 David Moriarty and Risto Miikkulainen (1996) showed that GAs could evolve
 network weights for control tasks. Stanley and Miikkulainen's **NEAT**
-(NeuroEvolution of Augmenting Topologies, 2002) [[SM02]](#bibliography) went
+(NeuroEvolution of Augmenting Topologies, 2002) [[Stanley and Miikkulainen, 2002]](#bibliography) went
 further: it co-evolved weights *and* network topology using a historical marking
 scheme to enable meaningful crossover between networks of different sizes.
 
-Such et al. (2017) [[Such17]](#bibliography) at Uber AI Labs demonstrated that a
+Such et al. (2017) [[Such et al., 2017]](#bibliography) at Uber AI Labs demonstrated that a
 simple evolution strategy operating directly on network weights — with no
 gradients at all — could match DQN and A3C on many Atari games and train orders
 of magnitude faster on modern hardware due to trivial parallelism. This result
@@ -33,7 +33,7 @@ just a niche alternative.
 
 ## OpenAI Evolution Strategies
 
-Salimans et al. (2017) [[Salimans17]](#bibliography) framed RL as black-box
+Salimans et al. (2017) [[Salimans et al., 2017]](#bibliography) framed RL as black-box
 optimization over policy parameters and applied a variant of natural evolution
 strategies. The gradient estimate is:
 
@@ -56,7 +56,7 @@ becomes competitive.
 
 ## Evolutionary Reinforcement Learning (ERL)
 
-Khadka and Tumer (2018) [[KT18]](#bibliography) introduced a hybrid architecture
+Khadka and Tumer (2018) [[Khadka and Tumer, 2018]](#bibliography) introduced a hybrid architecture
 that runs a population of policy networks alongside a gradient-based RL agent
 (DDPG):
 
@@ -76,7 +76,7 @@ the shared `Environment` + `ReplayBuffer` seam connects them.
 
 ## Memetic Algorithms
 
-A **memetic algorithm** [[Moscato89]](#bibliography) is any evolutionary algorithm
+A **memetic algorithm** [[Moscato, 1989]](#bibliography) is any evolutionary algorithm
 that includes a local search operator applied to individuals after selection.
 The name comes from Dawkins' *meme* — a unit of cultural transmission that allows
 acquired improvements to propagate.
@@ -94,7 +94,7 @@ the next generation (Lamarckian vs Baldwinian learning).
 ## Gene Expression Programming
 
 John Koza's Genetic Programming evolved tree-structured programs. **Gene
-Expression Programming** (GEP) [[Ferreira02]](#bibliography) uses linear
+Expression Programming** (GEP) [[Ferreira, 2002]](#bibliography) uses linear
 chromosomes that are decoded into expression trees, separating the genotype (a
 fixed-length string that is easy to evolve) from the phenotype (the tree that is
 evaluated). This avoids the variable-length crossover problems that plague

@@ -7,7 +7,7 @@ discover good behaviour by interacting with the world and observing what happens
 
 ## The Agent–Environment Loop
 
-The basic setup, formalised by Sutton and Barto [[SB18]](#bibliography), is:
+The basic setup, formalised by Sutton and Barto [[Sutton and Barto, 2018]](#bibliography), is:
 
 ```text
          action aₜ
@@ -92,7 +92,7 @@ Q^*(s, a)\\) — always take the action with the highest Q-value.
 
 When \\(\mathcal{S}\\) and \\(\mathcal{A}\\) are small and discrete, we can
 represent \\(Q\\) as a table and update it directly. **Q-learning**
-[[Watkins89]](#bibliography) does this with the update rule:
+[[Watkins, 1989]](#bibliography) does this with the update rule:
 
 \\[
 Q(s_t, a_t) \leftarrow Q(s_t, a_t) +
@@ -111,7 +111,7 @@ CartPole observation is a 4-vector of real numbers, and a video game frame is
 \\(84 \times 84 \times 4\\) pixels. The solution is to **approximate** \\(Q\\)
 with a neural network \\(Q(s, a; \theta)\\) parameterised by weights \\(\theta\\).
 
-**DQN** (Deep Q-Network) [[Mnih15]](#bibliography) introduced two stabilising
+**DQN** (Deep Q-Network) [[Mnih et al., 2015]](#bibliography) introduced two stabilising
 ideas that made this work:
 
 1. **Experience replay**: store transitions \\((s, a, r, s')\\) in a buffer and
@@ -128,16 +128,16 @@ Subsequent algorithms addressed DQN's limitations:
 
 | Algorithm | Key contribution | Reference |
 | --------- | ---------------- | --------- |
-| Double DQN | Decoupled action selection and evaluation to reduce overestimation bias | [[vanHasselt16]](#bibliography) |
-| Dueling DQN | Separate value and advantage streams in the network | [[Wang16]](#bibliography) |
-| PPO | Stable policy gradient via clipped surrogate objective | [[Schulman17]](#bibliography) |
-| SAC | Off-policy actor-critic with maximum entropy objective | [[Haarnoja18]](#bibliography) |
-| TD3 | Twin critics + delayed policy updates for stability | [[Fujimoto18]](#bibliography) |
+| Double DQN | Decoupled action selection and evaluation to reduce overestimation bias | [[van Hasselt et al., 2016]](#bibliography) |
+| Dueling DQN | Separate value and advantage streams in the network | [[Wang et al., 2016]](#bibliography) |
+| PPO | Stable policy gradient via clipped surrogate objective | [[Schulman et al., 2017]](#bibliography) |
+| SAC | Off-policy actor-critic with maximum entropy objective | [[Haarnoja et al., 2018]](#bibliography) |
+| TD3 | Twin critics + delayed policy updates for stability | [[Fujimoto et al., 2018]](#bibliography) |
 
 ## Policy Gradient Methods
 
 An alternative to value-based methods is to directly optimise the policy. The
-**policy gradient theorem** [[Sutton99]](#bibliography) gives the gradient of the
+**policy gradient theorem** [[Sutton et al., 1999]](#bibliography) gives the gradient of the
 expected return with respect to policy parameters \\(\theta\\):
 
 \\[
@@ -145,7 +145,7 @@ expected return with respect to policy parameters \\(\theta\\):
   \left[ \nabla_\theta \log \pi_\theta(a \mid s) \cdot Q^{\pi_\theta}(s, a) \right]
 \\]
 
-Williams (1992) [[Williams92]](#bibliography) introduced the REINFORCE estimator
+Williams (1992) [[Williams, 1992]](#bibliography) introduced the REINFORCE estimator
 — a Monte Carlo approximation of this gradient — showing that the score function
 \\(\nabla \log \pi\\) can be used to push the policy toward actions that produced
 above-average returns, without needing a model of the environment.

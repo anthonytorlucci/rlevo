@@ -28,7 +28,7 @@ local information and uses it to decide where to look next.
 The landscape metaphor was introduced in evolutionary biology by Sewall Wright
 (1932) to describe how populations move through genotype space under selection.
 Stuart Kauffman later formalised the idea of *ruggedness* — how many local minima
-a landscape has — in the NK model [[Kauffman93]](#bibliography). Both concepts
+a landscape has — in the NK model [[Kauffman, 1993]](#bibliography). Both concepts
 transferred directly into evolutionary computation.
 
 Three landscape properties matter most for algorithm choice:
@@ -151,7 +151,7 @@ Evolutionary computation was designed for exactly these regimes.
 
 Wolpert and Macready (1997) proved that **no search algorithm outperforms every
 other algorithm averaged uniformly over all possible objective functions**
-[[WM97]](#bibliography). If an algorithm does well on one class of problems, there
+[[Wolpert and Macready, 1997]](#bibliography). If an algorithm does well on one class of problems, there
 must be another class on which it does equivalently worse.
 
 The practical implication: choosing an algorithm means making an assumption about

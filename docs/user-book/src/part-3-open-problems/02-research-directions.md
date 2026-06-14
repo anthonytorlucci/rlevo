@@ -43,7 +43,7 @@ This is the ERL intuition applied to exploration.
 
 ## Quality-Diversity algorithms
 
-Novelty Search (Lehman & Stanley, 2011) [[LS11]](#bibliography) showed that
+Novelty Search (Lehman & Stanley, 2011) [[Lehman and Stanley, 2011]](#bibliography) showed that
 searching for *novel* behaviours — without regard to fitness — can find solutions
 that pure fitness maximisation cannot, because novelty avoids deceptive local
 optima.
