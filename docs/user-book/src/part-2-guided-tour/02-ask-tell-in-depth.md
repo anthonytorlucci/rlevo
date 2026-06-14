@@ -66,9 +66,9 @@ harness:
 ```rust,no_run
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use rlevo_environments::landscapes::sphere::Sphere;
-use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
-use rlevo_evolution::strategy::Strategy;
+use rlevo::envs::landscapes::sphere::Sphere;
+use rlevo::evo::algorithms::ga::{GaConfig, GeneticAlgorithm};
+use rlevo::evo::strategy::Strategy;
 
 let problem = Sphere::new(8);
 let config = GaConfig { pop_size: 64, genome_dim: 8, bounds: (-5.12, 5.12), .. };
@@ -127,7 +127,7 @@ This means:
 
 The host-RNG convention (all randomness through `seed_stream`, never via
 `Backend::seed` or `Tensor::random`) is enforced by convention throughout
-`rlevo-evolution`. The contributor book documents why.
+`rlevo::evo`. The contributor book documents why.
 
 ## What the harness adds
 

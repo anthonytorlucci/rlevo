@@ -36,6 +36,21 @@ where \\(\gamma \in [0, 1)\\) is a **discount factor** that makes immediate
 rewards worth more than distant ones. When \\(\gamma = 0\\) the agent is
 completely myopic; as \\(\gamma \to 1\\) the agent plans further into the future.
 
+> **In `rlevo`.** The reward signal is captured by the `Reward` trait in
+> `rlevo::core::base`. It requires only that rewards form an additive monoid
+> and can be converted to `f32` — enough to accumulate returns and log them:
+>
+> ```rust
+> pub trait Reward: Clone + Add<Output = Self> + Into<f32> + Debug {
+>     fn zero() -> Self;   // additive identity
+> }
+> ```
+>
+> The built-in `ScalarReward(f32)` satisfies this for most environments. You
+> only need a custom implementation when your reward has domain-specific
+> structure (e.g. a multi-component tuple you want to keep typed before
+> scalarising).
+
 ## Markov Decision Processes
 
 The formal model underlying most RL is the **Markov Decision Process** (MDP),
@@ -47,13 +62,43 @@ a tuple \\((\mathcal{S}, \mathcal{A}, P, R, \gamma)\\):
 - \\(R(s, a)\\) — expected immediate reward
 - \\(\gamma\\) — discount factor
 
+> **In `rlevo`.** The \\(\mathcal{S}\\) and \\(\mathcal{A}\\) components of
+> the MDP map to two const-generic traits, where the const parameter `R` is
+> the *rank* (number of axes) of the underlying tensor:
+>
+> ```rust
+> pub trait State<const R: usize>: Debug + Clone + Send + Sync {
+>     type Observation: Observation<R>;
+>     fn shape() -> [usize; R];      // cardinality of each axis
+>     fn observe(&self) -> Self::Observation;
+>     fn is_valid(&self) -> bool;
+> }
+>
+> pub trait Action<const R: usize>: Debug + Clone + Sized {
+>     fn shape() -> [usize; R];
+>     fn is_valid(&self) -> bool;
+> }
+> ```
+>
+> The separation between `State` and `Observation` is deliberate: a `State`
+> holds the *full* information needed to satisfy the Markov property, while
+> `Observation` is what the agent *actually sees* — which may be partial.
+> Fully observable environments return an observation that is just a
+> flattened view of the state; partially observable ones project only the
+> visible features.
+
 The **Markov property** says that \\(P(s_{t+1} \mid s_t, a_t) = P(s_{t+1} \mid
 s_0, a_0, \ldots, s_t, a_t)\\) — the future depends only on the current state,
 not on the full history. This is an assumption, but one that holds exactly in
 fully observed environments and approximately in many practical ones.
 
-`rlevo`'s `Environment` trait encodes exactly this interface: `reset()` returns
-the initial state, and `step(action)` returns the next observation and reward.
+`rlevo`'s `Environment` trait encodes exactly this interface. `reset()` returns
+an initial `Snapshot` containing the first `Observation`, and `step(action)`
+returns a `Snapshot` with the next `Observation`, the `Reward`, and a
+`terminated` flag. The full state (needed to satisfy the Markov property
+internally) lives inside the environment struct and is never exposed directly
+to the agent — only the observation from `State::observe()` crosses the
+boundary. This keeps the agent honest about what it can actually know.
 
 ## Value Functions and the Bellman Equation
 

@@ -18,13 +18,13 @@ higher the reward.
 
 ## The environment
 
-CartPole is implemented in `rlevo-environments::classic::CartPoleEnv`. Its state
+CartPole is implemented in `rlevo::envs::classic::CartPoleEnv`. Its state
 is a 4-vector — cart position, cart velocity, pole angle, pole angular velocity —
 and its action space is binary: push left (0) or push right (1).
 
 ```rust,no_run
-use rlevo_environments::classic::CartPoleEnv;
-use rlevo_core::environment::Environment;
+use rlevo::envs::classic::CartPoleEnv;
+use rlevo::core::environment::Environment;
 
 let mut env = CartPoleEnv::new();
 let snapshot = env.reset()?;
@@ -40,7 +40,7 @@ observation. Each call to `step(action)` returns the next snapshot containing:
 - **reward** — `1.0` for every timestep the pole remains balanced,
 - **terminal** — `true` when the episode ends.
 
-This is the `Environment` trait from `rlevo-core`. Notice the parallel with
+This is the `Environment` trait from `rlevo::core`. Notice the parallel with
 the `Landscape` from Part II: `Landscape::evaluate` was a one-shot score;
 `Environment::step` is score-per-timestep inside an episode.
 
@@ -58,7 +58,7 @@ experience replay and a target network.
 `rlevo` provides `DqnAgent` with a configuration struct:
 
 ```rust,no_run
-use rlevo_reinforcement_learning::algorithms::dqn::{DqnAgent, DqnConfig};
+use rlevo::rl::algorithms::dqn::{DqnAgent, DqnConfig};
 
 let config = DqnConfig {
     state_dim: 4,
@@ -163,7 +163,7 @@ scale to that regime.
 - **Reduce `hidden_dim`** to 32 and observe that the agent struggles: CartPole is
   simple but not *trivial* for a network that cannot represent the value function
   accurately.
-- **Swap CartPole for Acrobot** (`AcrobotEnv` in `rlevo-environments`) — a
+- **Swap CartPole for Acrobot** (`AcrobotEnv` in `rlevo::envs`) — a
   two-link pendulum with a sparser reward. The same DQN config will fail without
   reward shaping or a larger network; this is the motivation for the hybrid
   methods in later sections.

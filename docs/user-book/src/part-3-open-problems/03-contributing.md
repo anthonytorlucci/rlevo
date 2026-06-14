@@ -20,8 +20,8 @@ The **contributor book** (`docs/contributor-book/`) covers:
 - how to add a new `Environment`,
 - testing philosophy and CI setup.
 
-Read it before opening a PR that touches `rlevo-evolution` or
-`rlevo-reinforcement-learning`.
+Read it before opening a PR that touches `rlevo::evo` or
+`rlevo::rl`.
 
 ## Issue tracker
 

@@ -13,6 +13,46 @@ The key insight is that a *population* of candidates shares information across
 the search space simultaneously, while variation operators inject diversity that
 prevents premature convergence. Selection then amplifies what works.
 
+> **In `rlevo`.** Every algorithm in `rlevo::evo` implements the
+> `Strategy<B>` trait, which maps the five-step skeleton above to three
+> methods:
+>
+> ```rust
+> pub trait Strategy<B: Backend>: Send + Sync {
+>     type Params: Clone + Debug + Send + Sync;  // static run config
+>     type State:  Clone + Debug + Send;          // generation-to-generation state
+>     type Genome: Clone + Send;                  // genome container produced by ask
+>
+>     fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
+>     fn ask (&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device) -> (Self::Genome, Self::State);
+>     fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>, state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
+>     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
+> }
+> ```
+>
+> `ask` proposes the next population (steps 3–4); `tell` consumes it together
+> with its fitness tensor and produces the next state (steps 2–3). The RNG is
+> passed explicitly so the harness owns all stochasticity — strategies carry no
+> internal PRNG state.
+>
+> Genomes are stored on-device in a `Population<B, K>` wrapper, where the
+> const type parameter `K` is a zero-sized *genome kind* marker:
+>
+> ```rust
+> pub struct Real;    // genes are f32 — used by GA, ES, DE, CMA-ES
+> pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
+> pub struct Integer; // genes are bounded non-negative integers
+> ```
+>
+> The separation between the genome kind and the tensor type means operators
+> can specialize at compile time (e.g. Gaussian mutation only compiles for
+> `Real`; bit-flip mutation only compiles for `Binary`) without runtime dispatch.
+>
+> Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
+> the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
+> themselves never call the objective function — the harness does — so the same
+> strategy implementation works against any landscape.
+
 <!-- additional context [Simon, 2013, p 2-3]
 Some authors use the term *evolutionary computation* to refer to EAs. This 
 emphasizes the point tht EAs are implemented in computers. However, 
@@ -43,7 +83,7 @@ family of heuristic algorithms...
 
 ## The Genetic Algorithm
 
-The canonical GA, as implemented in `rlevo-evolution`, operates on real-valued
+The canonical GA, as implemented in `rlevo::evo`, operates on real-valued
 or binary genomes with three operators:
 
 **Selection** - picks which individuals reproduce. Common schemes:
@@ -54,8 +94,6 @@ or binary genomes with three operators:
 - *Rank-based*: selection probability based on rank, not raw fitness; more
   robust to outliers.
 
-<!-- todo! link or refer to crates/rlevo-evolution/src/ops/selection.rs -->
-
 **Crossover** - combines two parents into offspring:
 - *Single-point*: split each parent at a random locus; swap tails.
 - *BLX-α*: for real-valued genomes, sample offspring genes uniformly from
@@ -64,18 +102,22 @@ or binary genomes with three operators:
 - *Simulated Binary Crossover (SBX)*: mimics single-point on binary
   representations but works in continuous space [[Deb and Agrawal, 1995]](#bibliography).
 
-<!-- todo! link or refer to crates/rlevo-evolution/src/ops/crossover.rs -->
-
-
 **Mutation** - perturbs an individual:
 - *Gaussian*: add \\(\mathcal{N}(0, \sigma^2)\\) noise to each gene.
 - *Uniform*: replace a gene with a random draw from its bounds.
 
-> **In the appendix.** [Appendix A](../appendix-a-ec-algorithms/index.md)
-> gives the full pseudocode for the GA as implemented in `rlevo`, including
-> elitism, boundary clamping, and the seeded mutation path.
-
-<!-- todo! link or refer to crates/rlevo-evolution/src/ops/mutation.rs-->
+> **In `rlevo`.** All three operator families live in `rlevo::evo::ops`:
+> - `ops::selection` — tournament, rank-based, fitness-proportionate selectors
+> - `ops::crossover` — single-point, BLX-α, SBX (real); single-point (binary)
+> - `ops::mutation`  — Gaussian, uniform (real); bit-flip (binary)
+>
+> Each operator function takes a `Population<B, K>` and returns a new one,
+> leaving the input unchanged. Operator kind-specialization is enforced at the
+> type level: passing a `Population<B, Binary>` to a Gaussian mutation function
+> is a compile error.
+>
+> [Appendix A](../appendix-a-ec-algorithms/index.md) gives the full GA
+> pseudocode as implemented, including elitism and boundary clamping.
 
 <!-- [Simon, 2013, p. 188]
 This section discusses elitism, which is a way of making sure that the best 
@@ -143,7 +185,31 @@ genes that no marginal model would find.
 deceptive benchmark (Concatenated Trap) used to compare them are in
 [Appendix A](../appendix-a-ec-algorithms/index.md).
 
-<!-- todo! refer or link to crates/rlevo-evolution/src/algorithms/eda/ -->
+> **In `rlevo`.** The fit → sample loop is captured by the `ProbabilityModel`
+> trait, which is separate from `Strategy`. `EdaStrategy<B, M>` is a generic
+> driver that implements `Strategy<B>` for any `M: ProbabilityModel<B>`:
+>
+> ```rust
+> pub trait ProbabilityModel<B: Backend> {
+>     type Params;
+>     type State: Clone + Debug + Send + Sync;
+>
+>     /// Fit the model to the selected (top-μ) population.
+>     /// `prev = None` on the first generation; the model builds its prior from `params`.
+>     fn fit(&self, params: &Self::Params, population: &Tensor<B, 2>,
+>            fitness: Tensor<B, 1>, prev: Option<&Self::State>) -> Self::State;
+>
+>     /// Sample n new candidates from the fitted model using the host RNG.
+>     fn sample(&self, params: &Self::Params, state: &Self::State,
+>               n: usize, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2>;
+> }
+> ```
+>
+> All randomness in `sample` comes from the host `rng`; implementations must
+> never call `Tensor::random` or `B::seed` (Burn's GPU PRNG kernels share
+> process-global state and would interleave across parallel strategy instances).
+> Swapping one EDA for another is a one-line type change: `EdaStrategy<B, UnivariateGaussian>`
+> → `EdaStrategy<B, BayesianNetwork>`.
 
 <!-- see [Simon, 2013] 
 - Estimation of Distribution Algorithms (p. 313)

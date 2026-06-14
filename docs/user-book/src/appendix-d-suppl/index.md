@@ -63,5 +63,5 @@ loop with parallel evaluation, observer callbacks, and convergence checks.
 sub-streams of randomness from a root seed, one per algorithmic purpose
 (e.g., `SeedPurpose::Selection`, `SeedPurpose::Mutation`).
 
-**Strategy.** A `rlevo-evolution` trait that encapsulates the ask/tell loop for
+**Strategy.** A `rlevo::evo` trait that encapsulates the ask/tell loop for
 a specific EC algorithm.

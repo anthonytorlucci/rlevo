@@ -64,7 +64,7 @@ changes, the rules change, the opponent adapts. Evolutionary methods maintain
 population diversity that may make them more robust to non-stationarity, but this
 has not been systematically studied in the evolutionary RL context.
 
-The `k_armed_bandit` environment in `rlevo-environments` includes a non-stationary
+The `k_armed_bandit` environment in `rlevo::envs` includes a non-stationary
 variant where reward distributions shift during the episode — a starting point for
 this investigation.
 

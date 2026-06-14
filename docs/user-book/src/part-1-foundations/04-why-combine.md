@@ -100,7 +100,7 @@ fixed-length string that is easy to evolve) from the phenotype (the tree that is
 evaluated). This avoids the variable-length crossover problems that plague
 standard GP.
 
-`rlevo-evolution` includes a GEP implementation for symbolic regression tasks —
+`rlevo::evo` includes a GEP implementation for symbolic regression tasks —
 evolving mathematical expressions that fit data.
 
 ## What rlevo Brings

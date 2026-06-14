@@ -1,7 +1,7 @@
 # Appendix B — Reinforcement Learning Algorithms
 
 This appendix gives derivations, pseudocode, and implementation notes for the RL
-algorithms in `rlevo-reinforcement-learning`. See
+algorithms in `rlevo::rl`. See
 [Part I — Reinforcement Learning](../part-1-foundations/03-reinforcement-learning.md)
 for the conceptual overview.
 

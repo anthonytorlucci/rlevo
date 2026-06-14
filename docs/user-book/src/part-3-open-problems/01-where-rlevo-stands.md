@@ -2,7 +2,7 @@
 
 ## What is implemented
 
-### Evolutionary algorithms (`rlevo-evolution`)
+### Evolutionary algorithms (`rlevo::evo`)
 
 | Algorithm | Status | Notes |
 | --------- | ------ | ----- |
@@ -17,7 +17,7 @@
 | Memetic wrapper | Stable | Hill climbing, Nelder-Mead, SA, random restart; Lamarckian/Baldwinian write-back |
 | Gene Expression Programming | Stable | Symbolic regression |
 
-### Reinforcement learning (`rlevo-reinforcement-learning`)
+### Reinforcement learning (`rlevo::rl`)
 
 | Algorithm | Status | Notes |
 | --------- | ------ | ----- |
@@ -26,7 +26,7 @@
 | PPO | Planned | |
 | SAC | Planned | |
 
-### Environments (`rlevo-environments`)
+### Environments (`rlevo::envs`)
 
 | Family | Environments |
 | ------ | ------------ |

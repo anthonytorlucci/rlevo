@@ -24,7 +24,7 @@ pub trait Landscape: Send + Sync {
 The sphere is built in:
 
 ```rust,no_run
-use rlevo_environments::landscapes::sphere::Sphere;
+use rlevo::envs::landscapes::sphere::Sphere;
 
 let problem = Sphere::new(/* dim = */ 8);
 assert_eq!(problem.evaluate(&[0.0; 8]), 0.0);   // the global minimum
@@ -40,7 +40,7 @@ fitness. The classic one is a **genetic algorithm**: keep the fittest, mate them
 mutate the children. We configure it with `GaConfig`:
 
 ```rust,no_run
-use rlevo_evolution::algorithms::ga::{
+use rlevo::evo::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 
@@ -114,7 +114,7 @@ You just ran a complete evolutionary optimisation. Three pieces did all the work
 
 The fastest way to internalise this: change one thing and re-run.
 
-- **Swap the problem.** `rlevo-environments::landscapes` has harder bowls —
+- **Swap the problem.** `rlevo::envs::landscapes` has harder bowls —
   `Rastrigin` (a minefield of local minima) and `Rosenbrock` (a banana-shaped
   valley). Drop one in place of `Sphere` and watch the GA struggle. That
   struggle is the motivation for Chapter 6.
