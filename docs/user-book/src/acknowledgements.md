@@ -31,6 +31,32 @@ clear reference implementation of DQN, PPO, and SAC that `rlevo` used as a
 correctness anchor during algorithm development. The clarity of its API design
 influenced how `rlevo` structures agent configuration structs.
 
+**[CleanRL](https://github.com/vwxyzjn/cleanrl)** demonstrated that single-file,
+dependency-minimal RL implementations are a legitimate research artifact — not a
+sign of poor engineering, but a deliberate trade-off that makes algorithms
+auditable at a glance. `rlevo`'s example programs aim for the same property:
+every hyperparameter visible, every data-flow traceable without jumping between
+modules.
+
+**[neat-python](https://github.com/CodeReclaimers/neat-python)** is the canonical
+Python implementation of Stanley and Miikkulainen's NEAT algorithm (NeuroEvolution
+of Augmenting Topologies). Its treatment of speciation, compatibility distance, and
+historical markings served as the primary reference when `rlevo` was evaluating
+topology-evolving neuroevolution as a future direction.
+
+**[EvoJAX](https://github.com/google/evojax)** (Google Research) showed that
+hardware-accelerated neuroevolution — evaluating thousands of neural network
+genomes in parallel on a single accelerator — is practical today, not just a
+theoretical speedup. Its task / policy / solver decomposition influenced how
+`rlevo` separates `Environment`, genome encoding, and `Strategy`.
+
+**[evosax](https://github.com/RobertTLange/evosax)** provides a comprehensive JAX
+library of evolution strategies (CMA-ES, OpenES, PGPE, and many others) with a
+uniform `ask`/`tell` interface. Its breadth demonstrated that a single strategy
+abstraction can accommodate both gradient-free search and learned parameter
+adaptation, reinforcing `rlevo`'s commitment to a single `Strategy` trait rather
+than a separate hierarchy per algorithm family.
+
 **[rand](https://github.com/rust-random/rand)** and the Rust random number
 ecosystem underpin `rlevo`'s reproducible seeding strategy. The `SeedableRng`
 trait made it possible to derive every stochastic draw in an evolutionary run
