@@ -64,13 +64,15 @@ pub use algorithms::eda::{
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
 pub use algorithms::neuroevolution::{
-    ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, GraphFitnessFn, NasBuilderConfig, NasGenome,
-    NasParams, NasState, NeatParams, NeatState, NeatStrategy, VariantEvaluator, WeightOnly,
+    ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, BatchGraphFitness, GraphFitnessFn,
+    NasBuilderConfig, NasGenome, NasParams, NasState, NeatParams, NeatState, NeatStrategy,
+    VariantEvaluator, WeightOnly,
 };
 pub use neuroevolution::{
-    ActivationFn, ConnectionGene, InnovationId, InnovationRegistry, InterpretedBuilder,
-    InterpretedPhenotype, NodeGene, NodeId, NodeKind, NodeSplit, Phenotype, PhenotypeBuilder,
-    Species, SpeciesId, TopologyGenome, compatibility_distance,
+    ActivationFn, BatchPhenotypeEvaluator, ConnectionGene, DensePaddedEvaluator, InnovationId,
+    InnovationRegistry, InterpretedBuilder, InterpretedPhenotype, NodeGene, NodeId, NodeKind,
+    NodeSplit, Phenotype, PhenotypeBuilder, Species, SpeciesId, TopologyGenome,
+    compatibility_distance,
 };
 pub use coevolution::{
     CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,

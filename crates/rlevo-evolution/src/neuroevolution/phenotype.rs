@@ -8,17 +8,18 @@
 //! topological order — **no Burn `Module`**, no autodiff, no `Recorder` (spec
 //! §3.C). NEAT phenotypes need only a forward pass.
 //!
-//! The batched/GPU population evaluator (`BatchPhenotypeEvaluator`) is out of
-//! scope and tracked in #41; these traits are the interpreted-path interface
-//! only.
+//! The interpreted seam ([`PhenotypeBuilder`]/[`Phenotype`]) evaluates one genome
+//! at a time. Its population-batched companion, [`BatchPhenotypeEvaluator`], runs
+//! the *whole* population in one device-resident forward pass (issue #41 / spec
+//! 3d3); the dense-padded [`DensePaddedEvaluator`] is the stock-Burn v1 impl.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
 
 use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, activation};
+use burn::tensor::{Bool, Tensor, TensorData, activation};
 
-use super::topology::{ActivationFn, NodeId, SIGMOID_GAIN, TopologyGenome};
+use super::topology::{ActivationFn, NodeId, NodeKind, SIGMOID_GAIN, TopologyGenome};
 
 /// Builds a callable [`Phenotype`] from a [`TopologyGenome`].
 ///
@@ -190,6 +191,336 @@ fn apply_activation<B: Backend>(act: ActivationFn, x: Tensor<B, 2>) -> Tensor<B,
     }
 }
 
+// ===========================================================================
+// Population-batched evaluation (issue #41 / spec 3d3)
+// ===========================================================================
+
+/// Population-level batched forward pass — the device-resident companion to the
+/// per-genome [`PhenotypeBuilder`]/[`Phenotype`] interpreted seam.
+///
+/// Where [`Phenotype::forward`] evaluates one genome, an implementor of this
+/// trait evaluates an entire population on a shared observation batch in a single
+/// pass. The [`DensePaddedEvaluator`] v1 impl does so with stock Burn tensor ops
+/// (no custom kernel); the interpreted path remains the correctness oracle (a
+/// numerical-parity test pins the two within float epsilon).
+pub trait BatchPhenotypeEvaluator<B: Backend>: Send + Sync {
+    /// Evaluate every genome on the shared observation batch `obs`.
+    ///
+    /// `obs` has shape `[batch, obs_dim]`, where `obs_dim` must equal the
+    /// population's (constant) input-node count. The result has shape
+    /// `[pop, batch, action_dim]` — the population dimension is kept explicit so
+    /// a caller can reduce fitness per genome without index arithmetic. Column
+    /// order along `obs_dim`/`action_dim` matches the interpreted phenotype's
+    /// (input/output nodes in ascending-id order).
+    fn evaluate_population(
+        &self,
+        genomes: &[TopologyGenome],
+        obs: Tensor<B, 2>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 3>;
+}
+
+/// Dense-padded [`BatchPhenotypeEvaluator`] (spec 3d3 §3.A/§3.B).
+///
+/// Each call compiles the `P` genomes into padded `(P, N, N)` weight, `(P, N)`
+/// bias, and per-activation mask tensors over a node budget `N = max_nodes`, then
+/// runs a synchronous-update forward pass. Because v1 NEAT is feedforward, the
+/// pass is **exact**: after `d` synchronous updates every node at topological
+/// depth `d` has settled, so iterating the population's **deepest enabled path**
+/// (≤ `N − 1`) resolves every genome. The dense path uses that tight depth bound
+/// rather than the static `N − 1` worst case — NEAT topologies are typically
+/// sparse and shallow, and the per-step cost is a dense `N×N` matmul, so
+/// over-iterating dominates the runtime at scale. The whole pass is stock Burn
+/// (batched `matmul`, broadcast add, `mask_where`, the four elementwise
+/// activations); the absent-edge mask folds into the zero weight.
+///
+/// Memory is dominated by the `weights` tensor: `(256, 50) → 2.56 MB`,
+/// `(256, 200) → 41 MB` (f32). The [`max_nodes_cap`](Self::max_nodes_cap) guards
+/// it when topologies grow.
+#[derive(Debug, Clone, Copy)]
+pub struct DensePaddedEvaluator {
+    /// Hard ceiling on `N = max_nodes`. A population whose largest genome exceeds
+    /// it panics rather than silently allocating an oversized weight tensor.
+    pub max_nodes_cap: usize,
+}
+
+impl DensePaddedEvaluator {
+    /// Build an evaluator with the given node-budget ceiling.
+    #[must_use]
+    pub fn new(max_nodes_cap: usize) -> Self {
+        Self { max_nodes_cap }
+    }
+}
+
+impl Default for DensePaddedEvaluator {
+    /// A `512`-node ceiling — far past where the dense path stays affordable
+    /// (41 MB at `N = 200`), so it never binds in practice.
+    fn default() -> Self {
+        Self { max_nodes_cap: 512 }
+    }
+}
+
+impl<B: Backend> BatchPhenotypeEvaluator<B> for DensePaddedEvaluator {
+    fn evaluate_population(
+        &self,
+        genomes: &[TopologyGenome],
+        obs: Tensor<B, 2>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 3> {
+        let pop = genomes.len();
+        let [batch, obs_dim] = obs.dims();
+        if pop == 0 {
+            return Tensor::<B, 3>::zeros([0, batch, 0], device);
+        }
+        let max_nodes = genomes.iter().map(|g| g.nodes.len()).max().unwrap_or(0);
+        assert!(
+            max_nodes <= self.max_nodes_cap,
+            "largest genome has {max_nodes} nodes, exceeding max_nodes_cap {}",
+            self.max_nodes_cap
+        );
+
+        let PaddedPopulation {
+            weights,
+            bias,
+            act_masks,
+            input_slots,
+            num_inputs,
+            num_outputs,
+            n,
+            iterations,
+        } = PaddedPopulation::<B>::compile(genomes, device);
+        assert_eq!(
+            obs_dim, num_inputs,
+            "obs feature dim {obs_dim} must equal the population's input-node count {num_inputs}"
+        );
+
+        // Seed input rows with the observation (others 0): obsᵀ stacked over the
+        // padding rows, broadcast across the population. Held fixed every step.
+        let obs_t = obs.swap_dims(0, 1); // (num_inputs, batch)
+        let seed_2d = if n > num_inputs {
+            let pad = Tensor::<B, 2>::zeros([n - num_inputs, batch], device);
+            Tensor::cat(vec![obs_t, pad], 0) // (N, batch)
+        } else {
+            obs_t
+        };
+        let seeded = seed_2d.unsqueeze_dim::<3>(0).repeat_dim(0, pop); // (P, N, batch)
+
+        // Broadcast the per-node bias/masks across the batch dimension.
+        let bias = bias.unsqueeze_dim::<3>(2); // (P, N, 1) — broadcasts on add
+        let input_slots = input_slots.unsqueeze_dim::<3>(2).repeat_dim(2, batch);
+        let [mask_sigmoid, mask_tanh, mask_relu, mask_linear] = act_masks;
+        let mask_sigmoid = mask_sigmoid.unsqueeze_dim::<3>(2).repeat_dim(2, batch);
+        let mask_tanh = mask_tanh.unsqueeze_dim::<3>(2).repeat_dim(2, batch);
+        let mask_relu = mask_relu.unsqueeze_dim::<3>(2).repeat_dim(2, batch);
+        let mask_linear = mask_linear.unsqueeze_dim::<3>(2).repeat_dim(2, batch);
+
+        let mut values = seeded.clone(); // (P, N, batch)
+        for _ in 0..iterations {
+            let acc = weights.clone().matmul(values.clone()) + bias.clone(); // (P, N, batch)
+            // Heterogeneous per-node activation: one masked pass per variant,
+            // reusing the interpreted formulas (incl. SIGMOID_GAIN) verbatim.
+            let mut out = Tensor::<B, 3>::zeros([pop, n, batch], device);
+            out = out.mask_where(
+                mask_sigmoid.clone(),
+                activation::sigmoid(acc.clone().mul_scalar(SIGMOID_GAIN)),
+            );
+            out = out.mask_where(mask_tanh.clone(), activation::tanh(acc.clone()));
+            out = out.mask_where(mask_relu.clone(), activation::relu(acc.clone()));
+            out = out.mask_where(mask_linear.clone(), acc);
+            // Re-seat the inputs so they keep carrying the observation.
+            values = out.mask_where(input_slots.clone(), seeded.clone());
+        }
+
+        // Output rows are contiguous at `num_inputs..num_inputs + num_outputs`.
+        let result = values.slice([0..pop, num_inputs..num_inputs + num_outputs, 0..batch]);
+        result.swap_dims(1, 2) // (P, num_outputs, batch) -> (P, batch, action_dim)
+    }
+}
+
+/// Per-generation host compile of `P` genomes into padded dense tensors.
+///
+/// Within each genome, node ids are assigned local rows in the order
+/// `[inputs by id][outputs by id][others by id]`. Because NEAT fixes the
+/// input/output node set across the whole population, input rows are always
+/// `0..num_inputs` and output rows always `num_inputs..num_inputs + num_outputs`
+/// — uniform across `P`, so seeding and output-slicing need no per-genome index
+/// arithmetic. Padding rows (id-free, beyond a genome's node count) carry no
+/// activation mask and no edges, so they stay zero and never feed a real node.
+struct PaddedPopulation<B: Backend> {
+    /// `(P, N, N)` — `weights[p, i, j]` is the weight of enabled edge `j → i`.
+    weights: Tensor<B, 3>,
+    /// `(P, N)` per-node bias (0 for input and padding rows).
+    bias: Tensor<B, 2>,
+    /// One `(P, N)` bool mask per [`ActivationFn`] variant, in the order
+    /// `[Sigmoid, Tanh, Relu, Linear]`.
+    act_masks: [Tensor<B, 2, Bool>; 4],
+    /// `(P, N)` bool mask, true at input rows (held fixed each iteration).
+    input_slots: Tensor<B, 2, Bool>,
+    num_inputs: usize,
+    num_outputs: usize,
+    n: usize,
+    /// Synchronous-update iterations needed to settle every genome: the maximum
+    /// enabled-subgraph longest path (in edges) across the population, floored at
+    /// `1` so bias-only nodes get their activation applied. This is the **tight,
+    /// exact** bound — `N − 1` is the safe static worst case, but NEAT topologies
+    /// are typically far shallower, and over-iterating is the dominant cost at
+    /// scale (a dense `N×N` matmul per step), so the depth bound is what makes
+    /// the dense path competitive on wide-but-shallow populations.
+    iterations: usize,
+}
+
+impl<B: Backend> PaddedPopulation<B> {
+    fn compile(
+        genomes: &[TopologyGenome],
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
+        let pop = genomes.len();
+        let num_inputs = count_kind(&genomes[0], NodeKind::Input);
+        let num_outputs = count_kind(&genomes[0], NodeKind::Output);
+        let n = genomes.iter().map(|g| g.nodes.len()).max().unwrap_or(0);
+        // Tight exact iteration bound: the deepest enabled path in the whole
+        // population (≤ N − 1), floored at 1 so a bias-only node still activates.
+        let iterations = genomes
+            .iter()
+            .map(longest_path_edges)
+            .max()
+            .unwrap_or(0)
+            .max(1);
+
+        let mut weights = vec![0.0f32; pop * n * n];
+        let mut bias = vec![0.0f32; pop * n];
+        let mut masks: [Vec<f32>; 4] = [
+            vec![0.0f32; pop * n],
+            vec![0.0f32; pop * n],
+            vec![0.0f32; pop * n],
+            vec![0.0f32; pop * n],
+        ];
+        let mut input_slots = vec![0.0f32; pop * n];
+
+        for (p, genome) in genomes.iter().enumerate() {
+            debug_assert_eq!(
+                count_kind(genome, NodeKind::Input),
+                num_inputs,
+                "every genome must share the population input-node count"
+            );
+            debug_assert_eq!(
+                count_kind(genome, NodeKind::Output),
+                num_outputs,
+                "every genome must share the population output-node count"
+            );
+            let local = local_rows(genome);
+            for node in &genome.nodes {
+                let base = p * n + local[&node.id];
+                if matches!(node.kind, NodeKind::Input) {
+                    input_slots[base] = 1.0;
+                } else {
+                    bias[base] = node.bias;
+                    masks[act_index(node.activation)][base] = 1.0;
+                }
+            }
+            let wbase = p * n * n;
+            for conn in &genome.connections {
+                if !conn.enabled {
+                    continue;
+                }
+                let i = local[&conn.target];
+                let j = local[&conn.source];
+                weights[wbase + i * n + j] = conn.weight;
+            }
+        }
+
+        let weights = Tensor::<B, 3>::from_data(TensorData::new(weights, [pop, n, n]), device);
+        let bias = Tensor::<B, 2>::from_data(TensorData::new(bias, [pop, n]), device);
+        let act_masks = masks
+            .map(|m| Tensor::<B, 2>::from_data(TensorData::new(m, [pop, n]), device).greater_elem(0.5));
+        let input_slots =
+            Tensor::<B, 2>::from_data(TensorData::new(input_slots, [pop, n]), device).greater_elem(0.5);
+
+        Self {
+            weights,
+            bias,
+            act_masks,
+            input_slots,
+            num_inputs,
+            num_outputs,
+            n,
+            iterations,
+        }
+    }
+}
+
+/// Count nodes of a given kind in a genome.
+fn count_kind(genome: &TopologyGenome, kind: NodeKind) -> usize {
+    genome.nodes.iter().filter(|n| n.kind == kind).count()
+}
+
+/// Longest path, in **enabled** edges, through the genome's feedforward DAG.
+///
+/// This is the number of synchronous updates the dense forward pass needs to
+/// settle every node (signal advances one edge per step). Disabled edges carry a
+/// zero weight in the dense matrix, so they never propagate and are excluded
+/// here, giving a tighter bound than counting all structural edges. Relaxing in
+/// the all-edges topological order is valid because the enabled subgraph is a
+/// subset of that DAG.
+fn longest_path_edges(genome: &TopologyGenome) -> usize {
+    let mut out_edges: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+    for conn in &genome.connections {
+        if conn.enabled {
+            out_edges.entry(conn.source).or_default().push(conn.target);
+        }
+    }
+    let mut depth: HashMap<NodeId, usize> = genome.nodes.iter().map(|n| (n.id, 0usize)).collect();
+    for node in topological_order(genome) {
+        let here = depth.get(&node).copied().unwrap_or(0);
+        if let Some(targets) = out_edges.get(&node) {
+            for &t in targets {
+                let slot = depth.entry(t).or_insert(0);
+                *slot = (*slot).max(here + 1);
+            }
+        }
+    }
+    depth.into_values().max().unwrap_or(0)
+}
+
+/// Dense-table index for an activation variant (the `act_masks` array order).
+fn act_index(act: ActivationFn) -> usize {
+    match act {
+        ActivationFn::Sigmoid => 0,
+        ActivationFn::Tanh => 1,
+        ActivationFn::Relu => 2,
+        ActivationFn::Linear => 3,
+    }
+}
+
+/// Map every node id to its local row, ordered `[inputs][outputs][others]`, each
+/// group ascending by id (so input/output rows align with the interpreted
+/// phenotype's column order).
+fn local_rows(genome: &TopologyGenome) -> HashMap<NodeId, usize> {
+    let mut inputs: Vec<NodeId> = filter_ids(genome, |k| matches!(k, NodeKind::Input));
+    let mut outputs: Vec<NodeId> = filter_ids(genome, |k| matches!(k, NodeKind::Output));
+    let mut others: Vec<NodeId> =
+        filter_ids(genome, |k| !matches!(k, NodeKind::Input | NodeKind::Output));
+    inputs.sort_unstable();
+    outputs.sort_unstable();
+    others.sort_unstable();
+
+    let mut map: HashMap<NodeId, usize> = HashMap::with_capacity(genome.nodes.len());
+    for (row, id) in inputs.into_iter().chain(outputs).chain(others).enumerate() {
+        map.insert(id, row);
+    }
+    map
+}
+
+/// Collect the ids of nodes whose kind satisfies `pred`.
+fn filter_ids(genome: &TopologyGenome, pred: impl Fn(NodeKind) -> bool) -> Vec<NodeId> {
+    genome
+        .nodes
+        .iter()
+        .filter(|n| pred(n.kind))
+        .map(|n| n.id)
+        .collect()
+}
+
 /// Kahn topological sort over **all** structural edges, breaking ties by
 /// ascending node id for reproducibility. Returns every node id; any node left
 /// unordered by a (non-invariant) cycle is appended at the end so the forward
@@ -242,7 +573,7 @@ fn topological_order(genome: &TopologyGenome) -> Vec<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neuroevolution::topology::{ConnectionGene, NodeGene, NodeKind};
+    use crate::neuroevolution::topology::{ConnectionGene, NodeGene};
     use burn::backend::Flex;
 
     type TestBackend = Flex;

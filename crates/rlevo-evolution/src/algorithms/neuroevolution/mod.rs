@@ -32,5 +32,5 @@ pub use arch_nas::{
     ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NasGenome, NasParams,
     NasState, VariantEvaluator,
 };
-pub use neat::{GraphFitnessFn, NeatParams, NeatState, NeatStrategy};
+pub use neat::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatState, NeatStrategy};
 pub use weight_only::WeightOnly;

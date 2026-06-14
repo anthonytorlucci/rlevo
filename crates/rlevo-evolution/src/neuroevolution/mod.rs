@@ -24,7 +24,10 @@ pub mod species;
 pub mod topology;
 
 pub use innovation::{InnovationRegistry, NodeSplit};
-pub use phenotype::{InterpretedBuilder, InterpretedPhenotype, Phenotype, PhenotypeBuilder};
+pub use phenotype::{
+    BatchPhenotypeEvaluator, DensePaddedEvaluator, InterpretedBuilder, InterpretedPhenotype,
+    Phenotype, PhenotypeBuilder,
+};
 pub use species::{Species, SpeciesId, allocate_offspring, compatibility_distance, remove_stagnant, speciate};
 pub use topology::{
     ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
