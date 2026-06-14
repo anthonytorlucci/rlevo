@@ -51,13 +51,14 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
 use crate::neuroevolution::innovation::InnovationRegistry;
-use crate::neuroevolution::phenotype::PhenotypeBuilder;
+use crate::neuroevolution::phenotype::{BatchPhenotypeEvaluator, PhenotypeBuilder};
 use crate::neuroevolution::species::{self, Species, SpeciesId};
 use crate::neuroevolution::topology::{
     ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind, TopologyGenome,
@@ -395,6 +396,73 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
         builder: &dyn PhenotypeBuilder<B>,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Vec<f32>;
+}
+
+/// A [`GraphFitnessFn`] that scores the whole population in **one** device-resident
+/// pass via a [`BatchPhenotypeEvaluator`] (spec 3d3 §3.D), instead of the
+/// per-genome interpreted loop.
+///
+/// It is a drop-in alternative to an interpreted `GraphFitnessFn` in the same
+/// manual `init → ask → evaluate → tell` loop: the `builder` argument is ignored
+/// (the batched evaluator owns evaluation), so the harness stays
+/// evaluation-agnostic and `NeatStrategy`'s determinism is untouched.
+///
+/// The `reducer` maps one genome's `batch × action_dim` output slab (row-major,
+/// as produced by [`BatchPhenotypeEvaluator::evaluate_population`]) to a single
+/// **maximization** fitness — the batched analogue of the per-genome scoring an
+/// interpreted `GraphFitnessFn` does on `phenotype.forward(...)`.
+pub struct BatchGraphFitness<B: Backend, E> {
+    evaluator: E,
+    obs: Tensor<B, 2>,
+    #[allow(clippy::type_complexity)]
+    reducer: Box<dyn Fn(&[f32]) -> f32 + Send + Sync>,
+}
+
+impl<B: Backend, E> BatchGraphFitness<B, E> {
+    /// Build a batched fitness from an evaluator, a shared `[batch, obs_dim]`
+    /// observation tensor, and a per-genome `reducer` over the
+    /// `batch × action_dim` output slab (row-major).
+    pub fn new(
+        evaluator: E,
+        obs: Tensor<B, 2>,
+        reducer: impl Fn(&[f32]) -> f32 + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            evaluator,
+            obs,
+            reducer: Box::new(reducer),
+        }
+    }
+}
+
+impl<B: Backend, E> std::fmt::Debug for BatchGraphFitness<B, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchGraphFitness")
+            .field("obs", &self.obs)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<B: Backend, E: BatchPhenotypeEvaluator<B>> GraphFitnessFn<B> for BatchGraphFitness<B, E> {
+    fn evaluate(
+        &self,
+        population: &[TopologyGenome],
+        _builder: &dyn PhenotypeBuilder<B>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Vec<f32> {
+        if population.is_empty() {
+            return Vec::new();
+        }
+        let out = self
+            .evaluator
+            .evaluate_population(population, self.obs.clone(), device);
+        let [pop, batch, action] = out.dims();
+        let flat = out.into_data().into_vec::<f32>().unwrap();
+        let slab = batch * action;
+        (0..pop)
+            .map(|p| (self.reducer)(&flat[p * slab..(p + 1) * slab]))
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
