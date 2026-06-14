@@ -47,6 +47,7 @@ pub mod fitness;
 pub mod genome;
 pub mod local_search;
 pub mod module_eval_fn;
+pub mod neuroevolution;
 pub mod observer;
 pub mod ops;
 pub mod param_reshaper;
@@ -63,8 +64,13 @@ pub use algorithms::eda::{
 };
 pub use algorithms::memetic::{CoveragePolicy, MemeticWrapper, WritebackPolicy};
 pub use algorithms::neuroevolution::{
-    ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, NasBuilderConfig, NasGenome, NasParams,
-    NasState, VariantEvaluator, WeightOnly,
+    ArchNasBuilder, ArchNasFitnessFn, ArchNasStrategy, GraphFitnessFn, NasBuilderConfig, NasGenome,
+    NasParams, NasState, NeatParams, NeatState, NeatStrategy, VariantEvaluator, WeightOnly,
+};
+pub use neuroevolution::{
+    ActivationFn, ConnectionGene, InnovationId, InnovationRegistry, InterpretedBuilder,
+    InterpretedPhenotype, NodeGene, NodeId, NodeKind, NodeSplit, Phenotype, PhenotypeBuilder,
+    Species, SpeciesId, TopologyGenome, compatibility_distance,
 };
 pub use coevolution::{
     CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
