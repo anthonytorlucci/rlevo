@@ -6,14 +6,21 @@ search for good behaviour — **evolution** (populations that mutate and select)
 and **gradient-based reinforcement learning** (agents that learn from reward) —
 and lets you mix them.
 
-This book is for **reinforcement learning** and **evolutionary computation** 
-**researchers** and **students** alike. We'll introduce topics in both of these 
-subjects and illustrate how they map to traits and structs in `rlevo`. 
+This book serves two kinds of reader simultaneously:
+
+- **Practitioners** who want to get something running fast: follow Part II, skim
+  the theory boxes, run the examples.
+- **Students and researchers** who want to understand *why* each algorithm works:
+  start with Part I, use Part II to see the concepts in code, and reach for the
+  Appendices when you want derivations and pseudocode.
+
+Neither path requires you to read the book cover to cover. Cross-references point
+from the guided tour back to the foundations, and from the foundations forward to
+where those ideas appear in `rlevo` code.
 
 ## The shape of every problem
 
-Almost everything in `rlevo` is one of two seams. Learn these two words and the
-rest of the book is just variations:
+Almost everything in `rlevo` is one of two seams:
 
 - An **`Environment`** is the *world*: it has a state, it accepts an action, and
   it hands back an observation and a reward. Balancing a pole, walking a robot,
@@ -37,36 +44,28 @@ ones.
 
 Notice that *you* sit in the middle. `rlevo` deliberately does **not** own the
 loop. The `Strategy` *asks* you for the next batch of candidates and you *tell*
-it how they scored — the **ask/tell** contract. That means you can evaluate
-candidates however you like: in parallel, on a cluster, against a simulator you
-already own, or against a real experiment. Chapter 1 makes this concrete.
+it how they scored — the **ask/tell** contract. Part II makes this concrete.
 
-## What you'll build
+## How this book is organised
 
-| Chapter | You'll make rlevo… |
-| ------- | ------------------ |
-| 1 | minimise a function with a genetic algorithm |
+| Part | What you'll find |
+| ---- | ---------------- |
+| I — Foundations | Conceptual summaries of optimization, evolutionary computation, and reinforcement learning, with pointers to the key references |
+| II — Guided Tour | A narrative walkthrough: function optimisation → the ask/tell contract → classic control with RL |
+| III — Open Problems | Honest gaps, active research directions, and how to contribute |
+| Appendices | Algorithm derivations, pseudocode, math notation, and a full bibliography |
 
 ## Before you start
 
-You'll need a recent Rust toolchain. `rlevo` is a Cargo workspace; the examples
-in this book live in the `rlevo-examples` crate and you can run any of them with:
+You'll need a recent Rust toolchain. The examples in this book live in the
+`rlevo-examples` crate:
 
 ```bash
 cargo run -p rlevo-examples --example <name>
 ```
 
-or
+Each section names the example it's built from. The code in the book *is* that
+example — compiled and tested in CI — so what you read is what runs.
 
-```zsh
-just <example-name>
-```
-
-Each chapter names the example it's built from. The code in the book *is* that
-example — pulled in verbatim, compiled and tested in CI — so what you read is
-what runs.
-
-You do **not** need to know Burn to start. We introduce tensors only when a
-chapter needs them (Chapter 2), and we keep them at arm's length.
-
-Turn the page and let's optimise something.
+You do **not** need to know Burn to start. Tensors appear only when a section
+needs them, and are kept at arm's length until then.

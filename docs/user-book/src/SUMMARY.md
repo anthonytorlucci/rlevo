@@ -1,15 +1,35 @@
 # Summary
 
-[Introduction](ch00-introduction.md)
+[Introduction](introduction.md)
+[Acknowledgements](acknowledgements.md)
 
-- [Optimising a function](ch01-optimizing-a-function.md)
-<!--
-- [Balancing a pole: gradient RL](ch02-balancing-a-pole.md)
-- [Bring your own environment](ch03-bring-your-own-environment.md)
-- [Evolving a network's weights](ch04-evolve-network-weights.md)
-- [Local refinement: memetic algorithms](ch05-memetic.md)
-- [Beating a deceptive problem: EDAs](ch06-estimation-of-distribution.md)
-- [Letting the architecture evolve](ch07-architecture-search.md)
-- [Combining evolution and gradients](ch08-combining-evolution-and-gradients.md)
-- [Seeing what happened](ch09-seeing-what-happened.md)
--->
+# Part I — Foundations
+
+- [Overview](part-1-foundations/00-overview.md)
+- [What Is Optimization?](part-1-foundations/01-optimization.md)
+- [Evolutionary Computation](part-1-foundations/02-evolutionary-computation.md)
+- [Reinforcement Learning](part-1-foundations/03-reinforcement-learning.md)
+- [Why Combine Them?](part-1-foundations/04-why-combine.md)
+
+# Part II — Guided Tour
+
+- [Overview](part-2-guided-tour/00-overview.md)
+- [Optimising a Function](part-2-guided-tour/01-optimizing-a-function.md)
+- [The Ask/Tell Contract](part-2-guided-tour/02-ask-tell-in-depth.md)
+- [Classic Control: CartPole with DQN](part-2-guided-tour/03-classic-control.md)
+- [Bring Your Own Environment](part-2-guided-tour/04-extending-the-environment.md)
+
+# Part III — Open Problems & Research Directions
+
+- [Overview](part-3-open-problems/00-overview.md)
+- [Where rlevo Stands Today](part-3-open-problems/01-where-rlevo-stands.md)
+- [Research Directions](part-3-open-problems/02-research-directions.md)
+- [Contributing](part-3-open-problems/03-contributing.md)
+
+# Appendices
+
+- [Evolutionary Computation Algorithms](appendix-a-ec-algorithms/index.md)
+- [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
+- [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
+- [Supplementary Material](appendix-d-suppl/index.md)
+- [Bibliography](bibliography.md)

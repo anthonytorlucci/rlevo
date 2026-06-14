@@ -69,7 +69,7 @@ that loop is so standard that `rlevo` ships a driver, `EvolutionaryHarness`, tha
 runs it for you:
 
 ```rust,no_run
-{{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch01_sphere_ga.rs:harness}}
+{{#rustdoc_include ../../../../crates/rlevo-examples/examples/book/ch01_sphere_ga.rs:harness}}
 ```
 
 That loop is the whole run. Each `step` does one generation: the harness asks the
@@ -127,7 +127,17 @@ The fastest way to internalise this: change one thing and re-run.
 
 You optimised a *function*. But the candidates were just vectors — nothing said
 they couldn't be the **weights of a neural network**, or that the score had to
-come from a formula instead of an **agent acting in a world**. Chapter 2
-introduces that world — a real `Environment` with state, actions and reward —
-and solves it the *other* way, with gradient-based RL. Then Chapter 3 shows you
-how to plug in your own domain before we go further.
+come from a formula instead of an **agent acting in a world**.
+
+Before we get there, the [next section](02-ask-tell-in-depth.md) opens up the
+harness and shows you exactly how ask/tell works inside `rlevo` — including how
+to write the loop yourself when the harness doesn't fit. Then we bring in a real
+`Environment`, reward signal, and gradient-based RL agent in
+[Classic Control: CartPole with DQN](03-classic-control.md).
+
+> **Foundations link.** The exploitation–exploration tension you just observed
+> (population too small → stalls; no elitism → regresses) is discussed
+> conceptually in [What Is Optimization?](../part-1-foundations/01-optimization.md).
+> The GA operators used here — tournament selection, BLX-α crossover, Gaussian
+> mutation — are derived in
+> [Appendix A](../appendix-a-ec-algorithms/index.md).
