@@ -11,6 +11,9 @@
 //! - [`strategy`] — the central [`Strategy`] trait and
 //!   the [`EvolutionaryHarness`] adapter that
 //!   wraps any strategy into `rlevo-core::evaluation::BenchEnv`.
+//! - [`function_set`] — the shared [`FunctionSet`] opcode contract (and the
+//!   default [`ArithmeticFunctionSet`]) used by both Cartesian GP and Gene
+//!   Expression Programming.
 //! - [`genome`] — zero-sized marker types (`Real`, `Binary`, `Integer`,
 //!   `Tree`, `Permutation`) that parameterize the operator set.
 //! - [`population`] — [`Population<B, K>`](population::Population), a thin
@@ -44,6 +47,7 @@
 pub mod algorithms;
 pub mod coevolution;
 pub mod fitness;
+pub mod function_set;
 pub mod genome;
 pub mod local_search;
 pub mod module_eval_fn;
@@ -79,6 +83,7 @@ pub use coevolution::{
     CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState, CoupledFitness,
     HallOfFame, HallOfFameFitness, RepresentativePolicy,
 };
+pub use function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 pub use module_eval_fn::ModuleEvalFn;
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;

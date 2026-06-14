@@ -16,7 +16,7 @@
 //!
 //! # Function set
 //!
-//! The v1 function set is fixed at construction time:
+//! The v1 function set is the shared [`ArithmeticFunctionSet`]:
 //!
 //! | id | op | arity | formula |
 //! |---|---|---|---|
@@ -28,6 +28,12 @@
 //! | 5 | cos | 1 | `cos(a)` |
 //! | 6 | tanh | 1 | `tanh(a)` |
 //! | 7 | const 1.0 | 0 | `1.0` |
+//!
+//! Opcode evaluation is delegated to the [`FunctionSet`] trait: [`evaluate_cgp`]
+//! is a thin wrapper over the generic [`evaluate_cgp_with`], which threads a
+//! concrete `&F` through the per-node loop so the opcode dispatch inlines. The
+//! [`FUNCTION_ARITIES`] / [`NUM_FUNCTIONS`] constants are retained for the
+//! mutation logic, which samples function ids in `0..NUM_FUNCTIONS`.
 //!
 //! # Phenotype evaluation
 //!
@@ -46,6 +52,7 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
+use crate::function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -259,6 +266,37 @@ fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
 /// Panics if `genome` is empty (the last gene is the output index).
 #[must_use]
 pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> Vec<f32> {
+    evaluate_cgp_with(genome, params, inputs, &ArithmeticFunctionSet)
+}
+
+/// Evaluates a CGP genotype against an arbitrary [`FunctionSet`].
+///
+/// This is the generic core of [`evaluate_cgp`]: the opcode at each node is
+/// dispatched through `fs.apply` rather than a hard-coded match, so the same
+/// CGP engine can run any function set. [`evaluate_cgp`] calls this with the
+/// default [`ArithmeticFunctionSet`].
+///
+/// `fs` is taken as a concrete monomorphized `&F` (never `&dyn FunctionSet`)
+/// so the `apply` dispatch inlines in the per-node × per-sample inner loop.
+///
+/// Each node supplies up to two argument slots (`input_0`, `input_1`). The
+/// opcode's [`arity`](FunctionSet::arity) selects how many of them reach
+/// `apply`: arity-2 ops receive both, arity-1 ops receive only the first, and
+/// zero-arity ops (constants) receive an empty slice. Out-of-range
+/// input/node/opcode ids are clamped or treated as inert (arity 0) rather than
+/// panicking, keeping evaluation robust to mutated-but-unrepaired genotypes.
+/// Non-finite node values collapse to `0.0`.
+///
+/// # Panics
+///
+/// Panics if `genome` is empty (the last gene is the output index).
+#[must_use]
+pub fn evaluate_cgp_with<F: FunctionSet>(
+    genome: &[i64],
+    params: &CgpConfig,
+    inputs: &[Vec<f32>],
+    fs: &F,
+) -> Vec<f32> {
     let node_count = params.rows * params.cols;
     let n_inputs = params.n_inputs;
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -274,30 +312,17 @@ pub fn evaluate_cgp(genome: &[i64], params: &CgpConfig, inputs: &[Vec<f32>]) -> 
         for node in 0..node_count {
             let base = node * 3;
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let func = genome[base] as usize;
+            let func = genome[base] as i32;
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let a_idx = genome[base + 1] as usize;
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let b_idx = genome[base + 2] as usize;
             let a = buf[a_idx.min(buf.len() - 1)];
             let b = buf[b_idx.min(buf.len() - 1)];
-            let v = match func {
-                0 => a + b,
-                1 => a - b,
-                2 => a * b,
-                3 => {
-                    if b.abs() < 1e-6 {
-                        a
-                    } else {
-                        a / b
-                    }
-                }
-                4 => a.sin(),
-                5 => a.cos(),
-                6 => a.tanh(),
-                7 => 1.0,
-                _ => 0.0,
-            };
+            let sym = Symbol(func);
+            let arity = fs.arity(sym);
+            let arg_buf = [a, b];
+            let v = fs.apply(sym, &arg_buf[..arity.min(arg_buf.len())]);
             buf[n_inputs + node] = if v.is_finite() { v } else { 0.0 };
         }
         outputs.push(buf[output_idx.min(buf.len() - 1)]);
