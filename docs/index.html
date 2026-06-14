@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rlevo Documentation</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: #c0a060;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      margin-top: 0.75rem;
+      font-size: 1.1rem;
+      color: #a0a0b0;
+      max-width: 52ch;
+    }
+
+    .cards {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 900px;
+      width: 100%;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 2rem;
+      flex: 1 1 320px;
+      max-width: 400px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .card:hover, .card:focus {
+      border-color: #c0a060;
+      transform: translateY(-3px);
+      outline: none;
+    }
+
+    .card:focus-visible {
+      outline: 2px solid #c0a060;
+      outline-offset: 3px;
+    }
+
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      /* icon is decorative; label text carries the meaning */
+    }
+
+    .card h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: #d0c090;
+      margin-bottom: 0.5rem;
+    }
+
+    .card .audience {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8080a0;
+      margin-bottom: 0.75rem;
+    }
+
+    .card p {
+      font-size: 0.95rem;
+      color: #9090a8;
+      line-height: 1.6;
+    }
+
+    footer {
+      margin-top: 3rem;
+      font-size: 0.8rem;
+      color: #505060;
+      text-align: center;
+    }
+
+    footer a {
+      color: #7080a0;
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>rlevo</h1>
+    <p>Evolutionary deep reinforcement learning in Rust, built on Burn.</p>
+  </header>
+
+  <main>
+    <div class="cards">
+      <a class="card" href="user/index.html">
+        <div class="card-icon" aria-hidden="true">&#x1F4D6;</div>
+        <div class="audience">Researchers</div>
+        <h2>A Researcher's Guide</h2>
+        <p>
+          Start from a simple optimisation problem and work up to hybrid
+          evolutionary RL on your own domain. No Rust expertise required.
+        </p>
+      </a>
+
+      <a class="card" href="contributor/index.html">
+        <div class="card-icon" aria-hidden="true">&#x1F527;</div>
+        <div class="audience">Contributors</div>
+        <h2>Contributor Guide</h2>
+        <p>
+          Architecture, conventions, trait contracts, ADRs, and the vault
+          protocol — everything you need to add environments, algorithms, or
+          infrastructure to rlevo.
+        </p>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <a href="https://github.com/anthonytorlucci/rlevo">GitHub</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://docs.rs/rlevo">API docs</a>
+  </footer>
+</body>
+</html>

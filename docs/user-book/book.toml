@@ -1,0 +1,11 @@
+[book]
+title = "rlevo: A Researcher's Guide"
+authors = ["Anthony Torlucci"]
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = "https://github.com/anthonytorlucci/rlevo"
+edit-url-template = "https://github.com/anthonytorlucci/rlevo/edit/main/docs/user-book/{path}"

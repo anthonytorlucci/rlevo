@@ -90,6 +90,11 @@ path = "examples/harness/tabular_bandit.rs"
 name = "eda_showcase"
 path = "examples/evolution/eda_showcase.rs"
 
+# Examples — book (compiled, test-guarded; pulled into user-book via {{#rustdoc_include}})
+[[example]]
+name = "ch01_sphere_ga"
+path = "examples/book/ch01_sphere_ga.rs"
+
 # Examples — evolution (co-evolution)
 [[example]]
 name = "competitive_predator_prey"
