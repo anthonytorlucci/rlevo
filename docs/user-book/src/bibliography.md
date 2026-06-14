@@ -3,7 +3,14 @@
 References are grouped by topic and listed in the order they appear in the book.
 Short citation keys (e.g. `[SB18]`) match inline citations in the text.
 
+<!--todo! remove the grouping and ordering by appearance; prefer [Last, year] and sort by first authors last name-->
+
 ## Optimization
+
+<!-- Simon, 2013, is the most influential work on the evolutionary computation sections -->
+**[Simon, 2013]** Simon, D. (2013) Evolutionary Optimization Algorithms: Biologically Inspired and Population-Based Approachees to Computer Intelligence. Wiley.
+
+**[De Jong, 1975]** De Jong, K. An Analysis of the behavior of a Class of Genetic Adaptive Systems. PhD thesis, University of Michigan.
 
 **[WM97]** Wolpert, D. H., & Macready, W. G. (1997). No free lunch theorems for
 optimization. *IEEE Transactions on Evolutionary Computation*, 1(1), 67–82.
@@ -36,15 +43,16 @@ Computing* (2nd ed.). Springer.
 **[Deb95]** Deb, K., & Agrawal, R. B. (1995). Simulated binary crossover for
 continuous search space. *Complex Systems*, 9(2), 115–148.
 
-**[HO01]** Hansen, N., & Ostermeier, A. (2001). Completely derandomized
+**[Hansen, 2O01]** Hansen, N., & Ostermeier, A. (2001). Completely derandomized
 self-adaptation in evolution strategies. *Evolutionary Computation*, 9(2),
 159–195.
 
-**[Deb02]** Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002). A fast and
+**[Deb et al., 2002]** Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002). A fast and
 elitist multiobjective genetic algorithm: NSGA-II. *IEEE Transactions on
 Evolutionary Computation*, 6(2), 182–197.
 
-**[Larranaga02]** Larrañaga, P., & Lozano, J. A. (Eds.). (2002). *Estimation of
+<!-- todo! fix: [Larrañaga and Lozano, 2002] -->
+**[Larrañaga, 2002]** Larrañaga, P., & Lozano, J. A. (Eds.). (2002). *Estimation of
 Distribution Algorithms: A New Tool for Evolutionary Computation*. Kluwer.
 
 **[Ferreira02]** Ferreira, C. (2002). Gene expression programming: A new adaptive
