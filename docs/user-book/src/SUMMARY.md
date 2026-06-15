@@ -32,5 +32,6 @@
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
+  - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
 - [Notation](notation.md)
 - [Bibliography](bibliography.md)

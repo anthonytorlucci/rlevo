@@ -2,7 +2,7 @@
 
 This appendix covers algorithms that combine evolutionary computation with
 reinforcement learning or gradient-based optimisation. See
-[Why Combine Them?](../part-1-foundations/04-why-combine.md) for the motivation.
+[Why Combine Them?](../part-1-foundations/40-why-combine.md) for the motivation.
 
 > This appendix is a stub. Algorithm pages will be added incrementally.
 
@@ -16,3 +16,8 @@ reinforcement learning or gradient-based optimisation. See
   episode
 - Neuroevolution with NEAT — historical markings, speciation, compatibility
   distance
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

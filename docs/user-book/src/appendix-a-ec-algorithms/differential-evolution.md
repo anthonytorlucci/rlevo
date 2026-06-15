@@ -81,13 +81,13 @@ uses the same convention: the trial survives if its cost is no worse.
 ## Minimal example
 
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo::evo::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 /// Sphere function: f(x) = Σ xᵢ², minimum 0 at the origin.
 struct SphereCost;
@@ -178,3 +178,8 @@ trajectories.
 | High dimensionality (D > 50) | Increase `pop_size` to ~10·D; CMA-ES may scale better once implemented |
 | Binary or combinatorial search space | [Binary GA](binary-encoded-genetic-algorithm.md); DE is defined over real-valued differences |
 | Strong variable dependencies | CMA-ES (adapts covariance); DE's random-pair differences assume weak separability |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

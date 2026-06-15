@@ -2,7 +2,7 @@
 
 This appendix gives derivations, pseudocode, and implementation notes for the
 evolutionary computation algorithms in `rlevo::evo`. It is the place to come
-when the conceptual summaries in [Part I](../part-1-foundations/02-evolutionary-computation.md)
+when the conceptual summaries in [Part I](../part-1-foundations/20-evolutionary-computation.md)
 are not enough.
 
 > Algorithm pages are being added incrementally. Entries without links are
@@ -42,7 +42,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 ## Swarm and nature-inspired metaheuristics
 
 > The `metaheuristic` module docs note that GWO, WOA, Bat, and SSA are
-> "legacy comparators" per Camacho Villalón et al. (2020) and Sörensen (2015).
+> "legacy comparators" per Camacho-Villalón et al. (2023) and Sörensen (2015).
 > Start with PSO for most continuous problems.
 
 - Particle Swarm Optimization (PSO)
@@ -55,3 +55,8 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 - Whale Optimization Algorithm (WOA) — legacy comparator
 - Bat Algorithm — legacy comparator
 - Salp Swarm Algorithm (SSA) — legacy comparator
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

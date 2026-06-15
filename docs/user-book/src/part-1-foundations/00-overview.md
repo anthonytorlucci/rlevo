@@ -1,84 +1,78 @@
 # Part I — Foundations: The "How it Works" Bit
 
-Welcome to the engine room. 
+Welcome to the engine room.
 
-Before you start cranking out populations of neural networks or tuning PPO 
-hyperparameters, it’s worth taking a second to understand how `rlevo` actually 
-thinks about the world. If you've used Python-based RL libs, most of this will 
-feel familiar, but we're doing a few things differently here—mostly because we 
-have the luxury of Rust’s type system and Burn’s backend flexibility.
+Before you start spawning populations of neural networks or tuning PPO
+hyperparameters, it helps to know how `rlevo` thinks about the world. If you've
+used Python RL libraries, most of this will feel familiar — we just make a few
+different choices, mostly because Rust's type system and Burn's backend
+flexibility let us.
 
-<!-- todo! discuss here the const generics and what makes rlevo different -->
-
-At its core, `rlevo` is a marriage between two different philosophies of 
-"getting better at something."
+At its core, `rlevo` is a marriage of two philosophies of "getting better at
+something."
 
 ### 1. The Gradient Path (Deep RL)
- 
-When you use algorithms like **PPO**, **SAC**, or **DQN**, you're dealing with 
-a single agent (or a small batch) using calculus to nudge network weights in 
-the direction of higher rewards. It’s fast and efficient, but as any RL 
-practitioner knows, it’s incredibly easy to get stuck in a "local optimum" - a 
-little hill that feels like the summit but is actually just a bump in the road.
+
+Algorithms like **PPO**, **SAC**, and **DQN** take a single agent (or a small
+batch) and use calculus to nudge network weights toward higher reward. It's fast
+and sample-efficient — and, as every RL practitioner learns the hard way, it's
+easy to settle into a local optimum: a little hill that feels like the summit
+right up until you find the real one.
 
 **In `rlevo`, this looks like:**
-- **Policies & Value Functions:** Neural networks built with Burn.
-- **Experience Replay:** Buffers that store transitions so we can learn from the past without forgetting it.
-- **The Gradient Loop:** Standard backpropagation guided by reward signals.
+- **Policies & value functions:** neural networks built with Burn.
+- **Experience replay:** buffers that store transitions so the agent can learn
+  from its past instead of forgetting it.
+- **The gradient loop:** standard backpropagation guided by the reward signal.
 
-### 2. The Survival Path (Evolutionary Computing)
+### 2. The Population Path (Evolutionary Computation)
 
-Think of evolutionary computing as nature’s way of crowdsourcing the perfect 
-solution, where we swap out manual tuning for a survival-of-the-fittest 
-sandbox. Instead of putting all our chips on a single, lonely mathematical 
-guess and hoping it climbs the right hill, population-based optimization lets 
-us throw an entire diverse collective of candidate solutions - our 
-"population" - into the wild at once. Over successive generations, these 
-candidates compete, swap their best traits through crossover, and occasionally 
-mutate in weird, unexpected ways, naturally driving the whole group toward 
-global optima that traditional gradient descent might completely miss. It’s 
-messy, highly parallelizable, and honestly a bit chaotic, but when you're 
-dealing with rugged, non-differentiable search spaces where you don't even know 
-what the perfect answer looks like, letting a digital ecosystem evolve the 
-solution provides a genuinely unfair advantage — because while your 
-gradient-based colleagues are carefully tiptoeing down one hill, your 
-population is simultaneously faceplanting on thousands of them, and it turns 
-out faceplanting at scale is a surprisingly effective search strategy.
+Evolution takes the opposite bet. Instead of staking everything on one candidate
+and one trajectory, it keeps a whole *population* of candidate solutions and lets
+selection, recombination, and mutation do the searching. No derivatives, trivial
+to parallelise, and hard to trap: while a gradient method carefully walks down a
+single hill, a population is probing thousands at once. That is exactly what you
+want on rugged, non-differentiable, or discrete landscapes — the ones where you
+don't yet know what a good solution even looks like.
 
 **In `rlevo`, this looks like:**
-- **The Population:** A collection of agents, often represented as a large 
+- **The population:** a collection of candidates, often packed into one large
   tensor for raw throughput.
-- **Fitness:** Instead of step-by-step rewards, we look at the *episodic 
-  return* (the total score).
-- **Genetic Operators:** Crossover and mutation functions that shuffle weights 
-  around without needing a single derivative.
+- **Fitness:** usually the *episodic return* (the total score over an episode)
+  rather than a step-by-step reward.
+- **Genetic operators:** crossover and mutation that shuffle genes around
+  without ever computing a derivative.
 
-### 3. The Hybrid Space: Where it gets interesting
+### 3. The Hybrid Space: Where It Gets Interesting
 
-The "secret sauce" of `rlevo` is that we don't think you should have to choose. 
-We’re implementing hybrid strategies where a population evolves to explore the 
-map, and gradient descent is used to refine the winners. It’s essentially 
-using evolution to find the right mountain and gradients to climb to the very 
-top of it.
+The point of `rlevo` is that you don't have to choose. Hybrid strategies let a
+population explore the map while gradients climb the most promising peak — use
+evolution to find the right mountain, gradients to reach its top.
+[Why Combine Them?](40-why-combine.md) makes the case in detail.
 
-### 4. The "Rust" Layer (The Safety Net)
+### 4. The Rust Layer (The Safety Net)
 
-You'll notice a lot of talk in this guide about `State<SR>`, `Observation<R>`, 
-and `Action<AR>`. 
+You'll see a lot of `State<R>`, `Observation<R>`, and `Action<AR>` in this guide.
+The `R` and `AR` are **const generics** — compile-time integers that record the
+*rank* (the number of axes) of each space: `1` for a flat vector, `2` for a
+matrix, `3` for a height × width × channels image.
 
-In most RL libraries, you find out your observation tensor is the wrong size 
-when your training run crashes at runtime. We hate that. An another option is 
-being forced to use a flattened vector to represent a high-dimensional space. 
-All structural information is lost or, at minimum, obfuscated! By using 
-**const generics**, we've baked the dimensions of your environment directly 
-into the types. If your network expects a 8 x 8 x 111 input but your 
-environment provides 64, `rlevo` won't let you compile the code. 
+In most RL libraries you discover your observation tensor is the wrong shape when
+a training run panics three hours in. The usual workaround — flatten everything
+into one long vector — throws away the structure of the problem along the way. By
+encoding the rank in the type, `rlevo` turns a class of runtime shape mismatches
+into compile errors: if a layer expects a rank-3 image and the environment hands
+back a rank-1 vector, the code simply does not build.
 
-It might feel like fighting the borrow checker or the type system at first, but 
-it means that once your code runs, the "plumbing" is guaranteed to be correct.
+It can feel like arguing with the type system at first. The payoff is that once
+it compiles, the plumbing is correct — the bugs you have left are about your
+algorithm, not your wiring.
 
->[!note] PettingZoo - Chess
-> The chess environment in [PettingZoo](https://pettingzoo.farama.org/environments/classic/chess/) has an (8,8,11) observation space.
+> **Aside: PettingZoo chess.** The
+> [chess environment](https://pettingzoo.farama.org/environments/classic/chess/)
+> in PettingZoo has an `(8, 8, 111)` observation — a stack of planes encoding the
+> board and its recent history. Flatten that to a 7,104-vector and you've thrown
+> away exactly the spatial structure a convolutional policy was built to exploit.
 
 ---
 
@@ -97,5 +91,5 @@ Where an algorithm or derivation deserves more than a summary, a callout box poi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6, Google Gemini Flash 3.5*\
+*Co-Authored-By: Anthropic Claude Opus 4.8, Google Gemini Flash 3.5*\
 *Reviewed-By: (Human) Anthony Torlucci*

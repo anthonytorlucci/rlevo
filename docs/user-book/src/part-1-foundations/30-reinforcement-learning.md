@@ -28,9 +28,9 @@ At each discrete timestep \\(t\\):
 
 The agent's goal is to maximise the **expected cumulative discounted reward**:
 
-\\[
+```math
 G_t = \sum_{k=0}^{\infty} \gamma^k r_{t+k+1}
-\\]
+```
 
 where \\(\gamma \in [0, 1)\\) is a **discount factor** that makes immediate
 rewards worth more than distant ones. When \\(\gamma = 0\\) the agent is
@@ -105,30 +105,30 @@ boundary. This keeps the agent honest about what it can actually know.
 The **value function** \\(V^\pi(s)\\) is the expected return starting from state
 \\(s\\) and following policy \\(\pi\\):
 
-\\[
+```math
 V^\pi(s) = \mathbb{E}_\pi\left[G_t \mid s_t = s\right]
-\\]
+```
 
 The **action-value function** (Q-function) \\(Q^\pi(s, a)\\) gives the expected
 return for taking action \\(a\\) in state \\(s\\) and then following \\(\pi\\):
 
-\\[
+```math
 Q^\pi(s, a) = \mathbb{E}_\pi\left[G_t \mid s_t = s, a_t = a\right]
-\\]
+```
 
 Both satisfy a **Bellman equation** — a recursive consistency condition:
 
-\\[
+```math
 Q^\pi(s, a) = R(s, a) + \gamma \sum_{s'} P(s' \mid s, a)
              \sum_{a'} \pi(a' \mid s') Q^\pi(s', a')
-\\]
+```
 
 The optimal Q-function \\(Q^*\\) satisfies the **Bellman optimality equation**:
 
-\\[
+```math
 Q^*(s, a) = R(s, a) + \gamma \sum_{s'} P(s' \mid s, a)
             \max_{a'} Q^*(s', a')
-\\]
+```
 
 If you know \\(Q^*\\), the optimal policy is simply \\(\pi^*(s) = \arg\max_a
 Q^*(s, a)\\) — always take the action with the highest Q-value.
@@ -139,10 +139,10 @@ When \\(\mathcal{S}\\) and \\(\mathcal{A}\\) are small and discrete, we can
 represent \\(Q\\) as a table and update it directly. **Q-learning**
 [[Watkins, 1989]](#bibliography) does this with the update rule:
 
-\\[
+```math
 Q(s_t, a_t) \leftarrow Q(s_t, a_t) +
   \alpha \left[ r_{t+1} + \gamma \max_{a} Q(s_{t+1}, a) - Q(s_t, a_t) \right]
-\\]
+```
 
 where \\(\alpha \in (0, 1]\\) is a learning rate. Watkins and Dayan (1992) proved
 that Q-learning converges to \\(Q^*\\) under mild conditions on the learning rate
@@ -187,10 +187,10 @@ An alternative to value-based methods is to directly optimise the policy. The
 **policy gradient theorem** [[Sutton et al., 1999]](#bibliography) gives the gradient of the
 expected return with respect to policy parameters \\(\theta\\):
 
-\\[
+```math
 \nabla_\theta J(\theta) = \mathbb{E}_{\pi_\theta}
   \left[ \nabla_\theta \log \pi_\theta(a \mid s) \cdot Q^{\pi_\theta}(s, a) \right]
-\\]
+```
 
 Williams (1992) [[Williams, 1992]](#bibliography) introduced the REINFORCE estimator
 — a Monte Carlo approximation of this gradient — showing that the score function
@@ -214,5 +214,5 @@ functions to reduce variance and improve sample efficiency.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

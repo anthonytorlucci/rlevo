@@ -84,13 +84,13 @@ single-strategy runs. See [The Ask/Tell Contract](../part-2-guided-tour/02-ask-t
 for the manual loop if you need custom logging or early stopping.
 
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use rlevo::evo::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::strategy::EvolutionaryHarness;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 
-type B = NdArray;
+type B = Flex;
 
 /// OneMax phrased as minimization: cost = D − count_ones.
 struct OneMaxCost {
@@ -176,3 +176,8 @@ the elite re-insertion step.
 | Continuous optimisation | Real-valued GA or CMA-ES |
 | Strong variable dependencies | BOA (learns pairwise and higher-order dependencies) |
 | Large genome (D > 500) | EDA variants (UMDA, PBIL) scale better; GA crossover loses schema pressure at high D |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

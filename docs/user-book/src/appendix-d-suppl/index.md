@@ -29,8 +29,10 @@ terminal `step()`.
 **Fitness.** The scalar value assigned to a candidate solution. `rlevo` uses a
 minimisation convention: lower is better.
 
-**Genome.** A candidate solution, typically a `Vec<f64>` for real-valued EC or a
-neural network weight vector.
+**Genome.** A candidate solution. In `rlevo` a population of genomes lives
+on-device as an `f32` tensor (`Tensor<B, 2>` of shape `(pop_size, genome_dim)`),
+while the host-side `Landscape` interface scores individual points as `&[f64]`.
+A genome may encode raw parameters or the flattened weights of a neural network.
 
 **Harness.** `EvolutionaryHarness` — the standard driver that runs the ask/tell
 loop with parallel evaluation, observer callbacks, and convergence checks.
@@ -48,5 +50,5 @@ a specific EC algorithm.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

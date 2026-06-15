@@ -92,7 +92,7 @@ single-strategy runs. See [The Ask/Tell Contract](../part-2-guided-tour/02-ask-t
 for the manual loop if you need custom logging or early stopping.
 
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo::evo::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
@@ -100,7 +100,7 @@ use rlevo::evo::algorithms::ga::{
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 /// Sphere function: f(x) = Σ xᵢ², minimum 0 at the origin.
 struct SphereCost;
@@ -202,3 +202,8 @@ Two runs with the same seed produce identical trajectories.
 | Binary or combinatorial search | [Binary GA](binary-encoded-genetic-algorithm.md) |
 | Strong variable dependencies | CMA-ES captures covariance; GA crossover assumes separability |
 | Need fast convergence, unimodal | Evolution Strategy (ES) with self-adaptive σ is tighter |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

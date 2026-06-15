@@ -3,7 +3,7 @@
 <!-- source: crates/rlevo-evolution/src/algorithms/ep.rs -->
 
 Evolutionary Programming (EP) is a continuous optimiser in the ES family tree,
-introduced by Fogel (1994). Like ES it uses no crossover — each parent produces
+introduced by Fogel (1995) [[Fogel, 1995]](../bibliography.md). Like ES it uses no crossover — each parent produces
 exactly one offspring by Gaussian mutation — and each individual carries its own
 self-adaptive step size σ. The distinguishing feature of EP is its **survivor
 selection**: rather than truncation (keep the μ best), EP uses a
@@ -30,7 +30,7 @@ plays `tournament_q` randomly drawn opponents. An individual wins a bout if its
 fitness is strictly lower (cost convention). The μ individuals with the most
 wins survive; ties are broken by fitness. Higher `tournament_q` increases
 selection pressure toward better individuals; lower values preserve more
-diversity. The default `tournament_q = 10` is the value from Fogel (1994).
+diversity. The default `tournament_q = 10` is the value from Fogel (1995).
 
 **σ adaptation timing.** In EP, σ is adapted *before* mutation (the updated σ'
 is what drives the offspring perturbation). In the multi-parent ES variants σ
@@ -77,13 +77,13 @@ the opponent.
 ## Minimal example
 
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo::evo::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 /// Sphere function: f(x) = Σ xᵢ², minimum 0 at the origin.
 struct SphereCost;
@@ -169,3 +169,8 @@ sub-streams. Two runs with the same seed produce identical trajectories.
 | Noisy fitness evaluations | Stochastic tournament is more robust to noise than deterministic truncation |
 | Tight convergence budget | Prefer `(μ+λ)` ES or DE/rand/1/bin; EP needs more generations for the same precision |
 | Binary or combinatorial space | [Binary GA](binary-encoded-genetic-algorithm.md) |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

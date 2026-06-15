@@ -3,7 +3,9 @@
 The smallest interesting problem in optimisation is: **find the bottom of a
 bowl.** Mathematically, minimise the *sphere function*
 
-\\[ f(\mathbf{x}) = \sum_i x_i^2 \\]
+```math
+f(\mathbf{x}) = \sum_i x_i^2
+```
 
 whose minimum is obviously \\(\mathbf{x} = \mathbf{0}\\). It's a terrible problem
 to need an algorithm for — which is exactly why it's the right place to learn
@@ -83,7 +85,7 @@ the scores.
 Because we passed `seed = 42`, re-running gives an identical trajectory. `rlevo`
 derives every random draw from that seed through a `seed_stream`, never from
 process-global RNG, so parallel runs and tests stay reproducible (more on this in
-Chapter 6 and the contributor book).
+[The Ask/Tell Contract](02-ask-tell-in-depth.md) and the contributor book).
 
 ## Step 4 — what you should see
 
@@ -116,8 +118,10 @@ The fastest way to internalise this: change one thing and re-run.
 
 - **Swap the problem.** `rlevo::envs::landscapes` has harder bowls —
   `Rastrigin` (a minefield of local minima) and `Rosenbrock` (a banana-shaped
-  valley). Drop one in place of `Sphere` and watch the GA struggle. That
-  struggle is the motivation for Chapter 6.
+  valley). Drop one in place of `Sphere` and watch the GA struggle — that
+  struggle is exactly what the stronger strategies in
+  [Appendix A](../appendix-a-ec-algorithms/index.md) (CMA-ES, differential
+  evolution, the EDAs) are built to handle.
 - **Crank the population down** to `pop_size: 8` and watch it stall — too few
   candidates can't cover an 8-D box.
 - **Kill elitism** (`GaReplacement::Generational`) and watch the best score
@@ -144,5 +148,5 @@ to write the loop yourself when the harness doesn't fit. Then we bring in a real
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

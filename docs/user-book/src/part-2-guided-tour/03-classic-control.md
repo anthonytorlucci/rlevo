@@ -7,169 +7,154 @@ decisions, not a single evaluation.
 
 **CartPole** is the canonical entry point for this regime. The task: balance a
 pole attached to a cart by nudging the cart left or right. The episode ends when
-the pole falls past 15° or the cart leaves the track. The longer you balance, the
-higher the reward.
+the pole falls too far or the cart leaves the track. The longer you balance, the
+more reward you accumulate — one point per surviving timestep.
 
-> **Example name.** This section is built from
-> `rlevo-examples/examples/book/ch03_cartpole_dqn.rs`. Run it with:
-> ```bash
-> cargo run -p rlevo-examples --example ch03_cartpole_dqn
-> ```
+> **Status: preview.** The DQN agent is still in progress (see
+> [Where rlevo Stands Today](../part-3-open-problems/01-where-rlevo-stands.md)),
+> and there is not yet a shipped, CI-tested CartPole example in
+> `rlevo-examples`. This section sketches the real API so you can see the shape
+> of an RL run, but unlike Chapters 1–2 it is **not** backed by a runnable
+> example, and it deliberately quotes no training curve we have not reproduced.
+> The full, tuned walkthrough — with numbers — lands when the agent stabilises.
 
 ## The environment
 
-CartPole is implemented in `rlevo::envs::classic::CartPoleEnv`. Its state
-is a 4-vector — cart position, cart velocity, pole angle, pole angular velocity —
-and its action space is binary: push left (0) or push right (1).
+CartPole lives in `rlevo::envs::classic::cartpole::CartPole`. It implements
+`Environment<1, 1, 1>` — observation, state, and action spaces are all rank-1
+(flat). Construction goes through `with_config` (or `ConstructableEnv::new`):
 
 ```rust,no_run
-use rlevo::envs::classic::CartPoleEnv;
+use rlevo::envs::classic::cartpole::{CartPole, CartPoleConfig};
 use rlevo::core::environment::Environment;
 
-let mut env = CartPoleEnv::new();
+let mut env = CartPole::with_config(CartPoleConfig::default());
 let snapshot = env.reset()?;
 
-println!("initial obs: {:?}", snapshot.observation());
-// e.g. [0.04, -0.03, 0.01, -0.02]
+let obs = snapshot.observation();          // &CartPoleObservation
+println!("pole angle: {}", obs.pole_angle);
 ```
 
-`reset()` returns a `SnapshotBase` — the unified type that carries the first
-observation. Each call to `step(action)` returns the next snapshot containing:
+The observation is a struct of four `f32`s — `cart_pos`, `cart_vel`,
+`pole_angle`, `pole_ang_vel` — not a bare vector, so each field is named and
+typed. Each `step(action)` returns a `SnapshotBase` carrying:
 
-- **observation** — the 4-vector describing the current state,
-- **reward** — `1.0` for every timestep the pole remains balanced,
-- **terminal** — `true` when the episode ends.
+- **observation** — the next `CartPoleObservation`,
+- **reward** — a `ScalarReward`; read it with `(*snapshot.reward()).into()` to get
+  an `f32` (`1.0` per surviving timestep),
+- **status** — query `snapshot.is_done()` (terminated *or* truncated) or
+  `snapshot.is_terminated()`.
 
-This is the `Environment` trait from `rlevo::core`. Notice the parallel with
-the `Landscape` from Part II: `Landscape::evaluate` was a one-shot score;
-`Environment::step` is score-per-timestep inside an episode.
+The action is a two-variant enum, not a raw integer:
+
+```rust,no_run
+use rlevo::envs::classic::cartpole::CartPoleAction;
+
+let push_left = CartPoleAction::Left;       // index 0
+let push_right = CartPoleAction::Right;     // index 1
+```
+
+Notice the parallel with the `Landscape` from Part II: `Landscape::evaluate` was
+a one-shot score; `Environment::step` is score-per-timestep inside an episode.
 
 > **Foundations link.** The agent–environment loop, MDP formulation, and the
 > meaning of discounted cumulative reward are introduced in
-> [Reinforcement Learning](../part-1-foundations/03-reinforcement-learning.md).
+> [Reinforcement Learning](../part-1-foundations/30-reinforcement-learning.md).
 
 ## The agent: DQN
 
-We will train a **Deep Q-Network** (DQN) to solve CartPole. Recall from the
-foundations section: DQN approximates the action-value function
-\\(Q(s, a; \theta)\\) with a neural network and stabilises training with
-experience replay and a target network.
+A **Deep Q-Network** approximates the action-value function \\(Q(s, a; \theta)\\)
+with a neural network and stabilises training with experience replay and a
+target network (see the foundations chapter for the derivation).
 
-`rlevo` provides `DqnAgent` with a configuration struct:
+Two things differ from the evolutionary side:
+
+- **You bring the network.** `DqnAgent` is generic over a `DqnModel` — a Burn
+  module you define (e.g. a small MLP: `4 → 64 → 64 → 2` for CartPole). The
+  input/output sizes live in *the model*, not in a config struct.
+- **The backend must be autodiff-capable.** DQN learns by backpropagation, so
+  the backend is `Autodiff<Flex>`, not bare `Flex`.
 
 ```rust,no_run
-use rlevo::rl::algorithms::dqn::{DqnAgent, DqnConfig};
+use burn::backend::{Autodiff, Flex};
+use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
+use rlevo::rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 
-let config = DqnConfig {
-    state_dim: 4,
-    action_dim: 2,
-    hidden_dim: 128,
-    learning_rate: 1e-3,
-    gamma: 0.99,
-    epsilon_start: 1.0,
-    epsilon_end: 0.01,
-    epsilon_decay_steps: 5_000,
-    replay_capacity: 10_000,
-    batch_size: 64,
-    target_update_freq: 100,
-};
-let mut agent = DqnAgent::<NdArray>::new(config);
+type B = Autodiff<Flex>;
+
+let device = Default::default();
+let config = DqnTrainingConfigBuilder::new()
+    .batch_size(64)
+    .gamma(0.99)
+    .learning_rate(5e-4)
+    .epsilon_start(1.0)
+    .epsilon_end(0.05)
+    .epsilon_decay(0.9995)        // multiplicative per-step decay, not a step count
+    .replay_buffer_capacity(50_000)
+    .learning_starts(1_000)       // fill the buffer before learning
+    .train_frequency(4)           // one gradient step every 4 env steps
+    .target_update_frequency(500)
+    .build();
+
+let model: DqnMlp<B> = DqnMlp::new(&device);   // your network — see below
+let mut agent = DqnAgent::new(model, config, device);
 ```
 
-Read it top to bottom:
-- `state_dim: 4` / `action_dim: 2` match CartPole's observation and action sizes.
-- `gamma: 0.99` — the agent plans ~100 steps into the future
-  (\\(0.99^{100} \approx 0.37\\)).
-- `epsilon_start: 1.0` → `epsilon_end: 0.01` over 5,000 steps — the
-  ε-greedy exploration schedule starts fully random and anneals to nearly greedy.
-- `replay_capacity: 10_000` — the experience buffer holds 10,000 transitions.
-- `target_update_freq: 100` — the target network is copied every 100 steps.
+`DqnTrainingConfig::default()` also exists with sensible CartPole-shaped values.
 
 ## The training loop
 
+Unlike ask/tell, the RL loop acts *sequentially* and learns after individual
+steps. The agent exposes the loop as a handful of methods:
+
 ```rust,no_run
-// See crates/rlevo-examples/examples/book/ch03_cartpole_dqn.rs
-let mut total_steps = 0u64;
-for episode in 0..500 {
-    let mut snapshot = env.reset()?;
-    let mut episode_reward = 0.0f64;
+let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+let mut snapshot = env.reset()?;
 
-    loop {
-        let action = agent.select_action(&snapshot.observation(), total_steps);
-        let next_snapshot = env.step(action)?;
+for _step in 0..50_000 {
+    let obs = snapshot.observation().clone();
+    let action = agent.act(&obs, &mut rng);            // ε-greedy
 
-        agent.store_transition(&snapshot, action, &next_snapshot);
-        agent.train_step();
+    let next = env.step(action)?;
+    let reward: f32 = (*next.reward()).into();
+    let done = next.is_done();
 
-        episode_reward += next_snapshot.reward().value();
-        total_steps += 1;
-        snapshot = next_snapshot;
+    agent.remember(obs, &action, reward, next.observation().clone(), done);
+    agent.on_env_step();
 
-        if snapshot.is_terminal() { break; }
+    if agent.should_train() {
+        agent.learn_step(&mut rng);                    // one gradient update
     }
-    // log episode_reward ...
+    agent.sync_target();                               // periodic target copy
+    agent.decay_exploration();
+
+    snapshot = if done { env.reset()? } else { next };
 }
 ```
 
-At each step, the agent selects an action (ε-greedy), the environment returns a
-transition, and the agent stores that transition in its replay buffer and runs
-one gradient update on a sampled mini-batch.
+A provided `train(&mut agent, &mut env, &mut rng, total_steps, max_episode_steps)`
+helper wraps exactly this loop with episode bookkeeping, if you would rather not
+write it yourself.
 
 This is *not* an ask/tell loop in the evolutionary sense — the agent acts
-sequentially and updates after every step, not after a full population evaluation.
-The connection to ask/tell will reappear when we combine evolution and RL: the EA
-will `ask` for a population of DQN policies, evaluate each by running a full
-episode, and `tell` the scores back.
-
-## What you should see
-
-CartPole is considered solved when the agent averages ≥ 195 reward over 100
-consecutive episodes. With the config above, expect:
-
-```text
-episode   50   avg_reward =  38.2   ε = 0.71
-episode  100   avg_reward =  62.1   ε = 0.43
-episode  200   avg_reward = 142.5   ε = 0.09
-episode  250   avg_reward = 196.3   ε = 0.01   ← solved
-```
-
-Training time is ~30 seconds on CPU with the `ndarray` backend.
-
-## What DQN is learning
-
-Early on (high ε), the agent acts randomly and the replay buffer fills with
-diverse but uninformative transitions. As ε decays, the policy becomes greedier
-and the buffer fills with better trajectories. The target network copy every 100
-steps prevents the Q-estimates from chasing a moving target — without it, updates
-become unstable.
-
-The 4-dimensional observation space is small enough that DQN solves CartPole
-easily. The same agent configuration, with larger hidden layers and a convolutional
-front-end, was used to solve Atari games from 84×84 pixel inputs — the original
-DQN paper's contribution was showing the architecture and stabilisation tricks
-scale to that regime.
-
-> **Foundations link.** The Bellman equation that DQN minimises, the role of the
-> target network, and the experience replay mechanism are derived in
-> [Reinforcement Learning](../part-1-foundations/03-reinforcement-learning.md).
-> Full pseudocode for DQN as implemented in `rlevo` is in
-> [Appendix B](../appendix-b-rl-algorithms/index.md).
-
-## Make it yours
-
-- **Increase `epsilon_decay_steps`** to 20,000 and watch the agent explore longer
-  before converging — useful on harder tasks where early greedy behaviour gets
-  trapped.
-- **Reduce `hidden_dim`** to 32 and observe that the agent struggles: CartPole is
-  simple but not *trivial* for a network that cannot represent the value function
-  accurately.
-- **Swap CartPole for Acrobot** (`AcrobotEnv` in `rlevo::envs`) — a
-  two-link pendulum with a sparser reward. The same DQN config will fail without
-  reward shaping or a larger network; this is the motivation for the hybrid
-  methods in later sections.
+sequentially and updates after every few steps, not after a full population
+evaluation. The connection to ask/tell reappears when we combine evolution and
+RL: the EA will `ask` for a population of policies, evaluate each by running a
+full episode, and `tell` the scores back.
 
 ## Up next
 
-The [next section](04-extending-the-environment.md) shows you how to implement
-the `Environment` trait for your own domain — the prerequisite for applying any
+The [next section](04-extending-the-environment.md) shows how to implement the
+`Environment` trait for your own domain — the prerequisite for applying any
 `rlevo` algorithm to a problem you bring to the library.
+
+> **Foundations link.** The Bellman equation DQN minimises, the role of the
+> target network, and experience replay are derived in
+> [Reinforcement Learning](../part-1-foundations/30-reinforcement-learning.md).
+> Full pseudocode for DQN as implemented in `rlevo` will appear in
+> [Appendix B](../appendix-b-rl-algorithms/index.md).
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

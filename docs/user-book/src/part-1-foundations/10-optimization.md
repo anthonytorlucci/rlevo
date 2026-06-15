@@ -4,9 +4,9 @@ At its core, optimization is the task of finding the input to a function that
 produces the best output. "Best" means lowest cost, highest reward, smallest
 error, or whatever the problem says it means. Formally, we want
 
-\\[
+```math
 \mathbf{x}^* = \arg\min_{\mathbf{x} \in \mathcal{X}} f(\mathbf{x})
-\\]
+```
 
 where \\(f : \mathcal{X} \to \mathbb{R}\\) is the **objective function** (also
 called a **fitness function**, a **cost function**, or a **loss**) and
@@ -14,7 +14,6 @@ called a **fitness function**, a **cost function**, or a **loss**) and
 
 Everything else in optimization is a strategy for searching \\(\mathcal{X}\\)
 efficiently.
-<!-- todo! link to `Strategy` code discussion in 10-optimization.md -->
 
 ### A Note on Terminology (or: Why Everyone Calls It Something Different)
 
@@ -75,10 +74,10 @@ Three landscape properties matter most for algorithm choice:
 
 The sphere function minimised in Part II is unimodal and convex — an easy
 landscape chosen to show the mechanics. The Rastrigin and Rosenbrock functions
-(available in `rlevo::envs::landscapes`) are multimodal and deceptive
+(available in `rlevo::envs::landscapes`) are multimodal and non-separable
 respectively, and they are where evolutionary methods start to earn their keep.
-
-<!-- todo! link supplementary article in appendix d (fitness-landscape.md)-->
+For a fuller tour of landscape geometry and the benchmark suite `rlevo` ships,
+see [Fitness Landscapes](../appendix-d-suppl/fitness-landscape.md) in Appendix D.
 
 ## Exploitation vs Exploration
 
@@ -181,5 +180,5 @@ uses.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

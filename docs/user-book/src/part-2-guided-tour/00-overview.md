@@ -27,5 +27,5 @@ context, where the loop is more complex.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

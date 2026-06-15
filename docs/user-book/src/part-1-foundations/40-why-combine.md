@@ -37,12 +37,11 @@ Salimans et al. (2017) [[Salimans et al., 2017]](#bibliography) framed RL as bla
 optimization over policy parameters and applied a variant of natural evolution
 strategies. The gradient estimate is:
 
-<!-- todo! the following equation doesn't render properly; maybe a katex issue? -->
-\\[
+```math
 \nabla_\theta \mathbb{E}_{\epsilon \sim \mathcal{N}(0, I)}
   \left[ F(\theta + \sigma \epsilon) \right]
   \approx \frac{1}{n\sigma} \sum_{i=1}^n F(\theta + \sigma \epsilon_i) \epsilon_i
-\\]
+```
 
 where \\(F(\theta)\\) is the total undiscounted return of a rollout with
 parameters \\(\theta\\). This is a gradient estimate that requires only function
@@ -131,5 +130,5 @@ Part II shows what this looks like in practice.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

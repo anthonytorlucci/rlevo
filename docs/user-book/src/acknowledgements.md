@@ -75,8 +75,8 @@ machines and runtimes.
 The evolutionary computation community has been building, benchmarking, and
 critiquing population-based optimisation methods for over five decades. The CEC
 benchmark suite, the GECCO conference series, and the authors of the textbooks
-cited throughout this book — Thomas Back, Zbigniew Michalewicz, Kalyanmoy Deb,
-and Nils Reimann among others — created the shared vocabulary that makes it
+cited throughout this book — Thomas Bäck, Zbigniew Michalewicz, Kalyanmoy Deb,
+and Dan Simon among others — created the shared vocabulary that makes it
 possible to describe algorithms precisely.
 
 The reinforcement learning community's tradition of open publication — from

@@ -11,7 +11,7 @@ This book serves two kinds of reader simultaneously:
 - **Practitioners** who want to get something running fast: follow Part II, skim
   the theory boxes, run the examples.
 - **Students and researchers** who want to understand *why* each algorithm works:
-  start with Part I, use Part II to see the concepts in code, and reach for the
+  start with Part I, use Part II to see the examples, and reach for the
   Appendices when you want derivations and pseudocode.
 
 Neither path requires you to read the book cover to cover. Cross-references point
@@ -72,5 +72,5 @@ needs them, and are kept at arm's length until then.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*
+*Co-Authored-By: Anthropic Claude Opus 4.8*
 *Reviewed-By: (Human) Anthony Torlucci*

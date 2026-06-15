@@ -139,15 +139,15 @@ designed from the outset for continuous domains. The key idea is that the
 mutation distribution should adapt to the landscape.
 
 **CMA-ES** (Covariance Matrix Adaptation Evolution Strategy), introduced by
-Hansen and Ostermeier (2001) [[Hansen, 2001]](#bibliography), maintains a full
+Hansen and Ostermeier (2001) [[Hansen and Ostermeier, 2001]](#bibliography), maintains a full
 covariance matrix \\(\mathbf{C}\\) over the search space and updates it based on
 the direction of successful steps. Each generation samples a population from
 \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\), selects the top \\(\mu\\)
 individuals, and updates \\(\mathbf{m}\\), \\(\sigma\\), and \\(\mathbf{C}\\):
 
-\\[
+```math
 \mathbf{m}^{(g+1)} = \sum_{i=1}^{\mu} w_i \mathbf{x}_{i:\lambda}^{(g)}
-\\]
+```
 
 where \\(\mathbf{x}_{i:\lambda}\\) denotes the \\(i\\)-th ranked individual
 out of \\(\lambda\\) samples, and \\(w_i\\) are recombination weights. CMA-ES
@@ -242,5 +242,5 @@ the research roadmap (see [Part III](../part-3-open-problems/02-research-directi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

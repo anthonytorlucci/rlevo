@@ -47,9 +47,9 @@ but safer on expensive landscapes where losing good solutions matters.
 **Log-normal σ adaptation.** In both multi-parent variants, each individual
 carries its own step size σ. Before mutation, σ is updated by:
 
-\\[
+```math
 \sigma' = \sigma \cdot \exp(\tau \cdot \mathcal{N}(0, 1))
-\\]
+```
 
 where \\(\tau = 1 / \sqrt{2\sqrt{D}}\\) is the standard learning rate
 (Beyer & Schwefel, 2002). Larger populations learn a better σ faster because
@@ -94,13 +94,13 @@ Maximization problems must be negated. The Sphere function
 ## Minimal example
 
 ```rust,no_run
-use burn::backend::NdArray;
+use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo::evo::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 use rlevo::evo::fitness::BatchFitnessFn;
 use rlevo::evo::strategy::EvolutionaryHarness;
 
-type B = NdArray;
+type B = Flex;
 
 /// Sphere function: f(x) = Σ xᵢ², minimum 0 at the origin.
 struct SphereCost;
@@ -205,3 +205,8 @@ not portable across variants.
 | Multi-modal landscape | Increase λ; consider `(μ,λ)` for more exploration |
 | Need crossover / schema recombination | [Real-Valued GA](real-valued-genetic-algorithm.md) |
 | Discrete / binary search space | [Binary GA](binary-encoded-genetic-algorithm.md) |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*
