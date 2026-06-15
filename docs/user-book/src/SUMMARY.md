@@ -12,6 +12,7 @@
   - [State and Observation Spaces](part-1-foundations/31-state.md)
   - [Action Spaces](part-1-foundations/32-action.md)
   - [Rewards](part-1-foundations/33-reward.md)
+  - [Environments](part-1-foundations/34-environment.md)
 - [Why Combine Them?](part-1-foundations/40-why-combine.md)
 
 # Part II — Guided Tour
