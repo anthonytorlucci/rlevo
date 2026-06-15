@@ -49,10 +49,10 @@ fn main() {
 
     loop {
         let step = harness.step(());
-        if let Some(m) = harness.latest_metrics() {
-            if m.generation % PRINT_EVERY == 0 || step.done {
-                println!("gen {:>3}   best = {:.2e}", m.generation, m.best_fitness_ever);
-            }
+        if let Some(m) = harness.latest_metrics()
+            && (m.generation % PRINT_EVERY == 0 || step.done)
+        {
+            println!("gen {:>3}   best = {:.2e}", m.generation, m.best_fitness_ever);
         }
         if step.done {
             break;
