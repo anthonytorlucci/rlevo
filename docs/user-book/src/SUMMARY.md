@@ -9,6 +9,9 @@
 - [What Is Optimization?](part-1-foundations/10-optimization.md)
 - [Evolutionary Computation](part-1-foundations/20-evolutionary-computation.md)
 - [Reinforcement Learning](part-1-foundations/30-reinforcement-learning.md)
+  - [State and Observation Spaces](part-1-foundations/31-state.md)
+  - [Action Spaces](part-1-foundations/32-action.md)
+  - [Rewards](part-1-foundations/33-reward.md)
 - [Why Combine Them?](part-1-foundations/40-why-combine.md)
 
 # Part II — Guided Tour
