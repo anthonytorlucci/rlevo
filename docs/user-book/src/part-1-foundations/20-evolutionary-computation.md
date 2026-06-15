@@ -242,5 +242,5 @@ the research roadmap (see [Part III](../part-3-open-problems/02-research-directi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*
 *Reviewed-By: (Human) Anthony Torlucci*

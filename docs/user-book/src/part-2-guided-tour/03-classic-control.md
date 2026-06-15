@@ -156,5 +156,5 @@ The [next section](04-extending-the-environment.md) shows how to implement the
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*
 *Reviewed-By: (Human) Anthony Torlucci*

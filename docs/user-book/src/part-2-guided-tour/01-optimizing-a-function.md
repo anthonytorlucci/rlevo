@@ -148,5 +148,5 @@ to write the loop yourself when the harness doesn't fit. Then we bring in a real
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*
 *Reviewed-By: (Human) Anthony Torlucci*
