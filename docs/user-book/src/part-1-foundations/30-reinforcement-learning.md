@@ -149,6 +149,8 @@ that Q-learning converges to \\(Q^*\\) under mild conditions on the learning rat
 schedule and exploration policy. Q-learning is an **off-policy** algorithm: it
 updates toward the greedy policy regardless of which action was actually taken.
 
+<!-- todo! rlevo::envs::Environment walk-through and tutorial -->
+
 ## Deep Reinforcement Learning
 
 Tabular methods break down when the state space is large or continuous: a
@@ -209,3 +211,8 @@ functions to reduce variance and improve sample efficiency.
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Reviewed-By: (Human) Anthony Torlucci*

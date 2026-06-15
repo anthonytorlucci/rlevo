@@ -137,7 +137,12 @@ to write the loop yourself when the harness doesn't fit. Then we bring in a real
 
 > **Foundations link.** The exploitation–exploration tension you just observed
 > (population too small → stalls; no elitism → regresses) is discussed
-> conceptually in [What Is Optimization?](../part-1-foundations/01-optimization.md).
+> conceptually in [What Is Optimization?](../part-1-foundations/10-optimization.md).
 > The GA operators used here — tournament selection, BLX-α crossover, Gaussian
 > mutation — are derived in
 > [Appendix A](../appendix-a-ec-algorithms/index.md).
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Reviewed-By: (Human) Anthony Torlucci*

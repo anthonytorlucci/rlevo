@@ -24,3 +24,8 @@ cargo run -p rlevo-examples --example <name>
 Each section builds on the previous one. The ask/tell section is the bridge:
 it opens up the harness internals before you encounter them again in the RL
 context, where the loop is more complex.
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Reviewed-By: (Human) Anthony Torlucci*

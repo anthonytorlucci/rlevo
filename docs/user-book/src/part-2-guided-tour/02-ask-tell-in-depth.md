@@ -154,6 +154,11 @@ timesteps.
 
 > **Foundations link.** The exploitation–exploration trade-off that drove our
 > choice of tournament size and elitism is discussed in
-> [What Is Optimization?](../part-1-foundations/01-optimization.md). The GA
+> [What Is Optimization?](../part-1-foundations/10-optimization.md). The GA
 > operators that `ask` uses internally — and their convergence properties — are
 > derived in [Appendix A](../appendix-a-ec-algorithms/index.md).
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Reviewed-By: (Human) Anthony Torlucci*

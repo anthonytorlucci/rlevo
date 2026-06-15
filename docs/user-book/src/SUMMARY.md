@@ -6,10 +6,10 @@
 # Part I — Foundations
 
 - [Overview](part-1-foundations/00-overview.md)
-- [What Is Optimization?](part-1-foundations/01-optimization.md)
-- [Evolutionary Computation](part-1-foundations/02-evolutionary-computation.md)
-- [Reinforcement Learning](part-1-foundations/03-reinforcement-learning.md)
-- [Why Combine Them?](part-1-foundations/04-why-combine.md)
+- [What Is Optimization?](part-1-foundations/10-optimization.md)
+- [Evolutionary Computation](part-1-foundations/20-evolutionary-computation.md)
+- [Reinforcement Learning](part-1-foundations/30-reinforcement-learning.md)
+- [Why Combine Them?](part-1-foundations/40-why-combine.md)
 
 # Part II — Guided Tour
 
@@ -32,4 +32,5 @@
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
+- [Notation](notation.md)
 - [Bibliography](bibliography.md)

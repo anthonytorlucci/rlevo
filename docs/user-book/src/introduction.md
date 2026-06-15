@@ -3,8 +3,8 @@
 `rlevo` is a library for **evolutionary deep reinforcement learning** in Rust,
 built on the [Burn](https://burn.dev) tensor framework. It gives you two ways to
 search for good behaviour — **evolution** (populations that mutate and select)
-and **gradient-based reinforcement learning** (agents that learn from reward) —
-and lets you mix them.
+and **gradient-based reinforcement learning** (agents that learn from reward) -
+*and lets you mix them*.
 
 This book serves two kinds of reader simultaneously:
 
@@ -50,7 +50,7 @@ it how they scored — the **ask/tell** contract. Part II makes this concrete.
 
 | Part | What you'll find |
 | ---- | ---------------- |
-| I — Foundations | Conceptual summaries of optimization, evolutionary computation, and reinforcement learning, with pointers to the key references |
+| I — Foundations | RL and EA concepts in `rlevo` |
 | II — Guided Tour | A narrative walkthrough: function optimisation → the ask/tell contract → classic control with RL |
 | III — Open Problems | Honest gaps, active research directions, and how to contribute |
 | Appendices | Algorithm derivations, pseudocode, math notation, and a full bibliography |
@@ -69,3 +69,8 @@ example — compiled and tested in CI — so what you read is what runs.
 
 You do **not** need to know Burn to start. Tensors appear only when a section
 needs them, and are kept at arm's length until then.
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*
+*Reviewed-By: (Human) Anthony Torlucci*

@@ -37,6 +37,7 @@ Salimans et al. (2017) [[Salimans et al., 2017]](#bibliography) framed RL as bla
 optimization over policy parameters and applied a variant of natural evolution
 strategies. The gradient estimate is:
 
+<!-- todo! the following equation doesn't render properly; maybe a katex issue? -->
 \\[
 \nabla_\theta \mathbb{E}_{\epsilon \sim \mathcal{N}(0, I)}
   \left[ F(\theta + \sigma \epsilon) \right]
@@ -127,3 +128,8 @@ Part II shows what this looks like in practice.
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*
+
+---
+
+*Co-Authored-By: Anthropic Claude Sonnet 4.6*\
+*Reviewed-By: (Human) Anthony Torlucci*
