@@ -56,6 +56,10 @@ workspace = true
 name = "grid_door_key_scripted"
 path = "examples/envs/grids/grid_door_key_scripted.rs"
 
+[[example]]
+name = "pixel_grid"
+path = "examples/envs/pixel_grid.rs"
+
 # Examples — classic control
 [[example]]
 name = "cartpole_random"

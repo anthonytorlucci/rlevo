@@ -11,6 +11,8 @@
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
 //!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
+//! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
+//!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
 //! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
 //! - [`wrappers`]: Environment wrappers (TimeLimit)
 //! - [`render`]: Re-exports of the render surface defined in `rlevo-core`
@@ -81,6 +83,7 @@ pub mod games {
 }
 pub mod grids;
 pub mod locomotion;
+pub mod pixel_grid;
 pub mod render;
 pub mod toy_text;
 pub mod wrappers;
