@@ -11,7 +11,7 @@
 //! |---|---|
 //! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`TensorConvertible`], [`UpdateFunction`] — the primitive trait vocabulary |
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
-//! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`] — POMDP and latent-space extensions |
+//! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
 //! | [`environment`] | [`Environment`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — object-safe environment interface for harnesses |
@@ -66,6 +66,7 @@
 //! [`HiddenState`]: crate::state::HiddenState
 //! [`LatentState`]: crate::state::LatentState
 //! [`StateAggregation`]: crate::state::StateAggregation
+//! [`Observable`]: crate::state::Observable
 //! [`Environment`]: crate::environment::Environment
 //! [`Snapshot`]: crate::environment::Snapshot
 //! [`SnapshotBase`]: crate::environment::SnapshotBase
@@ -171,7 +172,8 @@ pub mod reward;
 /// Advanced state abstractions for POMDPs and latent representations.
 ///
 /// Extends [`base::State`] with [`MarkovState`], [`BeliefState`],
-/// [`HiddenState`], [`LatentState`], and [`StateAggregation`].
+/// [`HiddenState`], [`LatentState`], [`StateAggregation`], and [`Observable`]
+/// (the modality-changing state→observation projection for `OR != SR`).
 ///
 /// [`base::State`]: crate::base::State
 /// [`MarkovState`]: crate::state::MarkovState
@@ -179,6 +181,7 @@ pub mod reward;
 /// [`HiddenState`]: crate::state::HiddenState
 /// [`LatentState`]: crate::state::LatentState
 /// [`StateAggregation`]: crate::state::StateAggregation
+/// [`Observable`]: crate::state::Observable
 pub mod state;
 
 /// Shared utility helpers used across `rlevo-core` modules.
