@@ -68,17 +68,23 @@ equality — it never binds `ObservationType = StateType::Observation`. Those ar
 independent associated types, which leaves a deliberate seam: a *modality-changing*
 POMDP, where the observation is a different rank from the state. The textbook
 case is Atari — a low-rank emulator-RAM state behind a rank-2 pixel observation.
-Expressing that in `rlevo` means declaring an `ObservationType` unrelated to the
-state's and projecting the state into it *inside `step`/`reset`*, deliberately
-routing around `State::observe()` (which the `State` trait would otherwise pin to
-the state's rank). No environment does this today, but the separate `R`/`SR`
-parameters are what make it reachable.
+`State::observe()` cannot express that, because the `State` trait pins its
+observation to the state's *own* rank.
 
-There is a mild design tension here, captured in
-[issue #62](https://github.com/anthonytorlucci/rlevo/issues/62): `State` *couples*
-observation rank to state rank, while `Environment` *leaves them independent*. For
-now, the practical rule is simple — **`R == SR` for any environment that observes
-via `State::observe()`, which is all of them.** The parameter that genuinely
+That is exactly what the [`Observable`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
+trait is for. `Observable<OR>` is a standalone projection trait
+(`fn project(&self) -> Self::Observation`, where `Self::Observation: Observation<OR>`)
+that lets a state map into an observation of a *different* rank `OR`. A
+modality-changing environment's state implements `State<SR>` for its full
+representation **and** `Observable<OR>` for the projected modality, then builds its
+snapshots from `state.project()` instead of `state.observe()`. Because `Environment`
+already permits `R != SR`, no change to the environment contract is needed — this is
+the typed home for the rank change, resolving
+[issue #62](https://github.com/anthonytorlucci/rlevo/issues/62).
+
+So the practical rule is precise: **`R == SR` for any environment that observes via
+`State::observe()` (all of them today); an environment that observes via
+`Observable::project()` may have `R != SR`.** The other parameter that genuinely
 varies is **`AR`**: in `Environment<3, 3, 1>` the state and observation are rank-3
 while the action is a single rank-1 discrete choice.
 
@@ -282,8 +288,9 @@ the crate as a vocabulary anchor more than a workhorse.
   (state, observation, action, reward, snapshot) welded into a consistent unit,
   plus `reset` and `step`.
 - `R == SR` for every environment that observes via `State::observe()` (all of
-  them); `AR` is the rank that genuinely varies. The separate `R`/`SR`
-  parameters leave room for modality-changing POMDPs ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)),
+  them today); `AR` is the rank that genuinely varies. A modality-changing POMDP
+  can break that equality by observing through `Observable::project()` instead —
+  the typed home for a state→observation rank change ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)) —
   and the `SnapshotType` bound forces the noun-set to agree.
 - `reset`/`step` return `Result<Snapshot, EnvironmentError>` — fallibility is
   part of the contract.

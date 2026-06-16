@@ -37,5 +37,6 @@
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
   - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
+  - [Tensor Rank vs. Matrix Rank vs. Dimensionality](appendix-d-suppl/tensor-rank-vs-matrix-rank.md)
 - [Notation](notation.md)
 - [Bibliography](bibliography.md)
