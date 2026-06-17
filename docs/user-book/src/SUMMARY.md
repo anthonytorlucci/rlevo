@@ -9,18 +9,18 @@
 - [What Is Optimization?](part-1-foundations/10-optimization.md)
 - [Evolutionary Computation](part-1-foundations/20-evolutionary-computation.md)
 - [Reinforcement Learning](part-1-foundations/30-reinforcement-learning.md)
-  - [State and Observation Spaces](part-1-foundations/31-state.md)
-  - [Action Spaces](part-1-foundations/32-action.md)
-  - [Rewards](part-1-foundations/33-reward.md)
-  - [Environments](part-1-foundations/34-environment.md)
+  - [State and Observation Spaces](part-1-foundations/reinforcement-learning/31-state.md)
+  - [Action Spaces](part-1-foundations/reinforcement-learning/32-action.md)
+  - [Rewards](part-1-foundations/reinforcement-learning/33-reward.md)
+  - [Environments](part-1-foundations/reinforcement-learning/34-environment.md)
 - [Why Combine Them?](part-1-foundations/40-why-combine.md)
 
 # Part II — Guided Tour
 
 - [Overview](part-2-guided-tour/00-overview.md)
-- [Optimising a Function](part-2-guided-tour/01-optimizing-a-function.md)
-- [Classic Control: CartPole with DQN](part-2-guided-tour/03-classic-control.md)
-- [Bring Your Own Environment](part-2-guided-tour/04-extending-the-environment.md)
+- [Optimising a Function](part-2-guided-tour/10-optimizing-a-function.md)
+- [Classic Control: CartPole with DQN](part-2-guided-tour/20-classic-control.md)
+- [Bring Your Own Environment](part-2-guided-tour/99-extending-the-environment.md)
 
 # Part III — Open Problems & Research Directions
 

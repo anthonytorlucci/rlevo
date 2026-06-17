@@ -17,3 +17,8 @@
 | \\(\lambda\\) | Population size (number of offspring) |
 | \\(\mu\\) | Number of parents selected |
 | \\(\sigma\\) | Mutation step size (evolution strategies) |
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

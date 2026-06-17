@@ -30,3 +30,8 @@ Open issues, feature requests, and the development roadmap are tracked on
 non-trivial contribution, open an issue first to discuss the design — the ADR
 history in the contributor book records decisions that are easy to accidentally
 re-litigate without that context.
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

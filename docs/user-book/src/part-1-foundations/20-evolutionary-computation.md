@@ -4,7 +4,7 @@ Evolutionary computation (EC) is a family of population-based optimization
 methods inspired by Darwinian natural selection. The common skeleton is:
 
 1. Maintain a **population** of candidate solutions.
-2. **Evaluate** each candidate with the objective function.
+2. **Evaluate** each candidate with the fitness function.
 3. **Select** candidates that performed better.
 4. **Vary** them (mutation, recombination) to produce the next population.
 5. Repeat until a budget is exhausted or a solution is good enough.
@@ -242,5 +242,5 @@ the research roadmap (see [Part III](../part-3-open-problems/02-research-directi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

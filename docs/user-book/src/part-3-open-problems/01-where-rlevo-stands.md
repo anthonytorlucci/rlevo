@@ -99,3 +99,8 @@ machines.
 non-determinism can break exact reproducibility even with a fixed seed.
 Deterministic runs require both a seeded backend RNG and pinning `rayon` to a
 single thread; the `ndarray` backend is fully deterministic.
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

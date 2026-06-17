@@ -81,3 +81,8 @@ experimental design and reporting.
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*
