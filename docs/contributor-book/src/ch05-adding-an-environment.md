@@ -6,7 +6,7 @@
 researchers. The checklist here is the minimum a new environment must satisfy
 before merging.
 
-**Key source of truth.** `rules.md §10`, ADR-0011.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §10, ADR-0011.
 
 ## Trait checklist
 

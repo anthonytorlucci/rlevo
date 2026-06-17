@@ -7,7 +7,7 @@ TUI that shows metrics only, and a post-run HTML report that replays environment
 state. Contributors must not collapse the two products back into one or add viz
 dependencies to production crates.
 
-**Key source of truth.** ADR-0013, `rules.md §10`.
+**Key source of truth.** ADR-0013, [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §10.
 
 ## The two-product model (ADR-0013)
 

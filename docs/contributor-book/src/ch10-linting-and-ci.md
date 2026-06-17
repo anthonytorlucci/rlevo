@@ -7,7 +7,7 @@
 `clippy::pedantic` and several custom groups are enabled at warn level. New
 contributors routinely underestimate how many warnings they'll need to address.
 
-**Key source of truth.** `rules.md §9`, root `Cargo.toml [workspace.lints]`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §9, root `Cargo.toml [workspace.lints]`.
 
 ## Workspace lint groups enabled
 
@@ -54,7 +54,7 @@ CI runs this command on every PR. A PR with lint warnings will not be merged.
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-linting}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-linting}} -->
 
 1. The full workspace lint configuration walk-through.
 2. Common pedantic lints and how to satisfy them.

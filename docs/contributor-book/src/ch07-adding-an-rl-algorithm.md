@@ -6,7 +6,7 @@
 `rlevo-reinforcement-learning` and must follow the Burn module conventions and
 the crate boundary defined by ADR-0003.
 
-**Key source of truth.** `rules.md §8`, ADR-0003.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §8, ADR-0003.
 
 ## Crate boundary (ADR-0003)
 

@@ -7,7 +7,7 @@
 policy: every public item must have a doc comment. This chapter makes the
 required structure concrete so you don't have to infer it from existing code.
 
-**Key source of truth.** `rules.md §6`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §6.
 
 ## Zero-exception policy
 
@@ -66,7 +66,7 @@ RUSTDOCFLAGS="-D rustdoc::broken-intra-doc-links" cargo doc --workspace --no-dep
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-documentation}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-documentation}} -->
 
 1. The zero-exception policy — what it covers and why.
 2. Summary sentences — imperative mood, one line.

@@ -7,7 +7,7 @@
 rules for designing and evolving traits are stricter here than in a typical
 project because breaking a trait breaks every downstream implementation.
 
-**Key source of truth.** `rules.md §3–4, §7`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §3–4, §7.
 
 ## Invariants that cannot be broken
 
@@ -32,7 +32,7 @@ implementation or add a new trait. Open an ADR before breaking any public trait.
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-trait-design}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-trait-design}} -->
 
 1. The const-generic constraint system — how `R`, `SR`, `AR` flow through
    `State`, `Observation`, `Action`, `Snapshot`.
