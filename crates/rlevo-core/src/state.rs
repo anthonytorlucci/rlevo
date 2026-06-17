@@ -35,37 +35,24 @@ use crate::base::{Action, Observation, State};
 /// let err = StateError::InvalidSize { expected: 16, got: 12 };
 /// assert!(err.to_string().contains("Invalid size"));
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum StateError {
     /// Shape dimensions do not match expectations.
+    #[error("Invalid shape: expected {expected:?}, got {got:?}")]
     InvalidShape {
         expected: Vec<usize>,
         got: Vec<usize>,
     },
     /// Data contents violate invariants.
+    #[error("Invalid data: {0}")]
     InvalidData(String),
     /// Total element count does not match expectations.
+    #[error("Invalid size: expected {expected}, got {got}")]
     InvalidSize {
         expected: usize,
         got: usize,
     },
 }
-
-impl std::fmt::Display for StateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StateError::InvalidShape { expected, got } => {
-                write!(f, "Invalid shape: expected {:?}, got {:?}", expected, got)
-            }
-            StateError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
-            StateError::InvalidSize { expected, got } => {
-                write!(f, "Invalid size: expected {}, got {}", expected, got)
-            }
-        }
-    }
-}
-
-impl std::error::Error for StateError {}
 
 /// Verifies that a state representation satisfies the Markov property.
 ///

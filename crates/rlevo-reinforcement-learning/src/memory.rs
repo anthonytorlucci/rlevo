@@ -17,18 +17,20 @@ use rand::RngExt;
 use std::collections::VecDeque;
 
 /// Errors that can occur during replay buffer operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ReplayBufferError {
     /// A general batch-assembly failure.
     ///
     /// Carries a human-readable description of what went wrong during
     /// tensor stacking or batch construction.
+    #[error("Batch error: {0}")]
     BatchError(String),
     /// The buffer holds fewer experiences than the requested batch size.
     ///
     /// Returned by [`PrioritizedExperienceReplay::sample_batch`] when
     /// `batch_size > self.len()`. The caller should either reduce the batch
     /// size or wait until more transitions have been collected.
+    #[error("Insufficient data: requested {requested}, available {available}")]
     InsufficientData { requested: usize, available: usize },
     /// A domain type could not be converted to or from a tensor.
     ///
@@ -36,31 +38,9 @@ pub enum ReplayBufferError {
     /// observation, action, or reward tensor conversion.
     ///
     /// [`TensorConvertible`]: rlevo_core::base::TensorConvertible
+    #[error("Tensor conversion error: {0}")]
     TensorConversionError(String),
 }
-
-impl std::fmt::Display for ReplayBufferError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReplayBufferError::BatchError(msg) => write!(f, "Batch error: {}", msg),
-            ReplayBufferError::InsufficientData {
-                requested,
-                available,
-            } => {
-                write!(
-                    f,
-                    "Insufficient data: requested {}, available {}",
-                    requested, available
-                )
-            }
-            ReplayBufferError::TensorConversionError(msg) => {
-                write!(f, "Tensor conversion error: {}", msg)
-            }
-        }
-    }
-}
-
-impl std::error::Error for ReplayBufferError {}
 
 /// A GPU-ready bundle of tensors sampled from a replay buffer for one training step.
 ///

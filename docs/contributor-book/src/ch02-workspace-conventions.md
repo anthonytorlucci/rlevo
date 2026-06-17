@@ -7,7 +7,7 @@
 and dependency-inheritance rules. Following them means your code looks and builds
 like the rest of the project without special-casing.
 
-**Key source of truth.** `rules.md §2`, root `Cargo.toml`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §2, root `Cargo.toml`.
 
 ## Naming conventions
 
@@ -31,7 +31,7 @@ referenced in crate `Cargo.toml` files without repeating the version.
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-workspace-conventions}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-workspace-conventions}} -->
 
 1. Full naming convention table.
 2. Visibility policy — when `pub(crate)` and when `pub`.

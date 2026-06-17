@@ -23,7 +23,6 @@ parking_lot = { workspace = true }
 # Programming (3e-R1 §5). Pinned at the workspace version.
 rayon = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

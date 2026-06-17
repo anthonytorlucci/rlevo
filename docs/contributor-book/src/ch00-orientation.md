@@ -8,7 +8,14 @@ a novel algorithm, better tooling — and you need a map before you touch the co
 This chapter gives you that map: where things live, why they live there, and what
 you must not cross.
 
-**Key source of truth.** `rules.md §1`, `CLAUDE.md`.
+**New here?** Start with [`CONTRIBUTING.md`](https://github.com/anthonytorlucci/rlevo/blob/main/CONTRIBUTING.md) at the repo
+root — it covers what contributions are in scope right now, the issue-first rule,
+and the PR checklist. This book covers *how the codebase is shaped*; `CONTRIBUTING.md`
+covers *how to get a change merged*.
+
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §1, the
+[architectural decision records](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/README.md), and the repo-root
+`CLAUDE.md`.
 
 ## Crate map
 
@@ -30,8 +37,9 @@ you must not cross.
 ## Dependency rules
 
 The critical rule: **production crates must not depend on `rlevo-benchmarks`
-or any viz crate** (ADR-0007, ADR-0013). The benchmark/viz layer is a consumer
-of production types, never a constraint on them.
+or any viz crate** ([ADR-0007](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0007-visualisation-crates-isolated-from-production-crates.md),
+[ADR-0013](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0013-metrics-only-live-tui.md)). The benchmark/viz layer is
+a consumer of production types, never a constraint on them.
 
 ## Placement decision tree
 

@@ -6,11 +6,11 @@
 burden, and a potential supply-chain risk. The approved table and the ADR
 requirement exist to make that cost visible and intentional.
 
-**Key source of truth.** `rules.md §8`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §8.
 
 ## The approved dependency table
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-approved-deps}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-approved-deps}} -->
 
 Key workspace dependencies and their purpose:
 

@@ -5,7 +5,7 @@
 **Why this exists.** The three-tier test and example placement rule prevents
 duplication and confusion about where canonical behaviour lives.
 
-**Key source of truth.** `rules.md §5`, ADR-0012.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §5, ADR-0012.
 
 ## Three-tier test placement rule
 
@@ -30,7 +30,7 @@ cross-crate benchmark orchestration.
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-placement}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-placement}} -->
 
 1. The full placement decision tree (flowchart).
 2. When to promote a unit test to an integration test.

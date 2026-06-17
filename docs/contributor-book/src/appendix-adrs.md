@@ -23,10 +23,14 @@ superseded records are noted. When you author a new ADR, add an entry here.
 | 0016 | Memetic wrapper and local-search seam: `LocalSearch<B>` trait, `MemeticWrapper<B, S, L, F>`, four gradient-free searchers, `WritebackPolicy` | active |
 | 0017 | `ProbabilityModel<B>` trait and EDA strategy: `EdaStrategy<B, M>`, four concrete models (UMDA/PBIL/cGA/MIMIC) | active |
 | 0018 | `BayesianNetwork` (BOA) fifth probability model; `ConcatenatedTrap` deceptive landscape | active |
+| 0019 | Standalone `Observable<OR>` projection trait for modality-changing POMDPs (observation tensor order ≠ state order) | active |
+| 0020 | First production `Observable<OR>` consumer: synthetic pixel-over-grid env `PixelGridEnv` (`Environment<3,1,1>`) | active |
+
+The full text of each record lives in [`docs/adr/`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/README.md).
 
 ## How to read an ADR
 
-Each ADR in `decisions/` follows the same structure:
+Each ADR in [`docs/adr/`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/README.md) follows the same structure:
 
 - **Problem** — what situation triggered the decision.
 - **Decision** — what was chosen.

@@ -1,0 +1,36 @@
+# Architectural Decision Records
+
+Immutable records of the architectural decisions behind `rlevo`. Once accepted,
+an ADR is not edited — a later decision supersedes it, and the superseded record
+is annotated rather than deleted. Read these for the *why* behind the crate
+boundaries and trait design before proposing structural changes.
+
+When you make an architectural decision, add a new numbered file here following
+the existing format (`Status` / `Context` / `Decision` / `Consequences` /
+`Alternatives considered` / `References`).
+
+> Drafts and in-flight proposals live in the maintainer's working notes; an ADR
+> lands here only once accepted. The repo copy is canonical.
+
+| # | Decision |
+|---|----------|
+| [0001](0001-keep-environments-and-benchmarks-separate.md) | Keep `rlevo-environments` and `rlevo-benchmarks` as separate crates; use a feature-gated `bench` adapter inside `rlevo-environments` instead of merging. |
+| [0002](0002-collapse-evolution-traits-into-rlevo-evolution.md) | Move `GenomeKind` into `rlevo-evolution`, delete the dead `Fitness`/`MultiFitness` traits, and drop the `rlevo-core` dep from `rlevo-evolution`. |
+| [0003](0003-collapse-rl-modules-into-rlevo-reinforcement-learning.md) | Move `memory`/`experience`/`metrics` from `rlevo-core` to `rlevo-reinforcement-learning` (RL-only consumers); fold `rlevo-utils::math::combinations` into `rlevo-core::util`; delete the `rlevo-utils` crate. |
+| [0004](0004-move-bench-traits-into-rlevo-core.md) | Move `BenchEnv`/`BenchError`/`BenchStep`, `BenchableAgent`/`FitnessEvaluable`/`Landscape`, `Metric`/`MetricsProvider`, and `SeedStream` from `rlevo-benchmarks` into `rlevo-core`; drop `rlevo-benchmarks` as a prod dep of `rlevo-evolution`; switch `BenchError` to wrap `EnvironmentError` typedly. |
+| [0005](0005-examples-and-cross-crate-tests-in-umbrella.md) | **Superseded by 0012.** Examples and cross-crate integration tests live in `crates/rlevo/`; crate-internal tests stay with their owning crate; `[[bench]]` entries stay put. |
+| [0006](0006-leptos-first-visualisation-defer-bevy.md) | Build the visualisation layer as a Leptos web client (`rlevo-viz-web`) served by an embedded `axum` server; defer Bevy and native 3D; render `locomotion` envs as a 2D sagittal-plane projection until a successor spec re-opens 3D. |
+| [0007](0007-visualisation-crates-isolated-from-production-crates.md) | `rlevo-viz-core` depends only on `rlevo-core`; per-family render adapters live in `rlevo-viz-web` behind feature flags; neither viz crate is a prod or dev dep of any production crate; `Visualize` is not a supertrait of `Environment`. |
+| [0008](0008-three-tier-visualisation-ratatui-live-static-report.md) | **Superseded by 0013.** Three-tier visualisation: `AsciiRenderable` at the library level, `ratatui` TUI for live training, static-HTML Leptos viewer for post-run replay. |
+| [0009](0009-move-styled-render-into-rlevo-core.md) | Hoist the styled-render surface (`StyledFrame`/`StyledLine`/`StyledSpan`/`SpanStyle`/`Color`/`Modifier`, `palette`, `AsciiRenderable`/`AsciiRenderer`) from `rlevo-environments::render` to `rlevo-core::render`; preserve import paths via a re-export shim. Forced by the `rlevo-environments ↔ rlevo-benchmarks` package cycle. |
+| [0010](0010-unify-on-parking-lot-across-viz-stack.md) | Redefine `rlevo_evolution::SharedPopulationObserver` over `parking_lot::Mutex` so the EA observer alias and the record-sink producers share one lock type; add `parking_lot` as an explicit dep. |
+| [0011](0011-lift-construction-off-environment-trait.md) | Remove `fn new(render: bool)` from `Environment`; add a standalone `ConstructableEnv` factory trait (not a supertrait). Kill the degenerate `new` stubs in the recording/TUI taps. |
+| [0012](0012-split-heavy-examples-into-rlevo-examples.md) | Heavy viz/record/report examples move to a new `crates/rlevo-examples` leaf crate; `rlevo` retains lightweight examples, cross-crate `tests/`, and `benches/`. Canonicalizes the three-tier test placement rule. Supersedes ADR 0005. |
+| [0013](0013-metrics-only-live-tui.md) | Collapse visualisation to **two products**: (1) live metrics-only `ratatui` TUI (no env panel), (2) post-run `EpisodeRecord` + static-HTML report. Demotes `AsciiRenderable` to an optional debug helper. Supersedes ADR 0008. |
+| [0014](0014-record-schema-v6-single-agent-richness-and-provenance.md) | Bump record `FORMAT_VERSION` 5→6: expand `CANONICAL_METRICS`, add typed run-provenance fields to `RunManifest`, add `EpisodeKind`, an episode wall-clock metric, and a deep-RL `checkpoints` seam. Extends ADR 0013. |
+| [0015](0015-shared-typed-metric-registry-crate.md) | Extract a `#![no_std]`, zero-dependency leaf crate `rlevo-metrics-registry` holding the single typed canonical-metric table; consumers re-export it. |
+| [0016](0016-memetic-wrapper-and-local-search-seam.md) | Phase 3a memetic algorithms: host-side `LocalSearch<B>` trait with four gradient-free searchers; `MemeticWrapper<B, S, L, F>` implements `Strategy<B>` and owns refinement inside `tell`; one-draw two-stream RNG scheme; `WritebackPolicy` defaults to `Partial(0.5)`. Purely additive. |
+| [0017](0017-probability-model-trait-and-eda-strategy.md) | Phase 3b EDAs: `ProbabilityModel<B>` trait (`fit`/`sample`); generic `EdaStrategy<B, M>`; four models (UMDA, PBIL, cGA, MIMIC). Host-RNG sampling convention. Purely additive. |
+| [0018](0018-boa-bayesian-network-and-concatenated-trap.md) | Phase 3b follow-up: `BayesianNetwork` (BOA) fifth `ProbabilityModel` with BIC-scored greedy structure learning; new `ConcatenatedTrap` deceptive landscape. Extends ADR 0017; purely additive. |
+| [0019](0019-observable-projection-trait.md) | New standalone `Observable<OR>` trait in `rlevo-core::state` — the typed home for **modality-changing** POMDPs where observation tensor order differs from state order. `Environment` already permits `R != SR`; zero contract change. Purely additive. |
+| [0020](0020-synthetic-pixel-over-grid-env.md) | First **production** `Observable<OR>` consumer — synthetic pixel-over-grid env `PixelGridEnv: Environment<3,1,1>` projecting a rank-1 grid latent to a rank-3 RGB image. Extends ADR 0019; purely additive. |

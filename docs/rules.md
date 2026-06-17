@@ -1,0 +1,342 @@
+---
+project: rlevo
+status: active
+type: reference
+date: 2026-05-31
+tags: [rules, conventions, constraints, architecture]
+---
+
+# rlevo Rules
+
+Hard constraints and conventions that apply to every contribution. Read this before making any implementation decisions.
+
+---
+
+## 1. Workspace Structure
+- The workspace contains exactly these crates, each with a single, bounded responsibility:
+  - `rlevo-core` — agent / environment contract: `State`, `Observation`, `Action`, `Reward`, `Environment`, `Snapshot`, `TensorConvertible`, the `util::combinations` math helper, and the **render trait surface** (`Renderer`, `NullRenderer`, `AsciiRenderable`, `AsciiRenderer`, `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`). No algorithm or environment implementations. (ADR 0009)
+  - `rlevo-environments` — environment implementations (depends on `rlevo-core`). `rlevo-environments::render` is a re-export shim that forwards all render types from `rlevo-core::render`; do not add new types there.
+  - `rlevo-reinforcement-learning` — gradient-based RL algorithms + the RL-only `memory` (replay buffer), `experience` (trajectory storage), and `metrics` (`AgentStats`) modules. Depends on `rlevo-core`. `rlevo-environments` is a dev-dep only (used by examples / benches / integration tests).
+  - `rlevo-evolution` — evolutionary strategy algorithms; **standalone** (no `rlevo-core` dep, per ADR 0002). Depends on `parking_lot` for `SharedPopulationObserver`.
+  - `rlevo-hybrid` — hybrid RL + EA approaches (planned; thin stub until designed). Depends on `rlevo-core`, `rlevo-reinforcement-learning`, and `rlevo-evolution`.
+  - `rlevo-benchmarks` — paradigm-neutral evaluation harness (light-touch dep on `rlevo-core`, per ADR 0001). Has optional `tui` (ratatui live dashboard), `report` (static-HTML Leptos viewer), and `record` (EpisodeRecord file writer) features; this is the **only** production crate permitted to carry viz deps, and only behind those feature gates.
+  - `rlevo` — public API re-export aggregator (excludes `rlevo-benchmarks`); exposes `viz-tui` and `viz-report` features that forward to `rlevo-benchmarks`.
+  - `rlevo-examples` — heavyweight example programs that import `rlevo-benchmarks` or any viz/record/report feature dep. **Not in `default-members`** — opt in with `-p rlevo-examples`. Has no public library surface of its own. (ADR 0012)
+- Never add implementation logic to `rlevo-core`; it is a contract crate. The `util` module is the single exception (a math helper folded in from the deleted `rlevo-utils` crate per ADR 0003).
+- All shared dependencies must be declared in the root `Cargo.toml` `[workspace.dependencies]` table. Crates inherit via `{ workspace = true }`.
+- Workspace resolver must remain `resolver = "3"`.
+- All crates share version `0.1.0` and license `MIT OR Apache-2.0` via workspace inheritance.
+
+## 2. Naming Conventions
+
+### Files and Modules
+- File and module names: `snake_case` (e.g., `frozen_lake.rs`, `k_armed.rs`).
+- Concept modules: singular noun (`state.rs`, `action.rs`, `environment.rs`).
+- Collection modules (folders): plural noun (`grids/`, `landscapes/`, `toy_text/`).
+- Maximum module nesting depth: 3 levels (e.g., `envs/toy_text/frozen_lake.rs`).
+
+### Example target names
+
+The filename of an example **is** its `cargo run --example <name>` target (Cargo auto-discovery — there is no `[[example]]` typo-check for `examples/*.rs`, so a mistyped name is unrecoverable except via Cargo's "similar name" hint). Keep names short and unambiguous:
+
+- `snake_case`, **≤ 24 characters**, no abbreviations that drop letters (`constraints`, never `contraints`).
+- Lead with the **subject**, not a filler verb: `state_constraints.rs`, not `continuous_state_with_constraints.rs`; `grid_agent.rs`, not `egocentric_grid_agent_demo.rs`. Drop `_demo` / `_example` / `_showcase` suffixes — the `examples/` directory already says it is one. *(Pre-existing longer names are grandfathered; apply this to new examples.)*
+- For heavy `rlevo-examples` targets, prefix by product tier so the required feature is obvious from the name: `tui_<subject>` (needs `viz-tui`), `report_<subject>` (needs `viz-report`).
+- Each example is owned by the crate whose `examples/` dir holds it; run it with that crate's `-p` (see §11). Prefer the `justfile` recipe over typing the full `-p … --example …` line.
+
+### Types and Traits
+- Types and traits: `PascalCase` (e.g., `ScalarReward`, `SnapshotBase`, `DiscreteAction`).
+- Error types: `PascalCase` enum or struct ending in `Error` (e.g., `StateError`, `EnvironmentError`, `TensorConversionError`).
+- Config types: `PascalCase` ending in `Config` (e.g., `FrozenLakeConfig`).
+- Builder types: `PascalCase` ending in `Builder` (e.g., `PrioritizedExperienceReplayBuilder`).
+
+### Functions and Methods
+- All functions and methods: `snake_case`.
+- Constructors: `new()` (default), `with_config(config)` (alternate), `from_*()` (conversion).
+- Accessors returning references: `observation()`, `reward()`, `status()`.
+- Predicate methods: `is_valid()`, `is_done()`, `is_terminated()`, `is_truncated()`.
+- Dimension methods: `shape()`, `numel()`.
+- Mutation methods: `update()`, `reset()`, `step()`, `add()`, `record()`.
+- Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
+- Identity/utility methods: `zero()`, `enumerate()`, `aggregate()`, `encode()`, `decode()`.
+
+### Constants and Associated Constants
+- Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
+- Const generic parameters: `D` (observation/state rank), `AD` (action rank), `SD` (state rank).
+- Batch ranks are always `BD = D + 1`, `BAD = AD + 1` — never any other offset.
+- Reified const generic: `const DIM: usize = D` (reify inside trait body for ergonomic access).
+
+### Generic Parameters
+- Burn backend: `B: Backend` (always single letter `B`).
+- Domain bounds: `O: Observation<D>`, `A: Action<AD>`, `S: State<SD>`, `R: Reward`.
+- Const generic ordering in signatures: `<const D: usize, const SD: usize, const AD: usize>`.
+- Place all non-trivial bounds in a `where` clause, not inline.
+
+---
+
+## 3. Trait Design Constraints
+
+- Every public trait must have a doc comment explaining its purpose and when to implement it.
+- Associated types use singular nouns matching the concept (`type Observation`, `type StateType`, `type ActionType`).
+- Provided default method implementations must be conservative and correct for all conforming types; document any assumptions.
+- Trait methods that can fail return `Result<T, DomainError>` — never `Option` for error signalling.
+- Marker traits (`MarkovState`, `GenomeKind`) carry `const` or zero methods; they must not grow methods unless the concept fundamentally requires it.
+- Do not add blanket impls without a documented invariant justifying them.
+
+### Core Trait Invariants (these must never be violated by implementations)
+
+| Trait | Invariant |
+|-------|-----------|
+| `State<D>` | `shape().iter().product::<usize>() == numel()` |
+| `Observation<D>` | `shape().iter().product::<usize>() == DIM` |
+| `DiscreteAction<D>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
+| `ContinuousAction<D>` | `as_slice().len() == DIM` always |
+| `BoundedAction<D>` | `low()[i] < high()[i]` for all `i` |
+| `TensorConvertible<D, B>` | `from_tensor(x.to_tensor(device)) == Ok(x)` for all valid `x` |
+| `Reward` | `zero()` is the additive identity: `r + zero() == r` |
+| `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
+| `PrioritizedExperienceReplay` | `priorities.len() == buffer.len()` at all times |
+
+---
+
+## 4. Error Handling
+
+- All error types must implement `std::error::Error` + `std::fmt::Display` + `std::fmt::Debug`.
+- Prefer enum error types with structured variants over string-based errors:
+  ```rust
+  pub enum StateError {
+      InvalidShape { expected: Vec<usize>, got: Vec<usize> },
+      InvalidData(String),
+      InvalidSize { expected: usize, got: usize },
+  }
+  ```
+- Return `Result<T, SpecificError>` — never erase error types with `Box<dyn Error>` in library-facing APIs.
+- Domain boundaries: `EnvironmentError` for environment ops, `TensorConversionError` for tensor ops, `ReplayBufferError` for buffer ops.
+- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, invalid builder config). Document every panic site in a `# Panics` doc section.
+- Never panic in response to user-supplied runtime data; return `Err(...)` instead.
+
+### Documented Panic Contracts
+
+| Site | Condition |
+|------|-----------|
+| `DiscreteAction::from_index(i)` | `i >= ACTION_COUNT` |
+| `ContinuousAction::from_slice(v)` | `v.len() != D` |
+| `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
+| Builder `with_capacity(n)` | `n == 0` |
+| Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
+| Batch rank assertion | `BD != D + 1` or `BAD != AD + 1` |
+
+---
+
+## 5. Tests, Benches, and Examples — Placement
+
+This section is the **single decision authority** for where any test, bench, or example
+goes. §11 holds the detailed dependency boundary for examples; everything else is here.
+When adding any of the three, classify by **purpose first, scope second**.
+
+### Step 1 — Classify by purpose (these three are never interchangeable)
+
+| If the artifact… | it is a… | purpose |
+|---|---|---|
+| asserts a correctness property and **fails the build** when violated | **test** | verification |
+| measures runtime / throughput / allocations under `criterion` | **bench** | performance measurement |
+| is a runnable program demonstrating real usage, **never asserted against** | **example** | demonstration |
+
+If one file does two of these (e.g. an example that also asserts), **split it** — an
+example is not a test, and a bench is not an example with timing prints.
+
+> **Terminology trap — "benchmark" means two different things in this workspace:**
+> - **`rlevo-benchmarks`** (the *crate*) is the paradigm-neutral **evaluation harness** —
+>   it runs agents against environments and reports fitness / performance / metrics. It is
+>   **not** a home for `cargo bench` targets.
+> - **benches** (`benches/` dirs, `[[bench]]` targets, `criterion`) are **performance**
+>   micro/throughput benchmarks and may live in any crate.
+>
+> Never add a `[[bench]]` target to `rlevo-benchmarks` "to match the name", and never put evaluation-harness logic in a `benches/` dir.
+
+### Step 2 — Classify by scope, then place
+
+| Artifact         | Scope (what it touches)                                     | Lives in                                       | Run with                                       |
+| ---------------- | ----------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| Unit test        | invariants inside **one source file**                       | in-source `#[cfg(test)]`, owning crate         | `cargo test -p <crate>`                        |
+| Integration test | **one crate's** public surface                              | `<crate>/tests/`                               | `cargo test -p <crate>`                        |
+| Integration test | **≥2 crates** together                                      | `crates/rlevo/tests/` (flat)                   | `cargo test -p rlevo`                          |
+| Bench            | **one crate's** hot path                                    | `<crate>/benches/` + `[[bench]]` in that crate | `cargo bench -p <crate>`                       |
+| Bench            | **cross-crate** throughput (e.g. `cartpole_record.rs`)      | `crates/rlevo/benches/`                        | `cargo bench -p rlevo`                         |
+| Example          | imports **only the 5 library crates**                       | `crates/rlevo/examples/`                       | `cargo run -p rlevo --example <name>`          |
+| Example          | imports `rlevo-benchmarks` or any **tui/record/report** dep | `crates/rlevo-examples/examples/`              | `cargo run -p rlevo-examples --example <name>` |
+
+The single rule that unifies the table: **single-crate scope stays in that crate;
+multi-crate scope moves up to the umbrella `crates/rlevo/`** — except heavy examples,
+which move *sideways* to `crates/rlevo-examples/` (see §11 for the exact dep test).
+
+### Step 3 — Decision procedure (apply in order)
+
+1. **Purpose** — assert correctness → *test*; measure performance → *bench*; demonstrate
+   usage → *example*. Pick exactly one.
+2. **Scope** — does it exercise one crate or several? One → owning crate. Several → umbrella.
+3. **Heaviness (examples only)** — does it import `rlevo-benchmarks` or any
+   viz/record/report feature dep? Yes → `crates/rlevo-examples/`; No → `crates/rlevo/examples/`.
+   This test is dependency-based, not scope-based — see §11.
+
+### Three-tier test placement rule (canonical — ADR 0012)
+
+| Test kind | Lives in | Discovered by |
+|---|---|---|
+| Unit tests (`#[cfg(test)]` modules inside source files) | The owning source file, in the owning crate | `cargo test -p <crate>` |
+| Single-crate integration tests (exercises one crate's public surface) | `<crate>/tests/` in the owning crate | `cargo test -p <crate>` |
+| Cross-crate integration tests (exercises two or more crates together) | `crates/rlevo/tests/` (flat, no subdirectories) | `cargo test -p rlevo` |
+
+Supplementary rules:
+- **Unit tests stay in-source.** Do not move a `#[cfg(test)]` block to `tests/` just because a file grows large; in-source placement keeps the test adjacent to the invariant it checks.
+- **Single-crate integration tests belong to their crate.** `cargo test -p rlevo-environments` must run them without pulling the full umbrella cone.
+- **Cross-crate tests are flat in `crates/rlevo/tests/`.** Do not add subdirectory structure unless paired with explicit `[[test]]` Cargo.toml entries — prefer flat; test names are unique workspace-wide.
+
+### Bench placement rule
+
+- **Scope of `benches` (cargo bench).** A `[[bench]]` target exists to **micro-benchmark core logic** and must **strictly measure execution time or resource allocation** (CPU time, throughput, allocations/peak memory) under `criterion`. It is not a correctness test, not a demo, and not an evaluation run of an agent against an environment (that is `rlevo-benchmarks`). If a "bench" asserts a result or prints a story instead of producing timing/allocation numbers, it is misfiled — move it to a test or an example.
+- **`[[bench]]` entries stay in their owning crate** when measuring a single-crate hot path; declare `criterion` as a `dev-dependency` there.
+- **Cross-crate throughput benches** (those that drive an env + agent + record sink together, e.g. `cartpole_record.rs`) live in `crates/rlevo/benches/`.
+- A bench that needs `rlevo-benchmarks` evaluation-harness machinery is **not** a `[[bench]]` target — it is either a `rlevo-examples` program or a harness-internal helper. Do not smuggle it into a `benches/` dir.
+- `harness = true` (libtest) benches are forbidden; all benches use the `criterion` harness (`harness = false`).
+
+### Unit tests live inside `/src`
+
+- **Unit tests live in the source file they verify**, inside an in-source `#[cfg(test)] mod tests { ... }` block at the bottom of the `.rs` file under `<crate>/src/`. They are never relocated to a `tests/` directory — that directory is reserved for integration tests against the crate's *public* surface.
+- Because they compile inside the module, unit tests may exercise **private** items (non-`pub` functions, fields, and helpers); integration tests in `tests/` cannot. Use the in-source location precisely when you need to assert an internal invariant that is not part of the public API.
+- Gate the module with `#[cfg(test)]` so it is excluded from release builds and adds zero cost to the shipped crate.
+- One `mod tests` per source file; keep each test adjacent to the code it checks rather than collecting tests for several files into one module.
+
+### Unit-test conventions
+
+- Test names follow `test_[type_or_trait]_[behavior]_[condition]` (e.g., `test_discrete_action_roundtrip`, `test_environment_reset_clears_state`).
+- Every test module must include mock/test types prefixed with `Test`, `Mock`, or `Simple`.
+- Test types must derive `Debug` and `Clone`; implement only the minimum traits required.
+- Coverage requirements per trait:
+  - All required methods
+  - All provided default methods that have non-trivial logic
+  - Round-trip conversions (to/from index, to/from tensor, to/from slice)
+  - Boundary values, empty/full collections, zero, infinity, NaN where applicable
+  - All documented panic conditions via `#[should_panic(expected = "...")]`
+- Floating-point comparisons use `(a - b).abs() < 1e-6` or the `approx` crate; never `==`.
+- Always include an assertion message explaining what the assertion verifies.
+- `MockEnvironment` inside `rlevo-core` tests is the canonical reference for correct `Environment` trait usage.
+
+---
+
+## 6. Documentation
+
+- Every public item must have a doc comment. Zero-exception policy.
+- Modules use `//!` inner doc comments at the top of `lib.rs` or `mod.rs`.
+- Traits, structs, enums: `///` outer doc comment, minimum structure:
+  1. One-line summary (fits in IDE tooltip)
+  2. Blank line + extended explanation (design rationale, constraints)
+  3. `# Examples` section with runnable or `ignore`-annotated code
+  4. `# Panics` section if any method panics
+  5. `# Errors` section if any method returns `Result`
+- Methods: one-line summary + `# Arguments`, `# Returns`, `# Errors`, `# Panics` as applicable.
+- Enum variants and public struct fields require at least a one-line `///` comment.
+- Use backticks for inline code: `` `Type` ``, `` `method()` ``.
+- Use `[`Type`]` syntax for intra-doc links to types in scope; use fully-qualified paths for cross-crate links.
+- Document all trait invariants in the trait's doc comment under an `# Invariants` heading.
+
+---
+
+## 7. Const Generics and Type-Level Constraints
+
+- The const generic `D` always represents the **tensor rank** of an observation or state, not the element count.
+- Batch ranks `BD` and `BAD` must be validated at the call site with `assert_eq!` when the caller supplies them, not silently inferred.
+- Never use `D` for the number of elements; use `numel()` or `shape().iter().product()` for that.
+- Associated type bounds cascade: if `Environment<D, SD, AD>` is parameterised, all five associated types must be consistent with those parameters.
+- `PhantomData<(O, A, R)>` is the approved pattern to carry erased generic parameters in builder/wrapper types.
+
+---
+
+## 8. Dependency Usage
+
+| Dependency | Approved Usage | Forbidden |
+|------------|---------------|-----------|
+| `burn` | `TensorConvertible`, neural network models, backends (`wgpu`, `ndarray`) | Importing Burn in `rlevo-core` beyond trait bounds |
+| `rand` | `rand::rng()` for thread-local RNG; `rng.random_range(0..n)` | `rand::thread_rng()` (deprecated) |
+| `rand_distr` | Advanced sampling distributions | Inline manual rejection sampling when a distribution exists |
+| `serde` | Derive `Serialize + Deserialize` on all domain types | Manual `impl Serialize` unless unavoidable |
+| `tracing` | Structured logging in training loops and benchmarks | `println!` / `eprintln!` in library code |
+| `approx` | Float comparisons in tests only | Float `==` comparisons anywhere |
+| `rapier2d` / `rapier3d` | Physics-based environment simulation | Direct FFI to Box2D or MuJoCo C libraries |
+| `criterion` | Micro-benchmarks as `dev-dependencies` in any crate; integration benchmark suites in `rlevo-benchmarks` | Production dependencies; `harness = true` benches |
+| `parking_lot` | Shared observer/sink state in `rlevo-evolution` and `rlevo-benchmarks`; `SharedPopulationObserver = Arc<parking_lot::Mutex<dyn PopulationObserver>>` | `std::sync::Mutex` for observer or record-sink types (lock-type split is a known footgun — ADR 0010) |
+| `ratatui` + `crossterm` | Live **metrics-only** TUI dashboard (no env panel, per ADR 0013) in `rlevo-benchmarks` behind the `tui` feature | Any crate other than `rlevo-benchmarks`; ungated imports; rendering env state in the live TUI |
+| `leptos` | Static-HTML report tier in `rlevo-benchmarks` behind the `report` feature (compiled to WASM, no runtime server) | Embedded live server; any production crate without the feature gate |
+
+- All crate features must be enabled at the workspace level; individual crates must not re-declare features unless they are crate-local.
+- Do not add new workspace dependencies without updating `CLAUDE.md` and writing a decision record in `decisions/`.
+
+---
+
+## 9. Linting
+
+- Workspace clippy lint groups (`cargo`, `complexity`, `correctness`, `pedantic`, `perf`, `style`, `suspicious`) are all set to `warn` at priority `-1`. This is the baseline and must not be lowered.
+- Workspace Rust lints (`ambiguous_negative_literals`, `missing_debug_implementations`, `redundant_imports`, `redundant_lifetimes`, `trivial_numeric_casts`, `unsafe_op_in_unsafe_fn`, `unused_lifetimes`) are set to `warn`.
+- Item-level `#[allow(...)]` attributes are permitted only when:
+  1. The lint is a false positive in that specific context, **and**
+  2. A comment directly above the attribute explains why.
+- Global `#![allow(...)]` in any crate is forbidden.
+- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue.
+- `unsafe` blocks require a `// SAFETY:` comment explaining the invariant maintained.
+
+---
+
+## 10. Architecture Invariants
+
+- `rlevo-core` must have zero knowledge of any RL algorithm or environment implementation — it defines the contract only.
+- **Construction is separated from the `Environment` behaviour contract.** `Environment` has **no** `new(render: bool)` method (removed by ADR 0011, accepted PR2 2026-06-03). Constructing an environment goes through the standalone `ConstructableEnv` factory trait, which is **not** a supertrait of `Environment`. Environments must not require a global runtime or external process at construction time. Do not add `new(render: bool)` to environments or to decorator/wrapper types such as `RecordingTap` or `TuiEnvTap`. (ADR 0011)
+- `EpisodeStatus` is the single source of truth for episode termination; never check done-ness by any other means.
+- `SnapshotBase` is the default `Snapshot` implementation; only implement `Snapshot` directly when `SnapshotBase` cannot express the required semantics.
+- Replay buffers must maintain `priorities.len() == buffer.len()` as a hard invariant and enforce capacity via explicit `pop_front()` eviction — never rely on `VecDeque`'s internal capacity.
+- All environment `step()` implementations must be deterministic given the same initial state and action sequence. Recording/visualisation taps (`RecordingTap`, `TuiEnvTap`) must never alter env dynamics — observing an environment must not change its trajectory. (ADR 0011/0013)
+- Tensor conversion round-trips (`to_tensor` → `from_tensor`) must be lossless for all valid instances. If lossless round-trip is impossible for a type, that type must not implement `TensorConvertible`.
+- **Visualisation is two products, not a library invariant.** (1) a live **metrics-only** `ratatui` TUI (no env panel), and (2) post-run replay driven by an `EpisodeRecord`, rendered by the static-HTML report from structured per-family env state. The `EpisodeRecord` seam is the canonical path for env playback. (ADR 0013, supersedes 0008)
+- **`AsciiRenderable` is demoted to an optional debug helper.** It is no longer a library-level rendering contract: env families are **not** required to implement it, and there is no `Visualize` supertrait of `Environment`. Implement it only as an ad-hoc debugging aid. (ADR 0013, supersedes 0008)
+- **The render type vocabulary lives in `rlevo-core::render`.** `StyledFrame`, `StyledLine`, `StyledSpan`, `SpanStyle`, `Color`, `Modifier`, `palette`, `AsciiRenderable`, and `AsciiRenderer` are all defined there. `rlevo-environments::render` is a re-export shim only — do not define new render types in `rlevo-environments`. (ADR 0009)
+- **No production crate depends on viz deps.** `rlevo-core`, `rlevo-environments`, `rlevo-reinforcement-learning`, `rlevo-evolution`, and `rlevo-hybrid` must not depend (production *or* dev) on `ratatui`, `crossterm`, `leptos`, `axum`, `wasm-bindgen`, or any chart crate. `rlevo-benchmarks` is the sole exception, and only behind its `tui` / `report` / `record` feature gates. (ADR 0008)
+- **`parking_lot::Mutex` is the workspace-standard lock for viz/observer shared state.** `SharedPopulationObserver` is `Arc<parking_lot::Mutex<dyn PopulationObserver>>`. Do not mix `std::sync::Mutex` into observer or record-sink types — a split lock type across sibling subsystems is a footgun (see ADR 0010). (ADR 0010)
+
+---
+
+## 11. Example Scope Boundary (ADR 0012)
+
+An example belongs in `crates/rlevo/examples/` **if and only if** it imports exclusively from the five library sub-crates:
+
+| Crate                                 | Allowed in `rlevo/examples/`? |
+| ------------------------------------- | ----------------------------- |
+| `rlevo-core`                          | Yes                           |
+| `rlevo-environments`                  | Yes                           |
+| `rlevo-evolution`                     | Yes                           |
+| `rlevo-reinforcement-learning`        | Yes                           |
+| `rlevo-hybrid`                        | Yes                           |
+| `rlevo-benchmarks`                    | **No → `rlevo-examples`**     |
+| Any tui / record / report feature dep | **No → `rlevo-examples`**     |
+
+If an example imports from `rlevo-benchmarks` for any reason — harness invocation, suite construction, recording, or reporting — it belongs in `crates/rlevo-examples/examples/`, not in the umbrella.
+
+`crates/rlevo-examples` is not in `default-members`. Developers opt in with `cargo run -p rlevo-examples --example <name>`.
+
+---
+
+## 12. Vault and Session Protocol
+
+- Read `rules.md` (this file) before making any implementation decision.
+- Read `roadmap.md` when planning new work to ensure alignment with current milestones.
+- Read relevant files in `memory/` before starting work in their domain.
+- Consult `decisions/` for architectural history; never reverse a decision without writing a superseding ADR.
+- Write a session log to `sessions/` at the end of every session covering: decisions made, files changed, open questions, and next steps.
+- All vault writes must include the required frontmatter schema:
+  ```yaml
+  ---
+  project: rlevo
+  status: active | draft | superseded
+  type: research | reference | specification | decision | memory
+  date: YYYY-MM-DD
+  tags: []
+  ---
+  ```

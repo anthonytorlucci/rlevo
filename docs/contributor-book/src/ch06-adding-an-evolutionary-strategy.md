@@ -6,7 +6,7 @@
 are the two rules most likely to be broken by a new contributor. This chapter
 makes them concrete.
 
-**Key source of truth.** `rules.md §8`, ADR-0002, project memory
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §8, ADR-0002, project memory
 `evolution_host_rng_convention`.
 
 ## The `Strategy` trait

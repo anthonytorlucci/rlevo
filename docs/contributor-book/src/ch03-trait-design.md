@@ -7,7 +7,7 @@
 rules for designing and evolving traits are stricter here than in a typical
 project because breaking a trait breaks every downstream implementation.
 
-**Key source of truth.** `rules.md §3–4, §7`.
+**Key source of truth.** [`docs/rules.md`](https://github.com/anthonytorlucci/rlevo/blob/main/docs/rules.md) §3–4, §7.
 
 ## Invariants that cannot be broken
 
@@ -23,7 +23,10 @@ project because breaking a trait breaks every downstream implementation.
 - `StateError` for state validation.
 - Use `Result<T, ErrorType>` for fallible operations; never `panic!` in library
   code for recoverable errors.
-- Implement `std::error::Error` and `Display` for all custom error types.
+- Derive `std::error::Error` and `Display` for all custom error types with
+  `#[derive(thiserror::Error)]` and per-variant `#[error("…")]` messages; use
+  `#[from]` to wrap a source error and get `source()` chaining for free. See
+  `EnvironmentError` (`rlevo-core`) for the canonical pattern.
 
 ## Adding a method to an existing trait
 
@@ -32,7 +35,7 @@ implementation or add a new trait. Open an ADR before breaking any public trait.
 
 ## Outline
 
-<!-- TODO: \{{#include ../../../../rules.md:anchor-trait-design}} -->
+<!-- TODO: \{{#include ../../rules.md:anchor-trait-design}} -->
 
 1. The const-generic constraint system — how `R`, `SR`, `AR` flow through
    `State`, `Observation`, `Action`, `Snapshot`.
