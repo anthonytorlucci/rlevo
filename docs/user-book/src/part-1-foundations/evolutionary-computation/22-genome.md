@@ -198,12 +198,15 @@ implementation:
 
 - **`BatchNorm` running statistics are evolvable.** Burn's traversal touches
   *every* float leaf, including non-trainable running mean/variance (they are
-  `RunningState` modules that forward to `visit_float`/`map_float`). A
-  `BatchNorm` over `d` features therefore exposes `4·d` leaves — `gamma`, `beta`,
-  `running_mean`, `running_var` — all of which evolution will perturb. Fixed MLP
-  policies have no such buffers, so this is moot for the v1 target; callers
-  evolving batch-normalised networks should reset running stats after
-  `unflatten`.
+  `RunningState` modules whose `Module` impl forwards to `visit_float`/`map_float`,
+  so they are visited exactly like a `Param`). A `BatchNorm` over `d` features
+  therefore exposes **four** float-leaf tensors — `gamma`, `beta`, `running_mean`,
+  `running_var`, each of length `d`, i.e. `4·d` scalar parameters — all of which
+  evolution will flatten and perturb. The crate verifies this empirically:
+  `param_reshaper.rs`'s `batchnorm_running_stats_are_traversed` test asserts
+  `num_params() == 4·d` (not `2·d`). Fixed MLP policies have no such buffers, so
+  this is moot for the v1 target; callers evolving batch-normalised networks should
+  reset running stats after `unflatten`.
 - **Gradient isolation.** The reshaper is generic over `B: Backend`, *not*
   `AutodiffBackend`. Tensors produced by `unflatten` do not require gradients,
   and callers holding an autodiff module call `.valid()` first — so the absence
