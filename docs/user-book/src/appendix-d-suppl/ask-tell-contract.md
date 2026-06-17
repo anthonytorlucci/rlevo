@@ -63,6 +63,40 @@ it only proposes and learns. That separation is what makes the rest possible:
   any strategy. The harness, your custom loop, and the ERL hybrid all speak the
   same language.
 
+## Lineage: evosax, and where `rlevo` diverges
+
+This shape is not invented here. The direct inspiration is
+[**evosax**](https://github.com/RobertTLange/evosax), the JAX library of
+evolution strategies, which popularised a *functional* ask/tell interface:
+`state = strategy.initialize(...)`, then `x, state = strategy.ask(rng, state,
+params)` and `state = strategy.tell(x, fitness, state, params)`. The strategy is
+a set of pure functions; all mutable run state and configuration live *outside*
+it and thread through the calls. `rlevo`'s `&self` methods and the
+`init → (ask, tell)*` state-threading are a deliberate port of that design to
+Rust — the pure-strategy property above is exactly what makes an evosax strategy
+`jax.jit`- and `vmap`-friendly, and what makes an `rlevo` strategy lock-free to
+clone and run in parallel.
+
+Three differences are worth calling out, because they are where the Rust/Burn
+setting changes the contract rather than just the syntax:
+
+- **One contract spans the whole EA taxonomy, not just ES.** evosax is
+  organised around evolution strategies over real vectors. `rlevo`'s `Strategy`
+  is generic over the genome *kind* (`Real`, `Binary`, `Integer`, …; see
+  [Genome Representation](../part-1-foundations/evolutionary-computation/22-genome.md)),
+  so the *same* ask/tell trait backs the GA, ES, EP, DE, EDA, and CGP families.
+  The associated `type Genome` is what varies, not the protocol.
+- **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
+  Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
+  array — selection arithmetic stays on-device. And where evosax leaves the
+  optimisation direction to the caller, `rlevo` pins a **minimisation contract**
+  end-to-end (lower is better); see the
+  [enforcement table](../part-1-foundations/evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility).
+- **Randomness is a host stream, not a threaded key.** evosax splits and threads
+  explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
+  from a single host `seed_stream` (below) — different plumbing for the same
+  goal of seed-level reproducibility.
+
 ## Sequence diagram
 
 ```text
