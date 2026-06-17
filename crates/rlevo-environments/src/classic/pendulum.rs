@@ -96,24 +96,12 @@ use std::fmt;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
-    action::{BoundedAction, ContinuousAction},
+    action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
-
-// ---------------------------------------------------------------------------
-// Error type
-// ---------------------------------------------------------------------------
-
-/// Returned when constructing a [`PendulumAction`] with an invalid torque.
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("InvalidAction: {message}")]
-pub struct InvalidActionError {
-    /// Human-readable description of the constraint that was violated.
-    pub message: String,
-}
 
 // ---------------------------------------------------------------------------
 // Config

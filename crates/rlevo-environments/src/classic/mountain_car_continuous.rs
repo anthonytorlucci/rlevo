@@ -96,32 +96,12 @@ use std::fmt;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
-    action::{BoundedAction, ContinuousAction},
+    action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
-
-// ---------------------------------------------------------------------------
-// Error type for invalid actions
-// ---------------------------------------------------------------------------
-
-/// Returned when constructing an action with an out-of-bounds value.
-///
-/// # Examples
-///
-/// ```
-/// use rlevo_environments::classic::mountain_car_continuous::MountainCarContinuousAction;
-///
-/// let err = MountainCarContinuousAction::new(2.0).unwrap_err();
-/// assert!(err.to_string().contains("not in"));
-/// ```
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("InvalidAction: {message}")]
-pub struct InvalidActionError {
-    pub message: String,
-}
 
 // ---------------------------------------------------------------------------
 // Named reward-component keys (spec A4)
