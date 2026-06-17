@@ -6420,6 +6420,7 @@ dependencies = [
  "rlevo-benchmarks",
  "rlevo-core",
  "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -6436,7 +6437,6 @@ dependencies = [
  "rayon",
  "rlevo-core",
  "serde",
- "thiserror 2.0.18",
  "tracing",
 ]
 

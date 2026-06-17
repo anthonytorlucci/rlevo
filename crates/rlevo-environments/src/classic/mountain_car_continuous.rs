@@ -117,18 +117,11 @@ use serde::{Deserialize, Serialize};
 /// let err = MountainCarContinuousAction::new(2.0).unwrap_err();
 /// assert!(err.to_string().contains("not in"));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("InvalidAction: {message}")]
 pub struct InvalidActionError {
     pub message: String,
 }
-
-impl fmt::Display for InvalidActionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InvalidAction: {}", self.message)
-    }
-}
-
-impl std::error::Error for InvalidActionError {}
 
 // ---------------------------------------------------------------------------
 // Named reward-component keys (spec A4)

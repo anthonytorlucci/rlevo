@@ -23,7 +23,10 @@ project because breaking a trait breaks every downstream implementation.
 - `StateError` for state validation.
 - Use `Result<T, ErrorType>` for fallible operations; never `panic!` in library
   code for recoverable errors.
-- Implement `std::error::Error` and `Display` for all custom error types.
+- Derive `std::error::Error` and `Display` for all custom error types with
+  `#[derive(thiserror::Error)]` and per-variant `#[error("…")]` messages; use
+  `#[from]` to wrap a source error and get `source()` chaining for free. See
+  `EnvironmentError` (`rlevo-core`) for the canonical pattern.
 
 ## Adding a method to an existing trait
 

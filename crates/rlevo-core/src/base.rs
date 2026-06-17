@@ -7,7 +7,6 @@
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::fmt::Debug;
 
 /// Generic update function: how something evolves over time.
@@ -160,19 +159,12 @@ pub trait TransitionDynamics<const SR: usize, const AR: usize, S: State<SR>, A: 
 }
 
 /// Error returned when a tensor cannot be converted to or from a domain type.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("Invalid tensor conversion: {message}")]
 pub struct TensorConversionError {
     /// Human-readable description of why the conversion failed.
     pub message: String,
 }
-
-impl std::fmt::Display for TensorConversionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Invalid tensor conversion: {}", self.message)
-    }
-}
-
-impl Error for TensorConversionError {}
 
 /// Bidirectional conversion between a domain type and a Burn tensor.
 ///

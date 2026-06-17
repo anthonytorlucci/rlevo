@@ -82,7 +82,6 @@
 //! - Various clone/debug/trait tests across different action types
 
 use crate::base::Action;
-use std::error::Error;
 use std::fmt::Debug;
 
 /// Trait for discrete actions with a finite, enumerable set of choices.
@@ -384,19 +383,12 @@ pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
 /// let err = InvalidActionError { message: "index 5 out of bounds for ACTION_COUNT=4".into() };
 /// assert!(err.to_string().contains("index 5"));
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("Invalid action: {message}")]
 pub struct InvalidActionError {
     /// Human-readable description of the constraint that was violated.
     pub message: String,
 }
-
-impl std::fmt::Display for InvalidActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Invalid action: {}", self.message)
-    }
-}
-
-impl Error for InvalidActionError {}
 
 // ============================================================================
 // Tests
@@ -405,6 +397,7 @@ impl Error for InvalidActionError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     // ========================================================================
     // Test Implementations

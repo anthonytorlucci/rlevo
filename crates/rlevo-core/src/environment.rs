@@ -82,45 +82,17 @@ impl SnapshotMetadata {
 /// `EnvironmentError` captures failures that can occur during environment
 /// initialization, reset, or stepping. It provides detailed error messages
 /// and supports error chaining via the standard [`std::error::Error`] trait.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EnvironmentError {
     /// An invalid or out-of-bounds action was provided.
+    #[error("Invalid action: {0}")]
     InvalidAction(String),
     /// Rendering or display failed.
+    #[error("Render failed: {0}")]
     RenderFailed(String),
     /// An I/O operation failed (wraps std::io::Error).
-    IoError(std::io::Error),
-}
-
-impl std::error::Error for EnvironmentError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            EnvironmentError::IoError(io_err) => Some(io_err),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for EnvironmentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EnvironmentError::InvalidAction(action_error) => {
-                write!(f, "Invalid action: {}", action_error)
-            }
-            EnvironmentError::RenderFailed(render_error) => {
-                write!(f, "Render failed: {}", render_error)
-            }
-            EnvironmentError::IoError(io_err) => {
-                write!(f, "IO operation failed: {}", io_err)
-            }
-        }
-    }
-}
-
-impl From<std::io::Error> for EnvironmentError {
-    fn from(error: std::io::Error) -> Self {
-        EnvironmentError::IoError(error)
-    }
+    #[error("IO operation failed: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 /// Snapshot trait defines the interface for environment state observations.

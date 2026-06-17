@@ -108,19 +108,12 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Returned when constructing a [`PendulumAction`] with an invalid torque.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("InvalidAction: {message}")]
 pub struct InvalidActionError {
     /// Human-readable description of the constraint that was violated.
     pub message: String,
 }
-
-impl fmt::Display for InvalidActionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InvalidAction: {}", self.message)
-    }
-}
-
-impl std::error::Error for InvalidActionError {}
 
 // ---------------------------------------------------------------------------
 // Config
