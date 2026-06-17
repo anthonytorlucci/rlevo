@@ -2,7 +2,7 @@
 
 Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryHarness` that
 drives it in
-[Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md) —
+[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md) —
 speaks a single protocol: **ask/tell**. The guided tour uses the harness, which
 hides the protocol; this page opens it up. Reach for it when you need to:
 
@@ -84,7 +84,7 @@ it only proposes and learns. That separation is what makes the rest possible:
 ## Writing the loop yourself
 
 Here is the GA sphere run from
-[Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md),
+[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md),
 rewritten without the harness. We reuse that chapter's `Sphere` `Landscape`;
 `FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
 function that takes the whole population at once and returns a `Tensor<B, 1>` of
@@ -177,6 +177,16 @@ The host-RNG convention (all randomness through `seed_stream`, never via
 `Backend::seed` or `Tensor::random`) is enforced by convention throughout
 `rlevo::evo`. The contributor book documents why.
 
+> **Determinism under parallel suites.** The *strategy's* own randomness is
+> reproducible by construction — every draw comes from the host `seed_stream`. But
+> Burn *backends* seed their tensor RNG through process-global state, so running
+> several harnesses across threads (e.g. a benchmark suite on the default rayon
+> pool) can still race on that shared state for any backend RNG use, breaking
+> bit-reproducibility across runs. For exact reproduction, pin execution to a single
+> thread (`EvaluatorConfig::num_threads = Some(1)`) or run one harness per process;
+> the `tests/determinism.rs` and `tests/rastrigin_run_suite.rs` integration tests do
+> exactly this.
+
 ## What the harness adds
 
 The `EvolutionaryHarness` wraps the above loop with:
@@ -195,10 +205,10 @@ harness call).
 
 ## Where this connects
 
-- [Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md)
+- [Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md)
   drives this contract through the harness — start there for the worked example.
 - The RL loop in
-  [Classic Control: CartPole with DQN](../part-2-guided-tour/03-classic-control.md)
+  [Classic Control: CartPole with DQN](../part-2-guided-tour/20-classic-control.md)
   is *not* ask/tell — the agent acts sequentially, learning after individual
   steps. The vocabulary returns when evolution and RL combine: the EA `ask`s for
   a population of policies, evaluates each by running a full episode, and `tell`s

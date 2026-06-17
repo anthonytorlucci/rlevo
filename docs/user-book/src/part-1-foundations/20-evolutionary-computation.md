@@ -13,45 +13,50 @@ The key insight is that a *population* of candidates shares information across
 the search space simultaneously, while variation operators inject diversity that
 prevents premature convergence. Selection then amplifies what works.
 
-**In `rlevo`.** Every algorithm in `rlevo::evo` implements the
-`Strategy<B>` trait, which maps the five-step skeleton above to three
-methods:
+**In `rlevo`.** Every algorithm in `rlevo::evo` implements the `Strategy<B>`
+trait, which maps the five-step skeleton onto four methods over three associated
+types (`Params`, the static run config; `State`, carried generation to
+generation; `Genome`, the population container):
 
- ```rust
-pub trait Strategy<B: Backend>: Send + Sync {
-    type Params: Clone + Debug + Send + Sync;  // static run config
-    type State:  Clone + Debug + Send;          // generation-to-generation state
-    type Genome: Clone + Send;                  // genome container produced by ask
+- `init` — sample the first population and build the initial state;
+- `ask` — propose the next population to evaluate (steps 3–4);
+- `tell` — consume that population with its fitness and produce the next state
+  (steps 2–3);
+- `best` — report the best solution found so far.
 
-    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
-    fn ask (&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device) -> (Self::Genome, Self::State);
-    fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>, state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
-    fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
-}
-```
+The RNG is passed explicitly so the harness owns all stochasticity — strategies
+carry no internal PRNG state. The
+[Strategies](evolutionary-computation/24-strategy.md) chapter walks the full
+trait signature and traces a GA from `init` to convergence.
 
-`ask` proposes the next population (steps 3–4); `tell` consumes it together
-with its fitness tensor and produces the next state (steps 2–3). The RNG is
-passed explicitly so the harness owns all stochasticity — strategies carry no
-internal PRNG state.
-
-Genomes are stored on-device in a `Population<B, K>` wrapper, where the
-const type parameter `K` is a zero-sized *genome kind* marker:
+Each genome is a *row* of an on-device rank-2 population tensor, and its *kind* —
+real, binary, or integer — is fixed at the type level by a zero-sized marker
+implementing the `GenomeKind` trait:
 
 ```rust
-pub struct Real;    // genes are f32 — used by GA, ES, DE, CMA-ES
+pub struct Real;    // genes are f32 — used by GA, ES, EP, DE
 pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
-pub struct Integer; // genes are bounded non-negative integers
+pub struct Integer; // genes are bounded non-negative integers — CGP, discrete search
 ```
 
-The separation between the genome kind and the tensor type means operators
-can specialize at compile time (e.g. Gaussian mutation only compiles for
-`Real`; bit-flip mutation only compiles for `Binary`) without runtime dispatch.
+The marker is a compile-time label, not stored data: it lets operators specialize
+without runtime dispatch (Gaussian mutation only compiles for `Real`; bit-flip
+only for `Binary`). Strategies carry the bare population tensor as their `Genome`
+associated type; the `Population<B, K>` wrapper pairs that tensor with its shape
+metadata and kind tag for use at API boundaries. The [Genome
+Representation](evolutionary-computation/22-genome.md) chapter is the full tour of
+the representation layer — the kind markers, the `Population` invariant, and the
+`ParamReshaper` bridge that turns a network's weights into an evolvable genome.
 
 Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
 the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
 themselves never call the objective function — the harness does — so the same
-strategy implementation works against any landscape.
+strategy implementation works against any landscape. One convention runs through
+all of it: the engine treats fitness as a **cost to minimise** (lower is better).
+This is an internal contract of the evolution engine rather than a property of EAs
+in general — the [Fitness Evaluation](evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility)
+chapter shows where it is enforced and where pointing the objective the right way
+is your responsibility.
 
 <!-- additional context [Simon, 2013, p 2-3]
 Some authors use the term *evolutionary computation* to refer to EAs. This 
