@@ -45,7 +45,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 > "legacy comparators" per Camacho-Villalón et al. (2023) and Sörensen (2015).
 > Start with PSO for most continuous problems.
 
-- Particle Swarm Optimization (PSO)
+- [Particle Swarm Optimization (PSO)](particle-swarm-optimization.md) — inertia and constriction variants; cognitive/social velocity update
 - [Ant Colony Optimization — continuous (`ACO_R`)](ant-colony-continuous.md) — solution archive as pheromone; rank-weighted Gaussian kernels
 - Ant Colony Optimization — permutation (`aco_perm`) *(stub — deferred to a future release)*
 - [Artificial Bee Colony (ABC)](artificial-bee-colony.md) — employed/onlooker/scout phases; single-coordinate difference perturbation
