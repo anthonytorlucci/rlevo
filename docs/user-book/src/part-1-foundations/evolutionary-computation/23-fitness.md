@@ -177,6 +177,14 @@ Both panic if the population tensor is not rank 2, or if its data cannot be read
 as `f32` (e.g. an integer backend) — programming errors, documented as `# Panics`
 clauses in the spirit of `docs/rules.md`.
 
+> **The full adapter catalogue.** Beyond these two host adapters, `rlevo` ships
+> `ModuleEvalFn` (score a neural-network module per genome) and `RolloutFitness`
+> (run a policy in an environment), and you can implement `BatchFitnessFn`
+> directly for an on-device objective. [Wiring an Objective: Adapters and
+> Evaluators](../../appendix-d-suppl/objective-adapters.md) maps all of them with a
+> decision guide and a bring-your-own-objective walkthrough — start there if the
+> generics feel dense.
+
 > **Both `rlevo-core` traits state the cost convention.** `Landscape::evaluate`
 > and `FitnessEvaluable::evaluate` each document that they return a cost where
 > *lower is better*, matching the engine: the adapters pass the value through

@@ -40,6 +40,7 @@
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
   - [The Ask/Tell Contract](appendix-d-suppl/ask-tell-contract.md)
+  - [Wiring an Objective: Adapters and Evaluators](appendix-d-suppl/objective-adapters.md)
   - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
   - [Tensor Rank vs. Matrix Rank vs. Dimensionality](appendix-d-suppl/tensor-rank-vs-matrix-rank.md)
 - [Notation](notation.md)
