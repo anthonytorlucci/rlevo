@@ -13,45 +13,45 @@ The key insight is that a *population* of candidates shares information across
 the search space simultaneously, while variation operators inject diversity that
 prevents premature convergence. Selection then amplifies what works.
 
-> **In `rlevo`.** Every algorithm in `rlevo::evo` implements the
-> `Strategy<B>` trait, which maps the five-step skeleton above to three
-> methods:
->
-> ```rust
-> pub trait Strategy<B: Backend>: Send + Sync {
->     type Params: Clone + Debug + Send + Sync;  // static run config
->     type State:  Clone + Debug + Send;          // generation-to-generation state
->     type Genome: Clone + Send;                  // genome container produced by ask
->
->     fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
->     fn ask (&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device) -> (Self::Genome, Self::State);
->     fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>, state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
->     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
-> }
-> ```
->
-> `ask` proposes the next population (steps 3–4); `tell` consumes it together
-> with its fitness tensor and produces the next state (steps 2–3). The RNG is
-> passed explicitly so the harness owns all stochasticity — strategies carry no
-> internal PRNG state.
->
-> Genomes are stored on-device in a `Population<B, K>` wrapper, where the
-> const type parameter `K` is a zero-sized *genome kind* marker:
->
-> ```rust
-> pub struct Real;    // genes are f32 — used by GA, ES, DE, CMA-ES
-> pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
-> pub struct Integer; // genes are bounded non-negative integers
-> ```
->
-> The separation between the genome kind and the tensor type means operators
-> can specialize at compile time (e.g. Gaussian mutation only compiles for
-> `Real`; bit-flip mutation only compiles for `Binary`) without runtime dispatch.
->
-> Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
-> the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
-> themselves never call the objective function — the harness does — so the same
-> strategy implementation works against any landscape.
+**In `rlevo`.** Every algorithm in `rlevo::evo` implements the
+`Strategy<B>` trait, which maps the five-step skeleton above to three
+methods:
+
+ ```rust
+pub trait Strategy<B: Backend>: Send + Sync {
+    type Params: Clone + Debug + Send + Sync;  // static run config
+    type State:  Clone + Debug + Send;          // generation-to-generation state
+    type Genome: Clone + Send;                  // genome container produced by ask
+
+    fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
+    fn ask (&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device) -> (Self::Genome, Self::State);
+    fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>, state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
+    fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
+}
+```
+
+`ask` proposes the next population (steps 3–4); `tell` consumes it together
+with its fitness tensor and produces the next state (steps 2–3). The RNG is
+passed explicitly so the harness owns all stochasticity — strategies carry no
+internal PRNG state.
+
+Genomes are stored on-device in a `Population<B, K>` wrapper, where the
+const type parameter `K` is a zero-sized *genome kind* marker:
+
+```rust
+pub struct Real;    // genes are f32 — used by GA, ES, DE, CMA-ES
+pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
+pub struct Integer; // genes are bounded non-negative integers
+```
+
+The separation between the genome kind and the tensor type means operators
+can specialize at compile time (e.g. Gaussian mutation only compiles for
+`Real`; bit-flip mutation only compiles for `Binary`) without runtime dispatch.
+
+Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
+the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
+themselves never call the objective function — the harness does — so the same
+strategy implementation works against any landscape.
 
 <!-- additional context [Simon, 2013, p 2-3]
 Some authors use the term *evolutionary computation* to refer to EAs. This 
