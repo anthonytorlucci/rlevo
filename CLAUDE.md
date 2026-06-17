@@ -166,7 +166,7 @@ If you encounter dimension mismatch errors, verify:
 - `crates/rlevo-reinforcement-learning/src/metrics.rs`: `AgentStats`, `PerformanceRecord` — RL-only episode tracking
 
 ### Example Reference Implementations
-- `crates/rlevo-environments/src/classic/k_armed_bandit.rs`: Complete environment example with extensive tests
+- `crates/rlevo-environments/src/classic/bandit/k_armed.rs`: Complete environment example with extensive tests
 - `crates/rlevo-environments/src/pixel_grid.rs`: `Observable<OR>` modality-changing env (ADR 0020)
 - `crates/rlevo-core/examples/grid_position.rs`: State/Action implementation patterns
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
