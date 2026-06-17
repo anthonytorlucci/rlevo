@@ -25,5 +25,7 @@ CLAUDE.local.md
 # Recorded benchmark runs (M4+) — example output, not source.
 runs/
 
-# mdbook outputs
-book/
+# mdbook outputs (scoped to the doc dirs — a bare `book/` also matches the
+# example source dir crates/rlevo-examples/examples/book/)
+docs/user-book/book/
+docs/contributor-book/book/

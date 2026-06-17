@@ -10,13 +10,21 @@ pole attached to a cart by nudging the cart left or right. The episode ends when
 the pole falls too far or the cart leaves the track. The longer you balance, the
 more reward you accumulate — one point per surviving timestep.
 
-> **Status: preview.** The DQN agent is still in progress (see
-> [Where rlevo Stands Today](../part-3-open-problems/01-where-rlevo-stands.md)),
-> and there is not yet a shipped, CI-tested CartPole example in
-> `rlevo-examples`. This section sketches the real API so you can see the shape
-> of an RL run, but unlike Chapters 1–2 it is **not** backed by a runnable
-> example, and it deliberately quotes no training curve we have not reproduced.
-> The full, tuned walkthrough — with numbers — lands when the agent stabilises.
+This section is backed by a runnable, test-guarded example. Run it with:
+
+```bash
+cargo run --release -p rlevo-examples --example ch03_dqn_cartpole
+```
+
+A full 30k-step run takes a few minutes on CPU and reaches a 100-episode moving
+average comfortably above 100 (≈183 on `seed = 42` in development). The code
+blocks below are pulled directly from that example, so they stay in lock-step
+with code that actually compiles and trains.
+
+> **Status.** DQN works and is exercised by an integration test
+> (`crates/rlevo/tests/dqn_integration.rs`), but it is still maturing — see
+> [Where rlevo Stands Today](../part-3-open-problems/01-where-rlevo-stands.md)
+> for the current rough edges.
 
 ## The environment
 
@@ -70,34 +78,19 @@ target network (see the foundations chapter for the derivation).
 Two things differ from the evolutionary side:
 
 - **You bring the network.** `DqnAgent` is generic over a `DqnModel` — a Burn
-  module you define (e.g. a small MLP: `4 → 64 → 64 → 2` for CartPole). The
-  input/output sizes live in *the model*, not in a config struct.
-- **The backend must be autodiff-capable.** DQN learns by backpropagation, so
-  the backend is `Autodiff<Flex>`, not bare `Flex`.
+  module you define. For CartPole a small MLP suffices; the input/output sizes
+  (`4 → … → 2`) live in *the model*, not in a config struct:
 
 ```rust,no_run
-use burn::backend::{Autodiff, Flex};
-use rlevo::rl::algorithms::dqn::dqn_agent::DqnAgent;
-use rlevo::rl::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+{{#rustdoc_include ../../../../crates/rlevo-examples/examples/book/ch03_dqn_cartpole.rs:model}}
+```
 
-type B = Autodiff<Flex>;
+- **The backend must be autodiff-capable.** DQN learns by backpropagation, so
+  the backend is `Autodiff<Flex>`, not bare `Flex`. The training
+  hyperparameters live in a `DqnTrainingConfig`:
 
-let device = Default::default();
-let config = DqnTrainingConfigBuilder::new()
-    .batch_size(64)
-    .gamma(0.99)
-    .learning_rate(5e-4)
-    .epsilon_start(1.0)
-    .epsilon_end(0.05)
-    .epsilon_decay(0.9995)        // multiplicative per-step decay, not a step count
-    .replay_buffer_capacity(50_000)
-    .learning_starts(1_000)       // fill the buffer before learning
-    .train_frequency(4)           // one gradient step every 4 env steps
-    .target_update_frequency(500)
-    .build();
-
-let model: DqnMlp<B> = DqnMlp::new(&device);   // your network — see below
-let mut agent = DqnAgent::new(model, config, device);
+```rust,no_run
+{{#rustdoc_include ../../../../crates/rlevo-examples/examples/book/ch03_dqn_cartpole.rs:agent}}
 ```
 
 `DqnTrainingConfig::default()` also exists with sensible CartPole-shaped values.
@@ -132,9 +125,18 @@ for _step in 0..50_000 {
 }
 ```
 
-A provided `train(&mut agent, &mut env, &mut rng, total_steps, max_episode_steps)`
-helper wraps exactly this loop with episode bookkeeping, if you would rather not
-write it yourself.
+A provided `train(&mut agent, &mut env, &mut rng, total_steps, log_every)` helper
+wraps exactly this loop — ε-greedy acting, replay storage, periodic learning,
+target sync, and episode bookkeeping — so you rarely write it by hand. The
+example calls it directly:
+
+```rust,no_run
+{{#rustdoc_include ../../../../crates/rlevo-examples/examples/book/ch03_dqn_cartpole.rs:train}}
+```
+
+The last argument is `log_every`: emit a progress line every *N* steps (`0`
+disables logging). At the end you read results off `agent.stats()` —
+`total_episodes`, `best_score`, and `avg_score()` over the recent window.
 
 This is *not* an ask/tell loop in the evolutionary sense — the agent acts
 sequentially and updates after every few steps, not after a full population
