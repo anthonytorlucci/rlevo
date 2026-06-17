@@ -8,6 +8,7 @@
 - [Overview](part-1-foundations/00-overview.md)
 - [What Is Optimization?](part-1-foundations/10-optimization.md)
 - [Evolutionary Computation](part-1-foundations/20-evolutionary-computation.md)
+  - [Evolutionary Operators](part-1-foundations/evolutionary-computation/21-ops.md)
 - [Reinforcement Learning](part-1-foundations/30-reinforcement-learning.md)
   - [State and Observation Spaces](part-1-foundations/reinforcement-learning/31-state.md)
   - [Action Spaces](part-1-foundations/reinforcement-learning/32-action.md)

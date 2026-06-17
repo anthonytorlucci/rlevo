@@ -106,18 +106,24 @@ or binary genomes with three operators:
 - *Gaussian*: add \\(\mathcal{N}(0, \sigma^2)\\) noise to each gene.
 - *Uniform*: replace a gene with a random draw from its bounds.
 
-> **In `rlevo`.** All three operator families live in `rlevo::evo::ops`:
-> - `ops::selection` — tournament, rank-based, fitness-proportionate selectors
-> - `ops::crossover` — single-point, BLX-α, SBX (real); single-point (binary)
-> - `ops::mutation`  — Gaussian, uniform (real); bit-flip (binary)
+> **In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
+> implements a focused subset of them, organised by the role each plays in a
+> generation:
+> - `ops::selection` — tournament, truncation
+> - `ops::crossover` — BLX-α, uniform (real); uniform (binary)
+> - `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
+> - `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
 >
-> Each operator function takes a `Population<B, K>` and returns a new one,
-> leaving the input unchanged. Operator kind-specialization is enforced at the
-> type level: passing a `Population<B, Binary>` to a Gaussian mutation function
-> is a compile error.
+> Each operator is a free function that takes a population `Tensor<B, _>` and
+> returns a new one, leaving the input unchanged. Kind-specialization is enforced
+> at the type level: real-valued operators take `Tensor<B, 2>` and binary
+> operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
+> mutation is a compile error.
 >
-> [Appendix A](../appendix-a-ec-algorithms/index.md) gives the full GA
-> pseudocode as implemented, including elitism and boundary clamping.
+> The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
+> full tour of the catalogue and the conventions behind it; [Appendix
+> A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
+> assembles these operators end-to-end.
 
 <!-- [Simon, 2013, p. 188]
 This section discusses elitism, which is a way of making sure that the best 
