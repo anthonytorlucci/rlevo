@@ -156,8 +156,3 @@ still binds, **Context** for the forcing facts, **Decision** for the fork,
 **Implementation** for where reality bent the plan. When you write your own,
 aim for the same: concrete Context, a real fork in the Decision, honest costs,
 and a recorded gap whenever the build diverges from the proposal.
-
-## Outline
-
-1. How to write each ADR section well.
-2. Choosing the next number and slug; the supersession workflow.
