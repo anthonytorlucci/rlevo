@@ -19,7 +19,6 @@
 
 - [Overview](part-2-guided-tour/00-overview.md)
 - [Optimising a Function](part-2-guided-tour/01-optimizing-a-function.md)
-- [The Ask/Tell Contract](part-2-guided-tour/02-ask-tell-in-depth.md)
 - [Classic Control: CartPole with DQN](part-2-guided-tour/03-classic-control.md)
 - [Bring Your Own Environment](part-2-guided-tour/04-extending-the-environment.md)
 
@@ -36,6 +35,7 @@
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
+  - [The Ask/Tell Contract](appendix-d-suppl/ask-tell-contract.md)
   - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
   - [Tensor Rank vs. Matrix Rank vs. Dimensionality](appendix-d-suppl/tensor-rank-vs-matrix-rank.md)
 - [Notation](notation.md)

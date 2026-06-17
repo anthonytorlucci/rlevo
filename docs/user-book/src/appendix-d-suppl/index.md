@@ -16,6 +16,7 @@
 
 **Ask/Tell.** The interface pattern where a `Strategy` proposes candidates
 (`ask`) and receives their scores (`tell`), without owning the evaluation step.
+See [The Ask/Tell Contract](ask-tell-contract.md) for the full treatment.
 
 **Backend.** A Burn trait that abstracts over CPU (`ndarray`), GPU (`wgpu`), and
 other compute targets. Algorithm code is generic over `B: Backend`.

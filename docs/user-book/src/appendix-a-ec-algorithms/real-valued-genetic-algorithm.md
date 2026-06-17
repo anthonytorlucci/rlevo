@@ -88,7 +88,7 @@ a minimization problem and needs no transformation.
 ## Minimal example
 
 This example uses `EvolutionaryHarness` — the recommended entry point for
-single-strategy runs. See [The Ask/Tell Contract](../part-2-guided-tour/02-ask-tell-in-depth.md)
+single-strategy runs. See [The Ask/Tell Contract](../appendix-d-suppl/ask-tell-contract.md)
 for the manual loop if you need custom logging or early stopping.
 
 ```rust,no_run

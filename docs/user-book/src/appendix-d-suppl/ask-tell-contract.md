@@ -1,16 +1,18 @@
 # The Ask/Tell Contract
 
-The previous section used `EvolutionaryHarness` to run the GA — it handled the
-loop for you. This section opens the harness and shows what is actually happening,
-because you will need to understand it when:
+Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryHarness` that
+drives it in
+[Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md) —
+speaks a single protocol: **ask/tell**. The guided tour uses the harness, which
+hides the protocol; this page opens it up. Reach for it when you need to:
 
-- you want to add custom logging or early stopping,
-- you are combining evolution with RL (where the loop is more complex), or
-- the harness's assumptions don't match your problem.
+- add custom logging or early stopping,
+- combine evolution with RL (where the loop is more complex), or
+- understand exactly why a run is — or isn't — reproducible.
 
 ## The contract
 
-This is the same `Strategy` trait you saw in
+This is the same `Strategy` trait introduced in
 [Part I](../part-1-foundations/20-evolutionary-computation.md). Here is the full
 signature, because this time we are going to call it by hand:
 
@@ -81,10 +83,12 @@ it only proposes and learns. That separation is what makes the rest possible:
 
 ## Writing the loop yourself
 
-Here is the GA sphere run from the previous section, rewritten without the
-harness. We reuse the `Sphere` `Landscape` from Chapter 1; `FromLandscape`
-adapts it into the `BatchFitnessFn` the strategy expects — a function that takes
-the whole population at once and returns a `Tensor<B, 1>` of per-individual costs:
+Here is the GA sphere run from
+[Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md),
+rewritten without the harness. We reuse that chapter's `Sphere` `Landscape`;
+`FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
+function that takes the whole population at once and returns a `Tensor<B, 1>` of
+per-individual costs:
 
 ```rust,no_run
 use burn::backend::Flex;
@@ -189,14 +193,18 @@ the right choice when you need control the harness does not expose, or when you
 are building a hybrid (the ERL loop in Part III cannot be expressed as a single
 harness call).
 
-## Up next
+## Where this connects
 
-The next section brings in a real environment, a reward signal, and a DQN agent.
-The ask/tell vocabulary carries over — but instead of a static `Landscape`, the
-score comes from an `Environment` that the agent acts inside over multiple
-timesteps.
+- [Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md)
+  drives this contract through the harness — start there for the worked example.
+- The RL loop in
+  [Classic Control: CartPole with DQN](../part-2-guided-tour/03-classic-control.md)
+  is *not* ask/tell — the agent acts sequentially, learning after individual
+  steps. The vocabulary returns when evolution and RL combine: the EA `ask`s for
+  a population of policies, evaluates each by running a full episode, and `tell`s
+  the scores back.
 
-> **Foundations link.** The exploitation–exploration trade-off that drove our
+> **Foundations link.** The exploitation–exploration trade-off that drives the
 > choice of tournament size and elitism is discussed in
 > [What Is Optimization?](../part-1-foundations/10-optimization.md). The GA
 > operators that `ask` uses internally — and their convergence properties — are

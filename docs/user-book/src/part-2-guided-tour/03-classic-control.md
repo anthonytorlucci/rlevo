@@ -1,6 +1,6 @@
 # Classic Control: CartPole with DQN
 
-The previous two sections optimised a static function — the same score for the
+The previous section optimised a static function — the same score for the
 same input, every time. Real sequential decision-making is different: the agent's
 actions change the state of the world, and the reward comes from a *sequence* of
 decisions, not a single evaluation.
