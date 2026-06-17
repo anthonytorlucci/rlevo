@@ -143,28 +143,40 @@ generation to the next. This idea, first proposed by [De Jong, 1975], called
 *elitism* and usually improves the performance of an EA...
 -->
 
-## Evolution Strategies and CMA-ES
+## Evolution Strategies
 
-While GAs were designed with binary strings in mind, Evolution Strategies were
-designed from the outset for continuous domains. The key idea is that the
-mutation distribution should adapt to the landscape.
+While GAs were designed with binary strings in mind, Evolution Strategies (ES)
+were built from the outset for continuous domains. Their defining idea is
+**self-adaptation**: the mutation distribution is not fixed but evolves alongside
+the solution, so the search rescales its own step size as it homes in on an
+optimum.
 
-**CMA-ES** (Covariance Matrix Adaptation Evolution Strategy), introduced by
-Hansen and Ostermeier (2001) [[Hansen and Ostermeier, 2001]](#bibliography), maintains a full
-covariance matrix \\(\mathbf{C}\\) over the search space and updates it based on
-the direction of successful steps. Each generation samples a population from
-\\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\), selects the top \\(\mu\\)
-individuals, and updates \\(\mathbf{m}\\), \\(\sigma\\), and \\(\mathbf{C}\\):
+`rlevo` implements the **classical ES** family — four canonical variants, all
+parameterised by a single `EsConfig`:
 
-```math
-\mathbf{m}^{(g+1)} = \sum_{i=1}^{\mu} w_i \mathbf{x}_{i:\lambda}^{(g)}
-```
+- `(1+1)` — one parent, one offspring; step size \\(\sigma\\) adapted by
+  Rechenberg's **1/5th success rule**.
+- `(1+λ)` — one parent, λ offspring; the best offspring replaces the parent only
+  on improvement.
+- `(μ,λ)` — μ parents produce λ offspring; the parents are discarded each
+  generation.
+- `(μ+λ)` — survivors are the μ best of the combined parent-plus-offspring pool.
 
-where \\(\mathbf{x}_{i:\lambda}\\) denotes the \\(i\\)-th ranked individual
-out of \\(\lambda\\) samples, and \\(w_i\\) are recombination weights. CMA-ES
-is the de facto standard for continuous black-box optimisation and is considered
-the most powerful general-purpose single-objective EA for moderate dimensions
-(\\(n \lesssim 10^3\\)).
+The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation** —
+each individual mutates its own step size before mutating its genes. Derivations
+and pseudocode are in
+[Appendix A](../appendix-a-ec-algorithms/index.md).
+
+> **CMA-ES is on the roadmap, not in the crate.** The de facto standard for
+> continuous black-box optimisation — *Covariance Matrix Adaptation* ES (Hansen
+> and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) — goes
+> further than the classical variants: it maintains a full covariance matrix
+> \\(\mathbf{C}\\) over the search space and updates it from the direction of
+> successful steps, sampling each generation from
+> \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). `rlevo` does **not** yet
+> implement CMA-ES or CMSA-ES; the work is tracked in
+> [issue #59](https://github.com/anthonytorlucci/rlevo/issues/59). The classical
+> ES variants above are what ship today.
 
 <!-- [Simon, 2013, p 135] 
 ... The goal of CMA-ES, ..., is to fit (as well as possible) the distribution 
@@ -229,6 +241,39 @@ deceptive benchmark (Concatenated Trap) used to compare them are in
 - PBIL (p. 320)
 - MIMIC (p. 324)
 -->
+
+## Other strategy families in `rlevo`
+
+The GA, ES, and EDA sections above cover three distinct *ideas* — recombination,
+self-adaptation, and explicit distribution learning — but the same `Strategy`
+contract backs a wider menagerie. Each ships today and is documented with full
+pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
+
+- **Differential Evolution (DE)** mutates by adding *scaled difference vectors*
+  between population members — a self-scaling scheme that needs no externally
+  tuned step size. `rlevo` ships the `Rand1Bin`, `Rand1Exp`, `Rand2Bin`,
+  `Best1Bin`, and `CurrentToBest1Bin` variants with greedy per-slot replacement.
+- **Evolutionary Programming (EP)** is Fogel-style, mutation-only evolution with
+  per-individual log-normal \\(\sigma\\) adaptation and q-tournament survivor
+  selection over a \\((\mu + \mu)\\) pool.
+- **Genetic programming** evolves programs rather than fixed-length vectors:
+  *Cartesian GP* (`gp_cgp`, an integer genome decoded to a computation graph) and
+  *Gene Expression Programming* (`gep`, a linear chromosome decoded to an
+  expression tree).
+- **Neuroevolution** evolves networks directly: `WeightOnly` evolves the
+  flattened weights of any Burn `Module` through the `ParamReshaper` bridge from
+  the [genome chapter](evolutionary-computation/22-genome.md); `ArchNas`
+  co-evolves which fixed-topology variant *and* its weights; `Neat` grows
+  topology from a minimal seed via speciation and innovation-aligned crossover.
+- **The memetic wrapper** wraps any real-valued strategy with per-individual
+  local search (hill-climbing, Nelder–Mead, simulated annealing) under
+  Lamarckian, Baldwinian, or partial-writeback policies.
+- **Swarm metaheuristics** include PSO, ABC, ACO (continuous `ACO_R`; a
+  permutation variant is stubbed), cuckoo search, and firefly. Four more — GWO,
+  WOA, Bat, and SSA — ship as *legacy comparators*: included for baselining, but
+  the module docs steer you to PSO (or CMA-ES / LSHADE once they land) for real
+  work, following [[Camacho-Villalón et al., 2023]](#bibliography) and
+  [[Sörensen, 2015]](#bibliography).
 
 ## Multi-Objective Optimisation
 
