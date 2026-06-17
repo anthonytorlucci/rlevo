@@ -36,6 +36,11 @@
 # Appendices
 
 - [Evolutionary Computation Algorithms](appendix-a-ec-algorithms/index.md)
+  - [Binary-Encoded Genetic Algorithm](appendix-a-ec-algorithms/binary-encoded-genetic-algorithm.md)
+  - [Real-Valued Genetic Algorithm](appendix-a-ec-algorithms/real-valued-genetic-algorithm.md)
+  - [Evolution Strategies](appendix-a-ec-algorithms/evolution-strategies.md)
+  - [Differential Evolution](appendix-a-ec-algorithms/differential-evolution.md)
+  - [Evolutionary Programming](appendix-a-ec-algorithms/evolutionary-programming.md)
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
