@@ -2,7 +2,7 @@
 
 [Welcome](ch00-orientation.md)
 
-- [The vault protocol](ch01-vault-protocol.md)
+- [Recording decisions](ch01-recording-decisions.md)
 - [Workspace conventions](ch02-workspace-conventions.md)
 - [Trait design](ch03-trait-design.md)
 - [Where does my code go?](ch04-where-does-my-code-go.md)

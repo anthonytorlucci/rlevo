@@ -19,7 +19,8 @@ target
 .scratchpad
 .env
 .claude
-CLAUDE.md
+# CLAUDE.md is committed (public guidance); local-only overrides are not:
+CLAUDE.local.md
 
 # Recorded benchmark runs (M4+) — example output, not source.
 runs/
