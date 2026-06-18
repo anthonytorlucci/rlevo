@@ -19,8 +19,15 @@ antlion algorithms: Six misleading optimization techniques inspired by bestial
 metaphors. *International Transactions in Operational Research*, 30(6),
 2945–2971.
 
+**[Coello Coello et al., 2007]** Coello Coello, C. A., Lamont, G. B., & Van
+Veldhuizen, D. A. (2007). *Evolutionary Algorithms for Solving Multi-Objective
+Problems* (2nd ed.). Springer.
+
 **[Deb and Agrawal, 1995]** Deb, K., & Agrawal, R. B. (1995). Simulated binary
 crossover for continuous search space. *Complex Systems*, 9(2), 115–148.
+
+**[Deb, 2001]** Deb, K. (2001). *Multi-Objective Optimization Using Evolutionary
+Algorithms*. Wiley.
 
 **[Deb et al., 2002]** Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002).
 A fast and elitist multiobjective genetic algorithm: NSGA-II. *IEEE Transactions
@@ -78,6 +85,9 @@ Kluwer.
 objectives: Evolution through the search for novelty alone. *Evolutionary
 Computation*, 19(2), 189–223.
 
+**[Miettinen, 1999]** Miettinen, K. (1999). *Nonlinear Multiobjective
+Optimization*. Kluwer Academic Publishers.
+
 **[Mnih et al., 2015]** Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A.,
 Veness, J., Bellemare, M. G., … & Hassabis, D. (2015). Human-level control
 through deep reinforcement learning. *Nature*, 518(7540), 529–533.
@@ -92,6 +102,9 @@ Concurrent Computation Program, Tech. Report 826.
 
 **[Nocedal and Wright, 2006]** Nocedal, J., & Wright, S. J. (2006). *Numerical
 Optimization* (2nd ed.). Springer.
+
+**[Pareto, 1896]** Pareto, V. (1896). *Cours d'économie politique*. F. Rouge,
+Lausanne.
 
 **[Rechenberg, 1973]** Rechenberg, I. (1973). *Evolutionsstrategie: Optimierung
 technischer Systeme nach Prinzipien der biologischen Evolution*.
@@ -160,6 +173,10 @@ Computation*, 1(1), 67–82.
 **[Wright, 1932]** Wright, S. (1932). The roles of mutation, inbreeding,
 crossbreeding, and selection in evolution. *Proceedings of the Sixth
 International Congress of Genetics*, 1, 356–366.
+
+**[Zitzler et al., 2001]** Zitzler, E., Laumanns, M., & Thiele, L. (2001).
+SPEA2: Improving the strength Pareto evolutionary algorithm. In *Evolutionary
+Methods for Design, Optimisation and Control (EUROGEN 2001)*, 95–100. CIMNE.
 
 ---
 

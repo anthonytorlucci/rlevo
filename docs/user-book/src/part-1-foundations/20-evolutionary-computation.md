@@ -348,13 +348,32 @@ pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
 ## Multi-Objective Optimisation
 
 Most real problems have more than one objective — faster *and* cheaper, higher
-reward *and* lower energy. The **Pareto front** is the set of solutions where
-improving one objective necessarily worsens another.
+reward *and* lower energy. When objectives conflict there is no single optimum
+but a *set* of incomparable trade-offs: a solution **dominates** another when it
+is no worse on every objective and strictly better on at least one. The
+**Pareto front** is the set of non-dominated solutions — those for which
+improving one objective necessarily worsens another. The notion of optimality it
+formalises traces to the economist Vilfredo Pareto [[Pareto, 1896]](#bibliography);
+an evolutionary algorithm is a natural fit for it, because a population can
+approximate the *whole* front in one run rather than scalarising the objectives
+into a single weighted sum and solving repeatedly.
 
 NSGA-II (Deb et al., 2002) [[Deb et al., 2002]](#bibliography) is the canonical
-multi-objective EA and remains the baseline every new algorithm is compared
-against. `rlevo` does not yet implement multi-objective optimisation; it is on
+multi-objective EA — its fast non-dominated sorting and crowding-distance
+diversity operator remain the baseline every new algorithm is compared against;
+SPEA2 [[Zitzler et al., 2001]](#bibliography) is the other classic reference
+point. `rlevo` does not yet implement multi-objective optimisation; it is on
 the research roadmap (see [Part III](../part-3-open-problems/02-research-directions.md)).
+
+> **Further reading.** Deb, *Multi-Objective Optimization Using Evolutionary
+> Algorithms* (Wiley, 2001) [[Deb, 2001]](#bibliography) is the standard
+> book-length treatment from the EA side; Coello Coello, Lamont and Van
+> Veldhuizen, *Evolutionary Algorithms for Solving Multi-Objective Problems*
+> (2nd ed., Springer, 2007) [[Coello Coello et al., 2007]](#bibliography) is the
+> broadest algorithm survey. For the classical (non-evolutionary) optimisation
+> theory underpinning Pareto optimality and scalarisation, see Miettinen,
+> *Nonlinear Multiobjective Optimization* (Kluwer, 1999)
+> [[Miettinen, 1999]](#bibliography).
 
 > **Deeper reading.** Eiben and Smith, *Introduction to Evolutionary Computing*
 > (Springer, 2015) is the most accessible modern textbook. Back, *Evolutionary
