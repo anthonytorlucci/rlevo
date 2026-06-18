@@ -60,11 +60,11 @@ real-valued operator is a compile error, not a runtime surprise.
 
 ### Fitness is a cost — smaller is better
 
-A word of warning if you come from the classical evolutionary-computation
-tradition, where "fitness" is something you **maximise** and the *fittest*
-individual has the *highest* score. `rlevo` adopts the opposite — and equally
-standard — convention from the optimisation literature: **fitness is a cost to
-minimise**, so throughout `ops` the *best* individual has the *lowest* fitness.
+The classical evolutionary-computation tradition treats *fitness* as a quantity
+to **maximise**, with the *fittest* individual scoring *highest*. `rlevo` adopts
+the opposite — and equally standard — convention from the optimisation
+literature: **fitness is a cost to minimise**, so throughout `ops` the *best*
+individual has the *lowest* fitness.
 Read every "lowest fitness", "smallest fitness", and "top-k" in this chapter as
 "closest to the optimum we're driving toward."
 
