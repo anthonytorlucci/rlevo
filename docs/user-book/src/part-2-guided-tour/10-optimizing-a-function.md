@@ -85,7 +85,8 @@ the scores.
 Because we passed `seed = 42`, re-running gives an identical trajectory. `rlevo`
 derives every random draw from that seed through a `seed_stream`, never from
 process-global RNG, so parallel runs and tests stay reproducible (more on this in
-[The Ask/Tell Contract](02-ask-tell-in-depth.md) and the contributor book).
+[The Ask/Tell Contract](../appendix-d-suppl/ask-tell-contract.md) and the
+contributor book).
 
 ## Step 4 — what you should see
 
@@ -133,11 +134,12 @@ You optimised a *function*. But the candidates were just vectors — nothing sai
 they couldn't be the **weights of a neural network**, or that the score had to
 come from a formula instead of an **agent acting in a world**.
 
-Before we get there, the [next section](02-ask-tell-in-depth.md) opens up the
-harness and shows you exactly how ask/tell works inside `rlevo` — including how
-to write the loop yourself when the harness doesn't fit. Then we bring in a real
-`Environment`, reward signal, and gradient-based RL agent in
-[Classic Control: CartPole with DQN](03-classic-control.md).
+The [next section](03-classic-control.md) brings in a real `Environment`, a
+reward signal, and a gradient-based RL agent. If you first want to see exactly
+how the harness drove the strategy here — and how to write that ask/tell loop by
+hand when the harness doesn't fit — read
+[The Ask/Tell Contract](../appendix-d-suppl/ask-tell-contract.md) in the
+supplementary material.
 
 > **Foundations link.** The exploitation–exploration tension you just observed
 > (population too small → stalls; no elitism → regresses) is discussed
@@ -148,5 +150,5 @@ to write the loop yourself when the harness doesn't fit. Then we bring in a real
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

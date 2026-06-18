@@ -17,15 +17,17 @@ cargo run -p rlevo-examples --example <name>
 | Section | New concept introduced |
 | ------- | ---------------------- |
 | [Optimising a Function](01-optimizing-a-function.md) | `Landscape`, `Strategy`, the GA, the harness |
-| [The Ask/Tell Contract](02-ask-tell-in-depth.md) | How `ask`/`tell` works inside `rlevo`; the `seed_stream`; writing a manual loop |
 | [Classic Control: CartPole with DQN](03-classic-control.md) | `Environment`, `Action`, `Observation`, DQN, experience replay |
 | [Bring Your Own Environment](04-extending-the-environment.md) | Implementing the `Environment` trait for a custom domain |
 
-Each section builds on the previous one. The ask/tell section is the bridge:
-it opens up the harness internals before you encounter them again in the RL
-context, where the loop is more complex.
+Each section builds on the previous one and is centred on code you can run. We
+keep the main text on the example and push the deeper mechanics into
+supplementary material you can reach for when you want it — the harness's
+[ask/tell contract](../appendix-d-suppl/ask-tell-contract.md) and the
+[fitness-landscape theory](../appendix-d-suppl/fitness-landscape.md) behind the
+benchmark problems both live in [Appendix D](../appendix-d-suppl/index.md).
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

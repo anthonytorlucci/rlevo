@@ -1,16 +1,18 @@
 # The Ask/Tell Contract
 
-The previous section used `EvolutionaryHarness` to run the GA — it handled the
-loop for you. This section opens the harness and shows what is actually happening,
-because you will need to understand it when:
+Every evolutionary `Strategy` in `rlevo` — and the `EvolutionaryHarness` that
+drives it in
+[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md) —
+speaks a single protocol: **ask/tell**. The guided tour uses the harness, which
+hides the protocol; this page opens it up. Reach for it when you need to:
 
-- you want to add custom logging or early stopping,
-- you are combining evolution with RL (where the loop is more complex), or
-- the harness's assumptions don't match your problem.
+- add custom logging or early stopping,
+- combine evolution with RL (where the loop is more complex), or
+- understand exactly why a run is — or isn't — reproducible.
 
 ## The contract
 
-This is the same `Strategy` trait you saw in
+This is the same `Strategy` trait introduced in
 [Part I](../part-1-foundations/20-evolutionary-computation.md). Here is the full
 signature, because this time we are going to call it by hand:
 
@@ -61,6 +63,40 @@ it only proposes and learns. That separation is what makes the rest possible:
   any strategy. The harness, your custom loop, and the ERL hybrid all speak the
   same language.
 
+## Lineage: evosax, and where `rlevo` diverges
+
+This shape is not invented here. The direct inspiration is
+[**evosax**](https://github.com/RobertTLange/evosax), the JAX library of
+evolution strategies, which popularised a *functional* ask/tell interface:
+`state = strategy.initialize(...)`, then `x, state = strategy.ask(rng, state,
+params)` and `state = strategy.tell(x, fitness, state, params)`. The strategy is
+a set of pure functions; all mutable run state and configuration live *outside*
+it and thread through the calls. `rlevo`'s `&self` methods and the
+`init → (ask, tell)*` state-threading are a deliberate port of that design to
+Rust — the pure-strategy property above is exactly what makes an evosax strategy
+`jax.jit`- and `vmap`-friendly, and what makes an `rlevo` strategy lock-free to
+clone and run in parallel.
+
+Three differences are worth calling out, because they are where the Rust/Burn
+setting changes the contract rather than just the syntax:
+
+- **One contract spans the whole EA taxonomy, not just ES.** evosax is
+  organised around evolution strategies over real vectors. `rlevo`'s `Strategy`
+  is generic over the genome *kind* (`Real`, `Binary`, `Integer`, …; see
+  [Genome Representation](../part-1-foundations/evolutionary-computation/22-genome.md)),
+  so the *same* ask/tell trait backs the GA, ES, EP, DE, EDA, and CGP families.
+  The associated `type Genome` is what varies, not the protocol.
+- **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
+  Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
+  array — selection arithmetic stays on-device. And where evosax leaves the
+  optimisation direction to the caller, `rlevo` pins a **minimisation contract**
+  end-to-end (lower is better); see the
+  [enforcement table](../part-1-foundations/evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility).
+- **Randomness is a host stream, not a threaded key.** evosax splits and threads
+  explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
+  from a single host `seed_stream` (below) — different plumbing for the same
+  goal of seed-level reproducibility.
+
 ## Sequence diagram
 
 ```text
@@ -81,10 +117,12 @@ it only proposes and learns. That separation is what makes the rest possible:
 
 ## Writing the loop yourself
 
-Here is the GA sphere run from the previous section, rewritten without the
-harness. We reuse the `Sphere` `Landscape` from Chapter 1; `FromLandscape`
-adapts it into the `BatchFitnessFn` the strategy expects — a function that takes
-the whole population at once and returns a `Tensor<B, 1>` of per-individual costs:
+Here is the GA sphere run from
+[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md),
+rewritten without the harness. We reuse that chapter's `Sphere` `Landscape`;
+`FromLandscape` adapts it into the `BatchFitnessFn` the strategy expects — a
+function that takes the whole population at once and returns a `Tensor<B, 1>` of
+per-individual costs:
 
 ```rust,no_run
 use burn::backend::Flex;
@@ -173,6 +211,16 @@ The host-RNG convention (all randomness through `seed_stream`, never via
 `Backend::seed` or `Tensor::random`) is enforced by convention throughout
 `rlevo::evo`. The contributor book documents why.
 
+> **Determinism under parallel suites.** The *strategy's* own randomness is
+> reproducible by construction — every draw comes from the host `seed_stream`. But
+> Burn *backends* seed their tensor RNG through process-global state, so running
+> several harnesses across threads (e.g. a benchmark suite on the default rayon
+> pool) can still race on that shared state for any backend RNG use, breaking
+> bit-reproducibility across runs. For exact reproduction, pin execution to a single
+> thread (`EvaluatorConfig::num_threads = Some(1)`) or run one harness per process;
+> the `tests/determinism.rs` and `tests/rastrigin_run_suite.rs` integration tests do
+> exactly this.
+
 ## What the harness adds
 
 The `EvolutionaryHarness` wraps the above loop with:
@@ -189,14 +237,18 @@ the right choice when you need control the harness does not expose, or when you
 are building a hybrid (the ERL loop in Part III cannot be expressed as a single
 harness call).
 
-## Up next
+## Where this connects
 
-The next section brings in a real environment, a reward signal, and a DQN agent.
-The ask/tell vocabulary carries over — but instead of a static `Landscape`, the
-score comes from an `Environment` that the agent acts inside over multiple
-timesteps.
+- [Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md)
+  drives this contract through the harness — start there for the worked example.
+- The RL loop in
+  [Classic Control: CartPole with DQN](../part-2-guided-tour/20-classic-control.md)
+  is *not* ask/tell — the agent acts sequentially, learning after individual
+  steps. The vocabulary returns when evolution and RL combine: the EA `ask`s for
+  a population of policies, evaluates each by running a full episode, and `tell`s
+  the scores back.
 
-> **Foundations link.** The exploitation–exploration trade-off that drove our
+> **Foundations link.** The exploitation–exploration trade-off that drives the
 > choice of tournament size and elitism is discussed in
 > [What Is Optimization?](../part-1-foundations/10-optimization.md). The GA
 > operators that `ask` uses internally — and their convergence properties — are

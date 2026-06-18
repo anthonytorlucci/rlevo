@@ -1,0 +1,248 @@
+# Fitness Evaluation
+
+The [genome chapter](22-genome.md) covered the *representation* — how a candidate
+solution becomes a row of a population tensor. This chapter is about how that row
+earns its keep: the **fitness** that scores it, the trait surface `rlevo` uses to
+compute it, and the one convention that quietly governs every operator in the
+crate — that **fitness is a cost to minimise**. The operators chapter *asserted*
+that convention; here is where it is justified, alongside the adapters that wire a
+plain objective function into the evolutionary engine and the shaping transforms
+that condition the raw signal.
+
+## The harness calls the objective, not the strategy
+
+A point worth making first, because it shapes every trait below: **strategies
+never call the fitness function.** A `Strategy` proposes a population in `ask` and
+consumes a fitness *tensor* in `tell` — but the call that turns one into the other
+happens in the harness, between those two steps:
+
+```text
+state ──ask──▶ population ──[harness evaluates]──▶ fitness ──tell──▶ next state
+```
+
+This separation is what lets one strategy implementation run against *any*
+objective — a synthetic landscape, a simulator, a neural-network rollout — without
+a line of change. The strategy knows the *shape* of fitness (a `(pop_size,)`
+vector) but nothing about its *meaning*. The fitness traits in this chapter are
+the contract at that seam.
+
+## Two evaluation shapes
+
+`rlevo` models fitness with two traits, one per calling pattern. Neither is
+implemented by a strategy — they are implemented by the **objective** (a landscape
+adapter, a module evaluator, a policy-rollout scorer) and consumed by the
+*harness*, not the strategy. The strategy only ever sees the resulting tensor.
+
+**`BatchFitnessFn<B, G>`** evaluates an *entire population* in one call and
+returns a device-resident tensor. This is the hot path — the harness calls it once
+per generation, between `ask` and `tell`:
+
+```rust
+pub trait BatchFitnessFn<B: Backend, G>: Send {
+    fn evaluate_batch(&mut self, population: &G, device: &B::Device) -> Tensor<B, 1>;
+}
+```
+
+The returned `Tensor<B, 1>` has shape `(pop_size,)` on the supplied device, and
+one invariant is load-bearing: **row order is preserved.** `fitness[i]` is the
+score of the individual at row `i` of `population`. Every downstream
+operator — tournament selection gathering winner rows, elitism pairing parents
+with their costs — relies on that index alignment. Break it and the algorithm
+silently optimises the wrong correspondence.
+
+This is the only evaluation path the `EvolutionaryHarness` uses: a strategy's
+`Genome` is whatever `ask` produces (a `Tensor<B, 2>` for the real-coded GA), and
+the harness's stored `fitness_fn: F: BatchFitnessFn<B, S::Genome>` turns it into
+the fitness tensor that `tell` consumes. Batched-by-default is a throughput choice:
+scoring a whole generation in one call lets a purpose-built landscape keep the
+population on device and compute every fitness in a single kernel sweep, no per-row
+round-trip. The host-side adapters below ([`FromLandscape`](#bridging-a-host-objective-the-two-adapters)
+and friends) still satisfy this batched signature — they just loop internally.
+
+**`FitnessFn<G>`** evaluates a *single* member and returns a scalar. It takes
+`&mut self` so an evaluator can keep state — most usefully an evaluation counter:
+
+```rust
+pub trait FitnessFn<G>: Send {
+    fn evaluate_one(&mut self, member: &G) -> f32;
+}
+```
+
+This is *not* the per-generation path — the harness never calls it. Its production
+role is **single-point evaluation for memetic local search**: the hill-climbing /
+Nelder–Mead / simulated-annealing refiners probe one candidate at a time, and the
+`RowFitness` adapter in `memetic.rs` wraps a `BatchFitnessFn` into this shape (a
+one-row `evaluate_batch` per probe). It is also the convenient shape for
+unit-testing operators, where evaluating one genome at a time is clearer than
+batching.
+
+## Fitness is a cost — the engine's minimisation contract
+
+An evolutionary algorithm is, in principle, direction-agnostic: fitness can be a
+reward to *maximise* or a cost to *minimise*, and the algorithm itself does not
+care which. `rlevo` makes a deliberate choice and commits to it everywhere — **the
+evolution engine minimises.** The fitness tensor handed to `tell` is the raw
+objective value, and throughout `rlevo-evolution` *lower is better*.
+
+This is best read as an **internal contract of the evolution engine** rather than a
+law of nature or a universal property of fitness. It is not a soft convention you
+could quietly ignore, though: the direction is baked structurally into every layer
+of the crate, in several independent places that would *all* have to change to flip
+it. The same `f32::INFINITY` initialiser, the same rolling `.min()`, the same `<`
+improvement test recur in every strategy:
+
+- `StrategyMetrics::best_fitness` is the **smallest** value in a generation;
+- `best_fitness_ever` is a **rolling minimum** across all generations
+  (`previous_best.min(current_best)`);
+- a fresh state initialises `best_fitness` to `f32::INFINITY`, so the first real
+  evaluation can only improve it;
+- truncation keeps the lowest `top_k`, tournaments keep the smallest of each draw,
+  elitism carries the lowest-cost parents — exactly as the
+  [operators chapter](21-ops.md) described.
+
+This is the optimisation-literature convention (find the minimum of `f(x)`), and
+it is why the synthetic landscapes — Sphere, Ackley, Rastrigin — fit so naturally:
+each is zero at its global optimum and positive everywhere else, so "drive fitness
+toward zero" *is* the goal.
+
+### Where it's enforced — and where it's your responsibility
+
+The contract holds *inside* the engine because the code makes it hold. Crossing the
+engine boundary — defining your own objective, or reading results downstream — is
+where the direction becomes *your* responsibility. The table below maps the seam
+(file:line references are to `crates/rlevo-evolution` unless noted):
+
+| Mechanism | Where | What pins the direction |
+| --------- | ----- | ----------------------- |
+| Best-so-far init | every strategy: `algorithms/ga.rs:192`, `ep.rs:178`, `de.rs:271`, `es_classical.rs:203`, `eda/mod.rs:201`, `gp_cgp.rs:355` | `best_fitness: f32::INFINITY` — only a *lower* value can replace it |
+| Rolling minimum | `strategy.rs` (`StrategyMetrics::from_host_fitness`) | `best_fitness_ever.min(best)` |
+| Improvement test | every `tell`; hill-climbing `local_search/hill_climbing.rs`; EDA truncation `local_search.rs` | `if f < best` — never `>` |
+| Rank shaping | `shaping.rs` (`centered_rank`) | ascending sort; smallest fitness → most-negative rank |
+| **Reward sign-flip** (engine → benchmark) | `strategy.rs` (`EvolutionaryHarness::step`); `coevolution/harness.rs` | `reward = -best_fitness_ever` |
+| **Objective direction** (your code → engine) | `rlevo_core::fitness::{Landscape, FitnessEvaluable}` | *unchecked* — you must return a cost (see below) |
+| Convergence assertions | `algorithms/*.rs` tests; `crates/rlevo/tests/rastrigin_run_suite.rs` | `assert!(best < tolerance)` on zero-at-optimum landscapes |
+
+Read it as two halves. The top rows are **enforced**: by the time fitness reaches a
+strategy, every comparison in the engine already assumes minimisation, and the
+tests would fail loudly if that broke. The last two rows are **yours**: nothing
+mechanically checks that the objective you hand in is a cost rather than a reward,
+so the burden of pointing it the right way sits at the user-facing trait boundary.
+
+If your objective is naturally something to **maximise** — reward, accuracy, a
+score — **negate it** before it reaches the engine. Fixing the direction once, at
+that boundary, is what keeps every operator free of a "minimise or maximise?" flag.
+
+> **The benchmark boundary flips the sign back.** Downstream tooling
+> (`rlevo-benchmarks`, showcases) follows the opposite "higher = better"
+> convention. The `EvolutionaryHarness` adapter bridges the two by reporting
+> `reward = -best_fitness_ever`, so a *decreasing* cost shows up as an *increasing*
+> reward (and the per-step reward is monotone non-decreasing, so its cumulative sum
+> integrates the optimisation trajectory). Inside a strategy you always think in
+> costs; only at the reporting boundary does the sign flip.
+
+## Bridging a host objective: the two adapters
+
+Most objectives are easiest to write as a plain scalar function on the host —
+`fn(&[f64]) -> f64`. Two adapters lift such a function into a
+`BatchFitnessFn<B, Tensor<B, 2>>` so it can drive a real-coded strategy:
+
+- **`FromLandscape<L>`** wraps a self-evaluating
+  `rlevo_core::fitness::Landscape` (one that carries its own
+  `evaluate(&[f64]) -> f64`). Reach for it when the landscape *is* the fitness
+  function — Sphere, Ackley, Rastrigin — and a separate evaluator would add
+  nothing.
+- **`FromFitnessEvaluable<FE, L>`** wraps an
+  `rlevo_core::fitness::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>` —
+  the case where an evaluator and a landscape type are defined *separately* (e.g.
+  a `RastriginEvaluator` paired with a `RastriginLandscape`).
+
+Both follow the same recipe per generation: pull each population row to host as
+`f32`, widen to `f64`, evaluate on the CPU row-by-row, and re-upload the results
+as one `Tensor<B, 1>` — preserving row order. They implement `BatchFitnessFn` only
+for `Tensor<B, 2>` (real genomes); discrete-genome objectives implement the trait
+directly.
+
+Two caveats live in the adapters, both inherent to the host round-trip:
+
+- **Precision.** Rows are read as `f32` and widened to `f64` for the call; the
+  `f64` result is narrowed back to `f32` before upload. An objective relying on
+  values outside `f32` range, or on sub-ulp precision, loses information at the
+  narrowing step.
+- **The round-trip itself.** Pulling the population to host and back costs a
+  device transfer every generation. A purpose-built landscape that stays on
+  device and implements `BatchFitnessFn` directly avoids it — the adapters are a
+  convenience for host-side objectives, not the fast path.
+
+Both panic if the population tensor is not rank 2, or if its data cannot be read
+as `f32` (e.g. an integer backend) — programming errors, documented as `# Panics`
+clauses in the spirit of `docs/rules.md`.
+
+> **The full adapter catalogue.** Beyond these two host adapters, `rlevo` ships
+> `ModuleEvalFn` (score a neural-network module per genome) and `RolloutFitness`
+> (run a policy in an environment), and you can implement `BatchFitnessFn`
+> directly for an on-device objective. [Wiring an Objective: Adapters and
+> Evaluators](../../appendix-d-suppl/objective-adapters.md) maps all of them with a
+> decision guide and a bring-your-own-objective walkthrough — start there if the
+> generics feel dense.
+
+> **Both `rlevo-core` traits state the cost convention.** `Landscape::evaluate`
+> and `FitnessEvaluable::evaluate` each document that they return a cost where
+> *lower is better*, matching the engine: the adapters pass the value through
+> **unchanged**, so a value you return as a cost is minimised directly. Every
+> shipped objective is written this way (the bundled `Sphere` evaluator returns a
+> sum of squares), and the docstrings spell out the rule for your own — negate any
+> genuinely maximisation-style objective before wrapping it.
+
+## Shaping the signal
+
+Raw fitness is sometimes a poor *training signal* even when it is a fine *score*.
+A handful of outlier costs can dominate a step; scale can drift wildly between
+generations. The `shaping` module offers two monotone, **RNG-free** transforms
+that operate directly on the `(pop_size,)` fitness tensor:
+
+| Transform | What it does | Why |
+| --------- | ------------ | --- |
+| `z_score` | centres to mean 0 and divides by population std-dev (floored at `1e-8`) | normalises scale across generations; degenerate all-equal populations map to zeros, not NaNs |
+| `centered_rank` | replaces each fitness with its rank, linearly spaced so the largest maps to `+0.5` and the smallest to `-0.5` | discards outlier *magnitudes*, keeping only order — the standard signal in modern ES (e.g. OpenAI-ES) |
+
+Both are pure functions of the fitness vector, so they compose freely and never
+touch the host RNG. They are *signal conditioning*, applied by strategies that
+consume fitness as a gradient-like update (the ES family); the comparison-based
+operators — tournament, truncation, elitist replacement — need only the ordering
+and use the raw costs directly.
+
+## Reading the result: `StrategyMetrics`
+
+`tell` returns a `StrategyMetrics` snapshot summarising the generation that just
+finished. Four fitness fields tell the story, all in the minimisation convention:
+
+- `best_fitness` — the smallest cost **this** generation;
+- `mean_fitness` — the generation's average cost;
+- `worst_fitness` — the largest cost this generation;
+- `best_fitness_ever` — the rolling minimum across **all** generations.
+
+The most informative reading is the *gap* between `best_fitness_ever` and
+`mean_fitness` in the final generation. A large gap signals **premature
+convergence** — a few elites found a good basin while the rest of the population is
+still scattered. A small gap means the whole population has settled near the same
+optimum. For landscapes with a known optimum (Ackley → 0), `best_fitness_ever`
+doubles as a direct "how close did we get" readout.
+
+## Putting it together
+
+Fitness is the contract between a genome and the objective: the harness evaluates
+a proposed population through a `BatchFitnessFn`, returns a row-aligned
+`(pop_size,)` cost tensor, and the strategy consumes it — always treating *lower
+as better*. Host-side objectives reach the engine through the `FromLandscape` and
+`FromFitnessEvaluable` adapters; ES-style strategies condition the raw signal with
+rank or z-score shaping; and `StrategyMetrics` reports the per-generation summary
+in the same minimisation convention. With representation
+([genome](22-genome.md)), variation ([operators](21-ops.md)), and evaluation
+(this chapter) all on the table, the last piece is the **strategy** itself — the
+`ask`/`tell` choreography that assembles selection, crossover, mutation, and
+replacement into a running generation.
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

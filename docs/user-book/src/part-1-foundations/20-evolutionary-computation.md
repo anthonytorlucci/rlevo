@@ -4,7 +4,7 @@ Evolutionary computation (EC) is a family of population-based optimization
 methods inspired by Darwinian natural selection. The common skeleton is:
 
 1. Maintain a **population** of candidate solutions.
-2. **Evaluate** each candidate with the objective function.
+2. **Evaluate** each candidate with the fitness function.
 3. **Select** candidates that performed better.
 4. **Vary** them (mutation, recombination) to produce the next population.
 5. Repeat until a budget is exhausted or a solution is good enough.
@@ -13,45 +13,50 @@ The key insight is that a *population* of candidates shares information across
 the search space simultaneously, while variation operators inject diversity that
 prevents premature convergence. Selection then amplifies what works.
 
-> **In `rlevo`.** Every algorithm in `rlevo::evo` implements the
-> `Strategy<B>` trait, which maps the five-step skeleton above to three
-> methods:
->
-> ```rust
-> pub trait Strategy<B: Backend>: Send + Sync {
->     type Params: Clone + Debug + Send + Sync;  // static run config
->     type State:  Clone + Debug + Send;          // generation-to-generation state
->     type Genome: Clone + Send;                  // genome container produced by ask
->
->     fn init(&self, params: &Self::Params, rng: &mut dyn Rng, device: &B::Device) -> Self::State;
->     fn ask (&self, params: &Self::Params, state: &Self::State, rng: &mut dyn Rng, device: &B::Device) -> (Self::Genome, Self::State);
->     fn tell(&self, params: &Self::Params, population: Self::Genome, fitness: Tensor<B, 1>, state: Self::State, rng: &mut dyn Rng) -> (Self::State, StrategyMetrics);
->     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
-> }
-> ```
->
-> `ask` proposes the next population (steps 3–4); `tell` consumes it together
-> with its fitness tensor and produces the next state (steps 2–3). The RNG is
-> passed explicitly so the harness owns all stochasticity — strategies carry no
-> internal PRNG state.
->
-> Genomes are stored on-device in a `Population<B, K>` wrapper, where the
-> const type parameter `K` is a zero-sized *genome kind* marker:
->
-> ```rust
-> pub struct Real;    // genes are f32 — used by GA, ES, DE, CMA-ES
-> pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
-> pub struct Integer; // genes are bounded non-negative integers
-> ```
->
-> The separation between the genome kind and the tensor type means operators
-> can specialize at compile time (e.g. Gaussian mutation only compiles for
-> `Real`; bit-flip mutation only compiles for `Binary`) without runtime dispatch.
->
-> Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
-> the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
-> themselves never call the objective function — the harness does — so the same
-> strategy implementation works against any landscape.
+**In `rlevo`.** Every algorithm in `rlevo::evo` implements the `Strategy<B>`
+trait, which maps the five-step skeleton onto four methods over three associated
+types (`Params`, the static run config; `State`, carried generation to
+generation; `Genome`, the population container):
+
+- `init` — sample the first population and build the initial state;
+- `ask` — propose the next population to evaluate (steps 3–4);
+- `tell` — consume that population with its fitness and produce the next state
+  (steps 2–3);
+- `best` — report the best solution found so far.
+
+The RNG is passed explicitly so the harness owns all stochasticity — strategies
+carry no internal PRNG state. The
+[Strategies](evolutionary-computation/24-strategy.md) chapter walks the full
+trait signature and traces a GA from `init` to convergence.
+
+Each genome is a *row* of an on-device rank-2 population tensor, and its *kind* —
+real, binary, or integer — is fixed at the type level by a zero-sized marker
+implementing the `GenomeKind` trait:
+
+```rust
+pub struct Real;    // genes are f32 — used by GA, ES, EP, DE
+pub struct Binary;  // genes are 0/1 i32 — used by binary GA and EDAs
+pub struct Integer; // genes are bounded non-negative integers — CGP, discrete search
+```
+
+The marker is a compile-time label, not stored data: it lets operators specialize
+without runtime dispatch (Gaussian mutation only compiles for `Real`; bit-flip
+only for `Binary`). Strategies carry the bare population tensor as their `Genome`
+associated type; the `Population<B, K>` wrapper pairs that tensor with its shape
+metadata and kind tag for use at API boundaries. The [Genome
+Representation](evolutionary-computation/22-genome.md) chapter is the full tour of
+the representation layer — the kind markers, the `Population` invariant, and the
+`ParamReshaper` bridge that turns a network's weights into an evolvable genome.
+
+Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
+the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
+themselves never call the objective function — the harness does — so the same
+strategy implementation works against any landscape. One convention runs through
+all of it: the engine treats fitness as a **cost to minimise** (lower is better).
+This is an internal contract of the evolution engine rather than a property of EAs
+in general — the [Fitness Evaluation](evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility)
+chapter shows where it is enforced and where pointing the objective the right way
+is your responsibility.
 
 <!-- additional context [Simon, 2013, p 2-3]
 Some authors use the term *evolutionary computation* to refer to EAs. This 
@@ -106,18 +111,24 @@ or binary genomes with three operators:
 - *Gaussian*: add \\(\mathcal{N}(0, \sigma^2)\\) noise to each gene.
 - *Uniform*: replace a gene with a random draw from its bounds.
 
-> **In `rlevo`.** All three operator families live in `rlevo::evo::ops`:
-> - `ops::selection` — tournament, rank-based, fitness-proportionate selectors
-> - `ops::crossover` — single-point, BLX-α, SBX (real); single-point (binary)
-> - `ops::mutation`  — Gaussian, uniform (real); bit-flip (binary)
+> **In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
+> implements a focused subset of them, organised by the role each plays in a
+> generation:
+> - `ops::selection` — tournament, truncation
+> - `ops::crossover` — BLX-α, uniform (real); uniform (binary)
+> - `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
+> - `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
 >
-> Each operator function takes a `Population<B, K>` and returns a new one,
-> leaving the input unchanged. Operator kind-specialization is enforced at the
-> type level: passing a `Population<B, Binary>` to a Gaussian mutation function
-> is a compile error.
+> Each operator is a free function that takes a population `Tensor<B, _>` and
+> returns a new one, leaving the input unchanged. Kind-specialization is enforced
+> at the type level: real-valued operators take `Tensor<B, 2>` and binary
+> operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
+> mutation is a compile error.
 >
-> [Appendix A](../appendix-a-ec-algorithms/index.md) gives the full GA
-> pseudocode as implemented, including elitism and boundary clamping.
+> The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
+> full tour of the catalogue and the conventions behind it; [Appendix
+> A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
+> assembles these operators end-to-end.
 
 <!-- [Simon, 2013, p. 188]
 This section discusses elitism, which is a way of making sure that the best 
@@ -132,28 +143,40 @@ generation to the next. This idea, first proposed by [De Jong, 1975], called
 *elitism* and usually improves the performance of an EA...
 -->
 
-## Evolution Strategies and CMA-ES
+## Evolution Strategies
 
-While GAs were designed with binary strings in mind, Evolution Strategies were
-designed from the outset for continuous domains. The key idea is that the
-mutation distribution should adapt to the landscape.
+While GAs were designed with binary strings in mind, Evolution Strategies (ES)
+were built from the outset for continuous domains. Their defining idea is
+**self-adaptation**: the mutation distribution is not fixed but evolves alongside
+the solution, so the search rescales its own step size as it homes in on an
+optimum.
 
-**CMA-ES** (Covariance Matrix Adaptation Evolution Strategy), introduced by
-Hansen and Ostermeier (2001) [[Hansen and Ostermeier, 2001]](#bibliography), maintains a full
-covariance matrix \\(\mathbf{C}\\) over the search space and updates it based on
-the direction of successful steps. Each generation samples a population from
-\\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\), selects the top \\(\mu\\)
-individuals, and updates \\(\mathbf{m}\\), \\(\sigma\\), and \\(\mathbf{C}\\):
+`rlevo` implements the **classical ES** family — four canonical variants, all
+parameterised by a single `EsConfig`:
 
-```math
-\mathbf{m}^{(g+1)} = \sum_{i=1}^{\mu} w_i \mathbf{x}_{i:\lambda}^{(g)}
-```
+- `(1+1)` — one parent, one offspring; step size \\(\sigma\\) adapted by
+  Rechenberg's **1/5th success rule**.
+- `(1+λ)` — one parent, λ offspring; the best offspring replaces the parent only
+  on improvement.
+- `(μ,λ)` — μ parents produce λ offspring; the parents are discarded each
+  generation.
+- `(μ+λ)` — survivors are the μ best of the combined parent-plus-offspring pool.
 
-where \\(\mathbf{x}_{i:\lambda}\\) denotes the \\(i\\)-th ranked individual
-out of \\(\lambda\\) samples, and \\(w_i\\) are recombination weights. CMA-ES
-is the de facto standard for continuous black-box optimisation and is considered
-the most powerful general-purpose single-objective EA for moderate dimensions
-(\\(n \lesssim 10^3\\)).
+The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation** —
+each individual mutates its own step size before mutating its genes. Derivations
+and pseudocode are in
+[Appendix A](../appendix-a-ec-algorithms/index.md).
+
+> **CMA-ES is on the roadmap, not in the crate.** The de facto standard for
+> continuous black-box optimisation — *Covariance Matrix Adaptation* ES (Hansen
+> and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) — goes
+> further than the classical variants: it maintains a full covariance matrix
+> \\(\mathbf{C}\\) over the search space and updates it from the direction of
+> successful steps, sampling each generation from
+> \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). `rlevo` does **not** yet
+> implement CMA-ES or CMSA-ES; the work is tracked in
+> [issue #59](https://github.com/anthonytorlucci/rlevo/issues/59). The classical
+> ES variants above are what ship today.
 
 <!-- [Simon, 2013, p 135] 
 ... The goal of CMA-ES, ..., is to fit (as well as possible) the distribution 
@@ -219,6 +242,39 @@ deceptive benchmark (Concatenated Trap) used to compare them are in
 - MIMIC (p. 324)
 -->
 
+## Other strategy families in `rlevo`
+
+The GA, ES, and EDA sections above cover three distinct *ideas* — recombination,
+self-adaptation, and explicit distribution learning — but the same `Strategy`
+contract backs a wider menagerie. Each ships today and is documented with full
+pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
+
+- **Differential Evolution (DE)** mutates by adding *scaled difference vectors*
+  between population members — a self-scaling scheme that needs no externally
+  tuned step size. `rlevo` ships the `Rand1Bin`, `Rand1Exp`, `Rand2Bin`,
+  `Best1Bin`, and `CurrentToBest1Bin` variants with greedy per-slot replacement.
+- **Evolutionary Programming (EP)** is Fogel-style, mutation-only evolution with
+  per-individual log-normal \\(\sigma\\) adaptation and q-tournament survivor
+  selection over a \\((\mu + \mu)\\) pool.
+- **Genetic programming** evolves programs rather than fixed-length vectors:
+  *Cartesian GP* (`gp_cgp`, an integer genome decoded to a computation graph) and
+  *Gene Expression Programming* (`gep`, a linear chromosome decoded to an
+  expression tree).
+- **Neuroevolution** evolves networks directly: `WeightOnly` evolves the
+  flattened weights of any Burn `Module` through the `ParamReshaper` bridge from
+  the [genome chapter](evolutionary-computation/22-genome.md); `ArchNas`
+  co-evolves which fixed-topology variant *and* its weights; `Neat` grows
+  topology from a minimal seed via speciation and innovation-aligned crossover.
+- **The memetic wrapper** wraps any real-valued strategy with per-individual
+  local search (hill-climbing, Nelder–Mead, simulated annealing) under
+  Lamarckian, Baldwinian, or partial-writeback policies.
+- **Swarm metaheuristics** include PSO, ABC, ACO (continuous `ACO_R`; a
+  permutation variant is stubbed), cuckoo search, and firefly. Four more — GWO,
+  WOA, Bat, and SSA — ship as *legacy comparators*: included for baselining, but
+  the module docs steer you to PSO (or CMA-ES / LSHADE once they land) for real
+  work, following [[Camacho-Villalón et al., 2023]](#bibliography) and
+  [[Sörensen, 2015]](#bibliography).
+
 ## Multi-Objective Optimisation
 
 Most real problems have more than one objective — faster *and* cheaper, higher
@@ -242,5 +298,5 @@ the research roadmap (see [Part III](../part-3-open-problems/02-research-directi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

@@ -95,6 +95,10 @@ path = "examples/evolution/eda_showcase.rs"
 name = "ch01_sphere_ga"
 path = "examples/book/ch01_sphere_ga.rs"
 
+[[example]]
+name = "ch03_dqn_cartpole"
+path = "examples/book/ch03_dqn_cartpole.rs"
+
 # Examples — evolution (co-evolution)
 [[example]]
 name = "competitive_predator_prey"

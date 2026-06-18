@@ -91,3 +91,8 @@ textbook where it was introduced or given its canonical treatment. We have aimed
 to be specific: a vague "as described in the literature" is less useful than
 "Watkins & Dayan (1992), Theorem 1." The [Bibliography](bibliography.md) collects
 all references in one place.
+
+---
+
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
+*Reviewed-By: (Human) Anthony Torlucci*

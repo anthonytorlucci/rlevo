@@ -82,10 +82,14 @@ pub trait FitnessEvaluable {
     /// `RastriginEvaluator` + `RastriginLandscape`).
     type Landscape;
 
-    /// Returns the scalar fitness of `individual` on `landscape`.
+    /// Returns the scalar fitness (cost) of `individual` on `landscape`.
     ///
-    /// Higher values must mean better fitness; callers may negate internally
-    /// if the landscape is formulated as a minimisation problem.
+    /// Fitness follows the **minimisation** convention used throughout the
+    /// optimisation stack: *lower values mean better fitness*, and
+    /// `rlevo-evolution` minimises this value directly (the
+    /// `FromFitnessEvaluable` adapter passes it through unchanged). Formulate a
+    /// genuinely maximisation-style objective (reward, accuracy, score) as a
+    /// cost by negating it before returning.
     fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
 }
 
@@ -101,6 +105,10 @@ pub trait FitnessEvaluable {
 /// a `BatchFitnessFn<B, Tensor<B, 2>>`, mirroring the row-by-row host
 /// evaluation that `FromFitnessEvaluable` performs.
 pub trait Landscape: Send + Sync {
-    /// Evaluates the landscape at point `x` and returns scalar fitness.
+    /// Evaluates the landscape at point `x` and returns scalar fitness (cost).
+    ///
+    /// Minimisation convention: *lower is better*. The bundled landscapes
+    /// (Sphere, Ackley, Rastrigin) are zero at their global optimum and
+    /// positive elsewhere.
     fn evaluate(&self, x: &[f64]) -> f64;
 }

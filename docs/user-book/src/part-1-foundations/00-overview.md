@@ -91,5 +91,5 @@ Where an algorithm or derivation deserves more than a summary, a callout box poi
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*

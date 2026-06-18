@@ -76,8 +76,8 @@ The sphere function minimised in Part II is unimodal and convex — an easy
 landscape chosen to show the mechanics. The Rastrigin and Rosenbrock functions
 (available in `rlevo::envs::landscapes`) are multimodal and non-separable
 respectively, and they are where evolutionary methods start to earn their keep.
-For a fuller tour of landscape geometry and the benchmark suite `rlevo` ships,
-see [Fitness Landscapes](../appendix-d-suppl/fitness-landscape.md) in Appendix D.
+For a more in-depth tour of landscape geometry and the benchmark suite `rlevo` ships,
+see [Fitness Landscapes](../appendix-d-suppl/fitness-landscape.md) in the Appendices.
 
 ## Exploitation vs Exploration
 
@@ -180,5 +180,5 @@ uses.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*
+*Co-Authored-By: Anthropic Claude Opus 4.8*\
 *Reviewed-By: (Human) Anthony Torlucci*
