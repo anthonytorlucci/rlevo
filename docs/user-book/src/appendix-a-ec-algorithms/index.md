@@ -15,7 +15,7 @@ are not enough.
 - [Evolution Strategies](evolution-strategies.md) — `(1+1)`, `(1+λ)`, `(μ,λ)`, `(μ+λ)` variants; 1/5th rule and log-normal σ adaptation
 - [Differential Evolution](differential-evolution.md) — `Rand1Bin`, `Rand1Exp`, `Rand2Bin`, `Best1Bin`, `CurrentToBest1Bin` variants; greedy per-slot replacement
 - [Evolutionary Programming](evolutionary-programming.md) — Fogel-style; per-individual log-normal σ adaptation, q-tournament survivor selection over `(μ + μ)` pool
-- CMA-ES and CMSA-ES — covariance matrix adaptation, path-length control, step-size adaptation *(tracked in [issue #59](https://github.com/anthonytorlucci/rlevo/issues/59))*
+- [CMA-ES and CMSA-ES](cma-es.md) — full covariance matrix adaptation; CSA path-length control and rank-1/rank-μ updates (CMA-ES) vs. per-individual log-normal σ and rank-μ ML blend (CMSA-ES)
 
 ## Estimation-of-distribution algorithms (EDAs)
 

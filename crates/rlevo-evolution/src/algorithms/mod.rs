@@ -4,6 +4,10 @@
 //!
 //! - [`ga`] / [`ga_binary`] — Genetic Algorithm (real- and binary-coded).
 //! - [`es_classical`] — (1+1), (1+λ), (μ,λ), (μ+λ) Evolution Strategies.
+//! - [`cma_es`] — Covariance Matrix Adaptation ES (CSA + evolution paths +
+//!   rank-1/rank-μ covariance updates).
+//! - [`cmsa_es`] — Covariance Matrix Self-Adaptation ES (path-free; per-individual
+//!   log-normal σ + rank-μ ML covariance blend).
 //! - [`de`] — Differential Evolution (rand/best/current-to-best × bin/exp).
 //! - [`ep`] — Evolutionary Programming (Fogel-style).
 //! - [`gp_cgp`] — Cartesian Genetic Programming.
@@ -28,6 +32,8 @@
 //! - [`neuroevolution`] — [`WeightOnly`](neuroevolution::WeightOnly): wraps any
 //!   real-valued strategy to evolve the flattened weights of a Burn `Module`.
 
+pub mod cma_es;
+pub mod cmsa_es;
 pub mod de;
 pub mod eda;
 pub mod ep;

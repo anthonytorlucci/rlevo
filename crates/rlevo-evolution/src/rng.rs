@@ -67,6 +67,13 @@ pub enum SeedPurpose {
     /// and crossover ([`Crossover`](Self::Crossover)) streams within the same
     /// generation.
     Transposition = 10,
+    /// Multivariate-Gaussian sampling in covariance-matrix strategies.
+    ///
+    /// Used by [`crate::algorithms::cma_es`] and
+    /// [`crate::algorithms::cmsa_es`] so each generation draws its `N(m, σ²C)`
+    /// offspring (and, for CMSA-ES, the per-individual log-normal σ mutations)
+    /// from a stream independent of every other operator purpose.
+    CmaSampling = 11,
 }
 
 impl SeedPurpose {
@@ -83,6 +90,7 @@ impl SeedPurpose {
             SeedPurpose::EdaSampling => 0xEDA0_5EED_BEEF_CAFE,
             SeedPurpose::Representative => 0xC0EA_5E1E_C7ED_0009,
             SeedPurpose::Transposition => 0x7A05_9051_70F0_000A,
+            SeedPurpose::CmaSampling => 0xC3A0_5EED_1AC0_B11B,
         }
     }
 }
@@ -156,6 +164,7 @@ mod tests {
         let d = seed_stream(42, 0, SeedPurpose::LocalSearch).next_u64();
         let e = seed_stream(42, 0, SeedPurpose::EdaSampling).next_u64();
         let f = seed_stream(42, 0, SeedPurpose::Representative).next_u64();
+        let g = seed_stream(42, 0, SeedPurpose::CmaSampling).next_u64();
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
@@ -168,6 +177,11 @@ mod tests {
         assert_ne!(d, e);
         assert_ne!(a, f);
         assert_ne!(e, f);
+        // CmaSampling is distinct from every other purpose stream.
+        assert_ne!(g, a);
+        assert_ne!(g, c);
+        assert_ne!(g, e);
+        assert_ne!(g, f);
     }
 
     #[test]
