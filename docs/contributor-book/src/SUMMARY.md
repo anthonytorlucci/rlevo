@@ -13,6 +13,7 @@
 - [Dependency discipline](ch09-dependency-discipline.md)
 - [Linting and CI](ch10-linting-and-ci.md)
 - [Documentation standards](ch11-documentation-standards.md)
+- [User-book style](ch12-user-book-style.md)
 
 ---
 
