@@ -123,6 +123,17 @@ The fastest way to internalise this: change one thing and re-run.
   struggle is exactly what the stronger strategies in
   [Appendix A](../appendix-a-ec-algorithms/index.md) (CMA-ES, differential
   evolution, the EDAs) are built to handle.
+
+> **Reach for CMA-ES on the hard bowls.** When the GA stalls on `Rosenbrock`'s
+> bent valley or `Rastrigin`'s ill-conditioned ripples, the standard next step is
+> [CMA-ES](../appendix-a-ec-algorithms/cma-es.md). It adapts a full covariance
+> matrix to the landscape's *shape* — rotating and stretching the search
+> distribution to follow a bent valley instead of fighting the coordinate axes —
+> which makes it the strongest general-purpose baseline for low-to-medium `D`
+> (≲ 30). On multimodal landscapes, a larger population (`λ`) helps it find the
+> right basin. Its path-free cousin **CMSA-ES** is the simpler alternative when
+> you want fewer moving parts. Both are drop-in `Strategy` swaps: same harness,
+> same ask/tell loop, only the config type changes.
 - **Crank the population down** to `pop_size: 8` and watch it stall — too few
   candidates can't cover an 8-D box.
 - **Kill elitism** (`GaReplacement::Generational`) and watch the best score

@@ -167,16 +167,40 @@ each individual mutates its own step size before mutating its genes. Derivations
 and pseudocode are in
 [Appendix A](../appendix-a-ec-algorithms/index.md).
 
-> **CMA-ES is on the roadmap, not in the crate.** The de facto standard for
-> continuous black-box optimisation — *Covariance Matrix Adaptation* ES (Hansen
-> and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) — goes
-> further than the classical variants: it maintains a full covariance matrix
-> \\(\mathbf{C}\\) over the search space and updates it from the direction of
-> successful steps, sampling each generation from
-> \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). `rlevo` does **not** yet
-> implement CMA-ES or CMSA-ES; the work is tracked in
-> [issue #59](https://github.com/anthonytorlucci/rlevo/issues/59). The classical
-> ES variants above are what ship today.
+### Covariance Matrix Adaptation
+
+The classical variants adapt a single scalar \\(\sigma\\) — they can rescale the
+search, but not *reshape* it. **CMA-ES** (Covariance Matrix Adaptation ES; Hansen
+and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) and its
+self-adaptive cousin **CMSA-ES** (Beyer and Sendhoff, 2008)
+[[Beyer and Sendhoff, 2008]](#bibliography) go further: they maintain a full
+covariance matrix \\(\mathbf{C}\\) over the search space and sample each
+generation from \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). The contour
+ellipses of \\(\mathbf{C}\\) rotate and stretch to match the local landscape, so
+a narrow diagonal valley or a rotated, ill-conditioned bowl is searched along its
+*natural* axes rather than the coordinate axes. This shape-learning is what makes
+CMA-ES the de facto standard for continuous black-box optimisation at
+low-to-medium dimensionality. Both ship in `rlevo::evo` today.
+
+Two ideas do the work, and CMA-ES keeps them deliberately separate:
+
+- **Covariance adaptation** learns the *shape* of good steps. Successful
+  offspring directions are accumulated into \\(\mathbf{C}\\) — a rank-1 term from
+  an *evolution path* plus a rank-μ term from the current generation — so the
+  distribution elongates along directions that have been paying off.
+- **Step-size control** learns the *scale* independently. A separate conjugate
+  path tracks whether consecutive steps reinforce or cancel: aligned steps grow
+  \\(\sigma\\) (speed up), cancelling steps shrink it (refine). Decoupling scale
+  from shape lets the search take long strides early and fine steps near the
+  optimum.
+
+**CMSA-ES** keeps the covariance idea but drops the evolution paths, replacing
+step-size control with the same per-individual log-normal σ-self-adaptation the
+classical multi-parent variants use — a simpler, path-free alternative at a small
+cost in convergence speed (the two strategies share the self-adaptation
+*mechanism* but use different learning-rate constants). The full update
+equations, default parameters, and a when-to-use table are in
+[Appendix A: CMA-ES and CMSA-ES](../appendix-a-ec-algorithms/cma-es.md).
 
 <!-- [Simon, 2013, p 135] 
 ... The goal of CMA-ES, ..., is to fit (as well as possible) the distribution 
@@ -242,6 +266,25 @@ deceptive benchmark (Concatenated Trap) used to compare them are in
 - MIMIC (p. 324)
 -->
 
+### Where CMA-ES sits: the ES ↔ EDA spectrum
+
+CMA-ES blurs the line between the two families above. A full-covariance Gaussian
+EDA fits its distribution by **maximum likelihood** on the selected elite — mean
+and covariance are *overwritten* each generation from the current crop. Strip
+CMA-ES of its evolution paths and force its learning rates to 1 and it collapses
+to exactly that: a continuous EDA (EMNA). What keeps CMA-ES on the *ES* side of
+the line is **memory** — it does not overwrite \\(\mathbf{C}\\) and \\(\sigma\\)
+but blends each generation's estimate into accumulated evolution paths, a fading
+momentum that records which directions have been paying off.
+
+So the spectrum runs from memoryless density estimation (EDA) to path-driven,
+momentum-carrying adaptation (CMA-ES), with **CMSA-ES** sitting between them: it
+learns covariance like CMA-ES but adapts its step size by self-adaptation rather
+than path-tracking. `rlevo` keeps the families architecturally distinct for this
+reason — EDAs implement the `fit → sample` `ProbabilityModel` trait, while
+CMA-ES and CMSA-ES are self-contained strategies whose path machinery does not
+fit that mould (ADR 0021).
+
 ## Other strategy families in `rlevo`
 
 The GA, ES, and EDA sections above cover three distinct *ideas* — recombination,
@@ -271,7 +314,7 @@ pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
 - **Swarm metaheuristics** include PSO, ABC, ACO (continuous `ACO_R`; a
   permutation variant is stubbed), cuckoo search, and firefly. Four more — GWO,
   WOA, Bat, and SSA — ship as *legacy comparators*: included for baselining, but
-  the module docs steer you to PSO (or CMA-ES / LSHADE once they land) for real
+  the module docs steer you to PSO or CMA-ES (or LSHADE once it lands) for real
   work, following [[Camacho-Villalón et al., 2023]](#bibliography) and
   [[Sörensen, 2015]](#bibliography).
 

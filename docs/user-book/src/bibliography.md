@@ -9,6 +9,10 @@ Oxford University Press.
 **[Beyer and Schwefel, 2002]** Beyer, H.-G., & Schwefel, H.-P. (2002). Evolution
 strategies — a comprehensive introduction. *Natural Computing*, 1(1), 3–52.
 
+**[Beyer and Sendhoff, 2008]** Beyer, H.-G., & Sendhoff, B. (2008). Covariance
+matrix adaptation revisited — the CMSA evolution strategy. In *Parallel Problem
+Solving from Nature (PPSN X)*, LNCS 5199, 123–132. Springer.
+
 **[Camacho-Villalón et al., 2023]** Camacho-Villalón, C. L., Dorigo, M., &
 Stützle, T. (2023). Exposing the grey wolf, moth-flame, whale, firefly, bat, and
 antlion algorithms: Six misleading optimization techniques inspired by bestial

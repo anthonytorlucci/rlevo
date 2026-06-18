@@ -55,6 +55,13 @@ where \\(\tau = 1 / \sqrt{2\sqrt{D}}\\) is the standard learning rate
 (Beyer & Schwefel, 2002). Larger populations learn a better σ faster because
 more diverse trials give a richer gradient signal.
 
+> **Shared mechanism, different constant.** This same log-normal
+> σ-self-adaptation drives [CMSA-ES](cma-es.md), which reuses the rule with its
+> own learning rate \\(\tau = 1/\sqrt{2D}\\) rather than the classical
+> \\(1/\sqrt{2\sqrt{D}}\\) above. Full [CMA-ES](cma-es.md) instead replaces
+> self-adaptation with cumulative step-size adaptation (CSA) and adds a full
+> covariance matrix — see the [CMA-ES and CMSA-ES](cma-es.md) appendix for both.
+
 ## Configuration
 
 ```rust,no_run
@@ -201,7 +208,9 @@ not portable across variants.
 | Continuous optimisation, low to medium D (≤ 30) | `(μ+λ)` with `mu = 5, lambda = 20` is a strong default |
 | Very cheap function evaluations | `(1+1)` — minimal overhead per generation |
 | Noisy fitness evaluations | `(μ,λ)` — discarding parents avoids locking to a noisy incumbent |
-| High dimensionality (D > 30) | CMA-ES adapts per-dimension step sizes and covariance; classical ES degrades |
+| Ill-conditioned / rotated landscape | [CMA-ES](cma-es.md) learns the covariance, so it searches along the landscape's natural axes |
+| Want the strongest general-purpose default | [CMA-ES](cma-es.md) for D ≤ 30; [CMSA-ES](cma-es.md) for a simpler, path-free variant |
+| High dimensionality (D ≫ 30) | Classical ES degrades; [CMA-ES](cma-es.md)'s covariance also grows costly (\\(O(D^3)\\)) — a separable variant is the right tool (deferred) |
 | Multi-modal landscape | Increase λ; consider `(μ,λ)` for more exploration |
 | Need crossover / schema recombination | [Real-Valued GA](real-valued-genetic-algorithm.md) |
 | Discrete / binary search space | [Binary GA](binary-encoded-genetic-algorithm.md) |
