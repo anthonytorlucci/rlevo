@@ -7,6 +7,8 @@
 //! - [`mutation`] — variation (Gaussian, Cauchy, uniform-reset).
 //! - [`replacement`] — survivor selection (generational, elitist,
 //!   (μ+λ), (μ,λ)).
+//! - [`linalg`] — host-side dense linear algebra (Jacobi eigendecomposition,
+//!   Cholesky) for the covariance-matrix strategies.
 //!
 //! The [`kernels`] submodule houses custom `CubeCL` fused kernels (empty
 //! for now; see the `custom-kernels` crate feature).
@@ -17,6 +19,7 @@
 
 pub mod crossover;
 pub mod kernels;
+pub mod linalg;
 pub mod mutation;
 pub mod replacement;
 pub mod selection;
