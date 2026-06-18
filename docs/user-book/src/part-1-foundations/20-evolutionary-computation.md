@@ -111,24 +111,24 @@ or binary genomes with three operators:
 - *Gaussian*: add \\(\mathcal{N}(0, \sigma^2)\\) noise to each gene.
 - *Uniform*: replace a gene with a random draw from its bounds.
 
-> **In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
-> implements a focused subset of them, organised by the role each plays in a
-> generation:
-> - `ops::selection` — tournament, truncation
-> - `ops::crossover` — BLX-α, uniform (real); uniform (binary)
-> - `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
-> - `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
->
-> Each operator is a free function that takes a population `Tensor<B, _>` and
-> returns a new one, leaving the input unchanged. Kind-specialization is enforced
-> at the type level: real-valued operators take `Tensor<B, 2>` and binary
-> operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
-> mutation is a compile error.
->
-> The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
-> full tour of the catalogue and the conventions behind it; [Appendix
-> A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
-> assembles these operators end-to-end.
+**In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
+implements a focused subset of them, organised by the role each plays in a
+generation:
+- `ops::selection` — tournament, truncation
+- `ops::crossover` — BLX-α, uniform (real); uniform (binary)
+- `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
+- `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
+
+Each operator is a free function that takes a population `Tensor<B, _>` and
+returns a new one, leaving the input unchanged. Kind-specialization is enforced
+at the type level: real-valued operators take `Tensor<B, 2>` and binary
+operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
+mutation is a compile error.
+
+The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
+full tour of the catalogue and the conventions behind it; [Appendix
+A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
+assembles these operators end-to-end.
 
 <!-- [Simon, 2013, p. 188]
 This section discusses elitism, which is a way of making sure that the best 
@@ -232,31 +232,31 @@ genes that no marginal model would find.
 deceptive benchmark (Concatenated Trap) used to compare them are in
 [Appendix A](../appendix-a-ec-algorithms/index.md).
 
-> **In `rlevo`.** The fit → sample loop is captured by the `ProbabilityModel`
-> trait, which is separate from `Strategy`. `EdaStrategy<B, M>` is a generic
-> driver that implements `Strategy<B>` for any `M: ProbabilityModel<B>`:
->
-> ```rust
-> pub trait ProbabilityModel<B: Backend> {
->     type Params;
->     type State: Clone + Debug + Send + Sync;
->
->     /// Fit the model to the selected (top-μ) population.
->     /// `prev = None` on the first generation; the model builds its prior from `params`.
->     fn fit(&self, params: &Self::Params, population: &Tensor<B, 2>,
->            fitness: Tensor<B, 1>, prev: Option<&Self::State>) -> Self::State;
->
->     /// Sample n new candidates from the fitted model using the host RNG.
->     fn sample(&self, params: &Self::Params, state: &Self::State,
->               n: usize, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2>;
-> }
-> ```
->
-> All randomness in `sample` comes from the host `rng`; implementations must
-> never call `Tensor::random` or `B::seed` (Burn's GPU PRNG kernels share
-> process-global state and would interleave across parallel strategy instances).
-> Swapping one EDA for another is a one-line type change: `EdaStrategy<B, UnivariateGaussian>`
-> → `EdaStrategy<B, BayesianNetwork>`.
+**In `rlevo`.** The fit → sample loop is captured by the `ProbabilityModel`
+trait, which is separate from `Strategy`. `EdaStrategy<B, M>` is a generic
+driver that implements `Strategy<B>` for any `M: ProbabilityModel<B>`:
+
+```rust
+pub trait ProbabilityModel<B: Backend> {
+    type Params;
+    type State: Clone + Debug + Send + Sync;
+
+    /// Fit the model to the selected (top-μ) population.
+    /// `prev = None` on the first generation; the model builds its prior from `params`.
+    fn fit(&self, params: &Self::Params, population: &Tensor<B, 2>,
+           fitness: Tensor<B, 1>, prev: Option<&Self::State>) -> Self::State;
+
+    /// Sample n new candidates from the fitted model using the host RNG.
+    fn sample(&self, params: &Self::Params, state: &Self::State,
+              n: usize, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2>;
+}
+```
+
+All randomness in `sample` comes from the host `rng`; implementations must
+never call `Tensor::random` or `B::seed` (Burn's GPU PRNG kernels share
+process-global state and would interleave across parallel strategy instances).
+Swapping one EDA for another is a one-line type change: `EdaStrategy<B, UnivariateGaussian>`
+→ `EdaStrategy<B, BayesianNetwork>`.
 
 <!-- see [Simon, 2013] 
 - Estimation of Distribution Algorithms (p. 313)

@@ -13,6 +13,11 @@ distribution — the contour ellipses of \\(C\\) rotate and stretch to match the
 local landscape, which is what makes them the strongest general-purpose
 black-box optimisers for low-to-medium dimensionality.
 
+<!--Simon, 2013, p.135
+... The idea of CMSA-ES is to learn the shape of the search space during 
+evolution, and adapt the mutation variance.
+-->
+
 Both ship as self-contained `Strategy<B>` implementations and slot into the
 `EvolutionaryHarness` unchanged.
 
@@ -125,6 +130,36 @@ selected mutation directions, with time constant \\(\tau_c\\):
 ```math
 C \leftarrow \left(1 - \frac{1}{\tau_c}\right) C + \frac{1}{\tau_c} \cdot \frac{1}{\mu} \sum_{i=1}^{\mu} s_{(i)} s_{(i)}^\top
 ```
+
+## Pseudocode
+
+This follows Simon (2013, Fig. 6.17), the CMSA-ES outline. Here \\(\mu\\) is the
+number of parents recombined and \\(\lambda\\) the number of offspring sampled
+per generation.
+
+---
+
+Initialize constants \\(\tau\\) and \\(\tau_c\\)\
+\\(C \leftarrow I = n \times n\\) identity matrix\
+\\(\\{ (x_k, \sigma_k) \\} \leftarrow\\) randomly generated individuals, \\(k \in [1, \mu]\\)\
+Each \\(x_k\\) is a candidate solution, and each \\(\sigma_k\\) is a standard deviation.\
+Note that \\(x_k \in \mathbb{R}^n\\) and \\(\sigma_k \in \mathbb{R}\\).\
+While not(termination criterion):\
+\\(\qquad \bar{\sigma} \leftarrow \sum_{k=1}^{\mu} \sigma_k / \mu\\)\
+\\(\qquad \bar{x} \leftarrow \sum_{k=1}^{\mu} x_k / \mu\\)\
+\\(\qquad \text{For} k = 1, \dots, \lambda\\):\
+\\(\qquad \qquad r \leftarrow \mathcal{N}(0, 1)\\) — Gaussian random scalar\
+\\(\qquad \qquad \sigma_k \leftarrow \bar{\sigma}\, \exp(r\tau)\\)\
+\\(\qquad \qquad R \leftarrow \mathcal{N}(0, I)\\) — \\(n\\)-dimensional Gaussian random vector\
+\\(\qquad \qquad s_k \leftarrow \sqrt{C}\, R\\)\
+\\(\qquad \qquad z_k \leftarrow \sigma_k s_k\\)\
+\\(\qquad \qquad x_k \leftarrow \bar{x} + z_k\\)\
+\\(\qquad \text{Next} k\\)\
+\\(\qquad \hat{S} \leftarrow \sum_{k=1}^{\lambda} s_k s_k^\top / \lambda\\)\
+\\(\qquad C \leftarrow (1 - 1/\tau_c)\, C + \hat{S}/\tau_c\\)\
+Next generation
+
+---
 
 ## Configuration
 
