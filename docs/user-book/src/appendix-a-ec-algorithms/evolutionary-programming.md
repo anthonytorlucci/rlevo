@@ -32,12 +32,17 @@ wins survive; ties are broken by fitness. Higher `tournament_q` increases
 selection pressure toward better individuals; lower values preserve more
 diversity. The default `tournament_q = 10` is the value from Fogel (1995).
 
-**σ adaptation timing.** In EP, σ is adapted *before* mutation (the updated σ'
-is what drives the offspring perturbation). In the multi-parent ES variants σ
-is adapted at the same time but the per-individual σ update is applied to
-produce offspring σ values that survive only if their carrier survives. The
-practical difference is small, but it means EP's σ values reflect the *current
-generation's* spread rather than the previous generation's.
+**σ self-adaptation.** EP uses the *same* self-adaptation mechanism as the
+[multi-parent ES variants](evolution-strategies.md#log-normal-sigma-adaptation),
+with the same ordering: each individual's σ is perturbed log-normally *first*,
+and the updated σ' is what drives that individual's gene mutation — so the σ
+being selected is the one that actually produced the offspring. Survivor σ are
+inherited, not reset: `tell` selects each survivor's σ alongside its genome from
+the combined pool, so a well-scaled σ propagates with its carrier. EP's
+distinguishing feature is therefore **not** how σ adapts but how survivors are
+chosen — q-tournament over the `2μ` pool rather than deterministic truncation —
+together with its fixed `μ + μ` reproduction (each parent yields exactly one
+offspring).
 
 ## Configuration
 

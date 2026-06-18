@@ -162,10 +162,37 @@ parameterised by a single `EsConfig`:
   generation.
 - `(μ+λ)` — survivors are the μ best of the combined parent-plus-offspring pool.
 
-The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation** —
-each individual mutates its own step size before mutating its genes. Derivations
-and pseudocode are in
-[Appendix A](../appendix-a-ec-algorithms/index.md).
+The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation**,
+and it is worth pausing on what *self-adaptation* means, because it is the idea
+that distinguishes ES from a method like the \\((1+1)\\) 1/5th rule. The 1/5th
+rule is an external controller: it observes the success rate and rescales
+\\(\sigma\\) by an explicit formula. Self-adaptation has no such controller.
+Instead, each individual stores its own step size \\(\sigma\\) *inside the
+genome*, alongside the object variables \\(\mathbf{x}\\), and \\(\sigma\\) is
+subject to the same selection pressure as \\(\mathbf{x}\\). Selection only ever
+scores the fitness of the mutated genes — yet individuals that happen to carry a
+well-scaled \\(\sigma\\) tend to produce fitter offspring, survive, and carry
+that \\(\sigma\\) forward. Good step sizes are thus selected *indirectly*, as a
+side effect of the offspring they generate surviving.
+
+The mechanism is a two-step mutation. First the step size is perturbed
+multiplicatively by a log-normal factor, then the *new* step size drives the
+gene mutation:
+
+```math
+\sigma' = \sigma \cdot \exp(\tau \, \mathcal{N}(0, 1)),
+\qquad
+\mathbf{x}' = \mathbf{x} + \sigma' \, \mathcal{N}(0, \mathbf{I}).
+```
+
+The order is the crux: mutating \\(\sigma\\) *before* \\(\mathbf{x}\\) ties each
+step size to the step it actually produced, so selection can judge it. Perturb
+\\(\sigma\\) afterwards and the surviving \\(\sigma'\\) would never have been
+tested by the move it took. The log-normal form is what keeps the scheme
+well-behaved — it holds \\(\sigma\\) strictly positive and is unbiased in
+log-space, so absent selection \\(\sigma\\) drifts neither up nor down. The full
+rationale, the per-coordinate generalisation, and pseudocode are in
+[Appendix A](../appendix-a-ec-algorithms/evolution-strategies.md#log-normal-sigma-adaptation).
 
 ### Covariance Matrix Adaptation
 
