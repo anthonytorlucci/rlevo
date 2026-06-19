@@ -1,4 +1,4 @@
-//! Co-evolutionary algorithms (phase 3c).
+//! Co-evolutionary algorithms.
 //!
 //! Two populations evolve **simultaneously**, and each individual's fitness
 //! depends on the *other* population. Two regimes ship in v1:

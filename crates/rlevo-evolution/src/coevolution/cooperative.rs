@@ -10,9 +10,9 @@
 //! # Where the coupling lives
 //!
 //! Representative selection and full-genome assembly live in
-//! [`CooperativeCoEA::step`] — the *algorithm* owns the coupling, exactly
-//! where the spec places [`RepresentativePolicy`] (in
-//! [`CooperativeCoEAParams`]). The [`CoupledFitness`] stays a pure, stateless
+//! [`CooperativeCoEA::step`] — the *algorithm* owns the coupling, alongside
+//! [`RepresentativePolicy`] (in [`CooperativeCoEAParams`]). The
+//! [`CoupledFitness`] stays a pure, stateless
 //! row-wise objective (e.g. Rastrigin): it receives already-assembled
 //! full-dimensional populations and never performs selection or holds a lock.
 
@@ -34,8 +34,8 @@ use super::{CoEAState, CoEvolutionaryAlgorithm};
 /// Which member of the opposing population completes a partial candidate
 /// during fitness evaluation.
 ///
-/// Per research note 3c-R1, these map onto coupling strategies: `Best` is the
-/// canonical CCGA single representative; `Random` is sampled coupling with a
+/// These map onto the standard CCGA coupling strategies: `Best` is the
+/// canonical single representative; `Random` is sampled coupling with a
 /// fresh draw per generation; `Archive` keeps a bounded ring of past
 /// champions and cycles through it.
 #[derive(Clone, Copy, Debug, Default)]

@@ -1,4 +1,4 @@
-//! AC §7.4 — `CoEvolutionaryHarness` is driven by the `rlevo-benchmarks`
+//! `CoEvolutionaryHarness` is driven by the `rlevo-benchmarks`
 //! evaluator without modification.
 //!
 //! A competitive predator–prey co-evolution is wrapped in a

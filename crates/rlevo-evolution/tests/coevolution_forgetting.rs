@@ -1,4 +1,4 @@
-//! AC §7.3 — hall-of-fame mitigation prevents *forgetting* in a competitive
+//! Hall-of-fame mitigation prevents *forgetting* in a competitive
 //! host–parasite coverage game over a non-stationary regime (Hillis 1990).
 //!
 //! Pure rock-paper-scissors is payoff-symmetric — every strategy's winrate
@@ -260,7 +260,7 @@ fn forgetting_sweep(seeds: &[u64], blend: f32) -> (Vec<f32>, Vec<f32>) {
     (no_hof, with_hof)
 }
 
-/// AC §7.3: the shipped average-blend [`HallOfFameFitness`] (blend `0.3`)
+/// The shipped average-blend [`HallOfFameFitness`] (blend `0.3`)
 /// prevents *forgetting* — the solver retains coverage of every regime target
 /// — while without it the solver forgets targets as the regime cycles.
 #[test]

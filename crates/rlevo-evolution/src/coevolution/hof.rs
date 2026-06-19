@@ -28,7 +28,7 @@ use super::fitness::CoupledFitness;
 /// champions seen across the whole run.
 ///
 /// The capacity is computed by [`capacity_for`](Self::capacity_for) as
-/// `max(10, pop_size / 5)` (Rosin & Belew sizing, per research note 3c-R1).
+/// `max(10, pop_size / 5)` (Rosin & Belew sizing).
 ///
 /// # Invariants
 ///
