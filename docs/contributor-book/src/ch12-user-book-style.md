@@ -74,6 +74,40 @@ stale or wrong, fix the source in the same change — do not let the two drift.
 Conversely, a code change that invalidates a user-book claim should update the
 book.
 
+## Frame algorithms by merit, not metaphor
+
+`rlevo` ships several metaphor-based metaheuristics — the Firefly Algorithm,
+Grey Wolf Optimizer, Whale Optimization Algorithm, Bat Algorithm, and Salp
+Swarm Algorithm. The scholarly critique of this family (Sörensen, 2015;
+Camacho-Villalón et al., 2020, 2023) shows that most introduce no search
+mechanism absent from earlier algorithms such as PSO. The user-book reflects
+that honestly: these pages are framed as **legacy comparators**.
+
+When documenting such an algorithm:
+
+- **Lead with the candid assessment, not the metaphor.** State early that it is
+  a legacy comparator and *why* — name the specific mechanism it reduces to and
+  cite the critique paper. Do not let the pack-hunting or bioluminescence story
+  carry the page.
+- **Cite the precise critique.** The reductions are per-algorithm, not a blanket
+  claim. GWO, WOA, Bat, and Firefly are covered by Camacho-Villalón et al.
+  (2020/2023) as PSO-equivalent; Salp Swarm carries a *different* caveat —
+  Castelli et al. (2022) show its leader update is shift-variant, a
+  mathematical-correctness flaw rather than PSO-equivalence. Match the citation
+  to the algorithm.
+- **Recommend the stronger default.** Point the reader to PSO for general
+  continuous work and CMA-ES when precision matters, rather than leaving the
+  comparator looking like a recommendation.
+- **Close with the framing, honestly.** The appendix pages end the "When to use"
+  table with a one-sentence critique paragraph naming the relevant literature.
+
+This mirrors the `# Candor` rustdoc sections in the strategy sources
+(`crates/rlevo-evolution/src/algorithms/metaheuristic/*.rs`) and the
+metaheuristic module `README.md`; keep the user-book framing, the rustdoc
+candor note, and the README calibration table in agreement. The
+[Appendix A](https://github.com/anthonytorlucci/rlevo/tree/main/docs/user-book/src/appendix-a-ec-algorithms)
+metaheuristic pages are the worked exemplars.
+
 ## Verify rendering with a build
 
 Never assert how a page renders — build it and check the output:
