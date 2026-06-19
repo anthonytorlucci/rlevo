@@ -111,24 +111,24 @@ or binary genomes with three operators:
 - *Gaussian*: add \\(\mathcal{N}(0, \sigma^2)\\) noise to each gene.
 - *Uniform*: replace a gene with a random draw from its bounds.
 
-> **In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
-> implements a focused subset of them, organised by the role each plays in a
-> generation:
-> - `ops::selection` — tournament, truncation
-> - `ops::crossover` — BLX-α, uniform (real); uniform (binary)
-> - `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
-> - `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
->
-> Each operator is a free function that takes a population `Tensor<B, _>` and
-> returns a new one, leaving the input unchanged. Kind-specialization is enforced
-> at the type level: real-valued operators take `Tensor<B, 2>` and binary
-> operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
-> mutation is a compile error.
->
-> The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
-> full tour of the catalogue and the conventions behind it; [Appendix
-> A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
-> assembles these operators end-to-end.
+**In `rlevo`.** The operators above are a textbook menu; `rlevo::evo::ops`
+implements a focused subset of them, organised by the role each plays in a
+generation:
+- `ops::selection` — tournament, truncation
+- `ops::crossover` — BLX-α, uniform (real); uniform (binary)
+- `ops::mutation`  — Gaussian (scalar and per-row), uniform-reset (real); bit-flip (binary)
+- `ops::replacement` — generational, elitist, (μ + λ), (μ, λ) survivor selection
+
+Each operator is a free function that takes a population `Tensor<B, _>` and
+returns a new one, leaving the input unchanged. Kind-specialization is enforced
+at the type level: real-valued operators take `Tensor<B, 2>` and binary
+operators take `Tensor<B, 2, Int>`, so passing a binary genome to Gaussian
+mutation is a compile error.
+
+The [Evolutionary Operators](evolutionary-computation/21-ops.md) chapter is a
+full tour of the catalogue and the conventions behind it; [Appendix
+A](../appendix-a-ec-algorithms/index.md) gives the GA and ES pseudocode that
+assembles these operators end-to-end.
 
 <!-- [Simon, 2013, p. 188]
 This section discusses elitism, which is a way of making sure that the best 
@@ -162,21 +162,72 @@ parameterised by a single `EsConfig`:
   generation.
 - `(μ+λ)` — survivors are the μ best of the combined parent-plus-offspring pool.
 
-The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation** —
-each individual mutates its own step size before mutating its genes. Derivations
-and pseudocode are in
-[Appendix A](../appendix-a-ec-algorithms/index.md).
+The multi-parent variants adapt \\(\sigma\\) by **log-normal self-adaptation**,
+and it is worth pausing on what *self-adaptation* means, because it is the idea
+that distinguishes ES from a method like the \\((1+1)\\) 1/5th rule. The 1/5th
+rule is an external controller: it observes the success rate and rescales
+\\(\sigma\\) by an explicit formula. Self-adaptation has no such controller.
+Instead, each individual stores its own step size \\(\sigma\\) *inside the
+genome*, alongside the object variables \\(\mathbf{x}\\), and \\(\sigma\\) is
+subject to the same selection pressure as \\(\mathbf{x}\\). Selection only ever
+scores the fitness of the mutated genes — yet individuals that happen to carry a
+well-scaled \\(\sigma\\) tend to produce fitter offspring, survive, and carry
+that \\(\sigma\\) forward. Good step sizes are thus selected *indirectly*, as a
+side effect of the offspring they generate surviving.
 
-> **CMA-ES is on the roadmap, not in the crate.** The de facto standard for
-> continuous black-box optimisation — *Covariance Matrix Adaptation* ES (Hansen
-> and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) — goes
-> further than the classical variants: it maintains a full covariance matrix
-> \\(\mathbf{C}\\) over the search space and updates it from the direction of
-> successful steps, sampling each generation from
-> \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). `rlevo` does **not** yet
-> implement CMA-ES or CMSA-ES; the work is tracked in
-> [issue #59](https://github.com/anthonytorlucci/rlevo/issues/59). The classical
-> ES variants above are what ship today.
+The mechanism is a two-step mutation. First the step size is perturbed
+multiplicatively by a log-normal factor, then the *new* step size drives the
+gene mutation:
+
+```math
+\sigma' = \sigma \cdot \exp(\tau \, \mathcal{N}(0, 1)),
+\qquad
+\mathbf{x}' = \mathbf{x} + \sigma' \, \mathcal{N}(0, \mathbf{I}).
+```
+
+The order is the crux: mutating \\(\sigma\\) *before* \\(\mathbf{x}\\) ties each
+step size to the step it actually produced, so selection can judge it. Perturb
+\\(\sigma\\) afterwards and the surviving \\(\sigma'\\) would never have been
+tested by the move it took. The log-normal form is what keeps the scheme
+well-behaved — it holds \\(\sigma\\) strictly positive and is unbiased in
+log-space, so absent selection \\(\sigma\\) drifts neither up nor down. The full
+rationale, the per-coordinate generalisation, and pseudocode are in
+[Appendix A](../appendix-a-ec-algorithms/evolution-strategies.md#log-normal-sigma-adaptation).
+
+### Covariance Matrix Adaptation
+
+The classical variants adapt a single scalar \\(\sigma\\) — they can rescale the
+search, but not *reshape* it. **CMA-ES** (Covariance Matrix Adaptation ES; Hansen
+and Ostermeier, 2001) [[Hansen and Ostermeier, 2001]](#bibliography) and its
+self-adaptive cousin **CMSA-ES** (Beyer and Sendhoff, 2008)
+[[Beyer and Sendhoff, 2008]](#bibliography) go further: they maintain a full
+covariance matrix \\(\mathbf{C}\\) over the search space and sample each
+generation from \\(\mathcal{N}(\mathbf{m}, \sigma^2 \mathbf{C})\\). The contour
+ellipses of \\(\mathbf{C}\\) rotate and stretch to match the local landscape, so
+a narrow diagonal valley or a rotated, ill-conditioned bowl is searched along its
+*natural* axes rather than the coordinate axes. This shape-learning is what makes
+CMA-ES the de facto standard for continuous black-box optimisation at
+low-to-medium dimensionality. Both ship in `rlevo::evo` today.
+
+Two ideas do the work, and CMA-ES keeps them deliberately separate:
+
+- **Covariance adaptation** learns the *shape* of good steps. Successful
+  offspring directions are accumulated into \\(\mathbf{C}\\) — a rank-1 term from
+  an *evolution path* plus a rank-μ term from the current generation — so the
+  distribution elongates along directions that have been paying off.
+- **Step-size control** learns the *scale* independently. A separate conjugate
+  path tracks whether consecutive steps reinforce or cancel: aligned steps grow
+  \\(\sigma\\) (speed up), cancelling steps shrink it (refine). Decoupling scale
+  from shape lets the search take long strides early and fine steps near the
+  optimum.
+
+**CMSA-ES** keeps the covariance idea but drops the evolution paths, replacing
+step-size control with the same per-individual log-normal σ-self-adaptation the
+classical multi-parent variants use — a simpler, path-free alternative at a small
+cost in convergence speed (the two strategies share the self-adaptation
+*mechanism* but use different learning-rate constants). The full update
+equations, default parameters, and a when-to-use table are in
+[Appendix A: CMA-ES and CMSA-ES](../appendix-a-ec-algorithms/cma-es.md).
 
 <!-- [Simon, 2013, p 135] 
 ... The goal of CMA-ES, ..., is to fit (as well as possible) the distribution 
@@ -208,31 +259,31 @@ genes that no marginal model would find.
 deceptive benchmark (Concatenated Trap) used to compare them are in
 [Appendix A](../appendix-a-ec-algorithms/index.md).
 
-> **In `rlevo`.** The fit → sample loop is captured by the `ProbabilityModel`
-> trait, which is separate from `Strategy`. `EdaStrategy<B, M>` is a generic
-> driver that implements `Strategy<B>` for any `M: ProbabilityModel<B>`:
->
-> ```rust
-> pub trait ProbabilityModel<B: Backend> {
->     type Params;
->     type State: Clone + Debug + Send + Sync;
->
->     /// Fit the model to the selected (top-μ) population.
->     /// `prev = None` on the first generation; the model builds its prior from `params`.
->     fn fit(&self, params: &Self::Params, population: &Tensor<B, 2>,
->            fitness: Tensor<B, 1>, prev: Option<&Self::State>) -> Self::State;
->
->     /// Sample n new candidates from the fitted model using the host RNG.
->     fn sample(&self, params: &Self::Params, state: &Self::State,
->               n: usize, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2>;
-> }
-> ```
->
-> All randomness in `sample` comes from the host `rng`; implementations must
-> never call `Tensor::random` or `B::seed` (Burn's GPU PRNG kernels share
-> process-global state and would interleave across parallel strategy instances).
-> Swapping one EDA for another is a one-line type change: `EdaStrategy<B, UnivariateGaussian>`
-> → `EdaStrategy<B, BayesianNetwork>`.
+**In `rlevo`.** The fit → sample loop is captured by the `ProbabilityModel`
+trait, which is separate from `Strategy`. `EdaStrategy<B, M>` is a generic
+driver that implements `Strategy<B>` for any `M: ProbabilityModel<B>`:
+
+```rust
+pub trait ProbabilityModel<B: Backend> {
+    type Params;
+    type State: Clone + Debug + Send + Sync;
+
+    /// Fit the model to the selected (top-μ) population.
+    /// `prev = None` on the first generation; the model builds its prior from `params`.
+    fn fit(&self, params: &Self::Params, population: &Tensor<B, 2>,
+           fitness: Tensor<B, 1>, prev: Option<&Self::State>) -> Self::State;
+
+    /// Sample n new candidates from the fitted model using the host RNG.
+    fn sample(&self, params: &Self::Params, state: &Self::State,
+              n: usize, rng: &mut dyn Rng, device: &B::Device) -> Tensor<B, 2>;
+}
+```
+
+All randomness in `sample` comes from the host `rng`; implementations must
+never call `Tensor::random` or `B::seed` (Burn's GPU PRNG kernels share
+process-global state and would interleave across parallel strategy instances).
+Swapping one EDA for another is a one-line type change: `EdaStrategy<B, UnivariateGaussian>`
+→ `EdaStrategy<B, BayesianNetwork>`.
 
 <!-- see [Simon, 2013] 
 - Estimation of Distribution Algorithms (p. 313)
@@ -241,6 +292,25 @@ deceptive benchmark (Concatenated Trap) used to compare them are in
 - PBIL (p. 320)
 - MIMIC (p. 324)
 -->
+
+### Where CMA-ES sits: the ES ↔ EDA spectrum
+
+CMA-ES blurs the line between the two families above. A full-covariance Gaussian
+EDA fits its distribution by **maximum likelihood** on the selected elite — mean
+and covariance are *overwritten* each generation from the current crop. Strip
+CMA-ES of its evolution paths and force its learning rates to 1 and it collapses
+to exactly that: a continuous EDA (EMNA). What keeps CMA-ES on the *ES* side of
+the line is **memory** — it does not overwrite \\(\mathbf{C}\\) and \\(\sigma\\)
+but blends each generation's estimate into accumulated evolution paths, a fading
+momentum that records which directions have been paying off.
+
+So the spectrum runs from memoryless density estimation (EDA) to path-driven,
+momentum-carrying adaptation (CMA-ES), with **CMSA-ES** sitting between them: it
+learns covariance like CMA-ES but adapts its step size by self-adaptation rather
+than path-tracking. `rlevo` keeps the families architecturally distinct for this
+reason — EDAs implement the `fit → sample` `ProbabilityModel` trait, while
+CMA-ES and CMSA-ES are self-contained strategies whose path machinery does not
+fit that mould (ADR 0021).
 
 ## Other strategy families in `rlevo`
 
@@ -271,20 +341,39 @@ pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
 - **Swarm metaheuristics** include PSO, ABC, ACO (continuous `ACO_R`; a
   permutation variant is stubbed), cuckoo search, and firefly. Four more — GWO,
   WOA, Bat, and SSA — ship as *legacy comparators*: included for baselining, but
-  the module docs steer you to PSO (or CMA-ES / LSHADE once they land) for real
+  the module docs steer you to PSO or CMA-ES (or LSHADE once it lands) for real
   work, following [[Camacho-Villalón et al., 2023]](#bibliography) and
   [[Sörensen, 2015]](#bibliography).
 
 ## Multi-Objective Optimisation
 
 Most real problems have more than one objective — faster *and* cheaper, higher
-reward *and* lower energy. The **Pareto front** is the set of solutions where
-improving one objective necessarily worsens another.
+reward *and* lower energy. When objectives conflict there is no single optimum
+but a *set* of incomparable trade-offs: a solution **dominates** another when it
+is no worse on every objective and strictly better on at least one. The
+**Pareto front** is the set of non-dominated solutions — those for which
+improving one objective necessarily worsens another. The notion of optimality it
+formalises traces to the economist Vilfredo Pareto [[Pareto, 1896]](#bibliography);
+an evolutionary algorithm is a natural fit for it, because a population can
+approximate the *whole* front in one run rather than scalarising the objectives
+into a single weighted sum and solving repeatedly.
 
 NSGA-II (Deb et al., 2002) [[Deb et al., 2002]](#bibliography) is the canonical
-multi-objective EA and remains the baseline every new algorithm is compared
-against. `rlevo` does not yet implement multi-objective optimisation; it is on
+multi-objective EA — its fast non-dominated sorting and crowding-distance
+diversity operator remain the baseline every new algorithm is compared against;
+SPEA2 [[Zitzler et al., 2001]](#bibliography) is the other classic reference
+point. `rlevo` does not yet implement multi-objective optimisation; it is on
 the research roadmap (see [Part III](../part-3-open-problems/02-research-directions.md)).
+
+> **Further reading.** Deb, *Multi-Objective Optimization Using Evolutionary
+> Algorithms* (Wiley, 2001) [[Deb, 2001]](#bibliography) is the standard
+> book-length treatment from the EA side; Coello Coello, Lamont and Van
+> Veldhuizen, *Evolutionary Algorithms for Solving Multi-Objective Problems*
+> (2nd ed., Springer, 2007) [[Coello Coello et al., 2007]](#bibliography) is the
+> broadest algorithm survey. For the classical (non-evolutionary) optimisation
+> theory underpinning Pareto optimality and scalarisation, see Miettinen,
+> *Nonlinear Multiobjective Optimization* (Kluwer, 1999)
+> [[Miettinen, 1999]](#bibliography).
 
 > **Deeper reading.** Eiben and Smith, *Introduction to Evolutionary Computing*
 > (Springer, 2015) is the most accessible modern textbook. Back, *Evolutionary

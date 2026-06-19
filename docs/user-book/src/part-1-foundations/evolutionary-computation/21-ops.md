@@ -15,7 +15,7 @@ The operators are organised by the role they play in a generation:
 | `ops::selection` | **parent selection** — who reproduces | tournament, truncation |
 | `ops::crossover` | **recombination** — combine parents | BLX-α, uniform, binary uniform |
 | `ops::mutation` | **variation** — perturb individuals | Gaussian (scalar and per-row), uniform-reset, bit-flip |
-| `ops::replacement` | **survivor selection** — who carries over | generational, elitist, (μ + λ), (μ, λ) |
+| `ops::replacement` | **survivor selection** — who carries over | generational, elitist, \\((\mu+\lambda)\\), \\((\mu,\lambda)\\) |
 
 Before the catalogue, three design decisions cut across every operator and are
 worth internalising — they explain why the function signatures look the way they
@@ -60,11 +60,11 @@ real-valued operator is a compile error, not a runtime surprise.
 
 ### Fitness is a cost — smaller is better
 
-A word of warning if you come from the classical evolutionary-computation
-tradition, where "fitness" is something you **maximise** and the *fittest*
-individual has the *highest* score. `rlevo` adopts the opposite — and equally
-standard — convention from the optimisation literature: **fitness is a cost to
-minimise**, so throughout `ops` the *best* individual has the *lowest* fitness.
+The classical evolutionary-computation tradition treats *fitness* as a quantity
+to **maximise**, with the *fittest* individual scoring *highest*. `rlevo` adopts
+the opposite — and equally standard — convention from the optimisation
+literature: **fitness is a cost to minimise**, so throughout `ops` the *best*
+individual has the *lowest* fitness.
 Read every "lowest fitness", "smallest fitness", and "top-k" in this chapter as
 "closest to the optimum we're driving toward."
 
@@ -111,7 +111,7 @@ the population. Each comes in two layers:
 
 ### Tournament selection
 
-`k`-ary tournament: draw `tournament_size` candidate indices uniformly at random
+\\(k\\)-ary tournament: draw `tournament_size` candidate indices uniformly at random
 *with replacement*, keep the one with the lowest fitness, and repeat
 `n_winners` times.
 
@@ -147,7 +147,7 @@ best-first. Ties break by `f32::partial_cmp` with `NaN` sorted last (so a stray
 pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32>;
 ```
 
-This is the workhorse behind the (μ + λ) and (μ, λ) replacement strategies as
+This is the workhorse behind the \\((\mu+\lambda)\\) and \\((\mu,\lambda)\\) replacement strategies as
 well as ES-style parent selection. Panics if `top_k > fitness.len()` or
 `fitness` is empty.
 
@@ -172,8 +172,8 @@ beyond* the two parents in proportion to their distance:
 \text{child}_i \sim \mathcal{U}\!\left(\min(a_i, b_i) - \alpha\,|a_i - b_i|,\ \ \max(a_i, b_i) + \alpha\,|a_i - b_i|\right)
 ```
 
-With `α = 0` the child lies strictly inside the parents' bounding box (pure
-interpolation); `α = 0.5` is the conventional default and allows mild
+With \\(\alpha = 0\\) the child lies strictly inside the parents' bounding box (pure
+interpolation); \\(\alpha = 0.5\\) is the conventional default and allows mild
 extrapolation past either parent, which keeps the search from collapsing into
 the convex hull of the population. Internally it is pure tensor algebra —
 `min_pair`/`max_pair` to bracket the parents, then `lo + u * (hi - lo)` with a
@@ -183,10 +183,10 @@ load. Panics if the two parents differ in shape.
 ### Uniform crossover
 
 A per-gene Bernoulli swap: each gene takes parent A's allele (value) with
-probability `p`, parent B's otherwise. No blending happens, so the set of gene
+probability \\(p\\), parent B's otherwise. No blending happens, so the set of gene
 values in the offspring is exactly the union of the parents' values — the
-marginal distribution per locus is preserved. `p = 0.5` is an unbiased mix; `p = 1.0`
-clones A; `p = 0.0` clones B. Implemented with a host-sampled uniform mask and
+marginal distribution per locus is preserved. \\(p = 0.5\\) is an unbiased mix; \\(p = 1.0\\)
+clones A; \\(p = 0.0\\) clones B. Implemented with a host-sampled uniform mask and
 `mask_where`.
 
 `binary_uniform_crossover` is the same operation on `Tensor<B, 2, Int>` genomes
@@ -200,25 +200,25 @@ from the host `rng`.
 
 | Operator | Genome | What it does |
 | -------- | ------ | ------------ |
-| `gaussian_mutation` | real | adds isotropic `σ · N(0, 1)` noise to every gene |
-| `gaussian_mutation_per_row` | real | per-individual σ — a `(N,)` tensor of step-sizes |
-| `uniform_reset` | real / bounded | with probability `p`, resets a gene to `U(lo, hi)` |
-| `bit_flip_mutation` | binary | flips each gene with probability `p` |
+| `gaussian_mutation` | real | adds isotropic \\(\sigma \cdot \mathcal{N}(0, 1)\\) noise to every gene |
+| `gaussian_mutation_per_row` | real | per-individual \\(\sigma\\) — a `(N,)` tensor of step-sizes |
+| `uniform_reset` | real / bounded | with probability \\(p\\), resets a gene to \\(\mathcal{U}(lo, hi)\\) |
+| `bit_flip_mutation` | binary | flips each gene with probability \\(p\\) |
 
-**Gaussian mutation** is the staple of continuous evolution. A scalar `σ`
-controls the step size globally; `σ = 0` is an exact identity (useful as a
+**Gaussian mutation** is the staple of continuous evolution. A scalar \\(\sigma\\)
+controls the step size globally; \\(\sigma = 0\\) is an exact identity (useful as a
 no-op in tests and ablations). Its sibling `gaussian_mutation_per_row` takes a
 `(N,)` tensor of per-individual step-sizes — isotropic *within* a row but
 varying *across* the population — which is exactly the shape self-adaptive
-(1+1)-ES and CMA-ES warm-starts want when each individual carries its own σ.
+\\((1+1)\\)-ES and CMA-ES warm-starts want when each individual carries its own \\(\sigma\\).
 
 **Uniform-reset** replaces a gene outright with a fresh draw from `U(lo, hi)`
 rather than nudging it — well suited to bounded or integer-coded genomes where
-additive noise would drift out of range. `p = 0` is identity; `p = 1`
+additive noise would drift out of range. \\(p = 0\\) is identity; \\(p = 1\\)
 reinitialises the whole population.
 
 **Bit-flip** is the binary analogue, computing the flip arithmetically as
-`1 − x` under a Bernoulli mask. The textbook rate is `1/D` (one expected flip per
+\\(1 - x\\) under a Bernoulli mask. The textbook rate is \\(1/D\\) (one expected flip per
 individual), but the function imposes no particular rate — that is the caller's
 to choose. The input must hold only `{0, 1}`; values outside that set produce
 out-of-range results silently.
@@ -235,21 +235,21 @@ takes the current generation plus the offspring and returns the
 | Strategy | Parent survival | Reach for it when… |
 | -------- | --------------- | ------------------ |
 | `generational` | none | offspring quality is trusted — classic GA, CMA-ES |
-| `elitist` | top-`k` | losing the best-so-far would hurt |
-| `mu_plus_lambda` | best of the merged μ+λ pool | strong elitism — ES, DE |
+| `elitist` | top-\\(k\\) | losing the best-so-far would hurt |
+| `mu_plus_lambda` | best of the merged \\(\mu+\lambda\\) pool | strong elitism — ES, DE |
 | `mu_comma_lambda` | none (offspring only) | deliberate forgetting — tracking moving optima |
 
 **Generational** is the simplest: discard the parents wholesale and let the
 offspring become the next generation. **Elitist** softens that by carrying the
-`k` lowest-cost parents forward and backfilling with the best `pop_size − k`
+\\(k\\) lowest-cost parents forward and backfilling with the best `pop_size − k`
 offspring — a direct implementation of De Jong's elitism, which guarantees the
 best solution found so far never regresses.
 
 The two ES-style strategies differ only in whether parents compete.
-**(μ + λ)** merges the μ parents and λ offspring into one pool and keeps the μ
+**\\((\mu+\lambda)\\)** merges the \\(\mu\\) parents and \\(\lambda\\) offspring into one pool and keeps the \\(\mu\\)
 best overall, so a strong parent can survive indefinitely — maximal selection
-pressure and elitism. **(μ, λ)** ignores the parents entirely and keeps the μ
-best *offspring* (requiring `λ ≥ μ`); deliberately forgetting good parents lets
+pressure and elitism. **\\((\mu,\lambda)\\)** ignores the parents entirely and keeps the \\(\mu\\)
+best *offspring* (requiring \\(\lambda \geq \mu\\)); deliberately forgetting good parents lets
 the population escape local optima and track optima that move over time. Both
 return rows ordered best-first.
 
@@ -270,7 +270,7 @@ generation: **select** parents, **recombine** them, **mutate** the result, and
 choose **survivors**. Because they are free functions over `Tensor<B, _>` with a
 shared cost convention and a shared host-RNG discipline, a `Strategy`
 implementation reads as a short, readable recipe — and swapping tournament for
-truncation, or (μ + λ) for (μ, λ), is a one-line change. The full GA and ES
+truncation, or \\((\mu+\lambda)\\) for \\((\mu,\lambda)\\), is a one-line change. The full GA and ES
 pseudocode that assembles these operators end-to-end lives in
 [Appendix A](../../appendix-a-ec-algorithms/index.md).
 

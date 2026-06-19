@@ -44,16 +44,49 @@ the **combined** parent + offspring pool. Elitism is implicit — the best
 individual is never lost. Slower to escape local optima than comma selection
 but safer on expensive landscapes where losing good solutions matters.
 
+<a name="log-normal-sigma-adaptation"></a>
 **Log-normal σ adaptation.** In both multi-parent variants, each individual
-carries its own step size σ. Before mutation, σ is updated by:
+carries its own step size σ as part of its genome — there is no external rule
+adjusting it (contrast the `(1+1)` 1/5th rule above). σ is *self-adapted*:
+selection scores only the mutated genes, but a well-scaled σ tends to produce
+fitter offspring, so good step sizes survive indirectly. The update is a
+two-step mutation — σ is perturbed first, then the *new* σ drives the gene
+mutation:
 
 ```math
-\sigma' = \sigma \cdot \exp(\tau \cdot \mathcal{N}(0, 1))
+\sigma' = \sigma \cdot \exp(\tau \cdot \mathcal{N}(0, 1)),
+\qquad
+\mathbf{x}' = \mathbf{x} + \sigma' \cdot \mathcal{N}(0, \mathbf{I})
 ```
 
 where \\(\tau = 1 / \sqrt{2\sqrt{D}}\\) is the standard learning rate
 (Beyer & Schwefel, 2002). Larger populations learn a better σ faster because
 more diverse trials give a richer gradient signal.
+
+Three properties motivate this exact form:
+
+- **Order.** Mutating σ before the genes ties each step size to the step it
+  produced, so selection judges the σ that actually generated the surviving
+  offspring. Perturbing σ afterwards would select a σ that was never tested.
+- **Positivity.** The multiplicative \\(\exp(\cdot)\\) factor keeps σ strictly
+  positive; an additive Gaussian update could drive it negative.
+- **Unbiased in log-space.** A factor-of-\\(c\\) increase and a
+  factor-of-\\(1/c\\) decrease are equally likely, and \\(\mathbb{E}[\ln
+  \sigma'] = \ln \sigma\\). Absent selection σ neither grows nor shrinks
+  systematically, so selection alone shapes it.
+
+`rlevo` adapts a single σ per individual. The classical Schwefel scheme
+generalises this to a per-coordinate \\(\sigma_i\\) with a global and a
+coordinate-local term, \\(\sigma_i' = \sigma_i \cdot \exp(\tau' \mathcal{N}(0,1)
++ \tau \, \mathcal{N}_i(0,1))\\), trading more learnable parameters for the
+ability to rescale each axis independently.
+
+> **Shared mechanism, different constant.** This same log-normal
+> σ-self-adaptation drives [CMSA-ES](cma-es.md), which reuses the rule with its
+> own learning rate \\(\tau = 1/\sqrt{2D}\\) rather than the classical
+> \\(1/\sqrt{2\sqrt{D}}\\) above. Full [CMA-ES](cma-es.md) instead replaces
+> self-adaptation with cumulative step-size adaptation (CSA) and adds a full
+> covariance matrix — see the [CMA-ES and CMSA-ES](cma-es.md) appendix for both.
 
 ## Configuration
 
@@ -201,7 +234,9 @@ not portable across variants.
 | Continuous optimisation, low to medium D (≤ 30) | `(μ+λ)` with `mu = 5, lambda = 20` is a strong default |
 | Very cheap function evaluations | `(1+1)` — minimal overhead per generation |
 | Noisy fitness evaluations | `(μ,λ)` — discarding parents avoids locking to a noisy incumbent |
-| High dimensionality (D > 30) | CMA-ES adapts per-dimension step sizes and covariance; classical ES degrades |
+| Ill-conditioned / rotated landscape | [CMA-ES](cma-es.md) learns the covariance, so it searches along the landscape's natural axes |
+| Want the strongest general-purpose default | [CMA-ES](cma-es.md) for D ≤ 30; [CMSA-ES](cma-es.md) for a simpler, path-free variant |
+| High dimensionality (D ≫ 30) | Classical ES degrades; [CMA-ES](cma-es.md)'s covariance also grows costly (\\(O(D^3)\\)) — a separable variant is the right tool (deferred) |
 | Multi-modal landscape | Increase λ; consider `(μ,λ)` for more exploration |
 | Need crossover / schema recombination | [Real-Valued GA](real-valued-genetic-algorithm.md) |
 | Discrete / binary search space | [Binary GA](binary-encoded-genetic-algorithm.md) |

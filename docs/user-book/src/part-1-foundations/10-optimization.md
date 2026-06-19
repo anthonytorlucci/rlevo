@@ -172,7 +172,8 @@ uses.
 > *Introduction to Evolutionary Computing* (Springer, 2015) for the population
 > side. The NK model is developed in Kauffman, *The Origins of Order* (Oxford,
 > 1993). The No Free Lunch theorem is in Wolpert and Macready (1997), IEEE
-> Transactions on Evolutionary Computation.
+> Transactions on Evolutionary Computation. Simon (2013) further discusses the 
+> No Free Lunch theorem and provides a few examples in Appendix B.1, page 614.
 
 
 <a name="bibliography"></a>

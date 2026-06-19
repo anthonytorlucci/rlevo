@@ -19,18 +19,18 @@ are not enough.
 
 ## Estimation-of-distribution algorithms (EDAs)
 
-All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only the `ProbabilityModel` changes.
+All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only the `ProbabilityModel` changes — see [Estimation-of-Distribution Algorithms](estimation-of-distribution.md) for the driver and all five models.
 
-- UMDA (`UnivariateGaussian`) — per-dimension Gaussian; unweighted MLE, minimum-variance floor
-- PBIL (`UnivariateBernoulli`) — per-bit probability vector; best/worst individual update
-- cGA (`CompactGenetic`) — virtual-population probability vector; winner/loser from truncation-selected subset
-- MIMIC (`DependencyChain`) — continuous Gaussian chain capturing pairwise dependencies
-- BOA (`BayesianNetwork`) — BIC-scored Bayesian network DAG over binary genes; ancestral sampling
+- [UMDA (`UnivariateGaussian`)](estimation-of-distribution.md#umda--univariategaussian) — per-dimension Gaussian; unweighted MLE, minimum-variance floor
+- [PBIL (`UnivariateBernoulli`)](estimation-of-distribution.md#pbil--univariatebernoulli) — per-bit probability vector; best/worst individual update
+- [cGA (`CompactGenetic`)](estimation-of-distribution.md#cga--compactgenetic) — virtual-population probability vector; winner/loser from truncation-selected subset
+- [MIMIC (`DependencyChain`)](estimation-of-distribution.md#mimic--dependencychain) — continuous Gaussian chain capturing pairwise dependencies
+- [BOA (`BayesianNetwork`)](estimation-of-distribution.md#boa--bayesiannetwork) — BIC-scored Bayesian network DAG over binary genes; ancestral sampling
 
 ## Symbolic and program evolution
 
-- Cartesian Genetic Programming (`gp_cgp`) — fixed-grid CGP; function-set configurable
-- Gene Expression Programming (`gep`) — linear head/tail chromosome decoded to expression tree; symbolic regression
+- [Cartesian Genetic Programming](cartesian-genetic-programming.md) (`gp_cgp`) — fixed-grid integer genome decoded to a DAG; `(1+λ)` engine, point mutation, neutral drift
+- [Gene Expression Programming](gene-expression-programming.md) (`gep`) — fixed-length head/tail chromosome decoded to an expression tree; repair-free operators with crossover; symbolic regression
 
 ## Hybrid and composite strategies
 
@@ -41,20 +41,23 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 
 ## Swarm and nature-inspired metaheuristics
 
-> The `metaheuristic` module docs note that GWO, WOA, Bat, and SSA are
-> "legacy comparators" per Camacho-Villalón et al. (2023) and Sörensen (2015).
-> Start with PSO for most continuous problems.
+> The `metaheuristic` module classifies Firefly, GWO, WOA, and Bat as
+> "legacy comparators": Camacho-Villalón et al. (2020, 2023) analyse each
+> component-by-component and show it reduces to PSO-style mechanisms under a new
+> metaphor, echoing Sörensen's (2015) critique. Salp Swarm carries a *separate*
+> caveat — Castelli et al. (2022) show its leader update is shift-variant rather
+> than PSO-equivalent. Start with PSO for most continuous problems.
 
 - [Particle Swarm Optimization (PSO)](particle-swarm-optimization.md) — inertia and constriction variants; cognitive/social velocity update
 - [Ant Colony Optimization — continuous (`ACO_R`)](ant-colony-continuous.md) — solution archive as pheromone; rank-weighted Gaussian kernels
 - Ant Colony Optimization — permutation (`aco_perm`) *(stub — deferred to a future release)*
 - [Artificial Bee Colony (ABC)](artificial-bee-colony.md) — employed/onlooker/scout phases; single-coordinate difference perturbation
-- Cuckoo Search — Lévy flights and random walk
-- Firefly Algorithm
-- Grey Wolf Optimizer (GWO) — legacy comparator
-- Whale Optimization Algorithm (WOA) — legacy comparator
-- Bat Algorithm — legacy comparator
-- Salp Swarm Algorithm (SSA) — legacy comparator
+- [Cuckoo Search](cuckoo-search.md) (`cuckoo`) — Mantegna Lévy flights; greedy per-nest acceptance and worst-nest abandonment
+- [Firefly Algorithm](firefly-algorithm.md) (`firefly`) — multi-attractor swarm; each firefly drawn to every brighter one with `O(N²)` distance-decayed attraction; legacy comparator (capped at 128 fireflies)
+- [Grey Wolf Optimizer (GWO)](grey-wolf-optimizer.md) (`gwo`) — α/β/δ leaders; equal-weight three-attractor update with a linearly annealed step coefficient; legacy comparator
+- [Whale Optimization Algorithm (WOA)](whale-optimization-algorithm.md) (`woa`) — per-whale choice of shrink-encircle, random search, or logarithmic-spiral move toward the best; legacy comparator with an origin bias
+- [Bat Algorithm](bat-algorithm.md) (`bat`) — frequency-tuned velocity move plus a loudness-gated local walk and greedy acceptance; legacy comparator
+- [Salp Swarm Algorithm (SSA)](salp-swarm-algorithm.md) (`salp`) — leader block jitters toward the food source, follower chain averages with the salp ahead; legacy comparator with a shift-variance caveat
 
 ---
 

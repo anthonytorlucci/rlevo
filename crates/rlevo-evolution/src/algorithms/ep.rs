@@ -5,8 +5,10 @@
 //! - **No crossover**. Each parent produces exactly one offspring by
 //!   Gaussian mutation.
 //! - **Self-adaptive σ**. Each individual carries its own σ, updated
-//!   by the log-normal rule `σ' = σ · exp(τ · N(0, 1))`. Shared with ES
-//!   but applied before every mutation call, not only at survivor time.
+//!   by the log-normal rule `σ' = σ · exp(τ · N(0, 1))`. This is the
+//!   same mechanism and ordering as the multi-parent ES variants: σ is
+//!   perturbed first, and the updated σ' drives that individual's gene
+//!   mutation. Survivor σ are inherited, not reset.
 //! - **q-tournament survivor selection** on the `(μ + μ)` pool. Each
 //!   individual plays `q` random opponents; the μ individuals with the
 //!   highest win-counts survive. This diverges from truncation

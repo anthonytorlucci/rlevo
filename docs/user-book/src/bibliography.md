@@ -9,14 +9,34 @@ Oxford University Press.
 **[Beyer and Schwefel, 2002]** Beyer, H.-G., & Schwefel, H.-P. (2002). Evolution
 strategies — a comprehensive introduction. *Natural Computing*, 1(1), 3–52.
 
+**[Beyer and Sendhoff, 2008]** Beyer, H.-G., & Sendhoff, B. (2008). Covariance
+matrix adaptation revisited — the CMSA evolution strategy. In *Parallel Problem
+Solving from Nature (PPSN X)*, LNCS 5199, 123–132. Springer.
+
+**[Camacho-Villalón et al., 2020]** Camacho-Villalón, C. L., Stützle, T., &
+Dorigo, M. (2020). Grey wolf, firefly and bat algorithms: Three widespread
+algorithms that do not contain any novelty. In *Swarm Intelligence (ANTS 2020)*,
+LNCS 12421, 121–133. Springer.
+
 **[Camacho-Villalón et al., 2023]** Camacho-Villalón, C. L., Dorigo, M., &
 Stützle, T. (2023). Exposing the grey wolf, moth-flame, whale, firefly, bat, and
 antlion algorithms: Six misleading optimization techniques inspired by bestial
 metaphors. *International Transactions in Operational Research*, 30(6),
 2945–2971.
 
+**[Castelli et al., 2022]** Castelli, M., Manzoni, L., Mariot, L., Nobile, M. S.,
+& Tangherloni, A. (2022). Salp swarm optimization: A critical review. *Expert
+Systems with Applications*, 189, 116029.
+
+**[Coello Coello et al., 2007]** Coello Coello, C. A., Lamont, G. B., & Van
+Veldhuizen, D. A. (2007). *Evolutionary Algorithms for Solving Multi-Objective
+Problems* (2nd ed.). Springer.
+
 **[Deb and Agrawal, 1995]** Deb, K., & Agrawal, R. B. (1995). Simulated binary
 crossover for continuous search space. *Complex Systems*, 9(2), 115–148.
+
+**[Deb, 2001]** Deb, K. (2001). *Multi-Objective Optimization Using Evolutionary
+Algorithms*. Wiley.
 
 **[Deb et al., 2002]** Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002).
 A fast and elitist multiobjective genetic algorithm: NSGA-II. *IEEE Transactions
@@ -24,6 +44,10 @@ on Evolutionary Computation*, 6(2), 182–197.
 
 **[De Jong, 1975]** De Jong, K. A. (1975). *An Analysis of the Behavior of a
 Class of Genetic Adaptive Systems* (PhD thesis). University of Michigan.
+
+**[Deng and Liu, 2023]** Deng, L. H., & Liu, S. (2023). Deficiencies of the
+whale optimization algorithm and its validation method. *Expert Systems with
+Applications*, 237, 121544.
 
 **[Eiben and Smith, 2015]** Eiben, A. E., & Smith, J. E. (2015). *Introduction to
 Evolutionary Computing* (2nd ed.). Springer.
@@ -74,6 +98,20 @@ Kluwer.
 objectives: Evolution through the search for novelty alone. *Evolutionary
 Computation*, 19(2), 189–223.
 
+**[Miettinen, 1999]** Miettinen, K. (1999). *Nonlinear Multiobjective
+Optimization*. Kluwer Academic Publishers.
+
+**[Mirjalili et al., 2014]** Mirjalili, S., Mirjalili, S. M., & Lewis, A. (2014).
+Grey wolf optimizer. *Advances in Engineering Software*, 69, 46–61.
+
+**[Mirjalili and Lewis, 2016]** Mirjalili, S., & Lewis, A. (2016). The whale
+optimization algorithm. *Advances in Engineering Software*, 95, 51–67.
+
+**[Mirjalili et al., 2017]** Mirjalili, S., Gandomi, A. H., Mirjalili, S. Z.,
+Saremi, S., Faris, H., & Mirjalili, S. M. (2017). Salp swarm algorithm: A
+bio-inspired optimizer for engineering design problems. *Advances in Engineering
+Software*, 114, 163–191.
+
 **[Mnih et al., 2015]** Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A.,
 Veness, J., Bellemare, M. G., … & Hassabis, D. (2015). Human-level control
 through deep reinforcement learning. *Nature*, 518(7540), 529–533.
@@ -88,6 +126,9 @@ Concurrent Computation Program, Tech. Report 826.
 
 **[Nocedal and Wright, 2006]** Nocedal, J., & Wright, S. J. (2006). *Numerical
 Optimization* (2nd ed.). Springer.
+
+**[Pareto, 1896]** Pareto, V. (1896). *Cours d'économie politique*. F. Rouge,
+Lausanne.
 
 **[Rechenberg, 1973]** Rechenberg, I. (1973). *Evolutionsstrategie: Optimierung
 technischer Systeme nach Prinzipien der biologischen Evolution*.
@@ -156,6 +197,18 @@ Computation*, 1(1), 67–82.
 **[Wright, 1932]** Wright, S. (1932). The roles of mutation, inbreeding,
 crossbreeding, and selection in evolution. *Proceedings of the Sixth
 International Congress of Genetics*, 1, 356–366.
+
+**[Yang, 2008]** Yang, X.-S. (2008). *Nature-Inspired Metaheuristic Algorithms*.
+Luniver Press. (Firefly Algorithm; see also Yang, X.-S. (2009), Firefly
+algorithms for multimodal optimization, *SAGA 2009*, LNCS 5792, 169–178.)
+
+**[Yang, 2010]** Yang, X.-S. (2010). A new metaheuristic bat-inspired algorithm.
+In *Nature Inspired Cooperative Strategies for Optimization (NICSO 2010)*, Studies
+in Computational Intelligence 284, 65–74. Springer.
+
+**[Zitzler et al., 2001]** Zitzler, E., Laumanns, M., & Thiele, L. (2001).
+SPEA2: Improving the strength Pareto evolutionary algorithm. In *Evolutionary
+Methods for Design, Optimisation and Control (EUROGEN 2001)*, 95–100. CIMNE.
 
 ---
 
