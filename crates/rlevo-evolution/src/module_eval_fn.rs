@@ -9,7 +9,7 @@
 //!
 //! Evaluation is loop-over-N: Burn 0.21 has no `vmap`/batched-forward
 //! primitive, so each population row is unflattened into a module and scored
-//! individually. A batched forward path is deferred (see issue #41).
+//! individually. A batched forward path is a future addition.
 
 use std::marker::PhantomData;
 

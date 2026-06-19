@@ -1,5 +1,5 @@
 //! NEAT generation + population-evaluation micro-benchmarks on the `Flex`
-//! backend (spec §6 AC7 / 3d3 §6 AC5).
+//! backend.
 //!
 //! Two groups:
 //!

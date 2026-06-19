@@ -1,14 +1,16 @@
-//! NEAT — topology-evolving neuroevolution as a custom harness (issue #34).
+//! NEAT — topology-evolving neuroevolution as a custom harness.
 //!
-//! [`NeatStrategy`] grows network topology *and* weights open-endedly from a
-//! minimal seed. Like its siblings [`WeightOnly`](super::weight_only::WeightOnly)
-//! and [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **custom
+//! `rlevo` implements NEAT (NeuroEvolution of Augmenting Topologies; Stanley &
+//! Miikkulainen, 2002). [`NeatStrategy`] grows network topology *and* weights
+//! open-endedly from a minimal seed. Like its siblings
+//! [`WeightOnly`](super::weight_only::WeightOnly) and
+//! [`ArchNasStrategy`](super::arch_nas::ArchNasStrategy), it is a **custom
 //! harness** with inherent `init`/`ask`/`tell`/`best` and does **not** implement
-//! [`Strategy`](crate::strategy::Strategy) (spec §3.A, Option A). Its genome is
-//! host-side graph data ([`TopologyGenome`]) with no tensor representation, so
-//! the `Strategy<B>` tensor-genome contract does not fit; the parallel
-//! [`GraphFitnessFn`] seam plays the role [`BatchFitnessFn`](crate::fitness::BatchFitnessFn)
-//! plays for tensor strategies.
+//! [`Strategy`](crate::strategy::Strategy). Its genome is host-side graph data
+//! ([`TopologyGenome`]) with no tensor representation, so the `Strategy<B>`
+//! tensor-genome contract does not fit; the parallel [`GraphFitnessFn`] seam
+//! plays the role [`BatchFitnessFn`](crate::fitness::BatchFitnessFn) plays for
+//! tensor strategies.
 //!
 //! # Orientation — maximization
 //!
@@ -36,8 +38,9 @@
 //! # Determinism and host RNG
 //!
 //! Every stochastic decision derives from a `seed_stream(rng.next_u64(),
-//! generation, SeedPurpose::…)` host-side `StdRng` substream (inherited from
-//! 3d1/#42). Combined with the per-run [`InnovationRegistry`]'s caches, the same
+//! generation, SeedPurpose::…)` host-side `StdRng` substream — the crate-wide
+//! host-RNG convention. Combined with the per-run [`InnovationRegistry`]'s
+//! caches, the same
 //! seed + same mutation sequence yields identical innovation *and* node ids.
 //! Never `B::seed_from_u64` + `Tensor::random` (process-wide backend RNG mutex
 //! races parallel tests).
@@ -68,8 +71,8 @@ use crate::rng::{SeedPurpose, seed_stream};
 /// Static configuration for a NEAT run.
 ///
 /// Build the canonical defaults with [`NeatParams::default_for`]; the
-/// compatibility threshold and the structural-mutation rates are the knobs most
-/// worth tuning per task (R1 §6).
+/// compatibility threshold and the structural-mutation rates (`p_add_node`,
+/// `p_add_connection`) are the knobs most worth tuning per task.
 #[derive(Debug, Clone)]
 pub struct NeatParams {
     /// Number of individuals per generation.
@@ -116,7 +119,8 @@ pub struct NeatParams {
 }
 
 impl NeatParams {
-    /// The R1 §6 canonical defaults for the given population and I/O sizes.
+    /// The canonical NEAT defaults (Stanley & Miikkulainen, 2002) for the given
+    /// population and I/O sizes.
     #[must_use]
     pub fn default_for(pop_size: usize, num_inputs: usize, num_outputs: usize) -> Self {
         Self {
@@ -399,8 +403,8 @@ pub trait GraphFitnessFn<B: Backend>: Send + Sync {
 }
 
 /// A [`GraphFitnessFn`] that scores the whole population in **one** device-resident
-/// pass via a [`BatchPhenotypeEvaluator`] (spec 3d3 §3.D), instead of the
-/// per-genome interpreted loop.
+/// pass via a [`BatchPhenotypeEvaluator`], instead of the per-genome interpreted
+/// loop.
 ///
 /// It is a drop-in alternative to an interpreted `GraphFitnessFn` in the same
 /// manual `init → ask → evaluate → tell` loop: the `builder` argument is ignored
@@ -691,7 +695,9 @@ fn mutate_add_connection(
 
 /// Split a random enabled connection with a new hidden node: disable the old
 /// edge, add `source -> new` (weight `1.0`) and `new -> target` (the old
-/// weight). Function-preserving at the instant of mutation (R1 §3).
+/// weight). The unit incoming weight makes the split function-preserving at the
+/// instant of mutation, so a new node never disrupts behaviour before its
+/// weights are tuned.
 fn mutate_add_node(genome: &mut TopologyGenome, registry: &InnovationRegistry, rng: &mut StdRng) {
     let enabled: Vec<usize> = genome
         .connections
@@ -755,7 +761,7 @@ fn mutate_toggle_enable(genome: &mut TopologyGenome, rng: &mut StdRng) {
 // Crossover (private)
 // ---------------------------------------------------------------------------
 
-/// Innovation-aligned crossover (spec §4.3).
+/// Innovation-aligned crossover.
 ///
 /// Matching genes are inherited from a random parent (disabled with
 /// `p_disable_inherited` if disabled in either); disjoint/excess genes from the
@@ -893,7 +899,7 @@ mod tests {
         }
     }
 
-    /// AC2: replaying a fixed mutation script twice (fresh registry + same seed)
+    /// Replaying a fixed mutation script twice (fresh registry + same seed)
     /// yields identical innovation AND node id sequences.
     #[test]
     fn test_innovation_numbering_is_deterministic() {

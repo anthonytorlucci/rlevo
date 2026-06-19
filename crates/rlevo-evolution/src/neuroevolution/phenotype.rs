@@ -1,17 +1,18 @@
 //! Phenotype construction — turning a [`TopologyGenome`] into a callable network.
 //!
 //! [`PhenotypeBuilder`] abstracts *how* a genome becomes a network so a future
-//! CPPN/`HyperNEAT` builder is a new impl, not a trait change (spec §3.H). The v1
-//! reference builder, [`InterpretedBuilder`], produces an
-//! [`InterpretedPhenotype`]: a host-side **feedforward** evaluator built from
-//! bare `Tensor<B, 2>` arithmetic over the genome's enabled connections in
-//! topological order — **no Burn `Module`**, no autodiff, no `Recorder` (spec
-//! §3.C). NEAT phenotypes need only a forward pass.
+//! CPPN/`HyperNEAT` builder is a new impl, not a trait change. The reference
+//! builder, [`InterpretedBuilder`], produces an [`InterpretedPhenotype`]: a
+//! host-side **feedforward** evaluator built from bare `Tensor<B, 2>` arithmetic
+//! over the genome's enabled connections in topological order — **no Burn
+//! `Module`**, no autodiff, no `Recorder`. NEAT phenotypes need only a forward
+//! pass, so skipping Burn's `Module` (whose `#[derive]` needs a static field
+//! structure a data-defined topology cannot supply) costs nothing.
 //!
 //! The interpreted seam ([`PhenotypeBuilder`]/[`Phenotype`]) evaluates one genome
 //! at a time. Its population-batched companion, [`BatchPhenotypeEvaluator`], runs
-//! the *whole* population in one device-resident forward pass (issue #41 / spec
-//! 3d3); the dense-padded [`DensePaddedEvaluator`] is the stock-Burn v1 impl.
+//! the *whole* population in one device-resident forward pass; the dense-padded
+//! [`DensePaddedEvaluator`] is the stock-Burn implementation.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
@@ -68,7 +69,7 @@ struct NodeEval {
     activation: ActivationFn,
 }
 
-/// Host-side feedforward reference phenotype (spec §3.C).
+/// Host-side feedforward reference phenotype.
 ///
 /// Stores only host-side evaluation metadata (topological order, per-node
 /// incoming edges, biases, activations) — **no** Burn tensors — so it is
@@ -192,7 +193,7 @@ fn apply_activation<B: Backend>(act: ActivationFn, x: Tensor<B, 2>) -> Tensor<B,
 }
 
 // ===========================================================================
-// Population-batched evaluation (issue #41 / spec 3d3)
+// Population-batched evaluation
 // ===========================================================================
 
 /// Population-level batched forward pass — the device-resident companion to the
@@ -220,7 +221,7 @@ pub trait BatchPhenotypeEvaluator<B: Backend>: Send + Sync {
     ) -> Tensor<B, 3>;
 }
 
-/// Dense-padded [`BatchPhenotypeEvaluator`] (spec 3d3 §3.A/§3.B).
+/// Dense-padded [`BatchPhenotypeEvaluator`].
 ///
 /// Each call compiles the `P` genomes into padded `(P, N, N)` weight, `(P, N)`
 /// bias, and per-activation mask tensors over a node budget `N = max_nodes`, then
@@ -578,7 +579,7 @@ mod tests {
 
     type TestBackend = Flex;
 
-    /// AC4: a hand-built feedforward genome reproduces a known truth table.
+    /// A hand-built feedforward genome reproduces a known truth table.
     ///
     /// Network: inputs 0, 1 → hidden 2 (Relu) → output 3 (Linear). With
     /// `h = relu(1·in0 + 1·in1)` and `out = 2·h + 0.5`, the four binary input

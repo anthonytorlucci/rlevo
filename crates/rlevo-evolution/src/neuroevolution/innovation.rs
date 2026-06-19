@@ -2,11 +2,10 @@
 //! historical markers NEAT crossover aligns on.
 //!
 //! A single [`InnovationRegistry`] is created per run and shared across the NEAT
-//! harness via `Arc` (spec §3.E, R5 §1). It is the **only** allocator of
-//! [`InnovationId`]s and hidden [`NodeId`]s, so two identical structural
-//! mutations occurring in different genomes *within the same run* receive the
-//! same ids — without which crossover alignment (R1 §4) silently misclassifies
-//! genes.
+//! harness via `Arc`. It is the **only** allocator of [`InnovationId`]s and
+//! hidden [`NodeId`]s, so two identical structural mutations occurring in
+//! different genomes *within the same run* receive the same ids — without which
+//! innovation-aligned crossover silently misclassifies genes.
 //!
 //! # Determinism
 //!
@@ -194,8 +193,8 @@ mod tests {
 
     #[test]
     fn test_independent_registries_replay_identical_ids() {
-        // AC2 at the registry level: replaying the same allocation script on two
-        // fresh registries yields identical innovation AND node id sequences.
+        // Registry-level determinism: replaying the same allocation script on
+        // two fresh registries yields identical innovation AND node id sequences.
         fn run() -> (Vec<InnovationId>, Vec<NodeId>) {
             let reg = InnovationRegistry::new(3, 2);
             let mut innovs = Vec::new();
