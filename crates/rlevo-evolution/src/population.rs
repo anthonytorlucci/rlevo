@@ -31,40 +31,33 @@
 //! assert_eq!(pop.genome_dim(), 3);
 //! ```
 
-use std::marker::PhantomData;
-
 use burn::tensor::{backend::Backend, Int, Tensor};
 
-use crate::genome::{Binary, Integer, Real};
+use crate::genome::{Binary, Integer, Real, TensorGenome};
 
 /// Population stored on a Burn backend device.
 ///
-/// The concrete tensor type depends on the genome kind `K`. Most
-/// consumers interact with [`Population<B, Real>`] via [`tensor`](Population::tensor),
-/// but strategies parameterized on the kind can keep the `K` generic and
-/// reach for the right tensor flavor through the inherent impls below.
+/// The concrete tensor type depends on the genome kind `K`, chosen at compile
+/// time through [`TensorGenome::Tensor`]: `Real` is backed by `Tensor<B, 2>`,
+/// `Binary` and `Integer` by `Tensor<B, 2, Int>`. Because the storage type is a
+/// function of `K`, there is a single tensor field and no run-time tag — a
+/// population can never hold the wrong tensor flavour for its kind, so the
+/// [`tensor`](Population::tensor) accessor is total (it cannot fail).
 ///
-/// Invariant: for every `Population<B, K>` produced by the public
-/// constructors, exactly one of `tensor_real` / `tensor_int` is `Some`,
-/// determined by `K`. `Real` populates `tensor_real`; `Binary`,
-/// `Integer`, and `Permutation` populate `tensor_int`. The inherent
-/// `tensor(&self)` accessors `.expect()` on the matching field because
-/// the constructor contract pins the invariant — a mismatch would be a
-/// bug in this module.
+/// The `K: TensorGenome` bound is what keeps this honest: kinds without a
+/// rectangular tensor form (e.g. [`Tree`](crate::genome::Tree)) do not implement
+/// `TensorGenome`, so `Population<B, Tree>` does not type-check.
 #[derive(Debug, Clone)]
-pub struct Population<B: Backend, K> {
+pub struct Population<B: Backend, K: TensorGenome> {
     pop_size: usize,
     genome_dim: usize,
-    _kind: PhantomData<K>,
-    tensor_real: Option<Tensor<B, 2>>,
-    tensor_int: Option<Tensor<B, 2, Int>>,
+    tensor: K::Tensor<B>,
 }
 
-impl<B: Backend, K> Population<B, K> {
+impl<B: Backend, K: TensorGenome> Population<B, K> {
     /// Returns the number of individuals (rows) in the population.
     ///
-    /// This value equals `tensor.dims()[0]` for any population produced by
-    /// the public constructors.
+    /// This value equals `tensor.dims()[0]`.
     #[must_use]
     pub fn pop_size(&self) -> usize {
         self.pop_size
@@ -72,11 +65,31 @@ impl<B: Backend, K> Population<B, K> {
 
     /// Returns the genome dimensionality (number of genes, i.e. columns).
     ///
-    /// This value equals `tensor.dims()[1]` for any population produced by
-    /// the public constructors.
+    /// This value equals `tensor.dims()[1]`.
     #[must_use]
     pub fn genome_dim(&self) -> usize {
         self.genome_dim
+    }
+
+    /// Borrows the backing tensor for this population's kind.
+    ///
+    /// The concrete type is [`K::Tensor<B>`](TensorGenome::Tensor) — a
+    /// `Tensor<B, 2>` for `Real`, a `Tensor<B, 2, Int>` for `Binary`/`Integer`
+    /// — with shape `[pop_size, genome_dim]`. Use it to pass the population to
+    /// fitness functions or operator kernels without giving up ownership.
+    #[must_use]
+    pub fn tensor(&self) -> &K::Tensor<B> {
+        &self.tensor
+    }
+
+    /// Consumes the wrapper and returns the owned tensor.
+    ///
+    /// Prefer this over [`tensor`](Population::tensor) when handing the
+    /// population off to a strategy or operator that needs ownership (e.g. to
+    /// avoid a clone on the hot path).
+    #[must_use]
+    pub fn into_tensor(self) -> K::Tensor<B> {
+        self.tensor
     }
 }
 
@@ -103,54 +116,14 @@ impl<B: Backend> Population<B, Real> {
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 2);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_real(tensor: Tensor<B, 2>) -> Self {
         let dims = tensor.dims();
-        assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
             genome_dim: dims[1],
-            _kind: PhantomData,
-            tensor_real: Some(tensor),
-            tensor_int: None,
+            tensor,
         }
-    }
-
-    /// Borrows the backing real-valued tensor.
-    ///
-    /// The returned tensor has shape `[pop_size, genome_dim]`. Use this
-    /// to pass the population to fitness functions or operator kernels
-    /// without giving up ownership.
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice: a real-valued population always holds a
-    /// real tensor by construction.
-    #[must_use]
-    pub fn tensor(&self) -> &Tensor<B, 2> {
-        self.tensor_real
-            .as_ref()
-            .expect("real population always has a tensor_real")
-    }
-
-    /// Consumes the wrapper and returns the owned tensor.
-    ///
-    /// Prefer this over [`tensor`](Population::tensor) when handing the
-    /// population off to a strategy or operator that needs ownership (e.g.
-    /// to avoid a clone on the hot path).
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice: a real-valued population always holds a
-    /// real tensor by construction.
-    #[must_use]
-    pub fn into_tensor(self) -> Tensor<B, 2> {
-        self.tensor_real
-            .expect("real population always has a tensor_real")
     }
 }
 
@@ -179,38 +152,14 @@ impl<B: Backend> Population<B, Binary> {
     /// assert_eq!(pop.pop_size(), 3);
     /// assert_eq!(pop.genome_dim(), 4);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
-        assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
             genome_dim: dims[1],
-            _kind: PhantomData,
-            tensor_real: None,
-            tensor_int: Some(tensor),
+            tensor,
         }
-    }
-
-    /// Borrows the backing integer tensor holding 0/1 values.
-    ///
-    /// The returned tensor has shape `[pop_size, genome_dim]` and element
-    /// type `Int`. Callers performing crossover or mutation should work
-    /// directly with this tensor.
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice: a binary population always holds an integer
-    /// tensor by construction.
-    #[must_use]
-    pub fn tensor(&self) -> &Tensor<B, 2, Int> {
-        self.tensor_int
-            .as_ref()
-            .expect("binary population always has a tensor_int")
     }
 }
 
@@ -239,38 +188,14 @@ impl<B: Backend> Population<B, Integer> {
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 5);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if `tensor` is not rank 2.
     #[must_use]
     pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Self {
         let dims = tensor.dims();
-        assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         Self {
             pop_size: dims[0],
             genome_dim: dims[1],
-            _kind: PhantomData,
-            tensor_real: None,
-            tensor_int: Some(tensor),
+            tensor,
         }
-    }
-
-    /// Borrows the backing integer tensor.
-    ///
-    /// The returned tensor has shape `[pop_size, genome_dim]` and element
-    /// type `Int`. Element values are non-negative indices whose domain is
-    /// determined by the problem (e.g. `0..n_nodes` for CGP).
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice: an integer population always holds an integer
-    /// tensor by construction.
-    #[must_use]
-    pub fn tensor(&self) -> &Tensor<B, 2, Int> {
-        self.tensor_int
-            .as_ref()
-            .expect("integer population always has a tensor_int")
     }
 }
 

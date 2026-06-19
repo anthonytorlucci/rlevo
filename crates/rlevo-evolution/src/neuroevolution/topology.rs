@@ -12,7 +12,7 @@
 //! - `connections` is kept **sorted by `innovation`** (see
 //!   [`TopologyGenome::insert_connection_sorted`]). Mutations append the
 //!   largest-so-far innovation, so insertion keeps it sorted cheaply, and
-//!   crossover / compatibility distance become `O(n)` merges (spec §3.G).
+//!   crossover / compatibility distance become `O(n)` merges.
 //! - The directed graph over **all** structural edges (enabled *or* disabled) is
 //!   acyclic — the feedforward invariant. [`TopologyGenome::would_create_cycle`]
 //!   checks against all edges so the DAG stays stable under enable/disable

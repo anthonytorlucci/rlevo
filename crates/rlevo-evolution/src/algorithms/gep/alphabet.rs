@@ -50,7 +50,7 @@ pub enum SymbolKind {
 
 /// A GEP alphabet over a function set `F`, plus variables and constants.
 ///
-/// # Id-space (spec §3.1)
+/// # Id-space
 ///
 /// Ids are contiguous and non-negative, laid out in three blocks:
 ///

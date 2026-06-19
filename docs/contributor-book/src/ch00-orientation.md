@@ -61,5 +61,4 @@ If you can't answer any of these, open a discussion before writing code.
 
 1. Full Mermaid dependency diagram (auto-generated reference + narrative).
 2. What "alpha stage" means — API stability expectations.
-3. The vault protocol (preview — full chapter follows).
-4. How to read an ADR — structure, status values, immutability rule.
+3. How to read an ADR — structure, status values, immutability rule.

@@ -10,6 +10,8 @@
 
 use std::fmt::Debug;
 
+use burn::tensor::{backend::Backend, Int, Tensor};
+
 /// Shape-erased genome kind.
 ///
 /// `GenomeKind` is a zero-sized marker that strategies parameterize on to
@@ -17,14 +19,13 @@ use std::fmt::Debug;
 /// `Permutation`) live below; new kinds can be added by implementing this
 /// trait on a fresh marker type.
 ///
-/// The associated constant [`GENOME_LEN`](GenomeKind::GENOME_LEN) records the
-/// genome length (number of genes) at the type level when it is compile-time
-/// known (for variable-length representations like trees, impls set it to `0`).
+/// Genome width is a runtime property (`Population::genome_dim`), not a
+/// type-level one: every shipping kind is either runtime-dimensioned
+/// (`Real`/`Binary`/`Integer`) or variable-length (`Tree`/`Permutation`). A
+/// structurally-fixed-width kind could add a compile-time length constant when
+/// one is introduced — an associated const with a default is a non-breaking
+/// addition.
 pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
-    /// Compile-time genome length (number of genes), or `0` for
-    /// variable-length kinds.
-    const GENOME_LEN: usize;
-
     /// Element type of the genome (typically `f32`, `i32`, or `bool`).
     type Element: Copy + Debug + Send + Sync + 'static;
 }
@@ -37,7 +38,6 @@ pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
 pub struct Real;
 
 impl GenomeKind for Real {
-    const GENOME_LEN: usize = 0;
     type Element = f32;
 }
 
@@ -49,7 +49,6 @@ impl GenomeKind for Real {
 pub struct Binary;
 
 impl GenomeKind for Binary {
-    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
@@ -84,18 +83,46 @@ pub struct Tree;
 pub struct Permutation;
 
 impl GenomeKind for Integer {
-    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Tree {
-    const GENOME_LEN: usize = 0;
     type Element = i32;
 }
 
 impl GenomeKind for Permutation {
-    const GENOME_LEN: usize = 0;
     type Element = i32;
+}
+
+/// Genome kinds with a rectangular, device-resident tensor representation.
+///
+/// This is the subset of [`GenomeKind`]s that a
+/// [`Population`](crate::population::Population) can store on-device. The
+/// associated [`Tensor`](TensorGenome::Tensor) type names *which* tensor flavour
+/// backs the kind, tying the storage type to the marker at compile time: `Real`
+/// maps to `Tensor<B, 2>`; `Binary` and `Integer` map to `Tensor<B, 2, Int>`.
+///
+/// Because the storage type is chosen by the trait impl, `Population<B, K>` needs
+/// only one field and no run-time tag — the wrong-tensor-for-this-kind state is
+/// simply unrepresentable. Variable-length kinds such as [`Tree`] have no
+/// rectangular form and deliberately do not implement this trait, so
+/// `Population<B, Tree>` is not a valid type.
+pub trait TensorGenome: GenomeKind {
+    /// Device tensor type storing a whole population of this kind, shape
+    /// `(pop_size, genome_dim)`.
+    type Tensor<B: Backend>: Clone + Debug;
+}
+
+impl TensorGenome for Real {
+    type Tensor<B: Backend> = Tensor<B, 2>;
+}
+
+impl TensorGenome for Binary {
+    type Tensor<B: Backend> = Tensor<B, 2, Int>;
+}
+
+impl TensorGenome for Integer {
+    type Tensor<B: Backend> = Tensor<B, 2, Int>;
 }
 
 #[cfg(test)]

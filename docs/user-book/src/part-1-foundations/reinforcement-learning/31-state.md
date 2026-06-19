@@ -242,7 +242,7 @@ the experience-history machinery, while `BeliefState`, `HiddenState`,
 `LatentState`, and `StateAggregation` are currently shapes without consumers —
 they exist so the API has somewhere obvious to grow, not because there is a
 DreamerV3 hiding in the crate. Treat them as a sketch of where state handling is
-headed, and check the [status page](../part-3-open-problems/01-where-rlevo-stands.md)
+headed, and check the [status page](../part-4-open-problems/01-where-rlevo-stands.md)
 before building on them.
 
 ## Putting it together

@@ -1,12 +1,11 @@
 //! Bounded architecture NAS — evolving *which* fixed-topology Burn `Module`
 //! variant wins a task, alongside that variant's weights.
 //!
-//! Phase 3d1 ([`WeightOnly`](super::weight_only::WeightOnly)) evolves the
-//! weights of **one** declared topology. This module adds the architecture
-//! axis without the full topology-evolution machinery of NEAT: the user
-//! declares a small, fixed menu of concrete `Module` variants, and each
-//! population member carries a categorical **architecture id** plus a
-//! per-variant **weight vector**.
+//! Where [`WeightOnly`](super::weight_only::WeightOnly) evolves the weights of
+//! **one** declared topology, this module adds the architecture axis without the
+//! full topology-evolution machinery of NEAT: the user declares a small, fixed
+//! menu of concrete `Module` variants, and each population member carries a
+//! categorical **architecture id** plus a per-variant **weight vector**.
 //!
 //! # Why a custom harness, not [`Strategy`](crate::strategy::Strategy)
 //!
@@ -43,7 +42,7 @@
 //! # Gradient isolation and host RNG
 //!
 //! Every type here is generic over `B: Backend`, never `AutodiffBackend` —
-//! gradient isolation at the type level (inherited from 3d1). All sampling
+//! gradient isolation at the type level. All sampling
 //! (architecture ids, selection, crossover, weight perturbation) goes through
 //! [`seed_stream`](crate::rng::seed_stream) host-side `StdRng` substreams; the
 //! process-wide backend RNG is never touched (see [`crate::rng`]).
@@ -340,8 +339,8 @@ impl<B: Backend> ArchNasBuilder<B> {
 ///
 /// `evaluate` walks the population row by row, dispatches each to its variant's
 /// evaluator by `arch_id` index, and assembles a `[pop_size]` fitness tensor.
-/// Burn 0.21 has no batched/`vmap` forward, so evaluation is loop-over-N
-/// (deferred batched path: issue #41).
+/// Burn 0.21 has no batched/`vmap` forward, so evaluation is loop-over-N; a
+/// batched arch-dispatched path is a future addition.
 #[derive(Debug)]
 pub struct ArchNasFitnessFn<B: Backend> {
     evaluators: Vec<VariantEvaluator<B>>,

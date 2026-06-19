@@ -54,10 +54,6 @@ implement one trait:
 
 ```rust
 pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
-    /// Compile-time genome length (number of genes), or `0` for
-    /// variable-length kinds.
-    const GENOME_LEN: usize;
-
     /// Element type of the genome (typically `f32`, `i32`, or `bool`).
     type Element: Copy + Debug + Send + Sync + 'static;
 }
@@ -79,11 +75,29 @@ a value at runtime — there is no enum to match on, no tag byte stored anywhere
 is to make `Population<B, Real>` and `Population<B, Binary>` *different types* so
 the right `impl` block applies.
 
-`GENOME_LEN` records the genome length at the type level *when it is known at
-compile time*. For the tensor-backed kinds the population's `D` is a runtime
-value (you choose it when you build the population), so they set
-`GENOME_LEN = 0` — read it as "length not fixed by the type." The constant earns
-its keep only for representations whose width is structurally fixed.
+Notice what the trait does *not* carry: a genome length. That is deliberate.
+Genome **width is a runtime property, never a type-level one** — you choose `D`
+when you build a population, and read it back from `Population::genome_dim()`.
+The same `Real` marker backs an 8-gene sphere problem and a 100 000-gene neural
+weight vector; `Binary` backs a 32-bit string and a 1024-bit one. The kind fixes
+the *element semantics* and the operator set; it says nothing about how many
+genes a row holds.
+
+The two roadmap kinds make the point sharper, because they have no fixed width
+even at runtime. A `Tree` genome's length varies *from individual to individual*
+within one population — that variability is the whole point of genetic
+programming — and a `Permutation`'s length is the problem instance's node count
+(the number of cities in a TSP). Width simply is not a property `GenomeKind` is
+in a position to promise.
+
+> **A type-level length, if it were ever earned.** One could imagine a kind whose
+> width is welded to its *type* — a quaternion-rotation gene that is *always*
+> four floats, an RGB-triple that is *always* three channels — where a
+> compile-time length constant would document the invariant and let const-generic
+> buffers size themselves from it. No kind in `rlevo` is of that sort, so the
+> trait carries no such constant; an associated const with a default value is a
+> non-breaking addition, so it can be introduced the day a structurally-fixed
+> kind actually needs it, and not before.
 
 ## The `Population<B, K>` wrapper
 
@@ -93,42 +107,54 @@ helps to carry validated shape metadata alongside the data.
 `Population<B, K>` is that container:
 
 ```rust
-pub struct Population<B: Backend, K> {
+pub struct Population<B: Backend, K: TensorGenome> {
     pop_size: usize,
     genome_dim: usize,
-    _kind: PhantomData<K>,
-    tensor_real: Option<Tensor<B, 2>>,
-    tensor_int: Option<Tensor<B, 2, Int>>,
+    tensor: K::Tensor<B>,
 }
 ```
 
-Two things are worth reading closely.
-
-First, the **kind is a `PhantomData<K>`**, not a stored value — the marker lives
-only in the type, exactly as the previous section described. `Population<B, Real>`
-and `Population<B, Binary>` are distinct types that compile to the same runtime
-layout.
-
-Second, the wrapper holds **two `Option` tensor fields**, one float and one
-integer, and the public constructors maintain a strict invariant: for any
-population they produce, *exactly one* is `Some`, determined by `K`. `Real`
-populates `tensor_real`; `Binary` and `Integer` populate `tensor_int`. Each kind
-has its own constructor and its own `tensor()` accessor:
+The single tensor field is the point. Its type is **not** fixed to one flavour —
+it is `K::Tensor<B>`, an associated type chosen by the genome kind through a
+companion trait:
 
 ```rust
-let pop = Population::<B, Real>::new_real(tensor);      // tensor_real = Some
+pub trait TensorGenome: GenomeKind {
+    type Tensor<B: Backend>: Clone + Debug;
+}
+
+impl TensorGenome for Real    { type Tensor<B: Backend> = Tensor<B, 2>; }
+impl TensorGenome for Binary  { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
+impl TensorGenome for Integer { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
+```
+
+So `Population<B, Real>` *is* a population whose field is a `Tensor<B, 2>`, and
+`Population<B, Binary>` *is* one whose field is a `Tensor<B, 2, Int>` — the kind
+and its storage type are welded together at compile time. Two consequences fall
+out, both of which tighten the earlier design:
+
+- **The wrong-tensor-for-this-kind state is unrepresentable.** There is no pair
+  of `Option` fields to keep in sync and no "exactly one is `Some`" invariant to
+  uphold by convention. The single `tensor()` accessor returns `&K::Tensor<B>`
+  directly — it is *total*, with no `.expect()` and no panic path, because the
+  type system already guarantees the field holds the right flavour.
+- **Kinds without a rectangular tensor form are excluded by the type checker.**
+  The `K: TensorGenome` bound means a kind must *opt in* by naming a tensor type.
+  `Tree` (a host-side, variable-length AST) does not implement `TensorGenome`, so
+  `Population<B, Tree>` does not type-check at all — the impossibility is enforced,
+  not just documented.
+
+Each kind still gets an explicit constructor — `new_real`, `new_binary`,
+`new_integer` — because reading `pop_size`/`genome_dim` from `tensor.dims()`
+happens where the concrete tensor type is in hand:
+
+```rust
+let pop = Population::<B, Real>::new_real(tensor);
 assert_eq!(pop.pop_size(), 4);                          // rows
 assert_eq!(pop.genome_dim(), 3);                        // columns
 
-let bits = Population::<B, Binary>::new_binary(int_tensor);  // tensor_int = Some
+let bits = Population::<B, Binary>::new_binary(int_tensor);
 ```
-
-The accessors `.expect()` on their matching field, which looks risky but is not:
-the constructor contract pins the invariant, so a mismatch would be a bug *in
-this module*, not something a caller can trigger. The constructors do assert the
-tensor is rank 2 — that *is* a programming error worth catching loudly, and it is
-documented as a `# Panics` clause (consistent with the panic discipline recorded
-in `docs/rules.md`).
 
 The wrapper exists for one reason: to give operators and strategies a **single
 shape contract** to validate against. Rather than every call site re-deriving `N`
@@ -232,9 +258,14 @@ machinery lands:
   (TSP, QAP) driven by Ant Colony Optimization. A stubbed consumer ships today;
   the full operator set is planned.
 
-Both implement `GenomeKind` (with `GENOME_LEN = 0`, since their length is not
-fixed by the type) so they slot into the same `Population<B, K>` and strategy
-machinery once their operators exist. Listing them here is deliberate: it marks
+Both implement `GenomeKind`, so strategies and operators can already name them.
+They differ on the tensor seam, though, and that difference is exactly what
+`TensorGenome` captures. `Permutation` is rectangular — each row is a length-`n`
+integer vector — so it will implement `TensorGenome` and gain a
+`Population<B, Permutation>` when its operators land. `Tree` is not: its genomes
+are variable-length, host-side ASTs with no rectangular tensor form, so it will
+*stay* a plain `GenomeKind` and never implement `TensorGenome` — its genetic
+programming machinery lives off-device. Listing both here is deliberate: it marks
 the seams where the representation layer is designed to grow without disturbing
 the kinds that already work.
 

@@ -186,6 +186,7 @@ mod tests {
 
     type TestBackend = Flex;
 
+    // ANCHOR: tournament_expectation_test
     #[test]
     fn tournament_prefers_better_fitness_in_expectation() {
         let mut rng = StdRng::seed_from_u64(1);
@@ -200,7 +201,9 @@ mod tests {
             "wins_for_best={wins_for_best} (expected ~437)",
         );
     }
+    // ANCHOR_END: tournament_expectation_test
 
+    // ANCHOR: truncation_ordering_test
     #[test]
     fn truncation_returns_smallest_fitness_first() {
         let fitness = [5.0f32, 1.0, 3.0, 2.0, 4.0];
@@ -211,7 +214,9 @@ mod tests {
         assert!(idx.contains(&3));
         assert!(idx.contains(&2));
     }
+    // ANCHOR_END: truncation_ordering_test
 
+    // ANCHOR: tournament_select_shape_test
     #[test]
     fn tournament_select_returns_shaped_tensor() {
         let device = Default::default();
@@ -222,4 +227,5 @@ mod tests {
         let parents = tournament_select(&pop, &fitness, 2, 4, &mut rng, &device);
         assert_eq!(parents.dims(), [4, 2]);
     }
+    // ANCHOR_END: tournament_select_shape_test
 }

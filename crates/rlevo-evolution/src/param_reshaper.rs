@@ -322,11 +322,11 @@ mod tests {
         approx_eq(&flat, &flat2);
     }
 
-    /// Closes 3d1-R2 OPEN item: does Burn's traversal touch non-trainable
-    /// `BatchNorm` running statistics? Empirically yes — `RunningState` is a
-    /// `Module` and forwards to `visit_float` / `map_float`. A `BatchNorm`
-    /// over `d` features therefore exposes `4*d` float leaves: `gamma`,
-    /// `beta`, `running_mean`, `running_var`.
+    /// Confirms whether Burn's traversal touches non-trainable `BatchNorm`
+    /// running statistics. Empirically yes — `RunningState` is a `Module` and
+    /// forwards to `visit_float` / `map_float`. A `BatchNorm` over `d` features
+    /// therefore exposes `4*d` float leaves: `gamma`, `beta`, `running_mean`,
+    /// `running_var`.
     #[test]
     fn batchnorm_running_stats_are_traversed() {
         let device = Default::default();
@@ -357,12 +357,12 @@ mod tests {
         approx_eq(&flat, &reshaper.flatten(&restored, &device));
     }
 
-    // --- Bounded-NAS enum-derive probe (issue #42, Step 1) -------------------
+    // --- Bounded-NAS enum-derive probe ---------------------------------------
     //
     // Question: does Burn 0.21 `#[derive(Module)]` work on a Rust *enum* whose
     // arms hold heterogeneous concrete `Module` variants? The bounded-NAS
     // design (closure-erased `VariantEvaluator` registry) does NOT depend on
-    // the answer, but the finding is recorded in spec §3.D for the audit trail.
+    // the answer; this probe records the finding (it compiles) for reference.
     //
     // If `#[derive(Module)]` below fails to compile, the whole crate fails to
     // build and this probe never runs — a build failure IS the negative result.

@@ -64,11 +64,10 @@ use crate::strategy::{Strategy, StrategyMetrics};
 /// Controls how a refined genome's gains are written back into the population.
 ///
 /// See the [module docs](self) for the semantics of each policy. The default,
-/// [`Partial(0.5)`](WritebackPolicy::Partial), is spec-mandated (research gate
-/// 3a-R2): half of refined individuals inherit their refined genome, the other
-/// half keep their original genome but pay the refined fitness — a pragmatic
-/// blend that avoids both Lamarckian premature convergence and the slow Baldwin
-/// effect.
+/// [`Partial(0.5)`](WritebackPolicy::Partial), is a deliberate middle ground:
+/// half of refined individuals inherit their refined genome, the other half keep
+/// their original genome but pay the refined fitness — a blend that avoids both
+/// Lamarckian premature convergence and the slow Baldwin effect.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WritebackPolicy {
     /// Refined genome *and* refined fitness flow to the inner `tell`.
@@ -698,7 +697,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // 0. Spec-mandated defaults (falsifiable equality checks).
+    // 0. Documented defaults (falsifiable equality checks).
     // ---------------------------------------------------------------------
 
     #[test]

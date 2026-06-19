@@ -245,7 +245,7 @@ Mirror the bandit's test module. The shape that matters:
 6. **`TensorConvertible` round-trips** and rejects wrong-shaped tensors.
 
 Once these pass, your environment is a first-class citizen: the evolutionary
-harness, the DQN/PPO agents from Chapter 3, and the hybrid loops in Part III all
+harness, the DQN/PPO agents from Chapter 3, and the hybrid loops in Part IV all
 accept it through the same `Environment` interface — you wrote the world, and the
 whole library can now learn in it.
 
@@ -268,7 +268,7 @@ Where to go next depends on what you want:
   [Contributor Book](https://github.com/anthonytorlucci/rlevo/tree/main/docs/contributor-book)
   and the ADRs explain *why* the seams fall where they do.
 - **See where the project is headed** →
-  [Part III — Open Problems](../part-3-open-problems/00-overview.md).
+  [Part IV — Open Problems](../part-4-open-problems/00-overview.md).
 
 > **Foundations link.** The agent–environment loop and MDP formulation these
 > traits encode are introduced in

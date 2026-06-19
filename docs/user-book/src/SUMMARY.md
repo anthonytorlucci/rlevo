@@ -17,7 +17,12 @@
   - [Action Spaces](part-1-foundations/reinforcement-learning/32-action.md)
   - [Rewards](part-1-foundations/reinforcement-learning/33-reward.md)
   - [Environments](part-1-foundations/reinforcement-learning/34-environment.md)
-- [Why Combine Them?](part-1-foundations/40-why-combine.md)
+- [Neuroevolution](part-1-foundations/40-neuroevolution.md)
+  - [The Parameter Bridge: Weights as a Flat Genome](part-1-foundations/neuroevolution/41-param-bridge.md)
+  - [The NEAT Genome and Innovation Numbers](part-1-foundations/neuroevolution/42-neat-genome.md)
+  - [Speciation: Protecting Structural Innovation](part-1-foundations/neuroevolution/43-speciation.md)
+  - [Phenotypes: Compiling a Genome into a Network](part-1-foundations/neuroevolution/44-phenotypes.md)
+- [Why Combine Them?](part-1-foundations/50-why-combine.md)
 
 # Part II — Guided Tour
 
@@ -26,12 +31,17 @@
 - [Classic Control: CartPole with DQN](part-2-guided-tour/20-classic-control.md)
 - [Bring Your Own Environment](part-2-guided-tour/99-extending-the-environment.md)
 
-# Part III — Open Problems & Research Directions
+# Part III — Advanced Evolutionary Methods
 
-- [Overview](part-3-open-problems/00-overview.md)
-- [Where rlevo Stands Today](part-3-open-problems/01-where-rlevo-stands.md)
-- [Research Directions](part-3-open-problems/02-research-directions.md)
-- [Contributing](part-3-open-problems/03-contributing.md)
+- [Overview](part-3-advanced-evolution/00-overview.md)
+- [Coevolution](part-3-advanced-evolution/10-coevolution.md)
+
+# Part IV — Open Problems & Research Directions
+
+- [Overview](part-4-open-problems/00-overview.md)
+- [Where rlevo Stands Today](part-4-open-problems/01-where-rlevo-stands.md)
+- [Research Directions](part-4-open-problems/02-research-directions.md)
+- [Contributing](part-4-open-problems/03-contributing.md)
 
 # Appendices
 
@@ -61,5 +71,6 @@
   - [Wiring an Objective: Adapters and Evaluators](appendix-d-suppl/objective-adapters.md)
   - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
   - [Tensor Rank vs. Matrix Rank vs. Dimensionality](appendix-d-suppl/tensor-rank-vs-matrix-rank.md)
+  - [Worked Example: NEAT on XOR](appendix-d-suppl/neat-xor-walkthrough.md)
 - [Notation](notation.md)
 - [Bibliography](bibliography.md)

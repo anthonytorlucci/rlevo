@@ -94,7 +94,7 @@ mod tests {
         }
     }
 
-    /// AC §7.1: `CoupledFitness<B>` compiles on the CPU (Flex / ndarray-family)
+    /// `CoupledFitness<B>` compiles on the CPU (Flex / ndarray-family)
     /// **and** wgpu backends with a trivial test implementor. This is a
     /// compile-time monomorphization assertion — it never runs (no wgpu device
     /// is created), so it is cheap and CI-safe.

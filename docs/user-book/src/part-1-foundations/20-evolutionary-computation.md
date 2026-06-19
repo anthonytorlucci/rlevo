@@ -312,29 +312,87 @@ reason — EDAs implement the `fit → sample` `ProbabilityModel` trait, while
 CMA-ES and CMSA-ES are self-contained strategies whose path machinery does not
 fit that mould (ADR 0021).
 
+## Differential Evolution
+
+GA, ES, and EDA each rescale or reshape their search from a model of the
+*distribution* — a step size, a covariance, a marginal. **Differential
+Evolution** (DE; Storn and Price, 1997) [[Storn and Price, 1997]](#bibliography)
+takes the search geometry straight from the population itself. Its mutation adds
+a *scaled difference vector* between randomly chosen members,
+\\(\mathbf{v} = \mathbf{x}_{r_1} + F\,(\mathbf{x}_{r_2} - \mathbf{x}_{r_3})\\),
+so the perturbation is automatically calibrated to the current spread of the
+population: large while the population is dispersed, shrinking to fine steps as
+it converges. There is no separately tuned step size to adapt — the difference
+vectors *are* the step-size controller — which is why DE is often competitive
+with the real-valued GA and classical ES on multi-modal landscapes while
+exposing only two knobs, the scale factor \\(F\\) and the crossover rate
+\\(CR\\).
+
+**In `rlevo`.** `DifferentialEvolution` selects its mutation/crossover scheme
+through the `DeVariant` enum — `Rand1Bin` (the recommended default), `Rand1Exp`,
+`Rand2Bin`, `Best1Bin`, and `CurrentToBest1Bin` — and all five share the same
+**greedy per-slot replacement** in `tell`: each trial vector competes only
+against the parent that produced it, and replaces it only on improvement. The
+`Best1`/`CurrentToBest1` variants pull toward the incumbent best for faster
+exploitation at the cost of premature-convergence risk. The mutation formulae,
+the binomial-versus-exponential crossover masks, and the per-variant guidance are
+in [Appendix A: Differential Evolution](../appendix-a-ec-algorithms/differential-evolution.md).
+
+## Genetic Programming
+
+The families so far all search a *fixed-length* genome — a real, binary, or
+integer vector of known width. **Genetic programming** (GP; Koza, 1992)
+[[Koza, 1992]](#bibliography) evolves *programs* instead: the phenotype is a
+computation graph or expression tree of variable shape, and the canonical
+application is symbolic regression — recovering a closed-form expression that
+explains a dataset rather than a point in \\(\mathbb{R}^n\\). The engineering
+challenge GP poses is the **genotype–phenotype map**: variation operators act on
+a representation that must always decode to a valid program, or every offspring
+needs a repair pass.
+
+`rlevo` sidesteps repair by keeping both GP variants on a fixed-length *integer*
+genome — the same on-device `Tensor<B, 2, Int>` storage as every other strategy —
+and decoding it to a program:
+
+- **Cartesian GP** (`gp_cgp`) decodes an integer genome to a directed acyclic
+  computation graph on a `rows × cols` grid; each node names a function from the
+  function set and the wires feeding it, and evolution rewires the graph and swaps
+  operators.
+- **Gene Expression Programming** (`gep`) decodes a linear, fixed-length
+  chromosome to a variable-shape expression tree. A `head`/`tail` split sizes the
+  chromosome so that *every* genome decodes to a complete tree — **repair-free
+  validity** — while keeping GA-style array-edit operators, including real
+  crossover.
+
+Both decode strategies, their function sets, and worked symbolic-regression
+examples are in [Appendix A: Cartesian GP](../appendix-a-ec-algorithms/cartesian-genetic-programming.md)
+and [Gene Expression Programming](../appendix-a-ec-algorithms/gene-expression-programming.md).
+
+## Neuroevolution
+
+The families above optimise abstract vectors; **neuroevolution** points the same
+machinery at the object this library ultimately cares about — a neural network —
+and evolves it directly, with no gradients and no backpropagation. That makes it
+the evolutionary half of `rlevo`'s thesis. `rlevo` ships three approaches, graded
+by how much structure is fixed before the search begins: `WeightOnly` (fix the
+architecture, evolve the flattened weights of any Burn `Module`), `ArchNas`
+(co-evolve *which* architecture from a closed menu alongside its weights), and
+`Neat` (grow the topology itself from a minimal seed). The dedicated
+[Neuroevolution](40-neuroevolution.md) chapter is the full treatment; how
+neuroevolution and gradient-based RL *combine* rather than compete is the subject
+of [Why Combine Them?](50-why-combine.md).
+
 ## Other strategy families in `rlevo`
 
-The GA, ES, and EDA sections above cover three distinct *ideas* — recombination,
-self-adaptation, and explicit distribution learning — but the same `Strategy`
-contract backs a wider menagerie. Each ships today and is documented with full
-pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
+The same `Strategy` contract backs a wider menagerie — variations on the ideas
+above, a meta-wrapper, and a set of swarm metaheuristics. Each ships today and is
+documented with full pseudocode in
+[Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
 
-- **Differential Evolution (DE)** mutates by adding *scaled difference vectors*
-  between population members — a self-scaling scheme that needs no externally
-  tuned step size. `rlevo` ships the `Rand1Bin`, `Rand1Exp`, `Rand2Bin`,
-  `Best1Bin`, and `CurrentToBest1Bin` variants with greedy per-slot replacement.
 - **Evolutionary Programming (EP)** is Fogel-style, mutation-only evolution with
   per-individual log-normal \\(\sigma\\) adaptation and q-tournament survivor
-  selection over a \\((\mu + \mu)\\) pool.
-- **Genetic programming** evolves programs rather than fixed-length vectors:
-  *Cartesian GP* (`gp_cgp`, an integer genome decoded to a computation graph) and
-  *Gene Expression Programming* (`gep`, a linear chromosome decoded to an
-  expression tree).
-- **Neuroevolution** evolves networks directly: `WeightOnly` evolves the
-  flattened weights of any Burn `Module` through the `ParamReshaper` bridge from
-  the [genome chapter](evolutionary-computation/22-genome.md); `ArchNas`
-  co-evolves which fixed-topology variant *and* its weights; `Neat` grows
-  topology from a minimal seed via speciation and innovation-aligned crossover.
+  selection over a \\((\mu + \mu)\\) pool — close kin to the self-adaptive ES
+  variants above, minus recombination.
 - **The memetic wrapper** wraps any real-valued strategy with per-individual
   local search (hill-climbing, Nelder–Mead, simulated annealing) under
   Lamarckian, Baldwinian, or partial-writeback policies.
@@ -347,7 +405,9 @@ pseudocode in [Appendix A](../appendix-a-ec-algorithms/index.md); in brief:
 
 ## Multi-Objective Optimisation
 
-Most real problems have more than one objective — faster *and* cheaper, higher
+Every family so far has searched for a single lowest-cost *point*, varying only
+*how* it searches while holding the objective fixed at one scalar to minimise.
+Many real problems have no single "best" to find. They have more than one
 reward *and* lower energy. When objectives conflict there is no single optimum
 but a *set* of incomparable trade-offs: a solution **dominates** another when it
 is no worse on every objective and strictly better on at least one. The
@@ -363,7 +423,7 @@ multi-objective EA — its fast non-dominated sorting and crowding-distance
 diversity operator remain the baseline every new algorithm is compared against;
 SPEA2 [[Zitzler et al., 2001]](#bibliography) is the other classic reference
 point. `rlevo` does not yet implement multi-objective optimisation; it is on
-the research roadmap (see [Part III](../part-3-open-problems/02-research-directions.md)).
+the research roadmap (see [Part IV](../part-4-open-problems/02-research-directions.md)).
 
 > **Further reading.** Deb, *Multi-Objective Optimization Using Evolutionary
 > Algorithms* (Wiley, 2001) [[Deb, 2001]](#bibliography) is the standard

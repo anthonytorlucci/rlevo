@@ -1,12 +1,12 @@
-//! Interpreted NEAT, end-to-end on XOR (spec §6 AC5/AC6).
+//! Interpreted NEAT, end-to-end on XOR.
 //!
 //! Drives the [`NeatStrategy`] custom harness through the manual generational
 //! loop (`init → loop{ ask → GraphFitnessFn::evaluate → tell }`) on the `Flex`
 //! backend and asserts:
 //!
-//! - **AC5** — fitness `4 − Σ(out − target)²` reaches `≥ 3.9` within `≤ 300`
+//! - **Solve** — fitness `4 − Σ(out − target)²` reaches `≥ 3.9` within `≤ 300`
 //!   generations at `pop ≈ 150`.
-//! - **AC6** — species count `> 1` for `> 50%` of the generations run.
+//! - **Speciation** — species count `> 1` for `> 50%` of the generations run.
 //!
 //! XOR is not linearly separable, so a solution requires an add-node mutation —
 //! which also drives the structural divergence that creates species, so the two
@@ -76,7 +76,8 @@ impl GraphFitnessFn<B> for XorFitness {
 }
 
 /// Tuned NEAT parameters for XOR at `pop = 150`. Structural-mutation rates are
-/// raised from the R1 §6 canonical defaults (R1 notes these are the knobs worth
+/// raised from the canonical NEAT defaults (Stanley & Miikkulainen, 2002 — the
+/// structural-mutation rates and compatibility threshold are the knobs worth
 /// tuning) so a hidden node — and the species divergence it creates — appears
 /// early and reliably within the budget.
 fn xor_params(pop: usize) -> NeatParams {
@@ -119,7 +120,8 @@ fn test_neat_solves_xor_with_speciation() {
         if state.best_fitness >= SOLVE_THRESHOLD {
             solved = true;
         }
-        // Stop once both criteria hold, so AC6 is robust to a fast solve.
+        // Stop once both criteria hold, so the speciation check is robust to a
+        // fast solve (a short run could otherwise miss the >50% threshold).
         if solved && multi_species_gens * 2 > total_gens {
             break;
         }
@@ -127,12 +129,12 @@ fn test_neat_solves_xor_with_speciation() {
 
     assert!(
         solved,
-        "AC5: XOR not solved within {MAX_GENERATIONS} generations; best fitness {} < {SOLVE_THRESHOLD}",
+        "solve: XOR not solved within {MAX_GENERATIONS} generations; best fitness {} < {SOLVE_THRESHOLD}",
         state.best_fitness
     );
     assert!(
         multi_species_gens * 2 > total_gens,
-        "AC6: species > 1 for only {multi_species_gens}/{total_gens} generations (need > 50%)"
+        "speciation: species > 1 for only {multi_species_gens}/{total_gens} generations (need > 50%)"
     );
 
     // The recovered champion really solves XOR through the phenotype.
@@ -171,7 +173,7 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
 }
 
 // ---------------------------------------------------------------------------
-// Tensorized / dense-padded parity (issue #41 / spec 3d3 §6 AC3)
+// Tensorized / dense-padded parity
 // ---------------------------------------------------------------------------
 
 /// A small fixed parity population: every genome has 2 inputs (ids 0, 1) and 1
@@ -274,7 +276,7 @@ fn interpreted_stacked(genomes: &[TopologyGenome], obs: &Tensor<B, 2>) -> Vec<f3
     out
 }
 
-/// AC3: the dense-padded batched forward pass reproduces the interpreted
+/// The dense-padded batched forward pass reproduces the interpreted
 /// per-genome output within float epsilon, across all four activations, a
 /// two-hidden-layer genome, a disabled edge, and padding.
 #[test]
@@ -346,7 +348,7 @@ fn test_dense_padded_panics_over_cap() {
 
 /// The `BatchGraphFitness` adapter drives `NeatStrategy` to the same XOR fitness
 /// the interpreted `GraphFitnessFn` produces, confirming the two evaluation
-/// seams are interchangeable behind the harness (spec 3d3 §3.D).
+/// seams are interchangeable behind the harness.
 #[test]
 fn test_batch_graph_fitness_matches_interpreted_fitness() {
     use rlevo_evolution::BatchGraphFitness;

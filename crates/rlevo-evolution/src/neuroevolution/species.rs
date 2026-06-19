@@ -38,7 +38,7 @@ pub struct Species {
     /// Stable species id.
     pub id: SpeciesId,
     /// Frozen comparison anchor for this generation's assignment pass — a
-    /// randomly chosen member of the previous generation (R1 §5).
+    /// randomly chosen member of the previous generation (canonical NEAT).
     pub representative: TopologyGenome,
     /// Indices into the population `Vec` assigned to this species this generation.
     pub members: Vec<usize>,
@@ -52,7 +52,7 @@ pub struct Species {
 }
 
 /// Compatibility distance `δ = c1·E/N + c2·D/N + c3·W̄` between two genomes
-/// (R1 §5).
+/// (Stanley & Miikkulainen, 2002).
 ///
 /// `E` is the excess gene count, `D` the disjoint gene count, `W̄` the mean
 /// absolute weight difference over matching genes, and `N` the connection-gene

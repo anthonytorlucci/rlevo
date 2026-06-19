@@ -48,7 +48,7 @@ don't yet know what a good solution even looks like.
 The point of `rlevo` is that you don't have to choose. Hybrid strategies let a
 population explore the map while gradients climb the most promising peak — use
 evolution to find the right mountain, gradients to reach its top.
-[Why Combine Them?](40-why-combine.md) makes the case in detail.
+[Why Combine Them?](50-why-combine.md) makes the case in detail.
 
 ### 4. The Rust Layer (The Safety Net)
 
@@ -87,7 +87,8 @@ Where an algorithm or derivation deserves more than a summary, a callout box poi
 | [What Is Optimization?](10-optimization.md) | Fitness landscapes, the exploitation–exploration trade-off, and why gradient descent is not always the answer |
 | [Evolutionary Computation](20-evolutionary-computation.md) | Populations, selection, variation operators, and the family of algorithms that descend from Holland's genetic algorithm |
 | [Reinforcement Learning](30-reinforcement-learning.md) | The agent–environment loop, Markov decision processes, value functions, and the road from Q-learning to deep RL |
-| [Why Combine Them?](40-why-combine.md) | Neuroevolution, evolutionary RL, and what happens when you let evolution drive gradient-based agents |
+| [Neuroevolution](40-neuroevolution.md) | Evolving network weights, architectures, and topologies directly — with no gradients at all |
+| [Why Combine Them?](50-why-combine.md) | Evolutionary RL, and what happens when you let evolution drive gradient-based agents |
 
 ---
 

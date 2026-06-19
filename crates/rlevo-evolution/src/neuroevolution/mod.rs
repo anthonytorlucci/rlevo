@@ -1,15 +1,17 @@
 //! Topology-evolving neuroevolution (NEAT) — the host-side graph data model.
 //!
-//! This module holds the building blocks shared by the interpreted NEAT path
-//! (issue #34): the graph genome ([`topology`]), the per-run innovation registry
-//! ([`innovation`]), speciation ([`species`]), and the interpreted phenotype
-//! ([`phenotype`]). The [`NeatStrategy`] custom harness that drives them lives in
-//! [`crate::algorithms::neuroevolution::neat`].
+//! This module holds the building blocks shared by NEAT: the graph genome
+//! ([`topology`]), the per-run innovation registry ([`innovation`]), speciation
+//! ([`species`]), and the phenotype builders ([`phenotype`]). The
+//! [`NeatStrategy`](crate::algorithms::neuroevolution::neat::NeatStrategy) custom
+//! harness that drives them lives in [`crate::algorithms::neuroevolution::neat`].
 //!
 //! These types are *graphs*, not tensors: unlike the
 //! [`Strategy`](crate::strategy::Strategy) genomes elsewhere in the crate,
-//! [`TopologyGenome`] is plain host-side data (and is [`Clone`]). The tensorized
-//! / GPU-batched evaluation path is out of scope and tracked in #41.
+//! [`TopologyGenome`] is plain host-side data (and is [`Clone`]). A genome is
+//! scored either one at a time, through the interpreted [`InterpretedBuilder`]
+//! reference path, or a whole population at once, through the device-batched
+//! [`DensePaddedEvaluator`]; the two agree to float epsilon.
 //!
 //! # Orientation
 //!

@@ -423,7 +423,7 @@ mod tests {
         harness.latest_metrics().unwrap().best_fitness_ever
     }
 
-    /// AC8: `f(x) = x² + x + 1` over 20 points in [-1, 1].
+    /// Converges on `f(x) = x² + x + 1` over 20 points in [-1, 1].
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_quadratic() {
@@ -434,7 +434,7 @@ mod tests {
         assert!(best <= 0.01, "expected MSE <= 0.01, got {best}");
     }
 
-    /// AC8: `f(x) = sin(x) · x` over 20 points in [-3, 3].
+    /// Converges on `f(x) = sin(x) · x` over 20 points in [-3, 3].
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_sin_times_x() {
@@ -445,7 +445,7 @@ mod tests {
         assert!(best <= 0.01, "expected MSE <= 0.01, got {best}");
     }
 
-    /// AC8: `f(x, y) = x² + y²` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
+    /// Converges on `f(x, y) = x² + y²` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
     #[test]
     #[allow(clippy::cast_precision_loss)]
     fn converges_on_sum_of_squares() {

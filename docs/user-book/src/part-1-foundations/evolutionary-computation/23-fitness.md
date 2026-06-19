@@ -153,14 +153,70 @@ Most objectives are easiest to write as a plain scalar function on the host —
   nothing.
 - **`FromFitnessEvaluable<FE, L>`** wraps an
   `rlevo_core::fitness::FitnessEvaluable<Individual = Vec<f64>, Landscape = L>` —
-  the case where an evaluator and a landscape type are defined *separately* (e.g.
-  a `RastriginEvaluator` paired with a `RastriginLandscape`).
+  the case where the *scoring procedure* (`FE`) and the *thing scored against*
+  (`L`) are separate types. The trait's `Landscape` associated type carries **no
+  bound** (`rlevo-core/src/fitness.rs`), so `L` is whatever context the evaluator
+  needs — a real benchmark landscape, or a bare marker.
 
-Both follow the same recipe per generation: pull each population row to host as
-`f32`, widen to `f64`, evaluate on the CPU row-by-row, and re-upload the results
-as one `Tensor<B, 1>` — preserving row order. They implement `BatchFitnessFn` only
-for `Tensor<B, 2>` (real genomes); discrete-genome objectives implement the trait
-directly.
+That second adapter has two idioms in the codebase, and the difference is where
+the arithmetic lives.
+
+**Evaluator delegates to a real landscape.** The cross-crate Rastrigin suite
+(`crates/rlevo/tests/rastrigin_run_suite.rs`) drives a GA, ES, EP, and DE off one
+evaluator that forwards to the `Rastrigin` landscape from `rlevo-environments`:
+
+```rust
+use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_environments::landscapes::rastrigin::Rastrigin;
+use rlevo_evolution::fitness::FromFitnessEvaluable;
+
+struct Minimizer;
+impl FitnessEvaluable for Minimizer {
+    type Individual = Vec<f64>;
+    type Landscape = Rastrigin;
+    fn evaluate(&self, x: &Self::Individual, l: &Self::Landscape) -> f64 {
+        l.evaluate(x) // the geometry lives in Rastrigin; the evaluator forwards
+    }
+}
+
+// 10-dimensional Rastrigin, ready to hand to an EvolutionaryHarness.
+let fitness_fn = FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM));
+```
+
+**Evaluator carries the scoring; the landscape is a marker.** The per-strategy
+unit tests (`algorithms/ga.rs`, `metaheuristic/pso.rs`, `algorithms/ep.rs`, and
+their siblings) skip the separate landscape type entirely. The `Landscape`
+associated type is an empty tag, ignored in the body, and the score is computed
+inline:
+
+```rust
+struct Sphere; // a marker — deliberately not a Landscape impl
+struct SphereFit;
+impl FitnessEvaluable for SphereFit {
+    type Individual = Vec<f64>;
+    type Landscape = Sphere;
+    fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+        x.iter().map(|v| v * v).sum() // sum of squares, scored in the evaluator
+    }
+}
+
+let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+```
+
+Choose between the two by asking where the objective is most naturally written.
+If a reusable landscape already exists (the `rlevo-environments::landscapes`
+family — Sphere, Ackley, Rastrigin), delegate to it; if the score is a one-off
+defined right next to the test or experiment, fold it into the evaluator and let
+the landscape collapse to a marker. When the landscape *is* the whole objective
+and no scoring shim adds anything, skip `FromFitnessEvaluable` and reach for
+`FromLandscape` instead — `crates/rlevo-examples/examples/book/ch01_sphere_ga.rs`
+does exactly that with `FromLandscape::new(Sphere::new(DIM))`.
+
+Both adapters follow the same recipe per generation: pull each population row to
+host as `f32`, widen to `f64`, evaluate on the CPU row-by-row, and re-upload the
+results as one `Tensor<B, 1>` — preserving row order. They implement
+`BatchFitnessFn` only for `Tensor<B, 2>` (real genomes); discrete-genome
+objectives implement the trait directly.
 
 Two caveats live in the adapters, both inherent to the host round-trip:
 

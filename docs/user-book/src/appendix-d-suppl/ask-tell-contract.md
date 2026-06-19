@@ -234,7 +234,7 @@ The `EvolutionaryHarness` wraps the above loop with:
 
 For most use cases, the harness is the right choice. Writing your own loop is
 the right choice when you need control the harness does not expose, or when you
-are building a hybrid (the ERL loop in Part III cannot be expressed as a single
+are building a hybrid (the ERL loop in Part IV cannot be expressed as a single
 harness call).
 
 ## Where this connects

@@ -1,4 +1,4 @@
-# Part III — Open Problems & Research Directions
+# Part IV — Open Problems & Research Directions
 
 `rlevo` is alpha software. It implements enough to be useful and enough to be
 interesting as a research substrate — but it does not implement everything, and
