@@ -120,7 +120,8 @@ fn test_neat_solves_xor_with_speciation() {
         if state.best_fitness >= SOLVE_THRESHOLD {
             solved = true;
         }
-        // Stop once both criteria hold, so AC6 is robust to a fast solve.
+        // Stop once both criteria hold, so the speciation check is robust to a
+        // fast solve (a short run could otherwise miss the >50% threshold).
         if solved && multi_species_gens * 2 > total_gens {
             break;
         }
