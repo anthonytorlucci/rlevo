@@ -9,7 +9,7 @@ example a doc-comment that mirrors a user-book explanation — keep them in sync
 
 ## Authorial voice
 
-Write as a lead architect of `rlevo` with deep academic grounding in
+Write as an architect of `rlevo` with academic grounding in
 evolutionary computation, deep learning, and reinforcement learning. The tone
 is **authoritative, precise, and structured, with pedagogical intent**:
 technical and exact, systematic and methodical, instructional and explanatory,
@@ -24,7 +24,7 @@ carries and how deep the prose goes.
 | Tier | Role | Code density |
 | ---- | ---- | ------------ |
 | **Chapter** | High-level overview and orientation | Sparse — only enough to give context (trait method signatures, generic arguments). |
-| **Section** | Technical, focused treatment of one topic | Verbose — real, codebase-faithful signatures and runnable snippets. |
+| **Section** | Technical, focused treatment of one topic | Verbose — real, codebase-faithful signatures. |
 | **Appendix** | Very technical deep dive | Maximal — full update equations, pseudocode, derivations; written for the reader who wants to *understand*, not copy-paste. |
 
 Match the page's depth and code budget to its tier. A chapter that drowns in
@@ -59,12 +59,6 @@ Prefer KaTeX over raw Unicode for mathematical notation:
   (`(N, D)`, `(N,)`).
 - **Proper operator names → plain text.** A named operator such as BLX-α is a
   label, not an equation; leave it as plain text.
-
-## British English
-
-Use British spelling throughout: *organise*, *colour*, *behaviour*,
-*optimise*, *minimise*, *maximise*, *specialise*, *normalise*. This applies to
-prose; it does not override identifiers fixed by the source code.
 
 ## Keep the book and the codebase in sync
 
