@@ -1,15 +1,15 @@
 //! Integration test: weight-only neuroevolution of a small MLP against a
 //! supervised (MSE) fitness on a noisy sine wave.
 //!
-//! Exercises the full phase-3d1 loop end-to-end:
+//! Exercises the full weight-only loop end-to-end:
 //! `WeightOnly<B, GA, Mlp>` (strategy) → `ModuleEvalFn` (fitness adapter,
 //! unflattening each genome row into an MLP and scoring MSE) →
 //! `EvolutionaryHarness`.
 //!
-//! Per the resolved acceptance criterion, the assertion is **directional**:
-//! the best MSE after 50 generations must be strictly better than the best
-//! MSE in generation 0. This proves the optimization loop actually descends
-//! without pinning a brittle absolute convergence threshold under a fixed seed.
+//! The assertion is deliberately **directional**: the best MSE after 50
+//! generations must be strictly better than the best MSE in generation 0. This
+//! proves the optimization loop actually descends without pinning a brittle
+//! absolute convergence threshold that a fixed seed could satisfy by chance.
 
 use burn::backend::Flex;
 use burn::module::Module;

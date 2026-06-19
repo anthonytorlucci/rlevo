@@ -1,10 +1,12 @@
 //! Hybrid evolutionary + reinforcement-learning strategies for `rlevo`.
 //!
-//! Per the umbrella boundary policy (advanced-evo-algos spec §5.1), strictly
-//! evolutionary code lives in `rlevo-evolution`; anything that couples to an
-//! `Environment` rollout lives here.
+//! This crate marks the dependency boundary between pure evolution and
+//! reinforcement learning: strictly evolutionary code lives in
+//! `rlevo-evolution`, which never depends on `rlevo-core`, while anything that
+//! couples a strategy to an [`Environment`](rlevo_core::environment::Environment)
+//! rollout lives here, where that dependency is permitted.
 //!
-//! # Surface area (phase 3d1)
+//! # Surface area
 //!
 //! - [`rollout_fitness`] — [`RolloutFitness`], a
 //!   [`BatchFitnessFn`](rlevo_evolution::fitness::BatchFitnessFn) that scores a
