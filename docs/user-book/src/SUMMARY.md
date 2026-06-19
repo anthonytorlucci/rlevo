@@ -52,6 +52,7 @@
   - [Firefly Algorithm](appendix-a-ec-algorithms/firefly-algorithm.md)
   - [Grey Wolf Optimizer](appendix-a-ec-algorithms/grey-wolf-optimizer.md)
   - [Whale Optimization Algorithm](appendix-a-ec-algorithms/whale-optimization-algorithm.md)
+  - [Bat Algorithm](appendix-a-ec-algorithms/bat-algorithm.md)
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)

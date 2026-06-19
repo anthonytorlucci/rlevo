@@ -191,6 +191,10 @@ International Congress of Genetics*, 1, 356–366.
 Luniver Press. (Firefly Algorithm; see also Yang, X.-S. (2009), Firefly
 algorithms for multimodal optimization, *SAGA 2009*, LNCS 5792, 169–178.)
 
+**[Yang, 2010]** Yang, X.-S. (2010). A new metaheuristic bat-inspired algorithm.
+In *Nature Inspired Cooperative Strategies for Optimization (NICSO 2010)*, Studies
+in Computational Intelligence 284, 65–74. Springer.
+
 **[Zitzler et al., 2001]** Zitzler, E., Laumanns, M., & Thiele, L. (2001).
 SPEA2: Improving the strength Pareto evolutionary algorithm. In *Evolutionary
 Methods for Design, Optimisation and Control (EUROGEN 2001)*, 95–100. CIMNE.

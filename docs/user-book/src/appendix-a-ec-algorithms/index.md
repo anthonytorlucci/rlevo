@@ -56,7 +56,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 - [Firefly Algorithm](firefly-algorithm.md) (`firefly`) — multi-attractor swarm; each firefly drawn to every brighter one with `O(N²)` distance-decayed attraction; legacy comparator (capped at 128 fireflies)
 - [Grey Wolf Optimizer (GWO)](grey-wolf-optimizer.md) (`gwo`) — α/β/δ leaders; equal-weight three-attractor update with a linearly annealed step coefficient; legacy comparator
 - [Whale Optimization Algorithm (WOA)](whale-optimization-algorithm.md) (`woa`) — per-whale choice of shrink-encircle, random search, or logarithmic-spiral move toward the best; legacy comparator with an origin bias
-- Bat Algorithm — legacy comparator
+- [Bat Algorithm](bat-algorithm.md) (`bat`) — frequency-tuned velocity move plus a loudness-gated local walk and greedy acceptance; legacy comparator
 - Salp Swarm Algorithm (SSA) — legacy comparator
 
 ---
