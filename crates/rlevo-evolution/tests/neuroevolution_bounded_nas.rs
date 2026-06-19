@@ -1,6 +1,6 @@
-//! Integration test for bounded architecture NAS (issue #42, phase 3d2).
+//! Integration test for bounded architecture NAS (issue #42).
 //!
-//! Mirrors the structure of `neuroevolution_supervised.rs` (3d1) but drives the
+//! Mirrors the structure of `neuroevolution_supervised.rs` but drives the
 //! custom [`ArchNasStrategy`] harness directly (it is **not** a `Strategy<B>`,
 //! so the `EvolutionaryHarness` adapter does not apply). The toy task is XOR:
 //! three MLP variants of differing depth compete to fit the four XOR points
