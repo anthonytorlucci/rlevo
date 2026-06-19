@@ -1,7 +1,7 @@
 //! EDA convergence gates (cross-crate).
 //!
-//! Two acceptance criteria from the Phase 3b spec (issue #31), plus the
-//! Phase 3b follow-up gate (issue #37):
+//! Two convergence criteria (issue #31), plus a follow-up discriminating
+//! gate (issue #37):
 //!
 //! 1. Every `ProbabilityModel` implementation drives `best_fitness_ever`
 //!    to `<= 0.01` on Sphere-D10 within 500 generations
