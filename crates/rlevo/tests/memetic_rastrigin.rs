@@ -1,4 +1,4 @@
-//! Headline memetic-algorithm acceptance test (phase 3a).
+//! Headline memetic-algorithm acceptance test.
 //!
 //! Goal: prove that wrapping Differential Evolution with hill-climbing
 //! refinement — `MemeticWrapper<DE, HillClimbing>` — reaches a target
