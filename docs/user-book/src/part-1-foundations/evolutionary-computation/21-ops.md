@@ -109,6 +109,51 @@ the population. Each comes in two layers:
 - a `*_select` wrapper — the convenience that runs the host core and does the
   one device gather, returning a `(n_winners, D)` tensor.
 
+The wrapper is deliberately thin. `tournament_select` runs the host core to get
+winner indices, lifts that `Vec<i32>` onto the device as a rank-1 `Int` tensor,
+and issues a *single* `Tensor::select` along axis 0 to pull the winning rows out
+of the population:
+
+```rust
+pub fn tournament_select<B: Backend>(
+    population: &Tensor<B, 2>,
+    fitness: &[f32],
+    tournament_size: usize,
+    n_winners: usize,
+    rng: &mut dyn Rng,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let winners = tournament_indices_host(fitness, tournament_size, n_winners, rng);
+    let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [n_winners]), device);
+    population.clone().select(0, indices)
+}
+```
+
+Three things in those three lines are the whole **host-decide → single-gather**
+pattern:
+
+- **All the *deciding* happens on the host.** Every random draw and every
+  comparison lives inside `tournament_indices_host`, working on the `&[f32]`
+  fitness slice — never a tensor. That is what keeps the operator reproducible
+  under the host-RNG convention: no `Tensor::random`, no backend RNG, just the
+  caller's `rng`.
+- **The device is touched exactly once.** The winner indices cross to the device
+  in a single `from_data`, and a single `select` does all the gathering. There is
+  no per-winner indexing loop and no host round-trip mid-selection — selecting
+  `n_winners` parents from an `N`-member population costs one gather regardless of
+  how many tournaments ran.
+- **`select` indexes rows, so duplicates are free.** Tournament selection draws
+  *with replacement*, so the same index can win several tournaments;
+  `select(0, indices)` simply emits that row once per occurrence, which is exactly
+  the multiset of parents the algorithm wants.
+
+`truncation_select` has the identical shape — it forwards to
+`truncation_indices_host` and gathers — the only difference being that its core
+is deterministic and so takes no `rng`. Strategies almost always call the
+`*_select` wrappers; the bare `*_indices_host` cores exist for when you need the
+indices themselves (logging a lineage, gathering a *second* tensor by the same
+winners) or want to unit-test selection without a device in play.
+
 ### Tournament selection
 
 \\(k\\)-ary tournament: draw `tournament_size` candidate indices uniformly at random
