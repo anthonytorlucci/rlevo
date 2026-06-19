@@ -179,8 +179,11 @@ unique best member wins any single draw with probability
 P(\text{best wins}) = 1 - \left(\frac{N-1}{N}\right)^{2},
 ```
 
-which the in-source tests verify empirically. Panics if `fitness` is empty or
-`tournament_size < 2` (a tournament needs at least two contenders).
+which the in-source tests verify empirically — the contributor book walks
+through that test and the operator-testing patterns behind it in
+[Adding an evolutionary strategy](https://github.com/anthonytorlucci/rlevo/blob/main/docs/contributor-book/src/ch06-adding-an-evolutionary-strategy.md).
+Panics if `fitness` is empty or `tournament_size < 2` (a tournament needs at
+least two contenders).
 
 ### Truncation selection
 
