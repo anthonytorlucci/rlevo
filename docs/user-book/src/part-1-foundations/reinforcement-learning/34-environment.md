@@ -200,7 +200,7 @@ pub trait ConstructableEnv {
 }
 ```
 
-This split is deliberate ([ADR-0011](../part-3-open-problems/01-where-rlevo-stands.md)).
+This split is deliberate ([ADR-0011](../part-4-open-problems/01-where-rlevo-stands.md)).
 Construction is a different concern from the `reset`/`step` *behaviour*, and
 keeping it separate is what makes **transparent decorators** possible. A wrapper
 like `TimeLimit` or a recording tap is built from an *existing* inner
@@ -279,7 +279,7 @@ the crate as a vocabulary anchor more than a workhorse.
 > **The honest status.** Use `Environment` (and `step`) for everything you
 > actually run today. Treat `TransitionDynamics` and `UpdateFunction` as
 > sign-posts for where model-based methods would plug in — and check the
-> [status page](../part-3-open-problems/01-where-rlevo-stands.md) before building
+> [status page](../part-4-open-problems/01-where-rlevo-stands.md) before building
 > on them.
 
 ## Putting it together

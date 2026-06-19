@@ -423,7 +423,7 @@ multi-objective EA — its fast non-dominated sorting and crowding-distance
 diversity operator remain the baseline every new algorithm is compared against;
 SPEA2 [[Zitzler et al., 2001]](#bibliography) is the other classic reference
 point. `rlevo` does not yet implement multi-objective optimisation; it is on
-the research roadmap (see [Part III](../part-3-open-problems/02-research-directions.md)).
+the research roadmap (see [Part IV](../part-4-open-problems/02-research-directions.md)).
 
 > **Further reading.** Deb, *Multi-Objective Optimization Using Evolutionary
 > Algorithms* (Wiley, 2001) [[Deb, 2001]](#bibliography) is the standard

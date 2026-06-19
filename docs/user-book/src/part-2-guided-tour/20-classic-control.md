@@ -23,7 +23,7 @@ with code that actually compiles and trains.
 
 > **Status.** DQN works and is exercised by an integration test
 > (`crates/rlevo/tests/dqn_integration.rs`), but it is still maturing — see
-> [Where rlevo Stands Today](../part-3-open-problems/01-where-rlevo-stands.md)
+> [Where rlevo Stands Today](../part-4-open-problems/01-where-rlevo-stands.md)
 > for the current rough edges.
 
 ## The environment

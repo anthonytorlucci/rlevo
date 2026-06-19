@@ -77,6 +77,10 @@ derandomized self-adaptation in evolution strategies. *Evolutionary Computation*
 **[Hansen, 2016]** Hansen, N. (2016). The CMA evolution strategy: A tutorial.
 arXiv:1604.00772.
 
+**[Hillis, 1990]** Hillis, W. D. (1990). Co-evolving parasites improve simulated
+evolution as an optimization procedure. *Physica D: Nonlinear Phenomena*,
+42(1–3), 228–234.
+
 **[Holland, 1975]** Holland, J. H. (1975). *Adaptation in Natural and Artificial
 Systems*. University of Michigan Press. (2nd ed. MIT Press, 1992.)
 
@@ -130,9 +134,16 @@ Optimization* (2nd ed.). Springer.
 **[Pareto, 1896]** Pareto, V. (1896). *Cours d'économie politique*. F. Rouge,
 Lausanne.
 
+**[Potter and De Jong, 1994]** Potter, M. A., & De Jong, K. A. (1994). A
+cooperative coevolutionary approach to function optimization. In *Parallel
+Problem Solving from Nature (PPSN III)*, LNCS 866, 249–257. Springer.
+
 **[Rechenberg, 1973]** Rechenberg, I. (1973). *Evolutionsstrategie: Optimierung
 technischer Systeme nach Prinzipien der biologischen Evolution*.
 Frommann-Holzboog.
+
+**[Rosin and Belew, 1997]** Rosin, C. D., & Belew, R. K. (1997). New methods for
+competitive coevolution. *Evolutionary Computation*, 5(1), 1–29.
 
 **[Salimans et al., 2017]** Salimans, T., Ho, J., Chen, X., Sidor, S., &
 Sutskever, I. (2017). Evolution strategies as a scalable alternative to
