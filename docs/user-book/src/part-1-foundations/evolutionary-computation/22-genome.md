@@ -54,10 +54,6 @@ implement one trait:
 
 ```rust
 pub trait GenomeKind: Debug + Copy + Send + Sync + 'static {
-    /// Compile-time genome length (number of genes), or `0` for
-    /// variable-length kinds.
-    const GENOME_LEN: usize;
-
     /// Element type of the genome (typically `f32`, `i32`, or `bool`).
     type Element: Copy + Debug + Send + Sync + 'static;
 }
@@ -79,11 +75,29 @@ a value at runtime — there is no enum to match on, no tag byte stored anywhere
 is to make `Population<B, Real>` and `Population<B, Binary>` *different types* so
 the right `impl` block applies.
 
-`GENOME_LEN` records the genome length at the type level *when it is known at
-compile time*. For the tensor-backed kinds the population's `D` is a runtime
-value (you choose it when you build the population), so they set
-`GENOME_LEN = 0` — read it as "length not fixed by the type." The constant earns
-its keep only for representations whose width is structurally fixed.
+Notice what the trait does *not* carry: a genome length. That is deliberate.
+Genome **width is a runtime property, never a type-level one** — you choose `D`
+when you build a population, and read it back from `Population::genome_dim()`.
+The same `Real` marker backs an 8-gene sphere problem and a 100 000-gene neural
+weight vector; `Binary` backs a 32-bit string and a 1024-bit one. The kind fixes
+the *element semantics* and the operator set; it says nothing about how many
+genes a row holds.
+
+The two roadmap kinds make the point sharper, because they have no fixed width
+even at runtime. A `Tree` genome's length varies *from individual to individual*
+within one population — that variability is the whole point of genetic
+programming — and a `Permutation`'s length is the problem instance's node count
+(the number of cities in a TSP). Width simply is not a property `GenomeKind` is
+in a position to promise.
+
+> **A type-level length, if it were ever earned.** One could imagine a kind whose
+> width is welded to its *type* — a quaternion-rotation gene that is *always*
+> four floats, an RGB-triple that is *always* three channels — where a
+> compile-time length constant would document the invariant and let const-generic
+> buffers size themselves from it. No kind in `rlevo` is of that sort, so the
+> trait carries no such constant; an associated const with a default value is a
+> non-breaking addition, so it can be introduced the day a structurally-fixed
+> kind actually needs it, and not before.
 
 ## The `Population<B, K>` wrapper
 
@@ -232,9 +246,8 @@ machinery lands:
   (TSP, QAP) driven by Ant Colony Optimization. A stubbed consumer ships today;
   the full operator set is planned.
 
-Both implement `GenomeKind` (with `GENOME_LEN = 0`, since their length is not
-fixed by the type) so they slot into the same `Population<B, K>` and strategy
-machinery once their operators exist. Listing them here is deliberate: it marks
+Both implement `GenomeKind` so they slot into the same `Population<B, K>` and
+strategy machinery once their operators exist. Listing them here is deliberate: it marks
 the seams where the representation layer is designed to grow without disturbing
 the kinds that already work.
 
