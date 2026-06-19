@@ -45,6 +45,10 @@ on Evolutionary Computation*, 6(2), 182–197.
 **[De Jong, 1975]** De Jong, K. A. (1975). *An Analysis of the Behavior of a
 Class of Genetic Adaptive Systems* (PhD thesis). University of Michigan.
 
+**[Deng and Liu, 2023]** Deng, L. H., & Liu, S. (2023). Deficiencies of the
+whale optimization algorithm and its validation method. *Expert Systems with
+Applications*, 237, 121544.
+
 **[Eiben and Smith, 2015]** Eiben, A. E., & Smith, J. E. (2015). *Introduction to
 Evolutionary Computing* (2nd ed.). Springer.
 
