@@ -49,7 +49,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 - [Ant Colony Optimization — continuous (`ACO_R`)](ant-colony-continuous.md) — solution archive as pheromone; rank-weighted Gaussian kernels
 - Ant Colony Optimization — permutation (`aco_perm`) *(stub — deferred to a future release)*
 - [Artificial Bee Colony (ABC)](artificial-bee-colony.md) — employed/onlooker/scout phases; single-coordinate difference perturbation
-- Cuckoo Search — Lévy flights and random walk
+- [Cuckoo Search](cuckoo-search.md) (`cuckoo`) — Mantegna Lévy flights; greedy per-nest acceptance and worst-nest abandonment
 - Firefly Algorithm
 - Grey Wolf Optimizer (GWO) — legacy comparator
 - Whale Optimization Algorithm (WOA) — legacy comparator
