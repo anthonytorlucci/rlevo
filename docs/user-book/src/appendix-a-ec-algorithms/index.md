@@ -57,7 +57,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 - [Grey Wolf Optimizer (GWO)](grey-wolf-optimizer.md) (`gwo`) — α/β/δ leaders; equal-weight three-attractor update with a linearly annealed step coefficient; legacy comparator
 - [Whale Optimization Algorithm (WOA)](whale-optimization-algorithm.md) (`woa`) — per-whale choice of shrink-encircle, random search, or logarithmic-spiral move toward the best; legacy comparator with an origin bias
 - [Bat Algorithm](bat-algorithm.md) (`bat`) — frequency-tuned velocity move plus a loudness-gated local walk and greedy acceptance; legacy comparator
-- Salp Swarm Algorithm (SSA) — legacy comparator
+- [Salp Swarm Algorithm (SSA)](salp-swarm-algorithm.md) (`salp`) — leader block jitters toward the food source, follower chain averages with the salp ahead; legacy comparator with a shift-variance caveat
 
 ---
 

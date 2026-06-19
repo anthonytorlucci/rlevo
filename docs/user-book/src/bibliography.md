@@ -101,6 +101,17 @@ Computation*, 19(2), 189–223.
 **[Miettinen, 1999]** Miettinen, K. (1999). *Nonlinear Multiobjective
 Optimization*. Kluwer Academic Publishers.
 
+**[Mirjalili et al., 2014]** Mirjalili, S., Mirjalili, S. M., & Lewis, A. (2014).
+Grey wolf optimizer. *Advances in Engineering Software*, 69, 46–61.
+
+**[Mirjalili and Lewis, 2016]** Mirjalili, S., & Lewis, A. (2016). The whale
+optimization algorithm. *Advances in Engineering Software*, 95, 51–67.
+
+**[Mirjalili et al., 2017]** Mirjalili, S., Gandomi, A. H., Mirjalili, S. Z.,
+Saremi, S., Faris, H., & Mirjalili, S. M. (2017). Salp swarm algorithm: A
+bio-inspired optimizer for engineering design problems. *Advances in Engineering
+Software*, 114, 163–191.
+
 **[Mnih et al., 2015]** Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A.,
 Veness, J., Bellemare, M. G., … & Hassabis, D. (2015). Human-level control
 through deep reinforcement learning. *Nature*, 518(7540), 529–533.
