@@ -3,7 +3,7 @@
 Neuroevolution applies the evolutionary machinery of the previous chapters to the
 object this library ultimately cares about — a **neural network** — and evolves it
 directly, with no gradients and no backpropagation. It is the bridge between the
-two halves of `rlevo`: evolution and reinforcement learning optimise the *same*
+two halves of `rlevo`: evolution and reinforcement learning - both optimise the *same*
 object (a policy network), but from opposite directions. Gradient-based RL
 differentiates through the network; neuroevolution treats it as a black box and
 searches its parameter — or *topology* — space with a population.
@@ -62,6 +62,14 @@ reshaping into runnable modules happens **only at the fitness boundary**, inside
 it must: at evaluation. The whole thing runs through the standard
 `EvolutionaryHarness` like any other strategy.
 
+As a concrete instance, a `GeneticAlgorithm` driving a `1→16→1` MLP — 49
+flattened parameters, the count `ModuleReshaper` reads straight off the template
+— descends an MSE fitness toward a noisy sine target, the population's best
+error improving generation over generation with no gradient ever computed.
+[The Parameter Bridge: Weights as a Flat Genome](neuroevolution/41-param-bridge.md)
+develops the adapter layer this rests on — the fitness-boundary confinement, the
+loop-over-N evaluation, and how the same bridge generalises to `ArchNas`.
+
 ## Evolution strategies as a scalable alternative to RL
 
 The weight-only view leads directly to one of the results that put neuroevolution
@@ -110,6 +118,11 @@ weight matrix:
   beyond the active variant's parameter count so a ragged population still rides a
   single rectangular tensor.
 
+A three-variant MLP menu at depths `2→8→1`, `2→16→8→1`, and `2→32→16→8→1`, for
+instance, registers `per_variant_params` of 33, 193, and 769; every row of the
+population tensor is sized to the `max_param_count` of 769 regardless of which
+variant it currently encodes, with the tail zero-padded.
+
 The load-bearing invariant is that **`arch_id` equals the registration index** in
 both the strategy state and the fitness evaluator, because both are produced from
 the same ordered variant list — so row `i` is always scored by the network it
@@ -141,9 +154,14 @@ both are deliberate:
   number*. There is no rank-2 population tensor here — variable-topology genomes
   do not fit that mould — so NEAT carries a `Vec<TopologyGenome>` and is evaluated
   through a separate `GraphFitnessFn` seam rather than the tensor `BatchFitnessFn`.
-  A `PhenotypeBuilder` turns each genome into a runnable network: `InterpretedBuilder`
-  is the reference per-genome evaluator, `DensePaddedEvaluator` the batched
-  population-level one.
+  The graph data model and the innovation-number bookkeeping that recombines two
+  differently-shaped networks are the subject of
+  [The NEAT Genome and Innovation Numbers](neuroevolution/42-neat-genome.md).
+  Genomes reach a forward pass through one of two seams — a per-genome
+  `PhenotypeBuilder` and a population-batched `BatchPhenotypeEvaluator` that agree
+  to float epsilon, so the choice between them is purely about throughput.
+  [Phenotypes: Compiling a Genome into a Network](neuroevolution/44-phenotypes.md)
+  develops both, including why a NEAT phenotype carries no Burn `Module` at all.
 - **NEAT maximises.** Higher fitness is better here, the opposite of the engine's
   global minimise-cost convention — a direct consequence of NEAT's fitness-sharing
   and speciation arithmetic, which are framed in terms of reward.
@@ -158,6 +176,8 @@ historical markers that timestamp when a given structural element first appeared
   A shared, per-run `Arc<InnovationRegistry>` hands out these numbers and caches
   them, so the same structural mutation (the same `(source, target)` edge, or the
   same connection split) always receives the same id across the whole population.
+  [The NEAT Genome and Innovation Numbers](neuroevolution/42-neat-genome.md) works
+  through the registry and the matching/disjoint/excess crossover it enables.
 - **Speciation.** Structural innovations are initially unfit — a freshly added
   node rarely helps before its weights are tuned. NEAT protects them by grouping
   genomes into species via a `compatibility_distance` over excess genes, disjoint
@@ -165,6 +185,8 @@ historical markers that timestamp when a given structural element first appeared
   species so a new structure competes against its own kind rather than the whole
   population. Stagnant species (no improvement within the stagnation limit) are
   culled, with the top performers protected from a population wipeout.
+  [Speciation: Protecting Structural Innovation](neuroevolution/43-speciation.md)
+  works through the distance, fitness sharing, and offspring apportionment.
 
 Structural variation comes from two mutations layered on top of ordinary weight
 perturbation: *add-connection* wires two previously unconnected nodes, and
@@ -172,6 +194,15 @@ perturbation: *add-connection* wires two previously unconnected nodes, and
 in a function-preserving way. Both register their innovations through the shared
 registry, and the feedforward (acyclic) invariant is maintained across enabled
 *and* disabled edges so toggling a connection can never introduce a cycle.
+
+These two mechanisms — growing the topology and splitting the population into
+species — are coupled, not independent. XOR, the canonical proving task, is not
+linearly separable, so it cannot be solved without at least one add-node
+mutation; and that same structural divergence is exactly what `compatibility_distance`
+reads to spin off a new species. On XOR, then, *reaching a solution* and
+*sustaining more than one species* are two views of the same event, which is why
+the structural-mutation rates (`p_add_node`, `p_add_connection`) are the knobs
+worth tuning — `NeatParams::default_for` only seeds canonical starting values.
 
 ## From evolving networks to combining paradigms
 

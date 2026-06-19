@@ -18,6 +18,10 @@
   - [Rewards](part-1-foundations/reinforcement-learning/33-reward.md)
   - [Environments](part-1-foundations/reinforcement-learning/34-environment.md)
 - [Neuroevolution](part-1-foundations/40-neuroevolution.md)
+  - [The Parameter Bridge: Weights as a Flat Genome](part-1-foundations/neuroevolution/41-param-bridge.md)
+  - [The NEAT Genome and Innovation Numbers](part-1-foundations/neuroevolution/42-neat-genome.md)
+  - [Speciation: Protecting Structural Innovation](part-1-foundations/neuroevolution/43-speciation.md)
+  - [Phenotypes: Compiling a Genome into a Network](part-1-foundations/neuroevolution/44-phenotypes.md)
 - [Why Combine Them?](part-1-foundations/50-why-combine.md)
 
 # Part II — Guided Tour
@@ -67,5 +71,6 @@
   - [Wiring an Objective: Adapters and Evaluators](appendix-d-suppl/objective-adapters.md)
   - [Fitness Landscapes](appendix-d-suppl/fitness-landscape.md)
   - [Tensor Rank vs. Matrix Rank vs. Dimensionality](appendix-d-suppl/tensor-rank-vs-matrix-rank.md)
+  - [Worked Example: NEAT on XOR](appendix-d-suppl/neat-xor-walkthrough.md)
 - [Notation](notation.md)
 - [Bibliography](bibliography.md)
