@@ -10,6 +10,8 @@
 
 use std::fmt::Debug;
 
+use burn::tensor::{backend::Backend, Int, Tensor};
+
 /// Shape-erased genome kind.
 ///
 /// `GenomeKind` is a zero-sized marker that strategies parameterize on to
@@ -90,6 +92,37 @@ impl GenomeKind for Tree {
 
 impl GenomeKind for Permutation {
     type Element = i32;
+}
+
+/// Genome kinds with a rectangular, device-resident tensor representation.
+///
+/// This is the subset of [`GenomeKind`]s that a
+/// [`Population`](crate::population::Population) can store on-device. The
+/// associated [`Tensor`](TensorGenome::Tensor) type names *which* tensor flavour
+/// backs the kind, tying the storage type to the marker at compile time: `Real`
+/// maps to `Tensor<B, 2>`; `Binary` and `Integer` map to `Tensor<B, 2, Int>`.
+///
+/// Because the storage type is chosen by the trait impl, `Population<B, K>` needs
+/// only one field and no run-time tag — the wrong-tensor-for-this-kind state is
+/// simply unrepresentable. Variable-length kinds such as [`Tree`] have no
+/// rectangular form and deliberately do not implement this trait, so
+/// `Population<B, Tree>` is not a valid type.
+pub trait TensorGenome: GenomeKind {
+    /// Device tensor type storing a whole population of this kind, shape
+    /// `(pop_size, genome_dim)`.
+    type Tensor<B: Backend>: Clone + Debug;
+}
+
+impl TensorGenome for Real {
+    type Tensor<B: Backend> = Tensor<B, 2>;
+}
+
+impl TensorGenome for Binary {
+    type Tensor<B: Backend> = Tensor<B, 2, Int>;
+}
+
+impl TensorGenome for Integer {
+    type Tensor<B: Backend> = Tensor<B, 2, Int>;
 }
 
 #[cfg(test)]
