@@ -2,7 +2,7 @@
 
 This appendix covers algorithms that combine evolutionary computation with
 reinforcement learning or gradient-based optimisation. See
-[Why Combine Them?](../part-1-foundations/40-why-combine.md) for the motivation.
+[Why Combine Them?](../part-1-foundations/50-why-combine.md) for the motivation.
 
 > This appendix is a stub. Algorithm pages will be added incrementally.
 

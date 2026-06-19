@@ -17,7 +17,8 @@
   - [Action Spaces](part-1-foundations/reinforcement-learning/32-action.md)
   - [Rewards](part-1-foundations/reinforcement-learning/33-reward.md)
   - [Environments](part-1-foundations/reinforcement-learning/34-environment.md)
-- [Why Combine Them?](part-1-foundations/40-why-combine.md)
+- [Neuroevolution](part-1-foundations/40-neuroevolution.md)
+- [Why Combine Them?](part-1-foundations/50-why-combine.md)
 
 # Part II — Guided Tour
 

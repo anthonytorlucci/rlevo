@@ -373,27 +373,14 @@ and [Gene Expression Programming](../appendix-a-ec-algorithms/gene-expression-pr
 The families above optimise abstract vectors; **neuroevolution** points the same
 machinery at the object this library ultimately cares about — a neural network —
 and evolves it directly, with no gradients and no backpropagation. That makes it
-the evolutionary half of `rlevo`'s thesis: where a policy is non-differentiable,
-the reward signal is sparse or deceptive, or the network *topology* itself is a
-search variable, a population of networks scored by episodic return is a credible
-alternative to gradient-based RL [[Salimans et al., 2017]](#bibliography),
-[[Such et al., 2017]](#bibliography). What gets evolved varies along an axis of
-how much structure is fixed:
-
-- **`WeightOnly`** fixes the architecture and evolves the flattened weights of any
-  Burn `Module`, using the `ParamReshaper` bridge from the [genome
-  chapter](evolutionary-computation/22-genome.md) to move between a network's
-  parameter tree and a flat genome row. Any real-valued strategy — GA, ES,
-  CMA-ES, DE — can drive it.
-- **`ArchNas`** co-evolves *which* fixed-topology variant to use alongside its
-  weights — a lightweight neural architecture search over a closed menu.
-- **`Neat`** grows topology from a minimal seed (NEAT; Stanley and Miikkulainen,
-  2002) [[Stanley and Miikkulainen, 2002]](#bibliography), adding nodes and
-  connections over time and protecting structural innovations through speciation
-  and innovation-aligned crossover.
-
-How neuroevolution and gradient-based RL combine in `rlevo` — rather than
-compete — is the subject of [Why Combine Them?](40-why-combine.md).
+the evolutionary half of `rlevo`'s thesis. `rlevo` ships three approaches, graded
+by how much structure is fixed before the search begins: `WeightOnly` (fix the
+architecture, evolve the flattened weights of any Burn `Module`), `ArchNas`
+(co-evolve *which* architecture from a closed menu alongside its weights), and
+`Neat` (grow the topology itself from a minimal seed). The dedicated
+[Neuroevolution](40-neuroevolution.md) chapter is the full treatment; how
+neuroevolution and gradient-based RL *combine* rather than compete is the subject
+of [Why Combine Them?](50-why-combine.md).
 
 ## Other strategy families in `rlevo`
 

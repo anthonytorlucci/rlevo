@@ -11,48 +11,11 @@ complementary.
 | **Failure modes** | Slow convergence near optima, expensive fitness evaluations | Sensitivity to reward shaping, local optima in policy space, credit assignment |
 | **Parallelism** | Natural — evaluate the whole population at once | Harder — on-policy methods need fresh data |
 
-Combining them lets each side compensate for the other's weaknesses.
-
-## Neuroevolution
-
-The oldest combination is **neuroevolution**: using evolutionary algorithms to
-optimise the weights (and sometimes the architecture) of neural networks.
-
-David Moriarty and Risto Miikkulainen (1996) showed that GAs could evolve
-network weights for control tasks. Stanley and Miikkulainen's **NEAT**
-(NeuroEvolution of Augmenting Topologies, 2002) [[Stanley and Miikkulainen, 2002]](#bibliography) went
-further: it co-evolved weights *and* network topology using a historical marking
-scheme to enable meaningful crossover between networks of different sizes.
-
-Such et al. (2017) [[Such et al., 2017]](#bibliography) at Uber AI Labs demonstrated that a
-simple evolution strategy operating directly on network weights — with no
-gradients at all — could match DQN and A3C on many Atari games and train orders
-of magnitude faster on modern hardware due to trivial parallelism. This result
-was a wake-up call: evolution is a serious competitor to gradient-based RL, not
-just a niche alternative.
-
-## OpenAI Evolution Strategies
-
-Salimans et al. (2017) [[Salimans et al., 2017]](#bibliography) framed RL as black-box
-optimization over policy parameters and applied a variant of natural evolution
-strategies. The gradient estimate is:
-
-```math
-\nabla_\theta \mathbb{E}_{\epsilon \sim \mathcal{N}(0, I)}
-  \left[ F(\theta + \sigma \epsilon) \right]
-  \approx \frac{1}{n\sigma} \sum_{i=1}^n F(\theta + \sigma \epsilon_i) \epsilon_i
-```
-
-where \\(F(\theta)\\) is the total undiscounted return of a rollout with
-parameters \\(\theta\\). This is a gradient estimate that requires only function
-evaluations — no backpropagation. With antithetic sampling (evaluating
-\\(\epsilon\\) and \\(-\epsilon\\) in pairs) and virtual batch normalisation,
-OpenAI ES matched A3C on MuJoCo locomotion tasks using 1000 CPUs with linear
-speedup.
-
-The key lesson: at scale, the bandwidth cost of exchanging gradients across
-workers can exceed the communication cost of exchanging scalar returns. ES
-becomes competitive.
+Combining them lets each side compensate for the other's weaknesses. The
+groundwork for this chapter is the [Neuroevolution](40-neuroevolution.md)
+chapter, which covers evolving networks with evolution *alone* — weights,
+architectures, and topologies. This chapter is about running evolution and
+gradient-based RL *together*.
 
 ## Evolutionary Reinforcement Learning (ERL)
 
@@ -91,18 +54,6 @@ applies a configurable `LocalSearch` operator inside `tell`, with a
 `WritebackPolicy` that controls how much of the local improvement is inherited by
 the next generation (Lamarckian vs Baldwinian learning).
 
-## Gene Expression Programming
-
-John Koza's Genetic Programming evolved tree-structured programs. **Gene
-Expression Programming** (GEP) [[Ferreira, 2002]](#bibliography) uses linear
-chromosomes that are decoded into expression trees, separating the genotype (a
-fixed-length string that is easy to evolve) from the phenotype (the tree that is
-evaluated). This avoids the variable-length crossover problems that plague
-standard GP.
-
-`rlevo::evo` includes a GEP implementation for symbolic regression tasks —
-evolving mathematical expressions that fit data.
-
 ## What rlevo Brings
 
 `rlevo` is not the first library to implement any of these algorithms. Its
@@ -118,12 +69,10 @@ contribution is a **unified, type-safe Rust substrate** that:
 
 Part II shows what this looks like in practice.
 
-> **Deeper reading.** Stanley and Miikkulainen (2002), *Evolutionary Computation*
-> 10(2), 99–127 for NEAT. Such et al. (2017), arXiv:1712.06567 for deep
-> neuroevolution at scale. Salimans et al. (2017), arXiv:1703.03864 for OpenAI
-> ES. Khadka and Tumer (2018), arXiv:1805.07917 for ERL. Moscato (1989), Caltech
-> Tech Report C3P 826 for memetic algorithms. Ferreira (2002), *Complex Systems*
-> 13(2) for GEP.
+> **Deeper reading.** Khadka and Tumer (2018), arXiv:1805.07917 for ERL.
+> Moscato (1989), Caltech Tech Report C3P 826 for memetic algorithms. For the
+> neuroevolution results this chapter builds on — NEAT, deep neuroevolution at
+> scale, and OpenAI ES — see the [Neuroevolution](40-neuroevolution.md) chapter.
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*
