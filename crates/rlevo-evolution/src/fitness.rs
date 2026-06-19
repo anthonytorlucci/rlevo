@@ -242,13 +242,6 @@ mod tests {
 
     #[test]
     fn from_landscape_preserves_row_order() {
-        struct SphereLandscape;
-        impl Landscape for SphereLandscape {
-            fn evaluate(&self, x: &[f64]) -> f64 {
-                x.iter().map(|v| v * v).sum()
-            }
-        }
-
         let device = Default::default();
         let data = TensorData::new(
             vec![1.0_f32, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0],
@@ -264,5 +257,74 @@ mod tests {
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[2], 9.0, epsilon = 1e-6);
+    }
+
+    struct SphereLandscape;
+    impl Landscape for SphereLandscape {
+        fn evaluate(&self, x: &[f64]) -> f64 {
+            x.iter().map(|v| v * v).sum()
+        }
+    }
+
+    /// Regression test for the load-bearing `BatchFitnessFn` invariant
+    /// documented in the fitness chapter of the user-book: `evaluate_batch`
+    /// returns a `Tensor<B, 1>` of shape `(pop_size,)` with row order
+    /// preserved.
+    ///
+    /// The population is deliberately **non-square** (`pop_size != genome_dim`)
+    /// so a row/column transposition — reading the genome axis as the
+    /// population axis — cannot hide behind a square shape, and the output
+    /// length is asserted against `pop_size` (the rows), not `genome_dim`.
+    /// Row `i` is `[i + 1, 0]`, so Sphere fitness is `(i + 1)^2`: a permuted
+    /// mapping yields a different, detectable vector.
+    #[test]
+    fn from_fitness_evaluable_output_is_pop_size_shaped_and_row_aligned() {
+        let device = Default::default();
+        // 4 individuals, 2 genes each.
+        let data = TensorData::new(
+            vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0],
+            [4, 2],
+        );
+        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+
+        let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let fitness = adapter.evaluate_batch(&pop, &device);
+
+        // Shape `(pop_size,)`: rank 1, exactly `pop_size` (4) elements —
+        // not `genome_dim` (2).
+        assert_eq!(fitness.dims(), [4]);
+
+        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        for (i, &v) in values.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let expected = ((i + 1) * (i + 1)) as f32;
+            approx::assert_relative_eq!(v, expected, epsilon = 1e-6);
+        }
+    }
+
+    /// Same invariant for [`FromLandscape`] — the two adapters carry
+    /// independent copies of the row-walking loop, so each pins the shape and
+    /// row alignment separately.
+    #[test]
+    fn from_landscape_output_is_pop_size_shaped_and_row_aligned() {
+        let device = Default::default();
+        // 4 individuals, 2 genes each — deliberately non-square.
+        let data = TensorData::new(
+            vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0],
+            [4, 2],
+        );
+        let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
+
+        let mut adapter = FromLandscape::new(SphereLandscape);
+        let fitness = adapter.evaluate_batch(&pop, &device);
+
+        assert_eq!(fitness.dims(), [4]);
+
+        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        for (i, &v) in values.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let expected = ((i + 1) * (i + 1)) as f32;
+            approx::assert_relative_eq!(v, expected, epsilon = 1e-6);
+        }
     }
 }
