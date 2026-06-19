@@ -1,6 +1,6 @@
 //! NEAT — topology-evolving neuroevolution as a custom harness.
 //!
-//! `rlevo` implements NEAT (NeuroEvolution of Augmenting Topologies; Stanley &
+//! `rlevo` implements NEAT (`NeuroEvolution` of Augmenting Topologies; Stanley &
 //! Miikkulainen, 2002). [`NeatStrategy`] grows network topology *and* weights
 //! open-endedly from a minimal seed. Like its siblings
 //! [`WeightOnly`](super::weight_only::WeightOnly) and
