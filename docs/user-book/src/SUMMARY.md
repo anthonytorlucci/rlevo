@@ -43,6 +43,7 @@
   - [Evolutionary Programming](appendix-a-ec-algorithms/evolutionary-programming.md)
   - [CMA-ES and CMSA-ES](appendix-a-ec-algorithms/cma-es.md)
   - [Estimation-of-Distribution Algorithms](appendix-a-ec-algorithms/estimation-of-distribution.md)
+  - [Cartesian Genetic Programming](appendix-a-ec-algorithms/cartesian-genetic-programming.md)
   - [Artificial Bee Colony](appendix-a-ec-algorithms/artificial-bee-colony.md)
   - [Ant Colony Optimization (Continuous)](appendix-a-ec-algorithms/ant-colony-continuous.md)
   - [Particle Swarm Optimization](appendix-a-ec-algorithms/particle-swarm-optimization.md)

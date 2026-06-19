@@ -29,7 +29,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 
 ## Symbolic and program evolution
 
-- Cartesian Genetic Programming (`gp_cgp`) — fixed-grid CGP; function-set configurable
+- [Cartesian Genetic Programming](cartesian-genetic-programming.md) (`gp_cgp`) — fixed-grid integer genome decoded to a DAG; `(1+λ)` engine, point mutation, neutral drift
 - Gene Expression Programming (`gep`) — linear head/tail chromosome decoded to expression tree; symbolic regression
 
 ## Hybrid and composite strategies
