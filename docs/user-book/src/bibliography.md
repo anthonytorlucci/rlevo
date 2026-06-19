@@ -13,11 +13,20 @@ strategies — a comprehensive introduction. *Natural Computing*, 1(1), 3–52.
 matrix adaptation revisited — the CMSA evolution strategy. In *Parallel Problem
 Solving from Nature (PPSN X)*, LNCS 5199, 123–132. Springer.
 
+**[Camacho-Villalón et al., 2020]** Camacho-Villalón, C. L., Stützle, T., &
+Dorigo, M. (2020). Grey wolf, firefly and bat algorithms: Three widespread
+algorithms that do not contain any novelty. In *Swarm Intelligence (ANTS 2020)*,
+LNCS 12421, 121–133. Springer.
+
 **[Camacho-Villalón et al., 2023]** Camacho-Villalón, C. L., Dorigo, M., &
 Stützle, T. (2023). Exposing the grey wolf, moth-flame, whale, firefly, bat, and
 antlion algorithms: Six misleading optimization techniques inspired by bestial
 metaphors. *International Transactions in Operational Research*, 30(6),
 2945–2971.
+
+**[Castelli et al., 2022]** Castelli, M., Manzoni, L., Mariot, L., Nobile, M. S.,
+& Tangherloni, A. (2022). Salp swarm optimization: A critical review. *Expert
+Systems with Applications*, 189, 116029.
 
 **[Coello Coello et al., 2007]** Coello Coello, C. A., Lamont, G. B., & Van
 Veldhuizen, D. A. (2007). *Evolutionary Algorithms for Solving Multi-Objective
@@ -173,6 +182,10 @@ Computation*, 1(1), 67–82.
 **[Wright, 1932]** Wright, S. (1932). The roles of mutation, inbreeding,
 crossbreeding, and selection in evolution. *Proceedings of the Sixth
 International Congress of Genetics*, 1, 356–366.
+
+**[Yang, 2008]** Yang, X.-S. (2008). *Nature-Inspired Metaheuristic Algorithms*.
+Luniver Press. (Firefly Algorithm; see also Yang, X.-S. (2009), Firefly
+algorithms for multimodal optimization, *SAGA 2009*, LNCS 5792, 169–178.)
 
 **[Zitzler et al., 2001]** Zitzler, E., Laumanns, M., & Thiele, L. (2001).
 SPEA2: Improving the strength Pareto evolutionary algorithm. In *Evolutionary

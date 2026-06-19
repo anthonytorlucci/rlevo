@@ -25,7 +25,7 @@ Independent benchmarking (IEEE CEC competitions, Piotrowski et al.
 | **GWO** ([gwo.rs](gwo.rs))             | Ships    | *Legacy comparator.* No novel mechanism over weighted PSO; prefer CMA-ES / LSHADE. |
 | **WOA** ([woa.rs](woa.rs))             | Ships    | *Legacy comparator.* Same caveat. |
 | **CS** ([cuckoo.rs](cuckoo.rs))        | Ships    | Lévy flights are the interesting part; otherwise a thin wrapper around random walk + abandonment. The fractional-power step is FMA-reorder-sensitive — see the backend-parity caveat in the module doc. |
-| **FA** ([firefly.rs](firefly.rs))      | Ships    | Useful on multimodal landscapes where `O(N²)` attraction is informative. Pure-tensor path is capped at `pop_size ≤ 128`; the fused CubeCL kernel that lifts the cap is designed but not yet implemented. |
+| **FA** ([firefly.rs](firefly.rs))      | Ships    | *Legacy comparator.* Camacho Villalón et al. (2020/2023) show the pairwise attraction reduces to a PSO-style attractor under a new metaphor — no novel mechanism. Occasionally informative on multimodal landscapes where the `O(N²)` multi-pull is. Pure-tensor path is capped at `pop_size ≤ 128`; the fused CubeCL kernel that lifts the cap is designed but not yet implemented. |
 | **BA** ([bat.rs](bat.rs))              | Ships    | *Legacy comparator.* Same caveat. |
 | **SSA** ([salp.rs](salp.rs))           | Ships    | *Legacy comparator.* Same caveat. |
 | **ACO (permutation)** ([aco_perm.rs](aco_perm.rs)) | Stubbed | All `Strategy` methods invoke `todo!()`. The struct is constructible so downstream crates can pin the future API surface; not drivable through a harness. |

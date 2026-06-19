@@ -41,16 +41,19 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 
 ## Swarm and nature-inspired metaheuristics
 
-> The `metaheuristic` module docs note that GWO, WOA, Bat, and SSA are
-> "legacy comparators" per Camacho-Villalón et al. (2023) and Sörensen (2015).
-> Start with PSO for most continuous problems.
+> The `metaheuristic` module classifies Firefly, GWO, WOA, and Bat as
+> "legacy comparators": Camacho-Villalón et al. (2020, 2023) analyse each
+> component-by-component and show it reduces to PSO-style mechanisms under a new
+> metaphor, echoing Sörensen's (2015) critique. Salp Swarm carries a *separate*
+> caveat — Castelli et al. (2022) show its leader update is shift-variant rather
+> than PSO-equivalent. Start with PSO for most continuous problems.
 
 - [Particle Swarm Optimization (PSO)](particle-swarm-optimization.md) — inertia and constriction variants; cognitive/social velocity update
 - [Ant Colony Optimization — continuous (`ACO_R`)](ant-colony-continuous.md) — solution archive as pheromone; rank-weighted Gaussian kernels
 - Ant Colony Optimization — permutation (`aco_perm`) *(stub — deferred to a future release)*
 - [Artificial Bee Colony (ABC)](artificial-bee-colony.md) — employed/onlooker/scout phases; single-coordinate difference perturbation
 - [Cuckoo Search](cuckoo-search.md) (`cuckoo`) — Mantegna Lévy flights; greedy per-nest acceptance and worst-nest abandonment
-- Firefly Algorithm
+- [Firefly Algorithm](firefly-algorithm.md) (`firefly`) — multi-attractor swarm; each firefly drawn to every brighter one with `O(N²)` distance-decayed attraction; legacy comparator (capped at 128 fireflies)
 - Grey Wolf Optimizer (GWO) — legacy comparator
 - Whale Optimization Algorithm (WOA) — legacy comparator
 - Bat Algorithm — legacy comparator

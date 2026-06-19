@@ -49,6 +49,7 @@
   - [Ant Colony Optimization (Continuous)](appendix-a-ec-algorithms/ant-colony-continuous.md)
   - [Particle Swarm Optimization](appendix-a-ec-algorithms/particle-swarm-optimization.md)
   - [Cuckoo Search](appendix-a-ec-algorithms/cuckoo-search.md)
+  - [Firefly Algorithm](appendix-a-ec-algorithms/firefly-algorithm.md)
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)
