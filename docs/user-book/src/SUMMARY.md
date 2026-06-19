@@ -50,6 +50,7 @@
   - [Particle Swarm Optimization](appendix-a-ec-algorithms/particle-swarm-optimization.md)
   - [Cuckoo Search](appendix-a-ec-algorithms/cuckoo-search.md)
   - [Firefly Algorithm](appendix-a-ec-algorithms/firefly-algorithm.md)
+  - [Grey Wolf Optimizer](appendix-a-ec-algorithms/grey-wolf-optimizer.md)
 - [Reinforcement Learning Algorithms](appendix-b-rl-algorithms/index.md)
 - [Hybrid Algorithms](appendix-c-hybrid-algorithms/index.md)
 - [Supplementary Material](appendix-d-suppl/index.md)

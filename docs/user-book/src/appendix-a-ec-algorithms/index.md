@@ -54,7 +54,7 @@ All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only 
 - [Artificial Bee Colony (ABC)](artificial-bee-colony.md) — employed/onlooker/scout phases; single-coordinate difference perturbation
 - [Cuckoo Search](cuckoo-search.md) (`cuckoo`) — Mantegna Lévy flights; greedy per-nest acceptance and worst-nest abandonment
 - [Firefly Algorithm](firefly-algorithm.md) (`firefly`) — multi-attractor swarm; each firefly drawn to every brighter one with `O(N²)` distance-decayed attraction; legacy comparator (capped at 128 fireflies)
-- Grey Wolf Optimizer (GWO) — legacy comparator
+- [Grey Wolf Optimizer (GWO)](grey-wolf-optimizer.md) (`gwo`) — α/β/δ leaders; equal-weight three-attractor update with a linearly annealed step coefficient; legacy comparator
 - Whale Optimization Algorithm (WOA) — legacy comparator
 - Bat Algorithm — legacy comparator
 - Salp Swarm Algorithm (SSA) — legacy comparator
