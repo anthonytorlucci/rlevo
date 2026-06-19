@@ -25,7 +25,8 @@
 //!   fitness function.
 //!
 //! Genotype storage is a `Tensor<B, 2, Int>` of shape `(pop_size, head_len +
-//! tail_len)`; decoding and evaluation run host-side, per chromosome (3e-R1 §5).
+//! tail_len)`; decoding and evaluation run host-side, per chromosome, because
+//! the decode is an inherently sequential ORF scan that does not vectorise.
 //!
 //! # Reference
 //!

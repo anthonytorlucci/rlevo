@@ -2,7 +2,7 @@
 //!
 //! Every operator preserves the head/tail position-class invariant and the
 //! fixed chromosome length, so any offspring still decodes to a complete
-//! expression tree (3e-R1 §4). Operators act on host-side `&mut [Symbol]`
+//! expression tree. Operators act on host-side `&mut [Symbol]`
 //! chromosomes: the population tensor is pulled to host once per generation
 //! (alongside the host-side roulette selection it shares the round-trip with),
 //! the operators run, and the result is re-uploaded.
@@ -177,7 +177,7 @@ mod tests {
         needed == 0 && tree.node_count() >= 1
     }
 
-    /// AC6: 1000 point mutations never violate the tail invariant.
+    /// 1000 point mutations never violate the tail invariant.
     #[test]
     fn point_mutation_preserves_tail_invariant() {
         let a = alphabet();
@@ -195,7 +195,7 @@ mod tests {
         }
     }
 
-    /// AC6: 500 trials of each operator yield offspring that decode completely.
+    /// 500 trials of each operator yield offspring that decode completely.
     #[test]
     fn all_operators_yield_decodable_offspring() {
         let a = alphabet();

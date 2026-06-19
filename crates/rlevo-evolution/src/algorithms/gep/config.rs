@@ -42,7 +42,7 @@ impl GepConfig {
     ///
     /// The tail length is set to `head_len * (max_arity - 1) + 1`, the minimum
     /// that guarantees any head/tail-respecting chromosome decodes to a
-    /// complete tree (3e-R1 §3). `max_arity` is the function set's largest
+    /// complete tree. `max_arity` is the function set's largest
     /// arity ([`FunctionSet::max_arity`](crate::function_set::FunctionSet::max_arity)).
     ///
     /// Operator rates default to canonical Ferreira (2001) values; mutate the
@@ -65,8 +65,8 @@ impl GepConfig {
         assert!(pop_size >= 1, "GepConfig: pop_size must be >= 1");
 
         // Tail sized to the worst case: a head of all-max-arity functions
-        // demands exactly `head_len * (max_arity - 1) + 1` terminals (3e-R1 §3),
-        // so this is the minimum tail that guarantees a repair-free decode.
+        // demands exactly `head_len * (max_arity - 1) + 1` terminals, so this is
+        // the minimum tail that guarantees a repair-free decode.
         let tail_len = head_len * (max_arity - 1) + 1;
         let genome_len = head_len + tail_len;
         #[allow(clippy::cast_precision_loss)]

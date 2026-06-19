@@ -18,7 +18,7 @@ pub trait GenotypePhenotypeMap<F: FunctionSet> {
 /// The canonical Ferreira (2001) decoder: open-reading-frame scan, then
 /// level-order (breadth-first) tree construction.
 ///
-/// # Algorithm (3e-R1 §2)
+/// # Algorithm
 ///
 /// 1. **ORF-length pass.** A single left-to-right scan tracks the number of
 ///    still-unfilled child slots, starting at 1 (the root). Each symbol fills
