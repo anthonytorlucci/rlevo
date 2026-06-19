@@ -19,13 +19,13 @@ are not enough.
 
 ## Estimation-of-distribution algorithms (EDAs)
 
-All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only the `ProbabilityModel` changes.
+All EDAs share a common `EdaStrategy` driver with a `fit → sample` loop; only the `ProbabilityModel` changes — see [Estimation-of-Distribution Algorithms](estimation-of-distribution.md) for the driver and all five models.
 
-- UMDA (`UnivariateGaussian`) — per-dimension Gaussian; unweighted MLE, minimum-variance floor
-- PBIL (`UnivariateBernoulli`) — per-bit probability vector; best/worst individual update
-- cGA (`CompactGenetic`) — virtual-population probability vector; winner/loser from truncation-selected subset
-- MIMIC (`DependencyChain`) — continuous Gaussian chain capturing pairwise dependencies
-- BOA (`BayesianNetwork`) — BIC-scored Bayesian network DAG over binary genes; ancestral sampling
+- [UMDA (`UnivariateGaussian`)](estimation-of-distribution.md#umda--univariategaussian) — per-dimension Gaussian; unweighted MLE, minimum-variance floor
+- [PBIL (`UnivariateBernoulli`)](estimation-of-distribution.md#pbil--univariatebernoulli) — per-bit probability vector; best/worst individual update
+- [cGA (`CompactGenetic`)](estimation-of-distribution.md#cga--compactgenetic) — virtual-population probability vector; winner/loser from truncation-selected subset
+- [MIMIC (`DependencyChain`)](estimation-of-distribution.md#mimic--dependencychain) — continuous Gaussian chain capturing pairwise dependencies
+- [BOA (`BayesianNetwork`)](estimation-of-distribution.md#boa--bayesiannetwork) — BIC-scored Bayesian network DAG over binary genes; ancestral sampling
 
 ## Symbolic and program evolution
 
