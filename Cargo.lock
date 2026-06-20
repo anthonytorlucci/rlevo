@@ -6453,6 +6453,7 @@ dependencies = [
  "rlevo-environments",
  "rlevo-evolution",
  "rlevo-reinforcement-learning",
+ "serde",
  "tracing-subscriber",
 ]
 
