@@ -1,7 +1,16 @@
 //! Shared ASCII / styled renderer for fitness-landscape envs.
 //!
-//! Each of the three landscape envs (Sphere, Rastrigin, Ackley) is a pure
-//! N-D fitness evaluator. For visualisation we sample the surface on a
+//! Every landscape env is a pure N-D fitness evaluator that routes through this
+//! module's [`render_landscape_ascii`] / [`render_landscape_styled`] helpers:
+//!
+//! - **Tier 1 (scalable n-D):** Sphere, Rastrigin, Ackley, Griewank,
+//!   Michalewicz, Penalized No.1, Rosenbrock, Schwefel, Concatenated Trap.
+//! - **Tier 2 (classical 2-D):** Branin, Bukin No.6, Cross-in-Tray, Easom,
+//!   Goldstein–Price, Himmelblau, Six-Hump Camel.
+//! - **Tier 3 (stress tests):** Alpine No.1, Deb No.1, Eggholder, Lunacek
+//!   bi-Rastrigin, Needle-Eye, Modified Rosenbrock, Trefethen.
+//!
+//! For visualisation we sample the surface on a
 //! `GRID_WIDTH × GRID_HEIGHT` grid spanning the env's `bounds()` along its
 //! first two coordinates (others fixed at zero) and project each cell's
 //! fitness into a quintile of the ramp ` `, `░`, `▒`, `▓`, `█`. The styled

@@ -19,7 +19,6 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 | `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
 | `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
-| `TenArmedBandit` | `classic::TenArmedBandit` | — | Discrete(10) | Classic 10-armed bandit; Sutton & Barto |
 
 ---
 
@@ -93,13 +92,50 @@ implement the `Environment` trait and are hidden from the public API docs.
 
 ### Optimization Landscapes
 
-Continuous single-objective fitness functions for evaluating evolutionary algorithms.
+Single-objective fitness functions for evaluating evolutionary algorithms. Each
+is a stateless N-D evaluator; the global optimum is a *minimum* by convention.
+The functions are grouped into three tiers by intended use.
 
-| Function | Module | Notes |
-|---|---|---|
-| Sphere | `landscapes::sphere` | Convex, unimodal |
-| Ackley | `landscapes::ackley` | Multimodal; exponential traps |
-| Rastrigin | `landscapes::rastrigin` | Highly multimodal |
+**Tier 1 — scalable n-D.** Arbitrary-dimension functions for sweeping
+performance against problem size.
+
+| Function | Module | Dim | Notes |
+|---|---|---|---|
+| Sphere | `landscapes::sphere` | n-D | Convex, unimodal; trivial baseline |
+| Rastrigin | `landscapes::rastrigin` | n-D | Highly multimodal; regular cosine lattice |
+| Ackley | `landscapes::ackley` | n-D | Multimodal; near-flat outer region, one deep basin |
+| Griewank | `landscapes::griewank` | n-D | Dense lattice of minima; paradoxically easier at high n |
+| Michalewicz | `landscapes::michalewicz` | n-D | Steep ridges, near-flat plateaus; n!-scaling minima |
+| Penalized No.1 | `landscapes::penalized1` | n-D | Sinusoidal lattice with quartic boundary penalties |
+| Rosenbrock | `landscapes::rosenbrock` | n-D (n≥2) | Smooth curved "banana" valley; near-singular Hessian |
+| Schwefel | `landscapes::schwefel` | n-D | Deceptive; optimum far from centre near the domain edge |
+| Concatenated Trap | `landscapes::concatenated_trap` | binary (n·k) | Deceptive, decomposable; strong all-zeros trap |
+
+**Tier 2 — classical 2-D.** Well-known low-dimensional surfaces with
+characterised optima, useful for visualisation and surrogate-model tests.
+
+| Function | Module | Dim | Notes |
+|---|---|---|---|
+| Branin RCOS | `landscapes::branin` | 2-D | Three equal, non-symmetric global minima; smooth |
+| Bukin No.6 | `landscapes::bukin6` | 2-D | Knife-edge parabolic ridge; non-smooth |
+| Cross-in-Tray | `landscapes::cross_in_tray` | 2-D | Four equal minima; V-kinks along the axes |
+| Easom | `landscapes::easom` | 2-D | Needle-in-haystack; flat except a tiny basin at (π, π) |
+| Goldstein–Price | `landscapes::goldstein_price` | 2-D | Six-order-of-magnitude range; f* = 3 |
+| Himmelblau | `landscapes::himmelblau` | 2-D | Four equal minima; classic niching test |
+| Six-Hump Camel | `landscapes::six_hump_camel` | 2-D | Two global minima among six humps |
+
+**Tier 3 — stress tests.** Pathological surfaces that probe a specific failure
+mode (non-smoothness, deception, vanishing optimal volume).
+
+| Function | Module | Dim | Notes |
+|---|---|---|---|
+| Alpine No.1 | `landscapes::alpine1` | n-D | Non-smooth; ~eight kinks per axis stall gradients |
+| Deb No.1 | `landscapes::deb1` | n-D (n≤2) | 10ⁿ equal optima; diversity / non-uniqueness test |
+| Eggholder | `landscapes::eggholder` | n-D (n≥2) | Deceptive; optimum pinned to the domain boundary |
+| Lunacek bi-Rastrigin | `landscapes::lunacek_bi_rastrigin` | n-D (n≥2) | Competing wide/narrow funnels plus Rastrigin oscillation |
+| Needle-Eye | `landscapes::needle_eye` | n-D | Piecewise-constant; astronomically small optimal region |
+| Modified Rosenbrock | `landscapes::rosenbrock_flat` | n-D (n≥2) | Bent knife-edge; flat, non-differentiable ridge |
+| Trefethen | `landscapes::trefethen` | 2-D | Five incommensurate frequencies; no periodic lattice |
 
 ---
 
@@ -150,44 +186,6 @@ Disable physics environments to shrink compile time:
 [dependencies]
 rlevo-environments = { path = "…", default-features = false }
 ```
-
----
-
-## Running Examples
-
-```bash
-# Classic control
-cargo run -p rlevo-environments --example cartpole_random
-cargo run -p rlevo-environments --example cartpole_timelimit
-cargo run -p rlevo-environments --example pendulum_random
-cargo run -p rlevo-environments --example mountain_car_continuous_random
-
-# Gridworlds
-cargo run -p rlevo-environments --example grid_door_key_scripted
-
-# Several former `*_random` examples are now random-vs-DQN benches in the
-# `rlevo` umbrella crate (see `crates/rlevo/benches`):
-#   cargo bench -p rlevo --bench grid_empty_rl
-#   cargo bench -p rlevo --bench grid_memory_rl
-#   cargo bench -p rlevo --bench acrobot_rl
-#   cargo bench -p rlevo --bench mountain_car_rl
-
-# Bandits
-cargo run -p rlevo-environments --example ten_armed_bandit_training
-
-# Box2D (requires box2d feature, enabled by default)
-cargo run -p rlevo-environments --example bipedal_walker_random
-cargo run -p rlevo-environments --example lunar_lander_discrete_random
-cargo run -p rlevo-environments --example lunar_lander_continuous_random
-cargo run -p rlevo-environments --example car_racing_random
-
-# Locomotion (requires locomotion feature, enabled by default)
-cargo run -p rlevo-environments --example reacher_random
-cargo run -p rlevo-environments --example inverted_double_pendulum_random
-cargo run -p rlevo-environments --example swimmer_random
-```
-
-See [`examples/README.md`](examples/README.md) for patterns, conventions, and how to write new examples.
 
 ---
 
