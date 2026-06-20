@@ -12,17 +12,8 @@ default:
 
 # Print the exact, spellable example target names for every package.
 list-examples:
-    @echo "rlevo-core:"     && cargo run -q -p rlevo-core     --example 2>&1 | grep '^ ' || true
     @echo "rlevo:"          && cargo run -q -p rlevo          --example 2>&1 | grep '^ ' || true
     @echo "rlevo-examples:" && cargo run -q -p rlevo-examples --example 2>&1 | grep '^ ' || true
-
-# ── rlevo-core examples (contract/trait demos, lightweight) ──────────────────
-
-core-constraints:
-    cargo run -p rlevo-core --example state_constraints
-
-core-grid:
-    cargo run -p rlevo-core --example grid_agent
 
 # ── rlevo umbrella examples (5 library crates only, lightweight) ─────────────
 

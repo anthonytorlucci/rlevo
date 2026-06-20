@@ -78,8 +78,7 @@ pub trait FitnessEvaluable {
     type Individual;
 
     /// The fitness landscape the individual is evaluated against.  May be a
-    /// marker type when the evaluator itself encodes the landscape (e.g.
-    /// `RastriginEvaluator` + `RastriginLandscape`).
+    /// marker type when the evaluator itself encodes the landscape.
     type Landscape;
 
     /// Returns the scalar fitness (cost) of `individual` on `landscape`.

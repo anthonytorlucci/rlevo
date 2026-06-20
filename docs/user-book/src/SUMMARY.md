@@ -2,6 +2,8 @@
 
 [Introduction](introduction.md)
 [Acknowledgements](acknowledgements.md)
+[Grid Agent](grid-agent.md)
+[State Constraints](state-constraints.md)
 
 # Part I — Foundations
 

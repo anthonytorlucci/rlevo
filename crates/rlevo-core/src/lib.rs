@@ -109,7 +109,7 @@ pub mod action;
 
 /// Reserved for a future unified agent trait hierarchy.
 ///
-/// Empty in v0.1.x. Concrete RL and evolutionary agents currently live in
+/// Empty in v0.3.x. Concrete RL and evolutionary agents currently live in
 /// `rlevo-reinforcement-learning` and `rlevo-evolution` respectively.
 pub mod agent;
 

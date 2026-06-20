@@ -217,17 +217,6 @@ let mut buffer = PrioritizedExperienceReplayBuilder::default()
 // let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
 ```
 
-## Examples
-
-```bash
-# Egocentric grid agent: State, Observation, TensorConvertible,
-# DiscreteAction, and MultiDiscreteAction (move + interact)
-cargo run -p rlevo-core --example grid_agent
-
-# Constrained continuous state (2D robot workspace with orientation bounds)
-cargo run -p rlevo-core --example state_constraints
-```
-
 ## Academic References
 
 The following papers directly informed the algorithms and concepts in this crate:

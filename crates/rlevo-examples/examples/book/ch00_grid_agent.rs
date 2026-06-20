@@ -119,7 +119,10 @@ impl Observation<1> for AgentObservation {
 
 impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let data = TensorData::new(
             vec![self.x as f32, self.y as f32, f32::from(self.facing.to_u8())],
             [3],
@@ -347,6 +350,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         width: 5,
         height: 5,
     };
+    // out-of-bounds -> this in an invalid state!
     let oob = AgentState {
         x: 5,
         y: 0,
