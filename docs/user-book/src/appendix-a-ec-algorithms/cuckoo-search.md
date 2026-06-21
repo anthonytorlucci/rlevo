@@ -68,7 +68,7 @@ expressed relative to the search-space width.
 came from: egg \\(i\\) replaces nest \\(i\\) exactly when it is no worse,
 
 ```math
-f(\text{egg}_i) \le f(\text{nest}_i).
+f(\text{egg}_i) \ge f(\text{nest}_i).
 ```
 
 This is a per-slot \\((1+1)\\) hill-climb, not a global tournament — a good egg in
@@ -76,18 +76,18 @@ one nest never displaces a different nest. The cached fitness is updated in step
 with the accepted positions.
 
 **Abandonment.** After acceptance, the \\(\lfloor p_a \cdot \texttt{pop\_size}
-\rfloor\\) worst nests are abandoned and reinitialised with fresh uniform samples
-from the bounds, where \\(p_a\\) is the abandonment probability (default
-\\(0.25\\)). An abandoned slot's cached fitness is set to a sentinel \\(+\infty\\)
-rather than being evaluated immediately. That sentinel is what reintegrates the
-slot: on the next generation the greedy test \\(f(\text{egg}) \le +\infty\\) is
-always true, so the Lévy step taken from the fresh position is unconditionally
-accepted and the restarted nest rejoins the normal dynamics. Abandonment is the
-only source of fresh diversity, since the Lévy step alone can only perturb
-existing nests.
+\rfloor\\) lowest-fitness nests are abandoned and reinitialised with fresh uniform
+samples from the bounds, where \\(p_a\\) is the abandonment probability (default
+\\(0.25\\)). An abandoned slot's cached fitness is set to a sentinel
+\\(-\infty\\) (`f32::NEG_INFINITY`) rather than being evaluated immediately. That
+sentinel is what reintegrates the slot: on the next generation the greedy test
+\\(f(\text{egg}) \ge -\infty\\) is always true, so the Lévy step taken from the
+fresh position is unconditionally accepted and the restarted nest rejoins the
+normal dynamics. Abandonment is the only source of fresh diversity, since the
+Lévy step alone can only perturb existing nests.
 
 The best-so-far record is tracked separately over the **finite-fitness** slots
-only (a sentinel \\(+\infty\\) slot is never mistaken for an incumbent) and is
+only (a sentinel \\(-\infty\\) slot is never mistaken for an incumbent) and is
 re-pointed only on strict improvement.
 
 ## Configuration
@@ -120,9 +120,7 @@ let config = CuckooConfig::default_for(30, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The greedy acceptance keeps the lower-cost
-egg and the best-so-far tracker is an argmin over finite slots.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The greedy acceptance keeps the higher-fitness egg; the abandoned ("worst") nests are the lowest-fitness ones, and the best-so-far tracker is an argmax over finite slots.
 
 ## Minimal example
 
@@ -198,10 +196,11 @@ not bit-identical across backends, and the backend-parity test relaxes its
 tolerance for CS accordingly. Within a single backend, runs are fully
 reproducible.
 
-**Abandonment sentinel.** Reinitialised nests carry \\(+\infty\\) fitness rather
-than being re-evaluated in the same `tell`. This keeps `tell` to one evaluation
-batch per generation (the eggs) and lets the *next* generation's greedy step fold
-the fresh position back in — see [above](#greedy-acceptance-and-nest-abandonment).
+**Abandonment sentinel.** Reinitialised nests carry \\(-\infty\\) fitness
+(`f32::NEG_INFINITY`) rather than being re-evaluated in the same `tell`. This
+keeps `tell` to one evaluation batch per generation (the eggs) and lets the
+*next* generation's greedy step fold the fresh position back in — see
+[above](#greedy-acceptance-and-nest-abandonment).
 
 **Two-cycle bootstrap.** Like the other swarm strategies, CS needs a fitness
 cache before it can move. The first `ask` returns the initial nests unchanged

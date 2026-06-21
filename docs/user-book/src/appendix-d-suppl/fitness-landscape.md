@@ -5,8 +5,10 @@
 A **fitness landscape** is the mental model that makes population-based search
 intuitive: picture every candidate solution as a point on a map, with elevation
 standing in for fitness. Optimisation becomes navigation — find the highest peak
-(or, under `rlevo`'s minimisation convention, the lowest valley) without being
-able to see the whole terrain at once.
+(or, for a cost landscape, the lowest valley) without being able to see the whole
+terrain at once. The bundled landscapes are cost surfaces, so `rlevo` declares
+them `ObjectiveSense::Minimize` and the engine internally climbs `−cost`; you
+still read the result as the natural low valley.
 
 **Benchmark functions** are standardised landscapes with known optima, designed
 to stress one navigational difficulty at a time. They are the test tracks we run
@@ -65,8 +67,8 @@ and weaknesses in isolation:
 
 ## Available in `rlevo`
 
-`rlevo::envs::landscapes` ships these benchmarks (all under the minimisation
-convention, most known-optimum-at-or-near zero):
+`rlevo::envs::landscapes` ships these benchmarks (all cost surfaces — sense
+`ObjectiveSense::Minimize` — most known-optimum-at-or-near zero):
 
 - **n-dimensional:** Sphere, Rastrigin, Rosenbrock, Ackley, Griewank, Schwefel,
   Michalewicz, Alpine1, Penalized1, Lunacek bi-Rastrigin, Deb1, Needle-in-a-

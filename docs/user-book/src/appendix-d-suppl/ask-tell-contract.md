@@ -89,9 +89,10 @@ setting changes the contract rather than just the syntax:
 - **Fitness is a backend tensor, with a fixed direction.** `tell` consumes a
   Burn `Tensor<B, 1>` on whatever backend the run uses, rather than a host
   array — selection arithmetic stays on-device. And where evosax leaves the
-  optimisation direction to the caller, `rlevo` pins a **minimisation contract**
-  end-to-end (lower is better); see the
-  [enforcement table](../part-1-foundations/evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility).
+  optimisation direction to the caller, `rlevo` pins a **maximise-native contract**
+  end-to-end (higher is better) and lets a cost objective declare
+  `ObjectiveSense::Minimize`, reconciled at one chokepoint; see the
+  [fitness chapter](../part-1-foundations/evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense).
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
   explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
   from a single host `seed_stream` (below) — different plumbing for the same

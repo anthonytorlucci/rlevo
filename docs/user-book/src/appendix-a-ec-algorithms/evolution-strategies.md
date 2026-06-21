@@ -18,8 +18,8 @@ real-valued genomes.
 |---|---|---|---|
 | `(1+1)` | `OnePlusOne` | Rechenberg 1/5th rule | Greedy (parent vs. offspring) |
 | `(1+λ)` | `OnePlusLambda { lambda }` | None (σ carried over) | Best offspring vs. parent |
-| `(μ,λ)` | `MuCommaLambda { mu, lambda }` | Log-normal per-individual | μ best offspring; parents discarded |
-| `(μ+λ)` | `MuPlusLambda { mu, lambda }` | Log-normal per-individual | μ best of combined pool |
+| `(μ,λ)` | `MuCommaLambda { mu, lambda }` | Log-normal per-individual | μ highest-fitness offspring; parents discarded |
+| `(μ+λ)` | `MuPlusLambda { mu, lambda }` | Log-normal per-individual | μ highest-fitness of combined pool |
 
 **`(1+1)` — Rechenberg's 1/5th rule.** One parent produces one offspring per
 generation. If the offspring is better, it replaces the parent. Every
@@ -34,7 +34,7 @@ adapted — this variant is useful when the landscape is cheap to evaluate and
 you want a simple baseline. It is also used internally by Cartesian GP.
 
 **`(μ,λ)` — comma selection.** μ parents each produce λ/μ offspring; the
-μ best *offspring* become the new parents. The parent pool is **discarded**
+μ highest-fitness *offspring* become the new parents. The parent pool is **discarded**
 each generation. This forces re-evaluation of parental quality and prevents
 stagnation on flat plateaux, but the best individual seen so far can be lost
 between generations. Require λ > μ (typically λ ≥ 7μ).
@@ -120,9 +120,7 @@ for medium-D problems is `mu = 5, lambda = 20` or `mu = 10, lambda = 50`.
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximization problems must be negated. The Sphere function
-(\\(\sum x_i^2\\), minimum 0) requires no transformation.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The Sphere function is a cost surface: declare `ObjectiveSense::Minimize` and the harness maximises \\(-\sum x_i^2\\) internally; `best_fitness` still reads as the natural cost (→ 0).
 
 ## Minimal example
 
@@ -218,9 +216,10 @@ factor is fixed at 1.22 (Rechenberg's original recommendation).
 
 **`(μ,λ)` convergence guarantee.** Because parents are discarded, `(μ,λ)` has
 no monotone convergence guarantee — it is possible (though rare with λ ≥ 7μ)
-for the best fitness to temporarily worsen across generations. The harness's
-`best_fitness_ever` tracker is unaffected, but `latest_metrics().best_fitness`
-may dip. Use `(μ+λ)` if you need elitist monotone improvement.
+for the highest fitness in the current generation to temporarily fall below the
+previous generation's best. The harness's `best_fitness_ever` tracker is
+unaffected, but `latest_metrics().best_fitness` may dip. Use `(μ+λ)` if you
+need elitist monotone improvement.
 
 **Reproducibility.** All random draws use `seed_stream` (host-RNG convention).
 Two runs with the same seed and the same `EsKind` produce identical

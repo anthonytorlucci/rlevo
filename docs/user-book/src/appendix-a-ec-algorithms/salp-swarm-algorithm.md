@@ -107,9 +107,7 @@ let config = SalpConfig::default_for(40, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The food source \\(F\\) is the lowest-cost
-salp seen so far, and the best-so-far tracker is an argmin.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The food source \\(F\\) is the highest-fitness salp seen so far, and the best-so-far tracker is an argmax.
 
 ## Minimal example
 

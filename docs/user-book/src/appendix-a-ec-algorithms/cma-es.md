@@ -66,8 +66,8 @@ from \\((\lambda, D, \mu_\text{eff})\\). CMSA-ES needs only two:
 ## CMA-ES update equations
 
 Each generation samples \\(\lambda\\) offspring, ranks them by fitness
-(ascending — lower is better), and applies the following updates. Let
-\\(y_{(i)} = (x_{(i)} - m)/\sigma\\) be the step of the \\(i\\)-th best offspring
+(descending — highest first), and applies the following updates. Let
+\\(y_{(i)} = (x_{(i)} - m)/\sigma\\) be the step of the \\(i\\)-th highest-fitness offspring
 and \\(y_w = \sum_{i=1}^{\mu} w_i\, y_{(i)}\\) the weighted recombination.
 
 **Mean** (weighted recombination, \\(c_m = 1\\)):
@@ -117,7 +117,7 @@ before the covariance mutation:
 ```
 
 where \\(A\\) is the Cholesky factor of \\(C\\) (\\(A A^\top = C\\)) and
-\\(z_i \sim \mathcal{N}(0, I)\\). After ranking, the \\(\mu\\) best recombine by
+\\(z_i \sim \mathcal{N}(0, I)\\). After ranking, the \\(\mu\\) highest-fitness recombine by
 equal weights:
 
 ```math
@@ -188,9 +188,7 @@ cma.initial_sigma = 2.0; // wider initial step covers more basins
 
 ## Fitness convention
 
-Like all strategies in `rlevo::evo`, fitness is **cost** — lower is better.
-Maximization problems must be negated. The Sphere function (\\(\sum x_i^2\\),
-minimum 0) needs no transformation.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The Sphere function is a cost surface: declare `ObjectiveSense::Minimize` and the harness maximises \\(-\sum x_i^2\\) internally; `best_fitness` still reads as the natural cost (→ 0).
 
 ## Minimal example
 

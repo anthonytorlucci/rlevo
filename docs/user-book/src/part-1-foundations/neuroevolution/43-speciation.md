@@ -180,14 +180,16 @@ for the next round. Speciation is the hinge the whole loop turns on.
 ## A note on direction
 
 One convention is worth restating because it threads through every formula above.
-NEAT **maximises** — higher fitness is better — which is the opposite of the
-engine's global minimise-cost convention, and it is not incidental. Fitness
-sharing divides by species size and apportions seats proportionally, both of
-which assume **non-negative** fitness; best-fitness tracking and stagnation both
-treat "higher" as "better". A task whose native objective is a cost must therefore
-supply \\(-\text{cost}\\) at the `GraphFitnessFn` seam, shifted non-negative. This
-is the same maximisation stance the [overview](../40-neuroevolution.md) flagged,
-now visible in the arithmetic that depends on it.
+NEAT **maximises** — higher fitness is better — the same direction as the engine's
+canonical-maximise convention, and it is not incidental. Fitness sharing divides
+by species size and apportions seats proportionally, both of which assume
+**non-negative** fitness; best-fitness tracking and stagnation both treat "higher"
+as "better". That non-negativity is a NEAT-specific precondition, orthogonal to
+objective sense: a task whose native objective is a cost is reconciled into
+canonical (maximise) space by the harness/adapter chokepoint and then shifted
+non-negative for the `GraphFitnessFn` seam — you do not hand-negate. This is the
+same maximisation stance the [overview](../40-neuroevolution.md) flagged, now
+visible in the arithmetic that depends on it.
 
 With the genome, its innovation markings, and the speciation that protects new
 structure all in place, the one remaining question is mechanical: how a

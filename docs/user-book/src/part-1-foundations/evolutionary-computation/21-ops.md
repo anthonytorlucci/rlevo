@@ -58,23 +58,23 @@ kind-specialisation: `gaussian_mutation` only typechecks for the float tensor,
 `bit_flip_mutation` only for the Int tensor, so handing a binary genome to a
 real-valued operator is a compile error, not a runtime surprise.
 
-### Fitness is a cost — smaller is better
+### Fitness is canonical — higher is better
 
 The classical evolutionary-computation tradition treats *fitness* as a quantity
-to **maximise**, with the *fittest* individual scoring *highest*. `rlevo` adopts
-the opposite — and equally standard — convention from the optimisation
-literature: **fitness is a cost to minimise**, so throughout `ops` the *best*
-individual has the *lowest* fitness.
-Read every "lowest fitness", "smallest fitness", and "top-k" in this chapter as
-"closest to the optimum we're driving toward."
+to **maximise**, with the *fittest* individual scoring *highest* — and `rlevo`
+follows it. Throughout `ops` the operators work in **canonical** space: the *best*
+individual has the *highest* fitness. Read every "highest fitness", "largest
+fitness", and "top-k" in this chapter as "closest to the optimum we're driving
+toward."
 
 That single convention runs through every operator. Tournament selection keeps
-the *smallest* fitness in each draw; truncation returns the `top_k` *lowest*
-values; elitism preserves the lowest-cost parents. If your objective is
-naturally something to maximise (reward, accuracy, score), **negate it** before
-handing it to the operators. Fixing the direction once, globally, means no
-operator needs a "maximise or minimise?" flag and the strategies that call them
-stay simple.
+the *largest* fitness in each draw; truncation returns the `top_k` *highest*
+values; elitism preserves the fittest parents. You never hand-negate a cost: you
+declare your objective's direction with
+[`ObjectiveSense`](https://docs.rs/rlevo-core) (a cost is `Minimize`), and the
+`EvolutionaryHarness` reconciles it at one chokepoint *before* the operators ever
+see the fitness. Fixing the direction once, globally, means no operator needs a
+"maximise or minimise?" flag and the strategies that call them stay simple.
 
 ### The harness owns randomness — the host-RNG convention
 
@@ -157,7 +157,7 @@ winners) or want to unit-test selection without a device in play.
 ### Tournament selection
 
 \\(k\\)-ary tournament: draw `tournament_size` candidate indices uniformly at random
-*with replacement*, keep the one with the lowest fitness, and repeat
+*with replacement*, keep the one with the highest fitness, and repeat
 `n_winners` times.
 
 ```rust
@@ -187,7 +187,7 @@ least two contenders).
 
 ### Truncation selection
 
-Deterministic: sort by fitness ascending and take the `top_k` lowest-cost, returned
+Deterministic: sort by fitness descending and take the `top_k` highest, returned
 best-first. Ties break by `f32::partial_cmp` with `NaN` sorted last (so a stray
 `NaN` fitness can never masquerade as a good solution).
 
@@ -289,7 +289,7 @@ takes the current generation plus the offspring and returns the
 
 **Generational** is the simplest: discard the parents wholesale and let the
 offspring become the next generation. **Elitist** softens that by carrying the
-\\(k\\) lowest-cost parents forward and backfilling with the best `pop_size − k`
+\\(k\\) fittest (highest-fitness) parents forward and backfilling with the best `pop_size − k`
 offspring — a direct implementation of De Jong's elitism, which guarantees the
 best solution found so far never regresses.
 
@@ -316,7 +316,7 @@ tracked follow-up work.
 These four families are everything a population-based strategy needs for one
 generation: **select** parents, **recombine** them, **mutate** the result, and
 choose **survivors**. Because they are free functions over `Tensor<B, _>` with a
-shared cost convention and a shared host-RNG discipline, a `Strategy`
+shared canonical-maximise convention and a shared host-RNG discipline, a `Strategy`
 implementation reads as a short, readable recipe — and swapping tournament for
 truncation, or \\((\mu+\lambda)\\) for \\((\mu,\lambda)\\), is a one-line change. The full GA and ES
 pseudocode that assembles these operators end-to-end lives in

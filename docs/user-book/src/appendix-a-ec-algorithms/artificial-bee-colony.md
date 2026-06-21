@@ -108,11 +108,7 @@ off.
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. ABC's greedy acceptance test uses the same
-convention: a candidate replaces its target when its cost is **no worse**
-(`cand ≤ current`), and the scout test fires when a source has gone `limit`
-generations without such an improvement.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. ABC's greedy acceptance test uses the same convention: a candidate replaces its target when its fitness is **no worse** (`cand ≥ current`), and the scout test fires when a source has gone `limit` generations without such an improvement. The best source is the argmax over the colony.
 
 ## Minimal example
 
@@ -183,7 +179,7 @@ whole `2 · pop_size × D` block is built in a handful of kernels.
 
 **Greedy per-target replacement via gather.** `tell` does not rank the colony
 globally. For each target source it keeps the single *best improving* candidate
-(`cand ≤ current`, ties broken by strict `<` among competing candidates) and
+(`cand ≥ current`, ties broken by strict `>` among competing candidates) and
 leaves the source untouched otherwise. Applying the survivors avoids any
 scatter-write: the implementation concatenates `[colony; candidates]` into one
 `(pop_size + 2·pop_size, D)` tensor and builds an index vector `row_source[i]`
@@ -191,12 +187,13 @@ that is either `i` (keep) or `pop_size + cand_idx` (replace), then `select`s the
 new colony in one gather. The same trick reapplies scout replacements from a
 `[colony; fresh]` stack.
 
-**Scout phase and `INF`-tagging.** A source whose `trial` counter exceeds `limit`
+**Scout phase and `NEG_INF`-tagging.** A source whose `trial` counter exceeds `limit`
 is overwritten with a fresh uniform sample, its counter reset to zero, and — the
-subtle part — its cached fitness set to `f32::INFINITY`. Because the new source
-has not been evaluated yet, tagging it `INF` guarantees that *any* candidate
-probing it next generation registers as an improvement, and excludes it from the
-best-so-far scan until it has a real score. The next `ask` evaluates it for real.
+subtle part — its cached fitness set to `f32::NEG_INFINITY`. Because the new source
+has not been evaluated yet, tagging it with the worst possible sentinel guarantees
+that *any* candidate probing it next generation registers as an improvement (higher
+fitness), and excludes it from the best-so-far scan until it has a real score. The
+next `ask` evaluates it for real.
 
 **Two-cycle bootstrap.** ABC needs a fitness cache before its phases can run, so
 the first cycle is a bootstrap: the first `ask` returns the initial colony

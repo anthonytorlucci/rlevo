@@ -52,11 +52,12 @@ Fitness evaluation is injected through `BatchFitnessFn<B, G>`, which receives
 the population and returns a `Tensor<B, 1>` of shape `(pop_size,)`. Strategies
 themselves never call the objective function — the harness does — so the same
 strategy implementation works against any landscape. One convention runs through
-all of it: the engine treats fitness as a **cost to minimise** (lower is better).
-This is an internal contract of the evolution engine rather than a property of EAs
-in general — the [Fitness Evaluation](evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility)
-chapter shows where it is enforced and where pointing the objective the right way
-is your responsibility.
+all of it: the engine **maximises** a canonical fitness (higher is better), and a
+cost objective declares its direction with `ObjectiveSense::Minimize`. This is an
+internal contract of the evolution engine rather than a property of EAs in
+general — the [Fitness Evaluation](evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense)
+chapter shows how the harness reconciles a cost at one chokepoint, so you never
+hand-negate.
 
 <!-- additional context [Simon, 2013, p 2-3]
 Some authors use the term *evolutionary computation* to refer to EAs. This 
@@ -405,9 +406,10 @@ documented with full pseudocode in
 
 ## Multi-Objective Optimisation
 
-Every family so far has searched for a single lowest-cost *point*, varying only
-*how* it searches while holding the objective fixed at one scalar to minimise.
-Many real problems have no single "best" to find. They have more than one
+Every family so far has searched for a single best *point*, varying only *how* it
+searches while holding the objective fixed at one scalar to optimise (the engine
+maximises it; a cost declares `ObjectiveSense::Minimize`). Many real problems have
+no single "best" to find. They have more than one
 reward *and* lower energy. When objectives conflict there is no single optimum
 but a *set* of incomparable trade-offs: a solution **dominates** another when it
 is no worse on every objective and strictly better on at least one. The
@@ -424,6 +426,13 @@ diversity operator remain the baseline every new algorithm is compared against;
 SPEA2 [[Zitzler et al., 2001]](#bibliography) is the other classic reference
 point. `rlevo` does not yet implement multi-objective optimisation; it is on
 the research roadmap (see [Part IV](../part-4-open-problems/02-research-directions.md)).
+The single-objective `ObjectiveSense` you met above is deliberately the \\(K = 1\\)
+atom of that future: a multi-objective problem carries one sense *per* objective,
+and dominance canonicalises each to maximise space (negating every `Minimize`
+component) before applying "no worse on all, strictly better on at least one" — the
+same one-chokepoint reconciliation, scaled to a vector. The scalar contract today
+is exactly its \\(K = 1\\) restriction, so landing NSGA-II adds a path beside it
+rather than reworking it.
 
 > **Further reading.** Deb, *Multi-Objective Optimization Using Evolutionary
 > Algorithms* (Wiley, 2001) [[Deb, 2001]](#bibliography) is the standard

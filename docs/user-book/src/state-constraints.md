@@ -105,18 +105,19 @@ connects to the **reward** concept developed in
 [Part I](part-1-foundations/reinforcement-learning/33-reward.md) — a single scalar,
 derived from the state, that turns a physical measurement into a goal.
 
-One orientation note before you go further, because it bites people later. What we
-just built is a *maximisation* signal: reward climbs as the robot nears the goal,
-exactly as most RL practitioners expect. rlevo's evolutionary half runs the
-opposite convention. The optimisation stack —
-[`FitnessEvaluable`](https://docs.rs/rlevo-core/latest/rlevo_core/fitness/trait.FitnessEvaluable.html)
-and the algorithms in `rlevo-evolution` — **minimises**: lower is better, and
-fitness is a *cost*. These two don't contradict each other; they meet at a sign.
-The moment this reward becomes a fitness for an evolutionary optimiser — the
-"evolutionary" in evolutionary deep RL — you negate it, turning a return you'd
-maximise into a cost you minimise. We surface it here so that the flip is a
-deliberate one-liner when you reach Part II, rather than a silent bug in which the
-optimiser cheerfully drives the agent *away* from the goal.
+One orientation note before you go further. What we just built is a *maximisation*
+signal: reward climbs as the robot nears the goal, exactly as most RL
+practitioners expect. rlevo's evolutionary half runs the **same** direction — the
+optimisation stack ([`FitnessEvaluable`](https://docs.rs/rlevo-core/latest/rlevo_core/fitness/trait.FitnessEvaluable.html)
+and the algorithms in `rlevo-evolution`) is maximise-native: higher fitness is
+better. So when this reward becomes a fitness for an evolutionary optimiser — the
+"evolutionary" in evolutionary deep RL — it flows straight through. A policy-return
+objective like `RolloutFitness` declares `ObjectiveSense::Maximize`, and the
+return is used as-is; only a genuine *cost* (a loss, an error) declares
+`ObjectiveSense::Minimize`, and even then the harness reconciles direction at one
+chokepoint, so you never hand-negate. We surface it here because earlier versions
+of rlevo minimised, and any habit of "negating a reward into a cost" is now exactly
+the bug to avoid.
 
 ## Keeping a state valid under accumulation
 

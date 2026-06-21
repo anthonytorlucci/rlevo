@@ -18,8 +18,8 @@ That coupling comes in two flavours, and `rlevo` ships both:
   other's loss, and the pressure each exerts drives the other to improve.
 
 Both are *advanced* methods: they inherit every guarantee of the Part I engine —
-host-sampled RNG, on-device population tensors, the minimise-cost convention — but
-add coupling on top, and with it failure modes (cycling, forgetting) the
+host-sampled RNG, on-device population tensors, the canonical-maximise convention —
+but add coupling on top, and with it failure modes (cycling, forgetting) the
 single-population loop never meets. Everything here lives under
 `rlevo::evo::coevolution`.
 
@@ -68,8 +68,10 @@ This is where "how population A scores against population B" lives, and nowhere
 else. The trait is deliberately **stateless** — it owns no RNG and no generation
 counter; the algorithm and harness own all context. It is written for any number
 of populations (the argument is a slice), though both shipped algorithms always
-pass exactly two. Like the rest of the engine it **minimises**: wire your
-objective as a cost.
+pass exactly two. Like the rest of the engine it **maximises** a canonical
+fitness — higher is better. The coevolution path runs its own
+`CoEvolutionaryHarness`, which has no `ObjectiveSense` chokepoint, so wire a cost
+objective as `−cost` directly in your `CoupledFitness`.
 
 Driving a run is the job of `CoEvolutionaryHarness<B, C>`, the coevolutionary
 sibling of the `EvolutionaryHarness`. It takes the algorithm, its params, a seed,

@@ -312,8 +312,8 @@ a proposed population through a `BatchFitnessFn`, returns a row-aligned
 `(pop_size,)` cost tensor, and the strategy consumes it — always treating *lower
 as better*. Host-side objectives reach the engine through the `FromLandscape` and
 `FromFitnessEvaluable` adapters; ES-style strategies condition the raw signal with
-rank or z-score shaping; and `StrategyMetrics` reports the per-generation summary
-in the same minimisation convention. With representation
+rank or z-score shaping; and `StrategyMetrics` reports the per-generation summary,
+which the harness maps back into the objective's declared sense. With representation
 ([genome](22-genome.md)), variation ([operators](21-ops.md)), and evaluation
 (this chapter) all on the table, the last piece is the **strategy** itself — the
 `ask`/`tell` choreography that assembles selection, crossover, mutation, and

@@ -74,9 +74,7 @@ A common rule of thumb: start with `F = 0.5`, `CR = 0.9`, `pop_size = 10·D`,
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximization problems must be negated. Greedy replacement (`trial ≤ current`)
-uses the same convention: the trial survives if its cost is no worse.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. Greedy per-slot replacement keeps the trial when `trial ≥ current`: the trial replaces the target when its fitness is no lower.
 
 ## Minimal example
 
@@ -143,7 +141,7 @@ fn main() {
 **Greedy per-slot replacement.** Unlike GA or ES, DE does not rank the whole
 population and select survivors globally. Each trial individual `u_i` is
 compared only against its corresponding current individual `x_i`: if
-`f(u_i) ≤ f(x_i)` the slot is updated, otherwise `x_i` is kept. This means
+`f(u_i) ≥ f(x_i)` the slot is updated, otherwise `x_i` is kept. This means
 DE is fully population-diverse — no individual is ever displaced by someone
 from a different slot.
 

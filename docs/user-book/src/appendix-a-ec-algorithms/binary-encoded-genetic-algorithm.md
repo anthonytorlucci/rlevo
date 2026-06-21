@@ -67,15 +67,7 @@ let config = BinaryGaConfig::default_for(64, 20);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximization problems must be negated before plugging in. For `OneMax` (maximise
-the number of `1` bits in a genome of length `D`):
-
-```
-cost(genome) = D − count_ones(genome)
-```
-
-The optimum is `cost = 0` (all bits set).
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. `OneMax` (maximise the number of `1` bits) is a native maximisation objective: return `count_ones(genome)` directly and declare `ObjectiveSense::Maximize`. The optimum is `fitness = D` (all bits set).
 
 ## Minimal example
 
@@ -92,12 +84,13 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 
 type B = Flex;
 
-/// OneMax phrased as minimization: cost = D − count_ones.
-struct OneMaxCost {
+/// OneMax as a native maximisation objective: fitness = count_ones.
+/// Declare ObjectiveSense::Maximize — no negation needed.
+struct OneMax {
     dim: usize,
 }
 
-impl BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMaxCost {
+impl BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMax {
     fn evaluate_batch(
         &mut self,
         population: &Tensor<B, 2, Int>,
@@ -114,7 +107,7 @@ impl BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMaxCost {
                 let ones: u32 = (0..self.dim)
                     .filter(|&col| data[row * self.dim + col] != 0)
                     .count() as u32;
-                self.dim as f32 - ones as f32
+                ones as f32
             })
             .collect();
         Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
@@ -129,7 +122,7 @@ fn main() {
     let mut harness = EvolutionaryHarness::<B, _, _>::new(
         BinaryGeneticAlgorithm::<B>::new(),
         config,
-        OneMaxCost { dim },
+        OneMax { dim },
         /* seed */ 42,
         device,
         /* max_generations */ 300,
@@ -144,7 +137,7 @@ fn main() {
     }
 
     let best = harness.latest_metrics().unwrap().best_fitness_ever;
-    println!("best cost = {best}");   // 0.0 at the OneMax optimum
+    println!("best fitness = {best}");   // D (= 20.0) at the OneMax optimum
 }
 ```
 

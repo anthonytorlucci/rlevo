@@ -212,11 +212,7 @@ admits larger expressions at the cost of a longer genome and deeper trees.
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-`GepSymRegression` scores each program by mean squared error against the
-targets, which is already a cost; the roulette weight \\(1/(1+\texttt{mse})\\)
-turns it into a maximised selection pressure internally. Maximisation objectives
-must be negated before they reach the harness.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. `GepSymRegression` scores each program by mean squared error against the targets: declare `ObjectiveSense::Minimize` and the harness reconciles — MSE is **not** hand-negated. The roulette weight \\(1/(1+\texttt{mse})\\) is an internal sampling convenience and does not affect what the harness maximises.
 
 ## Minimal example
 
