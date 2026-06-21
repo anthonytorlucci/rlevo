@@ -1,17 +1,19 @@
 # Acknowledgements
 
-`rlevo` did not emerge from a vacuum. Every abstraction in this library traces
-back to ideas, APIs, and community effort that came before it. This page credits
+`rlevo` did not emerge from a vacuum. Much of the library has been influenced 
+by ideas, APIs, and community efforts that came before it. This page credits
 the projects and people this work depends on most directly.
 
 ## Open-Source Libraries
 
 **[Burn](https://github.com/tracel-ai/burn)** is the tensor and neural network
 framework that underpins everything in `rlevo` that touches a neural network.
-Burn's backend-agnostic design — swap `wgpu` for `ndarray` with a type parameter
-— is the reason `rlevo` can target both CPU and GPU without conditional
+Burn's backend-agnostic design — swap `wgpu` for `flex` with a type parameter
+— is the reason `rlevo` can target both GPU and CPU without conditional
 compilation scattered through training code. The `burn` team's commitment to
 ergonomic Rust API design set the tone for how `rlevo`'s own traits are shaped.
+Furthermore, the Burn community has also been a driving force for continued 
+learning while developing `rlevo` and we (the author) are very grateful.
 
 **[OpenAI Gym](https://github.com/openai/gym)** (now
 [Gymnasium](https://github.com/Farama-Foundation/Gymnasium), maintained by the
@@ -27,8 +29,7 @@ operator pipelines. `rlevo`'s `Strategy` trait draws directly from this
 philosophy.
 
 **[stable-baselines3](https://github.com/DLR-RM/stable-baselines3)** provided a
-clear reference implementation of DQN, PPO, and SAC that `rlevo` used as a
-correctness anchor during algorithm development. The clarity of its API design
+clear reference implementation of DQN, PPO, and SAC. The clarity of its API design
 influenced how `rlevo` structures agent configuration structs.
 
 **[CleanRL](https://github.com/vwxyzjn/cleanrl)** demonstrated that single-file,
@@ -87,12 +88,10 @@ implementations against canonical baselines.
 ## A Note on Standing on Shoulders
 
 Where this book describes an algorithm, a citation points to the paper or
-textbook where it was introduced or given its canonical treatment. We have aimed
-to be specific: a vague "as described in the literature" is less useful than
-"Watkins & Dayan (1992), Theorem 1." The [Bibliography](bibliography.md) collects
-all references in one place.
+textbook where it was introduced or given its canonical treatment. The 
+[Bibliography](bibliography.md) collects all references in one place.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

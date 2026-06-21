@@ -208,5 +208,5 @@ a strategy actually optimise a function end to end, head to the
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

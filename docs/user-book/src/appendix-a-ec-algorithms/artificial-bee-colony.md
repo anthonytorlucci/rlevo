@@ -227,5 +227,5 @@ trajectories regardless of how the population was evaluated in between.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

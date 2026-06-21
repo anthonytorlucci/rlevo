@@ -218,5 +218,5 @@ the subject of [Why Combine Them?](50-why-combine.md).
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

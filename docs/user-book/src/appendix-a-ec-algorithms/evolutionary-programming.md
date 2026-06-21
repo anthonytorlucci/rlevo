@@ -177,5 +177,5 @@ sub-streams. Two runs with the same seed produce identical trajectories.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

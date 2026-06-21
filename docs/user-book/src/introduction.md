@@ -1,22 +1,45 @@
-# Introduction
+# Hello, `rlevo`!
 
-`rlevo` is a library for **evolutionary deep reinforcement learning** in Rust,
-built on the [Burn](https://burn.dev) tensor framework. It gives you two ways to
-search for good behaviour — **evolution** (populations that mutate and select)
-and **gradient-based reinforcement learning** (agents that learn from reward) -
-*and lets you mix them*.
+Welcome to `rlevo` and thank you for interest. `rlevo` is a library for 
+**evolutionary deep reinforcement learning** wrriten in Rust,
+built on the [Burn](https://burn.dev) deep learning framework. It gives you
+two ways to search for good behaviour — **evolutionary computation (EC)** 
+(populations that mutate  and select) and **gradient-based reinforcement 
+learning (RL)** (agents that learn  from reward) - *and lets you mix them*.
 
-This book serves two kinds of reader simultaneously:
+### What this guide is
 
-- **Practitioners** who want to get something running fast: follow Part II, skim
-  the theory boxes, run the examples.
-- **Students and researchers** who want to understand *why* each algorithm works:
-  start with Part I, use Part II to see the examples, and reach for the
-  Appendices when you want derivations and pseudocode.
+In this user guide, we will illustrate how `rlevo` defines and implements the 
+fundamental concepts in reinforcement learning and evolutionary computation. 
+We will discuss how `rlevo` takes advantage of Rust's type safety and const 
+generics to encode the observation space rank, action space dimensionality, and 
+network layer widths as type-level constants. `rlevo` was designed from the 
+ground up for large, high-dimensional problems. A misconfigured 
+environment-to-network interface becomes a compiler error rather than a silent 
+shape broadcast or a runtime panic during a training run. That's the 
+qualitative difference — you shift an entire class of bugs from "discovered 
+during execution" to "impossible to express."
 
-Neither path requires you to read the book cover to cover. Cross-references point
-from the guided tour back to the foundations, and from the foundations forward to
-where those ideas appear in `rlevo` code.
+We don't expect users to be experts in deep learning, reinforcement learning, 
+or evolutionary computation, but we do expect some familiarity. You 
+will find links to the [docs.rs](https://docs.rs/rlevo/latest/rlevo/) and 
+references listed in the bibliography for further reading. 
+
+> For more information on high-dimensional problems and a better understanding 
+> of what this means, we encourage you to read [Plaat, 2023](#bibliography)
+> section 3.1.
+
+### What this guide is not
+
+This guide is not a dissertation. We aim to provide users and researchers with 
+enough information to build their own solutions for their own unique problem. 
+
+Also, this is not an argument for Rust over Python. We (the original author) 
+chose Rust for its type-safety, performance, and genuine enjoyment. We were 
+already familiar with Burn, saw a gap in RL and EC, and set out to fill it. If 
+you also enjoy building in Rust, we hope you enjoy building with `rlevo`.
+
+So let's jump in!
 
 ## The shape of every problem
 
@@ -67,10 +90,7 @@ cargo run -p rlevo-examples --example <name>
 Each section names the example it's built from. The code in the book *is* that
 example — compiled and tested in CI — so what you read is what runs.
 
-You do **not** need to know Burn to start. Tensors appear only when a section
-needs them, and are kept at arm's length until then.
-
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*
