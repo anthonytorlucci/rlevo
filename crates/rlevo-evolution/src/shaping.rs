@@ -46,6 +46,11 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// Returns centered ranks: the largest fitness maps to `+0.5`, the
 /// smallest to `-0.5`, with linear spacing in between.
 ///
+/// Under the crate's maximise convention (canonical: higher is better)
+/// this assigns the **best** (highest-fitness) individual the highest
+/// utility `+0.5` and the worst the lowest `-0.5`, which is the sign a
+/// gradient-style ES update expects — no negation at the call site.
+///
 /// Centered ranks are standard in modern ES (e.g. OpenAI-ES) because they
 /// remove outlier fitness magnitudes and keep the signal scale-free across
 /// generations. Implemented host-side because the argsort pathway is

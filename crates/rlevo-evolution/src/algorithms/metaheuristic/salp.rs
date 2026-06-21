@@ -155,7 +155,7 @@ where
             positions,
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -267,8 +267,8 @@ where
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
-        let best_idx = argmin(&fitness_host);
-        if fitness_host[best_idx] < state.best_fitness {
+        let best_idx = argmax(&fitness_host);
+        if fitness_host[best_idx] > state.best_fitness {
             state.best_fitness = fitness_host[best_idx];
             let device = population.device();
             #[allow(clippy::cast_possible_wrap)]
@@ -295,11 +295,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }

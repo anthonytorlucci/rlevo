@@ -83,6 +83,11 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
         }
         Tensor::<Bk, 1>::from_data(TensorData::new(out, [pop]), device)
     }
+
+    fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+        // Rastrigin is a cost surface — lower is better.
+        rlevo_core::objective::ObjectiveSense::Minimize
+    }
 }
 
 /// Result of one `evals_to_target` run: the eval counter when the best-so-far

@@ -17,6 +17,8 @@
 
 use rand::Rng;
 
+use crate::objective::ObjectiveSense;
+
 /// Method-specific signal emitted by an agent or aggregator at trial
 /// boundaries.
 ///
@@ -81,14 +83,17 @@ pub trait FitnessEvaluable {
     /// marker type when the evaluator itself encodes the landscape.
     type Landscape;
 
-    /// Returns the scalar fitness (cost) of `individual` on `landscape`.
+    /// Returns the scalar fitness of `individual` on `landscape`, in the
+    /// objective's **natural** value space (no hand-negation).
     ///
-    /// Fitness follows the **minimisation** convention used throughout the
-    /// optimisation stack: *lower values mean better fitness*, and
-    /// `rlevo-evolution` minimises this value directly (the
-    /// `FromFitnessEvaluable` adapter passes it through unchanged). Formulate a
-    /// genuinely maximisation-style objective (reward, accuracy, score) as a
-    /// cost by negating it before returning.
+    /// The engine is maximise-native, but you do **not** negate here. A cost
+    /// objective returns its natural cost (e.g. Sphere → `Σxᵢ²`); a reward or
+    /// accuracy returns its natural value. The objective's direction is
+    /// declared once, via the [`ObjectiveSense`] carried by the
+    /// `FromFitnessEvaluable` adapter (`with_sense`, defaulting to
+    /// [`ObjectiveSense::Minimize`]), and the evolutionary harness reconciles
+    /// it into canonical (maximise) space at a single chokepoint. See
+    /// [`crate::objective`].
     fn evaluate(&self, individual: &Self::Individual, landscape: &Self::Landscape) -> f64;
 }
 
@@ -104,10 +109,24 @@ pub trait FitnessEvaluable {
 /// a `BatchFitnessFn<B, Tensor<B, 2>>`, mirroring the row-by-row host
 /// evaluation that `FromFitnessEvaluable` performs.
 pub trait Landscape: Send + Sync {
-    /// Evaluates the landscape at point `x` and returns scalar fitness (cost).
+    /// Evaluates the landscape at point `x` and returns its scalar cost in the
+    /// landscape's **natural** value space (no hand-negation).
     ///
-    /// Minimisation convention: *lower is better*. The bundled landscapes
+    /// A landscape is a cost surface by definition: the bundled landscapes
     /// (Sphere, Ackley, Rastrigin) are zero at their global optimum and
-    /// positive elsewhere.
+    /// positive elsewhere. The maximise-native engine reconciles this via
+    /// [`sense`](Landscape::sense) at a single chokepoint — you never negate
+    /// the value here.
     fn evaluate(&self, x: &[f64]) -> f64;
+
+    /// The optimisation direction of this landscape.
+    ///
+    /// A landscape is a cost surface, so this defaults to
+    /// [`ObjectiveSense::Minimize`] — the 24 bundled landscapes need no
+    /// per-type override. The `FromLandscape` adapter forwards this to the
+    /// harness, which negates a `Minimize` objective into canonical (maximise)
+    /// space and reports `best_fitness` back in this natural sense.
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Minimize
+    }
 }

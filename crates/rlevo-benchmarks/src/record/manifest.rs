@@ -13,6 +13,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
+use rlevo_core::objective::ObjectiveSense;
 use serde::{Deserialize, Serialize};
 
 use super::schema::{CheckpointRef, EnvFamily, FORMAT_VERSION, Hyperparameters, RunId};
@@ -78,6 +79,12 @@ pub struct RunManifest {
     /// embedded). Empty for EA and un-wired RL. Added in v6.
     #[serde(default)]
     pub checkpoints: Vec<CheckpointRef>,
+    /// Objective direction for the run. `None` ⇒ `Maximize` (the canonical
+    /// engine sense), so RL and unspecified runs render "best/worst"
+    /// correctly.
+    // Added in FORMAT_VERSION = 7
+    #[serde(default)]
+    pub objective_sense: Option<ObjectiveSense>,
 }
 
 impl RunManifest {
@@ -110,7 +117,17 @@ impl RunManifest {
             num_seeds: None,
             success_threshold: None,
             checkpoints: Vec::new(),
+            objective_sense: None,
         }
+    }
+
+    /// Records the objective direction for the run. `None` (the default) is
+    /// interpreted as `Maximize` by the report tier. Added in
+    /// `FORMAT_VERSION = 7`.
+    #[must_use]
+    pub fn with_objective_sense(mut self, sense: ObjectiveSense) -> Self {
+        self.objective_sense = Some(sense);
+        self
     }
 
     /// Stamps the algorithm identity (e.g. `"ppo"`, `"dqn"`, `"ga"`) the

@@ -23,6 +23,7 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
@@ -62,7 +63,7 @@ fn ga_factory(
     EvolutionaryHarness::new(
         GeneticAlgorithm::<B>::new(),
         params,
-        FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(Minimizer, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         device,
         MAX_GENS,
@@ -78,7 +79,7 @@ fn es_factory(
     EvolutionaryHarness::new(
         EvolutionStrategy::<B>::new(),
         params,
-        FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(Minimizer, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         device,
         MAX_GENS,
@@ -95,7 +96,7 @@ fn ep_factory(
     EvolutionaryHarness::new(
         EvolutionaryProgramming::<B>::new(),
         params,
-        FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(Minimizer, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         device,
         MAX_GENS,
@@ -114,7 +115,7 @@ fn de_factory(
     EvolutionaryHarness::new(
         DifferentialEvolution::<B>::new(),
         params,
-        FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(Minimizer, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         device,
         MAX_GENS,

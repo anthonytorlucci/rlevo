@@ -22,10 +22,10 @@ use super::fitness::CoupledFitness;
 /// Per-population archive of past champions, capped at a fixed capacity.
 ///
 /// Each [`update`](Self::update) appends the current generation's best
-/// individual (lowest fitness, minimization convention) to each population's
-/// archive. When an archive would exceed `capacity` the single worst-fitness
-/// member is dropped, so the archive always retains the `capacity` best
-/// champions seen across the whole run.
+/// individual (highest fitness, canonical maximise convention) to each
+/// population's archive. When an archive would exceed `capacity` the single
+/// worst-fitness (lowest) member is dropped, so the archive always retains the
+/// `capacity` best champions seen across the whole run.
 ///
 /// The capacity is computed by [`capacity_for`](Self::capacity_for) as
 /// `max(10, pop_size / 5)` (Rosin & Belew sizing).
@@ -78,10 +78,10 @@ impl<B: Backend> HallOfFame<B> {
 
     /// Insert the best individual of each population into its archive.
     ///
-    /// For population `p`, the lowest-fitness row of `populations[p]` is
-    /// appended to `archives[p]`. If that pushes the archive past `capacity`,
-    /// the single highest-fitness (worst) archived member is removed. Empty
-    /// populations are skipped.
+    /// For population `p`, the highest-fitness row of `populations[p]` is
+    /// appended to `archives[p]` (canonical maximise: higher is better). If that
+    /// pushes the archive past `capacity`, the single lowest-fitness (worst)
+    /// archived member is removed. Empty populations are skipped.
     pub fn update(&mut self, populations: &[Tensor<B, 2>], fitnesses: &[Tensor<B, 1>]) {
         let n = self.archives.len().min(populations.len()).min(fitnesses.len());
         for p in 0..n {
@@ -93,16 +93,17 @@ impl<B: Backend> HallOfFame<B> {
             if fit_host.is_empty() {
                 continue;
             }
-            // Argmin (best, lowest fitness) — ties resolve to the lowest index.
-            // `fit_host` is non-empty here (checked above), so `min_by` is
-            // always `Some`; the let-else is a non-panicking guard.
-            let Some((best_idx, &best_f)) = fit_host
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| a.total_cmp(b))
-            else {
-                continue;
-            };
+            // Argmax (best, highest fitness — canonical maximise) — ties
+            // resolve to the lowest index. Hand-rolled with a strict
+            // `total_cmp == Greater` so equal-fitness ties keep the earliest
+            // index (`Iterator::max_by` would instead keep the last).
+            let mut best_idx = 0_usize;
+            for i in 1..fit_host.len() {
+                if fit_host[i].total_cmp(&fit_host[best_idx]) == std::cmp::Ordering::Greater {
+                    best_idx = i;
+                }
+            }
+            let best_f = fit_host[best_idx];
             let device = populations[p].device();
             // usize → i64 index tensor; population indices never approach i64::MAX.
             #[allow(clippy::cast_possible_wrap)]
@@ -117,11 +118,12 @@ impl<B: Backend> HallOfFame<B> {
             self.archive_fitness[p].push(best_f);
 
             if self.archive_fitness[p].len() > self.capacity {
-                // Over capacity => non-empty, so `max_by` is always `Some`.
+                // Worst = lowest fitness under the maximise convention.
+                // Over capacity => non-empty, so `min_by` is always `Some`.
                 let Some(worst_idx) = self.archive_fitness[p]
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                    .min_by(|(_, a), (_, b)| a.total_cmp(b))
                     .map(|(i, _)| i)
                 else {
                     continue;
@@ -314,23 +316,26 @@ mod tests {
     fn archive_grows_to_capacity_then_prunes_worst() {
         let device = Default::default();
         let mut hof = HallOfFame::<B>::new(2, 3, 1, &device);
-        // Each generation's champion (index 0) has fitness 5,4,3,2,1.
+        // Each generation's champion (index 0, highest fitness) is 5,4,3,2,1;
+        // the index-1 value of −100 is always the worst, so it is never the
+        // champion under the maximise convention.
         for g in 0..5_usize {
             #[allow(clippy::cast_precision_loss)]
             let p = pop(&[g as f32, g as f32 + 0.5], 2, 1);
             #[allow(clippy::cast_precision_loss)]
-            let f = fit(&[(5 - g) as f32, 100.0]);
+            let f = fit(&[(5 - g) as f32, -100.0]);
             hof.update(&[p.clone(), p], &[f.clone(), f]);
             assert!(
                 hof.archives()[0].dims()[0] <= 3,
                 "archive exceeded capacity at gen {g}"
             );
         }
-        // After 5 generations at capacity 3, the three best champions survive.
+        // After 5 generations at capacity 3, the three best (highest) champions
+        // survive: 5, 4, 3.
         assert_eq!(hof.archives()[0].dims()[0], 3);
         let mut surviving = hof.archive_fitness[0].clone();
         surviving.sort_by(f32::total_cmp);
-        assert_eq!(surviving, vec![1.0, 2.0, 3.0]);
+        assert_eq!(surviving, vec![3.0, 4.0, 5.0]);
     }
 
     /// Inner fitness = row sum; used to exercise the wrapper plumbing.

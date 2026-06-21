@@ -4,9 +4,10 @@
 //! This is the RL-coupled fitness boundary for weight-only neuroevolution. A
 //! population row is unflattened (via a [`ModuleReshaper`]) into a policy
 //! network, the network drives one or more episodes against a freshly
-//! constructed environment, and the mean episode return is returned as
-//! fitness — *negated*, because [`Strategy`](rlevo_evolution::Strategy)
-//! minimizes while policy return is maximized.
+//! constructed environment, and the mean episode return is returned **directly**
+//! as fitness (no negation): the engine is maximise-native and policy return is
+//! a maximisation, so [`RolloutFitness`] declares
+//! [`ObjectiveSense::Maximize`](rlevo_core::objective::ObjectiveSense::Maximize).
 //!
 //! # Rank fixing
 //!
@@ -176,9 +177,15 @@ where
             for _ in 0..self.episodes_per_eval {
                 total += self.rollout_once(&module, device);
             }
-            // Negate: the strategy minimizes, policy return is maximized.
-            fitness.push(-total / episodes);
+            // Natural mean episode return — the engine is maximise-native and
+            // policy return is a maximisation, so there is no hand-negation.
+            fitness.push(total / episodes);
         }
         Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+    }
+
+    fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+        // Mean episode return — higher is better.
+        rlevo_core::objective::ObjectiveSense::Maximize
     }
 }

@@ -378,6 +378,9 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         // an exact recomputation. Entries are recomputed for child v* after each
         // accepted edge; eligibility (cycle / cap / already-present) is checked
         // live at selection time, so the cache holds only the score gain.
+        // NOTE: this `NEG_INFINITY` is a structure-score (BDeu/likelihood)
+        // gain sentinel for greedy edge maximisation — NOT objective fitness.
+        // It is independent of the crate's maximise convention; do not flip it.
         let mut gain_cache = vec![f64::NEG_INFINITY; d * d];
         // Helper closure would need to borrow `bits`/`parents`/`base_score`
         // mutably and immutably; an inline recompute keeps borrows simple.

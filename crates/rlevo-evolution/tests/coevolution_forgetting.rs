@@ -128,7 +128,9 @@ impl CoupledFitness<B> for CoverageForgettingFitness {
         };
         let regime_target = (generation / PERIOD) % K;
 
-        // Solver fitness: 1 - mean coverage of probed targets + budget cost.
+        // Solver fitness (canonical maximise, higher is better): mean coverage
+        // of probed targets minus the budget cost. This is the negation of the
+        // natural cost `(1 - benefit) + cost`; the coevolution engine maximises.
         let solver: Vec<f32> = cov
             .iter()
             .map(|c| {
@@ -138,15 +140,16 @@ impl CoupledFitness<B> for CoverageForgettingFitness {
                     tgt.iter().map(|&t| c[t]).sum::<f32>() / tgt.len() as f32
                 };
                 let cost = LAMBDA * c.iter().sum::<f32>();
-                (1.0 - benefit) + cost
+                -((1.0 - benefit) + cost)
             })
             .collect();
 
-        // Tester fitness: match the current regime target (drives the tester
-        // population to probe the cycling regime).
+        // Tester fitness (canonical maximise): 0 when it matches the current
+        // regime target (best), -1 otherwise (drives the tester population to
+        // probe the cycling regime).
         let tester: Vec<f32> = tgt
             .iter()
-            .map(|&t| if t == regime_target { 0.0 } else { 1.0 })
+            .map(|&t| if t == regime_target { 0.0 } else { -1.0 })
             .collect();
 
         vec![

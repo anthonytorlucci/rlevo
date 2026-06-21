@@ -181,7 +181,8 @@ where
     ///
     /// Samples an `(pop_size, genome_dim)` real-valued population uniformly
     /// within `params.bounds` using a host RNG derived from `rng`. Sets
-    /// `fitness` to empty and `best_fitness` to `f32::INFINITY`; the first
+    /// `fitness` to empty and `best_fitness` to `f32::NEG_INFINITY` (the
+    /// worst value under the maximise convention); the first
     /// [`tell`](Self::tell) call populates both.
     fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GaState<B> {
         let population = Self::sample_initial_population(params, rng, device);
@@ -189,7 +190,7 @@ where
             population,
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -300,11 +301,11 @@ where
     ///
     /// - [`GaReplacement::Generational`] — offspring completely replace
     ///   parents.
-    /// - [`GaReplacement::Elitist`] — the `elitism_k` lowest-cost parents
+    /// - [`GaReplacement::Elitist`] — the `elitism_k` highest-fitness parents
     ///   survive; the remainder come from offspring.
     ///
-    /// `fitness` must have shape `(pop_size,)` with values in the
-    /// minimization (cost) convention — lower is better.
+    /// `fitness` must have shape `(pop_size,)` in the canonical maximise
+    /// convention — higher is better.
     fn tell(
         &self,
         params: &GaConfig,
@@ -360,7 +361,7 @@ where
     /// Return the best-so-far genome and its fitness.
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
-    /// The fitness value uses the minimization convention (lower is better).
+    /// The fitness value uses the canonical maximise convention (higher is better).
     fn best(&self, state: &GaState<B>) -> Option<(Tensor<B, 2>, f32)> {
         state
             .best_genome
@@ -376,12 +377,12 @@ fn update_best<B: Backend>(state: &mut GaState<B>, pop: &Tensor<B, 2>, fitness: 
     let mut best_idx = 0_usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(

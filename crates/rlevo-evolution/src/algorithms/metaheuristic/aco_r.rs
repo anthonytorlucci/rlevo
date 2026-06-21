@@ -75,8 +75,8 @@ impl AcoRConfig {
 pub struct AcoRState<B: Backend> {
     /// Archive of `k` best solutions, shape `(k, D)`.
     pub archive: Tensor<B, 2>,
-    /// Host-side archive fitness, sorted ascending (best first) after
-    /// the first `tell`.
+    /// Host-side archive fitness, sorted descending (best, i.e. highest,
+    /// first) after the first `tell`.
     pub archive_fitness: Vec<f32>,
     /// Cached archive weights (recomputed only when `q` or `k` change).
     pub weights: Vec<f32>,
@@ -183,7 +183,7 @@ where
             archive_fitness: Vec::new(),
             weights: Self::compute_weights(params.archive_size, params.q),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -315,9 +315,9 @@ where
 
         // First tell: the population being scored IS the initial archive.
         if state.archive_fitness.is_empty() {
-            // Sort archive by fitness.
+            // Sort archive by fitness, best (highest) first.
             let mut idx: Vec<usize> = (0..fitness_host.len()).collect();
-            idx.sort_by(|&a, &b| fitness_host[a].partial_cmp(&fitness_host[b]).unwrap());
+            idx.sort_by(|&a, &b| fitness_host[b].partial_cmp(&fitness_host[a]).unwrap());
             #[allow(clippy::cast_possible_wrap)]
             let sorted_idx = Tensor::<B, 1, Int>::from_data(
                 TensorData::new(idx.iter().map(|&i| i as i64).collect::<Vec<_>>(), [k]),
@@ -344,7 +344,7 @@ where
         let mut combined_f: Vec<f32> = state.archive_fitness.clone();
         combined_f.extend_from_slice(&fitness_host);
         let mut idx: Vec<usize> = (0..combined_f.len()).collect();
-        idx.sort_by(|&a, &b| combined_f[a].partial_cmp(&combined_f[b]).unwrap());
+        idx.sort_by(|&a, &b| combined_f[b].partial_cmp(&combined_f[a]).unwrap());
         idx.truncate(k);
         #[allow(clippy::cast_possible_wrap)]
         let top_idx = Tensor::<B, 1, Int>::from_data(
@@ -354,7 +354,7 @@ where
         state.archive = combined.select(0, top_idx);
         state.archive_fitness = idx.iter().map(|&i| combined_f[i]).collect();
 
-        if state.archive_fitness[0] < state.best_fitness {
+        if state.archive_fitness[0] > state.best_fitness {
             state.best_fitness = state.archive_fitness[0];
             let first_idx =
                 Tensor::<B, 1, Int>::from_data(TensorData::new(vec![0_i64], [1]), &device);

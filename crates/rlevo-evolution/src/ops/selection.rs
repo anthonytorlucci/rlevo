@@ -13,10 +13,10 @@
 //!
 //! # Fitness convention
 //!
-//! Fitness values are interpreted as "lower is better" (cost).
-//! Tournament selection retains the *smallest* fitness seen across all
+//! Fitness values are **canonical (maximise)**: *higher is better*.
+//! Tournament selection retains the *largest* fitness seen across all
 //! candidates in a single draw; truncation selection returns the `top_k`
-//! entries with the smallest fitnesses.
+//! entries with the largest fitnesses.
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
@@ -24,15 +24,15 @@ use rand::{Rng, RngExt};
 /// K-ary tournament selection over a fitness slice.
 ///
 /// Draws `tournament_size` candidate indices uniformly at random (with
-/// replacement) and retains the one with the smallest fitness. Repeats
+/// replacement) and retains the one with the largest fitness. Repeats
 /// the draw `n_winners` times and returns the winning index for each
 /// draw. Randomness is drawn entirely from the caller-supplied `rng`;
 /// no global or backend RNG state is touched.
 ///
-/// `fitness` is a flat slice where index `i` is the cost of population
-/// member `i` (lower is better). `tournament_size` controls selection
-/// pressure: larger values yield stronger pressure toward lower-cost
-/// members.
+/// `fitness` is a flat slice where index `i` is the canonical fitness of
+/// population member `i` (higher is better). `tournament_size` controls
+/// selection pressure: larger values yield stronger pressure toward
+/// higher-fitness members.
 ///
 /// # Examples
 ///
@@ -41,14 +41,14 @@ use rand::{Rng, RngExt};
 /// use rand::rngs::StdRng;
 /// use rlevo_evolution::ops::selection::tournament_indices_host;
 ///
-/// let fitness = [10.0_f32, 1.0, 10.0, 10.0];
+/// let fitness = [1.0_f32, 10.0, 1.0, 1.0];
 /// let mut rng = StdRng::seed_from_u64(0);
 /// let winners = tournament_indices_host(&fitness, 2, 100, &mut rng);
 /// // The unique best member (index 1) is selected far more often than any
-/// // single higher-cost member.
+/// // single lower-fitness member.
 /// let best_wins = winners.iter().filter(|&&w| w == 1).count();
-/// let high_cost_wins = winners.iter().filter(|&&w| w == 0).count();
-/// assert!(best_wins > high_cost_wins);
+/// let low_fitness_wins = winners.iter().filter(|&&w| w == 0).count();
+/// assert!(best_wins > low_fitness_wins);
 /// ```
 ///
 /// # Panics
@@ -70,7 +70,7 @@ pub fn tournament_indices_host(
         let mut best_f = fitness[best_idx];
         for _ in 1..tournament_size {
             let idx = rng.random_range(0..pop_size);
-            if fitness[idx] < best_f {
+            if fitness[idx] > best_f {
                 best_f = fitness[idx];
                 best_idx = idx;
             }
@@ -109,11 +109,11 @@ pub fn tournament_select<B: Backend>(
     population.clone().select(0, indices)
 }
 
-/// Returns the indices of the `top_k` lowest-fitness members.
+/// Returns the indices of the `top_k` highest-fitness members.
 ///
-/// Sorts the population by fitness (ascending, i.e. lowest cost first)
-/// and returns the first `top_k` indices. The returned `Vec` is ordered
-/// from best to worst among the selected members. Ties are broken by
+/// Sorts the population by fitness (descending, i.e. highest first) and
+/// returns the first `top_k` indices. The returned `Vec` is ordered from
+/// best to worst among the selected members. Ties are broken by
 /// `f32::partial_cmp`, with `NaN` values sorted last.
 ///
 /// This is the host-side building block; call [`truncation_select`] when
@@ -127,9 +127,9 @@ pub fn tournament_select<B: Backend>(
 /// let fitness = [5.0_f32, 1.0, 3.0, 2.0, 4.0];
 /// let idx = truncation_indices_host(&fitness, 3);
 /// assert_eq!(idx.len(), 3);
-/// // The three cheapest members are at original indices 1 (1.0), 3 (2.0), 2 (3.0).
-/// assert!(idx.contains(&1));
-/// assert!(idx.contains(&3));
+/// // The three fittest members are at original indices 0 (5.0), 4 (4.0), 2 (3.0).
+/// assert!(idx.contains(&0));
+/// assert!(idx.contains(&4));
 /// assert!(idx.contains(&2));
 /// ```
 ///
@@ -141,8 +141,9 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
     assert!(top_k <= fitness.len(), "top_k must be <= population size");
     let mut indexed: Vec<(usize, f32)> = fitness.iter().copied().enumerate().collect();
+    // Descending: highest fitness first. NaN sorts last either way.
     indexed
-        .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     indexed
         .into_iter()
@@ -151,7 +152,7 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
         .collect()
 }
 
-/// Gathers the `top_k` lowest-fitness rows out of a population tensor.
+/// Gathers the `top_k` highest-fitness rows out of a population tensor.
 ///
 /// Convenience wrapper that runs [`truncation_indices_host`] on the
 /// host and then performs a single `Tensor::select` gather on the
@@ -190,7 +191,7 @@ mod tests {
     #[test]
     fn tournament_prefers_better_fitness_in_expectation() {
         let mut rng = StdRng::seed_from_u64(1);
-        let fitness = [100.0f32, 0.0, 100.0, 100.0];
+        let fitness = [0.0f32, 100.0, 0.0, 0.0];
         let winners = tournament_indices_host(&fitness, 2, 1000, &mut rng);
         let wins_for_best = winners.iter().filter(|&&w| w == 1).count();
         // For pop_size=4 and tournament_size=2, P(best wins) =
@@ -205,13 +206,13 @@ mod tests {
 
     // ANCHOR: truncation_ordering_test
     #[test]
-    fn truncation_returns_smallest_fitness_first() {
+    fn truncation_returns_largest_fitness_first() {
         let fitness = [5.0f32, 1.0, 3.0, 2.0, 4.0];
         let idx = truncation_indices_host(&fitness, 3);
-        // The three smallest fitnesses live at indices 1 (=1.0), 3 (=2.0), 2 (=3.0).
+        // The three largest fitnesses live at indices 0 (=5.0), 4 (=4.0), 2 (=3.0).
         assert_eq!(idx.len(), 3);
-        assert!(idx.contains(&1));
-        assert!(idx.contains(&3));
+        assert!(idx.contains(&0));
+        assert!(idx.contains(&4));
         assert!(idx.contains(&2));
     }
     // ANCHOR_END: truncation_ordering_test
@@ -222,7 +223,7 @@ mod tests {
         let device = Default::default();
         let data = TensorData::new(vec![0.0f32, 1.0, 2.0, 3.0, 4.0, 5.0], [3, 2]);
         let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
-        let fitness = [10.0_f32, 0.0, 10.0];
+        let fitness = [0.0_f32, 10.0, 0.0];
         let mut rng = StdRng::seed_from_u64(2);
         let parents = tournament_select(&pop, &fitness, 2, 4, &mut rng, &device);
         assert_eq!(parents.dims(), [4, 2]);

@@ -4,7 +4,7 @@
 //! attractiveness decaying exponentially in the squared distance:
 //!
 //! - `β(r_ij) = β₀ · exp(−γ · r_ij²)` where `r_ij = ‖x_i − x_j‖`,
-//! - `Δx_i = Σ_{j : f(x_j) < f(x_i)} β(r_ij) · (x_j − x_i) + α · (U[−0.5, 0.5])`,
+//! - `Δx_i = Σ_{j : f(x_j) > f(x_i)} β(r_ij) · (x_j − x_i) + α · (U[−0.5, 0.5])`,
 //! - `x_i ← x_i + Δx_i`.
 //!
 //! The attraction sum is canonically `O(N²)`; a naïve tensor
@@ -151,11 +151,11 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let r2 = diff.clone().powi_scalar(2).sum_dim(2).squeeze::<2>(); // (N, N)
         let beta = r2.mul_scalar(-gamma).exp().mul_scalar(beta0); // (N, N)
 
-        // Brightness mask: bright[i, j] = 1 iff fitness[j] < fitness[i].
+        // Brightness mask: bright[i, j] = 1 iff fitness[j] > fitness[i].
         let mut bright = vec![0i64; pop * pop];
         for i in 0..pop {
             for j in 0..pop {
-                if fitness[j] < fitness[i] {
+                if fitness[j] > fitness[i] {
                     bright[i * pop + j] = 1;
                 }
             }
@@ -244,7 +244,7 @@ where
             positions,
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -295,7 +295,7 @@ where
     ///
     /// Pulls `fitness` to host, updates `state.positions` and
     /// `state.fitness`, then refreshes the best-so-far genome if the
-    /// current generation contains a new minimum.  Returns the updated
+    /// current generation contains a new maximum.  Returns the updated
     /// state and a [`StrategyMetrics`] snapshot for the completed
     /// generation.
     fn tell(
@@ -311,8 +311,8 @@ where
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
 
-        let best_idx = argmin(&fitness_host);
-        if fitness_host[best_idx] < state.best_fitness {
+        let best_idx = argmax(&fitness_host);
+        if fitness_host[best_idx] > state.best_fitness {
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -338,11 +338,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }

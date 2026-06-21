@@ -386,15 +386,16 @@ pub struct Classic2DPayload {
 /// | 4 | Added [`TrialRef`] (`trial` field) to [`EpisodeRecordHeader`]. |
 /// | 5 | Added [`FamilyPayload::Grid`], [`FamilyPayload::TabularText`], [`FamilyPayload::Classic2D`] rich payloads. |
 /// | 6 | Added [`EpisodeKind`] to [`EpisodeRecordHeader`]; added run-provenance fields (`algorithm`, `rlevo_version`, `rustc_version`, `burn_version`, `platform`, `git_commit`, `git_dirty`, `device`, `num_seeds`, `success_threshold`) and `checkpoints` ([`CheckpointRef`]) to [`RunManifest`]. Defined by ADR 0014. |
+/// | 7 | Added [`ObjectiveSense`] and the `objective_sense` field to [`RunManifest`]; orients best/worst report transforms. |
 // Mirror of `rlevo-benchmarks::record::FORMAT_VERSION`.  Keep in sync;
 // the const assertions in rlevo-benchmarks/tests/wire_format_compat.rs
 // catch drift at compile time.
-pub const FORMAT_VERSION: u16 = 6;
+pub const FORMAT_VERSION: u16 = 7;
 
 /// Oldest on-disk version this client accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility before first release.
 // Mirror of `rlevo-benchmarks::record::MIN_SUPPORTED_VERSION`.
-pub const MIN_SUPPORTED_VERSION: u16 = 6;
+pub const MIN_SUPPORTED_VERSION: u16 = 7;
 
 /// Returns the standard bincode configuration used for all record encode/decode operations.
 #[must_use]
@@ -452,6 +453,19 @@ pub enum FamilyPayload {
     /// Structured 2-D line-art for classic physics envs. Added in
     /// `FORMAT_VERSION = 5`.
     Classic2D(Classic2DPayload),
+}
+
+/// Objective direction for a run. Wire mirror of
+/// `rlevo_core::objective::ObjectiveSense`. `None` on a [`RunManifest`] is
+/// interpreted as [`Maximize`](ObjectiveSense::Maximize) — the canonical
+/// engine sense. Added in `FORMAT_VERSION = 7`.
+// Mirror of `rlevo_core::objective::ObjectiveSense`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectiveSense {
+    /// Lower is better (cost, loss, error, distance-to-target).
+    Minimize,
+    /// Higher is better (reward, fitness, accuracy, score).
+    Maximize,
 }
 
 /// Trial provenance. Mirror of
@@ -687,6 +701,11 @@ pub struct RunManifest {
     /// embedded). Empty for EA and un-wired RL. Added in v6.
     #[serde(default)]
     pub checkpoints: Vec<CheckpointRef>,
+    /// Objective direction for the run. `None` ⇒ `Maximize` (the canonical
+    /// engine sense), so RL and unspecified runs render "best/worst"
+    /// correctly. Added in `FORMAT_VERSION = 7`.
+    #[serde(default)]
+    pub objective_sense: Option<ObjectiveSense>,
 }
 
 /// Decode the raw bytes of a single `episode_*.rec` file produced by

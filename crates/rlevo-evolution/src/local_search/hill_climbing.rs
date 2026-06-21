@@ -15,7 +15,7 @@
 //!   move is greedier.
 //!
 //! Both variants shrink `step_size` by `step_decay` once a probe budget passes
-//! without improvement, letting the search settle into a basin. The returned
+//! without improvement, letting the search settle into a peak. The returned
 //! pair is always the best `(genome, fitness)` observed across all evaluations,
 //! which makes the [`LocalSearch`]
 //! monotone-non-worsening and fresh-fitness invariants hold structurally.
@@ -90,26 +90,26 @@ impl HillClimbingParams {
 /// use rlevo_evolution::fitness::FitnessFn;
 /// use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams, LocalSearch};
 ///
-/// // Minimize the 2-D sphere; the optimum is the origin with fitness 0.
-/// struct Sphere;
-/// impl FitnessFn<Vec<f32>> for Sphere {
+/// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
+/// struct NegSphere;
+/// impl FitnessFn<Vec<f32>> for NegSphere {
 ///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         x.iter().map(|v| v * v).sum()
+///         -x.iter().map(|v| v * v).sum::<f32>()
 ///     }
 /// }
 ///
 /// let searcher = HillClimbing;
 /// let params = HillClimbingParams::default_for((-5.12, 5.12));
-/// let mut fitness = Sphere;
+/// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
-/// let start_fit: f32 = start.iter().map(|v| v * v).sum();
+/// let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
 /// let (refined, refined_fit) =
 ///     LocalSearch::<Flex>::refine(&searcher, &params, start, &mut fitness, &mut rng);
 ///
 /// assert_eq!(refined.len(), 2);          // dimensionality preserved
-/// assert!(refined_fit <= start_fit);     // monotone non-worsening
+/// assert!(refined_fit >= start_fit);     // monotone non-worsening
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HillClimbing;
@@ -186,11 +186,11 @@ impl HillClimbing {
                     let Some(cand_fit) = budget.eval(&candidate) else {
                         break;
                     };
-                    if cand_fit < best_fit {
+                    if cand_fit > best_fit {
                         best_fit = cand_fit;
                         best.clone_from(&candidate);
                     }
-                    if cand_fit < current_fit {
+                    if cand_fit > current_fit {
                         current = candidate;
                         current_fit = cand_fit;
                         consecutive_failures = 0;
@@ -226,11 +226,11 @@ impl HillClimbing {
                                 // partial sweep found and stop.
                                 break 'sweeps;
                             };
-                            if cand_fit < best_fit {
+                            if cand_fit > best_fit {
                                 best_fit = cand_fit;
                                 best.clone_from(&candidate);
                             }
-                            if cand_fit < sweep_best_fit {
+                            if cand_fit > sweep_best_fit {
                                 sweep_best_fit = cand_fit;
                                 sweep_best = Some(candidate);
                             }
@@ -271,7 +271,7 @@ impl<B: Backend> LocalSearch<B> for HillClimbing {
     }
 
     /// Seeds the best-so-far tracker with `known_fitness` (sanitizing `NaN` to
-    /// `+inf`) instead of re-scoring the input, saving one eval.
+    /// `-inf`) instead of re-scoring the input, saving one eval.
     ///
     /// # Panics
     ///
@@ -297,21 +297,22 @@ mod tests {
 
     type TestBackend = Flex;
 
-    /// `f(x) = Σ x_i²` — convex, unimodal, optimum at the origin.
-    struct Sphere;
-    impl FitnessFn<Vec<f32>> for Sphere {
+    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// origin.
+    struct NegSphere;
+    impl FitnessFn<Vec<f32>> for NegSphere {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            x.iter().map(|v| v * v).sum()
+            -x.iter().map(|v| v * v).sum::<f32>()
         }
     }
 
-    /// 2-D Rosenbrock — curved valley, optimum at `(1, 1)` with value 0.
-    struct Rosenbrock;
-    impl FitnessFn<Vec<f32>> for Rosenbrock {
+    /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
+    struct NegRosenbrock;
+    impl FitnessFn<Vec<f32>> for NegRosenbrock {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
             let a = 1.0 - x[0];
             let b = x[1] - x[0] * x[0];
-            a * a + 100.0 * b * b
+            -(a * a + 100.0 * b * b)
         }
     }
 
@@ -352,32 +353,32 @@ mod tests {
         let searcher = HillClimbing;
         let mut params = HillClimbingParams::default_for(BOUNDS);
         params.max_iters = 100;
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        assert!(fit < 1e-3, "sphere D=2 should converge: best={fit}");
+        assert!(fit > -1e-3, "sphere D=2 should converge: best={fit}");
     }
 
     #[test]
     fn sphere_d10_strictly_improves() {
         let searcher = HillClimbing;
         let params = HillClimbingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
-        let start_fit: f32 = start.iter().map(|v| v * v).sum();
+        let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        assert!(fit < start_fit, "expected improvement: {fit} < {start_fit}");
+        assert!(fit > start_fit, "expected improvement: {fit} > {start_fit}");
     }
 
     #[test]
     fn output_len_equals_input_len() {
         let searcher = HillClimbing;
         let params = HillClimbingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
@@ -396,7 +397,7 @@ mod tests {
     fn returned_fitness_matches_fresh_eval() {
         let searcher = HillClimbing;
         let params = HillClimbingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
         let (g, fit) = LocalSearch::<TestBackend>::refine(
@@ -417,7 +418,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(5);
         for _ in 0..6 {
             let start = random_start(&mut rng, 2, BOUNDS);
-            let mut fitness = Rosenbrock;
+            let mut fitness = NegRosenbrock;
             let start_fit = fitness.evaluate_one(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
@@ -426,7 +427,7 @@ mod tests {
                 &mut fitness,
                 &mut rng,
             );
-            assert!(fit <= start_fit, "monotone: {fit} <= {start_fit}");
+            assert!(fit >= start_fit, "monotone: {fit} >= {start_fit}");
         }
     }
 
@@ -466,7 +467,7 @@ mod tests {
         // Big step relative to range, no decay, so probes push hard on bounds.
         params.step_size = 4.0;
         params.step_decay = 1.0;
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.1; 4];
@@ -485,20 +486,20 @@ mod tests {
         }
     }
 
-    /// Evaluations the given variant needs to drive 2-D sphere below `tol`
-    /// from a fixed start/seed, or `None` if it never reaches `tol`.
+    /// Evaluations the given variant needs to drive the 2-D negated sphere above
+    /// `-tol` from a fixed start/seed, or `None` if it never reaches `tol`.
     fn evals_to_tolerance(variant: HillClimbVariant, tol: f32) -> Option<usize> {
         let searcher = HillClimbing;
         let mut params = HillClimbingParams::default_for(BOUNDS);
         params.variant = variant;
         params.max_iters = 400;
-        let mut base = Sphere;
+        let mut base = NegSphere;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(99);
         let start = vec![3.0_f32, -2.0];
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
-        if fit < tol {
+        if fit > -tol {
             Some(counting.calls)
         } else {
             None
@@ -527,7 +528,7 @@ mod tests {
         let params = HillClimbingParams::default_for(BOUNDS);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = Sphere;
+        let mut fitness_a = NegSphere;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -537,7 +538,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = Sphere;
+        let mut fitness_b = NegSphere;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -599,11 +600,11 @@ mod tests {
 
     #[test]
     fn nan_hint_does_not_propagate() {
-        // A NaN hint must be sanitized to +inf so finite probes displace it; the
+        // A NaN hint must be sanitized to -inf so finite probes displace it; the
         // returned fitness is finite and honest for the returned genome.
         let searcher = HillClimbing;
         let params = HillClimbingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(22);
         let start = vec![2.0_f32, -1.0];
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(

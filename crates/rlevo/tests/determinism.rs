@@ -16,6 +16,7 @@ use rlevo_evolution::algorithms::eda::{
     BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
     UnivariateBernoulliParams, UnivariateGaussianParams,
 };
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 use rlevo_evolution::{
@@ -46,7 +47,7 @@ where
     let mut harness = EvolutionaryHarness::<B, EdaStrategy<B, M>, _>::new(
         EdaStrategy::new(model),
         params,
-        FromLandscape::new(Sphere::new(DIM)),
+        FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize),
         SEED,
         device,
         GENS,

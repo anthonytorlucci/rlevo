@@ -46,6 +46,10 @@ fn sqdist(a: &[f32], b: &[f32]) -> f32 {
 
 /// Predator (pop 0) minimizes mean squared distance to prey; prey (pop 1)
 /// minimizes mean closeness `exp(-dist^2)` to the predator.
+///
+/// The co-evolution engine is maximise-native with no `ObjectiveSense`
+/// chokepoint, so both objectives are returned in **canonical** form (their
+/// natural costs negated, higher = better); the driver negates back for display.
 struct PredatorPrey;
 
 impl CoupledFitness<B> for PredatorPrey {
@@ -57,12 +61,12 @@ impl CoupledFitness<B> for PredatorPrey {
 
         let predator: Vec<f32> = a
             .iter()
-            .map(|ai| b.iter().map(|bj| sqdist(ai, bj)).sum::<f32>() / b.len().max(1) as f32)
+            .map(|ai| -(b.iter().map(|bj| sqdist(ai, bj)).sum::<f32>() / b.len().max(1) as f32))
             .collect();
         let prey: Vec<f32> = b
             .iter()
             .map(|bj| {
-                a.iter().map(|ai| (-sqdist(bj, ai)).exp()).sum::<f32>() / a.len().max(1) as f32
+                -(a.iter().map(|ai| (-sqdist(bj, ai)).exp()).sum::<f32>() / a.len().max(1) as f32)
             })
             .collect();
 
@@ -107,9 +111,10 @@ fn main() {
         let (next, metrics) = algo.step(&params, state, &mut rng, &device);
         state = next;
         if g % 5 == 0 || g == GENS - 1 {
+            // Metrics are canonical (negated cost); negate to show natural cost.
             println!(
                 " {:>3} | {:>27.4} | {:>25.4}",
-                metrics.generation, metrics.best_fitness_a, metrics.best_fitness_b
+                metrics.generation, -metrics.best_fitness_a, -metrics.best_fitness_b
             );
         }
     }

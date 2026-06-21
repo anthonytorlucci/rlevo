@@ -195,7 +195,7 @@ pub struct CmaEsState<B: Backend> {
     pub generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
     pub best_genome: Option<Tensor<B, 2>>,
-    /// Best-so-far fitness (minimization convention).
+    /// Best-so-far fitness (canonical maximise convention).
     pub best_fitness: f32,
 }
 
@@ -258,7 +258,7 @@ where
             sigma: params.initial_sigma,
             generation: 0,
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
         }
     }
 
@@ -325,11 +325,17 @@ where
             .into_vec::<f32>()
             .unwrap_or_default();
 
-        // Rank offspring ascending (minimization): ranked[0] is the best.
+        // Rank offspring descending (canonical maximise): ranked[0] is the
+        // best (highest fitness). The recombination weights `params.weights`
+        // are assigned to rank positions unchanged — only the ordering of
+        // which individuals occupy those ranks inverts relative to a
+        // minimisation engine. Against a `Minimize` landscape the harness
+        // feeds the engine `−cost`, so this descending canonical order
+        // matches the `pycma` ascending-cost order point-for-point.
         let mut ranked: Vec<usize> = (0..lambda).collect();
         ranked.sort_by(|&a, &b| {
-            fitness_host[a]
-                .partial_cmp(&fitness_host[b])
+            fitness_host[b]
+                .partial_cmp(&fitness_host[a])
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -461,14 +467,14 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
         return;
     }
     let mut best_idx: usize = 0;
-    let mut best: f32 = f32::INFINITY;
+    let mut best: f32 = f32::NEG_INFINITY;
     for (i, &f) in fitness.iter().enumerate() {
-        if f < best {
+        if f > best {
             best = f;
             best_idx = i;
         }
     }
-    if best < state.best_fitness {
+    if best > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(

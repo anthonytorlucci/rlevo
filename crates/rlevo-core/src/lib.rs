@@ -16,6 +16,7 @@
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — object-safe environment interface for harnesses |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
+//! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty in v0.1.x while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
@@ -83,6 +84,7 @@
 //! [`Landscape`]: crate::fitness::Landscape
 //! [`Metric`]: crate::fitness::Metric
 //! [`MetricsProvider`]: crate::fitness::MetricsProvider
+//! [`ObjectiveSense`]: crate::objective::ObjectiveSense
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 //! [`Renderer`]: crate::render::Renderer
 
@@ -146,6 +148,15 @@ pub mod evaluation;
 /// [`Metric`]: crate::fitness::Metric
 /// [`MetricsProvider`]: crate::fitness::MetricsProvider
 pub mod fitness;
+
+/// Objective direction primitive.
+///
+/// Provides [`ObjectiveSense`], the typed maximise/minimise direction that
+/// reconciles the library's maximise-native engine with cost objectives at a
+/// single chokepoint.
+///
+/// [`ObjectiveSense`]: crate::objective::ObjectiveSense
+pub mod objective;
 
 /// Optional rendering layer for debug output and TUI visualization.
 ///

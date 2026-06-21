@@ -15,7 +15,7 @@ use crate::series::{
     nearest_by_x, population_box_data, remap_episode_series, rolling_mean,
     selection_pressure_series,
 };
-use crate::wire::{EnvFamily, EpisodeRecord, PopulationSample};
+use crate::wire::{EnvFamily, EpisodeRecord, ObjectiveSense, PopulationSample};
 
 /// Default rolling-mean window for per-episode panels. Falls back to
 /// `len/4` when the run is shorter than the window, so even a 4-episode
@@ -1034,16 +1034,21 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
 /// diversity line chart (when data is present), and a selection-pressure ratio
 /// chart (when data is present).  Returns an empty `<span>` when `samples` is
 /// empty so the section disappears cleanly from RL-only runs.
+///
+/// `sense` is the run's declared objective direction (the report passes the
+/// manifest's `objective_sense`, treating `None` as
+/// [`ObjectiveSense::Maximize`]). It orients the best/worst overlay traces and
+/// the selection-pressure ratio.
 #[must_use]
-pub fn population_panel_view(samples: &[PopulationSample]) -> AnyView {
+pub fn population_panel_view(samples: &[PopulationSample], sense: ObjectiveSense) -> AnyView {
     if samples.is_empty() {
         return view! { <span></span> }.into_any();
     }
 
     let box_stats = population_box_data(samples);
-    let overlays = fitness_range_series(samples);
+    let overlays = fitness_range_series(samples, sense);
     let diversity = diversity_series(samples);
-    let pressure = selection_pressure_series(samples);
+    let pressure = selection_pressure_series(samples, sense);
 
     let mut panels: Vec<AnyView> = Vec::new();
     panels.push(population_box_view(&box_stats, overlays));

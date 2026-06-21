@@ -50,6 +50,10 @@ fn rastrigin(x: &[f32]) -> f32 {
 /// Stateless row-wise Rastrigin fitness. [`CooperativeCoEA`] passes
 /// already-assembled full-dimensional candidates, so this never sees the
 /// dimension split or representatives — it just scores each row.
+///
+/// The co-evolution engine is maximise-native and has no `ObjectiveSense`
+/// chokepoint, so this returns the **canonical** fitness `−rastrigin` (higher
+/// is better) directly; the driver negates back to the natural cost for display.
 struct RastriginCoupled;
 
 impl CoupledFitness<B> for RastriginCoupled {
@@ -61,7 +65,8 @@ impl CoupledFitness<B> for RastriginCoupled {
                 let dims = pop.dims();
                 let (n, d) = (dims[0], dims[1]);
                 let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
-                let values: Vec<f32> = (0..n).map(|i| rastrigin(&flat[i * d..i * d + d])).collect();
+                let values: Vec<f32> =
+                    (0..n).map(|i| -rastrigin(&flat[i * d..i * d + d])).collect();
                 Tensor::<B, 1>::from_data(TensorData::new(values, [n]), &pop.device())
             })
             .collect()
@@ -106,14 +111,17 @@ fn main() {
         let (next, metrics) = algo.step(&params, state, &mut rng, &device);
         state = next;
         if g % 10 == 0 || g == GENS - 1 {
+            // Metrics are canonical (−rastrigin); negate to show natural cost.
             println!(
                 " {:>3} | {:>9.5} | {:>9.5}",
-                metrics.generation, metrics.best_fitness_a, metrics.best_fitness_b
+                metrics.generation, -metrics.best_fitness_a, -metrics.best_fitness_b
             );
         }
     }
 
     let metrics = algo.metrics(&state);
-    let best = metrics.best_fitness_a.min(metrics.best_fitness_b);
+    // Canonical best is the larger value; the natural assembled cost is its
+    // negation — the lower (better) of the two populations' costs.
+    let best = -metrics.best_fitness_a.max(metrics.best_fitness_b);
     println!("\nfinal assembled best Rastrigin = {best:.5} (optimum 0.0)");
 }

@@ -4,10 +4,11 @@ The [genome chapter](22-genome.md) covered the *representation* — how a candid
 solution becomes a row of a population tensor. This chapter is about how that row
 earns its keep: the **fitness** that scores it, the trait surface `rlevo` uses to
 compute it, and the one convention that quietly governs every operator in the
-crate — that **fitness is a cost to minimise**. The operators chapter *asserted*
-that convention; here is where it is justified, alongside the adapters that wire a
-plain objective function into the evolutionary engine and the shaping transforms
-that condition the raw signal.
+crate — that the engine **maximises** (higher is better), and you declare a cost
+objective's direction with `ObjectiveSense`. The operators chapter *asserted* that
+convention; here is where it is justified, alongside the adapters that wire a plain
+objective function into the evolutionary engine and the shaping transforms that
+condition the raw signal.
 
 ## The harness calls the objective, not the strategy
 
@@ -76,69 +77,86 @@ one-row `evaluate_batch` per probe). It is also the convenient shape for
 unit-testing operators, where evaluating one genome at a time is clearer than
 batching.
 
-## Fitness is a cost — the engine's minimisation contract
+## The engine maximises — and you declare your objective's sense
 
 An evolutionary algorithm is, in principle, direction-agnostic: fitness can be a
 reward to *maximise* or a cost to *minimise*, and the algorithm itself does not
 care which. `rlevo` makes a deliberate choice and commits to it everywhere — **the
-evolution engine minimises.** The fitness tensor handed to `tell` is the raw
-objective value, and throughout `rlevo-evolution` *lower is better*.
+evolution engine maximises.** Inside `rlevo-evolution`, the fitness a strategy sees
+is *canonical*: **higher is always better.** This is the convention reinforcement
+learning and the evolutionary-computation literature already speak, so a
+contributor reading `de.rs` or `cma_es.rs` sees the textbook direction.
 
-This is best read as an **internal contract of the evolution engine** rather than a
-law of nature or a universal property of fitness. It is not a soft convention you
-could quietly ignore, though: the direction is baked structurally into every layer
-of the crate, in several independent places that would *all* have to change to flip
-it. The same `f32::INFINITY` initialiser, the same rolling `.min()`, the same `<`
-improvement test recur in every strategy:
+This is an **internal contract of the engine**, baked structurally into every
+layer: the same `f32::NEG_INFINITY` worst-value sentinel, the same rolling
+`.max()`, the same `>` improvement test recur in every strategy:
 
-- `StrategyMetrics::best_fitness` is the **smallest** value in a generation;
-- `best_fitness_ever` is a **rolling minimum** across all generations
-  (`previous_best.min(current_best)`);
-- a fresh state initialises `best_fitness` to `f32::INFINITY`, so the first real
-  evaluation can only improve it;
-- truncation keeps the lowest `top_k`, tournaments keep the smallest of each draw,
-  elitism carries the lowest-cost parents — exactly as the
+- `StrategyMetrics::best_fitness` is the **largest** value in a generation
+  (canonical space);
+- `best_fitness_ever` is a **rolling maximum** across all generations
+  (`previous_best.max(current_best)`);
+- a fresh state initialises `best_fitness` to `f32::NEG_INFINITY`, so the first
+  real evaluation can only improve it;
+- truncation keeps the highest `top_k`, tournaments keep the largest of each draw,
+  elitism carries the fittest parents — exactly as the
   [operators chapter](21-ops.md) described.
 
-This is the optimisation-literature convention (find the minimum of `f(x)`), and
-it is why the synthetic landscapes — Sphere, Ackley, Rastrigin — fit so naturally:
-each is zero at its global optimum and positive everywhere else, so "drive fitness
-toward zero" *is* the goal.
+But most of `rlevo`'s synthetic landscapes — Sphere, Ackley, Rastrigin — are
+**cost** surfaces: each is zero at its global optimum and positive everywhere else,
+so "drive fitness toward zero" means *minimise*. Rather than force you to
+hand-negate every cost (the old footgun) or thread a "minimise or maximise?" flag
+through every operator, we reconcile the two directions at **exactly one place**.
 
-### Where it's enforced — and where it's your responsibility
+### `ObjectiveSense` — declared once, reconciled at one chokepoint
 
-The contract holds *inside* the engine because the code makes it hold. Crossing the
-engine boundary — defining your own objective, or reading results downstream — is
-where the direction becomes *your* responsibility. The table below maps the seam
-(file:line references are to `crates/rlevo-evolution` unless noted):
+You declare your objective's natural direction with
+[`ObjectiveSense`](https://docs.rs/rlevo-core) — a zero-cost
+`enum ObjectiveSense { Minimize, Maximize }` in `rlevo-core::objective`. Your
+fitness function returns its **natural** value (a Sphere returns \\( \sum_i x_i^2
+\\); a policy-return objective returns its mean return) — you never hand-negate.
+The [`EvolutionaryHarness`](https://docs.rs/rlevo-evolution) is the *sole*
+canonicaliser: it reads the sense, negates a `Minimize` objective into the engine's
+maximise space before `tell`, and maps the metrics back to your declared sense for
+reporting. A `Minimize` landscape's `best_fitness` reads as its natural cost
+(Sphere → 0), even though the engine internally maximised \\( -\sum_i x_i^2 \\).
+
+`ObjectiveSense` lives on the **fitness function** —
+[`BatchFitnessFn::sense`](https://docs.rs/rlevo-evolution), required with no
+default, so a reward or accuracy objective cannot be optimised backwards by
+omission. The two landscape adapters carry it for you:
 
 | Mechanism | Where | What pins the direction |
 | --------- | ----- | ----------------------- |
-| Best-so-far init | every strategy: `algorithms/ga.rs:192`, `ep.rs:178`, `de.rs:271`, `es_classical.rs:203`, `eda/mod.rs:201`, `gp_cgp.rs:355` | `best_fitness: f32::INFINITY` — only a *lower* value can replace it |
-| Rolling minimum | `strategy.rs` (`StrategyMetrics::from_host_fitness`) | `best_fitness_ever.min(best)` |
-| Improvement test | every `tell`; hill-climbing `local_search/hill_climbing.rs`; EDA truncation `local_search.rs` | `if f < best` — never `>` |
-| Rank shaping | `shaping.rs` (`centered_rank`) | ascending sort; smallest fitness → most-negative rank |
-| **Reward sign-flip** (engine → benchmark) | `strategy.rs` (`EvolutionaryHarness::step`); `coevolution/harness.rs` | `reward = -best_fitness_ever` |
-| **Objective direction** (your code → engine) | `rlevo_core::fitness::{Landscape, FitnessEvaluable}` | *unchecked* — you must return a cost (see below) |
-| Convergence assertions | `algorithms/*.rs` tests; `crates/rlevo/tests/rastrigin_run_suite.rs` | `assert!(best < tolerance)` on zero-at-optimum landscapes |
+| Worst-value sentinel | every strategy: `algorithms/ga.rs`, `ep.rs`, `de.rs`, `es_classical.rs`, `eda/mod.rs`, `gp_cgp.rs` | `best_fitness: f32::NEG_INFINITY` — only a *higher* value can replace it |
+| Rolling maximum | `strategy.rs` (`StrategyMetrics::from_host_fitness`) | `best_fitness_ever.max(best)` |
+| Improvement test | every `tell`; hill-climbing `local_search/hill_climbing.rs` | `if f > best` — never `<` |
+| **Sense declaration** (your objective) | `BatchFitnessFn::sense`; `Landscape::sense` (defaults `Minimize`) | required on the fitness fn; only a landscape defaults |
+| **Canonicalisation** (the chokepoint) | `strategy.rs` (`EvolutionaryHarness::step`); `fitness.rs` (`FromLandscape`/`FromFitnessEvaluable`) | `Minimize` → negate before `tell`; `from_canonical` for reporting |
+| Convergence assertions | `algorithms/*.rs` tests; `crates/rlevo/tests/rastrigin_run_suite.rs` | `assert!(best < tolerance)` on zero-at-optimum landscapes — in *natural* space |
 
-Read it as two halves. The top rows are **enforced**: by the time fitness reaches a
-strategy, every comparison in the engine already assumes minimisation, and the
-tests would fail loudly if that broke. The last two rows are **yours**: nothing
-mechanically checks that the objective you hand in is a cost rather than a reward,
-so the burden of pointing it the right way sits at the user-facing trait boundary.
+A [`Landscape`](https://docs.rs/rlevo-core) is a cost surface by definition, so its
+`sense()` defaults to `ObjectiveSense::Minimize` — the bundled landscapes need no
+per-type change. When you wrap one for a strategy, spell the sense out at the
+construction site so intent is visible:
 
-If your objective is naturally something to **maximise** — reward, accuracy, a
-score — **negate it** before it reaches the engine. Fixing the direction once, at
-that boundary, is what keeps every operator free of a "minimise or maximise?" flag.
+```rust,ignore
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_evolution::fitness::FromLandscape;
 
-> **The benchmark boundary flips the sign back.** Downstream tooling
-> (`rlevo-benchmarks`, showcases) follows the opposite "higher = better"
-> convention. The `EvolutionaryHarness` adapter bridges the two by reporting
-> `reward = -best_fitness_ever`, so a *decreasing* cost shows up as an *increasing*
-> reward (and the per-step reward is monotone non-decreasing, so its cumulative sum
-> integrates the optimisation trajectory). Inside a strategy you always think in
-> costs; only at the reporting boundary does the sign flip.
+// A cost surface: declare Minimize explicitly (the adapter would default to it).
+let fitness = FromLandscape::with_sense(SphereLandscape::new(dim), ObjectiveSense::Minimize);
+// ... run the harness ...
+// best_fitness_ever reads in your declared sense — the natural cost.
+assert!(harness.latest_metrics().unwrap().best_fitness_ever < 1e-3); // Sphere → 0
+```
+
+> **The reward needs no sign-flip any more.** Because canonical space is already
+> higher-is-better, the `EvolutionaryHarness` emits the canonical
+> `best_fitness_ever` directly as the per-step reward — monotone non-decreasing, so
+> its cumulative sum still integrates the optimisation trajectory. The old
+> `reward = -best_fitness_ever` negation is gone, and so is the "negate your
+> maximisation objective" advice: a reward objective declares
+> `ObjectiveSense::Maximize` and is passed straight through.
 
 ## Bridging a host objective: the two adapters
 
@@ -241,13 +259,14 @@ clauses in the spirit of `docs/rules.md`.
 > decision guide and a bring-your-own-objective walkthrough — start there if the
 > generics feel dense.
 
-> **Both `rlevo-core` traits state the cost convention.** `Landscape::evaluate`
-> and `FitnessEvaluable::evaluate` each document that they return a cost where
-> *lower is better*, matching the engine: the adapters pass the value through
-> **unchanged**, so a value you return as a cost is minimised directly. Every
-> shipped objective is written this way (the bundled `Sphere` evaluator returns a
-> sum of squares), and the docstrings spell out the rule for your own — negate any
-> genuinely maximisation-style objective before wrapping it.
+> **Both `rlevo-core` traits return natural values.** `Landscape::evaluate` and
+> `FitnessEvaluable::evaluate` each return the objective's *natural* value — you
+> never hand-negate. A `Landscape` is a cost surface by definition, so
+> `Landscape::sense()` defaults to `ObjectiveSense::Minimize`; the adapters
+> (`FromLandscape`, `FromFitnessEvaluable`) carry that sense to the harness, which
+> does the one negation. Every shipped landscape is written this way (the bundled
+> `Sphere` returns a plain sum of squares), and a genuinely maximisation-style
+> objective just declares `ObjectiveSense::Maximize` — no negation anywhere.
 
 ## Shaping the signal
 
@@ -270,12 +289,14 @@ and use the raw costs directly.
 ## Reading the result: `StrategyMetrics`
 
 `tell` returns a `StrategyMetrics` snapshot summarising the generation that just
-finished. Four fitness fields tell the story, all in the minimisation convention:
+finished. The harness reports these in **your declared sense** (a `Minimize`
+landscape reads as its natural cost), so the four fitness fields tell the story in
+the space you expect:
 
-- `best_fitness` — the smallest cost **this** generation;
-- `mean_fitness` — the generation's average cost;
-- `worst_fitness` — the largest cost this generation;
-- `best_fitness_ever` — the rolling minimum across **all** generations.
+- `best_fitness` — the best cost/score **this** generation;
+- `mean_fitness` — the generation's average;
+- `worst_fitness` — the worst this generation;
+- `best_fitness_ever` — the best across **all** generations.
 
 The most informative reading is the *gap* between `best_fitness_ever` and
 `mean_fitness` in the final generation. A large gap signals **premature

@@ -43,6 +43,7 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -113,7 +114,7 @@ where
             crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
             replacement: GaReplacement::Elitist { elitism_k: 2 },
         },
-        FromLandscape::new(landscape),
+        FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
     );
 
     for kind in [
@@ -129,7 +130,7 @@ where
             &label,
             EvolutionStrategy::<B>::new(),
             params,
-            FromLandscape::new(landscape),
+            FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
         );
     }
 
@@ -139,7 +140,7 @@ where
         "EP/fogel/μ=20/q=10",
         EvolutionaryProgramming::<B>::new(),
         ep_params,
-        FromLandscape::new(landscape),
+        FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
     );
 
     for variant in [
@@ -157,7 +158,7 @@ where
             &label,
             DifferentialEvolution::<B>::new(),
             params,
-            FromLandscape::new(landscape),
+            FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),
         );
     }
 }

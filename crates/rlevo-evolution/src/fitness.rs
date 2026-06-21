@@ -27,6 +27,7 @@
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 
 use rlevo_core::fitness::{FitnessEvaluable, Landscape};
+use rlevo_core::objective::ObjectiveSense;
 
 /// Single-member fitness evaluation.
 ///
@@ -43,12 +44,27 @@ pub trait FitnessFn<G>: Send {
 /// Implementors must preserve row order — `fitness[i]` refers to the
 /// individual at row `i` of `population`.
 pub trait BatchFitnessFn<B: Backend, G>: Send {
-    /// Evaluates every member of `population` and returns a fitness tensor.
+    /// Evaluates every member of `population` and returns a fitness tensor in
+    /// the objective's **natural** value space (no hand-negation).
     ///
     /// The returned `Tensor<B, 1>` has shape `(pop_size,)` and is placed on
     /// `device`. Row order is preserved: `fitness[i]` corresponds to the
-    /// individual at row `i` of `population`.
+    /// individual at row `i` of `population`. Cost objectives return their
+    /// natural cost; the harness reconciles direction via [`sense`](Self::sense).
     fn evaluate_batch(&mut self, population: &G, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1>;
+
+    /// The optimisation direction of this objective.
+    ///
+    /// This is the **single source of truth** the
+    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) reads to
+    /// reconcile a cost objective into the engine's canonical (maximise) space.
+    /// It is **required, with no default**, so a reward/accuracy objective
+    /// cannot silently inherit the wrong direction by omission — declare it
+    /// explicitly ([`ObjectiveSense::Maximize`] for a reward,
+    /// [`ObjectiveSense::Minimize`] for a cost). The bundled landscape adapters
+    /// ([`FromLandscape`], [`FromFitnessEvaluable`]) forward the landscape's
+    /// declared sense.
+    fn sense(&self) -> ObjectiveSense;
 }
 
 /// Adapter from `FitnessEvaluable` to [`BatchFitnessFn<B, Tensor<B, 2>>`].
@@ -80,14 +96,26 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
 pub struct FromFitnessEvaluable<FE, L> {
     evaluator: FE,
     landscape: L,
+    sense: ObjectiveSense,
 }
 
 impl<FE, L> FromFitnessEvaluable<FE, L> {
-    /// Builds the adapter from an evaluator and a landscape.
+    /// Builds the adapter from an evaluator and a landscape, defaulting the
+    /// objective sense to [`ObjectiveSense::Minimize`] (the cost convention a
+    /// [`FitnessEvaluable`] follows).
+    ///
+    /// Use [`with_sense`](Self::with_sense) to declare a maximisation objective
+    /// (reward, accuracy) explicitly.
     pub fn new(evaluator: FE, landscape: L) -> Self {
+        Self::with_sense(evaluator, landscape, ObjectiveSense::Minimize)
+    }
+
+    /// Builds the adapter with an explicit [`ObjectiveSense`].
+    pub fn with_sense(evaluator: FE, landscape: L, sense: ObjectiveSense) -> Self {
         Self {
             evaluator,
             landscape,
+            sense,
         }
     }
 
@@ -134,6 +162,10 @@ where
         let data = TensorData::new(fitness, [pop_size]);
         Tensor::<B, 1>::from_data(data, device)
     }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.sense
+    }
 }
 
 /// Adapter from [`Landscape`] to [`BatchFitnessFn<B, Tensor<B, 2>>`].
@@ -151,12 +183,23 @@ where
 #[derive(Debug)]
 pub struct FromLandscape<L> {
     landscape: L,
+    sense: ObjectiveSense,
 }
 
-impl<L> FromLandscape<L> {
-    /// Builds the adapter from a self-evaluating landscape.
+impl<L: Landscape> FromLandscape<L> {
+    /// Builds the adapter from a self-evaluating landscape, taking the
+    /// objective sense from the landscape's [`Landscape::sense`] (which
+    /// defaults to [`ObjectiveSense::Minimize`]).
     pub fn new(landscape: L) -> Self {
-        Self { landscape }
+        let sense = landscape.sense();
+        Self { landscape, sense }
+    }
+
+    /// Builds the adapter with an explicit [`ObjectiveSense`], overriding the
+    /// landscape's declared sense. Examples and showcases spell out
+    /// [`ObjectiveSense::Minimize`] here so intent is visible at the call site.
+    pub fn with_sense(landscape: L, sense: ObjectiveSense) -> Self {
+        Self { landscape, sense }
     }
 
     /// Returns a reference to the wrapped landscape.
@@ -200,6 +243,10 @@ where
 
         let data = TensorData::new(fitness, [pop_size]);
         Tensor::<B, 1>::from_data(data, device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.sense
     }
 }
 

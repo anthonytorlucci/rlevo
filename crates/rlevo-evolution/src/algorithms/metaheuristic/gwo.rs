@@ -152,7 +152,7 @@ where
             pack,
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -161,7 +161,7 @@ where
     ///
     /// On the first call (before any [`tell`](Strategy::tell)), returns the
     /// initial pack unchanged so it can be evaluated before the first rank
-    /// step. On subsequent calls, promotes the three lowest-fitness wolves to
+    /// step. On subsequent calls, promotes the three highest-fitness wolves to
     /// `α`, `β`, `δ` and computes the weighted-average update, then clamps
     /// the result to [`GwoConfig::bounds`].
     fn ask(
@@ -182,7 +182,7 @@ where
         // Rank the pack host-side — O(N log N) is noise compared to the
         // device ops below, and sorting on the host keeps us free of
         // backend-specific `argsort` quirks.
-        let top3 = argtop3_min(&state.fitness);
+        let top3 = argtop3_max(&state.fitness);
 
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, Int>::from_data(
@@ -256,8 +256,8 @@ where
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
         state.fitness.clone_from(&fitness_host);
         state.pack.clone_from(&population);
-        let best_idx = argmin(&fitness_host);
-        if fitness_host[best_idx] < state.best_fitness {
+        let best_idx = argmax(&fitness_host);
+        if fitness_host[best_idx] > state.best_fitness {
             state.best_fitness = fitness_host[best_idx];
             let device = population.device();
             #[allow(clippy::cast_possible_wrap)]
@@ -284,11 +284,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }
@@ -296,33 +296,33 @@ fn argmin(xs: &[f32]) -> usize {
     best_idx
 }
 
-/// Indices of the three smallest values in `xs`. Panics if `xs.len() < 3`.
-fn argtop3_min(xs: &[f32]) -> [usize; 3] {
-    assert!(xs.len() >= 3, "argtop3_min requires at least 3 elements");
+/// Indices of the three largest values in `xs`. Panics if `xs.len() < 3`.
+fn argtop3_max(xs: &[f32]) -> [usize; 3] {
+    assert!(xs.len() >= 3, "argtop3_max requires at least 3 elements");
     let mut idx = [0usize, 1, 2];
     let mut vals = [xs[0], xs[1], xs[2]];
-    // Sort the initial three ascending.
-    if vals[0] > vals[1] {
+    // Sort the initial three descending.
+    if vals[0] < vals[1] {
         vals.swap(0, 1);
         idx.swap(0, 1);
     }
-    if vals[1] > vals[2] {
+    if vals[1] < vals[2] {
         vals.swap(1, 2);
         idx.swap(1, 2);
     }
-    if vals[0] > vals[1] {
+    if vals[0] < vals[1] {
         vals.swap(0, 1);
         idx.swap(0, 1);
     }
     for (i, &v) in xs.iter().enumerate().skip(3) {
-        if v < vals[2] {
+        if v > vals[2] {
             vals[2] = v;
             idx[2] = i;
-            if vals[1] > vals[2] {
+            if vals[1] < vals[2] {
                 vals.swap(1, 2);
                 idx.swap(1, 2);
             }
-            if vals[0] > vals[1] {
+            if vals[0] < vals[1] {
                 vals.swap(0, 1);
                 idx.swap(0, 1);
             }
@@ -352,11 +352,11 @@ mod tests {
     }
 
     #[test]
-    fn argtop3_min_finds_three_smallest() {
+    fn argtop3_max_finds_three_largest() {
         let xs = [5.0, 2.0, 8.0, 1.0, 3.0, 9.0, 0.5];
-        let top = argtop3_min(&xs);
-        // Values at indices: 6 (0.5), 3 (1.0), 1 (2.0).
-        assert_eq!(top, [6, 3, 1]);
+        let top = argtop3_max(&xs);
+        // Values at indices: 5 (9.0), 2 (8.0), 0 (5.0).
+        assert_eq!(top, [5, 2, 0]);
     }
 
     #[test]

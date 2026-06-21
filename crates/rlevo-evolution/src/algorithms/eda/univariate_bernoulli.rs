@@ -11,8 +11,9 @@
 //! tensor of raw `{0, 1}` `f32` genes; [`EdaParams::bounds`](crate::algorithms::eda::EdaParams::bounds)
 //! clamps are therefore no-ops.
 //!
-//! The best and worst individuals are the argmin and argmax of the fitness
-//! vector over the truncation-selected subset, not over the full population.
+//! The best and worst individuals are the argmax and argmin of the fitness
+//! vector (canonical maximise: higher is better) over the truncation-selected
+//! subset, not over the full population.
 //! This departs slightly from the original Baluja formulation, which drew a
 //! fresh sample for comparison, but is consistent with the upstream selection
 //! already performed by [`EdaStrategy`](crate::algorithms::eda::EdaStrategy).
@@ -96,8 +97,8 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
     /// Update the per-gene probability vector from the selected population.
     ///
     /// When `prev = None` returns the uniform-`0.5` prior; `population` and
-    /// `fitness` are ignored on that path. Otherwise locates the argmin
-    /// (best) and argmax (worst) individuals by fitness, applies the positive
+    /// `fitness` are ignored on that path. Otherwise locates the argmax
+    /// (best) and argmin (worst) individuals by fitness, applies the positive
     /// PBIL interpolation toward the best's genes, and applies the negative
     /// update on genes where the best and worst disagree. Does **not** apply
     /// the classic Baluja probability-mutation step.
@@ -122,18 +123,19 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
         let fit_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
 
-        // Argmin (best) and argmax (worst), ties → lowest index.
+        // Argmax (best) and argmin (worst), ties → lowest index.
+        // Canonical maximise: higher is better.
         let mut best_idx = 0_usize;
         let mut worst_idx = 0_usize;
-        let mut best_f = f32::INFINITY;
-        let mut worst_f = f32::NEG_INFINITY;
+        let mut best_f = f32::NEG_INFINITY;
+        let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            let f = fit_host.get(i).copied().unwrap_or(f32::INFINITY);
-            if f.total_cmp(&best_f) == std::cmp::Ordering::Less {
+            let f = fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY);
+            if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
                 best_f = f;
                 best_idx = i;
             }
-            if f.total_cmp(&worst_f) == std::cmp::Ordering::Greater {
+            if f.total_cmp(&worst_f) == std::cmp::Ordering::Less {
                 worst_f = f;
                 worst_idx = i;
             }
@@ -238,7 +240,7 @@ mod tests {
             &p,
             Some(&prior),
             pop(vec![1.0, 0.0], 2, 1),
-            fitness(vec![0.0, 1.0]),
+            fitness(vec![1.0, 0.0]),
             &device,
         );
         assert!(state.prob[0] > 0.5 && state.prob[0] < 1.0);
@@ -254,6 +256,7 @@ mod tests {
             negative_learning_rate: 0.2,
         };
         let prior = fit_prior(&p);
+        // Canonical maximise: row 0 (fitness 1.0) is best, row 1 (0.0) worst.
         // gene 0: best=1, worst=1 (same) → only positive update.
         // gene 1: best=1, worst=0 (differ) → positive then negative update.
         let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
@@ -261,7 +264,7 @@ mod tests {
             &p,
             Some(&prior),
             pop(vec![1.0, 1.0, 1.0, 0.0], 2, 2),
-            fitness(vec![0.0, 1.0]),
+            fitness(vec![1.0, 0.0]),
             &device,
         );
         // gene 0: 0.5*0.9 + 0.1 = 0.55.
@@ -275,14 +278,15 @@ mod tests {
         let device = Default::default();
         let p = UnivariateBernoulliParams::default_for(1);
         let mut state = fit_prior(&p);
-        // Best individual is all-zeros; repeated fits must drive p down.
+        // Best individual (highest fitness) is all-zeros; repeated fits must
+        // drive p down.
         for _ in 0..50 {
             state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
                 &UnivariateBernoulli,
                 &p,
                 Some(&state),
                 pop(vec![0.0, 1.0], 2, 1),
-                fitness(vec![0.0, 1.0]),
+                fitness(vec![1.0, 0.0]),
                 &device,
             );
         }

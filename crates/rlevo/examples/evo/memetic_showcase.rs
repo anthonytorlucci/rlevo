@@ -107,6 +107,11 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
         }
         Tensor::<Bk, 1>::from_data(TensorData::new(out, [pop]), device)
     }
+
+    fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+        // Rastrigin is a cost surface — lower is better.
+        rlevo_core::objective::ObjectiveSense::Minimize
+    }
 }
 
 /// Drives one strategy for [`MAX_GENS`] generations and prints its row: the

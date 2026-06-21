@@ -119,13 +119,16 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
     let device: Device = Default::default();
     let (inputs, targets) = xor_dataset(device);
 
-    // Per-variant scorers: forward the four XOR points, return MSE (minimized).
+    // Per-variant scorers: forward the four XOR points, return −MSE — a
+    // canonical maximise fitness (higher is better; arch_nas is maximise-native
+    // and this test drives the strategy directly, so no harness chokepoint
+    // reconciles direction).
     let (in_s, tg_s) = (inputs.clone(), targets.clone());
-    let shallow_scorer = move |m: &ShallowMlp<TestBackend>| mse(m.forward(in_s.clone()), &tg_s);
+    let shallow_scorer = move |m: &ShallowMlp<TestBackend>| -mse(m.forward(in_s.clone()), &tg_s);
     let (in_m, tg_m) = (inputs.clone(), targets.clone());
-    let medium_scorer = move |m: &MediumMlp<TestBackend>| mse(m.forward(in_m.clone()), &tg_m);
+    let medium_scorer = move |m: &MediumMlp<TestBackend>| -mse(m.forward(in_m.clone()), &tg_m);
     let (in_d, tg_d) = (inputs.clone(), targets.clone());
-    let deep_scorer = move |m: &DeepMlp<TestBackend>| mse(m.forward(in_d.clone()), &tg_d);
+    let deep_scorer = move |m: &DeepMlp<TestBackend>| -mse(m.forward(in_d.clone()), &tg_d);
 
     // Single registration point → arch_id == registration index for all three.
     let mut builder = ArchNasBuilder::<TestBackend>::new();
@@ -182,12 +185,12 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
         .best(&state)
         .expect("best exists after at least one tell");
 
-    // AC: directional improvement (minimization) — final best strictly better
-    // than generation-0 best.
+    // AC: directional improvement (canonical maximise) — final best −MSE is
+    // strictly greater (closer to 0) than the generation-0 best.
     assert!(
-        final_best < gen0_best,
-        "expected directional improvement: final best MSE {final_best} \
-         should be < generation-0 best MSE {gen0_best}",
+        final_best > gen0_best,
+        "expected directional improvement: final best −MSE {final_best} \
+         should be > generation-0 best −MSE {gen0_best}",
     );
     // The winning architecture is one of the three registered variants.
     assert!(best_arch < 3, "winning arch_id {best_arch} in range");

@@ -9,7 +9,7 @@
 
 use rlevo_metrics_registry::CANONICAL_METRICS;
 
-use crate::wire::{EpisodeRecord, PopulationSample};
+use crate::wire::{EpisodeRecord, ObjectiveSense, PopulationSample};
 
 /// Per-episode total reward — sum of every frame's reward, indexed by
 /// episode position in the input slice.
@@ -612,8 +612,16 @@ pub fn diversity_series(samples: &[PopulationSample]) -> Vec<(u32, f64)> {
 /// Selection-pressure indicator: `best / median` per generation. Skips
 /// generations whose median is zero (degenerate, all-zero fitness) and
 /// generations with empty fitness vectors.
+///
+/// `sense` orients which end of the sorted fitness vector counts as "best":
+/// for [`ObjectiveSense::Maximize`] the best is the largest value, for
+/// [`ObjectiveSense::Minimize`] the smallest. Callers pass the run's
+/// declared sense (treating `None` as `Maximize`).
 #[must_use]
-pub fn selection_pressure_series(samples: &[PopulationSample]) -> Vec<(u32, f64)> {
+pub fn selection_pressure_series(
+    samples: &[PopulationSample],
+    sense: ObjectiveSense,
+) -> Vec<(u32, f64)> {
     samples
         .iter()
         .filter_map(|s| {
@@ -627,7 +635,10 @@ pub fn selection_pressure_series(samples: &[PopulationSample]) -> Vec<(u32, f64)
             if median.abs() < f64::EPSILON {
                 return None;
             }
-            let best = sorted[0];
+            let best = match sense {
+                ObjectiveSense::Maximize => *sorted.last().unwrap_or(&0.0),
+                ObjectiveSense::Minimize => sorted[0],
+            };
             Some((s.generation, best / median))
         })
         .collect()
@@ -636,9 +647,15 @@ pub fn selection_pressure_series(samples: &[PopulationSample]) -> Vec<(u32, f64)
 /// `(best, median, worst)` overlay traces for the box-plot reference
 /// lines. One tuple of three series, all sharing the same x-axis
 /// (generation). Empty samples produce three empty vectors.
+///
+/// `sense` orients which end of the sorted fitness vector is "best": for
+/// [`ObjectiveSense::Maximize`] best is the largest value and worst the
+/// smallest; for [`ObjectiveSense::Minimize`] the ends swap. Callers pass
+/// the run's declared sense (treating `None` as `Maximize`).
 #[must_use]
 pub fn fitness_range_series(
     samples: &[PopulationSample],
+    sense: ObjectiveSense,
 ) -> (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>) {
     let mut best = Vec::new();
     let mut median = Vec::new();
@@ -649,9 +666,15 @@ pub fn fitness_range_series(
         }
         let mut sorted: Vec<f64> = s.fitnesses.iter().map(|f| f64::from(*f)).collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        best.push((s.generation, sorted[0]));
+        let lo = sorted[0];
+        let hi = *sorted.last().unwrap_or(&0.0);
+        let (best_v, worst_v) = match sense {
+            ObjectiveSense::Maximize => (hi, lo),
+            ObjectiveSense::Minimize => (lo, hi),
+        };
+        best.push((s.generation, best_v));
         median.push((s.generation, quantile(&sorted, 0.5)));
-        worst.push((s.generation, *sorted.last().unwrap_or(&0.0)));
+        worst.push((s.generation, worst_v));
     }
     (best, median, worst)
 }
@@ -1258,20 +1281,40 @@ mod tests {
             pop_sample(0, vec![1.0, 2.0, 3.0], None),
             pop_sample(1, vec![0.0, 0.0, 0.0], None),
         ];
-        let out = selection_pressure_series(&samples);
-        // gen 0: best=1, median=2 → 0.5; gen 1 skipped (median=0).
+        // Minimize: best = smallest = 1, median = 2 → 0.5; gen 1 skipped.
+        let out = selection_pressure_series(&samples, ObjectiveSense::Minimize);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].0, 0);
         assert_eq!(out[0].1, 0.5);
     }
 
     #[test]
-    fn fitness_range_returns_three_aligned_series() {
+    fn selection_pressure_orients_best_by_sense() {
+        let samples = vec![pop_sample(0, vec![1.0, 2.0, 3.0], None)];
+        // Maximize: best = largest = 3, median = 2 → 1.5.
+        let max = selection_pressure_series(&samples, ObjectiveSense::Maximize);
+        assert_eq!(max, vec![(0, 1.5)]);
+        // Minimize: best = smallest = 1, median = 2 → 0.5.
+        let min = selection_pressure_series(&samples, ObjectiveSense::Minimize);
+        assert_eq!(min, vec![(0, 0.5)]);
+    }
+
+    #[test]
+    fn fitness_range_orients_best_worst_by_sense() {
         let samples = vec![
             pop_sample(0, vec![1.0, 2.0, 3.0, 4.0, 5.0], None),
             pop_sample(1, vec![0.5, 1.5, 2.5, 3.5, 4.5], None),
         ];
-        let (best, median, worst) = fitness_range_series(&samples);
+        // Maximize: best = largest, worst = smallest; median unchanged.
+        let (best, median, worst) =
+            fitness_range_series(&samples, ObjectiveSense::Maximize);
+        assert_eq!(best, vec![(0, 5.0), (1, 4.5)]);
+        assert_eq!(median, vec![(0, 3.0), (1, 2.5)]);
+        assert_eq!(worst, vec![(0, 1.0), (1, 0.5)]);
+
+        // Minimize: best = smallest, worst = largest.
+        let (best, median, worst) =
+            fitness_range_series(&samples, ObjectiveSense::Minimize);
         assert_eq!(best, vec![(0, 1.0), (1, 0.5)]);
         assert_eq!(median, vec![(0, 3.0), (1, 2.5)]);
         assert_eq!(worst, vec![(0, 5.0), (1, 4.5)]);
@@ -1279,7 +1322,7 @@ mod tests {
 
     #[test]
     fn fitness_range_empty_input_yields_three_empty_vectors() {
-        let (best, median, worst) = fitness_range_series(&[]);
+        let (best, median, worst) = fitness_range_series(&[], ObjectiveSense::Maximize);
         assert!(best.is_empty());
         assert!(median.is_empty());
         assert!(worst.is_empty());
