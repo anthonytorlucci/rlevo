@@ -1,24 +1,20 @@
 # State Constraints
-In our previous chapter, we used the Grid Agent to see how [`State`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.State.html) can define a world—even if that world was simplified into a discrete grid of tiles. It was a great starting point, but real-world robotics often requires us to move beyond "tiles" and deal with continuous spaces, precise units, and complex constraints.
 
-This page deepens the story of [`State`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.State.html). We keep the same [`rlevo-core`](https://docs.rs/rlevo-core/latest/rlevo_core/index.html) traits as before, but we’ll see how they handle a much more nuanced problem: **how do we define what is "legal" in a physical space?**
+In the previous chapter, the Grid Agent showed you how
+[`State`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.State.html) can
+describe a whole world — even when that world was just a discrete grid of tiles.
+That was a deliberately gentle start. Real robotics, though, rarely fits on a
+grid: it lives in continuous space, carries precise physical units, and obeys
+constraints that couple several quantities at once.
 
-The vehicle here is a `RobotPose` — a robot moving in a 1000 mm x 1000 mm workspace with an orientation bounded between -180° and 180°. You can run the full example here:
+So let's deepen the story. We keep exactly the same
+[`rlevo-core`](https://docs.rs/rlevo-core/latest/rlevo_core/index.html) traits you
+already know, and turn them loose on a harder question: **what does it mean for a
+state to be "legal" in a physical space, and where do we enforce it?**
 
-<!--
-The [Grid Agent](grid-agent.md) introduced `State` as the full description of a
-world, with `is_valid` guarding a single invariant — the agent must stay inside
-the grid. That example kept things deliberately coarse: integer cells, a discrete
-heading, an out-of-bounds check that simply rejected the offending move. This
-page deepens the `State` story. It keeps the same `rlevo-core` traits but pushes
-on the part the grid agent only touched lightly: **what it means for a state to
-be valid, and how that invariant is enforced at the boundaries of a continuous
-workspace**.
-
-The vehicle is `RobotPose` — a 2D robot in a 1000 mm × 1000 mm workspace whose
-orientation is bounded to \\([-180°, 180°]\\). The complete program is the
-`ch00_state_constraints` example:
--->
+Our vehicle is a `RobotPose` — a 2D robot in a 1000 mm × 1000 mm workspace whose
+orientation is bounded to \\([-180°, 180°]\\). You can run the complete program at
+any point:
 
 ```bash
 cargo run -p rlevo-examples --example ch00_state_constraints
@@ -26,140 +22,142 @@ cargo run -p rlevo-examples --example ch00_state_constraints
 
 ## Continuous quantities as fixed-point integers
 
-While a robot's position is physically "continuous," representing it in software involves choices. You could use floating-point numbers, but those can introduce non-deterministic behavior or issues with equality checks ($0.1 + 0.2 \neq 0.3$).
+A robot's position is physically continuous, but the moment you put it in software
+you have to *choose* a representation. The obvious reach is for floating point —
+and it's worth pausing on why we don't. Floats make equality treacherous
+(\\(0.1 + 0.2 \neq 0.3\\)) and can leak non-determinism into a pipeline you'd like
+to reproduce exactly.
 
-`rlevo` doesn’t force a specific type on you, so RobotPose makes a practical choice: it stores measurements as fixed-point integers. By using millimeters for position and millidegrees for orientation (where $1000$ mdeg = 1°), we get the best of both worlds: the precision of continuous space with the reliability of exact, `Hash`-able, and `Eq`-comparable integers.
-
-Even though the underlying data types have changed from the grid's "cells" to "fixed-point units," notice that the **trait surface remains identical**. It is still a rank-1 `State<1>` with a shape of `[3]`. This consistency allows you to swap a simple game world for a high-precision robot model without rewriting your core logic.
-
-<!--
-A pose is naturally continuous — a position and an angle. `rlevo` does not force
-a representation on you, and `RobotPose` makes a pragmatic choice: store each
-quantity as a fixed-point integer. Position is held in **millimetres** and
-orientation in **millidegrees** (1000 mdeg = 1°), so the whole state is exact,
-`Hash`-able, and `Eq`-comparable — properties a floating-point pose could not
-offer. The trait surface is identical to the grid agent's: a rank-1 `State<1>`
-whose `shape()` is `[3]`.
+`rlevo` never forces a representation on you, so `RobotPose` makes a pragmatic
+call: it stores each quantity as a **fixed-point integer**. Position lives in
+millimetres and orientation in millidegrees (where 1000 mdeg = 1°). That buys us
+the best of both worlds — the resolution of a continuous space with the
+reliability of values that are exact, `Hash`-able, and `Eq`-comparable, which a
+floating-point pose could never be.
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:state}}
 ```
 
-Compare this with the grid agent's `is_valid`. There, validity meant *inside the
-grid*. Here it is a **box constraint** over three coupled axes — two positional
-bounds and one angular bound — and it is the single predicate that defines the
-admissible state space. Everything else in the example exists to keep states on
-the right side of this predicate. As before, `observe` performs full
-observability: the observation is a direct projection of the pose, because this
-agent perceives its complete state.
--->
+Here's the part worth noticing: even though the underlying units changed from the
+grid's "cells" to fixed-point millimetres, the **trait surface is identical**. It
+is still a rank-1 `State<1>` whose `shape()` is `[3]`. That consistency is the
+whole point — you can swap a toy game world for a high-precision robot model
+without rewriting a line of your core logic.
+
+Now compare this `is_valid` with the grid agent's. There, validity simply meant
+*inside the grid*. Here it is a **box constraint** over three coupled axes — two
+positional bounds and one angular bound — and it is the single predicate that
+defines the entire admissible state space. Keep that in mind, because everything
+else on this page exists to keep states on the right side of it. And unlike the
+grid agent, `observe` here performs *full* observability: the observation is a
+direct projection of the pose, because this robot perceives its complete state.
 
 ## Validity enforced at construction
 
-In the Grid Agent example, we used a "check-and-discard" approach: the system calculates a move, and if it’s out of bounds, we simply ignore it. That works well for discrete tiles.
+In the Grid Agent we used a **check-and-discard** discipline: compute a candidate
+move, test it, and ignore it if it lands out of bounds. That works beautifully for
+discrete tiles. But it isn't the only tool we have, and for high-stakes systems
+it often isn't the right one.
 
-However, in many high-stakes systems, we want to **make an invalid state unrepresentable by construction**. This is the philosophy behind `RobotPose` (and `rlevo` in general). Instead of allowing a pose to exist and then checking if it's valid, we use a fallible constructor:
-
-```rust,no_run
-{{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:construction}}
-```
-
-By using the **Builder Pattern**, we ensure that if you have a `RobotPose` object in your hand, it is *guaranteed* to be valid. The only exception is `new_unchecked`, which we provide for "hot paths" where you already know the data is safe and want to skip the safety check for performance. This gives you a clear, named choice between safety and speed.
-
-<!--
-The grid agent computed a candidate successor and left the caller to test
-`is_valid` and discard it. That is one discipline. `RobotPose` demonstrates a
-stricter one: **make an invalid state unrepresentable by construction**. The
-`new` constructor validates against `is_valid` and returns an `Option` —
-`Some(pose)` only when every constraint holds, `None` otherwise:
+The stricter discipline — and the one `RobotPose` demonstrates — is to **make an
+invalid state unrepresentable by construction**. Rather than letting a bad pose
+exist and hoping someone checks it, we validate at the door with a fallible
+constructor:
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:construction}}
 ```
 
-This is the builder pattern used throughout `rlevo-environments`: a fallible
-constructor is the chokepoint where the invariant is checked once, so any
-`RobotPose` a downstream algorithm receives is already known good. The escape
-hatch `new_unchecked` exists for the hot path where the caller has already
-guaranteed validity and wants to skip the check — a deliberate, named opt-out
-rather than a silent one.
--->
+`new` validates against `is_valid` and returns an `Option`: `Some(pose)` only when
+every constraint holds, `None` otherwise. This is the builder pattern you'll meet
+throughout `rlevo-environments` — a fallible constructor is the single chokepoint
+where the invariant is checked *once*, so any `RobotPose` a downstream algorithm
+receives is already known good. The one escape hatch is `new_unchecked`, for the
+hot path where you have *already* guaranteed validity and want to skip the check
+for speed. Notice that it's a named, deliberate opt-out rather than a silent one —
+you choose safety or speed, and the choice is visible at the call site.
 
 ## Distance as a reward signal
 
-A state space is just half of the story; the other half is the reward—the feedback that tells the agent how well it's performing.
+A constrained state space is only half of an environment. The other half is the
+**reward** — the feedback that tells an agent how well it's doing. This is a good
+moment to see where a `State` hands off to that idea.
 
-In this example, we take a raw physical property (Euclidean distance) and "shape" it into a reward. By normalizing the distance against the workspace dimensions and inverting it, we create a gradient that an agent can climb: \\(r=1-\min (\frac{d}{d_\max },1)\\)
-
-This is the bridge where our `State` logic connects to the Reward concepts in [Part I](part-1-foundations/reinforcement-learning/33-reward.md). We turn a physical measurement into a mathematical goal for the agent.
-
-<!--
-A constrained state space is only half of an environment; the other half is the
-**reward** that tells an agent how well it is doing. `RobotPose` exposes a
-Euclidean distance between poses, ignoring orientation:
+`RobotPose` exposes a Euclidean distance between two poses, deliberately ignoring
+orientation:
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:distance}}
 ```
 
-The example turns this into a shaped reward by normalising against the
-workspace diagonal \\(\sqrt{1000^2 + 1000^2} \approx 1414\\) mm and inverting it,
-so that a pose nearer the goal scores higher: \\(r = 1 - \min(d / d_{\max}, 1)\\).
-This is the seam where a `State` connects to the **reward** concept developed in
-[Part I](part-1-foundations/reinforcement-learning/33-reward.md) — a single
-scalar derived from the state that an agent can climb.
--->
+On its own that's just a measurement. The example *shapes* it into a reward by
+normalising against the workspace diagonal,
+\\(\sqrt{1000^2 + 1000^2} \approx 1414\\) mm, and inverting it, so a pose nearer
+the goal scores higher:
+
+```math
+r = 1 - \min\!\left(\frac{d}{d_{\max}},\, 1\right)
+```
+
+That gives the agent a smooth gradient to climb. This is the seam where a `State`
+connects to the **reward** concept developed in
+[Part I](part-1-foundations/reinforcement-learning/33-reward.md) — a single scalar,
+derived from the state, that turns a physical measurement into a goal.
+
+One orientation note before you go further, because it bites people later. What we
+just built is a *maximisation* signal: reward climbs as the robot nears the goal,
+exactly as most RL practitioners expect. rlevo's evolutionary half runs the
+opposite convention. The optimisation stack —
+[`FitnessEvaluable`](https://docs.rs/rlevo-core/latest/rlevo_core/fitness/trait.FitnessEvaluable.html)
+and the algorithms in `rlevo-evolution` — **minimises**: lower is better, and
+fitness is a *cost*. These two don't contradict each other; they meet at a sign.
+The moment this reward becomes a fitness for an evolutionary optimiser — the
+"evolutionary" in evolutionary deep RL — you negate it, turning a return you'd
+maximise into a cost you minimise. We surface it here so that the flip is a
+deliberate one-liner when you reach Part II, rather than a silent bug in which the
+optimiser cheerfully drives the agent *away* from the goal.
 
 ## Keeping a state valid under accumulation
 
-One of the trickiest problems in robotics is "wrapping" logic—specifically, how angles behave. If a robot turns 190 degrees, it is still physically facing "backwards," but its raw counter might now exceed our $180^\circ$ boundary.
+The box constraint introduces a wrinkle the grid agent never had to face — and
+it's a classic robotics gotcha, so let's slow down on it. Apply angular actions
+repeatedly and the orientation drifts past \\(\pm 180°\\). Strictly read,
+`is_valid` would then reject the state — even though the *physical* heading is
+perfectly legal, because angles wrap around.
 
-In the Grid Agent, a step out of bounds was discarded because it was a physical impossibility. But for an angle, exceeding $180^\circ$ isn't an error; it’s just an unnormalized value. Instead of rejecting the action, we normalize the state back into the valid range:
-
-```rust,no_run
-{{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:normalize}}
-```
-
-This ensures that the robot’s "internal" representation stays clean and consistent without sacrificing its ability to perform full rotations.
-
-<!--
-The box constraint creates a problem the grid agent never faced. Repeatedly
-applying angular actions makes orientation drift past \\(\pm 180°\\), which
-`is_valid` would then reject — even though the *physical* heading is perfectly
-legal, since angles wrap. The fix is to **normalise back into the valid range**
-rather than to forbid the action:
+In the Grid Agent a step out of bounds was discarded, full stop, because walking
+off the edge is a genuine physical impossibility. An angle past \\(180°\\) is a
+different animal: it isn't illegal, it's merely *unnormalised*. So the right
+response is not to forbid the action but to **normalise the state back into range**:
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:normalize}}
 ```
 
 Wrapping a \\(270°\\) raw heading to \\(-90°\\) keeps the state inside the
-admissible set without losing information. This is the angular analogue of the
-grid agent rejecting a step off the edge — but where a position off the grid is
-genuinely illegal, an angle past \\(180°\\) is merely *unnormalised*, so the
-right response is to canonicalise rather than reject.
--->
+admissible set without losing any information — the robot can still perform full
+rotations, and its internal representation stays clean and canonical. Think of it
+as the angular analogue of the grid agent rejecting a step off the edge: same
+invariant, but where an off-grid position is truly illegal, an over-range angle
+just needs canonicalising.
 
 ## What you should see
 
-When you run this example, you aren't just seeing a robot move; you are seeing two different philosophies of safety in action: **check-and-discard** (for things like physical boundaries) and **validate-at-construction** (for ensuring internal consistency). These are core ideas that permeate throughout the library.
+When you run the example, you aren't only watching a robot move — you're watching
+the same `is_valid` predicate enforced from several angles: valid construction,
+rejection of six out-of-bounds cases, distance-based reward shaping, orientation
+normalisation, a verified trajectory of waypoints, and a short agent loop in which
+any move that would leave the workspace is blocked. Each of those is one
+consequence of that single predicate on the state.
 
-By looking at both the Grid Agent and the Robot Pose, you’ve now seen how rlevo handles everything from simple logic to complex, real-world constraints. [Part I](part-1-foundations/reinforcement-learning/31-state.md) formalizes these state boundaries, and [Part II](part-2-guided-tour/00-overview.md) will show you how we put a full algorithm to work within these rules.
-
-<!--
-Running the example walks through the same invariant from several angles: valid
-construction, rejection of six out-of-bounds cases, distance-based reward
-shaping, orientation normalisation, a verified trajectory of waypoints, and a
-short agent loop in which moves that would leave the workspace are blocked. Each
-section is one consequence of the single `is_valid` predicate defined on the
-state.
-
-Between this page and the grid agent you have seen the two enforcement
-disciplines `rlevo` uses throughout: **check-and-discard** at the call site, and
-**validate-at-construction** behind a fallible builder. [Part I](part-1-foundations/reinforcement-learning/31-state.md)
-formalises the state and observation seams, and [Part II](part-2-guided-tour/00-overview.md)
-puts a real environment and a real algorithm around them.
--->
+Step back and look at the Grid Agent and the Robot Pose together, and you've now
+met the two enforcement disciplines `rlevo` leans on everywhere:
+**check-and-discard** at the call site, and **validate-at-construction** behind a
+fallible builder. [Part I](part-1-foundations/reinforcement-learning/31-state.md)
+formalises the state and observation seams, and
+[Part II](part-2-guided-tour/00-overview.md) puts a real environment and a real
+algorithm around them.
 
 ---
 
