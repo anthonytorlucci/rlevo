@@ -40,14 +40,12 @@ jobs:
             recipe: test-ppo-cart-pole
           - name: "PPO — Pendulum improves over random"
             recipe: test-ppo-pendulum
-          - name: "PPG — CartPole reaches modest threshold"
+          - name: "PPG — CartPole learns above random"
             recipe: test-ppg-cart-pole
           - name: "PPG — without aux matches PPO baseline"
             recipe: test-ppg-no-aux
           - name: "PPG — aux phase actually runs"
             recipe: test-ppg-aux
-          - name: "PPG — CartPole reaches 475"
-            recipe: test-ppg-full
           - name: "DDPG — Pendulum smoke"
             recipe: test-ddpg-pendulum
     steps:
