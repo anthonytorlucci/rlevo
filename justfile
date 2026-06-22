@@ -363,7 +363,7 @@ test-td3-linear:
 test-sac:
     cargo test -p rlevo --test sac_integration
 
-# SAC — Pendulum smoke [ignored: macro run, ~500k steps].
+# SAC — Pendulum smoke [ignored: ~30k Pendulum steps, ~2 min on Flex].
 test-sac-pendulum:
     cargo test -p rlevo --test sac_integration -- sac_pendulum_smoke --ignored
 

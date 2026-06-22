@@ -48,6 +48,8 @@ jobs:
             recipe: test-ppg-aux
           - name: "DDPG — Pendulum smoke"
             recipe: test-ddpg-pendulum
+          - name: "SAC — Pendulum smoke"
+            recipe: test-sac-pendulum
     steps:
       - uses: actions/checkout@v4
 
@@ -83,8 +85,6 @@ jobs:
             recipe: test-qrdqn-full
           - name: "TD3 — Pendulum smoke (~500k steps)"
             recipe: test-td3-pendulum
-          - name: "SAC — Pendulum smoke (~500k steps)"
-            recipe: test-sac-pendulum
     steps:
       - uses: actions/checkout@v4
 
