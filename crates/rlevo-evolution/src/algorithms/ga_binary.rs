@@ -25,10 +25,10 @@
 //!
 //! # Fitness convention
 //!
-//! Fitness is treated as cost (lower is better), matching all other
-//! strategies in this crate. Maximization benchmarks like `OneMax` must be
-//! phrased as minimization before being plugged in, e.g.:
-//! `cost = D − count_ones(genome)`.
+//! Fitness is canonical (higher is better), matching all other strategies in
+//! this crate. A maximisation benchmark like `OneMax` (`count_ones(genome)`)
+//! plugs in directly; a cost objective is reconciled into canonical space by
+//! the harness/adapter chokepoint rather than hand-negated here.
 //!
 //! # References
 //!
@@ -160,7 +160,8 @@ where
     /// Samples an `(pop_size, D)` binary population uniformly at random
     /// (each gene independently `Bernoulli(0.5)`) using a host RNG derived
     /// from `rng`. Sets `fitness` to empty and `best_fitness` to
-    /// `f32::INFINITY`; the first [`tell`](Self::tell) call populates both.
+    /// `f32::NEG_INFINITY` (the worst value under the maximise convention);
+    /// the first [`tell`](Self::tell) call populates both.
     fn init(
         &self,
         params: &BinaryGaConfig,
@@ -171,7 +172,7 @@ where
             population: Self::sample_initial_population(params, rng, device),
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -261,7 +262,7 @@ where
     /// replacement is performed.
     ///
     /// On subsequent calls the method performs elitist replacement: the
-    /// `elitism_k` lowest-cost parents survive directly, and the remaining
+    /// `elitism_k` highest-fitness parents survive directly, and the remaining
     /// `pop_size − elitism_k` slots are filled with the best offspring.
     /// Both selections use [`crate::ops::selection::truncation_indices_host`].
     ///
@@ -334,7 +335,7 @@ where
     /// Return the best-so-far genome and its fitness.
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
-    /// The fitness value uses the minimization convention (lower is better).
+    /// The fitness value uses the canonical maximise convention (higher is better).
     fn best(&self, state: &BinaryGaState<B>) -> Option<(Tensor<B, 2, Int>, f32)> {
         state
             .best_genome
@@ -350,12 +351,12 @@ fn update_best<B: Backend>(state: &mut BinaryGaState<B>, pop: &Tensor<B, 2, Int>
     let mut best_idx = 0usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx =
@@ -373,12 +374,13 @@ mod tests {
     use burn::backend::Flex;
     type TestBackend = Flex;
 
-    /// `OneMax` phrased as minimization: `cost = D − count_ones`.
-    struct OneMaxCost {
+    /// `OneMax` as a native maximisation: `fitness = count_ones`, optimum at
+    /// `D` (all ones).
+    struct OneMax {
         dim: usize,
     }
 
-    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMaxCost {
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2, Int>> for OneMax {
         fn evaluate_batch(
             &mut self,
             population: &Tensor<B, 2, Int>,
@@ -400,10 +402,13 @@ mod tests {
                     }
                 }
                 #[allow(clippy::cast_precision_loss)]
-                let cost = (self.dim as f32) - (ones as f32);
-                fitness.push(cost);
+                fitness.push(ones as f32);
             }
             Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        }
+
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
         }
     }
 
@@ -415,7 +420,7 @@ mod tests {
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             BinaryGeneticAlgorithm::<TestBackend>::new(),
             params,
-            OneMaxCost { dim },
+            OneMax { dim },
             7,
             device,
             200,
@@ -427,7 +432,9 @@ mod tests {
             }
         }
         let best = harness.latest_metrics().unwrap().best_fitness_ever;
-        // OneMax optimum: cost == 0 (all ones).
-        approx::assert_relative_eq!(best, 0.0, epsilon = 1e-6);
+        // OneMax optimum: all ones → fitness == D.
+        #[allow(clippy::cast_precision_loss)]
+        let optimum = dim as f32;
+        approx::assert_relative_eq!(best, optimum, epsilon = 1e-6);
     }
 }

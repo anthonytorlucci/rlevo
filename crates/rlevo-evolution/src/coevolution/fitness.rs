@@ -11,8 +11,8 @@ use burn::tensor::{Tensor, backend::Backend};
 /// Joint fitness evaluation across two or more co-evolving populations.
 ///
 /// `evaluate_coupled` receives every population at once and returns one
-/// fitness vector per population, each ranked under the crate-wide
-/// **minimization convention** (lower is better — see
+/// fitness vector per population, each ranked under the crate-wide canonical
+/// **maximise convention** (higher is better — see
 /// [`crate::strategy::Strategy`]).
 ///
 /// # Invariants

@@ -134,6 +134,9 @@ Optimization* (2nd ed.). Springer.
 **[Pareto, 1896]** Pareto, V. (1896). *Cours d'économie politique*. F. Rouge,
 Lausanne.
 
+**[Plaat, 2023]** Plaat, A. (2023). *Deep Reinforcement Learning, a textbook*. 
+[arXiv:2201.02135](https://arxiv.org/abs/2201.02135)
+
 **[Potter and De Jong, 1994]** Potter, M. A., & De Jong, K. A. (1994). A
 cooperative coevolutionary approach to function optimization. In *Parallel
 Problem Solving from Nature (PPSN III)*, LNCS 866, 249–257. Springer.

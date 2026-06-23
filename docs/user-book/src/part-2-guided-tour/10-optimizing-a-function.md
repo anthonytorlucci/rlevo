@@ -78,9 +78,11 @@ That loop is the whole run. Each `step` does one generation: the harness asks th
 GA for a population, evaluates every member against the sphere, and tells the GA
 the scores.
 
-> **Fitness convention.** `rlevo` uses a **minimisation** convention throughout:
-> lower is better, and `best_fitness_ever` is the smallest value seen across all
-> generations. For Sphere, `best_fitness_ever = 0.0` is perfect.
+> **Fitness convention.** `rlevo`'s engine is **maximise-native** (higher is
+> better), but you declare a cost objective's direction rather than negating it.
+> Sphere is a cost, so its `Landscape::sense()` is `ObjectiveSense::Minimize`; the
+> harness reconciles direction at one chokepoint and reports `best_fitness_ever` in
+> that natural sense. For Sphere, `best_fitness_ever = 0.0` is perfect.
 
 Because we passed `seed = 42`, re-running gives an identical trajectory. `rlevo`
 derives every random draw from that seed through a `seed_stream`, never from
@@ -161,5 +163,5 @@ supplementary material.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

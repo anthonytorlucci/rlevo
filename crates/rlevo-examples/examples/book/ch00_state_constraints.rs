@@ -7,7 +7,7 @@
 use rlevo_core::base::{Observation, State};
 use serde::{Deserialize, Serialize};
 
-/// Observation type for RobotPose: the perceived robot state.
+/// Observation type for `RobotPose`: the perceived robot state.
 ///
 /// This represents what the agent can observe from the environment. In this example,
 /// the observation is the complete pose (full observability), but in more complex
@@ -47,6 +47,7 @@ impl RobotPoseObservation {
     }
 }
 
+// ANCHOR: state
 /// Represents the 2D pose of a robot in the workspace.
 ///
 /// The robot operates in a 1000mm x 1000mm workspace with orientation
@@ -110,8 +111,10 @@ impl State<1> for RobotPose {
         RobotPoseObservation::from_pose(self)
     }
 }
+// ANCHOR_END: state
 
 impl RobotPose {
+    // ANCHOR: construction
     /// Creates a new robot pose with validation.
     ///
     /// Returns `Some(pose)` if the position and orientation satisfy all constraints,
@@ -149,14 +152,18 @@ impl RobotPose {
             theta_mdeg,
         }
     }
+    // ANCHOR_END: construction
 
+    // ANCHOR: distance
     /// Calculates the Euclidean distance (in mm) to another pose, ignoring orientation.
     pub fn distance_to(&self, other: &RobotPose) -> f64 {
-        let dx = (self.x_mm - other.x_mm) as f64;
-        let dy = (self.y_mm - other.y_mm) as f64;
+        let dx = f64::from(self.x_mm - other.x_mm);
+        let dy = f64::from(self.y_mm - other.y_mm);
         (dx * dx + dy * dy).sqrt()
     }
+    // ANCHOR_END: distance
 
+    // ANCHOR: normalize
     /// Normalizes the orientation to the [-180°, 180°] range.
     ///
     /// Useful when integrating actions over time may cause orientation
@@ -178,17 +185,19 @@ impl RobotPose {
             theta_mdeg: theta,
         }
     }
+    // ANCHOR_END: normalize
 
     /// Returns the orientation in degrees (scaled from millidegrees).
     pub fn orientation_degrees(&self) -> f64 {
-        self.theta_mdeg as f64 / 1000.0
+        f64::from(self.theta_mdeg) / 1000.0
     }
 }
 
 // --------------------------------------------------------------------------
 // Example usage
 // --------------------------------------------------------------------------
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[allow(clippy::too_many_lines)]
+fn main() {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║   RobotPose State Constraint Example for rlevo             ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
@@ -243,8 +252,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (x, y, theta, description) in invalid_cases {
         match RobotPose::new(x, y, theta) {
-            Some(_) => println!("✗ UNEXPECTED: {} should have failed", description),
-            None => println!("✓ Correctly rejected: {}", description),
+            Some(_) => println!("✗ UNEXPECTED: {description} should have failed"),
+            None => println!("✓ Correctly rejected: {description}"),
         }
     }
 
@@ -262,14 +271,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let distance = start.distance_to(&goal);
     println!("Start: ({}, {})", start.x_mm, start.y_mm);
     println!("Goal:  ({}, {})", goal.x_mm, goal.y_mm);
-    println!("Euclidean distance: {:.2} mm", distance);
+    println!("Euclidean distance: {distance:.2} mm");
 
     // Normalized reward
     let max_distance = 1414.21; // sqrt(1000^2 + 1000^2)
     let normalized_reward = 1.0 - (distance / max_distance).min(1.0);
     println!(
-        "Normalized reward (closer to goal = higher): {:.3}",
-        normalized_reward
+        "Normalized reward (closer to goal = higher): {normalized_reward:.3}"
     );
 
     println!();
@@ -339,7 +347,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Verify entire trajectory
-    let all_valid = trajectory.iter().all(|p| p.is_valid());
+    let all_valid = trajectory.iter().all(rlevo_core::base::State::is_valid);
     println!(
         "\nTrajectory validity check: {}",
         if all_valid { "✓ PASS" } else { "✗ FAIL" }
@@ -376,12 +384,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match RobotPose::new(new_x, new_y, new_theta) {
             Some(new_pose) => {
                 let reward = -agent_start.distance_to(&new_pose);
-                println!("  ✓ {}: reward = {:.1}", description, reward);
+                println!("  ✓ {description}: reward = {reward:.1}");
             }
             None => {
                 println!(
-                    "  ✗ {}: BLOCKED (agent learns to avoid this action)",
-                    description
+                    "  ✗ {description}: BLOCKED (agent learns to avoid this action)"
                 );
             }
         }
@@ -402,6 +409,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("║ ✓ Trajectories can be verified as valid sequences          ║");
     println!("║ ✓ Agents learn to respect workspace constraints            ║");
     println!("╚════════════════════════════════════════════════════════════╝");
-
-    Ok(())
 }

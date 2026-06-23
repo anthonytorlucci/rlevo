@@ -34,8 +34,8 @@
 //!
 //! [`CoupledFitness`] takes a slice of populations and is N-population-ready;
 //! v1 algorithms always pass exactly two. The harness exposes
-//! `-min(best_a, best_b)` as the benchmark reward (the weaker population is the
-//! binding constraint).
+//! `min(best_a, best_b)` (canonical maximise) as the benchmark reward (the
+//! weaker population — lower canonical fitness — is the binding constraint).
 //!
 //! # References
 //!
@@ -124,9 +124,11 @@ pub struct CoEAState<StA, StB> {
     pub state_b: StB,
     /// Number of completed simultaneous-update generations.
     pub generation: u64,
-    /// Best (lowest) fitness population A has seen across all generations.
+    /// Best (highest, canonical maximise) fitness population A has seen across
+    /// all generations.
     pub best_a: f32,
-    /// Best (lowest) fitness population B has seen across all generations.
+    /// Best (highest, canonical maximise) fitness population B has seen across
+    /// all generations.
     pub best_b: f32,
     /// Mean fitness of population A in the most recent generation.
     pub mean_a: f32,
@@ -141,8 +143,8 @@ impl<StA, StB> CoEAState<StA, StB> {
             state_a,
             state_b,
             generation: 0,
-            best_a: f32::INFINITY,
-            best_b: f32::INFINITY,
+            best_a: f32::NEG_INFINITY,
+            best_b: f32::NEG_INFINITY,
             mean_a: f32::NAN,
             mean_b: f32::NAN,
         }

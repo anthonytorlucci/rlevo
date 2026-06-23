@@ -29,8 +29,12 @@ use parking_lot::Mutex;
 ///
 /// **Field semantics**:
 ///
-/// - `fitnesses` is the full per-individual fitness vector (lower is
-///   better, per the project minimization convention).
+/// - `fitnesses` is the full per-individual fitness vector in **natural
+///   (user-sense)** space — the values are recorded before the harness
+///   canonicalises, so they read in the objective's declared
+///   [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense) (a `Minimize`
+///   landscape's costs, a `Maximize` objective's rewards). `best_index` points
+///   at the best individual in that sense.
 /// - `diversity` is currently `None` — the harness has no
 ///   strategy-agnostic geometry over the population tensor. A future
 ///   `Strategy::diversity` extension fills it in.

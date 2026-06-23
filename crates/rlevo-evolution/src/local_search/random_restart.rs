@@ -23,7 +23,7 @@
 //! 2. Monotonicity versus the input is *structural*: run `0` already satisfies
 //!    the [`LocalSearch`]
 //!    monotone-non-worsening invariant (the inner searcher guarantees it), and
-//!    the argmin over all runs can only be `<=` run `0`.
+//!    the argmax over all runs can only be `>=` run `0`.
 //!
 //! # Evaluation budget
 //!
@@ -90,7 +90,7 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
 ///
 /// Runs the wrapped searcher `restarts + 1` times — once from the unperturbed
 /// input and `restarts` times from Gaussian-perturbed, bounds-clamped starting
-/// points — and returns the argmin over all runs (ties broken toward the
+/// points — and returns the argmax over all runs (ties broken toward the
 /// earliest run). The total evaluation budget is the product
 /// `(restarts + 1) * inner.max_iters`; this wrapper adds no cap of its own.
 ///
@@ -108,11 +108,11 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
 ///     HillClimbing, HillClimbingParams, LocalSearch, RandomRestart, RandomRestartParams,
 /// };
 ///
-/// // Minimize the 2-D sphere; the optimum is the origin with fitness 0.
-/// struct Sphere;
-/// impl FitnessFn<Vec<f32>> for Sphere {
+/// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
+/// struct NegSphere;
+/// impl FitnessFn<Vec<f32>> for NegSphere {
 ///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         x.iter().map(|v| v * v).sum()
+///         -x.iter().map(|v| v * v).sum::<f32>()
 ///     }
 /// }
 ///
@@ -121,16 +121,16 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
 /// let inner = HillClimbingParams::default_for((-5.12, 5.12));
 /// let mut params = RandomRestartParams::default_for(inner, (-5.12, 5.12));
 /// params.restarts = 3;
-/// let mut fitness = Sphere;
+/// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
-/// let start_fit: f32 = start.iter().map(|v| v * v).sum();
+/// let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
 /// let (refined, refined_fit) =
 ///     LocalSearch::<Flex>::refine(&searcher, &params, start, &mut fitness, &mut rng);
 ///
 /// assert_eq!(refined.len(), 2); // dimensionality preserved
-/// assert!(refined_fit <= start_fit); // monotone non-worsening
+/// assert!(refined_fit >= start_fit); // monotone non-worsening
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct RandomRestart<L> {
@@ -218,7 +218,7 @@ impl<L> RandomRestart<L> {
 
                 let (run_genome, run_fit): (Vec<f32>, f32) =
                     self.inner.refine(&params.inner, start, fitness_fn, rng);
-                if run_fit < best_fit {
+                if run_fit > best_fit {
                     best_fit = run_fit;
                     best_genome = run_genome;
                 }
@@ -278,34 +278,36 @@ mod tests {
 
     const BOUNDS: (f32, f32) = (-5.12, 5.12);
 
-    /// `f(x) = Σ x_i²` — convex, unimodal, optimum at the origin.
-    struct Sphere;
-    impl FitnessFn<Vec<f32>> for Sphere {
+    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// origin.
+    struct NegSphere;
+    impl FitnessFn<Vec<f32>> for NegSphere {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            x.iter().map(|v| v * v).sum()
+            -x.iter().map(|v| v * v).sum::<f32>()
         }
     }
 
-    /// 2-D Rastrigin — highly multimodal, optimum at the origin with value 0.
-    struct Rastrigin;
-    impl FitnessFn<Vec<f32>> for Rastrigin {
+    /// Negated 2-D Rastrigin — highly multimodal; global maximum 0 at the
+    /// origin.
+    struct NegRastrigin;
+    impl FitnessFn<Vec<f32>> for NegRastrigin {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
             use core::f32::consts::PI;
             let a = 10.0_f32;
             // `a * D` constant folded per-coordinate to avoid a usize->f32 cast.
-            x.iter()
+            -x.iter()
                 .map(|&xi| a + xi * xi - a * (2.0 * PI * xi).cos())
                 .sum::<f32>()
         }
     }
 
-    /// 2-D Rosenbrock — curved valley, optimum at `(1, 1)` with value 0.
-    struct Rosenbrock;
-    impl FitnessFn<Vec<f32>> for Rosenbrock {
+    /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
+    struct NegRosenbrock;
+    impl FitnessFn<Vec<f32>> for NegRosenbrock {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
             let a = 1.0 - x[0];
             let b = x[1] - x[0] * x[0];
-            a * a + 100.0 * b * b
+            -(a * a + 100.0 * b * b)
         }
     }
 
@@ -393,7 +395,7 @@ mod tests {
         let start = vec![3.7_f32, -2.9];
 
         let params_zero = rr_params(inner.clone(), 0);
-        let mut fit_zero = Rastrigin;
+        let mut fit_zero = NegRastrigin;
         let mut rng_zero = StdRng::seed_from_u64(42);
         let (_g0, f0) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -404,7 +406,7 @@ mod tests {
         );
 
         let params_three = rr_params(inner, 3);
-        let mut fit_three = Rastrigin;
+        let mut fit_three = NegRastrigin;
         let mut rng_three = StdRng::seed_from_u64(42);
         let (_g3, f3) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -415,26 +417,27 @@ mod tests {
         );
 
         assert!(
-            f3 <= f0,
+            f3 >= f0,
             "restarts=3 ({f3}) must not be worse than restarts=0 ({f0})"
         );
     }
 
     #[test]
     fn restarts_escape_local_basin() {
-        // From a start trapped in a non-global Rastrigin basin, a single inner
-        // run (restarts=0) settles into that basin; restarts with healthy
+        // From a start trapped on a non-global Neg-Rastrigin peak, a single inner
+        // run (restarts=0) settles onto that peak; restarts with healthy
         // perturbation escape to a strictly better fitness.
         let searcher = RandomRestart::new(HillClimbing);
         let mut inner = HillClimbingParams::default_for(BOUNDS);
-        // Small step so run 0 stays trapped near the start basin.
+        // Small step so run 0 stays trapped near the start peak.
         inner.step_size = 0.25;
         inner.max_iters = 120;
-        // Start near a non-global Rastrigin minimum (the lattice point (4, -3)).
+        // Start near a non-global Neg-Rastrigin local maximum (lattice point
+        // (4, -3), a local minimum of the original Rastrigin).
         let start = vec![4.0_f32, -3.0];
 
         let params_zero = rr_params(inner.clone(), 0);
-        let mut fit_zero = Rastrigin;
+        let mut fit_zero = NegRastrigin;
         let mut rng_zero = StdRng::seed_from_u64(7);
         let (_g0, f0) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -447,7 +450,7 @@ mod tests {
         // Healthy perturbation lets restarts jump basins.
         let mut params_five = rr_params(inner, 5);
         params_five.perturbation = 2.5;
-        let mut fit_five = Rastrigin;
+        let mut fit_five = NegRastrigin;
         let mut rng_five = StdRng::seed_from_u64(7);
         let (_g5, f5) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -458,7 +461,7 @@ mod tests {
         );
 
         assert!(
-            f5 < f0,
+            f5 > f0,
             "restarts=5 ({f5}) should strictly beat restarts=0 ({f0})"
         );
     }
@@ -474,7 +477,7 @@ mod tests {
             let start: Vec<f32> = (0..2)
                 .map(|_| lo + (hi - lo) * rng.random::<f32>())
                 .collect();
-            let mut fitness = Rosenbrock;
+            let mut fitness = NegRosenbrock;
             let start_fit = fitness.evaluate_one(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
@@ -483,7 +486,7 @@ mod tests {
                 &mut fitness,
                 &mut rng,
             );
-            assert!(fit <= start_fit, "monotone: {fit} <= {start_fit}");
+            assert!(fit >= start_fit, "monotone: {fit} >= {start_fit}");
         }
     }
 
@@ -492,7 +495,7 @@ mod tests {
         let searcher = RandomRestart::new(HillClimbing);
         let inner = HillClimbingParams::default_for(BOUNDS);
         let params = rr_params(inner, 2);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(3);
         let (lo, hi) = BOUNDS;
         for dim in [1_usize, 2, 5, 10] {
@@ -515,7 +518,7 @@ mod tests {
         let searcher = RandomRestart::new(HillClimbing);
         let inner = HillClimbingParams::default_for(BOUNDS);
         let params = rr_params(inner, 3);
-        let mut fitness = Rastrigin;
+        let mut fitness = NegRastrigin;
         let mut rng = StdRng::seed_from_u64(4);
         let start = vec![1.3_f32, -2.7];
         let (g, fit) = LocalSearch::<TestBackend>::refine(
@@ -540,7 +543,7 @@ mod tests {
         // Large perturbation relative to range: starts will spill past bounds
         // before clamping.
         params.perturbation = 10.0;
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(5);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.1; 4];
@@ -567,7 +570,7 @@ mod tests {
         let params = rr_params(inner, 4);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = Rastrigin;
+        let mut fitness_a = NegRastrigin;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -577,7 +580,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = Rastrigin;
+        let mut fitness_b = NegRastrigin;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -642,7 +645,7 @@ mod tests {
         let searcher = RandomRestart::new(HillClimbing);
         let inner = HillClimbingParams::default_for(BOUNDS);
         let params = rr_params(inner, 3);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(52);
         let start = vec![2.0_f32, -1.0];
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(

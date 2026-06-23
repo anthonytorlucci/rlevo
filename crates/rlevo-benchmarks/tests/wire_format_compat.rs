@@ -24,6 +24,7 @@ use rlevo_benchmarks::record::{
     TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
+use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
 use rlevo_core::render::{
     BodyKind, CardTable, Classic2DBody, Classic2DRole, Classic2DSnapshot, Color, GridAgentMarker,
     GridDir, GridTile, Modifier, Point2, RigidBody2D, SpanStyle, StyledFrame, StyledLine,
@@ -364,6 +365,9 @@ fn manifest_provenance_and_checkpoints_mirror_via_json() {
     native.algorithm = Some("ppo".into());
     native.num_seeds = Some(10);
     native.success_threshold = Some(195.0);
+    // v7: a Minimize landscape run must survive the host→client decode so
+    // the report orients best/worst correctly.
+    native.objective_sense = Some(NativeObjectiveSense::Minimize);
     native.checkpoints = vec![NativeCheckpointRef {
         step: 5000,
         kind: NativeCheckpointKind::Best,
@@ -383,6 +387,10 @@ fn manifest_provenance_and_checkpoints_mirror_via_json() {
     assert_eq!(mirrored.checkpoints[0].path, "checkpoints/best.mpk");
     assert_eq!(mirrored.checkpoints[0].kind, client::CheckpointKind::Best);
     assert_eq!(mirrored.checkpoints[0].step, 5000);
+    assert_eq!(
+        mirrored.objective_sense,
+        Some(client::ObjectiveSense::Minimize)
+    );
 }
 
 #[test]

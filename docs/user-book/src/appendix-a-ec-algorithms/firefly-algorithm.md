@@ -4,9 +4,10 @@
 
 The Firefly Algorithm (FA; Yang, 2008) is a swarm metaheuristic built on a
 bioluminescence metaphor: each firefly is a candidate solution whose *brightness*
-encodes fitness, and every firefly is drawn towards every **brighter** one, with
-attraction falling off exponentially in the squared distance between them. A
-firefly with no brighter neighbour performs a random walk instead. The result is
+encodes fitness (higher fitness = brighter), and every firefly is drawn towards
+every **brighter** one, with attraction falling off exponentially in the squared
+distance between them. A firefly with no brighter neighbour performs a random
+walk instead. The result is
 a multi-attractor flock: rather than a single global pull as in
 [PSO](particle-swarm-optimization.md), each individual feels a weighted sum of
 pulls towards all the brighter individuals it can "see", which in principle lets
@@ -37,17 +38,17 @@ Attractiveness decays with the **squared** Euclidean distance \\(r_{ij} = \lVert
 ```
 
 Firefly \\(i\\) sums a displacement towards every firefly \\(j\\) that is strictly
-brighter (lower cost), plus a uniform random kick:
+brighter (higher-fitness), plus a uniform random kick:
 
 ```math
-\Delta\mathbf{x}_i = \sum_{j\, :\, f(\mathbf{x}_j) < f(\mathbf{x}_i)}
+\Delta\mathbf{x}_i = \sum_{j\, :\, f(\mathbf{x}_j) > f(\mathbf{x}_i)}
 \beta(r_{ij})\,(\mathbf{x}_j - \mathbf{x}_i)
 \;+\; \alpha\,\bigl(\mathcal{U}[0,1]^D - \tfrac{1}{2}\bigr),
 \qquad
 \mathbf{x}_i' = \operatorname{clamp}(\mathbf{x}_i + \Delta\mathbf{x}_i,\ \text{bounds}).
 ```
 
-The brightness test is strict (\\(<\\)), so a firefly with no brighter neighbour
+The brightness test is strict (\\(>\\)), so a firefly with no brighter neighbour
 receives no attraction term and moves on the noise alone. The sum runs over *all*
 brighter fireflies, not just the brightest — this is the distinguishing feature
 of FA over a single-attractor swarm, and the reason the update is canonically
@@ -111,10 +112,7 @@ let config = FireflyConfig::default_for(32, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. "Brighter" therefore means *lower-cost*:
-the attraction mask pulls firefly \\(i\\) towards every \\(j\\) with
-\\(f(\mathbf{x}_j) < f(\mathbf{x}_i)\\), and the best-so-far tracker is an argmin.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. "Brighter" therefore means *higher-fitness*: the attraction mask pulls firefly \\(i\\) towards every \\(j\\) with \\(f(\mathbf{x}_j) > f(\mathbf{x}_i)\\), and the best-so-far tracker is an argmax.
 
 ## Minimal example
 
@@ -175,7 +173,7 @@ fn main() {
 ## Implementation notes
 
 **Host-side brightness mask and noise.** The strictly-brighter test
-\\(f(\mathbf{x}_j) < f(\mathbf{x}_i)\\) is built on the host into an `(N, N)`
+\\(f(\mathbf{x}_j) > f(\mathbf{x}_i)\\) is built on the host into an `(N, N)`
 integer mask and uploaded, then used to zero out non-brighter pairs in
 \\(\beta\\) before the displacement is summed over the neighbour axis. The
 random-walk kick is host-sampled from a `seed_stream` and uploaded with
@@ -221,5 +219,5 @@ prefer it as a comparator, not a workhorse.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

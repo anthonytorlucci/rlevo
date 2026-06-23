@@ -10,10 +10,11 @@
 //!
 //! # Orientation
 //!
-//! NEAT is **maximization** (higher fitness is better) — opposite the crate-wide
-//! minimize convention. `best_fitness` tracks a maximum and fitness sharing
-//! assumes **non-negative** raw fitness; a task whose native objective is a cost
-//! must supply `−cost` (the deferred `rlevo-hybrid` consumer's concern).
+//! NEAT is **maximization** (higher fitness is better) — matching the crate-wide
+//! maximise convention. `best_fitness` tracks a maximum and fitness sharing
+//! assumes **non-negative** raw fitness (a NEAT-specific precondition orthogonal
+//! to objective sense); cost objectives are reconciled into canonical space by
+//! the harness/adapter chokepoint, not by hand here.
 
 use rand::RngExt;
 use rand::rngs::StdRng;

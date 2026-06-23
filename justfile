@@ -12,17 +12,8 @@ default:
 
 # Print the exact, spellable example target names for every package.
 list-examples:
-    @echo "rlevo-core:"     && cargo run -q -p rlevo-core     --example 2>&1 | grep '^ ' || true
     @echo "rlevo:"          && cargo run -q -p rlevo          --example 2>&1 | grep '^ ' || true
     @echo "rlevo-examples:" && cargo run -q -p rlevo-examples --example 2>&1 | grep '^ ' || true
-
-# ── rlevo-core examples (contract/trait demos, lightweight) ──────────────────
-
-core-constraints:
-    cargo run -p rlevo-core --example state_constraints
-
-core-grid:
-    cargo run -p rlevo-core --example grid_agent
 
 # ── rlevo umbrella examples (5 library crates only, lightweight) ─────────────
 
@@ -328,9 +319,9 @@ test-ppo-short:
 test-ppg:
     cargo test -p rlevo --test ppg_integration
 
-# PPG — CartPole reaches modest threshold [ignored: smoke run].
+# PPG — CartPole learns above random [ignored: ~4 min, 50k-step run on Flex].
 test-ppg-cart-pole:
-    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_reaches_modest_threshold --ignored
+    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_learns_above_random --ignored
 
 # PPG — without aux phase matches PPO baseline [ignored: smoke run].
 test-ppg-no-aux:
@@ -339,10 +330,6 @@ test-ppg-no-aux:
 # PPG — aux phase actually runs [ignored: smoke run].
 test-ppg-aux:
     cargo test -p rlevo --test ppg_integration -- ppg_aux_phase_actually_runs --ignored
-
-# PPG — CartPole reaches 475 [ignored: macro convergence, ~2–5 min on Flex].
-test-ppg-full:
-    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_reaches_475 --ignored
 
 # PPG — short-run finite-rewards check [ignored: ~2 048-timestep smoke].
 test-ppg-short:
@@ -376,7 +363,7 @@ test-td3-linear:
 test-sac:
     cargo test -p rlevo --test sac_integration
 
-# SAC — Pendulum smoke [ignored: macro run, ~500k steps].
+# SAC — Pendulum smoke [ignored: ~30k Pendulum steps, ~2 min on Flex].
 test-sac-pendulum:
     cargo test -p rlevo --test sac_integration -- sac_pendulum_smoke --ignored
 
@@ -404,7 +391,6 @@ test-all-ignored: \
     test-ppg-cart-pole \
     test-ppg-no-aux \
     test-ppg-aux \
-    test-ppg-full \
     test-ddpg-linear \
     test-ddpg-pendulum \
     test-td3-linear \

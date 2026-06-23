@@ -32,6 +32,10 @@ impl BatchFitnessFn<B, Tensor<B, 2>> for ZeroFitness {
         let n = population.dims()[0];
         Tensor::<B, 1>::zeros([n], device)
     }
+
+    fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+        rlevo_core::objective::ObjectiveSense::Maximize
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]

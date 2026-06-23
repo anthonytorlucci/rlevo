@@ -71,15 +71,15 @@ model and every page below:
   Models sample on the host and upload with `Tensor::from_data`
   (the [evolution host-RNG convention](../part-3-evolution/index.md)).
 - **Selection order is a convenience, not a contract.** The rows handed to
-  `fit` arrive in ascending-fitness order (best first), deterministically.
+  `fit` arrive in descending-fitness order (best = highest first), deterministically.
   Models that need the best or worst row (PBIL, cGA) still compute
-  argmin/argmax themselves rather than hard-code an index.
+  argmax/argmin themselves rather than hard-code an index.
 
 ### Truncation selection and the best-so-far tracker
 
 `tell` does the bookkeeping every model would otherwise repeat. It pulls the
-fitness vector to host, sanitises \\(\mathrm{NaN} \to +\infty\\), and keeps the
-best \\(k\\) rows in ascending-fitness order, where
+fitness vector to host, sanitises \\(\mathrm{NaN} \to -\infty\\), and keeps the
+best \\(k\\) rows in descending-fitness order (highest first), where
 
 ```math
 k = \min\!\bigl(\max(2,\ \lceil \rho \cdot \texttt{pop\_size} \rceil),\ \texttt{pop\_size}\bigr)
@@ -96,7 +96,7 @@ fitness. All five built-in models perform an **unweighted** fit and ignore the
 fitness tensor; it is part of the interface so a future rank- or
 weight-sensitive model (a weighted MLE, a rank-μ update) can use it without a
 trait change. The driver also tracks the best genome ever seen
-(argmin, ties → lowest index) independently of the model, so `best` returns a
+(argmax, ties → lowest index) independently of the model, so `best` returns a
 genome even for models that never store one.
 
 ### Sampling determinism
@@ -163,7 +163,7 @@ Bernoulli trial: \\(1\\) with probability \\(p_j\\), else \\(0\\).
 
 Two deviations from Baluja's original formulation, both consequences of
 fitting inside `EdaStrategy`: the classic probability-mutation step is **not**
-applied, and the best/worst individuals are the argmin/argmax over the
+applied, and the best/worst individuals are the argmax/argmin over the
 *truncation-selected subset* rather than a freshly drawn sample.
 
 ### cGA — `CompactGenetic`
@@ -183,8 +183,8 @@ takes smaller steps, slowing convergence and preserving diversity. `sample` is
 Bernoulli per bit, as in PBIL.
 
 The textbook cGA (Harik, Lobo & Goldberg, 1999) draws two individuals
-uniformly from the virtual population and competes them. Here the winner and
-loser are the **best and worst of the truncation-selected subset** handed to
+uniformly from the virtual population and competes them. Here the winner is the
+**argmax** and the loser the **argmin** of the truncation-selected subset handed to
 `fit`, so the update is biased by the selection pressure `EdaStrategy` has
 already applied — a deliberate consequence of the shared driver.
 
@@ -284,9 +284,7 @@ Each model supplies a `default_for(genome_dim)` constructor:
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. Truncation selection keeps the
-\\(k\\) smallest-fitness rows; the best-so-far tracker is an argmin.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. Truncation selection keeps the \\(k\\) highest-fitness rows in descending-fitness order (best = highest first); the best-so-far tracker is an argmax.
 
 ## Minimal example
 
@@ -398,5 +396,5 @@ shape.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

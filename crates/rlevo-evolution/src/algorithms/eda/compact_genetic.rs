@@ -88,10 +88,10 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
     /// Update the per-gene probability vector by winner/loser competition.
     ///
     /// When `prev = None` returns the uniform-`0.5` prior; `population` and
-    /// `fitness` are ignored on that path. Otherwise finds the argmin (winner)
-    /// and argmax (loser) of the fitness vector, then nudges each gene where
-    /// winner and loser disagree by `±1 / virtual_pop_size` (toward the
-    /// winner), clamped to `[0, 1]`.
+    /// `fitness` are ignored on that path. Otherwise finds the argmax (winner)
+    /// and argmin (loser) of the fitness vector (canonical maximise: higher is
+    /// better), then nudges each gene where winner and loser disagree by
+    /// `±1 / virtual_pop_size` (toward the winner), clamped to `[0, 1]`.
     fn fit(
         &self,
         params: &Self::Params,
@@ -113,18 +113,19 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
         let fit_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
 
-        // Winner = argmin, loser = argmax; ties → lowest index.
+        // Winner = argmax (best fitness), loser = argmin (worst); ties →
+        // lowest index. Canonical maximise: higher is better.
         let mut winner_idx = 0_usize;
         let mut loser_idx = 0_usize;
-        let mut best_f = f32::INFINITY;
-        let mut worst_f = f32::NEG_INFINITY;
+        let mut best_f = f32::NEG_INFINITY;
+        let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            let f = fit_host.get(i).copied().unwrap_or(f32::INFINITY);
-            if f.total_cmp(&best_f) == std::cmp::Ordering::Less {
+            let f = fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY);
+            if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
                 best_f = f;
                 winner_idx = i;
             }
-            if f.total_cmp(&worst_f) == std::cmp::Ordering::Greater {
+            if f.total_cmp(&worst_f) == std::cmp::Ordering::Less {
                 worst_f = f;
                 loser_idx = i;
             }
@@ -231,7 +232,7 @@ mod tests {
             &p,
             Some(&prior),
             pop(vec![1.0, 0.0, 0.0, 1.0], 2, 2),
-            fitness(vec![0.0, 1.0]),
+            fitness(vec![1.0, 0.0]),
             &device,
         );
         approx::assert_relative_eq!(state.prob[0], 0.6, epsilon = 1e-6);
@@ -256,7 +257,7 @@ mod tests {
                 &p,
                 Some(&state),
                 pop(vec![1.0, 0.0, 0.0, 1.0], 2, 2),
-                fitness(vec![0.0, 1.0]),
+                fitness(vec![1.0, 0.0]),
                 &device,
             );
         }
@@ -279,7 +280,7 @@ mod tests {
             &p,
             Some(&prior),
             pop(vec![1.0, 1.0, 1.0, 0.0], 2, 2),
-            fitness(vec![0.0, 1.0]),
+            fitness(vec![1.0, 0.0]),
             &device,
         );
         approx::assert_relative_eq!(state.prob[0], 0.5, epsilon = 1e-6);
@@ -296,12 +297,14 @@ mod tests {
         let prior = fit_prior(&p);
         // Column mean of [1, 0, 0] is 1/3 ≈ 0.333. cGA instead nudges 0.5 by
         // +0.1 to 0.6 (winner=row 0 with gene 1, loser=row 2 with gene 0).
+        // Canonical maximise: row 0 has the highest fitness (winner), row 2 the
+        // lowest (loser).
         let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
             &CompactGenetic,
             &p,
             Some(&prior),
             pop(vec![1.0, 0.0, 0.0], 3, 1),
-            fitness(vec![0.0, 1.0, 2.0]),
+            fitness(vec![2.0, 1.0, 0.0]),
             &device,
         );
         approx::assert_relative_eq!(state.prob[0], 0.6, epsilon = 1e-6);

@@ -80,10 +80,7 @@ let config = GaConfig::default_for(64, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-For maximization problems, negate the objective before returning it from
-`evaluate_batch`. The Sphere function (\\(\sum x_i^2\\), minimum 0) is already
-a minimization problem and needs no transformation.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. A maximisation objective plugs in directly; a cost objective such as Sphere declares `ObjectiveSense::Minimize`.
 
 ## Minimal example
 
@@ -205,5 +202,5 @@ Two runs with the same seed produce identical trajectories.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

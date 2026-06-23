@@ -93,7 +93,12 @@ fn weight_only_ga_fits_noisy_sine_directional() {
         mse.into_data().into_vec::<f32>().unwrap()[0]
     };
 
-    let eval = ModuleEvalFn::new(ModuleReshaper::new(template.clone()), scorer);
+    // MSE is a cost — declare Minimize so the harness reconciles direction.
+    let eval = ModuleEvalFn::with_sense(
+        ModuleReshaper::new(template.clone()),
+        scorer,
+        rlevo_core::objective::ObjectiveSense::Minimize,
+    );
 
     let mut params = GaConfig::default_for(64, num_params);
     params.mutation_sigma = 0.3;

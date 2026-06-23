@@ -60,6 +60,7 @@ use crate::fitness::{BatchFitnessFn, FitnessFn};
 use crate::local_search::LocalSearch;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
+use rlevo_core::objective::ObjectiveSense;
 
 /// Controls how a refined genome's gains are written back into the population.
 ///
@@ -125,8 +126,9 @@ impl Default for WritebackPolicy {
 pub enum CoveragePolicy {
     /// Refine every individual.
     Full,
-    /// Refine only the `k` fittest (smallest-fitness) individuals, ties broken
-    /// by lower index. `k` is clamped to the population size.
+    /// Refine only the `k` fittest (largest-fitness, canonical maximise)
+    /// individuals, ties broken by lower index. `k` is clamped to the
+    /// population size.
     TopK {
         /// Number of fittest individuals to refine.
         k: usize,
@@ -205,7 +207,8 @@ pub struct MemeticState<St> {
 /// use rlevo_evolution::fitness::BatchFitnessFn;
 /// use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams};
 ///
-/// // Sphere objective: sum of squares per row.
+/// // Sphere objective: sum of squares per row (a cost → Minimize).
+/// use rlevo_core::objective::ObjectiveSense;
 /// struct Sphere;
 /// impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for Sphere {
 ///     fn evaluate_batch(
@@ -216,6 +219,7 @@ pub struct MemeticState<St> {
 ///         let squared = pop.clone() * pop.clone();
 ///         squared.sum_dim(1).squeeze_dim::<1>(1)
 ///     }
+///     fn sense(&self) -> ObjectiveSense { ObjectiveSense::Minimize }
 /// }
 ///
 /// let device = Default::default();
@@ -300,15 +304,20 @@ where
 }
 
 /// Adapts a population-level [`BatchFitnessFn`] into a single-row
-/// [`FitnessFn`] for local search.
+/// [`FitnessFn`] for local search, in **canonical (maximise)** space.
 ///
 /// Each [`evaluate_one`](FitnessFn::evaluate_one) builds a `[1, D]` tensor from
-/// the host-side row, calls `evaluate_batch`, and pulls the single scalar back.
-/// This is deliberately the slow path — local search re-uploads one row at a
-/// time — and is private plumbing internal to the wrapper.
+/// the host-side row, calls `evaluate_batch`, pulls the single scalar back, and
+/// maps it into canonical space via the wrapped fn's
+/// [`sense`](BatchFitnessFn::sense). Local searchers maximise, and the seed
+/// fitness the memetic wrapper hands them (the harness-canonicalised value) is
+/// also canonical, so both ends agree. This is deliberately the slow path —
+/// local search re-uploads one row at a time — and is private plumbing
+/// internal to the wrapper.
 struct RowFitness<'a, B: Backend, F> {
     inner: &'a mut F,
     device: &'a B::Device,
+    sense: ObjectiveSense,
 }
 
 impl<B, F> FitnessFn<Vec<f32>> for RowFitness<'_, B, F>
@@ -322,7 +331,8 @@ where
         let row: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, self.device);
         let fitness: Tensor<B, 1> = self.inner.evaluate_batch(&row, self.device);
         let values: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap_or_default();
-        values.first().copied().unwrap_or(f32::INFINITY)
+        let natural = values.first().copied().unwrap_or(f32::NEG_INFINITY);
+        self.sense.to_canonical(natural)
     }
 }
 
@@ -380,7 +390,7 @@ where
     /// 1. Host-pull the fitness vector and one flat read-only host copy of the
     ///    population; read `[pop_size, dim]` and the device.
     /// 2. Compute coverage indices ([`Full`](CoveragePolicy::Full) = all;
-    ///    [`TopK`](CoveragePolicy::TopK) = the `k` smallest fitnesses, ties by
+    ///    [`TopK`](CoveragePolicy::TopK) = the `k` largest fitnesses, ties by
     ///    lower index), then process them in ascending index order so RNG
     ///    consumption is a pure function of the `(fitness, index)` ranking.
     /// 3. Draw **exactly one** `rng.next_u64()` unconditionally (so the harness
@@ -452,9 +462,13 @@ where
         let mut writeback_rows: Vec<(usize, Vec<f32>)> = Vec::with_capacity(indices.len());
         {
             let mut guard = self.fitness.lock();
+            // Read the sense before the mutable borrow for `inner`; local
+            // search runs in canonical space, so `RowFitness` canonicalises.
+            let sense = guard.sense();
             let mut row_fitness: RowFitness<'_, B, F> = RowFitness {
                 inner: &mut *guard,
                 device: &device,
+                sense,
             };
             for &i in &indices {
                 let start: usize = i * dim;
@@ -525,19 +539,20 @@ where
 /// Computes the refinement coverage indices for a generation (unsorted).
 ///
 /// `Full` yields `0..pop_size`; `TopK { k }` yields the indices of the `k`
-/// smallest fitness values, ties broken by lower index (stable sort over
-/// `(fitness, index)`), with `k` clamped to `pop_size`. The caller is
-/// responsible for sorting the result into ascending index order.
+/// largest fitness values (canonical maximise: higher is fitter), ties broken
+/// by lower index (stable sort over `(fitness, index)`), with `k` clamped to
+/// `pop_size`. The caller is responsible for sorting the result into ascending
+/// index order.
 fn coverage_indices(policy: &CoveragePolicy, fitness: &[f32], pop_size: usize) -> Vec<usize> {
     match *policy {
         CoveragePolicy::Full => (0..pop_size).collect(),
         CoveragePolicy::TopK { k } => {
             let k: usize = k.min(pop_size);
             let mut ranked: Vec<usize> = (0..pop_size).collect();
-            // Stable sort by (fitness, index): `total_cmp` orders NaN
+            // Stable sort by (fitness desc, index): `total_cmp` orders NaN
             // deterministically, and `sort_by` is stable so equal fitnesses keep
             // ascending-index order — making ties break by lower index.
-            ranked.sort_by(|&a, &b| fitness[a].total_cmp(&fitness[b]));
+            ranked.sort_by(|&a, &b| fitness[b].total_cmp(&fitness[a]));
             ranked.truncate(k);
             ranked
         }
@@ -605,7 +620,7 @@ mod tests {
             RecState {
                 received_pop: None,
                 received_fit: None,
-                best: f32::INFINITY,
+                best: f32::NEG_INFINITY,
                 generation: 0,
             }
         }
@@ -646,7 +661,8 @@ mod tests {
         }
     }
 
-    /// Sphere fitness counting the total number of evaluated ROWS. Each
+    /// Negated-sphere fitness (a maximise objective with optimum 0 at the
+    /// origin) counting the total number of evaluated ROWS. Each
     /// `RowFitness::evaluate_one` is one `[1, D]` batch, so refinement evals are
     /// counted too.
     #[derive(Debug, Default)]
@@ -667,16 +683,21 @@ mod tests {
             let mut out = Vec::with_capacity(pop);
             for r in 0..pop {
                 let start = r * dim;
-                let f: f32 = flat[start..start + dim].iter().map(|v| v * v).sum();
+                let f: f32 = -flat[start..start + dim].iter().map(|v| v * v).sum::<f32>();
                 out.push(f);
             }
             Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
         }
+
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
     }
 
-    /// Sphere on a flat host genome — for re-deriving expected fitness.
-    fn sphere(row: &[f32]) -> f32 {
-        row.iter().map(|v| v * v).sum()
+    /// Negated sphere on a flat host genome — the canonical fitness of a row,
+    /// for re-deriving expected values. Higher (closer to 0) is better.
+    fn neg_sphere(row: &[f32]) -> f32 {
+        -row.iter().map(|v| v * v).sum::<f32>()
     }
 
     fn rec_params(rows: Vec<f32>, pop: usize, dim: usize) -> RecParams {
@@ -756,23 +777,23 @@ mod tests {
         let recv_pop = next.inner.received_pop.clone().unwrap();
         assert_eq!(recv_pop, ask_bytes, "Baldwinian must not alter the genome");
 
-        // Covered rows (TopK{2} = the two smallest-fitness rows) have refined
-        // fitness <= original; all others unchanged. Covered = indices 0,1 here
-        // (fitness increases with row index for this population).
+        // Covered rows (TopK{2} = the two fittest, highest-canonical rows) have
+        // refined fitness >= original (canonical maximise); all others
+        // unchanged. Covered = indices 0,1 here (canonical −sphere fitness
+        // decreases with row index for this population, so the lowest indices
+        // are the fittest).
         let recv_fit = next.inner.received_fit.clone().unwrap();
         for i in 0..pop {
             if i < 2 {
                 assert!(
-                    recv_fit[i] <= orig[i],
-                    "covered row {i}: refined {} must be <= original {}",
+                    recv_fit[i] >= orig[i],
+                    "covered row {i}: refined {} must be >= original {}",
                     recv_fit[i],
                     orig[i]
                 );
-                // Equals a fresh eval of the (unchanged) original row's refined
-                // value: the refined fitness is honest for the genome stored,
-                // but the genome is unchanged, so recv_fit[i] <= sphere(orig row).
-                let start = i * dim;
-                assert!(recv_fit[i] <= sphere(&rows[start..start + dim]) + 1e-6);
+                // The refined fitness cannot exceed the global maximum of the
+                // negated-sphere objective (0 at the origin).
+                assert!(recv_fit[i] <= 1e-6);
             } else {
                 assert_eq!(recv_fit[i], orig[i], "uncovered row {i} must be unchanged");
             }
@@ -828,11 +849,12 @@ mod tests {
             let recv_row = &recv_pop[start..start + dim];
             let ask_row = &ask_bytes[start..start + dim];
             if i < 2 {
-                // Covered rows changed (HillClimbing improves the sphere from a
-                // non-optimal start).
+                // Covered rows changed (HillClimbing improves the negated
+                // sphere from a non-optimal start).
                 assert_ne!(recv_row, ask_row, "covered row {i} should have changed");
-                // received fitness[i] equals a fresh eval of received row i.
-                approx::assert_relative_eq!(recv_fit[i], sphere(recv_row), epsilon = 1e-5);
+                // received fitness[i] equals a fresh canonical eval of received
+                // row i (the negated sphere).
+                approx::assert_relative_eq!(recv_fit[i], neg_sphere(recv_row), epsilon = 1e-5);
             } else {
                 assert_eq!(recv_row, ask_row, "uncovered row {i} must be bit-identical");
             }
@@ -969,7 +991,8 @@ mod tests {
     // 6. DE round-trip.
     // ---------------------------------------------------------------------
 
-    /// Inline sphere `BatchFitnessFn` evaluated on-device.
+    /// Inline negated-sphere `BatchFitnessFn` (maximise, optimum 0 at origin)
+    /// evaluated on-device.
     #[derive(Debug, Default)]
     struct SphereBatch;
     impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for SphereBatch {
@@ -984,9 +1007,13 @@ mod tests {
             let mut out: Vec<f32> = Vec::with_capacity(pop);
             for r in 0..pop {
                 let start = r * dim;
-                out.push(flat[start..start + dim].iter().map(|v| v * v).sum());
+                out.push(-flat[start..start + dim].iter().map(|v| v * v).sum::<f32>());
             }
             Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
+        }
+
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
         }
     }
 
@@ -1018,7 +1045,8 @@ mod tests {
         }
         let last: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
         assert!(last.is_finite(), "best must stay finite");
-        assert!(last <= first, "best_fitness_ever must improve: {last} <= {first}");
+        // Maximise objective: best_fitness_ever climbs toward the optimum 0.
+        assert!(last >= first, "best_fitness_ever must improve: {last} >= {first}");
     }
 
     // ---------------------------------------------------------------------

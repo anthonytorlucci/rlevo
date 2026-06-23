@@ -253,6 +253,11 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
             }
         }
 
+        // NOTE: the sentinels in this structure-learning routine are about
+        // marginal entropy (σ) and mutual information, NOT objective fitness.
+        // They are independent of the crate's maximise convention — do not
+        // "fix" them to match it.
+        //
         // Root: smallest floored std (Gaussian entropy is monotone in σ, so the
         // lowest-σ dimension has the smallest marginal entropy); tie → lowest
         // index.

@@ -27,8 +27,9 @@ next unchanged, guaranteeing that the best fitness never regresses.
 **Episode.** A single trajectory through an environment from `reset()` to a
 terminal `step()`.
 
-**Fitness.** The scalar value assigned to a candidate solution. `rlevo` uses a
-minimisation convention: lower is better.
+**Fitness.** The scalar value assigned to a candidate solution. `rlevo`'s engine
+is maximise-native (higher is better); a cost objective declares
+`ObjectiveSense::Minimize` and the harness reconciles direction at one chokepoint.
 
 **Genome.** A candidate solution. In `rlevo` a population of genomes lives
 on-device as an `f32` tensor (`Tensor<B, 2>` of shape `(pop_size, genome_dim)`),
@@ -51,5 +52,5 @@ a specific EC algorithm.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

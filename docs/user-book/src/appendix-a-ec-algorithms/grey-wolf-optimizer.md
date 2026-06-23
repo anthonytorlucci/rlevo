@@ -25,7 +25,7 @@ shape `(pop_size, D)`. The pack must hold at least three wolves.
 
 ## The pack update
 
-`ask` ranks the pack by cost and selects the three lowest as leaders
+`ask` ranks the pack by fitness and selects the three highest as leaders
 \\(X_\alpha, X_\beta, X_\delta\\). For each leader \\(k\\) it forms two
 **element-wise** coefficient tensors of shape `(pop_size, D)` from uniform draws
 \\(r_1, r_2 \sim \mathcal{U}[0,1)\\):
@@ -102,10 +102,7 @@ let config = GwoConfig::default_for(32, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The three leaders are the three
-lowest-cost wolves, and the best-so-far tracker (the reported \\(\alpha\\)) is an
-argmin over the evaluated pack.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The three leaders are the three highest-fitness wolves, and the best-so-far tracker (the reported \\(\alpha\\)) is an argmax over the evaluated pack.
 
 ## Minimal example
 
@@ -165,8 +162,8 @@ fn main() {
 
 ## Implementation notes
 
-**Host-side ranking.** The pack is ranked on the host (`argtop3_min` finds the
-three smallest costs in one pass), avoiding backend-specific `argsort` quirks; the
+**Host-side ranking.** The pack is ranked on the host (`argtop3_max` finds the
+three highest-fitness individuals in one pass), avoiding backend-specific `argsort` quirks; the
 \\(O(N\log N)\\) cost is negligible against the device tensor ops. The three
 leaders are then gathered with a single `select`.
 
@@ -179,7 +176,7 @@ host-RNG convention), so draws are reproducible across thread schedules.
 **No pack elitism.** The update overwrites every wolf — including the leaders —
 with its averaged candidate, so the \\(\alpha\\) position is not carried forward
 inside the pack. The best-so-far genome is tracked *separately* in `tell` (a
-strict-improvement argmin), so the reported best never regresses even though the
+strict-improvement argmax), so the reported best never regresses even though the
 pack itself can.
 
 **Two-cycle bootstrap.** GWO needs a fitness cache before it can rank. The first
@@ -210,5 +207,5 @@ prefer it as a comparator, not a workhorse.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

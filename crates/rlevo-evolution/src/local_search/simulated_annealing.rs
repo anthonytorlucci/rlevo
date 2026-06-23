@@ -1,24 +1,24 @@
 //! Simulated annealing.
 //!
 //! Simulated annealing performs a stochastic walk that accepts worsening moves
-//! with probability `exp(-Δf / T)`, cooling the temperature `T` over time so
+//! with probability `exp(Δf / T)`, cooling the temperature `T` over time so
 //! the walk gradually concentrates on improving moves. This lets it escape
-//! shallow local minima that strict hill climbing gets stuck in, at the cost of
+//! shallow local maxima that strict hill climbing gets stuck in, at the cost of
 //! being a coarse explorer rather than a precision finisher.
 //!
 //! Each iteration proposes a neighbour by adding per-coordinate Gaussian noise
 //! `N(0, step_size)` to the current walker position (sampled through the
 //! supplied `rng`), clamps it to bounds, and evaluates it. A non-worsening move
-//! is always accepted; a worsening move of size `Δf` is accepted iff a uniform
-//! draw `rng.random::<f32>()` falls below `exp(-Δf / T)`. The temperature is
-//! cooled once per iteration via the configured [`CoolingSchedule`], and the
-//! walk early-stops once `T < min_temp`.
+//! is always accepted; a worsening move (`Δf = cand_fit - current_fit < 0`) is
+//! accepted iff a uniform draw `rng.random::<f32>()` falls below `exp(Δf / T)`.
+//! The temperature is cooled once per iteration via the configured
+//! [`CoolingSchedule`], and the walk early-stops once `T < min_temp`.
 //!
 //! The returned pair is always the best `(genome, fitness)` observed across all
 //! evaluations — **not** the final walker position, which may sit at an uphill
 //! point it accepted. Tracking the global best on every evaluation is what makes
 //! the [`LocalSearch`] monotone-non-worsening
-//! and fresh-fitness invariants hold structurally despite uphill acceptance.
+//! and fresh-fitness invariants hold structurally despite downhill acceptance.
 
 use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
@@ -96,26 +96,26 @@ impl SimulatedAnnealingParams {
 /// use rlevo_evolution::fitness::FitnessFn;
 /// use rlevo_evolution::local_search::{LocalSearch, SimulatedAnnealing, SimulatedAnnealingParams};
 ///
-/// // Minimize the 2-D sphere; the optimum is the origin with fitness 0.
-/// struct Sphere;
-/// impl FitnessFn<Vec<f32>> for Sphere {
+/// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
+/// struct NegSphere;
+/// impl FitnessFn<Vec<f32>> for NegSphere {
 ///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         x.iter().map(|v| v * v).sum()
+///         -x.iter().map(|v| v * v).sum::<f32>()
 ///     }
 /// }
 ///
 /// let searcher = SimulatedAnnealing;
 /// let params = SimulatedAnnealingParams::default_for((-5.12, 5.12));
-/// let mut fitness = Sphere;
+/// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
-/// let start_fit: f32 = start.iter().map(|v| v * v).sum();
+/// let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
 /// let (refined, refined_fit) =
 ///     LocalSearch::<Flex>::refine(&searcher, &params, start, &mut fitness, &mut rng);
 ///
 /// assert_eq!(refined.len(), 2);          // dimensionality preserved
-/// assert!(refined_fit <= start_fit);     // monotone non-worsening
+/// assert!(refined_fit >= start_fit);     // monotone non-worsening
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SimulatedAnnealing;
@@ -196,18 +196,19 @@ impl SimulatedAnnealing {
             };
 
             // Track the global best on every evaluation.
-            if cand_fit < best_fit {
+            if cand_fit > best_fit {
                 best_fit = cand_fit;
                 best.clone_from(&candidate);
             }
 
-            // Metropolis acceptance: always take a non-worsening move; take a
-            // worsening move of size `delta` with probability `exp(-delta / T)`.
-            // Both the comparison and the uphill draw flow through the passed
-            // rng so all stochasticity is reproducible.
+            // Metropolis acceptance: always take a non-worsening move (`delta >=
+            // 0`); take a worsening move of size `delta` with probability
+            // `exp(delta / T)` (a negative exponent → probability < 1). Both the
+            // comparison and the downhill draw flow through the passed rng so all
+            // stochasticity is reproducible.
             let delta: f32 = cand_fit - current_fit;
             let accept: bool =
-                delta <= 0.0 || rng.random::<f32>() < (-delta / temp).exp();
+                delta >= 0.0 || rng.random::<f32>() < (delta / temp).exp();
             if accept {
                 current = candidate;
                 current_fit = cand_fit;
@@ -244,7 +245,7 @@ impl<B: Backend> LocalSearch<B> for SimulatedAnnealing {
     }
 
     /// Seeds the walker and best-so-far tracker with `known_fitness` (sanitizing
-    /// `NaN` to `+inf`) instead of re-scoring the input, saving one eval.
+    /// `NaN` to `-inf`) instead of re-scoring the input, saving one eval.
     ///
     /// # Panics
     ///
@@ -270,21 +271,22 @@ mod tests {
 
     type TestBackend = Flex;
 
-    /// `f(x) = Σ x_i²` — convex, unimodal, optimum at the origin.
-    struct Sphere;
-    impl FitnessFn<Vec<f32>> for Sphere {
+    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// origin.
+    struct NegSphere;
+    impl FitnessFn<Vec<f32>> for NegSphere {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            x.iter().map(|v| v * v).sum()
+            -x.iter().map(|v| v * v).sum::<f32>()
         }
     }
 
-    /// 2-D Rosenbrock — curved valley, optimum at `(1, 1)` with value 0.
-    struct Rosenbrock;
-    impl FitnessFn<Vec<f32>> for Rosenbrock {
+    /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
+    struct NegRosenbrock;
+    impl FitnessFn<Vec<f32>> for NegRosenbrock {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
             let a = 1.0 - x[0];
             let b = x[1] - x[0] * x[0];
-            a * a + 100.0 * b * b
+            -(a * a + 100.0 * b * b)
         }
     }
 
@@ -350,16 +352,17 @@ mod tests {
     fn sphere_d2_improves_substantially() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
-        let start_fit: f32 = start.iter().map(|v| v * v).sum();
+        let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         // SA is a coarse explorer, not a precision finisher: assert a large
-        // relative improvement, not 1e-6 convergence.
+        // relative improvement, not 1e-6 convergence. `start_fit` is negative
+        // (maximum is 0), so closing the gap means rising above `0.1 * start_fit`.
         assert!(
-            fit < 0.1 * start_fit,
+            fit > 0.1 * start_fit,
             "sphere D=2 should improve substantially: best={fit}, start={start_fit}"
         );
     }
@@ -368,20 +371,20 @@ mod tests {
     fn sphere_d10_strictly_improves() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
-        let start_fit: f32 = start.iter().map(|v| v * v).sum();
+        let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        assert!(fit < start_fit, "expected improvement: {fit} < {start_fit}");
+        assert!(fit > start_fit, "expected improvement: {fit} > {start_fit}");
     }
 
     #[test]
     fn output_len_equals_input_len() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
@@ -400,7 +403,7 @@ mod tests {
     fn returned_fitness_matches_fresh_eval() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
         let (g, fit) =
@@ -411,14 +414,14 @@ mod tests {
 
     #[test]
     fn rosenbrock_monotone_non_worsening() {
-        // Pins that the tracked best (not the uphill-drifting walker) is what
-        // gets returned: despite accepting worsening moves, `f_out <= f_in`.
+        // Pins that the tracked best (not the downhill-drifting walker) is what
+        // gets returned: despite accepting worsening moves, `f_out >= f_in`.
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
         let mut rng = StdRng::seed_from_u64(5);
         for _ in 0..6 {
             let start = random_start(&mut rng, 2, BOUNDS);
-            let mut fitness = Rosenbrock;
+            let mut fitness = NegRosenbrock;
             let start_fit = fitness.evaluate_one(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
@@ -427,7 +430,7 @@ mod tests {
                 &mut fitness,
                 &mut rng,
             );
-            assert!(fit <= start_fit, "monotone: {fit} <= {start_fit}");
+            assert!(fit >= start_fit, "monotone: {fit} >= {start_fit}");
         }
     }
 
@@ -467,7 +470,7 @@ mod tests {
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = Sphere;
+        let mut fitness_a = NegSphere;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -477,7 +480,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = Sphere;
+        let mut fitness_b = NegSphere;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -492,7 +495,7 @@ mod tests {
         assert_eq!(g_a, g_b);
         assert_eq!(f_a, f_b);
 
-        let mut fitness_c = Sphere;
+        let mut fitness_c = NegSphere;
         let mut rng_c = StdRng::seed_from_u64(999);
         let (g_c, _f_c) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -515,7 +518,7 @@ mod tests {
         params.initial_temp = 1e-3;
         params.min_temp = 1e-1;
         params.cooling = CoolingSchedule::Geometric { factor: 0.5 };
-        let mut base = Sphere;
+        let mut base = NegSphere;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(7);
         let start = vec![1.0_f32, -1.0];
@@ -540,7 +543,7 @@ mod tests {
         let mut params = SimulatedAnnealingParams::default_for(BOUNDS);
         // Large step relative to range pushes proposals hard against bounds.
         params.step_size = 4.0;
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.1; 4];
@@ -561,22 +564,22 @@ mod tests {
 
     #[test]
     fn uphill_moves_accepted_at_high_temperature() {
-        // With a huge initial temperature, exp(-Δf / T) ≈ 1, so the walker
+        // With a huge initial temperature, exp(Δf / T) ≈ 1, so the walker
         // should accept worsening moves. We detect acceptance indirectly: the
-        // returned best is the tracked minimum, but if NO uphill move were ever
-        // accepted the walker would behave like a pure descent and the recorded
-        // evaluation sequence would be (weakly) monotone after the first
-        // improvement. Instead we assert the walker visits a fitness strictly
-        // worse than the running minimum more than once — only possible if an
-        // earlier worsening move was accepted, moving the walker uphill so its
-        // next proposal is centred on a worse point.
+        // returned best is the tracked maximum, but if NO worsening move were
+        // ever accepted the walker would behave like a pure ascent and the
+        // recorded evaluation sequence would be (weakly) monotone after the
+        // first improvement. Instead we assert the walker visits a fitness
+        // strictly worse than the running maximum more than once — only possible
+        // if an earlier worsening move was accepted, moving the walker downhill
+        // so its next proposal is centred on a worse point.
         let searcher = SimulatedAnnealing;
         let mut params = SimulatedAnnealingParams::default_for(BOUNDS);
         params.max_iters = 200;
         params.initial_temp = 1e9;
         params.min_temp = 1e-9;
         params.step_size = 0.5;
-        let mut base = Sphere;
+        let mut base = NegSphere;
         let mut recording = Recording::new(&mut base);
         let mut rng = StdRng::seed_from_u64(11);
         let start = vec![0.05_f32, -0.05];
@@ -589,24 +592,24 @@ mod tests {
         );
 
         // Count evaluations that were strictly worse than the best-so-far at the
-        // time they were seen. A pure greedy descent (no uphill acceptance) can
+        // time they were seen. A pure greedy ascent (no worsening acceptance) can
         // produce such evaluations too — but with a near-origin start and a
-        // large step on the sphere, sustained worse-than-best proposals are only
-        // explored because accepted uphill moves keep re-centring the walker on
-        // worse points. Require several to make the assertion robust.
-        let mut running_best = f32::INFINITY;
+        // large step on the negated sphere, sustained worse-than-best proposals
+        // are only explored because accepted worsening moves keep re-centring the
+        // walker on worse points. Require several to make the assertion robust.
+        let mut running_best = f32::NEG_INFINITY;
         let mut worse_than_best = 0_usize;
         for &f in &recording.fitnesses {
-            if f > running_best {
+            if f < running_best {
                 worse_than_best += 1;
             }
-            if f < running_best {
+            if f > running_best {
                 running_best = f;
             }
         }
         assert!(
             worse_than_best >= 3,
-            "expected sustained uphill exploration at high temperature, saw {worse_than_best} \
+            "expected sustained worsening exploration at high temperature, saw {worse_than_best} \
              worse-than-best evaluations"
         );
     }
@@ -660,7 +663,7 @@ mod tests {
     fn nan_hint_does_not_propagate() {
         let searcher = SimulatedAnnealing;
         let params = SimulatedAnnealingParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(32);
         let start = vec![2.0_f32, -1.0];
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(

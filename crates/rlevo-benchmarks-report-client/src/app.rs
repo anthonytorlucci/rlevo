@@ -14,7 +14,7 @@ use crate::inline_data::{
     read_warnings,
 };
 use crate::playback::playback_panel;
-use crate::wire::{EnvFamily, EpisodeRecord, RunManifest};
+use crate::wire::{EnvFamily, EpisodeRecord, ObjectiveSense, RunManifest};
 
 /// Root Leptos component that assembles the full report page.
 ///
@@ -35,6 +35,13 @@ use crate::wire::{EnvFamily, EpisodeRecord, RunManifest};
 pub fn App() -> impl IntoView {
     let manifest = read_manifest();
     let family: Option<EnvFamily> = manifest.as_ref().ok().map(|m| m.env_family);
+    // Objective direction orients the population best/worst overlays. `None`
+    // (older manifests, RL runs) reads as the canonical maximise sense.
+    let objective_sense: ObjectiveSense = manifest
+        .as_ref()
+        .ok()
+        .and_then(|m| m.objective_sense)
+        .unwrap_or(ObjectiveSense::Maximize);
     let episodes = read_episode_index().unwrap_or_default();
     let warnings = read_warnings().unwrap_or_default();
 
@@ -72,7 +79,7 @@ pub fn App() -> impl IntoView {
             <h2>"Episodes"</h2>
             {episode_table(episodes, selected, set_selected)}
             {convergence_panel_view(read_all_episode_records(), family.unwrap_or(EnvFamily::Classic))}
-            {population_panel_view(read_all_population_samples())}
+            {population_panel_view(read_all_population_samples(), objective_sense)}
             <h2>"Selected episode"</h2>
             <div class="rlevo-detail">
                 {move || match (selected_meta.get(), selected_record.get()) {

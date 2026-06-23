@@ -350,9 +350,9 @@ where
         );
         CgpState {
             parent,
-            parent_fitness: f32::INFINITY,
+            parent_fitness: f32::NEG_INFINITY,
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -433,15 +433,15 @@ where
         }
 
         // (1+λ): parent survives only if NO offspring strictly beats it;
-        // canonical CGP uses `<=` to break ties in favor of offspring
-        // (neutral mutations accumulate).
+        // canonical CGP uses `>=` (under the maximise convention) to break
+        // ties in favor of offspring (neutral mutations accumulate).
         let best_off_idx = fitness_host
             .iter()
             .enumerate()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i);
         let best_off_fit = fitness_host[best_off_idx];
-        if best_off_fit <= state.parent_fitness {
+        if best_off_fit >= state.parent_fitness {
             let device = offspring.device();
             #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -477,12 +477,12 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
     let mut best_idx = 0usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
         let idx =
@@ -547,6 +547,10 @@ mod tests {
                 fitness.push(mse);
             }
             Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        }
+
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Minimize
         }
     }
 

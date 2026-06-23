@@ -17,11 +17,16 @@
 //!
 //! # Fitness convention
 //!
-//! The fitness tensor passed to [`tell`](Strategy::tell) is the raw
-//! objective value. Strategies in this crate minimize it: the
-//! [`StrategyMetrics::best_fitness`] field is the smallest value observed
-//! so far, and the harness reports `reward = -best_fitness` so the
-//! benchmark harness's "higher = better" convention still holds.
+//! The engine is **maximise-native**: the fitness tensor passed to
+//! [`tell`](Strategy::tell) is a **canonical** value where *higher is
+//! better*, and strategies maximise it directly. The
+//! [`StrategyMetrics::best_fitness`] field is the largest value observed in
+//! a generation; [`StrategyMetrics::best_fitness_ever`] is a rolling
+//! maximum. Strategies are **sense-unaware** — they never see an
+//! [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense). Cost
+//! objectives (e.g. the benchmark landscapes) are negated into canonical
+//! space at exactly one chokepoint, [`EvolutionaryHarness`], which also
+//! maps metrics back to the objective's declared sense for reporting.
 //!
 //! # The harness adapter
 //!
@@ -38,6 +43,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
+use rlevo_core::objective::ObjectiveSense;
 
 use crate::fitness::BatchFitnessFn;
 use crate::observer::{PopulationSnapshot, SharedPopulationObserver};
@@ -143,23 +149,28 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// Best-so-far accessor.
     ///
     /// Returns `None` before the first [`tell`](Self::tell) call.
-    /// The tuple is `(genome, fitness)` where `fitness` is the raw
-    /// (minimization-convention) scalar — the smallest value seen across
-    /// all completed generations.
+    /// The tuple is `(genome, fitness)` where `fitness` is the **canonical**
+    /// (maximise-convention) scalar — the largest value seen across all
+    /// completed generations. The harness maps it back to the objective's
+    /// declared sense before surfacing it to callers.
     fn best(&self, state: &Self::State) -> Option<(Self::Genome, f32)>;
 }
 
 /// Per-generation summary reported by [`Strategy::tell`].
 ///
 /// All statistics refer to the generation that just finished evaluating.
-/// Fitness values follow the minimization convention: lower is better.
+/// These values are in **canonical (maximise) space**: *higher is better*.
+/// Strategies are sense-unaware, so the metrics they emit are always
+/// canonical. [`EvolutionaryHarness::latest_metrics`] maps them back to the
+/// objective's declared sense before surfacing them to callers, so a
+/// `Minimize` landscape reads as its natural cost (Sphere → 0).
 ///
 /// When printed in a benchmark showcase (e.g. `ackley_showcase`), the
 /// two most informative fields are:
 ///
-/// - **`best_fitness_ever`** — the smallest fitness seen across *all*
-///   generations so far. This is a rolling minimum that tells you how
-///   close the best individual ever found came to the global optimum.
+/// - **`best_fitness_ever`** — the best (canonical: largest) fitness seen
+///   across *all* generations so far. This is a rolling maximum that tells
+///   you how close the best individual ever found came to the optimum.
 /// - **`mean_fitness`** — the arithmetic mean of the current generation's
 ///   per-individual fitness vector. This tells you the average quality of
 ///   the population in that generation.
@@ -175,7 +186,7 @@ pub struct StrategyMetrics {
     pub generation: usize,
     /// Number of individuals evaluated in this generation.
     pub population_size: usize,
-    /// Smallest fitness observed in this generation.
+    /// Best (canonical: largest) fitness observed in this generation.
     pub best_fitness: f32,
     /// Mean fitness across this generation's population.
     ///
@@ -185,15 +196,16 @@ pub struct StrategyMetrics {
     /// quality. See the struct-level docs for how to interpret the gap
     /// between this field and [`Self::best_fitness_ever`].
     pub mean_fitness: f32,
-    /// Largest fitness observed in this generation.
+    /// Worst (canonical: smallest) fitness observed in this generation.
     pub worst_fitness: f32,
     /// Best fitness seen across *all* generations to date.
     ///
-    /// This is a rolling minimum (`previous_best.min(current_generation_best)`).
-    /// When printed in a benchmark showcase, it represents the best
-    /// solution quality found during the entire run. For landscapes whose
-    /// global optimum is known (e.g. Ackley → 0), this value tells you
-    /// how close the algorithm got to the theoretical minimum.
+    /// This is a rolling maximum (`previous_best.max(current_generation_best)`)
+    /// in canonical space. When mapped back to the objective's sense and
+    /// printed in a benchmark showcase, it represents the best solution
+    /// quality found during the entire run. For landscapes whose global
+    /// optimum is known (e.g. Ackley → 0), the harness-reported value tells
+    /// you how close the algorithm got to the theoretical optimum.
     pub best_fitness_ever: f32,
 }
 
@@ -207,12 +219,14 @@ impl StrategyMetrics {
     pub fn from_host_fitness(generation: usize, fitnesses: &[f32], best_fitness_ever: f32) -> Self {
         assert!(!fitnesses.is_empty(), "fitness slice must be non-empty");
         let population_size = fitnesses.len();
-        let (mut best, mut worst, mut sum) = (f32::INFINITY, f32::NEG_INFINITY, 0.0_f32);
+        // Canonical (maximise) space: best is the largest value, worst the
+        // smallest, and best-ever a rolling maximum.
+        let (mut best, mut worst, mut sum) = (f32::NEG_INFINITY, f32::INFINITY, 0.0_f32);
         for &f in fitnesses {
-            if f < best {
+            if f > best {
                 best = f;
             }
-            if f > worst {
+            if f < worst {
                 worst = f;
             }
             sum += f;
@@ -225,7 +239,7 @@ impl StrategyMetrics {
             best_fitness: best,
             mean_fitness: mean,
             worst_fitness: worst,
-            best_fitness_ever: best_fitness_ever.min(best),
+            best_fitness_ever: best_fitness_ever.max(best),
         }
     }
 }
@@ -265,13 +279,15 @@ impl StrategyMetrics {
 /// ```
 ///
 /// Each [`step`](BenchEnv::step) runs one generation (ask → evaluate →
-/// tell). The reward returned to the harness is `-best_fitness_ever` so
-/// the harness's "higher = better" convention matches the strategy's
-/// minimization direction, and so the per-episode cumulative return
-/// (Σ step rewards) integrates the optimization trajectory —
-/// `return_value / num_steps` bounds the final `best_fitness_ever` from
-/// above. The harness only exposes episode-level returns to reporters,
-/// so the "best at end" signal would otherwise be lost.
+/// tell). The harness is the sole canonicaliser: it reads the fitness fn's
+/// [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense), negates a
+/// `Minimize` objective into the engine's maximise space before `tell`, and
+/// maps the metrics back to the declared sense for reporting. The reward
+/// returned is the **canonical** `best_fitness_ever` directly (already
+/// higher-is-better — no negation), so the per-episode cumulative return
+/// (Σ step rewards) integrates the optimization trajectory. The harness only
+/// exposes episode-level returns to reporters, so the "best at end" signal
+/// would otherwise be lost.
 ///
 /// # Determinism and parallel execution
 ///
@@ -395,8 +411,16 @@ where
     }
 
     /// Forward to [`Strategy::best`] when a state exists.
+    ///
+    /// The strategy tracks the best genome in **canonical (maximise)** space;
+    /// the returned fitness is mapped back to the objective's declared sense so
+    /// a `Minimize` landscape reads as its natural cost.
     pub fn best(&self) -> Option<(S::Genome, f32)> {
-        self.state.as_ref().and_then(|s| self.strategy.best(s))
+        let sense = self.fitness_fn.sense();
+        self.state
+            .as_ref()
+            .and_then(|s| self.strategy.best(s))
+            .map(|(genome, canonical)| (genome, sense.from_canonical(canonical)))
     }
 
     /// Reset to a fresh initial state.
@@ -432,28 +456,52 @@ where
         let (population, state) =
             self.strategy
                 .ask(&self.params, &state, &mut self.rng, &self.device);
-        let fitness = self.fitness_fn.evaluate_batch(&population, &self.device);
-        // Mirror the fitness tensor to host only if someone's actually
-        // listening — the device→host transfer is the expensive part.
+        // The fitness function reports NATURAL values; the harness is the sole
+        // canonicaliser. `sense` is the single source of truth (read off the
+        // fitness fn, so the ctor and the adapter can never disagree).
+        let sense = self.fitness_fn.sense();
+        let fitness_natural = self.fitness_fn.evaluate_batch(&population, &self.device);
+        // Mirror the NATURAL fitness tensor to host only if someone's actually
+        // listening — the device→host transfer is the expensive part. The
+        // observer records natural (user-sense) per-individual fitness.
         let snapshot_fitness: Option<Vec<f32>> = self.observer.as_ref().map(|_| {
-            fitness
+            fitness_natural
                 .clone()
                 .into_data()
                 .into_vec::<f32>()
                 .unwrap_or_default()
         });
-        let (new_state, metrics) =
+        // Canonicalise into the engine's maximise-native space: a `Minimize`
+        // objective is negated (one device op), a `Maximize` one passes through.
+        let fitness_canon = match sense {
+            ObjectiveSense::Maximize => fitness_natural,
+            ObjectiveSense::Minimize => fitness_natural.neg(),
+        };
+        let (new_state, metrics_canon) =
             self.strategy
-                .tell(&self.params, population, fitness, state, &mut self.rng);
+                .tell(&self.params, population, fitness_canon, state, &mut self.rng);
         self.state = Some(new_state);
         self.generation += 1;
-        // Emit `-best_fitness_ever` so the reward is monotone
-        // non-decreasing over a run and the cumulative return (Σ step
-        // reward) integrates the optimization trajectory under the
-        // best-so-far curve. The benchmark harness reads per-episode
-        // `return_value` not per-step rewards, so a pure "last best"
-        // signal would be lost.
-        let reward = -f64::from(metrics.best_fitness_ever);
+        // The reward is the canonical `best_fitness_ever` directly — canonical
+        // space is already higher-is-better, so the old `-best_fitness_ever`
+        // negation is gone. It stays monotone non-decreasing over a run, so the
+        // cumulative return (Σ step reward) integrates the optimization
+        // trajectory under the best-so-far curve. The benchmark harness reads
+        // per-episode `return_value`, not per-step rewards, so a pure "last
+        // best" signal would be lost.
+        let reward = f64::from(metrics_canon.best_fitness_ever);
+        // Map the canonical metrics back into the objective's declared sense so
+        // every surfaced value (tracing, `latest_metrics`, records) reads in
+        // user space — a `Minimize` landscape's `best_fitness` is its natural
+        // cost (Sphere → 0).
+        let metrics = StrategyMetrics {
+            generation: metrics_canon.generation,
+            population_size: metrics_canon.population_size,
+            best_fitness: sense.from_canonical(metrics_canon.best_fitness),
+            mean_fitness: sense.from_canonical(metrics_canon.mean_fitness),
+            worst_fitness: sense.from_canonical(metrics_canon.worst_fitness),
+            best_fitness_ever: sense.from_canonical(metrics_canon.best_fitness_ever),
+        };
         // Structured per-generation event. Picked up by the
         // canonical-metric registry in
         // `rlevo-benchmarks::tui::log_layer::CANONICAL_METRICS` so the
@@ -471,10 +519,18 @@ where
             "evolution generation",
         );
         if let (Some(observer), Some(fitnesses)) = (self.observer.as_ref(), snapshot_fitness) {
+            // `fitnesses` is in natural space; the best individual is the
+            // smallest for a `Minimize` objective, the largest for `Maximize`.
             let best_index = fitnesses
                 .iter()
                 .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .reduce(|best, cur| {
+                    let better = match sense {
+                        ObjectiveSense::Minimize => cur.1 < best.1,
+                        ObjectiveSense::Maximize => cur.1 > best.1,
+                    };
+                    if better { cur } else { best }
+                })
                 .map_or(0, |(i, _)| u32::try_from(i).unwrap_or(0));
             let snapshot = PopulationSnapshot {
                 generation: u32::try_from(metrics.generation).unwrap_or(u32::MAX),
@@ -555,7 +611,7 @@ mod tests {
             let _ = params;
             State {
                 generation: 0,
-                best: f32::INFINITY,
+                best: f32::NEG_INFINITY,
             }
         }
 
@@ -606,6 +662,12 @@ mod tests {
             let data = TensorData::new(vec![42.0f32; n], [n]);
             Tensor::<B, 1>::from_data(data, device)
         }
+
+        fn sense(&self) -> ObjectiveSense {
+            // Treated as a cost so the harness reports natural 42 and reward
+            // stays the canonical −42 the existing assertions expect.
+            ObjectiveSense::Minimize
+        }
     }
 
     #[test]
@@ -654,11 +716,12 @@ mod tests {
         let m = StrategyMetrics::from_host_fitness(5, &[3.0, 1.0, 5.0, 2.0], 4.0);
         assert_eq!(m.generation, 5);
         assert_eq!(m.population_size, 4);
-        approx::assert_relative_eq!(m.best_fitness, 1.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(m.worst_fitness, 5.0, epsilon = 1e-6);
+        // Canonical maximise: best is the largest, worst the smallest.
+        approx::assert_relative_eq!(m.best_fitness, 5.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.worst_fitness, 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(m.mean_fitness, 2.75, epsilon = 1e-6);
-        // best_fitness_ever = min(prior=4.0, current=1.0)
-        approx::assert_relative_eq!(m.best_fitness_ever, 1.0, epsilon = 1e-6);
+        // best_fitness_ever = max(prior=4.0, current=5.0)
+        approx::assert_relative_eq!(m.best_fitness_ever, 5.0, epsilon = 1e-6);
     }
 
     /// Per-individual fitness = `1.0 / (i + 1)` so the best (smallest)
@@ -676,6 +739,12 @@ mod tests {
             let values: Vec<f32> = (0..n).map(|i| 1.0 / (i as f32 + 1.0)).collect();
             let data = TensorData::new(values, [n]);
             Tensor::<B, 1>::from_data(data, device)
+        }
+
+        fn sense(&self) -> ObjectiveSense {
+            // Cost: the best (smallest) is the last index, which the observer
+            // test pins via the sense-aware `best_index`.
+            ObjectiveSense::Minimize
         }
     }
 

@@ -61,7 +61,7 @@ whose input shape matches the objective you *already* have:
 | a pure scalar function `f(&[f64]) -> f64` | **`FromLandscape<L>`** | pulls each genome row to host, calls `f`, re-uploads the costs |
 | an evaluator type and a *separate* landscape type | **`FromFitnessEvaluable<FE, L>`** | same round-trip, for when scorer and problem are defined apart |
 | a neural-network **module** plus a way to score it | **`ModuleEvalFn`** | unflattens each genome row into a Burn `Module`, runs your scorer |
-| a **policy** to run inside an environment | **`RolloutFitness`** (in `rlevo-hybrid`) | rolls out episodes per genome, returns the negated mean return |
+| a **policy** to run inside an environment | **`RolloutFitness`** (in `rlevo-hybrid`) | rolls out episodes per genome, returns the natural mean return (declares `Maximize`) |
 | a bespoke, fully on-device objective | **`impl BatchFitnessFn` yourself** | the fast path — no host transfer, one kernel sweep |
 
 Two things worth internalising from the table:
@@ -129,7 +129,8 @@ struct WeightedSphere {
 }
 
 impl Landscape for WeightedSphere {
-    // Minimisation convention: lower is better. Zero at x == centre.
+    // Return the natural cost; zero at x == centre. A Landscape is a cost
+    // surface, so Landscape::sense() defaults to ObjectiveSense::Minimize.
     fn evaluate(&self, x: &[f64]) -> f64 {
         x.iter()
             .zip(&self.centre)
@@ -141,10 +142,12 @@ impl Landscape for WeightedSphere {
 ```
 
 > **Python parallel.** This is your `def fitness(x): ...` — and nothing more. The
-> only `rlevo`-specific obligations are the **minimisation convention** (return a
-> *cost*; negate a reward-style score) and that `x` arrives as `&[f64]`. See the
-> [enforcement table](../part-1-foundations/evolutionary-computation/23-fitness.md#where-its-enforced--and-where-its-your-responsibility)
-> for why the direction matters.
+> only `rlevo`-specific obligations are to return the objective's **natural** value
+> (you never hand-negate — a `Landscape` is a cost surface, so its `sense()`
+> defaults to `ObjectiveSense::Minimize` and the harness reconciles direction) and
+> that `x` arrives as `&[f64]`. See the
+> [fitness chapter](../part-1-foundations/evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense)
+> for why the direction matters and how the chokepoint works.
 
 ### Step 2 — Choose the on-ramp
 
@@ -153,17 +156,20 @@ We have a self-contained `f(&[f64]) -> f64`, so the table points straight at
 adapter applies:
 
 ```rust,no_run
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 
 let objective = WeightedSphere {
     weights: vec![1.0, 4.0, 9.0],
     centre:  vec![0.5, -0.5, 1.0],
 };
-let fitness_fn = FromLandscape::new(objective);   // now an impl BatchFitnessFn
+// `new` would take the landscape's default sense (Minimize); we spell it out so
+// the direction is visible at the call site.
+let fitness_fn = FromLandscape::with_sense(objective, ObjectiveSense::Minimize);
 ```
 
-That single `::new` is the entire bridge from "a Rust function" to "something the
-engine can call on a whole population."
+That single constructor is the entire bridge from "a Rust function" to "something
+the engine can call on a whole population."
 
 ### Step 3 — Hand it to the harness
 
@@ -203,6 +209,7 @@ directly, keeping everything on device:
 
 ```rust,no_run
 use burn::tensor::{backend::Backend, Tensor};
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::BatchFitnessFn;
 
 struct OnDeviceWeightedSphere<B: Backend> {
@@ -218,12 +225,16 @@ impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for OnDeviceWeightedSphere<B> {
         let weighted = centred.clone() * centred * weights;        // (pop, dim)
         weighted.sum_dim(1).squeeze_dim::<1>(1)   // (pop,) — one cost per row, order preserved
     }
+
+    // Implementing the trait directly means declaring the sense yourself —
+    // there is no Landscape default to inherit. This is a cost surface.
+    fn sense(&self) -> ObjectiveSense { ObjectiveSense::Minimize }
 }
 ```
 
-Same objective, same minimisation convention, no host round-trip — and the `pop`
-rows are scored in a single kernel sweep. The harness cannot tell the difference:
-it still just calls `evaluate_batch`.
+Same objective, the same declared sense, no host round-trip — and the `pop` rows
+are scored in a single kernel sweep. The harness cannot tell the difference: it
+still just calls `evaluate_batch` and reads `sense()`.
 
 > **The decision in one line.** Express it on the host and wrap it
 > (`FromLandscape`) when the objective is naturally a CPU formula or a simulator;
@@ -238,7 +249,7 @@ it still just calls `evaluate_batch`.
 
 - [Fitness Evaluation](../part-1-foundations/evolutionary-computation/23-fitness.md)
   — the Part I chapter this page expands; start there for the conceptual picture
-  and the minimisation contract.
+  and the maximise convention / `ObjectiveSense` contract.
 - [The Ask/Tell Contract](ask-tell-contract.md) — how the harness drives the
   `ask` → `evaluate_batch` → `tell` loop, and how to run it by hand.
 - [Genome Representation](../part-1-foundations/evolutionary-computation/22-genome.md)
@@ -247,5 +258,5 @@ it still just calls `evaluate_batch`.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

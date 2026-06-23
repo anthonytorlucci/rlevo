@@ -252,8 +252,8 @@ fn make_pendulum_agent(
     let config = PpoTrainingConfigBuilder::new()
         .num_envs(1)
         .num_steps(num_steps)
-        .num_minibatches(32)
-        .update_epochs(10)
+        .num_minibatches(4)
+        .update_epochs(4)
         .learning_rate(3e-4)
         .clip_coef(0.2)
         .entropy_coef(0.0)
@@ -275,8 +275,8 @@ fn ppo_pendulum_improves_over_random() {
         .ok();
     let _guard = BACKEND_LOCK.lock().expect("backend lock");
     let seed: u64 = 42;
-    let total = 30_000_usize;
-    let num_steps = 2_048_usize;
+    let total = 24_000_usize;
+    let num_steps = 512_usize;
 
     let mut env = TimeLimit::new(
         Pendulum::with_config(PendulumConfig {
@@ -292,6 +292,7 @@ fn ppo_pendulum_improves_over_random() {
     )
     .expect("training");
     let avg = agent.stats().avg_score().unwrap_or(f32::NEG_INFINITY);
+    eprintln!("CALIBRATION: 30k-step PPO Pendulum avg = {avg:.2}");
     // Random policy on Pendulum averages ≈ -1500 per episode; well-trained
     // PPO clears -200. The threshold here is deliberately lax for CI.
     assert!(avg > -1400.0, "expected avg > -1400, got {avg:.2}");

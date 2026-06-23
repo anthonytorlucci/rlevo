@@ -18,6 +18,7 @@ burn = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
+serde = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
@@ -91,6 +92,14 @@ name = "eda_showcase"
 path = "examples/evolution/eda_showcase.rs"
 
 # Examples — book (compiled, test-guarded; pulled into user-book via {{#rustdoc_include}})
+[[example]]
+name = "ch00_grid_agent"
+path = "examples/book/ch00_grid_agent.rs"
+
+[[example]]
+name = "ch00_state_constraints"
+path = "examples/book/ch00_state_constraints.rs"
+
 [[example]]
 name = "ch01_sphere_ga"
 path = "examples/book/ch01_sphere_ga.rs"

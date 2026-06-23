@@ -21,7 +21,7 @@
 //! # Running
 //!
 //! ```bash
-//! cargo run -p rlevo-core --example grid_agent
+//! cargo run -p rlevo-examples --example ch00_grid_agent
 //! ```
 
 use burn::backend::Flex;
@@ -96,6 +96,7 @@ impl Facing {
 
 // ─── Observation ─────────────────────────────────────────────────────────────
 
+// ANCHOR: observation
 /// Agent-visible snapshot: grid position and current facing.
 ///
 /// Grid bounds are not exposed — they belong to the environment state and are
@@ -116,10 +117,15 @@ impl Observation<1> for AgentObservation {
         [3] // [x, y, facing_index]
     }
 }
+// ANCHOR_END: observation
 
+// ANCHOR: tensor
 impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let data = TensorData::new(
             vec![self.x as f32, self.y as f32, f32::from(self.facing.to_u8())],
             [3],
@@ -152,9 +158,11 @@ impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
         })
     }
 }
+// ANCHOR_END: tensor
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
+// ANCHOR: state
 /// Full environment state: position, facing, and grid bounds.
 ///
 /// `width` and `height` are exclusive upper bounds. They are hidden from
@@ -189,9 +197,11 @@ impl State<1> for AgentState {
         self.x >= 0 && self.y >= 0 && self.x < self.width && self.y < self.height
     }
 }
+// ANCHOR_END: state
 
 // ─── Discrete action ─────────────────────────────────────────────────────────
 
+// ANCHOR: discrete
 /// Egocentric movement: turn left, turn right, or step forward.
 ///
 /// Mirrors the movement subset of `GridAction` in `rlevo-environments::grids`. The
@@ -237,6 +247,7 @@ impl DiscreteAction<1> for MoveAction {
         }
     }
 }
+// ANCHOR_END: discrete
 
 // ─── Multi-discrete action ────────────────────────────────────────────────────
 
@@ -270,6 +281,7 @@ impl Interact {
     }
 }
 
+// ANCHOR: multidiscrete
 /// Compound action: movement paired with an optional interaction.
 ///
 /// Implements [`MultiDiscreteAction<2>`] — the two sub-dimensions are
@@ -307,9 +319,11 @@ impl MultiDiscreteAction<2> for CompoundAction {
         [self.movement.to_index(), self.interact.to_index()]
     }
 }
+// ANCHOR_END: multidiscrete
 
 // ─── Transition ──────────────────────────────────────────────────────────────
 
+// ANCHOR: transition
 /// Returns the candidate next state after applying `action` to `state`.
 ///
 /// The result may be out-of-bounds. Callers must call [`State::is_valid`] on
@@ -334,6 +348,7 @@ fn step(state: &AgentState, action: MoveAction) -> AgentState {
         }
     }
 }
+// ANCHOR_END: transition
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -347,6 +362,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         width: 5,
         height: 5,
     };
+    // out-of-bounds -> this in an invalid state!
     let oob = AgentState {
         x: 5,
         y: 0,
@@ -363,7 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 2. Observation + tensor round-trip ──────────────────────────────────
     println!("\n=== Observation + tensor round-trip ===");
     let obs = state.observe();
-    println!("obs                          = {:?}", obs);
+    println!("obs                          = {obs:?}");
     println!("AgentObservation::RANK       = {}", AgentObservation::RANK);
     println!(
         "AgentObservation::shape()    = {:?}",

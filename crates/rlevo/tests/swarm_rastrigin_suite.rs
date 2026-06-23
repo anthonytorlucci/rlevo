@@ -27,6 +27,7 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -139,7 +140,7 @@ where
     EvolutionaryHarness::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -152,7 +153,7 @@ fn gwo_ra(
     EvolutionaryHarness::new(
         GreyWolfOptimizer::<B>::new(),
         GwoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -165,7 +166,7 @@ fn woa_ra(
     EvolutionaryHarness::new(
         WhaleOptimization::<B>::new(),
         WoaConfig::default_for(32, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -178,7 +179,7 @@ fn salp_ra(
     EvolutionaryHarness::new(
         SalpSwarm::<B>::new(),
         SalpConfig::default_for(32, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -191,7 +192,7 @@ fn abc_ra(
     EvolutionaryHarness::new(
         ArtificialBeeColony::<B>::new(),
         AbcConfig::default_for(30, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -204,7 +205,7 @@ fn bat_ra(
     EvolutionaryHarness::new(
         BatAlgorithm::<B>::new(),
         BatConfig::default_for(30, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -217,7 +218,7 @@ fn aco_r_ra(
     EvolutionaryHarness::new(
         AntColonyReal::<B>::new(),
         AcoRConfig::default_for(30, 15, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -232,7 +233,7 @@ fn cuckoo_ra(
     EvolutionaryHarness::new(
         CuckooSearch::<B>::new(),
         cfg,
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -245,7 +246,7 @@ fn firefly_ra(
     EvolutionaryHarness::new(
         FireflyAlgorithm::<B>::new(),
         FireflyConfig::default_for(24, DIM),
-        FromFitnessEvaluable::new(RastriginFit, Rastrigin::new(DIM)),
+        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -262,7 +263,7 @@ fn pso_ak(
     EvolutionaryHarness::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::new(AckleyFit, Ackley::new(DIM)),
+        FromFitnessEvaluable::with_sense(AckleyFit, Ackley::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,
@@ -282,7 +283,7 @@ fn de_rand1_ak(
     EvolutionaryHarness::new(
         DifferentialEvolution::<B>::new(),
         params,
-        FromFitnessEvaluable::new(AckleyFit, Ackley::new(DIM)),
+        FromFitnessEvaluable::with_sense(AckleyFit, Ackley::new(DIM), ObjectiveSense::Minimize),
         seed,
         Default::default(),
         MAX_GENS,

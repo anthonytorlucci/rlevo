@@ -23,8 +23,9 @@ use super::operators::{
 pub struct GepState<B: Backend> {
     /// Current population, shape `(pop_size, genome_len)`, `i32` symbol ids.
     pub population: Tensor<B, 2, Int>,
-    /// Host-side fitness cache for the current population (MSE; lower better).
-    /// Empty until the first [`Strategy::tell`].
+    /// Host-side fitness cache for the current population, in canonical
+    /// (maximise) space — *higher is better*. Empty until the first
+    /// [`Strategy::tell`].
     pub fitnesses: Vec<f32>,
     /// Best-so-far genome, shape `(1, genome_len)`.
     pub best_genome: Option<Tensor<B, 2, Int>>,
@@ -110,17 +111,34 @@ fn rows_to_tensor<B: Backend>(
     Tensor::<B, 2, Int>::from_data(TensorData::new(flat, [pop_size, genome_len]), device)
 }
 
-/// Roulette-wheel selection of `k` parent indices from minimization fitness.
+/// Roulette-wheel selection of `k` parent indices from canonical (maximise)
+/// fitness.
 ///
-/// Each individual's selection weight is `1 / (1 + mse)`, so a smaller error
-/// yields a larger weight. Non-finite fitness contributes zero weight. If the
-/// total weight is non-positive (e.g. every individual diverged), selection
-/// falls back to uniform sampling.
+/// Fitness is canonical — *higher is better*. Each individual's selection
+/// weight is its fitness shifted so the worst finite individual sits at a
+/// small floor `ε`, i.e. `weight = (f − min_finite) + ε`, so a higher
+/// fitness yields a larger weight. This is sense-agnostic: the harness has
+/// already mapped a cost objective into canonical space, so no `mse`
+/// appears here. Non-finite fitness contributes zero weight. If the total
+/// weight is non-positive (e.g. every individual diverged), selection falls
+/// back to uniform sampling.
 fn roulette_select(fitnesses: &[f32], k: usize, rng: &mut dyn Rng) -> Vec<usize> {
+    const EPS: f32 = 1e-6;
     let n = fitnesses.len();
+    let min_finite = fitnesses
+        .iter()
+        .copied()
+        .filter(|f| f.is_finite())
+        .fold(f32::INFINITY, f32::min);
     let weights: Vec<f32> = fitnesses
         .iter()
-        .map(|&f| if f.is_finite() { 1.0 / (1.0 + f.max(0.0)) } else { 0.0 })
+        .map(|&f| {
+            if f.is_finite() && min_finite.is_finite() {
+                (f - min_finite).max(0.0) + EPS
+            } else {
+                0.0
+            }
+        })
         .collect();
     let total: f32 = weights.iter().sum();
 
@@ -153,12 +171,12 @@ fn update_best<B: Backend>(state: &mut GepState<B>, pop: &Tensor<B, 2, Int>, fit
     let mut best_idx = 0usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
         let idx =
@@ -199,7 +217,7 @@ where
             population,
             fitnesses: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -382,6 +400,11 @@ impl<B: Backend, F: FunctionSet> BatchFitnessFn<B, Tensor<B, 2, Int>> for GepSym
             .collect();
 
         Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+    }
+
+    fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+        // Mean squared error is a cost — lower is better.
+        rlevo_core::objective::ObjectiveSense::Minimize
     }
 }
 

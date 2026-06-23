@@ -36,10 +36,12 @@ direction, you know what I mean.*
 
 - **Fitness function** is evolutionary computing's term, and the direction 
   flips — you're *maximizing* it, because organisms with higher fitness 
-  survive. If you hand an evolutionary algorithm a loss and forget to negate 
-  it, you will breed a population of spectacularly wrong solutions and spend an 
-  afternoon wondering why your GA is converging so confidently in the wrong 
-  direction.
+  survive. `rlevo`'s engine is maximize-native for exactly this reason, but it 
+  saves you from the classic footgun: rather than hand it a loss and *remember 
+  to negate*, you hand it the natural objective and declare its direction with 
+  `ObjectiveSense::Minimize` (a cost) or `Maximize` (a reward). The harness 
+  reconciles it at one place, so a forgotten sign no longer breeds a population 
+  of spectacularly wrong solutions.
 
 - **Reward** is reinforcement learning's contribution to the pile. Technically 
   the reward signal \\(r_t\\) and the objective (expected cumulative return 
@@ -181,5 +183,5 @@ uses.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

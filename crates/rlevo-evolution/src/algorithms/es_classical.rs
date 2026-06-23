@@ -200,7 +200,7 @@ where
             sigmas,
             parent_fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
             successes_in_window: 0,
             window_len: 0,
@@ -368,7 +368,7 @@ where
                 // One parent, one offspring. Fitness[0] is the offspring.
                 let parent_fit = state.parent_fitness[0];
                 let offspring_fit = fitness_host[0];
-                let success = offspring_fit < parent_fit;
+                let success = offspring_fit > parent_fit;
                 state.window_len += 1;
                 if success {
                     state.successes_in_window += 1;
@@ -400,9 +400,9 @@ where
             }
             EsKind::OnePlusLambda { .. } => {
                 // Best of (parent, offspring pool).
-                let best_off_idx = argmin(&fitness_host);
+                let best_off_idx = argmax(&fitness_host);
                 let best_off_fit = fitness_host[best_off_idx];
-                if best_off_fit < state.parent_fitness[0] {
+                if best_off_fit > state.parent_fitness[0] {
                     #[allow(clippy::single_range_in_vec_init)]
                     let best_row = offspring.clone().slice([best_off_idx..best_off_idx + 1]);
                     state.parents = best_row;
@@ -476,11 +476,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }
@@ -492,9 +492,9 @@ fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: 
     if fitness.is_empty() {
         return;
     }
-    let best_idx = argmin(fitness);
+    let best_idx = argmax(fitness);
     let best_f = fitness[best_idx];
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(

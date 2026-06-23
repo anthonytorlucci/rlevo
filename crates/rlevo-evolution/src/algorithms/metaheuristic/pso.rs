@@ -216,8 +216,8 @@ where
             personal_best,
             personal_best_fitness: Vec::new(),
             global_best: None,
-            global_best_fitness: f32::INFINITY,
-            best_fitness: f32::INFINITY,
+            global_best_fitness: f32::NEG_INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -307,7 +307,7 @@ where
         if state.personal_best_fitness.is_empty() {
             state.personal_best.clone_from(&population);
             state.personal_best_fitness.clone_from(&fitness_host);
-            let best_idx = argmin(&fitness_host);
+            let best_idx = argmax(&fitness_host);
             state.global_best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -334,7 +334,7 @@ where
         let mut improved = vec![0i64; pop_size];
         let mut new_pbest_fit = state.personal_best_fitness.clone();
         for i in 0..pop_size {
-            if fitness_host[i] < state.personal_best_fitness[i] {
+            if fitness_host[i] > state.personal_best_fitness[i] {
                 improved[i] = 1;
                 new_pbest_fit[i] = fitness_host[i];
             }
@@ -352,8 +352,8 @@ where
         state.personal_best_fitness.clone_from(&new_pbest_fit);
 
         // Update global best from the new personal bests.
-        let best_idx = argmin(&new_pbest_fit);
-        if new_pbest_fit[best_idx] < state.global_best_fitness {
+        let best_idx = argmax(&new_pbest_fit);
+        if new_pbest_fit[best_idx] > state.global_best_fitness {
             state.global_best_fitness = new_pbest_fit[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -368,7 +368,7 @@ where
         let m = StrategyMetrics::from_host_fitness(
             state.generation,
             &fitness_host,
-            state.best_fitness.min(state.global_best_fitness),
+            state.best_fitness.max(state.global_best_fitness),
         );
         state.best_fitness = m.best_fitness_ever;
         (state, m)
@@ -382,11 +382,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }

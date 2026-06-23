@@ -17,14 +17,18 @@ use burn::tensor::{Tensor, TensorData, backend::Backend};
 
 use crate::fitness::BatchFitnessFn;
 use crate::param_reshaper::ParamReshaper;
+use rlevo_core::objective::ObjectiveSense;
 
 /// Bridges a flat population tensor to per-member module scoring.
 ///
 /// Implements [`BatchFitnessFn<B, Tensor<B, 2>>`]: each row of the
 /// `(pop_size, num_params)` population is unflattened into a module via the
 /// [`ParamReshaper`], passed to a host-side `scorer`, and the resulting scalar
-/// is collected into the fitness tensor (minimization convention — lower is
-/// better, matching [`Strategy`](crate::strategy::Strategy)).
+/// is collected into the fitness tensor in the scorer's **natural** value
+/// space. Direction is declared once via [`ObjectiveSense`] (default
+/// [`ObjectiveSense::Maximize`]; pass [`with_sense`](ModuleEvalFn::with_sense)
+/// for a cost scorer like MSE) and reconciled by the harness — no hand-negation
+/// in the scorer.
 ///
 /// # Gradient isolation
 ///
@@ -46,6 +50,7 @@ use crate::param_reshaper::ParamReshaper;
 pub struct ModuleEvalFn<B: Backend, R: ParamReshaper<B>, F> {
     reshaper: R,
     scorer: F,
+    sense: ObjectiveSense,
     _backend: PhantomData<fn() -> B>,
 }
 
@@ -61,11 +66,20 @@ where
     R: ParamReshaper<B>,
     F: Fn(&R::Module) -> f32 + Send,
 {
-    /// Build an evaluator from a reshaper and a per-module scorer.
+    /// Build an evaluator from a reshaper and a per-module scorer, defaulting
+    /// the objective sense to [`ObjectiveSense::Maximize`] (accuracy, reward,
+    /// episode return). Use [`with_sense`](Self::with_sense) for a cost scorer
+    /// such as MSE.
     pub fn new(reshaper: R, scorer: F) -> Self {
+        Self::with_sense(reshaper, scorer, ObjectiveSense::Maximize)
+    }
+
+    /// Build an evaluator with an explicit [`ObjectiveSense`].
+    pub fn with_sense(reshaper: R, scorer: F, sense: ObjectiveSense) -> Self {
         Self {
             reshaper,
             scorer,
+            sense,
             _backend: PhantomData,
         }
     }
@@ -101,6 +115,10 @@ where
             fitness.push((self.scorer)(&module));
         }
         Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.sense
     }
 }
 

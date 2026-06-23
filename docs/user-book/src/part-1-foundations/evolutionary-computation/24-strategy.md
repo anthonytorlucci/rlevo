@@ -2,8 +2,9 @@
 
 The last three chapters laid out the ingredients: a [genome](22-genome.md) is a
 row of a population tensor, the [operators](21-ops.md) select and vary those rows,
-and [fitness](23-fitness.md) scores them as a cost to minimise. A **strategy** is
-what assembles those ingredients into a running generation. The
+and [fitness](23-fitness.md) scores them in the engine's canonical maximise space
+(a cost objective declaring `ObjectiveSense::Minimize`). A **strategy** is what
+assembles those ingredients into a running generation. The
 [parent chapter](../20-evolutionary-computation.md) introduced the `Strategy<B>`
 trait as the choreography behind the five-step evolutionary skeleton; this chapter
 walks the trait method by method and then traces a complete, real
@@ -85,21 +86,22 @@ pub struct GaConfig {
 ```
 
 Its `State` carries the live population, a host-side cache of the current
-fitness, the best-so-far genome and its cost, and the generation counter:
+fitness, the best-so-far genome and its canonical fitness, and the generation counter:
 
 ```rust
 pub struct GaState<B: Backend> {
     pub population:   Tensor<B, 2>,
     pub fitness:      Vec<f32>,       // empty until the first tell
     pub best_genome:  Option<Tensor<B, 2>>,
-    pub best_fitness: f32,            // f32::INFINITY until the first tell
+    pub best_fitness: f32,            // f32::NEG_INFINITY until the first tell
     pub generation:   usize,
 }
 ```
 
 **`init`** samples an `(pop_size, genome_dim)` population uniformly within
 `bounds`, leaves the fitness cache empty, and sets `best_fitness` to
-`f32::INFINITY` so the first real cost can only improve it.
+`f32::NEG_INFINITY` (the worst value under the maximise convention) so the first
+real evaluation can only improve it.
 
 **`ask`** is where the operators chapter pays off. After the warm-up short-circuit,
 the body reads as the short recipe that chapter promised — select, recombine,
@@ -135,13 +137,14 @@ match replacement {
 }
 ```
 
-It then refreshes the best-so-far (a rolling minimum — the new best is kept only if
-it is *lower* than the incumbent, honouring the cost convention), stores the next
-population and its fitness, increments the generation, and returns a
+It then refreshes the best-so-far (a rolling maximum — the new best is kept only if
+it is *higher* than the incumbent, honouring the canonical-maximise convention),
+stores the next population and its fitness, increments the generation, and returns a
 `StrategyMetrics` snapshot. **`best`** simply hands back the cached best genome and
-its cost. That `f32::INFINITY` init and `<` test are not local to the GA — they
-recur in every strategy; the [fitness chapter](23-fitness.md#where-its-enforced--and-where-its-your-responsibility)
-tabulates exactly where the minimisation contract is pinned across the engine.
+its canonical fitness. That `f32::NEG_INFINITY` init and `>` test are not local to
+the GA — they recur in every strategy; the
+[fitness chapter](23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense)
+tabulates exactly where the maximise convention is pinned across the engine.
 
 That is the whole algorithm. Swapping tournament for a different selector, or
 elitist for generational replacement, is a one-line change to the config enum — the
@@ -185,11 +188,11 @@ ask ──▶ population ──▶ evaluate_batch ──▶ fitness ──▶ te
 ```
 
 and returns once the generation counter reaches `max_generations`. The reward it
-reports back is `-best_fitness_ever` — the sign flip from the
-[fitness chapter](23-fitness.md), which turns the minimised cost into the
-"higher = better" signal downstream tooling expects, and makes the per-step reward
-monotone non-decreasing so its cumulative sum integrates the optimisation
-trajectory. An optional `with_observer` hook surfaces the full per-generation
+reports back is the **canonical** `best_fitness_ever` directly — no sign flip,
+because canonical space is already "higher = better" (the harness canonicalises a
+`Minimize` objective on the way in, as the [fitness chapter](23-fitness.md)
+describes). It stays monotone non-decreasing, so its cumulative sum integrates the
+optimisation trajectory. An optional `with_observer` hook surfaces the full per-generation
 fitness vector for recorders that need more than the scalar metric stream, at the
 cost of one device→host transfer per generation.
 
@@ -208,5 +211,5 @@ a strategy actually optimise a function end to end, head to the
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

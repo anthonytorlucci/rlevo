@@ -6,13 +6,13 @@
 //! starting state.
 //!
 //! All selection logic operates on host-side `&[f32]` fitness slices
-//! (lower is better), and winners are lifted back to the device via a
-//! single [`Tensor::select`] gather. None of these functions draw
-//! random numbers; they are deterministic given their inputs.
+//! (canonical: higher is better), and winners are lifted back to the
+//! device via a single [`Tensor::select`] gather. None of these functions
+//! draw random numbers; they are deterministic given their inputs.
 //!
 //! # Fitness convention
 //!
-//! Fitness is treated as a cost: smaller values are better. This
+//! Fitness is **canonical (maximise)**: larger values are better. This
 //! matches the convention used throughout [`crate::ops::selection`].
 //!
 //! # Choosing a replacement strategy
@@ -47,8 +47,8 @@ pub fn generational<B: Backend>(
 
 /// Elitist replacement: keeps the `k` best parents and the best remaining offspring.
 ///
-/// Selects the `k` lowest-fitness members of the current generation
-/// (elites) and the `pop_size − k` lowest-fitness offspring, then
+/// Selects the `k` highest-fitness members of the current generation
+/// (elites) and the `pop_size − k` highest-fitness offspring, then
 /// concatenates them to form the next generation of size `pop_size`.
 /// Both selections use [`truncation_indices_host`] and are therefore
 /// deterministic.
@@ -106,7 +106,7 @@ pub fn elitist<B: Backend>(
 ///
 /// Concatenates the μ parent rows with the λ offspring rows into a
 /// combined pool of size μ + λ, then retains the `mu` members with
-/// the lowest fitness. Parents and offspring compete on equal footing,
+/// the highest fitness. Parents and offspring compete on equal footing,
 /// so a highly-fit parent can survive indefinitely.
 ///
 /// The returned tensor has shape `(mu, genome_dim)` and the returned
@@ -233,13 +233,13 @@ mod tests {
             &device,
         );
         let rows = next.into_data().into_vec::<f32>().unwrap();
-        // best two: offspring row 0 (0.1) and parent row 0 (0.5)
+        // best two (highest fitness): parent row 1 (100.0) and offspring row 1 (50.0)
         assert_eq!(rows.len(), 4);
-        // fitness should be {0.1, 0.5}
+        // fitness should be {50.0, 100.0}
         let mut f_sorted = f;
         f_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        approx::assert_relative_eq!(f_sorted[0], 0.1, epsilon = 1e-6);
-        approx::assert_relative_eq!(f_sorted[1], 0.5, epsilon = 1e-6);
+        approx::assert_relative_eq!(f_sorted[0], 50.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(f_sorted[1], 100.0, epsilon = 1e-6);
     }
 
     #[test]
@@ -256,9 +256,10 @@ mod tests {
             &device,
         );
         assert_eq!(next.dims(), [2, 2]);
+        // best two of offspring (highest fitness): 5.0 and 3.0
         let mut fs = f;
         fs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        approx::assert_relative_eq!(fs[0], 1.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(fs[1], 3.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(fs[0], 3.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(fs[1], 5.0, epsilon = 1e-6);
     }
 }

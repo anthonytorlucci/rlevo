@@ -25,13 +25,13 @@ use serde::{Deserialize, Serialize};
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the
 // same value.  The const assertions in tests/wire_format_compat.rs
 // enforce this at compile time when tests are built.
-pub const FORMAT_VERSION: u16 = 6;
+pub const FORMAT_VERSION: u16 = 7;
 
 /// Oldest on-disk version this loader accepts. Equal to
 /// [`FORMAT_VERSION`] — no backward compatibility is maintained
 /// before the first production release.
 // Mirror: rlevo-benchmarks-report-client/src/wire.rs must declare the same value.
-pub const MIN_SUPPORTED_VERSION: u16 = 6;
+pub const MIN_SUPPORTED_VERSION: u16 = 7;
 
 /// Locked bincode configuration shared by writer and loader. Kept as a
 /// helper rather than a constant because `bincode::config::Configuration`
@@ -520,9 +520,9 @@ mod tests {
     use rlevo_core::render::{StyledLine, StyledSpan};
 
     #[test]
-    fn format_version_is_six_and_min_supported_is_six() {
-        assert_eq!(FORMAT_VERSION, 6);
-        assert_eq!(MIN_SUPPORTED_VERSION, 6);
+    fn format_version_is_seven_and_min_supported_is_seven() {
+        assert_eq!(FORMAT_VERSION, 7);
+        assert_eq!(MIN_SUPPORTED_VERSION, 7);
     }
 
     #[test]

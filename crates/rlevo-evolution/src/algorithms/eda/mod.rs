@@ -101,8 +101,8 @@ pub struct EdaState<B: Backend, MS> {
     /// Best genome ever observed, shape `(genome_dim,)`. `None` before the
     /// first [`EdaStrategy::tell`] call.
     pub best_genome: Option<Tensor<B, 1>>,
-    /// Smallest (best) fitness ever observed across all generations
-    /// (minimization convention). Starts at `f32::INFINITY`.
+    /// Largest (best) fitness ever observed across all generations
+    /// (canonical maximise convention). Starts at `f32::NEG_INFINITY`.
     pub best_fitness_ever: f32,
     /// Number of completed generations (incremented by each `tell` call).
     pub generation: usize,
@@ -198,7 +198,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         EdaState {
             model_state,
             best_genome: None,
-            best_fitness_ever: f32::INFINITY,
+            best_fitness_ever: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -229,9 +229,10 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
 
     /// Consume the population's fitness and refit the model.
     ///
-    /// Pulls fitness to host, sanitizes `NaN` → `+inf` via the crate's
-    /// `sanitize_fitness` helper, updates the best-so-far tracker,
-    /// truncation-selects the best `k` rows (ascending fitness order, with
+    /// Pulls fitness to host, sanitizes `NaN` → `−inf` (worst under the
+    /// maximise convention) via the crate's `sanitize_fitness` helper,
+    /// updates the best-so-far tracker, truncation-selects the best `k` rows
+    /// (descending fitness order, with
     /// `k = ceil(selection_ratio · pop_size)` clamped to `[2, pop_size]`),
     /// and refits the model to them (passing `prev = Some(model_state)`).
     ///
@@ -256,16 +257,16 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let n = sanitized.len();
         let device = population.device();
 
-        // Argmin (ties → lowest index) for the best-so-far update.
+        // Argmax (ties → lowest index) for the best-so-far update.
         let mut best_idx = 0_usize;
-        let mut best_f = f32::INFINITY;
+        let mut best_f = f32::NEG_INFINITY;
         for (i, &f) in sanitized.iter().enumerate() {
-            if f.total_cmp(&best_f) == std::cmp::Ordering::Less {
+            if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
                 best_f = f;
                 best_idx = i;
             }
         }
-        if best_f < state.best_fitness_ever {
+        if best_f > state.best_fitness_ever {
             // usize → i64 for the Burn Int index tensor; population indices are
             // far below i64::MAX so the cast never wraps.
             #[allow(clippy::cast_possible_wrap)]
@@ -277,7 +278,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
             state.best_genome = Some(row);
         }
 
-        // Truncation selection: keep the best `k` rows in ascending fitness
+        // Truncation selection: keep the best `k` rows in descending fitness
         // order so the model sees a deterministic, best-first population.
         #[allow(clippy::cast_precision_loss)]
         let target = (params.selection_ratio * params.pop_size as f32).ceil();
@@ -287,8 +288,8 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let k = (target as usize).max(2).min(n.max(1));
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|&a, &b| {
-            sanitized[a]
-                .total_cmp(&sanitized[b])
+            sanitized[b]
+                .total_cmp(&sanitized[a])
                 .then(a.cmp(&b))
         });
         order.truncate(k);
@@ -375,7 +376,8 @@ mod tests {
         assert!(best.is_some());
         let (genome, f) = best.unwrap();
         assert_eq!(genome.dims(), [1, 2]);
-        approx::assert_relative_eq!(f, 1.0, epsilon = 1e-6);
+        // Canonical maximise: best is the largest fitness (9.0 at index 2).
+        approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
     }
 
     #[test]
@@ -409,10 +411,11 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.5, 1);
         let state = strategy.init(&p, &mut rng, &device);
-        // Two individuals tie for best fitness (1.0) at indices 1 and 3; the
-        // best-so-far must be index 1 (genome value 10.0), not 30.0.
+        // Two individuals tie for best fitness (5.0 — largest under the
+        // maximise convention) at indices 1 and 3; the best-so-far must be
+        // index 1 (genome value 10.0), not 30.0.
         let pop = make_pop(&[0.0, 10.0, 20.0, 30.0], 4, 1);
-        let fitness = make_fitness(&[5.0, 1.0, 5.0, 1.0]);
+        let fitness = make_fitness(&[1.0, 5.0, 1.0, 5.0]);
         let (state, _m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, _f) = strategy.best(&state).unwrap();
         let v = genome.into_data().into_vec::<f32>().unwrap();
@@ -426,14 +429,15 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let p = params(4, 0.5, 1);
         let state = strategy.init(&p, &mut rng, &device);
-        // index 0 is NaN (→ +inf); the finite best (2.0) is at index 2.
+        // index 0 is NaN (→ −inf, worst under maximise); the finite best
+        // (9.0) is at index 1.
         let pop = make_pop(&[0.0, 1.0, 2.0, 3.0], 4, 1);
         let fitness = make_fitness(&[f32::NAN, 9.0, 2.0, 7.0]);
         let (state, m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, f) = strategy.best(&state).unwrap();
         let v = genome.into_data().into_vec::<f32>().unwrap();
-        approx::assert_relative_eq!(v[0], 2.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(f, 2.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
         assert!(m.best_fitness.is_finite());
     }
 

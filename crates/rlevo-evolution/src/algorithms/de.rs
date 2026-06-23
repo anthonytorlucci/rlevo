@@ -164,7 +164,8 @@ pub struct DeState<B: Backend> {
     pub best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness across all completed generations.
     ///
-    /// `f32::INFINITY` before the first [`Strategy::tell`] call.
+    /// `f32::NEG_INFINITY` before the first [`Strategy::tell`] call (the
+    /// worst value under the maximise convention).
     pub best_fitness: f32,
     /// Number of completed `tell` calls (zero-based generation index + 1).
     pub generation: usize,
@@ -268,7 +269,7 @@ where
             fitness: Vec::new(),
             best_index: 0,
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -437,7 +438,7 @@ where
     ///
     /// **Subsequent calls:** applies greedy per-slot replacement — each
     /// trial individual replaces its corresponding current individual if
-    /// and only if `trial_fitness[i] <= state.fitness[i]`. The best-ever
+    /// and only if `trial_fitness[i] >= state.fitness[i]`. The best-ever
     /// genome and fitness are updated if the new generation improves on
     /// `state.best_fitness`.
     ///
@@ -456,7 +457,7 @@ where
         // First `tell`: stash fitness for the initial population.
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            state.best_index = argmin(&fitness_host);
+            state.best_index = argmax(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &trial, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -470,13 +471,13 @@ where
         }
 
         // Greedy per-slot replacement: trial replaces current iff
-        // trial is at least as good.
+        // trial is at least as good (canonical: fitness no lower).
         let device = trial.device();
         let pop_size = state.fitness.len();
         let mut replace_mask = vec![0i64; pop_size];
         let mut new_fit = state.fitness.clone();
         for i in 0..pop_size {
-            if fitness_host[i] <= state.fitness[i] {
+            if fitness_host[i] >= state.fitness[i] {
                 replace_mask[i] = 1;
                 new_fit[i] = fitness_host[i];
             }
@@ -496,7 +497,7 @@ where
 
         state.population = next_pop;
         state.fitness.clone_from(&new_fit);
-        state.best_index = argmin(&new_fit);
+        state.best_index = argmax(&new_fit);
         state.generation += 1;
         update_best(&mut state, &trial, &fitness_host);
         let m = StrategyMetrics::from_host_fitness(state.generation, &new_fit, state.best_fitness);
@@ -504,7 +505,7 @@ where
         (state, m)
     }
 
-    /// Returns the best-so-far genome and its raw (minimization) fitness.
+    /// Returns the best-so-far genome and its canonical (maximise) fitness.
     ///
     /// Returns `None` before the first [`Strategy::tell`] call, when
     /// `DeState::best_genome` is still `None`.
@@ -516,11 +517,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }
@@ -532,9 +533,9 @@ fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: 
     if fitness.is_empty() {
         return;
     }
-    let best_idx = argmin(fitness);
+    let best_idx = argmax(fitness);
     let best_f = fitness[best_idx];
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx =

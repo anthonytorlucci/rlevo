@@ -158,23 +158,23 @@ Two robustness rules keep evaluation total over *any* integer genome:
 ## Selection and neutral drift
 
 `tell` applies `(1 + λ)` selection with the **canonical CGP tie-break**: the
-best offspring replaces the parent when its fitness is *less than or equal to*
+best offspring replaces the parent when its fitness is *greater than or equal to*
 the parent's,
 
 ```math
-\text{replace parent} \iff \min_j f_{\text{offspring}, j} \le f_{\text{parent}}.
+\text{replace parent} \iff \max_j f_{\text{offspring}, j} \ge f_{\text{parent}}.
 ```
 
-The non-strict \\(\le\\) is the entire point. A neutral mutation — one that lands
+The non-strict \\(\ge\\) is the entire point. A neutral mutation — one that lands
 in the inactive portion of the genome and leaves fitness unchanged — is accepted
 rather than rejected. Over many generations this lets the population drift
 sideways across fitness-neutral genotypes, quietly accumulating inactive
 material that a later mutation can activate. Empirically this neutral drift is a
 large part of why CGP escapes local optima despite having no crossover and a
-population of one; rejecting ties (\\(<\\)) measurably hurts search.
+population of one; rejecting ties (\\(>\\)) measurably hurts search.
 
 The best-so-far tracker is separate and uses *strict* improvement
-(\\(<\\), ties broken to the lowest index), so `best` reports the true incumbent
+(\\(>\\), ties broken to the lowest index), so `best` reports the true incumbent
 even while the parent drifts neutrally. As with the other strategies, the first
 `ask` returns the single parent unchanged for evaluation and the first `tell`
 bootstraps the parent fitness without running selection.
@@ -215,10 +215,7 @@ output.
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Symbolic regression therefore minimises an error such as mean squared error
-between the program's outputs and the targets; no negation is needed.
-Maximisation objectives must be negated before they reach the harness.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. Symbolic regression minimises an error (MSE): declare `ObjectiveSense::Minimize` and the harness reconciles — MSE is **not** hand-negated.
 
 ## Minimal example
 
@@ -350,5 +347,5 @@ adapters than it saves.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

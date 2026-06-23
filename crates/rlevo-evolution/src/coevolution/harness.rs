@@ -23,14 +23,14 @@ use super::CoEvolutionaryAlgorithm;
 /// The [`CoEAMetrics`] analogue of
 /// [`StrategyMetrics`](crate::strategy::StrategyMetrics), but tracking both
 /// populations separately so a benchmark report can plot per-population
-/// dynamics. Fitness follows the minimization convention (lower is better).
+/// dynamics. Fitness follows the canonical maximise convention (higher is better).
 #[derive(Debug, Clone)]
 pub struct CoEAMetrics {
     /// Number of completed simultaneous-update generations.
     pub generation: u64,
-    /// Best (lowest) fitness population A has seen so far.
+    /// Best (highest) fitness population A has seen so far.
     pub best_fitness_a: f32,
-    /// Best (lowest) fitness population B has seen so far.
+    /// Best (highest) fitness population B has seen so far.
     pub best_fitness_b: f32,
     /// Mean fitness of population A in this generation.
     pub mean_fitness_a: f32,
@@ -48,9 +48,9 @@ pub struct CoEAMetrics {
 /// harness is lazily initialized: [`reset`](BenchEnv::reset) materializes the
 /// joint state on the configured device, and each
 /// [`step`](BenchEnv::step) runs one generation. The reward exposed to the
-/// benchmark harness is `-min(best_a, best_b)` so the harness's
-/// "higher = better" convention matches the algorithm's minimization
-/// direction, with the weaker population as the binding constraint.
+/// benchmark harness is `min(best_a, best_b)` (canonical maximise, no
+/// negation): the weaker population — the lower canonical fitness — is the
+/// binding constraint, and a higher binding value is better.
 ///
 /// Per-generation metrics are emitted through `tracing` with structured
 /// per-population fields. (A dual-population [`PopulationObserver`] channel —
@@ -172,8 +172,11 @@ where
         self.state = Some(new_state);
         self.generation += 1;
 
+        // Canonical maximise: the weaker population (lower canonical fitness)
+        // is the binding constraint, and a higher binding value is better — so
+        // the reward is the binding value directly, with no negation.
         let binding = metrics.best_fitness_a.min(metrics.best_fitness_b);
-        let reward = -f64::from(binding);
+        let reward = f64::from(binding);
 
         tracing::info!(
             generation = metrics.generation,

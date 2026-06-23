@@ -195,7 +195,7 @@ where
             nests,
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -276,7 +276,7 @@ where
 
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            let best_idx = argmin(&fitness_host);
+            let best_idx = argmax(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -300,7 +300,7 @@ where
         let mut rs: Vec<i64> = (0..pop).map(|i| i as i64).collect();
         let mut new_fitness = state.fitness.clone();
         for i in 0..pop {
-            if fitness_host[i] <= state.fitness[i] {
+            if fitness_host[i] >= state.fitness[i] {
                 #[allow(clippy::cast_possible_wrap)]
                 {
                     rs[i] = (pop + i) as i64;
@@ -314,12 +314,14 @@ where
         state.fitness = new_fitness;
 
         // Abandon worst `p_a · pop` nests — reinit with uniform sample;
-        // mark fitness +∞ so next ask's Lévy proposal always lands.
+        // mark fitness −∞ (worst under maximise) so next ask's Lévy
+        // proposal always lands.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
         let n_abandon = (params.p_a * pop as f32) as usize;
         if n_abandon > 0 {
             let mut rank: Vec<usize> = (0..pop).collect();
-            rank.sort_by(|&a, &b| state.fitness[b].partial_cmp(&state.fitness[a]).unwrap());
+            // Ascending: lowest fitness (worst under maximise) first.
+            rank.sort_by(|&a, &b| state.fitness[a].partial_cmp(&state.fitness[b]).unwrap());
             let worst: Vec<usize> = rank.into_iter().take(n_abandon).collect();
             let (lo, hi) = params.bounds;
             // Host-sample abandoned-nest replacements from a deterministic
@@ -340,7 +342,7 @@ where
                 {
                     rs2[slot] = (pop + k) as i64;
                 }
-                state.fitness[slot] = f32::INFINITY;
+                state.fitness[slot] = f32::NEG_INFINITY;
             }
             let stacked2 = Tensor::cat(vec![state.nests.clone(), fresh], 0);
             let idx2 = Tensor::<B, 1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
@@ -348,8 +350,8 @@ where
         }
 
         // Best-so-far from finite-fitness slots.
-        let best_idx = argmin(&state.fitness);
-        if state.fitness[best_idx].is_finite() && state.fitness[best_idx] < state.best_fitness {
+        let best_idx = argmax(&state.fitness);
+        if state.fitness[best_idx].is_finite() && state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -376,11 +378,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }

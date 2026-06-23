@@ -98,9 +98,7 @@ let config = WoaConfig::default_for(32, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The food source \\(X^*\\) is the
-lowest-cost whale seen so far, and the best-so-far tracker is an argmin.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The food source \\(X^*\\) is the highest-fitness whale seen so far, and the best-so-far tracker is an argmax.
 
 ## Minimal example
 
@@ -210,5 +208,5 @@ Liu (2023); prefer it as a comparator, not a workhorse.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

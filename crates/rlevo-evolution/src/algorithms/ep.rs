@@ -104,7 +104,8 @@ pub struct EpState<B: Backend> {
     pub best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness across all completed generations.
     ///
-    /// `f32::INFINITY` before the first [`Strategy::tell`] call.
+    /// `f32::NEG_INFINITY` before the first [`Strategy::tell`] call
+    /// (the worst value under the maximise convention).
     pub best_fitness: f32,
     /// Number of completed `tell` calls (zero-based generation index + 1).
     pub generation: usize,
@@ -177,7 +178,7 @@ where
             sigmas,
             parent_fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -262,8 +263,8 @@ where
     ///    (and their `2μ` σ values from [`Strategy::ask`]).
     /// 2. Runs q-tournament selection: each of the `2μ` members plays
     ///    `params.tournament_q` random opponents; the member wins a bout
-    ///    if its fitness is strictly lower. The μ members with the most
-    ///    wins survive; ties are broken by fitness (lower wins).
+    ///    if its fitness is strictly higher. The μ members with the most
+    ///    wins survive; ties are broken by fitness (higher wins).
     ///    Tournament indices are host-sampled via [`seed_stream`] with
     ///    [`SeedPurpose::Selection`].
     /// 3. Updates `best_genome`/`best_fitness` from the offspring
@@ -313,7 +314,7 @@ where
         let combined_sigmas = state.sigmas.clone(); // already (μ + μ) thanks to `ask`.
 
         // q-tournament: for each of the 2μ members, sample q opponents
-        // and count wins (lower fitness beats higher). The μ highest-
+        // and count wins (higher fitness beats lower). The μ highest-
         // win members survive.
         let mut selection_rng = seed_stream(
             rng.next_u64(),
@@ -325,18 +326,18 @@ where
         for (i, &my_fit) in combined_fit.iter().enumerate() {
             for _ in 0..params.tournament_q {
                 let opp = selection_rng.random_range(0..n);
-                if my_fit < combined_fit[opp] {
+                if my_fit > combined_fit[opp] {
                     win_counts[i] += 1;
                 }
             }
         }
 
-        // Sort by (win_count desc, fitness asc) and pick top μ.
+        // Sort by (win_count desc, fitness desc) and pick top μ.
         let mut indexed: Vec<usize> = (0..n).collect();
         indexed.sort_by(|&a, &b| {
             win_counts[b].cmp(&win_counts[a]).then_with(|| {
-                combined_fit[a]
-                    .partial_cmp(&combined_fit[b])
+                combined_fit[b]
+                    .partial_cmp(&combined_fit[a])
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
@@ -367,7 +368,7 @@ where
         (state, m)
     }
 
-    /// Returns the best-so-far genome and its raw (minimization) fitness.
+    /// Returns the best-so-far genome and its canonical (maximise) fitness.
     ///
     /// Returns `None` before the first [`Strategy::tell`] call, when
     /// `EpState::best_genome` is still `None`.
@@ -386,12 +387,12 @@ fn update_best<B: Backend>(state: &mut EpState<B>, pop: &Tensor<B, 2>, fitness: 
     let mut best_idx = 0usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx =

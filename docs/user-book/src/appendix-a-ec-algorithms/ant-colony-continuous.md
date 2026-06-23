@@ -116,10 +116,11 @@ offspring scatter around them.
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The archive is sorted ascending, so
-`archive[0]` is always the incumbent best and the top-`k` truncation keeps the
-lowest-cost solutions.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better.
+You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core)
+and the harness reconciles it at one chokepoint, so you never hand-negate. The
+archive is sorted **descending**, so `archive[0]` is always the incumbent best
+(highest fitness) and the top-`k` truncation keeps the highest-fitness solutions.
 
 ## Minimal example
 
@@ -225,5 +226,5 @@ and recomputed only when `q` or `k` change.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

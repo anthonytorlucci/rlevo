@@ -75,11 +75,13 @@ doc states the rule plainly — it is *the only place flatten/unflatten happens 
 the weight-only pipeline*. Evolution never pays for a tensor→module conversion
 except where it is unavoidable: at the moment of evaluation.
 
-One detail of `BatchFitnessFn` matters for wiring objectives correctly: it follows
-the engine's **minimisation** convention — lower fitness is better. A scorer must
-therefore be a *cost* (MSE, negative return), the same direction the rest of the
-non-NEAT engine assumes. This is the opposite of the maximisation convention NEAT
-uses, and the contrast is worth holding onto.
+One detail of `BatchFitnessFn` matters for wiring objectives correctly: it returns
+the objective's **natural** value and declares its direction via `sense()`. The
+engine is maximise-native, so a reward scorer (return, accuracy) declares
+`ObjectiveSense::Maximize` and passes straight through, while a cost scorer (MSE)
+declares `ObjectiveSense::Minimize` and the harness reconciles it at one
+chokepoint — you never hand-negate. NEAT sits naturally in this picture: it
+maximises too, with the extra precondition that its shared fitness be non-negative.
 
 ## Evaluation is loop-over-N, for now
 
@@ -142,5 +144,5 @@ to know the other exists, and that clean seam is the whole point.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

@@ -66,7 +66,7 @@ applies the gate once fitness is known. Candidate \\(i\\) replaces position
 
 ```math
 \underbrace{u_i < A_i}_{\text{recorded in } ask} \quad\text{and}\quad
-\underbrace{f(x_i') \le f(x_i)}_{\text{checked in } tell},
+\underbrace{f(x_i') \ge f(x_i)}_{\text{checked in } tell},
 ```
 
 a per-slot \\((1+1)\\) gate: a bat competes only against its own previous
@@ -119,10 +119,7 @@ let config = BatConfig::default_for(40, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. The acceptance gate keeps a candidate only
-when \\(f(x_i') \le f(x_i)\\), and the best-so-far tracker is an argmin over the
-colony.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The acceptance gate keeps a candidate only when its fitness is no worse than the incumbent (\\(f(x_i') \ge f(x_i)\\)), and the best-so-far tracker is an argmax over the colony.
 
 ## Minimal example
 
@@ -231,5 +228,5 @@ prefer it as a comparator, not a workhorse.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

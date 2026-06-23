@@ -163,7 +163,7 @@ pub struct CmsaEsState<B: Backend> {
     pub generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
     pub best_genome: Option<Tensor<B, 2>>,
-    /// Best-so-far fitness (minimization convention).
+    /// Best-so-far fitness (canonical maximise convention).
     pub best_fitness: f32,
 }
 
@@ -225,7 +225,7 @@ where
             offspring_sigmas: Vec::new(),
             generation: 0,
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
         }
     }
 
@@ -291,11 +291,11 @@ where
             .into_vec::<f32>()
             .unwrap_or_default();
 
-        // Rank ascending (minimization); take the μ best.
+        // Rank descending (canonical maximise); take the μ best (highest).
         let mut ranked: Vec<usize> = (0..lambda).collect();
         ranked.sort_by(|&a, &b| {
-            fitness_host[a]
-                .partial_cmp(&fitness_host[b])
+            fitness_host[b]
+                .partial_cmp(&fitness_host[a])
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -372,14 +372,14 @@ fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitne
         return;
     }
     let mut best_idx: usize = 0;
-    let mut best: f32 = f32::INFINITY;
+    let mut best: f32 = f32::NEG_INFINITY;
     for (i, &f) in fitness.iter().enumerate() {
-        if f < best {
+        if f > best {
             best = f;
             best_idx = i;
         }
     }
-    if best < state.best_fitness {
+    if best > state.best_fitness {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap)]
         let idx = Tensor::<B, 1, burn::tensor::Int>::from_data(

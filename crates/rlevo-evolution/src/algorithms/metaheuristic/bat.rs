@@ -8,7 +8,7 @@
 //! 3. Propose candidate: `x'_i = x_i + v_i`. If `rand > r_i`, override
 //!    with a local walk `x'_i = x_best + ε · mean(A)`, `ε ∈ U[−1, 1]`.
 //! 4. `tell` accepts the candidate iff
-//!    `rand < A_i` **and** `f(x'_i) ≤ f(x_i)`. On acceptance:
+//!    `rand < A_i` **and** `f(x'_i) ≥ f(x_i)`. On acceptance:
 //!    `A_i *= α` (decay loudness), `r_i = r_{i,0}·(1 − exp(−γ·t))`
 //!    (grow pulse rate).
 //!
@@ -170,7 +170,7 @@ where
             pulse_rate: vec![params.r0; params.pop_size],
             fitness: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
             pending_accept: Vec::new(),
         }
@@ -303,7 +303,7 @@ where
     ///
     /// On subsequent calls candidate `i` replaces position `i` iff
     /// `pending_accept[i]` (drawn in [`ask`](Strategy::ask)) **and**
-    /// `fitness[i] ≤ state.fitness[i]`.  On acceptance, loudness decays
+    /// `fitness[i] ≥ state.fitness[i]`.  On acceptance, loudness decays
     /// (`A_i *= α`) and pulse rate grows
     /// (`r_i = r₀·(1 − exp(−γ·t))`).
     fn tell(
@@ -321,7 +321,7 @@ where
 
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            let best_idx = argmin(&fitness_host);
+            let best_idx = argmax(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -341,7 +341,7 @@ where
         }
 
         // Acceptance: accept candidate `i` iff `pending_accept[i]` AND
-        // candidate's fitness is no worse than current.
+        // candidate's fitness is no worse than current (higher is better).
         #[allow(clippy::cast_possible_wrap)]
         let mut rs: Vec<i64> = (0..pop).map(|i| i as i64).collect();
         let mut new_fitness = state.fitness.clone();
@@ -349,7 +349,7 @@ where
         let t = state.generation as f32;
         for i in 0..pop {
             let accept_gate = state.pending_accept.get(i).copied().unwrap_or(false);
-            let improves = fitness_host[i] <= state.fitness[i];
+            let improves = fitness_host[i] >= state.fitness[i];
             if accept_gate && improves {
                 #[allow(clippy::cast_possible_wrap)]
                 {
@@ -366,8 +366,8 @@ where
         state.fitness = new_fitness;
 
         // Refresh global best.
-        let best_idx = argmin(&state.fitness);
-        if state.fitness[best_idx] < state.best_fitness {
+        let best_idx = argmax(&state.fitness);
+        if state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -395,11 +395,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }

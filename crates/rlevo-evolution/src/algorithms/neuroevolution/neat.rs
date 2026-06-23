@@ -14,9 +14,13 @@
 //!
 //! # Orientation — maximization
 //!
-//! NEAT is **maximization** (higher fitness is better), opposite the crate-wide
-//! minimize convention. Fitness sharing assumes non-negative raw fitness; a
-//! cost-objective task supplies `−cost` (the deferred `rlevo-hybrid` consumer).
+//! NEAT is **maximization** (higher fitness is better), matching the crate-wide
+//! maximise convention (canonical space; see
+//! [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense)). Fitness sharing
+//! additionally assumes **non-negative** raw fitness — a NEAT-specific
+//! precondition orthogonal to objective sense. Cost objectives are reconciled
+//! into canonical (maximise) space by the harness/adapter chokepoint, so a
+//! task never hand-negates here.
 //!
 //! # Generational loop
 //!
@@ -391,9 +395,10 @@ impl<B: Backend> NeatStrategy<B> {
 /// [`BatchFitnessFn`]: crate::fitness::BatchFitnessFn
 pub trait GraphFitnessFn<B: Backend>: Send + Sync {
     /// Score every genome in `population`, returning one **maximization**
-    /// fitness per genome (higher is better; supply `−cost` for a task whose
-    /// native objective is a cost). The returned `Vec` has one entry per input
-    /// genome, in order. Build each genome's network with `builder` on `device`.
+    /// fitness per genome (higher is better, matching the crate-wide canonical
+    /// convention). Fitness sharing assumes the values are non-negative. The
+    /// returned `Vec` has one entry per input genome, in order. Build each
+    /// genome's network with `builder` on `device`.
     fn evaluate(
         &self,
         population: &[TopologyGenome],

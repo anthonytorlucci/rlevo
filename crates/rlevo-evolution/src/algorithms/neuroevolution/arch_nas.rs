@@ -106,8 +106,8 @@ impl<B: Backend> VariantEvaluator<B> {
     ///
     /// `template` is an instance of the concrete `Module` variant (its weights
     /// are irrelevant — only its shape is used, to build the reshaper).
-    /// `scorer` maps an unflattened module to a fitness value in the
-    /// **minimization** convention (lower is better).
+    /// `scorer` maps an unflattened module to a fitness value in the canonical
+    /// **maximise** convention (higher is better).
     #[must_use]
     pub fn new<M, F>(template: M, scorer: F) -> Self
     where
@@ -137,7 +137,7 @@ impl<B: Backend> VariantEvaluator<B> {
     ///
     /// The leading `num_params` columns are sliced off, unflattened into the
     /// concrete module, and scored; trailing padding is ignored. Returns a
-    /// fitness value in the minimization convention.
+    /// fitness value in the canonical maximise convention.
     ///
     /// # Panics
     ///
@@ -232,8 +232,8 @@ impl<B: Backend> NasState<B> {
         &self.population
     }
 
-    /// Best-ever fitness seen so far (minimization), or `+∞` before the first
-    /// [`tell`](ArchNasStrategy::tell).
+    /// Best-ever fitness seen so far (canonical maximise), or `−∞` before the
+    /// first [`tell`](ArchNasStrategy::tell).
     #[must_use]
     pub fn best_fitness(&self) -> f32 {
         self.best_fitness
@@ -353,7 +353,7 @@ impl<B: Backend> ArchNasFitnessFn<B> {
         self.evaluators.len()
     }
 
-    /// Evaluate a population, returning `[pop_size]` fitness (minimization).
+    /// Evaluate a population, returning `[pop_size]` fitness (canonical maximise).
     ///
     /// Row `i` is dispatched to `evaluators[genome.arch_ids[i]]`.
     ///
@@ -397,7 +397,7 @@ impl<B: Backend> ArchNasFitnessFn<B> {
 ///     let fitness = fitness_fn.evaluate(&genome, &device);
 ///     state = strat.tell(&params, genome, fitness, next, &mut rng);
 /// }
-/// let (arch_id, weights, cost) = strat.best(&state).unwrap();
+/// let (arch_id, weights, fitness) = strat.best(&state).unwrap();
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ArchNasStrategy<B: Backend> {
@@ -416,7 +416,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// Build the initial state: uniform random architecture ids and
     /// Gaussian-initialized active weights (padding zeroed).
     ///
-    /// `fitness` is left empty and `best_fitness` is `+∞`; the first
+    /// `fitness` is left empty and `best_fitness` is `−∞`; the first
     /// [`tell`](Self::tell) populates both.
     ///
     /// # Panics
@@ -454,7 +454,7 @@ impl<B: Backend> ArchNasStrategy<B> {
             fitness: Vec::new(),
             best_arch_id: None,
             best_weights: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -518,11 +518,12 @@ impl<B: Backend> ArchNasStrategy<B> {
             .unwrap_or_default();
         let resident_arch = &state.population.arch_ids;
 
-        // Elitism: indices sorted by ascending (better) fitness.
+        // Elitism: indices sorted by descending (better, canonical maximise)
+        // fitness — highest first.
         let mut order: Vec<usize> = (0..pop).collect();
         order.sort_by(|&a, &b| {
-            state.fitness[a]
-                .partial_cmp(&state.fitness[b])
+            state.fitness[b]
+                .partial_cmp(&state.fitness[a])
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         let elite_count = params.elite_count.min(pop);
@@ -587,7 +588,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// Records the told population as the new residents, updates the best-ever
     /// `(arch_id, weights, fitness)` triple, and increments the generation.
-    /// `fitness` follows the minimization convention (lower is better).
+    /// `fitness` follows the canonical maximise convention (higher is better).
     #[must_use]
     pub fn tell(
         &self,
@@ -620,14 +621,15 @@ impl<B: Backend> ArchNasStrategy<B> {
     }
 }
 
-/// k-tournament selection over a host fitness slice (minimization): returns the
-/// index of the best of `size` uniformly-drawn competitors.
+/// k-tournament selection over a host fitness slice (canonical maximise):
+/// returns the index of the best (highest-fitness) of `size` uniformly-drawn
+/// competitors.
 fn tournament(fitness: &[f32], size: usize, rng: &mut StdRng) -> usize {
     let pop = fitness.len();
     let mut best = rng.random_range(0..pop);
     for _ in 1..size {
         let challenger = rng.random_range(0..pop);
-        if fitness[challenger] < fitness[best] {
+        if fitness[challenger] > fitness[best] {
             best = challenger;
         }
     }
@@ -647,12 +649,12 @@ fn update_best<B: Backend>(
     let mut best_idx = 0_usize;
     let mut best_f = fitness[0];
     for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f < best_f {
+        if f > best_f {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f < state.best_fitness {
+    if best_f > state.best_fitness {
         #[allow(clippy::single_range_in_vec_init)]
         let row: Tensor<B, 1> = pop
             .weights
@@ -820,7 +822,9 @@ mod tests {
     #[test]
     fn ask_tell_runs_without_panic_and_tracks_best() {
         let device = Default::default();
-        // Scorer: sum of squared active weights (a smooth bowl, minimized at 0).
+        // Scorer: sum of squared active weights — a canonical (maximise)
+        // fitness the strategy drives upward; the test only pins best-ever
+        // monotonicity, not optimisation quality.
         let mut builder = ArchNasBuilder::<TestBackend>::new();
         let sq = |m: &ShallowMlp<TestBackend>| {
             let r = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()));
@@ -863,8 +867,8 @@ mod tests {
         let final_best = strat.best(&state).map(|(_, _, f)| f).unwrap();
 
         assert!(
-            final_best <= gen0_best,
-            "best-ever must be monotone: final {final_best} > gen0 {gen0_best}"
+            final_best >= gen0_best,
+            "best-ever must be monotone (maximise): final {final_best} < gen0 {gen0_best}"
         );
         assert_eq!(state.generation(), 7);
     }

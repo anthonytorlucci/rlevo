@@ -27,8 +27,8 @@ deterministic truncation with probabilistic tournament selection.
 
 **q-tournament selection.** Each of the `2μ` individuals (parents + offspring)
 plays `tournament_q` randomly drawn opponents. An individual wins a bout if its
-fitness is strictly lower (cost convention). The μ individuals with the most
-wins survive; ties are broken by fitness. Higher `tournament_q` increases
+fitness is strictly **higher** than its opponent's. The μ individuals with the most
+wins survive; ties are broken to higher fitness. Higher `tournament_q` increases
 selection pressure toward better individuals; lower values preserve more
 diversity. The default `tournament_q = 10` is the value from Fogel (1995).
 
@@ -75,9 +75,7 @@ let config = EpConfig::default_for(30, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-The q-tournament defines "winning a bout" as having strictly lower cost than
-the opponent.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The q-tournament awards a win when a member's fitness is strictly **higher** than its opponent's; survivors are the μ individuals with the most wins (ties broken to higher fitness).
 
 ## Minimal example
 
@@ -177,5 +175,5 @@ sub-streams. Two runs with the same seed produce identical trajectories.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

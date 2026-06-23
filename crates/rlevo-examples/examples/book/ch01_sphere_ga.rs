@@ -16,6 +16,7 @@ use rlevo_environments::landscapes::sphere::Sphere;
 use rlevo_evolution::algorithms::ga::{
     GaCrossover, GaReplacement, GaSelection, GaConfig, GeneticAlgorithm,
 };
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
@@ -40,7 +41,7 @@ fn main() {
         crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
-    let fitness_fn = FromLandscape::new(Sphere::new(DIM));
+    let fitness_fn = FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize);
 
     let mut harness =
         EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS);
@@ -80,7 +81,7 @@ mod tests {
                 crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
                 replacement: GaReplacement::Elitist { elitism_k: 2 },
             },
-            FromLandscape::new(Sphere::new(DIM)),
+            FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize),
             SEED,
             device,
             GENS,

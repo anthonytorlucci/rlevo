@@ -7,13 +7,14 @@
 //!
 //! # Algorithm
 //!
-//! Each iteration sorts the simplex by fitness and, using the centroid of all
-//! but the worst vertex, attempts (in order) a **reflection** of the worst
-//! vertex through that centroid, an **expansion** further along the reflection
-//! ray when reflection produced a new best, a **contraction** toward the
-//! centroid when reflection is no better than the second-worst vertex, and
-//! finally a **shrink** of every vertex toward the current best when even
-//! contraction fails. Every trial point is clamped into [`NelderMeadParams`]
+//! Each iteration sorts the simplex by fitness (descending: best = highest
+//! fitness) and, using the centroid of all but the worst vertex, attempts (in
+//! order) a **reflection** of the worst vertex through that centroid, an
+//! **expansion** further along the reflection ray when reflection produced a new
+//! best, a **contraction** toward the centroid when reflection is no better than
+//! the second-worst vertex, and finally a **shrink** of every vertex toward the
+//! current best when even contraction fails. Every trial point is clamped into
+//! [`NelderMeadParams`]
 //! `bounds` *before* evaluation, so the fitness always corresponds to a
 //! feasible point.
 //!
@@ -101,26 +102,26 @@ impl NelderMeadParams {
 /// use rlevo_evolution::fitness::FitnessFn;
 /// use rlevo_evolution::local_search::{LocalSearch, NelderMead, NelderMeadParams};
 ///
-/// // Minimize the 2-D sphere; the optimum is the origin with fitness 0.
-/// struct Sphere;
-/// impl FitnessFn<Vec<f32>> for Sphere {
+/// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
+/// struct NegSphere;
+/// impl FitnessFn<Vec<f32>> for NegSphere {
 ///     fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-///         x.iter().map(|v| v * v).sum()
+///         -x.iter().map(|v| v * v).sum::<f32>()
 ///     }
 /// }
 ///
 /// let searcher = NelderMead;
 /// let params = NelderMeadParams::default_for((-5.12, 5.12));
-/// let mut fitness = Sphere;
+/// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
 /// let start = vec![2.5_f32, -1.5];
-/// let start_fit: f32 = start.iter().map(|v| v * v).sum();
+/// let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
 /// let (refined, refined_fit) =
 ///     LocalSearch::<Flex>::refine(&searcher, &params, start, &mut fitness, &mut rng);
 ///
 /// assert_eq!(refined.len(), 2);          // dimensionality preserved
-/// assert!(refined_fit <= start_fit);     // monotone non-worsening
+/// assert!(refined_fit >= start_fit);     // monotone non-worsening
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NelderMead;
@@ -149,7 +150,7 @@ impl NelderMead {
     /// no-op). When the raw input lies outside `bounds`, the hint is discarded
     /// and the clamped vertex 0 is evaluated honestly, falling back to the same
     /// cost as [`refine`](LocalSearch::refine). A valid hint is sanitized (`NaN`
-    /// → `+inf`) before it seeds the tracker.
+    /// → `-inf`) before it seeds the tracker.
     ///
     /// # Panics
     ///
@@ -232,7 +233,7 @@ impl NelderMead {
                 update_best(&mut best, &mut best_fit, &simplex);
                 return (best, best_fit);
             };
-            if fitness < best_fit {
+            if fitness > best_fit {
                 best_fit = fitness;
                 best.clone_from(&point);
             }
@@ -244,10 +245,11 @@ impl NelderMead {
         // budget is exhausted and we stop immediately.
         let n: usize = simplex.len(); // == dim + 1
         loop {
-            // Sort ascending by fitness: index 0 is best, last is worst.
+            // Sort descending by fitness: index 0 is best (highest), last is
+            // worst (lowest).
             simplex.sort_by(|a, b| {
-                a.fitness
-                    .partial_cmp(&b.fitness)
+                b.fitness
+                    .partial_cmp(&a.fitness)
                     .unwrap_or(core::cmp::Ordering::Equal)
             });
 
@@ -255,8 +257,9 @@ impl NelderMead {
             let f_worst: f32 = simplex[n - 1].fitness;
             let f_second_worst: f32 = simplex[n - 2].fitness;
 
-            // f-spread convergence test.
-            if f_worst - f_best < params.tolerance {
+            // f-spread convergence test (best is highest, so the spread is
+            // `f_best - f_worst`).
+            if f_best - f_worst < params.tolerance {
                 break;
             }
             if budget.remaining() == 0 {
@@ -276,7 +279,7 @@ impl NelderMead {
                 break;
             };
 
-            if f_reflected < f_best {
+            if f_reflected > f_best {
                 // Reflection improved on the best: try to expand further.
                 let expanded: Vec<f32> = affine(
                     &centroid,
@@ -290,19 +293,19 @@ impl NelderMead {
                 else {
                     break;
                 };
-                if f_expanded < f_reflected {
+                if f_expanded > f_reflected {
                     replace_worst(&mut simplex, expanded, f_expanded);
                 } else {
                     replace_worst(&mut simplex, reflected, f_reflected);
                 }
-            } else if f_reflected < f_second_worst {
+            } else if f_reflected > f_second_worst {
                 // Reflection is a middling improvement: accept it.
                 replace_worst(&mut simplex, reflected, f_reflected);
             } else {
                 // Reflection is no better than the second-worst: contract.
                 // Outside contraction if reflection still beats the worst,
                 // otherwise inside contraction toward the centroid.
-                let (target, target_fit): (&[f32], f32) = if f_reflected < f_worst {
+                let (target, target_fit): (&[f32], f32) = if f_reflected > f_worst {
                     (&reflected, f_reflected)
                 } else {
                     (worst_point, f_worst)
@@ -315,7 +318,7 @@ impl NelderMead {
                     break;
                 };
 
-                if f_contracted < target_fit {
+                if f_contracted > target_fit {
                     replace_worst(&mut simplex, contracted, f_contracted);
                 } else {
                     // Contraction failed: shrink every non-best vertex toward
@@ -363,7 +366,7 @@ impl<B: Backend> LocalSearch<B> for NelderMead {
         Self::refine_impl(params, genome, None, fitness_fn)
     }
 
-    /// Seeds vertex 0's fitness with `known_fitness` (sanitizing `NaN` to `+inf`)
+    /// Seeds vertex 0's fitness with `known_fitness` (sanitizing `NaN` to `-inf`)
     /// instead of re-scoring the input, saving one eval — **but only when the
     /// input is already in bounds**, since vertex 0 is the clamped input. An
     /// out-of-bounds input falls back to evaluating the clamped vertex 0. See
@@ -397,7 +400,7 @@ fn eval_clamped(
     best_fit: &mut f32,
 ) -> Option<f32> {
     let fitness: f32 = budget.eval(point)?;
-    if fitness < *best_fit {
+    if fitness > *best_fit {
         *best_fit = fitness;
         best.clone_from(point);
     }
@@ -407,7 +410,7 @@ fn eval_clamped(
 /// Folds the simplex into the best-so-far tracker (used on early init exit).
 fn update_best(best: &mut Vec<f32>, best_fit: &mut f32, simplex: &[Vertex]) {
     for v in simplex {
-        if v.fitness < *best_fit {
+        if v.fitness > *best_fit {
             *best_fit = v.fitness;
             best.clone_from(&v.point);
         }
@@ -459,21 +462,22 @@ mod tests {
 
     type TestBackend = Flex;
 
-    /// `f(x) = Σ x_i²` — convex, unimodal, optimum at the origin.
-    struct Sphere;
-    impl FitnessFn<Vec<f32>> for Sphere {
+    /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
+    /// origin.
+    struct NegSphere;
+    impl FitnessFn<Vec<f32>> for NegSphere {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
-            x.iter().map(|v| v * v).sum()
+            -x.iter().map(|v| v * v).sum::<f32>()
         }
     }
 
-    /// 2-D Rosenbrock — curved valley, optimum at `(1, 1)` with value 0.
-    struct Rosenbrock;
-    impl FitnessFn<Vec<f32>> for Rosenbrock {
+    /// Negated 2-D Rosenbrock — curved ridge; global maximum 0 at `(1, 1)`.
+    struct NegRosenbrock;
+    impl FitnessFn<Vec<f32>> for NegRosenbrock {
         fn evaluate_one(&mut self, x: &Vec<f32>) -> f32 {
             let a = 1.0 - x[0];
             let b = x[1] - x[0] * x[0];
-            a * a + 100.0 * b * b
+            -(a * a + 100.0 * b * b)
         }
     }
 
@@ -515,32 +519,32 @@ mod tests {
     fn sphere_d2_converges_below_threshold() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(1);
         let start = random_start(&mut rng, 2, BOUNDS);
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        assert!(fit < 1e-6, "sphere D=2 should converge: best={fit}");
+        assert!(fit > -1e-6, "sphere D=2 should converge: best={fit}");
     }
 
     #[test]
     fn sphere_d10_strictly_improves() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(2);
         let start = random_start(&mut rng, 10, BOUNDS);
-        let start_fit: f32 = start.iter().map(|v| v * v).sum();
+        let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
         let (_g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
-        assert!(fit < start_fit, "expected improvement: {fit} < {start_fit}");
+        assert!(fit > start_fit, "expected improvement: {fit} > {start_fit}");
     }
 
     #[test]
     fn output_len_equals_input_len() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(3);
         for dim in [1_usize, 2, 5, 10] {
             let start = random_start(&mut rng, dim, BOUNDS);
@@ -559,7 +563,7 @@ mod tests {
     fn returned_fitness_matches_fresh_eval() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
         let (g, fit) =
@@ -575,7 +579,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(5);
         for _ in 0..6 {
             let start = random_start(&mut rng, 2, BOUNDS);
-            let mut fitness = Rosenbrock;
+            let mut fitness = NegRosenbrock;
             let start_fit = fitness.evaluate_one(&start);
             let (_g, fit) = LocalSearch::<TestBackend>::refine(
                 &searcher,
@@ -584,7 +588,7 @@ mod tests {
                 &mut fitness,
                 &mut rng,
             );
-            assert!(fit <= start_fit, "monotone: {fit} <= {start_fit}");
+            assert!(fit >= start_fit, "monotone: {fit} >= {start_fit}");
         }
     }
 
@@ -620,14 +624,14 @@ mod tests {
         let searcher = NelderMead;
         let mut params = NelderMeadParams::default_for(BOUNDS);
         params.max_iters = 2;
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(7);
         let start = random_start(&mut rng, 5, BOUNDS);
-        let start_fit: f32 = start.iter().map(|v| v * v).sum();
+        let start_fit: f32 = -start.iter().map(|v| v * v).sum::<f32>();
         let (g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         assert_eq!(g.len(), 5, "dimensionality preserved");
-        assert!(fit <= start_fit, "no worse than input: {fit} <= {start_fit}");
+        assert!(fit >= start_fit, "no worse than input: {fit} >= {start_fit}");
     }
 
     #[test]
@@ -637,7 +641,7 @@ mod tests {
         let searcher = NelderMead;
         let mut params = NelderMeadParams::default_for(BOUNDS);
         params.max_iters = 1000;
-        let mut base = Sphere;
+        let mut base = NegSphere;
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(8);
         let start = vec![1.0_f32, -0.5];
@@ -660,7 +664,7 @@ mod tests {
     fn boundary_start_stays_within_bounds() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(9);
         // Start at the upper boundary in every coordinate, so the forward axis
         // nudge would leave bounds and must flip inward.
@@ -682,7 +686,7 @@ mod tests {
         let params = NelderMeadParams::default_for(BOUNDS);
         let start = vec![2.0_f32, -3.0, 1.5];
 
-        let mut fitness_a = Sphere;
+        let mut fitness_a = NegSphere;
         let mut rng_a = StdRng::seed_from_u64(123);
         let (g_a, f_a) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -692,7 +696,7 @@ mod tests {
             &mut rng_a,
         );
 
-        let mut fitness_b = Sphere;
+        let mut fitness_b = NegSphere;
         let mut rng_b = StdRng::seed_from_u64(123);
         let (g_b, f_b) = LocalSearch::<TestBackend>::refine(
             &searcher,
@@ -761,7 +765,7 @@ mod tests {
         let start = vec![100.0_f32, 100.0]; // far above the upper bound
 
         let refine_evals = {
-            let mut base = Sphere;
+            let mut base = NegSphere;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(42);
             let _ = LocalSearch::<TestBackend>::refine(
@@ -774,14 +778,14 @@ mod tests {
             counting.calls
         };
         let (g, fit, hint_evals) = {
-            let mut base = Sphere;
+            let mut base = NegSphere;
             let mut counting = Counting::new(&mut base);
             let mut rng = StdRng::seed_from_u64(42);
             let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(
                 &searcher,
                 &params,
                 start.clone(),
-                -999.0, // bogus: must never be returned
+                999.0, // bogus: must never be returned (NegSphere fitness is <= 0)
                 &mut counting,
                 &mut rng,
             );
@@ -791,17 +795,17 @@ mod tests {
             hint_evals, refine_evals,
             "out-of-bounds hint must fall back to evaluating vertex 0"
         );
-        let mut fresh_fn = Sphere;
+        let mut fresh_fn = NegSphere;
         let fresh = fresh_fn.evaluate_one(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
-        assert!(fit >= 0.0, "sphere fitness is non-negative; bogus hint leaked: {fit}");
+        assert!(fit <= 0.0, "neg-sphere fitness is non-positive; bogus hint leaked: {fit}");
     }
 
     #[test]
     fn nan_hint_does_not_propagate() {
         let searcher = NelderMead;
         let params = NelderMeadParams::default_for(BOUNDS);
-        let mut fitness = Sphere;
+        let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(43);
         let start = vec![2.0_f32, -1.0]; // in bounds
         let (g, fit) = LocalSearch::<TestBackend>::refine_with_known_fitness(

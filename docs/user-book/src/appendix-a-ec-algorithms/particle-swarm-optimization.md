@@ -119,10 +119,7 @@ let config = PsoConfig::default_for(32, 10);
 
 ## Fitness convention
 
-All strategies in `rlevo::evo` treat fitness as **cost** — lower is better.
-Maximisation problems must be negated. A particle updates its `pbest` only when
-the new cost is strictly lower, and `gbest` tracks the minimum over all personal
-bests.
+All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. A particle updates its `pbest` only when the new fitness is strictly higher, and `gbest` tracks the argmax over all personal bests.
 
 ## Minimal example
 
@@ -193,10 +190,10 @@ local neighbourhood topologies — which slow information spread and resist
 premature convergence on multimodal problems — are *not* implemented. This is the
 main caveat when applying PSO here to rugged landscapes.
 
-**Greedy `pbest`, vectorised.** `tell` compares each particle's new cost to its
+**Greedy `pbest`, vectorised.** `tell` compares each particle's new fitness to its
 `pbest` host-side, builds a `(pop)` improvement mask, broadcasts it to
 `(pop, D)`, and uses `mask_where` to update only the improved rows in one tensor
-op. The global best is then the `argmin` over the refreshed personal-best cache,
+op. The global best is then the `argmax` over the refreshed personal-best cache,
 and is only re-pointed when it strictly improves.
 
 **Boundary handling.** A position that would leave `bounds` is clamped, but the
@@ -229,5 +226,5 @@ or `B::seed`. Two runs with the same root seed produce identical trajectories.
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

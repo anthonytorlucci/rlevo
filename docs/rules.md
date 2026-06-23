@@ -97,6 +97,30 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `PrioritizedExperienceReplay` | `priorities.len() == buffer.len()` at all times |
 
+### Optimisation direction — maximise-native (ADR 0023)
+
+The engine is **maximise-native**: *higher fitness is always better*. This is the
+single internal convention across the whole library (RL, evolutionary, NEAT).
+
+- Every `Strategy`, operator, shaping rule, local searcher, and metric
+  aggregation in `rlevo-evolution` works purely in **canonical (maximise)**
+  space and is **sense-unaware** — it never sees an `ObjectiveSense`. Best is the
+  largest value; the worst-value sentinel is `f32::NEG_INFINITY`; `NaN` sanitises
+  to `−inf`.
+- An objective declares its natural direction with
+  `rlevo_core::objective::ObjectiveSense { Minimize, Maximize }`. Fitness
+  functions and landscape adapters return **natural** values — **never
+  hand-negate** a cost into a reward.
+- Cost objectives are reconciled into canonical space at **exactly one
+  chokepoint**: the `EvolutionaryHarness` (and the `FromLandscape` /
+  `FromFitnessEvaluable` adapters that carry the sense). The harness negates a
+  `Minimize` objective before `tell` and maps metrics back to the declared sense
+  for reporting (`best_fitness` reads as the natural cost — Sphere → 0).
+- `BatchFitnessFn::sense()` is **required, no default** — a reward/accuracy
+  objective must declare `Maximize` explicitly so it cannot be optimised
+  backwards by omission. Only `Landscape::sense()` defaults (to `Minimize`, since
+  a landscape is a cost surface by definition).
+
 ---
 
 ## 4. Error Handling

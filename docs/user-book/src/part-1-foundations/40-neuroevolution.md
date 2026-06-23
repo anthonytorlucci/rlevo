@@ -130,9 +130,11 @@ actually encodes. `ArchNasStrategy` runs an elitist tournament loop: same-varian
 parents blend their weights, cross-variant pairs fall back to copying, and an
 individual either mutates its architecture (re-initialising weights for the new
 shape) or perturbs its existing weights. Like the rest of the engine it
-**minimises**, so wire the scorer as a cost. `ArchNas` drives its own
-`init`/`ask`/`tell` loop directly rather than going through `EvolutionaryHarness`,
-because its genome is not a bare tensor.
+**maximises** a canonical fitness, so its scorer returns a value where higher is
+better (because `ArchNas` drives its own `init`/`ask`/`tell` loop directly rather
+than going through `EvolutionaryHarness`, there is no chokepoint to reconcile a
+cost — wire a cost scorer as `−cost`). Its genome is not a bare tensor, which is
+why it bypasses the harness.
 
 ## Growing topologies: `Neat`
 
@@ -162,9 +164,11 @@ both are deliberate:
   to float epsilon, so the choice between them is purely about throughput.
   [Phenotypes: Compiling a Genome into a Network](neuroevolution/44-phenotypes.md)
   develops both, including why a NEAT phenotype carries no Burn `Module` at all.
-- **NEAT maximises.** Higher fitness is better here, the opposite of the engine's
-  global minimise-cost convention — a direct consequence of NEAT's fitness-sharing
-  and speciation arithmetic, which are framed in terms of reward.
+- **NEAT maximises.** Higher fitness is better here — the same direction as the
+  rest of the engine's canonical-maximise convention. NEAT's fitness-sharing and
+  speciation arithmetic additionally assume *non-negative* fitness, a
+  NEAT-specific precondition orthogonal to objective sense (a cost is reconciled
+  into canonical space by the harness/adapter chokepoint, not by hand here).
 
 Two ideas make topology evolution work, and both hinge on **innovation numbers** —
 historical markers that timestamp when a given structural element first appeared:
@@ -218,5 +222,5 @@ the subject of [Why Combine Them?](50-why-combine.md).
 
 ---
 
-*Co-Authored-By: Anthropic Claude Opus 4.8*\
-*Reviewed-By: (Human) Anthony Torlucci*
+*Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
+*Co-Authored-By: Anthropic Claude Opus 4.8*

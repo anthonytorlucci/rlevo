@@ -209,7 +209,7 @@ where
             trial: vec![0; params.pop_size],
             target_of_candidate: Vec::new(),
             best_genome: None,
-            best_fitness: f32::INFINITY,
+            best_fitness: f32::NEG_INFINITY,
             generation: 0,
         }
     }
@@ -298,7 +298,7 @@ where
         // First tell: population is the initial colony being scored.
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            let best_idx = argmin(&fitness_host);
+            let best_idx = argmax(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -322,10 +322,10 @@ where
         let mut best_per_target: Vec<Option<(usize, f32)>> = vec![None; pop];
         for (cand_idx, &t) in state.target_of_candidate.iter().enumerate() {
             let cand_fit = fitness_host[cand_idx];
-            if cand_fit <= state.fitness[t] {
+            if cand_fit >= state.fitness[t] {
                 match best_per_target[t] {
                     None => best_per_target[t] = Some((cand_idx, cand_fit)),
-                    Some((_, prev)) if cand_fit < prev => {
+                    Some((_, prev)) if cand_fit > prev => {
                         best_per_target[t] = Some((cand_idx, cand_fit));
                     }
                     _ => {}
@@ -392,8 +392,9 @@ where
                     rs2[scout] = (pop + k) as i64;
                 }
                 // Scout fitness is unknown until next generation —
-                // carry INF so any candidate improves it.
-                state.fitness[scout] = f32::INFINITY;
+                // carry −INF (worst under maximise) so any candidate
+                // improves it.
+                state.fitness[scout] = f32::NEG_INFINITY;
             }
             let stacked2 = Tensor::cat(vec![state.colony.clone(), fresh], 0);
             let idx2 = Tensor::<B, 1, Int>::from_data(TensorData::new(rs2, [pop]), &device);
@@ -402,8 +403,8 @@ where
 
         // Update best-so-far from the refreshed colony's fitness cache
         // (excluding INF-tagged scouts, which next `ask` evaluates).
-        let best_idx = argmin(&state.fitness);
-        if state.fitness[best_idx].is_finite() && state.fitness[best_idx] < state.best_fitness {
+        let best_idx = argmax(&state.fitness);
+        if state.fitness[best_idx].is_finite() && state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -428,11 +429,11 @@ where
     }
 }
 
-fn argmin(xs: &[f32]) -> usize {
+fn argmax(xs: &[f32]) -> usize {
     let mut best_idx = 0usize;
-    let mut best = f32::INFINITY;
+    let mut best = f32::NEG_INFINITY;
     for (i, &v) in xs.iter().enumerate() {
-        if v < best {
+        if v > best {
             best = v;
             best_idx = i;
         }
