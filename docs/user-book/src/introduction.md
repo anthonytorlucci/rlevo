@@ -90,6 +90,9 @@ cargo run -p rlevo-examples --example <name>
 Each section names the example it's built from. The code in the book *is* that
 example — compiled and tested in CI — so what you read is what runs.
 
+<a name="bibliography"></a>
+*References on this page are collected in the [Bibliography](bibliography.md).*
+
 ---
 
 *Drafted, Edited, and Reviewed By: (Human) Anthony Torlucci*\
