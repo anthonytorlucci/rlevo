@@ -1,29 +1,27 @@
 //! End-to-end integration tests for the SAC agent.
 //!
-//! Default-run tests exercise SAC on a minimal synthetic 1-D continuous env
-//! (shared with TD3 / DDPG) plus a learn-step smoke that asserts α actually
-//! moves under auto-tuning. The Pendulum smoke and the bit-equal
-//! reproducibility check are gated behind `#[ignore]` to stay inside the
-//! project's default-run integration-test budget.
+//! Default-run tests exercise SAC on the shared synthetic 1-D continuous env
+//! ([`rlevo_test_support::env::LinearEnv`]) plus learn-step smokes that assert
+//! α actually moves (and stays pinned) under auto-tuning, and a bit-equal
+//! reproducibility check. The Pendulum smoke and the convergence run are gated
+//! behind `#[ignore]` to stay inside the project's default-run
+//! integration-test budget.
+//!
+//! The shared fixture, the `Flex` determinism preamble ([`flex_guard`] /
+//! [`seeded_device`]), and the acceptance assertions live in the
+//! `rlevo-test-support` dev-crate; only the SAC networks and the
+//! algorithm-specific tests remain here.
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
 
-use rlevo_reinforcement_learning::utils::polyak_update;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use serde::{Deserialize, Serialize};
 
-use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
-use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
-};
-use rlevo_core::reward::ScalarReward;
+use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -34,157 +32,17 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     ContinuousQ, SampleOutput, SquashedGaussianPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::sac::train::train;
+use rlevo_reinforcement_learning::utils::polyak_update;
 
-// ---------------------------------------------------------------------------
-// Synthetic 1-D continuous environment (same as `td3_integration.rs`).
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct LinearState {
-    x: f32,
-    steps: usize,
-}
-
-impl State<1> for LinearState {
-    type Observation = LinearObservation;
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-    }
-    fn observe(&self) -> LinearObservation {
-        LinearObservation { x: self.x }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct LinearObservation {
-    x: f32,
-}
-
-impl Observation<1> for LinearObservation {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        Tensor::from_data(TensorData::new(vec![self.x], vec![1]), device)
-    }
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let v = tensor.into_data().convert::<f32>();
-        Ok(Self {
-            x: v.as_slice::<f32>().unwrap()[0],
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct LinearAction(f32);
-
-impl Action<1> for LinearAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn is_valid(&self) -> bool {
-        self.0.is_finite() && self.0.abs() <= 1.0
-    }
-}
-
-impl ContinuousAction<1> for LinearAction {
-    fn as_slice(&self) -> &[f32] {
-        std::slice::from_ref(&self.0)
-    }
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.clamp(min, max))
-    }
-    fn from_slice(values: &[f32]) -> Self {
-        assert_eq!(values.len(), 1);
-        Self(values[0])
-    }
-}
-
-impl BoundedAction<1> for LinearAction {
-    fn low() -> [f32; 1] {
-        [-1.0]
-    }
-    fn high() -> [f32; 1] {
-        [1.0]
-    }
-}
-
-struct LinearEnv {
-    state: LinearState,
-    rng: StdRng,
-    episode_len: usize,
-}
-
-impl LinearEnv {
-    fn with_seed(seed: u64, episode_len: usize) -> Self {
-        Self {
-            state: LinearState { x: 0.0, steps: 0 },
-            rng: StdRng::seed_from_u64(seed),
-            episode_len,
-        }
-    }
-
-    fn sample_x(rng: &mut StdRng) -> f32 {
-        use rand::RngExt;
-        rng.random_range(-1.0_f32..=1.0_f32)
-    }
-}
-
-impl Environment<1, 1, 1> for LinearEnv {
-    type StateType = LinearState;
-    type ObservationType = LinearObservation;
-    type ActionType = LinearAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, LinearObservation, ScalarReward>;
-
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = LinearState {
-            x: Self::sample_x(&mut self.rng),
-            steps: 0,
-        };
-        Ok(SnapshotBase {
-            observation: self.state.observe(),
-            reward: ScalarReward::new(0.0),
-            status: EpisodeStatus::Running,
-        })
-    }
-
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
-        let a = action.0.clamp(-1.0, 1.0);
-        let err = a - self.state.x;
-        let reward = -(err * err);
-        let next_x = Self::sample_x(&mut self.rng);
-        self.state = LinearState {
-            x: next_x,
-            steps: self.state.steps + 1,
-        };
-        let status = if self.state.steps >= self.episode_len {
-            EpisodeStatus::Truncated
-        } else {
-            EpisodeStatus::Running
-        };
-        Ok(SnapshotBase {
-            observation: self.state.observe(),
-            reward: ScalarReward::new(reward),
-            status,
-        })
-    }
-}
+use rlevo_test_support::assert::assert_improves_over_random;
+use rlevo_test_support::baseline::{random_return, uniform_bounded};
+use rlevo_test_support::env::{LinearAction, LinearEnv, LinearObservation};
+use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
 // Stochastic actor: μ + log_std heads, squashed-Gaussian reparameterization.
+// Implements SAC's policy trait and so stays test-local.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -277,7 +135,7 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> 
 }
 
 // ---------------------------------------------------------------------------
-// Critic + Polyak (shared with td3_integration).
+// Critic. Implements SAC's Q-trait and so stays test-local.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -326,26 +184,37 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
     }
 }
 
-type Be = Autodiff<Flex>;
+// Concrete SAC agent over the shared 1-D continuous fixture.
+type LinearAgent =
+    SacAgent<Be, StochasticActor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
-static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Drives `agent` against `env` for `steps` env steps, storing every transition
+/// and ticking the warm-up counter. Used to prime the replay buffer past
+/// warm-up before manual `learn_step` calls.
+fn prime_buffer(agent: &mut LinearAgent, env: &mut LinearEnv, rng: &mut StdRng, steps: usize) {
+    let mut snap = env.reset().expect("reset");
+    for _ in 0..steps {
+        let obs = *snap.observation();
+        let action = agent.act(&obs, true, rng);
+        let next = env.step(action).expect("step");
+        let reward: f32 = (*next.reward()).into();
+        let done = next.is_done();
+        let next_obs = *next.observation();
+        agent.remember(obs, &action, reward, next_obs, done);
+        agent.on_env_step();
+        snap = if done { env.reset().expect("reset") } else { next };
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Default-run test: SAC should solve the 1-D tracking task well enough that
-/// the 100-episode moving average clears a lax `-1.0` threshold within 8k
-/// env steps. Random actions average ≈ −6.67 per episode; a learned policy
-/// approaches `0`.
-#[test]
-#[ignore = "8 000-step LinearEnv convergence check; run with `cargo test -- --ignored`"]
-fn sac_solves_linear_1d_continuous() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    let seed: u64 = 42;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+/// Builds and trains a SAC agent on the shared `LinearEnv` for `total` steps,
+/// returning the standardised outcome consumed by the suite macros. Shared by
+/// the convergence and reproducibility tests below.
+fn run_linear(seed: u64, total: usize) -> TrainOutcome {
+    let device = seeded_device::<Be>(seed);
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -365,29 +234,53 @@ fn sac_solves_linear_1d_continuous() {
         .initial_alpha(1.0)
         .policy_frequency(2)
         .build();
-    let mut agent: SacAgent<
-        Be,
-        StochasticActor<Be>,
-        Critic<Be>,
-        LinearObservation,
-        LinearAction,
-        1,
-        2,
-        1,
-        2,
-    > = SacAgent::new(actor, critic_1, critic_2, config, device);
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, 8_000, 0,
+        &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
 
-    let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
-    assert!(
-        avg > -1.0,
-        "expected avg reward > -1.0, got {avg:.3} (random baseline ≈ -6.67)"
-    );
+    let stats = agent.stats();
+    TrainOutcome {
+        avg_score: stats.avg_score().unwrap_or(0.0),
+        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+    }
+}
+
+/// Mean episode return of a uniform-random `U(-1, 1)` policy on the shared
+/// `LinearEnv`, measured over 200 episodes from `seed`. The learning test below
+/// asserts the trained agent beats this measured baseline by a margin.
+fn random_linear(seed: u64) -> f32 {
+    let mut env = LinearEnv::with_seed(seed, 20);
+    let mut rng = StdRng::seed_from_u64(seed);
+    random_return(&mut env, 200, 20, &mut rng, uniform_bounded::<1, LinearAction>)
+}
+
+/// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
+/// Pendulum, measured over 100 episodes from `seed`. Baseline for the Pendulum
+/// learning check.
+fn random_pendulum(seed: u64) -> f32 {
+    let base = Pendulum::with_config(PendulumConfig {
+        seed,
+        ..PendulumConfig::default()
+    });
+    let mut env = TimeLimit::new(base, 200);
+    let mut rng = StdRng::seed_from_u64(seed);
+    random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
+}
+
+// Default-run convergence check: SAC should clear the random baseline within
+// 8k env steps. A uniform `U(-1, 1)` policy scores `random_linear`; a learned
+// policy approaches `0`. (Generated by `rl_learning_test!`.)
+rl_learning_test! {
+    #[ignore = "8 000-step LinearEnv convergence check; run with `cargo test -- --ignored`"]
+    sac_linear_improves_over_random,
+    improves_over_random(margin = 2.0),
+    seed = 42,
+    total = 8_000,
+    run = run_linear,
+    random = random_linear,
 }
 
 /// With `autotune=true` and a target entropy of `-|A| = -1`, 200 learn
@@ -397,11 +290,9 @@ fn sac_solves_linear_1d_continuous() {
 /// no-op case.
 #[test]
 fn sac_alpha_moves_under_autotune() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+    let _guard = flex_guard();
     let seed: u64 = 7;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -417,35 +308,10 @@ fn sac_alpha_moves_under_autotune() {
         .initial_alpha(1.0)
         .policy_frequency(1)
         .build();
-    let mut agent: SacAgent<
-        Be,
-        StochasticActor<Be>,
-        Critic<Be>,
-        LinearObservation,
-        LinearAction,
-        1,
-        2,
-        1,
-        2,
-    > = SacAgent::new(actor, critic_1, critic_2, config, device);
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
 
     // Prime the buffer past warm-up so learn_step proceeds.
-    let mut snap = env.reset().expect("reset");
-    for _ in 0..128 {
-        let obs = *snap.observation();
-        let action = agent.act(&obs, true, &mut rng);
-        let next = env.step(action).expect("step");
-        let reward: f32 = (*next.reward()).into();
-        let done = next.is_done();
-        let next_obs = *next.observation();
-        agent.remember(obs, &action, reward, next_obs, done);
-        agent.on_env_step();
-        snap = if done {
-            env.reset().expect("reset")
-        } else {
-            next
-        };
-    }
+    prime_buffer(&mut agent, &mut env, &mut rng, 128);
     assert!(agent.can_learn(), "agent should be past warm-up");
 
     let before = agent.last_alpha();
@@ -464,11 +330,9 @@ fn sac_alpha_moves_under_autotune() {
 /// learn steps.
 #[test]
 fn sac_alpha_frozen_when_autotune_disabled() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+    let _guard = flex_guard();
     let seed: u64 = 11;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -483,34 +347,9 @@ fn sac_alpha_frozen_when_autotune_disabled() {
         .initial_alpha(0.2)
         .policy_frequency(1)
         .build();
-    let mut agent: SacAgent<
-        Be,
-        StochasticActor<Be>,
-        Critic<Be>,
-        LinearObservation,
-        LinearAction,
-        1,
-        2,
-        1,
-        2,
-    > = SacAgent::new(actor, critic_1, critic_2, config, device);
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
 
-    let mut snap = env.reset().expect("reset");
-    for _ in 0..128 {
-        let obs = *snap.observation();
-        let action = agent.act(&obs, true, &mut rng);
-        let next = env.step(action).expect("step");
-        let reward: f32 = (*next.reward()).into();
-        let done = next.is_done();
-        let next_obs = *next.observation();
-        agent.remember(obs, &action, reward, next_obs, done);
-        agent.on_env_step();
-        snap = if done {
-            env.reset().expect("reset")
-        } else {
-            next
-        };
-    }
+    prime_buffer(&mut agent, &mut env, &mut rng, 128);
     for _ in 0..50 {
         let _ = agent.learn_step(&mut rng).expect("can learn");
     }
@@ -521,15 +360,13 @@ fn sac_alpha_frozen_when_autotune_disabled() {
     );
 }
 
-/// Pendulum smoke: gated at 30k steps.
+/// Pendulum learning check: gated at 30k steps.
 #[test]
-#[ignore = "30 000-step continuous SAC Pendulum run (~2 min on Flex); confirms avg reward > −1100, above the zero-torque baseline (≈ −1 200) — run with `cargo test -- --ignored`"]
-fn sac_pendulum_smoke() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+#[ignore = "30 000-step continuous SAC Pendulum run (~2 min on Flex); confirms avg reward beats a measured uniform-random baseline — run with `cargo test -- --ignored`"]
+fn sac_pendulum_improves_over_random() {
+    let _guard = flex_guard();
     let seed: u64 = 42;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
@@ -571,65 +408,26 @@ fn sac_pendulum_smoke() {
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
     // Reduced from the former 500k-step / 256-wide macro run (~9 min even at
     // 50k) to a 30k-step / 64-wide budget that finishes in ~2 min: SAC runs a
     // full update (two critics + policy + α) every env step, so per-step grad
     // cost — not step count — dominates wall-clock, and trimming both width and
     // batch is the real lever. At this budget SAC deterministically reaches
-    // ≈ -940, clearing the zero-torque baseline (≈ -1200) but not the
-    // aspirational -800 convergence bar. So this stays a "beats the baseline"
-    // smoke (mirroring the DDPG Pendulum smoke); the -1100 bar sits a margin
-    // below the deterministic ≈ -940 to absorb cross-platform float drift.
-    // Determinism (seeded backend + 1-thread rayon) keeps it reproducible.
-    assert!(avg > -1100.0, "expected avg reward > -1100, got {avg:.2}");
+    // ≈ -940, comfortably above a uniform-random torque policy but short of the
+    // aspirational -800 convergence bar. So this stays a "beats random" check
+    // (mirroring the DDPG Pendulum learning test); the 100-pt margin absorbs
+    // cross-platform float drift. Determinism (seeded backend + 1-thread rayon)
+    // keeps it reproducible.
+    let baseline = random_pendulum(seed);
+    assert_improves_over_random(avg, baseline, 100.0);
 }
 
-/// Seeded reproducibility: two identical runs on the same seed must produce
-/// bit-equal metrics. The `BACKEND_LOCK` serializes execution within this
-/// binary so Burn's process-global Flex RNG stays isolated.
-#[test]
-fn sac_reproducibility_flex() {
-    rayon::ThreadPoolBuilder::new().num_threads(1).build_global().ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    fn run_once() -> f32 {
-        let seed: u64 = 42;
-        let device = Default::default();
-        <Be as Backend>::seed(&device, seed);
-        let mut env = LinearEnv::with_seed(seed, 20);
-        let mut rng = StdRng::seed_from_u64(seed);
-        let actor: StochasticActor<Be> = StochasticActor::new(1, 16, 1, 1.0, &device);
-        let c1: Critic<Be> = Critic::new(1, 1, 16, &device);
-        let c2: Critic<Be> = Critic::new(1, 1, 16, &device);
-        let config = SacTrainingConfigBuilder::new()
-            .buffer_capacity(2_048)
-            .batch_size(16)
-            .learning_starts(64)
-            .policy_frequency(1)
-            .build();
-        let mut agent: SacAgent<
-            Be,
-            StochasticActor<Be>,
-            Critic<Be>,
-            LinearObservation,
-            LinearAction,
-            1,
-            2,
-            1,
-            2,
-        > = SacAgent::new(actor, c1, c2, config, device);
-        train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-            &mut agent, &mut env, &mut rng, 1_000, 0,
-        )
-        .expect("training");
-        agent.stats().avg_score().unwrap_or(0.0)
-    }
-
-    let a = run_once();
-    let b = run_once();
-    assert_eq!(
-        a.to_bits(),
-        b.to_bits(),
-        "SAC run not reproducible: {a} vs {b}"
-    );
+// Seeded reproducibility: two same-seed runs must produce bit-equal metrics.
+// (Generated by `rl_reproducibility_test!`.)
+rl_reproducibility_test! {
+    sac_linear_flex_reproducibility,
+    bits,
+    seed = 42,
+    total = 1_000,
+    run = run_linear,
 }

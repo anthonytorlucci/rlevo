@@ -6344,6 +6344,7 @@ dependencies = [
  "rlevo-evolution",
  "rlevo-hybrid",
  "rlevo-reinforcement-learning",
+ "rlevo-test-support",
  "serde",
  "tempfile",
  "tracing-subscriber",
@@ -6489,6 +6490,18 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "rlevo-test-support"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "rand 0.10.1",
+ "rayon",
+ "rlevo-core",
+ "rlevo-environments",
+ "serde",
 ]
 
 [[package]]

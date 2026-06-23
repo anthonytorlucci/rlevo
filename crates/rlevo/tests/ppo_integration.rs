@@ -1,14 +1,16 @@
 //! End-to-end integration tests for PPO.
 //!
-//! Two convergence tests at modest budgets for CI throughput:
-//! - `ppo_cart_pole_reaches_100` (discrete)
-//! - `ppo_pendulum_improves_over_random` (continuous)
+//! Two learning tests at modest budgets for CI throughput:
+//! - `ppo_cartpole_converges` (discrete, absolute floor)
+//! - `ppo_pendulum_improves_over_random` (continuous, measured random baseline)
 //!
-//! Heavier parity checks behind `#[ignore]` follow the DQN/C51 convention:
-//! Burn's Flex backend shares a global RNG, so reproducibility tests must
-//! run with `--test-threads=1`.
+//! Heavier parity checks behind `#[ignore]` follow the DQN/C51 convention.
+//!
+//! The `Flex` determinism preamble ([`flex_guard`] / [`seeded_device`]), the
+//! shared seeded `CartPole` fixture ([`cartpole_seeded`]), and the acceptance
+//! assertions live in the `rlevo-test-support` dev-crate; only the value
+//! network and the algorithm-specific tests remain here.
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::Tensor;
@@ -18,9 +20,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_environments::classic::cartpole::{
-    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
-};
+use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
@@ -34,8 +34,14 @@ use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::{train_continuous, train_discrete};
 
+use rlevo_test_support::assert::assert_all_finite;
+use rlevo_test_support::baseline::{random_return, uniform_bounded};
+use rlevo_test_support::env::cartpole_seeded;
+use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
+
 // ---------------------------------------------------------------------------
-// Shared value MLP
+// Shared value MLP. Implements PPO's value trait and so stays test-local.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -71,47 +77,25 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     }
 }
 
-type Be = Autodiff<Flex>;
-
-static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 // ---------------------------------------------------------------------------
 // Discrete: CartPole
 // ---------------------------------------------------------------------------
 
-/// Constructs a discrete [`PpoAgent`] with a fully-seeded, deterministic
-/// configuration for CartPole experiments.
+/// Constructs a deterministic discrete [`PpoAgent`] for `CartPole`.
 ///
-/// The Burn `Flex` backend exposes a **process-global** RNG that governs weight
-/// initialisation. This function seeds it via [`Backend::seed`] before
-/// constructing the policy and value networks, so that two calls with identical
-/// `seed` values produce bit-for-bit identical initial weights.
-///
-/// # Caller responsibilities
-///
-/// - **Hold `BACKEND_LOCK` before calling.** The lock serialises access to the
-///   global Flex RNG across test threads; without it a concurrent test could
-///   interleave a `seed` call and silently corrupt the weight initialisation
-///   sequence.
-/// - **Pin rayon to one thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
-///   before the training loop. Flex dispatches matrix operations through rayon;
-///   floating-point reduction order is non-deterministic under multi-threading,
-///   introducing a second source of run-to-run variance independent of the RNG.
-///
-/// The `CartPole` environment and `StdRng` are seeded separately by each test
-/// body. This function is responsible solely for backend-side weight
-/// initialisation determinism.
+/// Seeds the backend via [`seeded_device`] so two calls with the same `seed`
+/// produce bit-for-bit identical initial weights. Callers must hold the
+/// [`flex_guard`] lock for the duration of the test.
 ///
 /// The hyperparameters (clip coefficient, entropy coefficient, GAE λ, learning
 /// rate, minibatch count) are tuned for the 4-observation / 2-action discrete
-/// CartPole task with a 128-step rollout buffer.
+/// `CartPole` task with a 128-step rollout buffer.
 fn make_cart_pole_agent(
     seed: u64,
     num_steps: usize,
     total_timesteps: usize,
 ) -> PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2> {
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
 
     let policy = CategoricalPolicyHeadConfig {
         obs_dim: 4,
@@ -137,95 +121,81 @@ fn make_cart_pole_agent(
     PpoAgent::new(policy, value, config, device, total_iterations)
 }
 
-#[test]
-#[ignore = "50 000-step discrete PPO CartPole run (several minutes on CPU); confirms avg reward ≥ 80 — run with `cargo test -- --ignored`"]
-fn ppo_cart_pole_reaches_100() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    let seed: u64 = 42;
-    let total = 50_000_usize;
-    let num_steps = 128_usize;
-
-    let mut env = TimeLimit::new(
-        CartPole::with_config(CartPoleConfig {
-            seed,
-            ..CartPoleConfig::default()
-        }),
-        500,
-    );
+/// Builds and trains a discrete PPO agent on the shared seeded `CartPole` for
+/// `total` steps (128-step rollouts), returning the standardised outcome
+/// consumed by the suite macros.
+fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
+    let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut agent = make_cart_pole_agent(seed, num_steps, total);
+    let mut agent = make_cart_pole_agent(seed, 128, total);
     train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
-    let avg = agent.stats().avg_score().unwrap_or(0.0);
-    assert!(avg >= 80.0, "expected avg reward >= 80, got {avg:.2}");
+    let stats = agent.stats();
+    TrainOutcome {
+        avg_score: stats.avg_score().unwrap_or(0.0),
+        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+    }
+}
+
+// `CartPole` target: after 50k steps the moving average should clear 80.
+// (Generated by `rl_learning_test!`.)
+rl_learning_test! {
+    #[ignore = "50 000-step discrete PPO CartPole run (several minutes on CPU); confirms avg reward ≥ 80 — run with `cargo test -- --ignored`"]
+    ppo_cartpole_converges,
+    reaches(80.0),
+    seed = 42,
+    total = 50_000,
+    run = run_cartpole,
+}
+
+// Seeded reproducibility: two same-seed CartPole runs must produce identical
+// reward sequences. (Generated by `rl_reproducibility_test!`.)
+rl_reproducibility_test! {
+    #[ignore = "4 096-step reproducibility check (two sequential CartPole runs); run with `cargo test -- --ignored`"]
+    ppo_cartpole_flex_reproducibility,
+    seq,
+    seed = 123,
+    total = 2_048,
+    run = run_cartpole,
 }
 
 #[test]
 #[ignore = "2 048-timestep PPO training run; checks finite rewards and losses — run with `cargo test -- --ignored`"]
-fn ppo_short_run_produces_finite_rewards() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+fn ppo_cartpole_produces_finite_rewards() {
+    let _guard = flex_guard();
     let seed: u64 = 7;
     let total = 2_048_usize;
     let num_steps = 128_usize;
-    let mut env = TimeLimit::new(
-        CartPole::with_config(CartPoleConfig {
-            seed,
-            ..CartPoleConfig::default()
-        }),
-        500,
-    );
+    let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = make_cart_pole_agent(seed, num_steps, total);
     train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
-    for (i, m) in agent.stats().recent_history.iter().enumerate() {
-        assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
-        assert!(
-            m.policy_loss.is_finite(),
-            "non-finite policy_loss at ep {i}"
-        );
-        assert!(m.value_loss.is_finite(), "non-finite value_loss at ep {i}");
-    }
+    let history = &agent.stats().recent_history;
+    assert_all_finite("reward", &history.iter().map(|m| m.reward).collect::<Vec<_>>());
+    assert_all_finite(
+        "policy_loss",
+        &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
+    );
+    assert_all_finite(
+        "value_loss",
+        &history.iter().map(|m| m.value_loss).collect::<Vec<_>>(),
+    );
 }
 
 // ---------------------------------------------------------------------------
 // Continuous: Pendulum
 // ---------------------------------------------------------------------------
 
-/// Constructs a continuous [`PpoAgent`] with a fully-seeded, deterministic
-/// configuration for Pendulum experiments.
+/// Constructs a deterministic continuous [`PpoAgent`] for Pendulum.
 ///
-/// The Burn `Flex` backend exposes a **process-global** RNG that governs weight
-/// initialisation. This function seeds it via [`Backend::seed`] before
-/// constructing the `TanhGaussian` policy and value networks, so that two calls
-/// with identical `seed` values produce bit-for-bit identical initial weights.
-///
-/// # Caller responsibilities
-///
-/// - **Hold `BACKEND_LOCK` before calling.** The lock serialises access to the
-///   global Flex RNG across test threads; without it a concurrent test could
-///   interleave a `seed` call and silently corrupt the weight initialisation
-///   sequence.
-/// - **Pin rayon to one thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
-///   before the training loop. Flex dispatches matrix operations through rayon;
-///   floating-point reduction order is non-deterministic under multi-threading,
-///   introducing a second source of run-to-run variance independent of the RNG.
-///
-/// The `Pendulum` environment and `StdRng` are seeded separately by each test
-/// body. This function is responsible solely for backend-side weight
-/// initialisation determinism.
+/// Seeds the backend via [`seeded_device`] so two calls with the same `seed`
+/// produce identical initial weights. Callers must hold the [`flex_guard`] lock
+/// for the duration of the test.
 ///
 /// The hyperparameters (higher `update_epochs`, zero entropy coefficient,
 /// `action_scale` matching the ±2 N·m torque limit, GAE λ, γ=0.9) are tuned
@@ -236,8 +206,7 @@ fn make_pendulum_agent(
     num_steps: usize,
     total_timesteps: usize,
 ) -> PpoAgent<Be, TanhGaussianPolicyHead<Be>, ValueMlp<Be>, PendulumObservation, 1, 2> {
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
 
     let policy = TanhGaussianPolicyHeadConfig {
         obs_dim: 3,
@@ -266,18 +235,11 @@ fn make_pendulum_agent(
     PpoAgent::new(policy, value, config, device, total_iterations)
 }
 
-#[test]
-#[ignore = "30 000-step continuous PPO Pendulum run (~30 s on CPU); confirms avg reward > −1 400 above the ~−1 500 random baseline — run with `cargo test -- --ignored`"]
-fn ppo_pendulum_improves_over_random() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    let seed: u64 = 42;
-    let total = 24_000_usize;
-    let num_steps = 512_usize;
-
+/// Builds and trains a continuous PPO agent on Pendulum for `total` steps
+/// (512-step rollouts), returning the standardised outcome consumed by the
+/// suite macros. Emits a one-line calibration print of the final average —
+/// PPO Pendulum drifts run-to-run, so the printed number aids threshold tuning.
+fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
     let mut env = TimeLimit::new(
         Pendulum::with_config(PendulumConfig {
             seed,
@@ -286,14 +248,44 @@ fn ppo_pendulum_improves_over_random() {
         200,
     );
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut agent = make_pendulum_agent(seed, num_steps, total);
+    let mut agent = make_pendulum_agent(seed, 512, total);
     train_continuous::<Be, _, _, _, _, PendulumAction, _, 1, 1, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
-    let avg = agent.stats().avg_score().unwrap_or(f32::NEG_INFINITY);
-    eprintln!("CALIBRATION: 30k-step PPO Pendulum avg = {avg:.2}");
-    // Random policy on Pendulum averages ≈ -1500 per episode; well-trained
-    // PPO clears -200. The threshold here is deliberately lax for CI.
-    assert!(avg > -1400.0, "expected avg > -1400, got {avg:.2}");
+    let stats = agent.stats();
+    let avg = stats.avg_score().unwrap_or(f32::NEG_INFINITY);
+    eprintln!("CALIBRATION: PPO Pendulum avg = {avg:.2}");
+    TrainOutcome {
+        avg_score: avg,
+        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+    }
+}
+
+/// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
+/// Pendulum, measured over 100 episodes from `seed`. Baseline the trained PPO
+/// agent must beat.
+fn random_pendulum(seed: u64) -> f32 {
+    let mut env = TimeLimit::new(
+        Pendulum::with_config(PendulumConfig {
+            seed,
+            ..PendulumConfig::default()
+        }),
+        200,
+    );
+    let mut rng = StdRng::seed_from_u64(seed);
+    random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
+}
+
+// Well-trained PPO clears -200; a uniform-random torque policy scores
+// `random_pendulum`. The margin here is deliberately lax for CI. (Generated by
+// `rl_learning_test!`.)
+rl_learning_test! {
+    #[ignore = "30 000-step continuous PPO Pendulum run (~30 s on CPU); confirms avg reward beats a measured uniform-random baseline — run with `cargo test -- --ignored`"]
+    ppo_pendulum_improves_over_random,
+    improves_over_random(margin = 50.0),
+    seed = 42,
+    total = 24_000,
+    run = run_pendulum,
+    random = random_pendulum,
 }
