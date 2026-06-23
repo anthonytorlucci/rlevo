@@ -247,81 +247,9 @@ test-coevo-harness:
 test-report-smoke:
     cargo test -p rlevo --test cartpole_report_smoke --features viz-report
 
-# DQN — non-ignored plumbing tests (all training tests now carry #[ignore]; see targeted recipes below).
-test-dqn:
-    cargo test -p rlevo --test dqn_integration
-
-# DQN — CartPole reaches 100 [ignored: ~30k-step run].
-test-dqn-cart-pole:
-    cargo test -p rlevo --test dqn_integration -- dqn_cart_pole_reaches_100 --ignored
-
-# DQN — short-run finite-rewards check [ignored: ~2 500-step smoke].
-test-dqn-short:
-    cargo test -p rlevo --test dqn_integration -- dqn_short_run_produces_finite_rewards --ignored
-
-# DQN — reproducibility check [ignored: ~6 000-step dual run].
-test-dqn-repro:
-    cargo test -p rlevo --test dqn_integration -- dqn_reproducibility_flex --ignored
-
-# C51 — non-ignored plumbing tests (all training tests now carry #[ignore]; see targeted recipes below).
-test-c51:
-    cargo test -p rlevo --test c51_integration
-
-# C51 — CartPole reaches 100 [ignored: smoke run].
-test-c51-cart-pole:
-    cargo test -p rlevo --test c51_integration -- c51_cart_pole_reaches_100 --ignored
-
-# C51 — short-run finite-rewards check [ignored: ~2 500-step smoke].
-test-c51-short:
-    cargo test -p rlevo --test c51_integration -- c51_short_run_produces_finite_rewards --ignored
-
-# C51 — reproducibility check [ignored: ~6 000-step dual run].
-test-c51-repro:
-    cargo test -p rlevo --test c51_integration -- c51_reproducibility_flex --ignored
-
-# QR-DQN — non-ignored plumbing tests (all training tests now carry #[ignore]; see targeted recipes below).
-test-qrdqn:
-    cargo test -p rlevo --test qrdqn_integration
-
-# QR-DQN — CartPole reaches 50 [ignored: smoke run].
-test-qrdqn-cart-pole:
-    cargo test -p rlevo --test qrdqn_integration --release -- qrdqn_cart_pole_reaches_50 --ignored
-
-# QR-DQN — full acceptance target [ignored: ~500k Flex CPU steps].
-test-qrdqn-full:
-    cargo test -p rlevo --test qrdqn_integration --release -- qrdqn_solves_cart_pole_flex_seed_42 --ignored
-
-# QR-DQN — short-run finite-rewards check [ignored: ~2 500-step smoke].
-test-qrdqn-short:
-    cargo test -p rlevo --test qrdqn_integration -- qrdqn_short_run_produces_finite_rewards --ignored
-
-# QR-DQN — reproducibility check [ignored: ~6 000-step dual run].
-test-qrdqn-repro:
-    cargo test -p rlevo --test qrdqn_integration -- qrdqn_reproducibility_flex --ignored
-
-# PPO — non-ignored plumbing tests (all training tests now carry #[ignore]; see targeted recipes below).
-test-ppo:
-    cargo test -p rlevo --test ppo_integration
-
-# PPO — CartPole reaches 100 [ignored: smoke run].
-test-ppo-cart-pole:
-    cargo test -p rlevo --test ppo_integration -- ppo_cart_pole_reaches_100 --ignored
-
 # PPO — Pendulum improves over random [ignored: ~30s on Flex].
 test-ppo-pendulum:
     cargo test -p rlevo --test ppo_integration -- ppo_pendulum_improves_over_random --ignored
-
-# PPO — short-run finite-rewards check [ignored: ~2 048-timestep smoke].
-test-ppo-short:
-    cargo test -p rlevo --test ppo_integration -- ppo_short_run_produces_finite_rewards --ignored
-
-# PPG — non-ignored plumbing tests (all training tests now carry #[ignore]; see targeted recipes below).
-test-ppg:
-    cargo test -p rlevo --test ppg_integration
-
-# PPG — CartPole learns above random [ignored: ~4 min, 50k-step run on Flex].
-test-ppg-cart-pole:
-    cargo test -p rlevo --test ppg_integration -- ppg_cart_pole_learns_above_random --ignored
 
 # PPG — without aux phase matches PPO baseline [ignored: smoke run].
 test-ppg-no-aux:
@@ -331,29 +259,13 @@ test-ppg-no-aux:
 test-ppg-aux:
     cargo test -p rlevo --test ppg_integration -- ppg_aux_phase_actually_runs --ignored
 
-# PPG — short-run finite-rewards check [ignored: ~2 048-timestep smoke].
-test-ppg-short:
-    cargo test -p rlevo --test ppg_integration -- ppg_short_run_produces_finite_rewards --ignored
-
 # DDPG — fast plumbing tests only (deterministic-act check; LinearEnv + Pendulum in targeted recipes below).
 test-ddpg:
     cargo test -p rlevo --test ddpg_integration
 
-# DDPG — Pendulum smoke [ignored: ~50k Pendulum steps].
-test-ddpg-pendulum:
-    cargo test -p rlevo --test ddpg_integration -- ddpg_pendulum_smoke --ignored
-
-# DDPG — LinearEnv convergence [ignored: ~8 000-step run].
-test-ddpg-linear:
-    cargo test -p rlevo --test ddpg_integration -- ddpg_solves_linear_1d_continuous --ignored
-
 # TD3 — fast plumbing tests only (deterministic-act + delayed-update; LinearEnv + Pendulum in targeted recipes).
 test-td3:
     cargo test -p rlevo --test td3_integration
-
-# TD3 — Pendulum smoke [ignored: macro run, ~500k steps].
-test-td3-pendulum:
-    cargo test -p rlevo --test td3_integration -- td3_pendulum_smoke --ignored
 
 # TD3 — LinearEnv convergence [ignored: ~8 000-step run].
 test-td3-linear:
@@ -363,48 +275,13 @@ test-td3-linear:
 test-sac:
     cargo test -p rlevo --test sac_integration
 
-# SAC — Pendulum smoke [ignored: ~30k Pendulum steps, ~2 min on Flex].
-test-sac-pendulum:
-    cargo test -p rlevo --test sac_integration -- sac_pendulum_smoke --ignored
-
-# SAC — LinearEnv convergence [ignored: ~8 000-step run].
-test-sac-linear:
-    cargo test -p rlevo --test sac_integration -- sac_solves_linear_1d_continuous --ignored
-
-# Run all ignored integration tests as independent jobs.
-# Use `just --parallel test-all-ignored` in CI to run each job concurrently.
-test-all-ignored: \
-    test-dqn-short \
-    test-dqn-repro \
-    test-dqn-cart-pole \
-    test-c51-short \
-    test-c51-repro \
-    test-c51-cart-pole \
-    test-qrdqn-short \
-    test-qrdqn-repro \
-    test-qrdqn-cart-pole \
-    test-qrdqn-full \
-    test-ppo-short \
-    test-ppo-cart-pole \
-    test-ppo-pendulum \
-    test-ppg-short \
-    test-ppg-cart-pole \
-    test-ppg-no-aux \
-    test-ppg-aux \
-    test-ddpg-linear \
-    test-ddpg-pendulum \
-    test-td3-linear \
-    test-td3-pendulum \
-    test-sac-linear \
-    test-sac-pendulum
-
 # ── viz-examples CI targets ─────────────────────────────────────────────────
 
-build-viz-examples:
+build-vis-examples:
     cargo build -p rlevo-examples --examples \
         --features viz-tui,viz-report,box2d,locomotion
 
-clippy-viz-examples:
+clippy-vis-examples:
     cargo clippy -p rlevo-examples --examples \
         --features viz-tui,viz-report,box2d,locomotion \
         -- -D warnings
@@ -412,20 +289,8 @@ clippy-viz-examples:
 # ── Common checks ────────────────────────────────────────────────────────────
 
 # Fast workspace tests — all long-running RL training tests carry #[ignore] and are excluded.
-# Use `just test-rl` to run those; use individual `just test-*` recipes for targeted runs.
-test:
+test-workspace:
     cargo test --workspace --exclude rlevo-examples
-
-# Moderate RL integration tests: plumbing + short-run + reproducibility + LinearEnv convergence.
-# Excludes macro convergence tests (CartPole 30k, Pendulum 500k) — those live in test-all-ignored.
-test-rl: test-dqn test-dqn-short test-dqn-repro \
-         test-c51 test-c51-short test-c51-repro \
-         test-qrdqn test-qrdqn-short test-qrdqn-repro \
-         test-ppo test-ppo-short \
-         test-ppg test-ppg-short \
-         test-ddpg test-ddpg-linear \
-         test-td3 test-td3-linear \
-         test-sac test-sac-linear
 
 lint:
     cargo clippy --all-targets --all-features
