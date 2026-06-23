@@ -259,19 +259,19 @@ test-ppg-no-aux:
 test-ppg-aux:
     cargo test -p rlevo --test ppg_integration -- ppg_aux_phase_actually_runs --ignored
 
-# DDPG — fast plumbing tests only (deterministic-act check; LinearEnv + Pendulum in targeted recipes below).
+# DDPG — fast plumbing tests only (deterministic-act check); heavy LinearEnv + Pendulum runs are #[ignore]d (see .github/workflows/weekly-tests.yml).
 test-ddpg:
     cargo test -p rlevo --test ddpg_integration
 
-# TD3 — fast plumbing tests only (deterministic-act + delayed-update; LinearEnv + Pendulum in targeted recipes).
+# TD3 — fast plumbing tests only (deterministic-act + delayed-update); LinearEnv via test-td3-linear, Pendulum #[ignore]d (see .github/workflows/weekly-tests.yml).
 test-td3:
     cargo test -p rlevo --test td3_integration
 
-# TD3 — LinearEnv convergence [ignored: ~8 000-step run].
+# TD3 — LinearEnv beats a measured random baseline [ignored: ~8 000-step run].
 test-td3-linear:
-    cargo test -p rlevo --test td3_integration -- td3_solves_linear_1d_continuous --ignored
+    cargo test -p rlevo --test td3_integration -- td3_linear_improves_over_random --ignored
 
-# SAC — fast plumbing tests only (alpha + reproducibility; LinearEnv + Pendulum in targeted recipes).
+# SAC — fast plumbing tests only (alpha + reproducibility); heavy LinearEnv + Pendulum runs are #[ignore]d (see .github/workflows/weekly-tests.yml).
 test-sac:
     cargo test -p rlevo --test sac_integration
 
