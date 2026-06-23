@@ -90,20 +90,11 @@ evo-trefethen:
 evo-memetic:
     cargo run --release -p rlevo --example memetic_showcase
 
-cartpole-random:
-    cargo run -p rlevo --example cartpole_random
-
 cartpole-timelimit:
     cargo run -p rlevo --example cartpole_timelimit
 
 grid-door-key:
     cargo run -p rlevo --example grid_door_key_scripted
-
-mountain-car:
-    cargo run -p rlevo --example mountain_car_continuous_random
-
-pendulum-random:
-    cargo run -p rlevo --example pendulum_random
 
 # ── rlevo-examples (heavy: benchmarks + viz/record/report features) ──────────
 # Not in default-members; each recipe supplies the required feature flags.
@@ -145,18 +136,6 @@ report-ppo-cartpole: client-build
 
 report-sphere: client-build
     cargo run -p rlevo-examples --features viz-report --example report_sphere_landscape_with_client --release
-
-report-grids: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_grids_with_client  --release
-
-report-toy-text: client-build
-    cargo run -p rlevo-examples --features viz-report --example report_toy_text_with_client --release
-
-report-inverted-pendulum: client-build
-    cargo run -p rlevo-examples --features locomotion,viz-report --example report_inverted_pendulum_with_client  --release
-
-report-lunar-lander: client-build
-    cargo run -p rlevo-examples --features box2d,viz-report --example report_lunar_lander_with_client  --release
 
 # ── Crate-level integration tests ───────────────────────────────────────────
 
