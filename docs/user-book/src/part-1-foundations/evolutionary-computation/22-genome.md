@@ -4,11 +4,24 @@ The [operators chapter](21-ops.md) worked on populations as raw tensors —
 `Tensor<B, 2>` for real-valued genomes, `Tensor<B, 2, Int>` for binary ones —
 and leaned on a single sentence to justify the split: *the element type is the
 kind-specialisation*. This chapter unpacks that sentence. It is about the
-**representation layer**: how a candidate solution becomes a row in a device
-tensor, how `rlevo` tags the *kind* of genome at the type level so the compiler
-picks the right operators, and how the wrapper that carries shape metadata fits
-in. It also covers the one place a genome is *not* a hand-written tensor — the
-bridge that turns a neural network's weights into an evolvable parameter vector.
+**representation layer**, and the question that organises it is one of degree:
+*how much does the compiler know about a genome, and how does it come to know
+it?*
+
+We answer that question in four rungs of increasing type-level knowledge, each
+one closing a gap the rung below leaves open:
+
+1. **A genome is a row of a population tensor** — the element type already
+   separates real from discrete.
+2. **A zero-sized `GenomeKind` marker** tags what the element type cannot:
+   binary versus integer, both `i32`, want different operators.
+3. **`Population<B, K>`** welds that marker to its storage tensor so the
+   wrong-tensor-for-this-kind state is unrepresentable.
+4. **`ParamReshaper`** reaches past hand-written rows entirely, turning a neural
+   network's weights into an evolvable genome.
+
+Climb those four rungs and you have the whole representation layer. We start at
+the bottom.
 
 ## A population is a rank-2 tensor
 

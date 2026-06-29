@@ -3,31 +3,52 @@
 The [previous chapter](../20-evolutionary-computation.md) introduced the
 five-step evolutionary skeleton — maintain a population, evaluate, select,
 vary, repeat — and the `Strategy<B>` trait that maps it onto `ask`/`tell`.
-A strategy is the *choreography*; this chapter is about the *moves*. Selection,
-crossover, mutation, and replacement are the operators every evolutionary
-researcher reaches for, and `rlevo` ships them as a small, composable toolkit
-in `rlevo::evo::ops`.
+A strategy is the *choreography*; this chapter is about the *moves*.
 
-The operators are organised by the role they play in a generation:
+Strip a generation down to its mechanics and you find four questions, asked in
+order:
 
-| Module | Role | Operators |
+1. **Who gets to reproduce?** — *selection*
+2. **How do two parents combine into a child?** — *crossover*
+3. **Where does fresh novelty come from?** — *mutation*
+4. **Who survives into the next generation?** — *replacement*
+
+Every population-based algorithm in `rlevo` is some answer to those four
+questions, and `rlevo` ships the answers as a small, composable toolkit of free
+functions in `rlevo::evo::ops`. One module per question:
+
+| Module | Question it answers | Operators |
 | ------ | ---- | --------- |
-| `ops::selection` | **parent selection** — who reproduces | tournament, truncation |
-| `ops::crossover` | **recombination** — combine parents | BLX-α, uniform, binary uniform |
-| `ops::mutation` | **variation** — perturb individuals | Gaussian (scalar and per-row), uniform-reset, bit-flip |
-| `ops::replacement` | **survivor selection** — who carries over | generational, elitist, \\((\mu+\lambda)\\), \\((\mu,\lambda)\\) |
+| `ops::selection` | **who reproduces** | tournament, truncation |
+| `ops::crossover` | **how parents combine** | BLX-α, uniform, binary uniform |
+| `ops::mutation` | **where novelty comes from** | Gaussian (scalar and per-row), uniform-reset, bit-flip |
+| `ops::replacement` | **who carries over** | generational, elitist, \\((\mu+\lambda)\\), \\((\mu,\lambda)\\) |
 
-Before the catalogue, three design decisions cut across every operator and are
-worth internalising — they explain why the function signatures look the way they
-do.
+Here is what one generation looks like with the four moves laid end to end —
+read it as the table above, run forward:
+
+```rust
+let parents   = selection::tournament_select(&pop, &fitness, 3, lambda, rng, device);
+let offspring = crossover::blx_alpha(parent_a, parent_b, 0.5, rng, device);
+let mutated   = mutation::gaussian_mutation(offspring, sigma, rng, device);
+let (next, next_fitness) =
+    replacement::mu_plus_lambda(pop, &fitness, mutated, &child_fitness, mu, device);
+```
+
+That recipe is the whole chapter in four lines. The rest of it is the catalogue
+behind each call — and, first, three conventions that cut across all four
+modules. They are worth internalising up front, because they explain why every
+signature below looks the way it does.
 
 ## Three conventions that run through everything
 
 ### Operators are free functions, not methods
 
-There is no `Operator` trait, no `dyn Mutation` you box and swap. Each operator
-is a plain generic function over a backend `B`, taking a population tensor and
-returning a *new* one — the input is left untouched:
+Notice what the recipe above did *not* do: it never constructed an operator
+object, boxed a `dyn Mutation`, or registered anything. There is no `Operator`
+trait at all. Each operator is a plain generic function over a backend `B`,
+taking a population tensor and returning a *new* one — the input is left
+untouched:
 
 ```rust
 pub fn gaussian_mutation<B: Backend>(
@@ -38,25 +59,18 @@ pub fn gaussian_mutation<B: Backend>(
 ) -> Tensor<B, 2>;
 ```
 
-This is a deliberate choice. A `Strategy` is free to call exactly the operators
-it needs, in the order it needs, with no virtual dispatch and no trait
-machinery between the algorithm and the tensor math. Composing a generation is
-just calling functions:
+We chose this deliberately. A `Strategy` calls exactly the operators it needs,
+in the order it needs, with no virtual dispatch and no trait machinery sitting
+between the algorithm and the tensor math — which is why composing a generation
+reads as nothing more than calling functions, the way the four-line recipe did.
 
-```rust
-let parents   = selection::tournament_select(&pop, &fitness, 3, lambda, rng, device);
-let offspring = crossover::blx_alpha(parent_a, parent_b, 0.5, rng, device);
-let mutated   = mutation::gaussian_mutation(offspring, sigma, rng, device);
-let (next, next_fitness) =
-    replacement::mu_plus_lambda(pop, &fitness, mutated, &child_fitness, mu, device);
-```
-
-Populations live on-device as rank-2 tensors of shape `(N, D)` — `N` individuals,
-each a `D`-gene genome. Real-valued genomes are `Tensor<B, 2>`; binary genomes
-are `Tensor<B, 2, Int>` with values in `{0, 1}`. The element type *is* the
-kind-specialisation: `gaussian_mutation` only typechecks for the float tensor,
-`bit_flip_mutation` only for the Int tensor, so handing a binary genome to a
-real-valued operator is a compile error, not a runtime surprise.
+The data those functions move is uniform. Populations live on-device as rank-2
+tensors of shape `(N, D)` — `N` individuals, each a `D`-gene genome. Real-valued
+genomes are `Tensor<B, 2>`; binary genomes are `Tensor<B, 2, Int>` with values
+in `{0, 1}`. The element type *is* the kind-specialisation: `gaussian_mutation`
+only typechecks for the float tensor, `bit_flip_mutation` only for the Int
+tensor, so handing a binary genome to a real-valued operator is a compile error,
+not a runtime surprise three hours into a run.
 
 ### Fitness is canonical — higher is better
 
@@ -78,10 +92,11 @@ see the fitness. Fixing the direction once, globally, means no operator needs a
 
 ### The harness owns randomness — the host-RNG convention
 
-Every operator that draws random numbers takes an explicit `rng: &mut dyn Rng`
-and threads *all* its stochasticity through it. Operators **never** call
-`B::seed` or `Tensor::random`. This is the single most important invariant in
-the crate, and it is not stylistic:
+Look back at every signature so far and you will see the same parameter:
+`rng: &mut dyn Rng`. Every operator that draws random numbers takes that
+explicit handle and threads *all* its stochasticity through it. Operators
+**never** call `B::seed` or `Tensor::random`. This is the single most important
+invariant in the crate, and it is not stylistic:
 
 > Burn's backend RNG (the kernel path behind `Tensor::random`) is **process-global**.
 > Under the parallel test runner — or any setup that evolves several
@@ -96,6 +111,8 @@ pattern: build a `Vec<f32>` of the right size from the host `rng`, wrap it in
 `TensorData`, and load it onto the device in one shot. The selection operators
 go one step further with a **host-decide → single-gather** pattern, which the
 next section unpacks.
+
+With those three conventions in hand, we can walk the four moves in order.
 
 ## Selection — who gets to reproduce
 
@@ -199,11 +216,12 @@ This is the workhorse behind the \\((\mu+\lambda)\\) and \\((\mu,\lambda)\\) rep
 well as ES-style parent selection. Panics if `top_k > fitness.len()` or
 `fitness` is empty.
 
-## Crossover — recombining parents
+## Crossover — how two parents combine
 
-Crossover operators consume two parent tensors of shape `(N, D)` and produce one
-offspring tensor of the same shape, drawing their randomness from the host
-`rng`. `rlevo` ships two real-valued recombinations plus a binary counterpart.
+With parents chosen, the second move recombines them. Crossover operators
+consume two parent tensors of shape `(N, D)` and produce one offspring tensor of
+the same shape, drawing their randomness from the host `rng`. `rlevo` ships two
+real-valued recombinations plus a binary counterpart.
 
 > **What's *not* here yet.** The parent chapter mentions single-point crossover
 > and Simulated Binary Crossover (SBX) as part of the GA tradition. Those are
@@ -240,9 +258,11 @@ clones A; \\(p = 0.0\\) clones B. Implemented with a host-sampled uniform mask a
 `binary_uniform_crossover` is the same operation on `Tensor<B, 2, Int>` genomes
 — a pure bitwise swap for binary-coded GAs and EDAs.
 
-## Mutation — perturbing individuals
+## Mutation — where novelty comes from
 
-Mutation injects the diversity that selection then exploits. Each operator
+Crossover only ever shuffles and blends genes the parents already carry; it can
+never introduce a value the population has lost. Mutation is the move that
+*does* — it injects the diversity that selection then exploits. Each operator
 consumes a population tensor and returns a perturbed copy, with all noise drawn
 from the host `rng`.
 
@@ -273,12 +293,12 @@ out-of-range results silently.
 
 ## Replacement — who survives to the next generation
 
-Replacement (survivor selection) decides which individuals form the next
-generation's starting population. Unlike the others, **these operators draw no
-random numbers** — they are fully deterministic given their inputs, operating on
-host-side fitness slices and lifting winners back with a single gather. Each
-takes the current generation plus the offspring and returns the
-`(population, fitness)` pair to carry forward.
+The final move closes the generation: replacement (survivor selection) decides
+which individuals form the next generation's starting population. Unlike the
+others, **these operators draw no random numbers** — they are fully
+deterministic given their inputs, operating on host-side fitness slices and
+lifting winners back with a single gather. Each takes the current generation
+plus the offspring and returns the `(population, fitness)` pair to carry forward.
 
 | Strategy | Parent survival | Reach for it when… |
 | -------- | --------------- | ------------------ |
@@ -313,10 +333,11 @@ tracked follow-up work.
 
 ## Putting it together
 
-These four families are everything a population-based strategy needs for one
-generation: **select** parents, **recombine** them, **mutate** the result, and
-choose **survivors**. Because they are free functions over `Tensor<B, _>` with a
-shared canonical-maximise convention and a shared host-RNG discipline, a `Strategy`
+We have now walked all four moves: **select** parents, **recombine** them,
+**mutate** the result, and choose **survivors**. That is exactly the four-line
+recipe this chapter opened with, and now every call in it has a catalogue behind
+it. Because the operators are free functions over `Tensor<B, _>` with a shared
+canonical-maximise convention and a shared host-RNG discipline, a `Strategy`
 implementation reads as a short, readable recipe — and swapping tournament for
 truncation, or \\((\mu+\lambda)\\) for \\((\mu,\lambda)\\), is a one-line change. The full GA and ES
 pseudocode that assembles these operators end-to-end lives in

@@ -13,6 +13,13 @@ expect the type representing it to be elaborate. It is the opposite — `rlevo`'
 `Reward` trait is the smallest trait in the core crate. The interesting part is
 *which* three capabilities it demands, and why those three are exactly enough.
 
+That minimalism is the spine of the chapter. We start from the bare trait and the
+`ScalarReward` workhorse that satisfies it, watch those three capabilities do real
+work accumulating a return, follow a reward out of a step inside a `Snapshot`,
+and only then meet the two places the type system earns its keep — the
+terminated-vs-truncated distinction that a single `done` flag would corrupt, and
+the structured rewards a minimal trait still accommodates without ceremony.
+
 ## The `Reward` trait
 
 From `rlevo::core::base`:

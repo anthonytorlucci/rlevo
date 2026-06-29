@@ -8,7 +8,7 @@ section closes that gap: how a `TopologyGenome` — a pair of gene lists, not a
 layer stack — becomes a callable network that maps inputs to outputs, and why
 `rlevo` ships *two* ways to do it.
 
-The reader who has followed NEAT this far knows a genome *describes* a network
+If you have followed NEAT this far, you know a genome *describes* a network
 without *being* one. The genotype is a recipe; the phenotype is the dish. What is
 specific to `rlevo` is that the recipe is compiled to bare tensor arithmetic with
 **no Burn `Module`** anywhere in sight — and that the same genome can be run one

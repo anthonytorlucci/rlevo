@@ -1,8 +1,21 @@
 # What Is Optimisation?
 
-At its core, optimisation is the task of finding the input to a function that
-produces the best output. "Best" means lowest cost, highest reward, smallest
-error, or whatever the problem says it means. Formally, we want
+Every algorithm in `rlevo` — a genetic algorithm searching a fitness landscape,
+a DQN agent chasing reward, a hybrid doing both — is, underneath, doing the same
+thing: searching for the input that makes some function come out best. Before we
+introduce a single trait, it is worth pinning down what that means, because the
+vocabulary splits along community lines and the sign conventions are a classic
+source of bugs. This chapter fixes both, then names the three questions every
+search algorithm must answer — questions the rest of Part I spends its time
+answering in detail.
+
+## The one idea
+
+Suppose you are tuning a single knob — the learning rate of a network, say — and
+you can score any setting by running a short training job and reading off the
+final loss. You want the setting that scores best. That is optimisation in
+miniature: a space of inputs, a function that scores them, and a search for the
+input with the best score. Formally, we want
 
 ```math
 \mathbf{x}^* = \arg\min_{\mathbf{x} \in \mathcal{X}} f(\mathbf{x})
@@ -10,173 +23,186 @@ error, or whatever the problem says it means. Formally, we want
 
 where \\(f : \mathcal{X} \to \mathbb{R}\\) is the **objective function** (also
 called a **fitness function**, a **cost function**, or a **loss**) and
-\\(\mathcal{X}\\) is the **search space**.
+\\(\mathcal{X}\\) is the **search space**. The single knob above is a
+one-dimensional \\(\mathcal{X}\\); a neural network's weights are a
+\\(\mathcal{X}\\) with millions of dimensions, but the shape of the problem is
+identical. Everything else in optimisation — every algorithm in this book — is a
+strategy for searching \\(\mathcal{X}\\) efficiently when you cannot afford to
+score every point in it.
 
-Everything else in optimisation is a strategy for searching \\(\mathcal{X}\\)
-efficiently.
+### A note on terminology (or: why everyone calls it something different)
 
-### A Note on Terminology (or: Why Everyone Calls It Something Different)
+The four terms above all name the same object — a scalar-valued function you are
+trying to push to an extreme. The terminology tells you which community is
+speaking and, crucially, **which direction they are pushing**. *If you have ever
+optimised in the wrong direction, you know why this matters.*
 
-The four terms above all refer to the same fundamental idea - a scalar-valued 
-function you're trying to maximize or minimize - this distinction is more 
-important than the terminology. *If you've ever opimized in the wrong 
-direction, you know what I mean.*
+- **Loss** / **cost function** is deep learning's dialect. You are minimising
+  it, it is differentiable (or you are pretending it is), and your optimiser is
+  almost certainly some flavour of SGD. Mean squared error, cross-entropy, Huber
+  loss — all losses. The distinction between "loss" and "cost" is mostly vibes:
+  loss tends to refer to a per-sample quantity, cost to its aggregate over a
+  batch or dataset, though nobody enforces this at the border.
 
-- **Loss** / **cost function** is deep learning's dialect. You're minimizing 
-  it, it's differentiable (or you're pretending it is), and your optimiser is 
-  almost certainly some flavour of SGD. Mean squared error, cross-entropy, 
-  Huber loss — all losses. The distinction between "loss" and "cost" is mostly 
-  vibes: loss tends to refer to a per-sample quantity, cost to its aggregate 
-  over a batch or dataset, though nobody enforces this at the border.
+- **Objective function** is the neutral, field-agnostic term. Operations
+  research, convex optimisation, and anyone who wants to sound rigorous without
+  committing to a community uses this one. It can be minimised *or* maximised,
+  which makes it the honest choice when the direction is not obvious from
+  context.
 
-- **Objective function** is the neutral, field-agnostic term. Operations 
-  research, convex optimisation, and anyone who wants to sound rigorous without 
-  committing to a community uses this one. It can be minimized *or* maximized, 
-  which makes it the honest choice when the direction isn't obvious from context.
+- **Fitness function** is evolutionary computing's term, and the direction
+  flips — you *maximise* it, because organisms with higher fitness survive.
+  `rlevo`'s engine is maximise-native for exactly this reason. But maximise-native
+  is also a footgun: hand a maximiser a loss and forget to negate it, and you
+  breed a population that is confidently, spectacularly wrong. We close that gap
+  with [`ObjectiveSense`](https://docs.rs/rlevo-core). Rather than negating by
+  hand, you hand the engine your *natural* objective and declare its direction:
 
-- **Fitness function** is evolutionary computing's term, and the direction 
-  flips — you're *maximizing* it, because organisms with higher fitness 
-  survive. `rlevo`'s engine is maximize-native for exactly this reason, but it 
-  saves you from the classic footgun: rather than hand it a loss and *remember 
-  to negate*, you hand it the natural objective and declare its direction with 
-  `ObjectiveSense::Minimize` (a cost) or `Maximize` (a reward). The harness 
-  reconciles it at one place, so a forgotten sign no longer breeds a population 
-  of spectacularly wrong solutions.
+  ```rust
+  ObjectiveSense::Minimize  // a cost — lower is better
+  ObjectiveSense::Maximize  // a reward — higher is better
+  ```
 
-- **Reward** is reinforcement learning's contribution to the pile. Technically 
-  the reward signal \\(r_t\\) and the objective (expected cumulative return 
-  \\(\mathbb{E}[\sum_t \gamma^t r_t]\\)) are distinct things, but colloquially 
-  people call the whole thing "the reward function." Like fitness, it's 
-  maximized — RL agents are optimists by design.
+  The harness reconciles the sense at one chokepoint, so a forgotten negation can
+  no longer silently invert your whole run. The mechanics live in
+  [Fitness Evaluation](evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense).
 
-The upshot: when you see \\(\arg\min\\) in the literature, someone is probably 
-doing ML or OR. When you see \\(\arg\max\\), someone is doing RL or EC.
+- **Reward** is reinforcement learning's contribution to the pile. Strictly, the
+  reward signal \\(r_t\\) and the objective (expected cumulative return
+  \\(\mathbb{E}[\sum_t \gamma^t r_t]\\)) are distinct, but colloquially people
+  call the whole thing "the reward function." Like fitness, it is maximised — RL
+  agents are optimists by design.
 
-## Fitness Landscapes
+The upshot, and a useful reading habit: when you see \\(\arg\min\\) in a paper,
+someone is probably doing ML or OR; when you see \\(\arg\max\\), someone is doing
+RL or EC. `rlevo` spans all four communities, so it commits to one internal
+convention — maximise a canonical fitness — and makes you state the sense once,
+explicitly, at the boundary.
 
-A useful mental model is the **fitness landscape** — imagine \\(f\\) as a
+## The first question: what does the landscape look like?
+
+A useful mental model is the **fitness landscape** — picture \\(f\\) as a
 physical terrain where elevation represents cost: valleys are good solutions,
-peaks are bad ones. A perfect optimizer would teleport to the lowest valley
+peaks are bad ones. A perfect optimiser would teleport to the lowest valley
 without looking at the terrain. Every real algorithm is a compromise: it gathers
-local information and uses it to decide where to look next.
+*local* information and uses it to decide where to look next. The shape of the
+terrain therefore decides which algorithm has a chance.
 
-The landscape metaphor was introduced in evolutionary biology by Sewall Wright
-(1932) to describe how populations move through genotype space under selection.
-Stuart Kauffman later formalised the idea of *ruggedness* — how many local minima
-a landscape has — in the NK model [[Kauffman, 1993]](#bibliography). Both concepts
-transferred directly into evolutionary computation.
-
-Three landscape properties matter most for algorithm choice:
+The metaphor comes from evolutionary biology — Sewall Wright introduced it to
+describe how populations move through genotype space under selection
+[[Wright, 1932]](#bibliography). Stuart Kauffman later made *ruggedness* — how
+many local optima a landscape has — precise in the NK model
+[[Kauffman, 1993]](#bibliography). Both ideas transferred directly into
+evolutionary computation, and three landscape properties end up driving almost
+every algorithm choice:
 
 | Property | What it means | Implication |
 | -------- | ------------- | ----------- |
-| **Unimodal** | One global minimum, no local minima | Gradient descent works well |
-| **Multimodal** | Many local minima | Local search gets trapped; populations help |
-| **Deceptive** | Gradient points away from the global optimum | EAs can still escape; gradient methods cannot |
+| **Unimodal** | One global optimum, no local traps | Gradient descent works well |
+| **Multimodal** | Many local optima | Local search gets trapped; a *population* helps |
+| **Deceptive** | The local gradient points *away* from the global optimum | Gradient methods walk the wrong way; EAs can still escape |
 
-The sphere function minimised in Part II is unimodal and convex — an easy
-landscape chosen to show the mechanics. The Rastrigin and Rosenbrock functions
-(available in `rlevo::envs::landscapes`) are multimodal and non-separable
-respectively, and they are where evolutionary methods start to earn their keep.
-For a more in-depth tour of landscape geometry and the benchmark suite `rlevo` ships,
-see [Fitness Landscapes](../appendix-d-suppl/fitness-landscape.md) in the Appendices.
+You will meet these three first-hand in Part II. The sphere function minimised
+there is unimodal and convex — an easy landscape, chosen to show the mechanics
+cleanly. The Rastrigin and Rosenbrock functions (in `rlevo::envs::landscapes`)
+are multimodal and non-separable respectively, and that is exactly where
+evolutionary methods start to earn their keep. For a fuller tour of landscape
+geometry and the benchmark suite `rlevo` ships — including how to *see* these
+shapes rendered — see [Fitness Landscapes](../appendix-d-suppl/fitness-landscape.md)
+in the Appendices.
 
-## Exploitation vs Exploration
+## The second question: explore or exploit?
 
-Every search algorithm must balance two competing pressures:
+Knowing the terrain is half the battle; the other half is a tension every search
+algorithm must resolve at every step:
 
-- **Exploitation** — concentrate effort near solutions that are already known to
-  be good.
+- **Exploitation** — concentrate effort near solutions already known to be good.
 - **Exploration** — probe unknown regions that might be better.
 
-A pure exploiter converges fast but gets trapped in local minima. A pure explorer
-never converges at all. The optimal balance depends on the landscape, the budget
-(number of evaluations), and the acceptable risk of missing the global optimum.
+A pure exploiter converges fast and gets trapped in the first valley it finds. A
+pure explorer wanders forever and never converges. The right balance depends on
+the landscape, the budget (how many evaluations you can afford), and how much you
+are willing to risk missing the global optimum. As Sutton and Barto put it, "the
+agent has to exploit what it has already experienced in order to obtain reward,
+but it also has to explore in order to make better action selections in the
+future" — and "neither exploration nor exploitation can be pursued exclusively
+without failing at the task" [[Sutton and Barto, 2018]](#bibliography). The
+balance is not fixed, either: the more stable your problem, the more you can lean
+on what you already know; the more it shifts, the more exploration earns its
+keep.
 
-This tension appears under different names across the field: the
-**exploration–exploitation dilemma** in reinforcement learning, the **diversity–
-selection pressure** trade-off in evolutionary computation, and the
-**bias–variance trade-off** in statistics. They are all the same underlying
-problem.
+This same trade-off wears different costumes across the field — the
+**exploration–exploitation dilemma** in reinforcement learning, the
+**diversity–selection-pressure** trade-off in evolutionary computation (John
+Holland called striking it well "the optimal allocation of trials"
+[[Holland, 1975]](#bibliography)), and the **bias–variance trade-off** in
+statistics. Recognising them as one problem is worth the effort: a tactic that
+buys exploration in one setting — injecting mutation, widening a search
+distribution, adding an exploration bonus — usually has a direct analogue in the
+others.
 
-<!-- todo! additional context provided below; consider creating a supplementary article that dives deeper
-[Simon, 2013, p.28-29]
-*Exploration* is the search for new ideas or new strategies. *Exploitation* is 
-the use of existing ideas and strategies that have proven successful in the 
-past. Exploration is high-risk; a lot of new ideas waste time and lead to dead 
-ends. However, exploration can also be high return; a lot of new ideas pay off
-in ways that we could not have imagined. Exploitation is closely related to the 
-feedback strategies ... The proper balance of exploration and exploitation 
-depends on how regular our environment is. If our environment is rapidly 
-changing then our knowledge quickly becomes obsolete and we cannot rely as much 
-on exploitation. However, if our environment is highly consistent, then our 
-knowledge is dependable and it may not make sense to try very many new ideas.
+<!-- Author note: a fuller exploration/exploitation treatment (Simon 2013 pp.28-29;
+Sutton & Barto 2018 p.3) is a candidate supplementary appendix; trimmed here to
+keep the chapter at overview tier. -->
 
-Our EA designs will need a proper balance of exploration and expoitation to be 
-successful. Too much exploration is similar to too much randomness... and will 
-probably not give good optimization results. But too much exploitation is 
-related to too little randomness. The proper balance of exploration and exploitation in EAs was called "the optimal allocation of trials" by John Holland, one of the pioneers of genetic algorithms [Holland, 1975].
+## The third question: do you even have a gradient?
 
----
-[Sutton & Barto, 2018, p.3]
-One of the challenges that arise in reinforcement learning, and not in other kinds
-of learning, is the trade-o↵ between exploration and exploitation. To obtain a lot of
-reward, a reinforcement learning agent must prefer actions that it has tried in the past
-and found to be e↵ective in producing reward. But to discover such actions, it has to
-try actions that it has not selected before. The agent has to exploit what it has already
-experienced in order to obtain reward, but it also has to explore in order to make better
-action selections in the future. The dilemma is that neither exploration nor exploitation
-can be pursued exclusively without failing at the task. The agent must try a variety of
-actions and progressively favor those that appear to be best. On a stochastic task, each
-action must be tried many times to gain a reliable estimate of its expected reward. The
-exploration–exploitation dilemma has been intensively studied by mathematicians for
-many decades, yet remains unresolved. For now, we simply note that the entire issue of
-balancing exploration and exploitation does not even arise in supervised and unsupervised
-learning, at least in the purest forms of these paradigms.
--->
+Gradient-based methods — stochastic gradient descent, Adam, L-BFGS — dominate
+modern machine learning because neural-network loss surfaces, though
+high-dimensional, are empirically well-behaved to train on. They are the right
+default *when they apply*. They stop applying when:
 
-## Why Gradient Descent Is Not Always the Answer
-
-Gradient-based methods — stochastic gradient descent, Adam, L-BFGS — are
-dominant in modern machine learning because neural network loss surfaces are high-
-dimensional but empirically well-behaved for training. They are not the right
-tool when:
-
-1. **The objective is not differentiable.** Reward in a game, a simulation result,
-   or a user preference score have no gradient.
-2. **The landscape is highly multimodal.** Gradients point downhill locally but
-   give no information about whether a better valley exists elsewhere.
+1. **The objective is not differentiable.** Reward in a game, a simulation
+   result, or a human preference score has no gradient to follow.
+2. **The landscape is highly multimodal.** A gradient tells you which way is
+   downhill *locally* and nothing about whether a better valley exists elsewhere.
 3. **The search space is discrete or combinatorial.** Gene sequences, network
-   architectures, and routing tables are not real-valued.
-4. **Evaluation is noisy.** A single observation of \\(f(\mathbf{x})\\) is
-   misleading; you need strategies that are robust to stochastic evaluations.
+   architectures, and routing tables are not real-valued, so there is nothing to
+   differentiate.
+4. **Evaluation is noisy.** A single observation of \\(f(\mathbf{x})\\) can
+   mislead; you need a strategy robust to stochastic scores.
 
-Evolutionary computation was designed for exactly these regimes.
+Evolutionary computation was built for exactly these regimes — it asks only that
+you can *score* a candidate, never that you can differentiate the scoring. That
+is why `rlevo` carries a population engine alongside its gradient one, and why
+the [next chapter](20-evolutionary-computation.md) is where the population path
+begins.
 
-## The No Free Lunch Theorem
+## Putting it together: there is no universal best algorithm
 
-Wolpert and Macready (1997) proved that **no search algorithm outperforms every
-other algorithm averaged uniformly over all possible objective functions**
-[[Wolpert and Macready, 1997]](#bibliography). If an algorithm does well on one 
-class of problems, there must be another class on which it does equivalently 
-worse.
+These three questions are not idle taxonomy. They are how you choose, because of
+a hard theoretical result: Wolpert and Macready proved that **no search algorithm
+beats every other algorithm when performance is averaged uniformly over all
+possible objective functions** [[Wolpert and Macready, 1997]](#bibliography). If
+an algorithm excels on one class of problems, there is necessarily another class
+on which it does equivalently worse. There is no free lunch.
 
-The practical implication: choosing an algorithm means making an assumption about
-the structure of your problem. A genetic algorithm assumes that good solutions
-share building blocks. CMA-ES assumes the landscape is locally well-approximated
-by a multivariate Gaussian. DQN assumes the value function can be approximated
-by a deep network. Part II makes these assumptions explicit for each algorithm it
-uses.
+The practical reading is liberating rather than gloomy: choosing an algorithm
+*is* making an assumption about your problem's structure, so the work is to match
+the assumption to the landscape. Each family in `rlevo` bets on a different
+structure:
 
-> **Deeper reading.** For a rigorous treatment of optimization landscapes and
+| If your problem is… | A fitting bet | Why |
+| ------------------- | ------------- | --- |
+| Smooth, differentiable, unimodal-ish | Gradient RL (DQN, PPO) | A deep network can approximate the value/policy surface |
+| Rugged, multimodal, derivative-free | A genetic algorithm | Good solutions share reusable building blocks |
+| Continuous, ill-conditioned, low-to-medium dimensional | CMA-ES | The landscape is locally well-approximated by a Gaussian whose shape you can learn |
+| Discrete or program-structured | GP / CGP / NEAT | The genotype decodes to a valid structure without repair |
+
+Part II makes the bet explicit for every algorithm it demonstrates, so you are
+never trusting a method blind — you are choosing one whose assumptions you have
+checked against the terrain.
+
+> **Deeper reading.** For a rigorous treatment of optimisation landscapes and
 > algorithm analysis, see Nocedal and Wright, *Numerical Optimization* (2nd ed.,
-> Springer, 2006) for the gradient side and Eiben and Smith,
-> *Introduction to Evolutionary Computing* (Springer, 2015) for the population
-> side. The NK model is developed in Kauffman, *The Origins of Order* (Oxford,
-> 1993). The No Free Lunch theorem is in Wolpert and Macready (1997), IEEE
-> Transactions on Evolutionary Computation. Simon (2013) further discusses the 
-> No Free Lunch theorem and provides a few examples in Appendix B.1, page 614.
-
+> Springer, 2006) [[Nocedal and Wright, 2006]](#bibliography) for the gradient
+> side and Eiben and Smith, *Introduction to Evolutionary Computing* (Springer,
+> 2015) for the population side. The NK model is developed in Kauffman, *The
+> Origins of Order* (Oxford, 1993) [[Kauffman, 1993]](#bibliography). The No Free
+> Lunch theorem is Wolpert and Macready (1997), *IEEE Transactions on
+> Evolutionary Computation* [[Wolpert and Macready, 1997]](#bibliography); Simon
+> (2013) [[Simon, 2013]](#bibliography) discusses it with worked examples in
+> Appendix B.1, p. 614.
 
 <a name="bibliography"></a>
 *References on this page are collected in the [Bibliography](../bibliography.md).*

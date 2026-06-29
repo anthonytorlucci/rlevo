@@ -251,7 +251,7 @@ harness call).
 
 > **Foundations link.** The exploitation–exploration trade-off that drives the
 > choice of tournament size and elitism is discussed in
-> [What Is Optimization?](../part-1-foundations/10-optimization.md). The GA
+> [What Is Optimisation?](../part-1-foundations/10-optimisation.md). The GA
 > operators that `ask` uses internally — and their convergence properties — are
 > derived in [Appendix A](../appendix-a-ec-algorithms/index.md).
 
