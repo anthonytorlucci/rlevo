@@ -16,14 +16,21 @@
 //! | [`bandit::contextual`] | Discrete(K) | C | `max_steps` reached |
 //! | [`bandit::non_stationary`] | Discrete(K) | 1 | `max_steps` reached |
 //! | [`bandit::adversarial`] | Discrete(K) | 1 | `max_steps` reached |
+//! | [`santa_fe_ant`] | Discrete(3) | 1 | all 89 pellets / `max_steps` |
 //!
 //! Wrap any env with [`crate::wrappers::TimeLimit`] to impose a step cap.
+//!
+//! Unlike the others, [`santa_fe_ant`] is a **POMDP**: its single food-ahead
+//! bit does not summarise the history needed to act optimally
+//! ([`MarkovState::is_markov`](rlevo_core::state::MarkovState::is_markov) is
+//! `false`).
 pub mod acrobot;
 pub mod bandit;
 pub mod cartpole;
 pub mod mountain_car;
 pub mod mountain_car_continuous;
 pub mod pendulum;
+pub mod santa_fe_ant;
 
 pub use acrobot::{
     Acrobot, AcrobotAction, AcrobotConfig, AcrobotConfigBuilder, AcrobotDynamicsFn,
@@ -49,4 +56,7 @@ pub use mountain_car_continuous::{
 };
 pub use pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation, PendulumState, angle_normalize,
+};
+pub use santa_fe_ant::{
+    SantaFeAnt, SantaFeAntAction, SantaFeAntConfig, SantaFeAntObservation, SantaFeAntState,
 };

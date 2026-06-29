@@ -145,7 +145,7 @@ fn toggle(grid: &mut Grid, agent: &mut AgentState) -> StepOutcome {
 #[cfg(test)]
 mod tests {
     use super::super::color::Color;
-    use super::super::direction::Direction;
+    use crate::direction::Direction;
     use super::*;
 
     fn setup() -> (Grid, AgentState) {
