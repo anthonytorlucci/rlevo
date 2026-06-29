@@ -25,10 +25,6 @@ or evolutionary computation, but we do expect some familiarity. You
 will find links to the [docs.rs](https://docs.rs/rlevo/latest/rlevo/) and 
 references listed in the bibliography for further reading. 
 
-> For more information on high-dimensional problems and a better understanding 
-> of what this means, we encourage you to read [Plaat, 2023](#bibliography)
-> section 3.1.
-
 ### What this guide is not
 
 This guide is not a dissertation. We aim to provide users and researchers with 

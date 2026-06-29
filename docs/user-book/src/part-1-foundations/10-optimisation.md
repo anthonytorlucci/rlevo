@@ -1,6 +1,6 @@
-# What Is Optimization?
+# What Is Optimisation?
 
-At its core, optimization is the task of finding the input to a function that
+At its core, optimisation is the task of finding the input to a function that
 produces the best output. "Best" means lowest cost, highest reward, smallest
 error, or whatever the problem says it means. Formally, we want
 
@@ -12,7 +12,7 @@ where \\(f : \mathcal{X} \to \mathbb{R}\\) is the **objective function** (also
 called a **fitness function**, a **cost function**, or a **loss**) and
 \\(\mathcal{X}\\) is the **search space**.
 
-Everything else in optimization is a strategy for searching \\(\mathcal{X}\\)
+Everything else in optimisation is a strategy for searching \\(\mathcal{X}\\)
 efficiently.
 
 ### A Note on Terminology (or: Why Everyone Calls It Something Different)
@@ -23,14 +23,14 @@ important than the terminology. *If you've ever opimized in the wrong
 direction, you know what I mean.*
 
 - **Loss** / **cost function** is deep learning's dialect. You're minimizing 
-  it, it's differentiable (or you're pretending it is), and your optimizer is 
+  it, it's differentiable (or you're pretending it is), and your optimiser is 
   almost certainly some flavour of SGD. Mean squared error, cross-entropy, 
   Huber loss — all losses. The distinction between "loss" and "cost" is mostly 
   vibes: loss tends to refer to a per-sample quantity, cost to its aggregate 
   over a batch or dataset, though nobody enforces this at the border.
 
 - **Objective function** is the neutral, field-agnostic term. Operations 
-  research, convex optimization, and anyone who wants to sound rigorous without 
+  research, convex optimisation, and anyone who wants to sound rigorous without 
   committing to a community uses this one. It can be minimized *or* maximized, 
   which makes it the honest choice when the direction isn't obvious from context.
 
