@@ -8,7 +8,7 @@
 # Part I — Foundations
 
 - [Overview](part-1-foundations/00-overview.md)
-- [What Is Optimization?](part-1-foundations/10-optimization.md)
+- [What Is Optimisation?](part-1-foundations/10-optimisation.md)
 - [Evolutionary Computation](part-1-foundations/20-evolutionary-computation.md)
   - [Evolutionary Operators](part-1-foundations/evolutionary-computation/21-ops.md)
   - [Genome Representation](part-1-foundations/evolutionary-computation/22-genome.md)

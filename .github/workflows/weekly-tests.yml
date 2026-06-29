@@ -15,41 +15,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Smoke / modest-convergence tests ────────────────────────────────────────
+  # ── Per-algorithm regression suites ─────────────────────────────────────────
   #
-  # Each algorithm gets an independent job so failures are isolated and
-  # individual jobs can be re-run without re-running the full matrix.
-  # timeout-minutes: 15 bounds a diverging run on a slow runner.
-  smoke:
+  # The heavy RL convergence / reproducibility tests all carry `#[ignore]`, so
+  # the fast `test-workspace` suite skips them. This job runs every ignored test
+  # in an algorithm's integration binary in one shot:
+  #
+  #     cargo test --release --test <binary> -- --ignored
+  #
+  # One matrix job per algorithm keeps failures isolated and individually
+  # re-runnable. Invoking the binary (not individual test names) is deliberate:
+  # the heavy tests are macro-generated (`rl_learning_test!` /
+  # `rl_reproducibility_test!`) and were renamed once already — enumerating names
+  # here is exactly what drifts. `--release` keeps the training runs inside the
+  # timeout. QR-DQN's hours-long `qrdqn_cartpole_acceptance` is `--skip`ped here
+  # and runs in the separate `acceptance` job below.
+  regression:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: "DQN — CartPole reaches 100"
-            recipe: test-dqn-cart-pole
-          - name: "DQN — short run finite rewards"
-            recipe: test-dqn-short
-          - name: "C51 — CartPole reaches 100"
-            recipe: test-c51-cart-pole
-          - name: "QR-DQN — CartPole reaches 50"
-            recipe: test-qrdqn-cart-pole
-          - name: "PPO — CartPole reaches 100"
-            recipe: test-ppo-cart-pole
-          - name: "PPO — Pendulum improves over random"
-            recipe: test-ppo-pendulum
-          - name: "PPG — CartPole learns above random"
-            recipe: test-ppg-cart-pole
-          - name: "PPG — without aux matches PPO baseline"
-            recipe: test-ppg-no-aux
-          - name: "PPG — aux phase actually runs"
-            recipe: test-ppg-aux
-          - name: "DDPG — Pendulum smoke"
-            recipe: test-ddpg-pendulum
-          - name: "SAC — Pendulum smoke"
-            recipe: test-sac-pendulum
+          - name: "DQN — heavy suite (CartPole converge + reproducibility)"
+            bin: dqn_integration
+          - name: "C51 — heavy suite (CartPole converge + reproducibility)"
+            bin: c51_integration
+          - name: "QR-DQN — heavy suite (excludes acceptance)"
+            bin: qrdqn_integration
+            skip: qrdqn_cartpole_acceptance
+          - name: "PPO — heavy suite (CartPole converge + Pendulum + reproducibility)"
+            bin: ppo_integration
+          - name: "PPG — heavy suite (aux phases, CartPole + reproducibility)"
+            bin: ppg_integration
+          - name: "DDPG — heavy suite (LinearEnv + Pendulum)"
+            bin: ddpg_integration
+          - name: "TD3 — heavy suite (LinearEnv + Pendulum 500k)"
+            bin: td3_integration
+          - name: "SAC — heavy suite (LinearEnv + Pendulum)"
+            bin: sac_integration
     steps:
       - uses: actions/checkout@v4
 
@@ -60,31 +65,31 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           # Separate cache key per matrix job so jobs don't thrash each other.
-          key: weekly-${{ matrix.recipe }}
-
-      - name: Install just
-        uses: taiki-e/install-action@just
+          key: weekly-${{ matrix.bin }}
 
       - name: Run ${{ matrix.name }}
-        run: just ${{ matrix.recipe }}
+        run: >-
+          cargo test --release -p rlevo --test ${{ matrix.bin }}
+          -- --ignored
+          ${{ matrix.skip && format('--skip {0}', matrix.skip) }}
 
-  # ── Full acceptance tests (~500k steps) ─────────────────────────────────────
+  # ── Full acceptance tests (~hours) ──────────────────────────────────────────
   #
-  # Long-running convergence tests. Run every week alongside the smoke suite,
-  # and on-demand via workflow_dispatch. Promote to the smoke job when runtimes
-  # become acceptable as hardware improves.
+  # Hours-long full-solve runs that won't fit the regression job's timeout. Run
+  # every week alongside the regression suite, and on-demand via
+  # workflow_dispatch. Promote a test into the regression job when its runtime
+  # becomes acceptable as hardware improves.
   acceptance:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: "QR-DQN — full acceptance (~500k steps)"
-            recipe: test-qrdqn-full
-          - name: "TD3 — Pendulum smoke (~500k steps)"
-            recipe: test-td3-pendulum
+          - name: "QR-DQN — CartPole acceptance (500k steps, reward ≥ 195)"
+            bin: qrdqn_integration
+            test: qrdqn_cartpole_acceptance
     steps:
       - uses: actions/checkout@v4
 
@@ -94,10 +99,9 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: weekly-${{ matrix.recipe }}
-
-      - name: Install just
-        uses: taiki-e/install-action@just
+          key: weekly-${{ matrix.bin }}
 
       - name: Run ${{ matrix.name }}
-        run: just ${{ matrix.recipe }}
+        run: >-
+          cargo test --release -p rlevo --test ${{ matrix.bin }}
+          -- --ignored ${{ matrix.test }}

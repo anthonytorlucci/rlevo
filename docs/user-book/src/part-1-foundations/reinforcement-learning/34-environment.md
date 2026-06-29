@@ -1,12 +1,21 @@
 # Environments
 
 The last three chapters introduced the agent's three nouns — [state](31-state.md),
-[action](32-action.md), [reward](33-reward.md). This chapter gives them a verb.
-The **`Environment`** trait is the `reset`/`step` protocol that turns that
-vocabulary into the interactive loop from the
+[action](32-action.md), [reward](33-reward.md). This chapter gives them a verb,
+and in doing so it is the capstone of the reinforcement-learning track: the place
+those nouns stop being things you *call* and become one running loop. The
+**`Environment`** trait is the `reset`/`step` protocol that turns that vocabulary
+into the interactive loop from the
 [reinforcement-learning chapter](30-reinforcement-learning.md): the agent sends
 an action, the environment answers with the next observation, a reward, and
 whether the episode is over. It is the Markov Decision Process made executable.
+
+We read the trait first — including the quiet work its type signature does to weld
+the five nouns into one self-consistent set — then `reset`/`step` themselves, the
+errors they may return, and the construction split that keeps the behaviour trait
+clean. That split is not bookkeeping: it is what lets **wrappers** compose around a
+core environment, and it answers a question CartPole leaves dangling — where the
+classic 500-step truncation actually comes from.
 
 ## The `Environment` trait
 

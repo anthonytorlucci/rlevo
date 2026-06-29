@@ -1,14 +1,20 @@
 # Fitness Evaluation
 
 The [genome chapter](22-genome.md) covered the *representation* — how a candidate
-solution becomes a row of a population tensor. This chapter is about how that row
-earns its keep: the **fitness** that scores it, the trait surface `rlevo` uses to
-compute it, and the one convention that quietly governs every operator in the
-crate — that the engine **maximises** (higher is better), and you declare a cost
-objective's direction with `ObjectiveSense`. The operators chapter *asserted* that
-convention; here is where it is justified, alongside the adapters that wire a plain
-objective function into the evolutionary engine and the shaping transforms that
-condition the raw signal.
+solution becomes a row of a population tensor. But a row of numbers is inert until
+something *scores* it, and that score is what every operator in the previous two
+chapters was sorting, comparing, and selecting on. This chapter is about where
+that score comes from.
+
+One idea carries the whole chapter, so we put it first: the engine **maximises** —
+higher is always better — and you never hand-negate a cost; you declare your
+objective's natural direction with `ObjectiveSense` and let one chokepoint
+reconcile it. The [operators chapter](21-ops.md) *asserted* that convention; here
+is where it is justified. Around that spine sit four supporting pieces: who *calls*
+the fitness function (the harness, never the strategy), the two **trait shapes**
+`rlevo` evaluates through, the **adapters** that wire a plain objective into the
+engine, and the **shaping** transforms that condition the raw signal before an
+ES-style update consumes it.
 
 ## The harness calls the objective, not the strategy
 

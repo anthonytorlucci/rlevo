@@ -25,10 +25,6 @@ or evolutionary computation, but we do expect some familiarity. You
 will find links to the [docs.rs](https://docs.rs/rlevo/latest/rlevo/) and 
 references listed in the bibliography for further reading. 
 
-> For more information on high-dimensional problems and a better understanding 
-> of what this means, we encourage you to read [Plaat, 2023](#bibliography)
-> section 3.1.
-
 ### What this guide is not
 
 This guide is not a dissertation. We aim to provide users and researchers with 
@@ -89,6 +85,9 @@ cargo run -p rlevo-examples --example <name>
 
 Each section names the example it's built from. The code in the book *is* that
 example — compiled and tested in CI — so what you read is what runs.
+
+<a name="bibliography"></a>
+*References on this page are collected in the [Bibliography](bibliography.md).*
 
 ---
 

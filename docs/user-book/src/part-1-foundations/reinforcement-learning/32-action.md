@@ -6,8 +6,14 @@ perceives and how that perception becomes a tensor. This chapter covers the
 but the action side has its own wrinkle. "An action" can mean three quite
 different things — pick one of \\(n\\) buttons, pick several categorical options
 at once, or output a vector of real numbers — and the algorithm that consumes
-your policy needs to know which. `rlevo` encodes that distinction in a small
-layered trait hierarchy.
+your policy needs to know which.
+
+That ambiguity is the spine of the chapter, and `rlevo` resolves it with a
+**layered** trait hierarchy: one minimal base trait every action shares, then
+exactly one of three flavour traits that pins down *which* kind of action it is —
+the distinction a DQN or a continuous-control actor reads off the type to know how
+to produce a value. We build the base first, then each flavour in turn, and close
+with the tensor bridge that carries actions back out to the environment.
 
 ## The base `Action` trait
 

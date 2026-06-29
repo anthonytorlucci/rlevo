@@ -1,0 +1,20 @@
+[package]
+name = "rlevo-test-support"
+version.workspace = true
+authors.workspace = true
+description = "Internal shared fixtures and helpers for rlevo integration tests (not published)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+burn = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.2.0", default-features = false }
+
+[lints]
+workspace = true

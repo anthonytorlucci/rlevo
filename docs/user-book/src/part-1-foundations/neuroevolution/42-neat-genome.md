@@ -9,8 +9,8 @@ structure is written down as genes, why those genes carry *innovation numbers*,
 and how that one bookkeeping device makes recombining two differently-shaped
 networks a principled operation rather than a guess.
 
-The reader is assumed to know NEAT at the level of the original paper (Stanley
-and Miikkulainen, 2002) [[Stanley and Miikkulainen, 2002]](../../bibliography.md) —
+We assume you know NEAT at the level of the original paper (Stanley and
+Miikkulainen, 2002) [[Stanley and Miikkulainen, 2002]](../../bibliography.md) —
 that it grows topologies from a minimal seed, that it protects innovations by
 speciation, that it aligns genes by historical markings. What that paper does not
 tell you is how any of it is realised in this crate. That is the gap this section

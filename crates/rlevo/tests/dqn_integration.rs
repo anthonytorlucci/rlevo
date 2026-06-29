@@ -1,31 +1,38 @@
 //! End-to-end integration tests for the DQN agent.
 //!
-//! These tests wire [`DqnAgent`] against real `rlevo-environments` environments and
-//! assert learning behaviour. They intentionally use modest step budgets so
-//! `cargo test` remains tractable; the longer macro-bench targets live in
+//! These tests wire [`DqnAgent`] against the shared seeded `CartPole` fixture
+//! ([`rlevo_test_support::env::cartpole_seeded`]) and assert learning
+//! behaviour. They intentionally use modest step budgets so `cargo test`
+//! remains tractable; the longer macro-bench targets live in
 //! `benches/dqn_bench.rs`.
+//!
+//! The `Flex` determinism preamble ([`flex_guard`] / [`seeded_device`]) and the
+//! acceptance assertions live in the `rlevo-test-support` dev-crate; only the
+//! DQN network and the algorithm-specific tests remain here.
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, activation};
 
-use rlevo_reinforcement_learning::utils::polyak_update;
-
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use rlevo_environments::classic::cartpole::{
-    CartPole, CartPoleAction, CartPoleConfig, CartPoleObservation,
-};
+use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
+use rlevo_reinforcement_learning::utils::polyak_update;
+
+use rlevo_test_support::assert::assert_all_finite;
+use rlevo_test_support::env::cartpole_seeded;
+use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Shared MLP and Polyak update helpers (mirror of the dqn_cart_pole example).
+// Shared MLP (mirror of the dqn_cart_pole example). Implements DQN's model
+// trait and so stays test-local.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -73,41 +80,20 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     }
 }
 
-type Be = Autodiff<Flex>;
 type Agent = DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>;
 
-static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Constructs a [`DqnAgent`] with a fully-seeded, deterministic configuration
-/// for CartPole experiments.
+/// Constructs a deterministic [`DqnAgent`] for `CartPole`.
 ///
-/// The Burn `Flex` backend exposes a **process-global** RNG that governs weight
-/// initialisation. This function seeds it via [`Backend::seed`] before
-/// constructing the model, so that two calls with identical `seed` values
-/// produce bit-for-bit identical initial weights — a hard requirement for the
-/// `dqn_reproducibility_flex` test.
-///
-/// # Caller responsibilities
-///
-/// - **Hold `BACKEND_LOCK` before calling.** The lock serialises access to
-///   the global Flex RNG across test threads; without it a concurrent test
-///   could interleave a `seed` call and silently corrupt the weight
-///   initialisation sequence.
-/// - **Pin rayon to one thread** (`rayon::ThreadPoolBuilder::num_threads(1)`)
-///   before the training loop. Flex dispatches matrix operations through rayon;
-///   floating-point reduction order is non-deterministic under multi-threading,
-///   introducing a second source of run-to-run variance independent of the RNG.
-///
-/// The environment and `StdRng` are seeded separately by each test body and
-/// are not managed here. This function is responsible solely for backend-side
-/// weight initialisation determinism.
+/// Seeds the backend via [`seeded_device`] so two calls with the same `seed`
+/// produce bit-for-bit identical initial weights. Callers must hold the
+/// [`flex_guard`] lock for the duration of the test (see that function for the
+/// process-global Flex RNG / rayon-pinning rationale).
 ///
 /// The hyperparameters (ε-greedy schedule, τ, γ, learning rate, buffer
-/// capacity) are tuned for the 4-observation / 2-action CartPole task and
+/// capacity) are tuned for the 4-observation / 2-action `CartPole` task and
 /// intentionally conservative so training converges well within 30 000 steps.
 fn fresh_agent(seed: u64) -> Agent {
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(64)
         .gamma(0.99)
@@ -130,91 +116,59 @@ fn fresh_agent(seed: u64) -> Agent {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// `CartPole` target: after 30k steps with a 2x64 MLP, the 100-episode moving
-/// average should comfortably exceed 100. The smoke run during development
-/// reached ~183 on seed=42; we assert a conservative floor of 100.
-#[test]
-#[ignore = "30 000-step CartPole training run (several minutes on CPU); confirms avg reward ≥ 100 — run with `cargo test -- --ignored`"]
-fn dqn_cart_pole_reaches_100() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    let seed: u64 = 42;
-    let mut env = CartPole::with_config(CartPoleConfig {
-        seed,
-        ..CartPoleConfig::default()
-    });
+/// Builds and trains a DQN agent on the shared seeded `CartPole` for `total`
+/// steps, returning the standardised outcome consumed by the suite macros.
+/// Shared by the convergence and reproducibility tests below.
+fn run_cartpole(seed: u64, total: usize) -> TrainOutcome {
+    let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
-    train(&mut agent, &mut env, &mut rng, 30_000, 0).expect("training loop");
-    let avg = agent.stats().avg_score().unwrap_or(0.0);
-    // The acceptance target is >= 100 within 200k steps; this test trains
-    // for 30k to keep CI fast. The smoke/reproducibility tests are
-    // `#[ignore]` so they don't compete for Burn's global Flex RNG.
-    assert!(avg >= 100.0, "expected avg reward >= 100, got {avg:.2}");
+    train(&mut agent, &mut env, &mut rng, total, 0).expect("training");
+    let stats = agent.stats();
+    TrainOutcome {
+        avg_score: stats.avg_score().unwrap_or(0.0),
+        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+    }
 }
 
-/// Reproducibility smoke test: two back-to-back runs from the same seed
-/// produce identical reward sequences when run sequentially in the same
-/// process. The `BACKEND_LOCK` serializes execution within this binary so
-/// Burn's process-global Flex RNG stays isolated.
-#[test]
-#[ignore = "6 000-step reproducibility check (two sequential CartPole runs); run with `cargo test -- --ignored`"]
-#[allow(clippy::float_cmp)]
-fn dqn_reproducibility_flex() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    fn run(seed: u64, total: usize) -> Vec<f32> {
-        let mut env = CartPole::with_config(CartPoleConfig {
-            seed,
-            ..CartPoleConfig::default()
-        });
-        let mut rng = StdRng::seed_from_u64(seed);
-        let mut agent = fresh_agent(seed);
-        train(&mut agent, &mut env, &mut rng, total, 0).expect("training");
-        agent
-            .stats()
-            .recent_history
-            .iter()
-            .map(|m| m.reward)
-            .collect()
-    }
+// `CartPole` target: after 30k steps with a 2x64 MLP, the 100-episode moving
+// average should comfortably exceed 100. The smoke run during development
+// reached ~183 on seed=42; we assert a conservative floor of 100. (Generated
+// by `rl_learning_test!`.)
+rl_learning_test! {
+    #[ignore = "30 000-step CartPole training run (several minutes on CPU); confirms avg reward ≥ 100 — run with `cargo test -- --ignored`"]
+    dqn_cartpole_converges,
+    reaches(100.0),
+    seed = 42,
+    total = 30_000,
+    run = run_cartpole,
+}
 
-    let a = run(123, 3_000);
-    let b = run(123, 3_000);
-    assert_eq!(a.len(), b.len());
-    for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-        assert_eq!(x, y, "divergence at episode {i}: {x} vs {y}");
-    }
+// Reproducibility smoke test: two back-to-back runs from the same seed produce
+// identical reward sequences. (Generated by `rl_reproducibility_test!`.)
+rl_reproducibility_test! {
+    #[ignore = "6 000-step reproducibility check (two sequential CartPole runs); run with `cargo test -- --ignored`"]
+    dqn_cartpole_flex_reproducibility,
+    seq,
+    seed = 123,
+    total = 3_000,
+    run = run_cartpole,
 }
 
 /// Smoke test: a short run completes with finite rewards and a populated
 /// buffer. Protects against silent regressions that would NaN-out.
-/// The `BACKEND_LOCK` serializes execution within this binary so
+/// The `flex_guard` lock serializes execution within this binary so
 /// Burn's process-global Flex RNG stays isolated.
 #[test]
 #[ignore = "2 500-step Flex backend smoke run (~30 s); checks for NaN rewards and non-empty replay buffer — run with `cargo test -- --ignored`"]
-fn dqn_short_run_produces_finite_rewards() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+fn dqn_cartpole_produces_finite_rewards() {
+    let _guard = flex_guard();
     let seed: u64 = 7;
-    let mut env = CartPole::with_config(CartPoleConfig {
-        seed,
-        ..CartPoleConfig::default()
-    });
+    let mut env = cartpole_seeded(seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let mut agent = fresh_agent(seed);
     train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    for (i, m) in agent.stats().recent_history.iter().enumerate() {
-        assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
-    }
+    let rewards: Vec<f32> = agent.stats().recent_history.iter().map(|m| m.reward).collect();
+    assert_all_finite("reward", &rewards);
 }

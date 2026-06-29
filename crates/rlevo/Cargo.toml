@@ -21,6 +21,7 @@ rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.2.0" }
 [dev-dependencies]
 rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.2.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.2.0", features = ["bench"] }
+rlevo-test-support = { path = "../rlevo-test-support", version = "0.2.0" }
 approx = { workspace = true }
 burn = { workspace = true }
 criterion = { workspace = true }
@@ -61,21 +62,13 @@ name = "pixel_grid"
 path = "examples/envs/pixel_grid.rs"
 
 # Examples — classic control
-[[example]]
-name = "cartpole_random"
-path = "examples/envs/classic/cartpole_random.rs"
-
+# Random-policy rollouts (cartpole/pendulum/mountain_car) were removed: the
+# uniform-random baseline they demonstrated now lives in
+# `rlevo-test-support::baseline` and is exercised by the `improves_over_random`
+# integration tests, where it actually gates assertions.
 [[example]]
 name = "cartpole_timelimit"
 path = "examples/envs/classic/cartpole_timelimit.rs"
-
-[[example]]
-name = "mountain_car_continuous_random"
-path = "examples/envs/classic/mountain_car_continuous_random.rs"
-
-[[example]]
-name = "pendulum_random"
-path = "examples/envs/classic/pendulum_random.rs"
 
 # Examples — evolution showcases
 [[example]]

@@ -55,7 +55,7 @@ jobs:
         uses: taiki-e/install-action@just
 
       - name: Build viz examples (full feature set)
-        run: just build-viz-examples
+        run: just build-vis-examples
 
       - name: Clippy viz examples (full feature set)
-        run: just clippy-viz-examples
+        run: just clippy-vis-examples

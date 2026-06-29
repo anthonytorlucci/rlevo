@@ -1,193 +1,45 @@
 //! End-to-end integration tests for the DDPG agent.
 //!
-//! The default-run test exercises DDPG on a minimal synthetic 1-D continuous
-//! env so that `cargo test` stays tractable (no physics simulator, small
-//! networks, ~50k env steps). The Pendulum macro-smoke is gated behind
-//! `#[ignore]` per the project's integration-test budget convention.
+//! Default-run tests exercise DDPG on the shared synthetic 1-D continuous env
+//! ([`rlevo_test_support::env::LinearEnv`]) so that `cargo test` stays tractable
+//! (no physics simulator, small networks, modest budgets). The Pendulum
+//! macro-smoke is gated behind `#[ignore]` per the project's integration-test
+//! budget convention.
+//!
+//! The shared fixture, the `Flex` determinism preamble ([`flex_guard`] /
+//! [`seeded_device`]), and the acceptance assertions live in the
+//! `rlevo-test-support` dev-crate; only the DDPG networks and the
+//! algorithm-specific tests remain here.
 
-use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{Tensor, TensorData};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_reinforcement_learning::utils::polyak_update;
-use serde::{Deserialize, Serialize};
 
-use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
-use rlevo_core::reward::ScalarReward;
+use rlevo_core::action::ContinuousAction;
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
 };
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
-    ContinuousQ, DeterministicPolicy,
-};
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
+use rlevo_reinforcement_learning::utils::polyak_update;
+
+use rlevo_test_support::assert::assert_improves_over_random;
+use rlevo_test_support::baseline::{random_return, uniform_bounded};
+use rlevo_test_support::env::{LinearAction, LinearEnv, LinearObservation};
+use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
+use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
 
 // ---------------------------------------------------------------------------
-// Synthetic 1-D continuous environment
-// ---------------------------------------------------------------------------
-//
-// Each step emits an observation `x ∈ [-1, 1]`. The optimal action is `a = x`
-// and the reward is `-(a - x)²`, peaking at `0`. Episodes last 20 steps.
-// The actor must learn an identity mapping; convergence shows up as the
-// moving-average episode reward climbing toward `0` from the U(-1, 1)
-// baseline of ≈ `-20 · 1/3 ≈ -6.67`.
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct LinearState {
-    x: f32,
-    steps: usize,
-}
-
-impl State<1> for LinearState {
-    type Observation = LinearObservation;
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn numel(&self) -> usize {
-        1
-    }
-    fn is_valid(&self) -> bool {
-        self.x.is_finite()
-    }
-    fn observe(&self) -> LinearObservation {
-        LinearObservation { x: self.x }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct LinearObservation {
-    x: f32,
-}
-
-impl Observation<1> for LinearObservation {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-}
-
-impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        Tensor::from_data(TensorData::new(vec![self.x], vec![1]), device)
-    }
-    fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
-        let v = tensor.into_data().convert::<f32>();
-        Ok(Self {
-            x: v.as_slice::<f32>().unwrap()[0],
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct LinearAction(f32);
-
-impl Action<1> for LinearAction {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-    fn is_valid(&self) -> bool {
-        self.0.is_finite() && self.0.abs() <= 1.0
-    }
-}
-
-impl ContinuousAction<1> for LinearAction {
-    fn as_slice(&self) -> &[f32] {
-        std::slice::from_ref(&self.0)
-    }
-    fn clip(&self, min: f32, max: f32) -> Self {
-        Self(self.0.clamp(min, max))
-    }
-    fn from_slice(values: &[f32]) -> Self {
-        assert_eq!(values.len(), 1);
-        Self(values[0])
-    }
-}
-
-impl BoundedAction<1> for LinearAction {
-    fn low() -> [f32; 1] {
-        [-1.0]
-    }
-    fn high() -> [f32; 1] {
-        [1.0]
-    }
-}
-
-struct LinearEnv {
-    state: LinearState,
-    rng: StdRng,
-    episode_len: usize,
-}
-
-impl LinearEnv {
-    fn with_seed(seed: u64, episode_len: usize) -> Self {
-        Self {
-            state: LinearState { x: 0.0, steps: 0 },
-            rng: StdRng::seed_from_u64(seed),
-            episode_len,
-        }
-    }
-
-    fn sample_x(rng: &mut StdRng) -> f32 {
-        use rand::RngExt;
-        rng.random_range(-1.0_f32..=1.0_f32)
-    }
-}
-
-impl Environment<1, 1, 1> for LinearEnv {
-    type StateType = LinearState;
-    type ObservationType = LinearObservation;
-    type ActionType = LinearAction;
-    type RewardType = ScalarReward;
-    type SnapshotType = SnapshotBase<1, LinearObservation, ScalarReward>;
-
-    fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = LinearState {
-            x: Self::sample_x(&mut self.rng),
-            steps: 0,
-        };
-        Ok(SnapshotBase {
-            observation: self.state.observe(),
-            reward: ScalarReward::new(0.0),
-            status: EpisodeStatus::Running,
-        })
-    }
-
-    fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
-        let a = action.0.clamp(-1.0, 1.0);
-        let err = a - self.state.x;
-        let reward = -(err * err);
-        let next_x = Self::sample_x(&mut self.rng);
-        self.state = LinearState {
-            x: next_x,
-            steps: self.state.steps + 1,
-        };
-        let status = if self.state.steps >= self.episode_len {
-            EpisodeStatus::Truncated
-        } else {
-            EpisodeStatus::Running
-        };
-        Ok(SnapshotBase {
-            observation: self.state.observe(),
-            reward: ScalarReward::new(reward),
-            status,
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Actor & critic: tiny MLPs (shared with Pendulum smoke test).
+// Actor & critic: tiny MLPs (shared between LinearEnv test and Pendulum
+// smoke test). These implement DDPG's model traits and so stay test-local.
 // ---------------------------------------------------------------------------
 
 #[derive(Module, Debug)]
@@ -284,33 +136,18 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Polyak averaging (shared copy of the dqn_cart_pole example helper).
-// ---------------------------------------------------------------------------
-
-type Be = Autodiff<Flex>;
-
-static BACKEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// Concrete DDPG agent over the shared 1-D continuous fixture.
+type LinearAgent = DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Default-run test: DDPG should solve the tracking task well enough that the
-/// 100-episode moving average clears a lax `-1.0` threshold within 30k env
-/// steps. Random actions average ≈ `-6.67` per episode, and an optimal policy
-/// approaches `0`.
-#[test]
-#[ignore = "8 000-step LinearEnv convergence check; run with `cargo test -- --ignored`"]
-fn ddpg_solves_linear_1d_continuous() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
-    let seed: u64 = 42;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+/// Builds and trains a DDPG agent on the shared `LinearEnv` for `total` steps,
+/// returning the standardised outcome consumed by the suite macros. Shared by
+/// the convergence and reproducibility tests below.
+fn run_linear(seed: u64, total: usize) -> TrainOutcome {
+    let device = seeded_device::<Be>(seed);
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -327,30 +164,53 @@ fn ddpg_solves_linear_1d_continuous() {
         .exploration_noise(0.2)
         .policy_frequency(2)
         .build();
-    let mut agent: DdpgAgent<
-        Be,
-        Actor<Be>,
-        Critic<Be>,
-        LinearObservation,
-        LinearAction,
-        1,
-        2,
-        1,
-        2,
-    > = DdpgAgent::new(actor, critic, config, device);
+    let mut agent: LinearAgent = DdpgAgent::new(actor, critic, config, device);
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
-        &mut agent, &mut env, &mut rng, 8_000, 0,
+        &mut agent, &mut env, &mut rng, total, 0,
     )
     .expect("training");
 
-    let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
-    // Random baseline ≈ −6.67. A learned policy should easily beat −1.0.
-    assert!(
-        avg > -1.0,
-        "expected avg reward > -1.0, got {avg:.3} (random baseline ≈ -6.67)"
-    );
+    let stats = agent.stats();
+    TrainOutcome {
+        avg_score: stats.avg_score().unwrap_or(0.0),
+        rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
+    }
+}
+
+/// Mean episode return of a uniform-random `U(-1, 1)` policy on the shared
+/// `LinearEnv`, measured over 200 episodes from `seed`. The learning test below
+/// asserts the trained agent beats this measured baseline by a margin.
+fn random_linear(seed: u64) -> f32 {
+    let mut env = LinearEnv::with_seed(seed, 20);
+    let mut rng = StdRng::seed_from_u64(seed);
+    random_return(&mut env, 200, 20, &mut rng, uniform_bounded::<1, LinearAction>)
+}
+
+/// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
+/// Pendulum, measured over 100 episodes from `seed`. Baseline for the Pendulum
+/// learning check.
+fn random_pendulum(seed: u64) -> f32 {
+    let base = Pendulum::with_config(PendulumConfig {
+        seed,
+        ..PendulumConfig::default()
+    });
+    let mut env = TimeLimit::new(base, 200);
+    let mut rng = StdRng::seed_from_u64(seed);
+    random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
+}
+
+// Default-run convergence check: DDPG should clear the random baseline within
+// 8k env steps. A uniform `U(-1, 1)` policy scores `random_linear`; an optimal
+// policy approaches `0`. (Generated by `rl_learning_test!`.)
+rl_learning_test! {
+    #[ignore = "8 000-step LinearEnv convergence check; run with `cargo test -- --ignored`"]
+    ddpg_linear_improves_over_random,
+    improves_over_random(margin = 2.0),
+    seed = 42,
+    total = 8_000,
+    run = run_linear,
+    random = random_linear,
 }
 
 /// `act_with` (inner-backend greedy inference) must produce the same action as
@@ -359,14 +219,9 @@ fn ddpg_solves_linear_1d_continuous() {
 /// the bench's faster greedy path stays faithful to the eval policy.
 #[test]
 fn ddpg_act_with_matches_deterministic_act() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+    let _guard = flex_guard();
     let seed: u64 = 7;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
 
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
@@ -381,8 +236,7 @@ fn ddpg_act_with_matches_deterministic_act() {
         .exploration_noise(0.2)
         .policy_frequency(2)
         .build();
-    let agent: DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2> =
-        DdpgAgent::new(actor, critic, config, device);
+    let agent: LinearAgent = DdpgAgent::new(actor, critic, config, device);
 
     let net = agent.inference_net();
     let mut rng = StdRng::seed_from_u64(seed);
@@ -397,19 +251,24 @@ fn ddpg_act_with_matches_deterministic_act() {
     }
 }
 
-/// Pendulum smoke test: 50k steps with small networks, verifies training runs
-/// without crashing and produces a reward above the zero-torque baseline.
+// Seeded reproducibility: two same-seed runs must produce bit-equal metrics.
+// (Generated by `rl_reproducibility_test!`.)
+rl_reproducibility_test! {
+    ddpg_linear_flex_reproducibility,
+    bits,
+    seed = 42,
+    total = 1_000,
+    run = run_linear,
+}
+
+/// Pendulum learning check: 50k steps with small networks; verifies training
+/// runs without crashing and beats a measured uniform-random torque policy.
 #[test]
-#[ignore = "50 000-step continuous DDPG Pendulum run (~several minutes on CPU); confirms avg reward > −1 200 — beats the zero-torque baseline — run with `cargo test -- --ignored`"]
-fn ddpg_pendulum_smoke() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .ok();
-    let _guard = BACKEND_LOCK.lock().expect("backend lock");
+#[ignore = "50 000-step continuous DDPG Pendulum run (~several minutes on CPU); confirms avg reward beats a measured uniform-random baseline — run with `cargo test -- --ignored`"]
+fn ddpg_pendulum_improves_over_random() {
+    let _guard = flex_guard();
     let seed: u64 = 42;
-    let device = Default::default();
-    <Be as Backend>::seed(&device, seed);
+    let device = seeded_device::<Be>(seed);
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
@@ -448,7 +307,8 @@ fn ddpg_pendulum_smoke() {
     .expect("training");
 
     let avg = agent.stats().avg_score().expect("non-empty history");
-    assert!(avg.is_finite(), "avg reward must be finite, got {avg}");
-    // Zero-torque Pendulum scores ≈ -1200; just verify we beat that baseline.
-    assert!(avg > -1500.0, "expected avg reward > -1500, got {avg:.2}");
+    // Compare against an actual uniform-random torque policy rather than a
+    // hard-coded number; DDPG should clear it with margin after 50k steps.
+    let baseline = random_pendulum(seed);
+    assert_improves_over_random(avg, baseline, 50.0);
 }

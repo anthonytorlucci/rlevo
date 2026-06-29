@@ -11,6 +11,7 @@ members = [
     "crates/rlevo-hybrid",
     "crates/rlevo-metrics-registry",
     "crates/rlevo-reinforcement-learning",
+    "crates/rlevo-test-support",
 ]
 
 default-members = [

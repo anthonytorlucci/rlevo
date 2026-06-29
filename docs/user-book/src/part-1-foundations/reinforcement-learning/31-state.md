@@ -12,6 +12,12 @@ possibly have at deployment time, your numbers look great, and then the policy
 falls over in the real world. `rlevo` makes the boundary a type-level wall so
 you have to cross it on purpose.
 
+So the spine of this chapter is that wall, walked from one side to the other:
+the two traits that name each side, the `observe()` seam that crosses it (and
+quietly decides MDP vs POMDP), the `TensorConvertible` bridge that only the
+*visible* side gets, the validation that keeps both sides honest, and finally the
+higher-level traits for the cases where one observation is not enough.
+
 ## Two traits, one rank
 
 The relevant definitions live in `rlevo::core::base`:

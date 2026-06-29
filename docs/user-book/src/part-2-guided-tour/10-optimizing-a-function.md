@@ -156,7 +156,7 @@ supplementary material.
 
 > **Foundations link.** The exploitation–exploration tension you just observed
 > (population too small → stalls; no elitism → regresses) is discussed
-> conceptually in [What Is Optimization?](../part-1-foundations/10-optimization.md).
+> conceptually in [What Is Optimisation?](../part-1-foundations/10-optimisation.md).
 > The GA operators used here — tournament selection, BLX-α crossover, Gaussian
 > mutation — are derived in
 > [Appendix A](../appendix-a-ec-algorithms/index.md).

@@ -84,7 +84,7 @@ Where an algorithm or derivation deserves more than a summary, a callout box poi
 
 | Section | Core idea |
 | ------- | --------- |
-| [What Is Optimization?](10-optimization.md) | Fitness landscapes, the exploitation–exploration trade-off, and why gradient descent is not always the answer |
+| [What Is Optimisation?](10-optimisation.md) | Fitness landscapes, the exploitation–exploration trade-off, and why gradient descent is not always the answer |
 | [Evolutionary Computation](20-evolutionary-computation.md) | Populations, selection, variation operators, and the family of algorithms that descend from Holland's genetic algorithm |
 | [Reinforcement Learning](30-reinforcement-learning.md) | The agent–environment loop, Markov decision processes, value functions, and the road from Q-learning to deep RL |
 | [Neuroevolution](40-neuroevolution.md) | Evolving network weights, architectures, and topologies directly — with no gradients at all |

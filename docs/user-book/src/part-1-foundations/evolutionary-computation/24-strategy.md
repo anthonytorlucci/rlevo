@@ -1,14 +1,17 @@
 # Strategies: the ask/tell Loop
 
-The last three chapters laid out the ingredients: a [genome](22-genome.md) is a
-row of a population tensor, the [operators](21-ops.md) select and vary those rows,
-and [fitness](23-fitness.md) scores them in the engine's canonical maximise space
-(a cost objective declaring `ObjectiveSense::Minimize`). A **strategy** is what
-assembles those ingredients into a running generation. The
-[parent chapter](../20-evolutionary-computation.md) introduced the `Strategy<B>`
-trait as the choreography behind the five-step evolutionary skeleton; this chapter
-walks the trait method by method and then traces a complete, real
-strategy — the Genetic Algorithm — from `init` to convergence.
+This is the chapter where the three ingredients become one loop. We have a
+[genome](22-genome.md) — a row of a population tensor; the [operators](21-ops.md)
+that select and vary those rows; and the [fitness](23-fitness.md) that scores them
+in the engine's canonical maximise space (a cost objective declaring
+`ObjectiveSense::Minimize`). Each has been a thing you *call*; none of them, on its
+own, runs. A **strategy** is what assembles them into a running generation.
+
+The [parent chapter](../20-evolutionary-computation.md) introduced the `Strategy<B>`
+trait as the choreography behind the five-step evolutionary skeleton. We walk it
+here in two movements: first the **four methods** of the trait in the abstract,
+then a single complete, real strategy — the Genetic Algorithm — traced from `init`
+to convergence with every one of those methods made concrete.
 
 ## The four methods
 
