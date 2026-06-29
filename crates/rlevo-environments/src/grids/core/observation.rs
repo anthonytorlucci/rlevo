@@ -7,7 +7,7 @@
 //! and is **not** encoded into the tensor representation (see
 //! [`TensorConvertible::from_tensor`] for the implication).
 
-use super::direction::Direction;
+use crate::direction::Direction;
 use super::entity::Entity;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
@@ -51,7 +51,7 @@ pub struct GridObservation {
     /// resets it to [`Direction::North`] (byte `3`). Carry the direction
     /// out-of-band if full fidelity is required.
     ///
-    /// [`Direction::North`]: super::direction::Direction::North
+    /// [`Direction::North`]: crate::direction::Direction::North
     pub agent_direction: u8,
 }
 

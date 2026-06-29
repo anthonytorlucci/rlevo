@@ -49,7 +49,7 @@ impl State<3> for GridState {
 
 #[cfg(test)]
 mod tests {
-    use super::super::direction::Direction;
+    use crate::direction::Direction;
     use super::super::entity::Entity;
     use super::*;
 

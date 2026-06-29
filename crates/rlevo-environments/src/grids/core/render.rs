@@ -6,7 +6,7 @@
 
 use super::agent::AgentState;
 use super::color::Color as GridEntityColor;
-use super::direction::Direction;
+use crate::direction::Direction;
 use super::entity::{DoorState, Entity};
 use super::grid::Grid;
 use rlevo_core::render::payload::{

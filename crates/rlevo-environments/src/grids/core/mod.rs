@@ -11,7 +11,6 @@
 pub mod action;
 pub mod agent;
 pub mod color;
-pub mod direction;
 pub mod dynamics;
 pub mod entity;
 pub mod grid;
@@ -23,7 +22,10 @@ pub mod state;
 pub use action::GridAction;
 pub use agent::AgentState;
 pub use color::Color;
-pub use direction::Direction;
+// `Direction` was lifted to the crate root (`crate::direction`); re-export both
+// the module and the type so existing `grids::core::{direction, Direction}`
+// paths keep resolving.
+pub use crate::direction::{self, Direction};
 pub use dynamics::{StepOutcome, apply_action};
 pub use entity::{DoorState, Entity};
 pub use grid::{Grid, egocentric_view};
