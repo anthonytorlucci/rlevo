@@ -16,9 +16,9 @@ cargo run -p rlevo-examples --example <name>
 
 | Section | New concept introduced |
 | ------- | ---------------------- |
-| [Optimising a Function](01-optimizing-a-function.md) | `Landscape`, `Strategy`, the GA, the harness |
-| [Classic Control: CartPole with DQN](03-classic-control.md) | `Environment`, `Action`, `Observation`, DQN, experience replay |
-| [Bring Your Own Environment](04-extending-the-environment.md) | Implementing the `Environment` trait for a custom domain |
+| [Optimising a Function](10-optimizing-a-function.md) | `Landscape`, `Strategy`, the GA, the harness |
+| [Classic Control: CartPole with DQN](20-classic-control.md) | `Environment`, `Action`, `Observation`, DQN, experience replay |
+| [Bring Your Own Environment](99-extending-the-environment.md) | Implementing the `Environment` trait for a custom domain |
 
 Each section builds on the previous one and is centred on code you can run. We
 keep the main text on the example and push the deeper mechanics into
