@@ -16,9 +16,15 @@
 //!   [`WeightOnly`](rlevo_evolution::WeightOnly) strategy with a
 //!   [`RolloutFitness`] inside an
 //!   [`EvolutionaryHarness`](rlevo_evolution::EvolutionaryHarness).
+//! - [`policy`] — [`StatefulPolicy`] (the recurrent rollout contract) and
+//!   [`ReactivePolicy`] (the memoryless `Hidden = ()` convenience), the seam by
+//!   which a policy module carries per-episode state across a [`RolloutFitness`]
+//!   rollout.
 
+pub mod policy;
 pub mod policy_neuroevolution;
 pub mod rollout_fitness;
 
+pub use policy::{ReactivePolicy, StatefulPolicy};
 pub use policy_neuroevolution::PolicyNeuroevolution;
 pub use rollout_fitness::RolloutFitness;

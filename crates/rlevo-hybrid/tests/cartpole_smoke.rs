@@ -14,7 +14,7 @@ use rlevo_core::environment::ConstructableEnv;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleAction, CartPoleObservation};
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::param_reshaper::ModuleReshaper;
-use rlevo_hybrid::{PolicyNeuroevolution, RolloutFitness};
+use rlevo_hybrid::{PolicyNeuroevolution, ReactivePolicy, RolloutFitness};
 
 type TestBackend = Flex;
 type Dev = <TestBackend as burn::tensor::backend::BackendTypes>::Device;
@@ -43,16 +43,20 @@ impl<B: Backend> PolicyMlp<B> {
     }
 }
 
-/// Greedy policy: encode the observation, forward, argmax → discrete action.
-fn act(module: &PolicyMlp<TestBackend>, obs: &CartPoleObservation, device: &Dev) -> CartPoleAction {
-    let data = TensorData::new(
-        vec![obs.cart_pos, obs.cart_vel, obs.pole_angle, obs.pole_ang_vel],
-        [1, 4],
-    );
-    let x = Tensor::<TestBackend, 2>::from_data(data, device);
-    let logits = module.forward(x);
-    let idx = logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0];
-    CartPoleAction::from_index(usize::try_from(idx).unwrap())
+/// Greedy reactive policy: encode the observation, forward, argmax → discrete
+/// action. `PolicyMlp` is memoryless, so it implements [`ReactivePolicy`] and
+/// gets `StatefulPolicy` (`Hidden = ()`) for free.
+impl ReactivePolicy<TestBackend, CartPole> for PolicyMlp<TestBackend> {
+    fn act(&self, obs: &CartPoleObservation, device: &Dev) -> CartPoleAction {
+        let data = TensorData::new(
+            vec![obs.cart_pos, obs.cart_vel, obs.pole_angle, obs.pole_ang_vel],
+            [1, 4],
+        );
+        let x = Tensor::<TestBackend, 2>::from_data(data, device);
+        let logits = self.forward(x);
+        let idx = logits.argmax(1).into_data().into_vec::<i32>().unwrap()[0];
+        CartPoleAction::from_index(usize::try_from(idx).unwrap())
+    }
 }
 
 #[test]
@@ -66,9 +70,9 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
     let fitness = RolloutFitness::new(
         ModuleReshaper::new(template.clone()),
         || <CartPole as ConstructableEnv>::new(false),
-        act,
-        1,  // episodes_per_eval
-        50, // max_steps_per_episode (CartPole has no intrinsic cap)
+        1,            // episodes_per_eval
+        50,     // max_steps_per_episode (CartPole has no intrinsic cap)
+        device, // captured into the rollout scorer (FlexDevice is Copy)
     );
 
     let params = GaConfig::default_for(16, num_params);

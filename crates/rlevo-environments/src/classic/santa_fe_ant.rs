@@ -307,7 +307,12 @@ impl MarkovState for SantaFeAntState {
 pub struct SantaFeAntConfig {
     /// Per-episode step budget; the episode truncates once it is reached.
     pub max_steps: usize,
-    /// Whether the env is rendered (reserved; rendering is a planned follow-up).
+    /// When `true`, each [`reset`](Environment::reset) /
+    /// [`step`](Environment::step) renders the grid to ASCII as a debug side
+    /// effect (the text is discarded). The structured report path
+    /// ([`GridPayloadSource`](rlevo_core::render::payload::GridPayloadSource)) and
+    /// the [`AsciiRenderable`](crate::render::AsciiRenderable) impl are available
+    /// regardless of this flag.
     pub render: bool,
 }
 
@@ -404,6 +409,18 @@ impl SantaFeAnt {
     pub fn config(&self) -> &SantaFeAntConfig {
         &self.config
     }
+
+    /// Render the grid to ASCII as a debug side effect when [`render`] is set.
+    /// The string is discarded; callers wanting the text call [`render_ascii`]
+    /// directly. Mirrors the grids family's debug-render convention.
+    ///
+    /// [`render`]: SantaFeAntConfig::render
+    /// [`render_ascii`]: crate::render::AsciiRenderable::render_ascii
+    fn maybe_render(&self) {
+        if self.config.render {
+            let _ = crate::render::AsciiRenderable::render_ascii(self);
+        }
+    }
 }
 
 impl ConstructableEnv for SantaFeAnt {
@@ -424,6 +441,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::fresh_state();
+        self.maybe_render();
         Ok(SnapshotBase::running(
             self.state.observe(),
             ScalarReward::new(0.0),
@@ -454,6 +472,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
             }
         };
         self.state.steps += 1;
+        self.maybe_render();
 
         let obs: SantaFeAntObservation = self.state.observe();
         let limit: u32 = u32::try_from(self.config.max_steps).unwrap_or(u32::MAX);
@@ -575,6 +594,158 @@ fn parse_trail(ascii: &str) -> ([[bool; GRID_SIZE]; GRID_SIZE], (usize, usize)) 
 
     let start: (usize, usize) = start.expect("trail must contain a start marker 'S'");
     (food, start)
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/// Heading glyph encoded by **shape**, not colour (accessibility convention):
+/// `>` East, `v` South, `<` West, `^` North. Mirrors the grids family's
+/// `agent_char`; could be hoisted onto [`Direction`] if a second consumer appears.
+const fn heading_glyph(dir: Direction) -> char {
+    match dir {
+        Direction::East => '>',
+        Direction::South => 'v',
+        Direction::West => '<',
+        Direction::North => '^',
+    }
+}
+
+/// Map the env-side [`Direction`] onto the wire-neutral grid facing.
+const fn heading_to_grid_dir(dir: Direction) -> rlevo_core::render::payload::GridDir {
+    use rlevo_core::render::payload::GridDir;
+    match dir {
+        Direction::East => GridDir::East,
+        Direction::South => GridDir::South,
+        Direction::West => GridDir::West,
+        Direction::North => GridDir::North,
+    }
+}
+
+/// Structured grid projection for the post-run report (ADR 0013's primary,
+/// load-bearing render path). Built directly from the private `food` grid rather
+/// than via the shared `grids::core` helper, because the ant does not use the
+/// `Grid`/`AgentState` types.
+///
+/// Tile mapping, distinguishing an **eaten** cell from one that never held food by
+/// reconstructing the original trail from the `SANTA_FE_TRAIL` literal:
+/// - current food present → [`GridTile::Ball`]`(Green)` — a pellet,
+/// - eaten (originally food, now gone) → [`GridTile::Floor`] — carries the
+///   distinction losslessly (the report draws `Floor` like `Empty` today),
+/// - never food → [`GridTile::Empty`].
+///
+/// [`GridTile::Ball`]: rlevo_core::render::payload::GridTile::Ball
+/// [`GridTile::Floor`]: rlevo_core::render::payload::GridTile::Floor
+/// [`GridTile::Empty`]: rlevo_core::render::payload::GridTile::Empty
+impl rlevo_core::render::payload::GridPayloadSource for SantaFeAnt {
+    #[allow(clippy::cast_possible_truncation)] // GRID_SIZE = 32 and all indices < 32 fit u16
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        use rlevo_core::render::payload::{
+            GridAgentMarker, GridColor, GridSnapshot, GridTile,
+        };
+
+        let (original, _): ([[bool; GRID_SIZE]; GRID_SIZE], _) = parse_trail(SANTA_FE_TRAIL);
+        let mut tiles: Vec<GridTile> = Vec::with_capacity(GRID_SIZE * GRID_SIZE);
+        for (food_row, orig_row) in self.state.food.iter().zip(original.iter()) {
+            for (live, orig) in food_row.iter().zip(orig_row.iter()) {
+                let tile = if *live {
+                    GridTile::Ball(GridColor::Green)
+                } else if *orig {
+                    GridTile::Floor
+                } else {
+                    GridTile::Empty
+                };
+                tiles.push(tile);
+            }
+        }
+
+        let (row, col): (usize, usize) = self.state.position();
+        GridSnapshot {
+            width: GRID_SIZE as u16,
+            height: GRID_SIZE as u16,
+            tiles,
+            agent: GridAgentMarker {
+                x: col as u16,
+                y: row as u16,
+                dir: heading_to_grid_dir(self.state.heading),
+                carrying: None,
+            },
+        }
+    }
+}
+
+/// Optional library-tier debug renderer (ADR 0013 demotes this to an opt-in
+/// helper; neither product depends on it). Glyphs are shape-redundant: ant by
+/// heading (`> v < ^`), `#` live pellet, `·` eaten cell, `.` never-food. The styled
+/// projection reaches only for `palette` constants so the hue-redundant
+/// accessibility contract holds.
+impl crate::render::AsciiRenderable for SantaFeAnt {
+    fn render_ascii(&self) -> String {
+        let (original, _): ([[bool; GRID_SIZE]; GRID_SIZE], _) = parse_trail(SANTA_FE_TRAIL);
+        let (arow, acol): (usize, usize) = self.state.position();
+        let mut out = String::with_capacity(GRID_SIZE * GRID_SIZE * 2);
+        for (row, (food_row, orig_row)) in self.state.food.iter().zip(original.iter()).enumerate() {
+            for (col, (live, orig)) in food_row.iter().zip(orig_row.iter()).enumerate() {
+                let ch = if row == arow && col == acol {
+                    heading_glyph(self.state.heading)
+                } else if *live {
+                    '#'
+                } else if *orig {
+                    '·'
+                } else {
+                    '.'
+                };
+                out.push(ch);
+                out.push(' ');
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn render_styled(&self) -> crate::render::StyledFrame {
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER};
+        use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
+
+        let (original, _): ([[bool; GRID_SIZE]; GRID_SIZE], _) = parse_trail(SANTA_FE_TRAIL);
+        let (arow, acol): (usize, usize) = self.state.position();
+        let mut lines: Vec<StyledLine> = Vec::with_capacity(GRID_SIZE);
+        let mut spans: Vec<StyledSpan> = Vec::new();
+        let mut current_style = SpanStyle::default();
+        let mut current_text = String::new();
+        for (row, (food_row, orig_row)) in self.state.food.iter().zip(original.iter()).enumerate() {
+            for (col, (live, orig)) in food_row.iter().zip(orig_row.iter()).enumerate() {
+                let (ch, style) = if row == arow && col == acol {
+                    (
+                        heading_glyph(self.state.heading),
+                        SpanStyle::default().fg(AGENT_FG).with_modifier(AGENT_MODIFIER),
+                    )
+                } else if *live {
+                    (
+                        '#',
+                        SpanStyle::default().fg(GOAL_FG).with_modifier(GOAL_MODIFIER),
+                    )
+                } else if *orig {
+                    ('·', SpanStyle::default().dim())
+                } else {
+                    ('.', SpanStyle::default())
+                };
+                if style != current_style && !current_text.is_empty() {
+                    spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+                }
+                current_style = style;
+                current_text.push(ch);
+                current_text.push(' ');
+            }
+            if !current_text.is_empty() {
+                spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+            }
+            lines.push(StyledLine::from_spans(std::mem::take(&mut spans)));
+            current_style = SpanStyle::default();
+        }
+        StyledFrame { lines }
+    }
 }
 
 #[cfg(test)]
@@ -871,5 +1042,141 @@ mod tests {
             e.state().clone()
         };
         assert_eq!(run(), run());
+    }
+
+    // -- Rendering ---------------------------------------------------------
+    //
+    // The start state has S at (row=0, col=0) facing East; row 0 of the trail
+    // is `S###...`, so cells (0,1), (0,2), (0,3) hold food. A single `Move`
+    // eats (0,1) and lands the ant there; a second `Move` eats (0,2) and leaves
+    // (0,1) as an *eaten* cell with the ant gone.
+
+    use crate::render::AsciiRenderable;
+    use rlevo_core::render::payload::{
+        GridAgentMarker, GridColor, GridDir, GridPayloadSource, GridTile,
+    };
+
+    fn ball_count(snap: &rlevo_core::render::payload::GridSnapshot) -> usize {
+        snap.tiles
+            .iter()
+            .filter(|t| matches!(t, GridTile::Ball(GridColor::Green)))
+            .count()
+    }
+
+    fn floor_count(snap: &rlevo_core::render::payload::GridSnapshot) -> usize {
+        snap.tiles.iter().filter(|t| matches!(t, GridTile::Floor)).count()
+    }
+
+    #[test]
+    fn grid_snapshot_is_full_trail_on_reset() {
+        let mut e = env();
+        e.reset().expect("reset");
+        let snap = e.grid_snapshot();
+
+        assert_eq!(snap.width as usize, GRID_SIZE);
+        assert_eq!(snap.height as usize, GRID_SIZE);
+        assert_eq!(snap.tiles.len(), GRID_SIZE * GRID_SIZE);
+        // Every one of the 89 pellets is a green ball; nothing eaten yet.
+        assert_eq!(ball_count(&snap), TOTAL_PELLETS as usize);
+        assert_eq!(floor_count(&snap), 0);
+        // Ant at the origin facing East, carrying nothing.
+        assert_eq!(
+            snap.agent,
+            GridAgentMarker { x: 0, y: 0, dir: GridDir::East, carrying: None }
+        );
+    }
+
+    #[test]
+    fn grid_snapshot_marks_eaten_cell_as_floor() {
+        let mut e = env();
+        e.reset().expect("reset");
+        e.step(SantaFeAntAction::Move).expect("step"); // eat (0,1), ant -> (0,1)
+        e.step(SantaFeAntAction::Move).expect("step"); // eat (0,2), ant -> (0,2)
+
+        let snap = e.grid_snapshot();
+        // Two pellets eaten: 87 balls remain.
+        assert_eq!(ball_count(&snap), TOTAL_PELLETS as usize - 2);
+        // (0,1) is now an eaten Floor (the ant has moved off it); (0,2) carries
+        // the agent marker so its tile is also Floor → two Floor cells.
+        assert_eq!(floor_count(&snap), 2);
+        assert_eq!(
+            snap.agent,
+            GridAgentMarker { x: 2, y: 0, dir: GridDir::East, carrying: None }
+        );
+    }
+
+    #[test]
+    fn grid_snapshot_agent_marker_tracks_heading() {
+        let mut e = env();
+        e.reset().expect("reset");
+        e.step(SantaFeAntAction::TurnRight).expect("step"); // East -> South
+        assert_eq!(e.grid_snapshot().agent.dir, GridDir::South);
+    }
+
+    #[test]
+    fn render_ascii_has_grid_dimensions() {
+        let mut e = env();
+        e.reset().expect("reset");
+        let ascii = e.render_ascii();
+        let lines: Vec<&str> = ascii.lines().collect();
+        assert_eq!(lines.len(), GRID_SIZE);
+        for line in &lines {
+            // glyph + space per cell, within the 80-col render budget.
+            assert_eq!(line.chars().count(), GRID_SIZE * 2);
+            assert!(line.chars().count() <= 80);
+        }
+        // Ant faces East at the origin: first glyph is the heading shape.
+        assert_eq!(lines[0].chars().next(), Some('>'));
+    }
+
+    #[test]
+    fn render_ascii_distinguishes_eaten_from_never_food() {
+        let mut e = env();
+        e.reset().expect("reset");
+        e.step(SantaFeAntAction::Move).expect("step"); // ant -> (0,1)
+        e.step(SantaFeAntAction::Move).expect("step"); // ant -> (0,2)
+        let row0: Vec<char> = e
+            .render_ascii()
+            .lines()
+            .next()
+            .expect("row 0")
+            .chars()
+            .collect();
+        // Cells are (glyph, space) pairs, so column c's glyph is at index 2*c.
+        assert_eq!(row0[0], '.', "(0,0): start cell, never had food");
+        assert_eq!(row0[2], '·', "(0,1): eaten cell");
+        assert_eq!(row0[4], '>', "(0,2): ant, facing East");
+        assert_eq!(row0[6], '#', "(0,3): live pellet");
+    }
+
+    #[test]
+    fn render_styled_matches_ascii() {
+        let mut e = env();
+        e.reset().expect("reset");
+        e.step(SantaFeAntAction::Move).expect("step");
+        let plain = e.render_ascii();
+        let plain_no_trailing: String = plain.lines().collect::<Vec<_>>().join("\n");
+        assert_eq!(e.render_styled().plain_text(), plain_no_trailing);
+    }
+
+    #[test]
+    fn render_styled_uses_palette_consts() {
+        use crate::render::palette::{AGENT_FG, GOAL_FG};
+        let mut e = env();
+        e.reset().expect("reset");
+        let frame = e.render_styled();
+        let styles: Vec<_> = frame
+            .lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.style))
+            .collect();
+        assert!(
+            styles.iter().any(|s| s.fg == Some(AGENT_FG)),
+            "ant span must use the AGENT_FG palette colour"
+        );
+        assert!(
+            styles.iter().any(|s| s.fg == Some(GOAL_FG)),
+            "pellet spans must use the GOAL_FG palette colour"
+        );
     }
 }

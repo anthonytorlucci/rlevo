@@ -9,6 +9,24 @@
 //! a maximisation, so [`RolloutFitness`] declares
 //! [`ObjectiveSense::Maximize`](rlevo_core::objective::ObjectiveSense::Maximize).
 //!
+//! # One scoring path
+//!
+//! `RolloutFitness` is, structurally, a
+//! [`ModuleEvalFn`](rlevo_evolution::module_eval_fn::ModuleEvalFn) whose scorer
+//! happens to be an environment rollout. It therefore **holds** an inner
+//! `ModuleEvalFn` and delegates [`evaluate_batch`](BatchFitnessFn::evaluate_batch)
+//! to it: the slice/unflatten/collect scaffolding lives once, in
+//! `rlevo-evolution`. The rollout scorer is the only caller of [`rollout_once`].
+//!
+//! # Stateful policies
+//!
+//! The evolved module `M` carries the rollout contract via
+//! [`StatefulPolicy`]: [`rollout_once`] calls
+//! [`reset`](StatefulPolicy::reset) once at episode start and threads
+//! `&mut Hidden` through the step loop, so **recurrent / memory policies are
+//! first-class**. A memoryless classic-control policy is the `Hidden = ()` case
+//! supplied for free by [`ReactivePolicy`].
+//!
 //! # Rank fixing
 //!
 //! `E: Environment<1, 1, 1>` — weight-only policy neuroevolution v1 targets
@@ -16,27 +34,23 @@
 //! (CartPole, MountainCar, Pendulum, Acrobot), all rank-1. Higher-rank
 //! observation/action spaces are a future generalization.
 //!
-//! # The policy closure
-//!
-//! The bridge from a generic module `M` to a concrete environment action is a
-//! caller-supplied closure: `Fn(&M, &E::ObservationType, &Device) ->
-//! E::ActionType`. The caller owns the concrete `M` and therefore knows its
-//! `forward`; this keeps `RolloutFitness` free of any `Policy` supertrait on
-//! `Module`.
-//!
 //! # Gradient isolation
 //!
-//! `B: Backend`, not `AutodiffBackend` — rollouts are forward-only.
+//! `B: Backend`, not `AutodiffBackend` — rollouts are forward-only. `Hidden` is
+//! a plain runtime value, never a tracked leaf.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use burn::module::Module;
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_evolution::fitness::BatchFitnessFn;
-use rlevo_evolution::param_reshaper::{ModuleReshaper, ParamReshaper};
+use rlevo_evolution::module_eval_fn::ModuleEvalFn;
+use rlevo_evolution::param_reshaper::ModuleReshaper;
+
+use crate::policy::StatefulPolicy;
 
 /// Device type for backend `B` (the `Device` associated type lives on the
 /// `BackendTypes` supertrait in this Burn version).
@@ -45,16 +59,45 @@ type Dev<B> = <B as burn::tensor::backend::BackendTypes>::Device;
 /// Constructs a fresh environment per evaluation episode.
 type EnvFactory<E> = Arc<dyn Fn() -> E + Send + Sync>;
 
-/// Maps a policy module + observation to an environment action.
-type PolicyFn<B, M, E> = Arc<
-    dyn Fn(
-            &M,
-            &<E as Environment<1, 1, 1>>::ObservationType,
-            &Dev<B>,
-        ) -> <E as Environment<1, 1, 1>>::ActionType
-        + Send
-        + Sync,
->;
+/// Host-side scorer stored inside the inner [`ModuleEvalFn`].
+///
+/// `Box<dyn Fn>` (not `Arc`) because `Box<F>` implements `Fn` — satisfying
+/// [`ModuleEvalFn`]'s `F: Fn(&R::Module) -> f32 + Send` bound — whereas `Arc<F>`
+/// does not. `+ Send` matches the [`BatchFitnessFn`] supertrait; `Sync` is not
+/// required.
+type RolloutScorer<M> = Box<dyn Fn(&M) -> f32 + Send>;
+
+/// Run one capped episode and return its cumulative reward, threading the
+/// policy's hidden state across the step loop.
+///
+/// [`StatefulPolicy::reset`] is called once at episode start; each step advances
+/// the hidden state via [`StatefulPolicy::act`].
+fn rollout_once<B, M, E>(
+    module: &M,
+    env_factory: &EnvFactory<E>,
+    max_steps: usize,
+    device: &Dev<B>,
+) -> f32
+where
+    B: Backend,
+    M: StatefulPolicy<B, E>,
+    E: Environment<1, 1, 1>,
+{
+    let mut env = env_factory();
+    let mut snapshot = env.reset().expect("environment reset failed");
+    let mut hidden = StatefulPolicy::reset(module, device);
+    let mut total = 0.0_f32;
+    for _ in 0..max_steps {
+        if snapshot.is_done() {
+            break;
+        }
+        let action = StatefulPolicy::act(module, &mut hidden, snapshot.observation(), device);
+        snapshot = env.step(action).expect("environment step failed");
+        let reward: f32 = snapshot.reward().clone().into();
+        total += reward;
+    }
+    total
+}
 
 /// A [`BatchFitnessFn`] that scores flat policy parameters by environment
 /// rollout.
@@ -62,26 +105,27 @@ type PolicyFn<B, M, E> = Arc<
 /// # Type Parameters
 ///
 /// - `B`: Burn backend (non-autodiff).
-/// - `M`: the policy network module.
+/// - `M`: the policy network module; must implement [`StatefulPolicy`] (a
+///   reactive module gets this for free via [`ReactivePolicy`]).
 /// - `E`: a rank-1 [`Environment`].
+///
+/// [`ReactivePolicy`]: crate::policy::ReactivePolicy
 pub struct RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B>,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1>,
 {
-    reshaper: ModuleReshaper<B, M>,
-    env_factory: EnvFactory<E>,
-    policy: PolicyFn<B, M, E>,
+    inner: ModuleEvalFn<B, ModuleReshaper<B, M>, RolloutScorer<M>>,
     episodes_per_eval: usize,
     max_steps_per_episode: usize,
-    _backend: PhantomData<fn() -> B>,
+    _env: PhantomData<fn() -> E>,
 }
 
 impl<B, M, E> std::fmt::Debug for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B>,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -95,7 +139,7 @@ where
 impl<B, M, E> RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B>,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1>,
 {
     /// Build a rollout-based fitness function.
@@ -105,87 +149,74 @@ where
     /// - `reshaper`: reshaper whose template matches the evolved network `M`.
     /// - `env_factory`: builds a fresh `E` for each episode (independent seeds
     ///   are the factory's responsibility).
-    /// - `policy`: maps `(module, observation, device)` to an action.
     /// - `episodes_per_eval`: episodes averaged per genome (≥ 1).
     /// - `max_steps_per_episode`: hard per-episode step cap. Required because
     ///   environments such as CartPole have no intrinsic terminal step limit;
     ///   the cap guarantees evaluation terminates regardless of policy skill.
-    pub fn new<FacFn, PolFn>(
+    /// - `device`: captured into the rollout scorer (the inner [`ModuleEvalFn`]
+    ///   scorer takes no device parameter). Must equal the `device` later
+    ///   handed to [`evaluate_batch`](BatchFitnessFn::evaluate_batch) — the
+    ///   single-device convention `ModuleEvalFn` already documents.
+    ///
+    /// The policy is the module itself: `M` implements [`StatefulPolicy`]
+    /// (recurrent) or [`ReactivePolicy`](crate::policy::ReactivePolicy)
+    /// (memoryless), so there is no policy closure argument.
+    pub fn new<FacFn>(
         reshaper: ModuleReshaper<B, M>,
         env_factory: FacFn,
-        policy: PolFn,
         episodes_per_eval: usize,
         max_steps_per_episode: usize,
+        device: Dev<B>,
     ) -> Self
     where
         FacFn: Fn() -> E + Send + Sync + 'static,
-        PolFn: Fn(&M, &E::ObservationType, &Dev<B>) -> E::ActionType + Send + Sync + 'static,
+        M: 'static,
+        E: 'static,
     {
         assert!(episodes_per_eval >= 1, "episodes_per_eval must be >= 1");
         assert!(
             max_steps_per_episode >= 1,
             "max_steps_per_episode must be >= 1"
         );
+        let env_factory: EnvFactory<E> = Arc::new(env_factory);
+        let scorer: RolloutScorer<M> = Box::new(move |module: &M| -> f32 {
+            #[allow(clippy::cast_precision_loss)]
+            let episodes = episodes_per_eval as f32;
+            let mut total = 0.0_f32;
+            for _ in 0..episodes_per_eval {
+                total += rollout_once::<B, M, E>(
+                    module,
+                    &env_factory,
+                    max_steps_per_episode,
+                    &device,
+                );
+            }
+            // Natural mean episode return — the engine is maximise-native and
+            // policy return is a maximisation, so there is no hand-negation.
+            total / episodes
+        });
         Self {
-            reshaper,
-            env_factory: Arc::new(env_factory),
-            policy: Arc::new(policy),
+            inner: ModuleEvalFn::new(reshaper, scorer),
             episodes_per_eval,
             max_steps_per_episode,
-            _backend: PhantomData,
+            _env: PhantomData,
         }
-    }
-
-    /// Run one capped episode and return its cumulative reward.
-    fn rollout_once(&self, module: &M, device: &Dev<B>) -> f32 {
-        let mut env = (self.env_factory)();
-        let mut snapshot = env.reset().expect("environment reset failed");
-        let mut total = 0.0_f32;
-        for _ in 0..self.max_steps_per_episode {
-            if snapshot.is_done() {
-                break;
-            }
-            let action = (self.policy)(module, snapshot.observation(), device);
-            snapshot = env.step(action).expect("environment step failed");
-            let reward: f32 = snapshot.reward().clone().into();
-            total += reward;
-        }
-        total
     }
 }
 
 impl<B, M, E> BatchFitnessFn<B, Tensor<B, 2>> for RolloutFitness<B, M, E>
 where
     B: Backend,
-    M: Module<B> + Sync,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1> + Send,
 {
     fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &Dev<B>) -> Tensor<B, 1> {
-        let [pop_size, num_params] = population.dims();
-        debug_assert_eq!(num_params, self.reshaper.num_params());
-        #[allow(clippy::cast_precision_loss)]
-        let episodes = self.episodes_per_eval as f32;
-        let mut fitness: Vec<f32> = Vec::with_capacity(pop_size);
-        for row in 0..pop_size {
-            #[allow(clippy::single_range_in_vec_init)]
-            let genome: Tensor<B, 1> = population
-                .clone()
-                .slice([row..row + 1])
-                .reshape([num_params]);
-            let module = self.reshaper.unflatten(genome);
-            let mut total = 0.0_f32;
-            for _ in 0..self.episodes_per_eval {
-                total += self.rollout_once(&module, device);
-            }
-            // Natural mean episode return — the engine is maximise-native and
-            // policy return is a maximisation, so there is no hand-negation.
-            fitness.push(total / episodes);
-        }
-        Tensor::<B, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+        self.inner.evaluate_batch(population, device)
     }
 
     fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
-        // Mean episode return — higher is better.
-        rlevo_core::objective::ObjectiveSense::Maximize
+        // Mean episode return — higher is better. Declared once, on the inner
+        // ModuleEvalFn (default ObjectiveSense::Maximize).
+        self.inner.sense()
     }
 }
