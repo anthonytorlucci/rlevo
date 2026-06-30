@@ -13,6 +13,7 @@ use rlevo_core::environment::Environment;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
 use rlevo_evolution::WeightOnly;
 
+use crate::policy::StatefulPolicy;
 use crate::rollout_fitness::RolloutFitness;
 
 /// Drives weight-only neuroevolution of a policy network against an
@@ -28,7 +29,7 @@ pub struct PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1> + Send,
 {
     harness: EvolutionaryHarness<B, WeightOnly<B, S, M>, RolloutFitness<B, M, E>>,
@@ -38,7 +39,7 @@ impl<B, S, M, E> std::fmt::Debug for PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1> + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,7 +53,7 @@ impl<B, S, M, E> PolicyNeuroevolution<B, S, M, E>
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    M: Module<B> + Sync,
+    M: Module<B> + Sync + StatefulPolicy<B, E>,
     E: Environment<1, 1, 1> + Send,
 {
     /// Assemble the driver.
