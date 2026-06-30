@@ -6449,11 +6449,13 @@ dependencies = [
  "parking_lot",
  "rand 0.10.1",
  "rand_distr 0.6.0",
+ "rayon",
  "rlevo-benchmarks",
  "rlevo-core",
  "rlevo-environments",
  "rlevo-evolution",
  "rlevo-reinforcement-learning",
+ "rlevo-test-support",
  "serde",
  "tracing-subscriber",
 ]
