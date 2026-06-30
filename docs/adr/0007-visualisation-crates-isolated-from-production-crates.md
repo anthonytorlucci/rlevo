@@ -17,7 +17,7 @@ tags:
 
 ## Status
 
-Active. Companion to [0006-leptos-first-visualisation-defer-bevy](0006-leptos-first-visualisation-defer-bevy.md). Extends the dependency-graph discipline established by [0001-keep-environments-and-benchmarks-separate](0001-keep-environments-and-benchmarks-separate.md), [0003-collapse-rl-modules-into-rlevo-reinforcement-learning](0003-collapse-rl-modules-into-rlevo-reinforcement-learning.md), [0004-move-bench-traits-into-rlevo-core](0004-move-bench-traits-into-rlevo-core.md), and [0005-examples-and-cross-crate-tests-in-umbrella](0005-examples-and-cross-crate-tests-in-umbrella.md).
+**Superseded by [0008-three-tier-visualisation-ratatui-live-static-report](0008-three-tier-visualisation-ratatui-live-static-report.md) on 2026-05-27**, which itself was superseded by [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md) on 2026-06-03. The isolation principle (no viz deps in production crates) is preserved and strengthened in the superseding ADRs; the `rlevo-viz-core` / `rlevo-viz-web` crate split described here was dropped. Retained for historical context.
 
 ## Context
 

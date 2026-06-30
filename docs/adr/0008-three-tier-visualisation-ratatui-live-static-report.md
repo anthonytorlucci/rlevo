@@ -1,6 +1,6 @@
 ---
 project: rlevo
-status: active
+status: superseded
 type: decision
 date: 2026-05-27
 tags:
