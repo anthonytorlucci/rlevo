@@ -17,7 +17,7 @@ tags:
 
 ## Status
 
-Active. Adopted alongside the env-vis umbrella spec (2026-05-26-env-vis). Companion to [0007-visualisation-crates-isolated-from-production-crates](0007-visualisation-crates-isolated-from-production-crates.md).
+**Superseded by [0008-three-tier-visualisation-ratatui-live-static-report](0008-three-tier-visualisation-ratatui-live-static-report.md) on 2026-05-27**, which itself was superseded by [0013-metrics-only-live-tui](0013-metrics-only-live-tui.md) on 2026-06-03. The "no Bevy this milestone" conclusion is preserved; the "Leptos web client served by an embedded `axum` server" conclusion is replaced. Retained for historical context.
 
 ## Context
 
