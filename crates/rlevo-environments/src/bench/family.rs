@@ -16,10 +16,17 @@
 use rlevo_benchmarks::record::{EnvFamily, RecordedEnvFamily};
 
 use crate::classic::cartpole::CartPole;
+use crate::classic::santa_fe_ant::SantaFeAnt;
 use crate::grids::EmptyEnv;
 use crate::toy_text::frozen_lake::FrozenLake;
 
 impl RecordedEnvFamily for EmptyEnv {
+    const FAMILY: EnvFamily = EnvFamily::Grids;
+}
+
+// The Santa Fe ant projects its 32×32 trail onto a `FamilyPayload::Grid`
+// (it implements `GridPayloadSource`), so it records as the `Grids` family.
+impl RecordedEnvFamily for SantaFeAnt {
     const FAMILY: EnvFamily = EnvFamily::Grids;
 }
 

@@ -124,6 +124,14 @@ fn classic_non_stationary_bandit() {
     assert_render_invariants(&env, "NonStationaryBandit");
 }
 
+#[test]
+fn classic_santa_fe_ant() {
+    use rlevo_environments::classic::SantaFeAnt;
+    let mut env = <SantaFeAnt as ConstructableEnv>::new(false);
+    env.reset().unwrap();
+    assert_render_invariants(&env, "SantaFeAnt");
+}
+
 // ─── grids ────────────────────────────────────────────────────────────────────
 
 #[test]
