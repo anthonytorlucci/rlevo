@@ -14,6 +14,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # docs/rules.md §4: tensor host-reads must propagate transfer errors —
+  # `.unwrap_or_default()` substitutes an empty buffer for a real failure.
+  # Line-local grep: catches the common single-line chain; multi-line chains
+  # remain covered by review convention. rlevo-evolution is excluded until
+  # the #136 sweep lands.
+  tensor-read-hygiene:
+    name: tensor-read hygiene grep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forbid unwrap_or_default on tensor host-reads
+        run: |
+          hits=$(grep -rnE "(into_vec|into_data|to_vec)[^;]*unwrap_or_default" \
+            crates/rlevo-core/src \
+            crates/rlevo-environments/src \
+            crates/rlevo-reinforcement-learning/src \
+            crates/rlevo-hybrid/src \
+            crates/rlevo/src || true)
+          if [ -n "$hits" ]; then
+            echo "::error::unwrap_or_default() on a tensor host-read (see docs/rules.md, Error Handling):"
+            echo "$hits"
+            exit 1
+          fi
+
   test:
     name: ${{ matrix.crate }}
     runs-on: ubuntu-latest

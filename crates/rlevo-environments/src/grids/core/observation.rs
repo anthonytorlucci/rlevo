@@ -9,7 +9,7 @@
 
 use crate::direction::Direction;
 use super::entity::Entity;
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Tensor, backend::Backend};
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
@@ -80,17 +80,18 @@ impl Observation<3> for GridObservation {
 }
 
 impl<B: Backend> TensorConvertible<3, B> for GridObservation {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 3> {
-        let mut flat = Vec::with_capacity(VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS);
+    fn row_shape() -> [usize; 3] {
+        [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         for row in &self.view {
             for cell in row {
                 for &channel in cell {
-                    flat.push(f32::from(channel));
+                    buf.push(f32::from(channel));
                 }
             }
         }
-        let data = TensorData::new(flat, [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]);
-        Tensor::<B, 3>::from_data(data, device)
     }
 
     /// Reconstructs the 7×7×3 view from a tensor.

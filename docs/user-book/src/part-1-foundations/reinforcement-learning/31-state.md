@@ -155,12 +155,17 @@ neural networks) is a separate trait, `TensorConvertible`:
 
 ```rust
 pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, R>;
+    /// Per-item shape, e.g. `[4]` for CartPole.
+    fn row_shape() -> [usize; R];
+    /// Append this value's row-major `f32` payload to a host buffer.
+    fn write_host_row(&self, buf: &mut Vec<f32>);
+    /// Provided: derived from the two methods above. Do not override.
+    fn to_tensor(&self, device: &B::Device) -> Tensor<B, R> { /* ... */ }
     fn from_tensor(tensor: Tensor<B, R>) -> Result<Self, TensorConversionError>;
 }
 ```
 
-Two things worth noticing.
+Three things worth noticing.
 
 First, it is implemented on the **observation** (and the action), not on the
 state. That is the whole point of the split paying off: the only values that
@@ -168,7 +173,17 @@ ever become network inputs are the ones the agent is allowed to see. You
 literally cannot `to_tensor()` the hidden state, because nobody implemented it
 for the state type.
 
-Second, the contract is a **round-trip invariant**:
+Second, you implement the **host-side row**, not the tensor. `write_host_row`
+appends your value's flat `f32` payload to a plain `Vec<f32>`, and `row_shape`
+says how to fold that row back into a rank-`R` tensor. `to_tensor` is a
+*provided* method derived from those two — one row, one upload — and
+implementations should never override it. The payoff is batching: the free
+function `stack_to_tensor` writes N rows into a single host buffer and uploads
+the whole `[N, ...]` batch to the device in **one** transfer, and because the
+single-item and batch paths share the same row-writer, their layouts cannot
+drift apart (this is ADR 0028).
+
+Third, the contract is a **round-trip invariant**:
 `from_tensor(x.to_tensor(device))` must equal `Ok(x)` for any valid `x`. Replay
 buffers and strategies lean on this — a transition stored as a tensor and read
 back must be the same transition. CartPole's implementation is about as simple
@@ -176,8 +191,12 @@ as it gets:
 
 ```rust
 impl<B: Backend> TensorConvertible<1, B> for CartPoleObservation {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.to_array(), device)   // [pos, vel, angle, ang_vel]
+    fn row_shape() -> [usize; 1] {
+        [4]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.to_array());   // [pos, vel, angle, ang_vel]
     }
 
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {

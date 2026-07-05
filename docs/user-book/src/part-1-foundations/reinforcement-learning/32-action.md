@@ -204,15 +204,20 @@ impl BoundedAction<1> for PendulumAction {
 Just as observations cross into tensor land, actions cross back out of it via
 the same `TensorConvertible<R, B>` trait — and the encoding differs by flavour.
 
-**Discrete actions** become a one-hot tensor on the way in, and decode by
-`argmax` on the way out. CartPole's action does exactly this:
+**Discrete actions** become a one-hot row on the way in, and decode by
+`argmax` on the way out. As in the state chapter, you write the host-side
+`f32` row (`row_shape` + `write_host_row`) and the provided `to_tensor`
+derives the tensor from it. CartPole's action does exactly this:
 
 ```rust
 impl<B: Backend> TensorConvertible<1, B> for CartPoleAction {
-    fn to_tensor(&self, device: &B::Device) -> Tensor<B, 1> {
+    fn row_shape() -> [usize; 1] {
+        [2]
+    }
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let mut one_hot = [0.0_f32; 2];
         one_hot[self.to_index()] = 1.0;          // index drives the hot slot
-        Tensor::from_floats(one_hot, device)
+        buf.extend_from_slice(&one_hot);
     }
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         // shape-check elided; recover the index via argmax, then from_index

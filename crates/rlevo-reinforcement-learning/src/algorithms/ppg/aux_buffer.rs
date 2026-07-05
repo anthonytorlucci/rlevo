@@ -185,8 +185,11 @@ mod tests {
     }
 
     impl<Bk: burn::tensor::backend::Backend> TensorConvertible<1, Bk> for TestObs {
-        fn to_tensor(&self, device: &<Bk as burn::tensor::backend::BackendTypes>::Device) -> Tensor<Bk, 1> {
-            Tensor::from_floats(self.0, device)
+        fn row_shape() -> [usize; 1] {
+            [2]
+        }
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&self.0);
         }
         fn from_tensor(_t: Tensor<Bk, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by this test")

@@ -470,8 +470,12 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
     for MountainCarContinuousObservation
 {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats(self.to_array(), device)
+    fn row_shape() -> [usize; 1] {
+        [2]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.to_array());
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -495,8 +499,12 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats([self.0], device)
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.0);
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {

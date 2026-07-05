@@ -67,7 +67,7 @@ use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
-use burn::tensor::{Tensor, TensorData, backend::Backend};
+use burn::tensor::{Tensor, backend::Backend};
 
 /// Grid side length in cells; the grid is [`GRID_SIDE`]`²` cells.
 pub const GRID_SIDE: usize = 5;
@@ -335,11 +335,13 @@ impl Observation<3> for PixelObservation {
 }
 
 impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 3> {
+    fn row_shape() -> [usize; 3] {
+        [IMG_SIDE, IMG_SIDE, CHANNELS]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
-        let flat: Vec<f32> = self.pixels.iter().map(|&b| f32::from(b) / 255.0).collect();
-        let data = TensorData::new(flat, [IMG_SIDE, IMG_SIDE, CHANNELS]);
-        Tensor::<B, 3>::from_data(data, device)
+        buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
     }
 
     /// Reconstructs the image from a normalized `[IMG_SIDE, IMG_SIDE, CHANNELS]`
@@ -793,6 +795,7 @@ mod tests {
     #[test]
     fn from_tensor_rejects_wrong_shape() {
         use burn::backend::Flex;
+        use burn::tensor::TensorData;
         type TestBackend = Flex;
         let device = Default::default();
 

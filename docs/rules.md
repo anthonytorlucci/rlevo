@@ -158,6 +158,16 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   ```
 - Return `Result<T, SpecificError>` — never erase error types with `Box<dyn Error>` in library-facing APIs.
 - Domain boundaries: `EnvironmentError` for environment ops, `TensorConversionError` for tensor ops, `ReplayBufferError` for buffer ops.
+- **Never `.unwrap_or_default()` a tensor host-read.** `from_tensor` and any
+  other host-read of a tensor (`into_vec`, `as_slice`, `to_vec` on
+  `TensorData`) must propagate the transfer error — via
+  `map_err(|e| TensorConversionError { .. })?` in production code, or
+  `.expect("<named invariant>")` where the read cannot fail by construction
+  (e.g. a tensor the same function just built). `.unwrap_or_default()`
+  substitutes an **empty buffer** for a real dtype/device failure, which
+  surfaces later as a misleading out-of-bounds panic far from the cause.
+  There is no clippy lint narrow enough for this footgun, so it is a
+  review-enforced convention (see #136 for the historical sweep).
 - **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
 - Never panic in response to user-supplied runtime data; return `Err(...)` instead. A `Deserialize`-able config *is* user-supplied runtime data.
 

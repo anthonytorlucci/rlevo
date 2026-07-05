@@ -57,8 +57,12 @@ impl ContinuousAction<1> for InvertedPendulumAction {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
-        Tensor::from_floats(self.0, device)
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.0);
     }
 
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
