@@ -41,6 +41,7 @@ use rand::RngExt;
 use rand::rngs::StdRng;
 
 use rlevo_core::action::DiscreteAction;
+use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::{Environment, Snapshot};
 
 use rlevo_environments::classic::santa_fe_ant::{
@@ -91,7 +92,7 @@ pub const STO_GENERATIONS: usize = 12;
 
 /// Initial-sample / clamp bounds for genome weights. Narrower than the GA default
 /// `(-5.12, 5.12)` because recurrent nets are init-sensitive (OQ-2).
-pub const GENOME_BOUNDS: (f32, f32) = (-3.0, 3.0);
+pub const GENOME_BOUNDS: Bounds = Bounds::new(-3.0, 3.0);
 
 /// The full-trail target, as `f32` (89 pellets; exact in `f32`).
 #[allow(clippy::cast_precision_loss)]

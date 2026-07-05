@@ -27,6 +27,7 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
+use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
@@ -68,7 +69,7 @@ fn ga_config() -> GaConfig {
     GaConfig {
         pop_size: 64,
         genome_dim: DIM,
-        bounds: (-5.12, 5.12),
+        bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: 0.3,
         selection: GaSelection::Tournament { size: 3 },
         crossover: GaCrossover::BlxAlpha { alpha: 0.5 },

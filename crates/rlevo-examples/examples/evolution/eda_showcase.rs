@@ -70,6 +70,7 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_environments::landscapes::concatenated_trap::ConcatenatedTrap;
 use rlevo_environments::landscapes::rosenbrock::Rosenbrock;
 use rlevo_evolution::algorithms::eda::{
@@ -177,7 +178,7 @@ const ROSEN_RATIO: f32 = 0.3;
 const ROSEN_INIT_MEAN: f32 = 0.5;
 const ROSEN_INIT_STD: f32 = 0.5;
 const ROSEN_MIN_VAR: f32 = 1e-3;
-const ROSEN_BOUNDS: Option<(f32, f32)> = Some((-2.048, 2.048));
+const ROSEN_BOUNDS: Option<Bounds> = Some(Bounds::new(-2.048, 2.048));
 const ROSEN_SEEDS: [u64; 9] = [101, 202, 303, 404, 505, 606, 707, 808, 909];
 
 fn umda_params() -> UnivariateGaussianParams {
@@ -479,7 +480,7 @@ fn trap_continuous_params<MP>(model: MP) -> EdaParams<MP> {
     EdaParams {
         pop_size: TRAP_POP,
         selection_ratio: TRAP_RATIO,
-        bounds: Some((0.0, 1.0)),
+        bounds: Some(Bounds::new(0.0, 1.0)),
         model,
     }
 }
