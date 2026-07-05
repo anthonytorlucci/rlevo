@@ -107,7 +107,7 @@ pub fn base_env() -> TimeLimit<CartPole> {
     let base = CartPole::with_config(CartPoleConfig {
         seed: SEED,
         ..CartPoleConfig::default()
-    });
+    }).expect("valid config");
     TimeLimit::new(base, EPISODE_TIME_LIMIT)
 }
 
@@ -135,11 +135,12 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         .value_coef(0.5)
         .gamma(0.99)
         .gae_lambda(0.95)
-        .build();
+        .build()
+        .expect("valid config");
 
     let total_iterations = total_timesteps / config.batch_size().max(1);
 
-    PpoAgent::new(policy, value, config, device, total_iterations)
+    PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
 
 /// Trains `agent` against `env` for `total_timesteps`, hiding the long

@@ -30,7 +30,9 @@ use rlevo_reinforcement_learning::algorithms::ppo::policies::{
     TanhGaussianPolicyHeadConfig,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_agent::PpoAgent;
-use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::{
+    PpoTrainingConfig, PpoTrainingConfigBuilder,
+};
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::{train_continuous, train_discrete};
 
@@ -116,9 +118,10 @@ fn make_cart_pole_agent(
         .value_coef(0.5)
         .gamma(0.99)
         .gae_lambda(0.95)
-        .build();
+        .build()
+        .expect("valid config");
     let total_iterations = total_timesteps / config.batch_size().max(1);
-    PpoAgent::new(policy, value, config, device, total_iterations)
+    PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
 
 /// Builds and trains a discrete PPO agent on the shared seeded `CartPole` for
@@ -159,6 +162,22 @@ rl_reproducibility_test! {
     seed = 123,
     total = 2_048,
     run = run_cartpole,
+}
+
+/// `PpoAgent::new` rejects `num_envs != 1` (v1 supports sequential rollout
+/// only). The config is assembled directly so the agent-level validation seam
+/// is what rejects it, not the builder.
+#[test]
+fn ppo_agent_new_rejects_multiple_envs() {
+    let _guard = flex_guard();
+    let device = seeded_device::<Be>(1);
+    let policy = CategoricalPolicyHeadConfig { obs_dim: 4, hidden: 64, num_actions: 2 }
+        .init::<Be>(&device);
+    let value = ValueMlp::new(4, 64, &device);
+    let config = PpoTrainingConfig { num_envs: 2, ..PpoTrainingConfig::default() };
+    let result = PpoAgent::<Be, _, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
+    let err = result.unwrap_err();
+    assert_eq!(err.field, "num_envs");
 }
 
 #[test]
@@ -230,9 +249,10 @@ fn make_pendulum_agent(
         .gamma(0.9)
         .gae_lambda(0.95)
         .action_scale(2.0)
-        .build();
+        .build()
+        .expect("valid config");
     let total_iterations = total_timesteps / config.batch_size().max(1);
-    PpoAgent::new(policy, value, config, device, total_iterations)
+    PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
 
 /// Builds and trains a continuous PPO agent on Pendulum for `total` steps
@@ -244,7 +264,7 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
         Pendulum::with_config(PendulumConfig {
             seed,
             ..PendulumConfig::default()
-        }),
+        }).expect("valid config"),
         200,
     );
     let mut rng = StdRng::seed_from_u64(seed);
@@ -270,7 +290,7 @@ fn random_pendulum(seed: u64) -> f32 {
         Pendulum::with_config(PendulumConfig {
             seed,
             ..PendulumConfig::default()
-        }),
+        }).expect("valid config"),
         200,
     );
     let mut rng = StdRng::seed_from_u64(seed);

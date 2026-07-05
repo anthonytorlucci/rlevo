@@ -107,9 +107,10 @@ fn fresh_agent(seed: u64) -> Agent {
         .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .double_q(false)
-        .build();
+        .build()
+        .expect("valid config");
     let model: DqnMlp<Be> = DqnMlp::new(&device);
-    DqnAgent::new(model, config, device)
+    DqnAgent::new(model, config, device).expect("valid config")
 }
 
 // ---------------------------------------------------------------------------

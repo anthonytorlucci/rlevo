@@ -133,10 +133,11 @@ fn build_agent(seed: u64) -> Agent {
         .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .double_q(false)
-        .build();
+        .build()
+        .expect("valid config");
 
     let model: DqnMlp<Be> = DqnMlp::new(&device);
-    DqnAgent::new(model, config, device)
+    DqnAgent::new(model, config, device).expect("valid config")
 }
 // ANCHOR_END: agent
 
@@ -151,7 +152,7 @@ fn main() {
     let mut env = CartPole::with_config(CartPoleConfig {
         seed: SEED,
         ..CartPoleConfig::default()
-    });
+    }).expect("valid config");
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut agent = build_agent(SEED);
 
@@ -190,7 +191,7 @@ mod tests {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
             ..CartPoleConfig::default()
-        });
+        }).expect("valid config");
         let mut rng = StdRng::seed_from_u64(seed);
         let mut agent = build_agent(seed);
 

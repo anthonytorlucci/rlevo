@@ -51,7 +51,7 @@ where
         SEED,
         device,
         GENS,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory = Vec::with_capacity(GENS);
     loop {

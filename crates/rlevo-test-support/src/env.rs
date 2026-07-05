@@ -31,12 +31,15 @@ use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 /// it straight to `train` as their test requires.
 ///
 /// [`TimeLimit`]: rlevo_environments::wrappers::TimeLimit
+///
+/// # Panics
+///
+/// Panics if the seeded config fails validation, which cannot happen for the
+/// default field values.
 #[must_use]
 pub fn cartpole_seeded(seed: u64) -> CartPole {
-    CartPole::with_config(CartPoleConfig {
-        seed,
-        ..CartPoleConfig::default()
-    })
+    CartPole::with_config(CartPoleConfig { seed, ..CartPoleConfig::default() })
+        .expect("valid config")
 }
 
 /// Full state of [`LinearEnv`]: the current target `x` and the step counter.

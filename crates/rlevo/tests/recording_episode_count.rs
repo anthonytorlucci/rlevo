@@ -199,10 +199,11 @@ fn run_recording(total_steps: usize) -> RecordedRun {
         .learning_starts(total_steps + 1)
         .target_update_frequency(total_steps + 1)
         .replay_buffer_capacity(1_000)
-        .build();
+        .build()
+        .expect("valid config");
     let model: DqnMlp<Be> = DqnMlp::new(&device);
     let mut agent: DqnAgent<Be, DqnMlp<Be>, CartPoleObservation, CartPoleAction, 1, 2> =
-        DqnAgent::new(model, config, device);
+        DqnAgent::new(model, config, device).expect("valid config");
 
     let mut rng = StdRng::seed_from_u64(seed);
     train(&mut agent, &mut env, &mut rng, total_steps, 0).expect("training loop");

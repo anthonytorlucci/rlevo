@@ -58,14 +58,14 @@ pub const SEED: u64 = 42;
 fn run<S, F>(label: &str, strategy: S, params: S::Params, fitness_fn: F)
 where
     S: Strategy<B>,
-    S::Params: std::fmt::Debug,
+    S::Params: std::fmt::Debug + rlevo_core::config::Validate,
     F: BatchFitnessFn<B, S::Genome>,
     B: burn::tensor::backend::Backend,
     <B as burn::tensor::backend::BackendTypes>::Device: Clone + Default,
 {
     let device = Default::default();
     let mut harness =
-        EvolutionaryHarness::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS);
+        EvolutionaryHarness::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS).expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {

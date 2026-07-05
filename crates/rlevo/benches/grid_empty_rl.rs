@@ -74,7 +74,7 @@ fn grid_config() -> EmptyConfig {
 fn train_dqn() -> GridAgent {
     let device = Default::default();
     let mut rng = StdRng::seed_from_u64(SEED);
-    let mut env = EmptyEnv::with_config(grid_config(), false);
+    let mut env = EmptyEnv::with_config(grid_config(), false).expect("valid config");
 
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(64)
@@ -89,10 +89,11 @@ fn train_dqn() -> GridAgent {
         .target_update_frequency(200)
         .replay_buffer_capacity(20_000)
         .double_q(true)
-        .build();
+        .build()
+        .expect("valid config");
 
     let model: GridMlpDqn<Backend_> = GridMlpDqn::new(OBS_FEATURES, 128, ACTIONS, &device);
-    let mut agent: GridAgent = DqnAgent::new(model, config, device);
+    let mut agent: GridAgent = DqnAgent::new(model, config, device).expect("valid config");
 
     train(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training loop");
     agent
@@ -120,7 +121,7 @@ fn roll_out(
 /// policy described by `next_action`.
 #[allow(clippy::cast_precision_loss)]
 fn evaluate(mut next_action: impl FnMut(&GridObservation) -> GridAction) -> (f32, f32) {
-    let mut env = EmptyEnv::with_config(grid_config(), false);
+    let mut env = EmptyEnv::with_config(grid_config(), false).expect("valid config");
     let mut total_reward = 0.0_f32;
     let mut successes = 0_usize;
     for _ in 0..EVAL_EPISODES {
@@ -156,7 +157,7 @@ fn print_quality_comparison(agent: &GridAgent) {
 /// Drives `steps` of a `next_action`-chosen rollout on a fresh seeded env,
 /// resetting on episode end. The unit measured by the throughput group.
 fn rollout_steps(steps: usize, mut next_action: impl FnMut(&GridObservation) -> GridAction) {
-    let mut env = EmptyEnv::with_config(grid_config(), false);
+    let mut env = EmptyEnv::with_config(grid_config(), false).expect("valid config");
     let mut snapshot = env.reset().expect("reset");
     for _ in 0..steps {
         let action = next_action(snapshot.observation());

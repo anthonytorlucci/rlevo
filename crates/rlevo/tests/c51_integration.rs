@@ -19,7 +19,9 @@ use rand::rngs::StdRng;
 
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_reinforcement_learning::algorithms::c51::c51_agent::C51Agent;
-use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::c51::c51_config::{
+    C51TrainingConfig, C51TrainingConfigBuilder,
+};
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
 use rlevo_reinforcement_learning::utils::polyak_update;
@@ -115,9 +117,10 @@ fn fresh_agent(seed: u64) -> Agent {
         .num_atoms(num_atoms)
         .v_min(0.0)
         .v_max(500.0)
-        .build();
+        .build()
+        .expect("valid config");
     let model: C51Mlp<Be> = C51Mlp::new(num_atoms, &device);
-    C51Agent::new(model, config, device)
+    C51Agent::new(model, config, device).expect("valid config")
 }
 
 /// Builds and trains a C51 agent on the shared seeded `CartPole` for `total`
@@ -160,6 +163,26 @@ fn c51_cartpole_produces_finite_rewards() {
         &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
     );
     assert_all_finite("q_mean", &history.iter().map(|m| m.q_mean).collect::<Vec<_>>());
+}
+
+/// `C51Agent::new` rejects a degenerate support (`v_min == v_max`) at
+/// construction time. The config is assembled directly (bypassing the builder's
+/// own validation) so the check being exercised is the agent-level one.
+#[test]
+fn c51_agent_new_rejects_degenerate_support() {
+    let _guard = flex_guard();
+    let device = seeded_device::<Be>(1);
+    let config = C51TrainingConfig {
+        v_min: 5.0,
+        v_max: 5.0,
+        ..C51TrainingConfig::default()
+    };
+    let model: C51Mlp<Be> = C51Mlp::new(config.num_atoms, &device);
+    let result = C51Agent::<Be, _, CartPoleObservation, CartPoleAction, 1, 2>::new(
+        model, config, device,
+    );
+    let err = result.unwrap_err();
+    assert_eq!(err.field, "v_max");
 }
 
 // Reproducibility smoke test: two seeded back-to-back runs produce identical

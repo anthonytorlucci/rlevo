@@ -97,7 +97,7 @@ fn coea_factory(seed: u64) -> CoEvolutionaryHarness<B, Coea> {
         params_a: ga_config(),
         params_b: ga_config(),
     };
-    CoEvolutionaryHarness::new(algo, params, seed, device, MAX_GENS)
+    CoEvolutionaryHarness::new(algo, params, seed, device, MAX_GENS).expect("valid params")
 }
 
 /// Passive agent: the harness drives the optimization; the agent only steps it.
