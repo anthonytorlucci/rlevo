@@ -123,6 +123,25 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   objective must declare `Maximize` explicitly so it cannot be optimised
   backwards by omission. Only `Landscape::sense()` defaults (to `Minimize`, since
   a landscape is a cost surface by definition).
+- **Compare floats with `total_cmp`, never `partial_cmp`.** `f32`/`f64`
+  comparisons in sorts, `max_by`/`min_by`, and argmax use `total_cmp` — a
+  deterministic total order. `partial_cmp(..).unwrap()` panics on any `NaN`
+  operand, and `partial_cmp(..).unwrap_or(Equal)` places `NaN` non-
+  deterministically. There is no clippy lint for this footgun
+  (`clippy::unwrap_used` is too broad to enable workspace-wide), so it is a
+  review-enforced convention.
+- **Sanitise fitness before comparing it.** `total_cmp` alone is *not* enough for
+  fitness ordering: Rust's `f32::NAN` is a *positive* NaN, so `total_cmp` ranks it
+  as the **maximum** — a raw `fit[b].total_cmp(&fit[a])` descending sort would put
+  a `NaN`-fitness member *first* (as the best). Under maximise-native `NaN` is the
+  **worst**, so map it to `−inf` first with `sanitize_fitness` (the single rule of
+  §Optimisation direction) and then `total_cmp`:
+  ```rust
+  let sane: Vec<f32> = fitness.iter().map(|&f| sanitize_fitness(f)).collect();
+  order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a])); // best first; NaN last
+  ```
+  Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use
+  plain `total_cmp` — only *fitness* needs the sanitise step.
 
 ---
 
