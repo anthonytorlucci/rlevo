@@ -324,7 +324,12 @@ where
         if state.archive_fitness.is_empty() {
             // Sort archive by fitness, best (highest) first.
             let mut idx: Vec<usize> = (0..fitness_host.len()).collect();
-            idx.sort_by(|&a, &b| fitness_host[b].partial_cmp(&fitness_host[a]).unwrap());
+            // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+            let sane: Vec<f32> = fitness_host
+                .iter()
+                .map(|&f| crate::fitness::sanitize_fitness(f))
+                .collect();
+            idx.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
             #[allow(clippy::cast_possible_wrap)]
             let sorted_idx = Tensor::<B, 1, Int>::from_data(
                 TensorData::new(idx.iter().map(|&i| i as i64).collect::<Vec<_>>(), [k]),
@@ -351,7 +356,12 @@ where
         let mut combined_f: Vec<f32> = state.archive_fitness.clone();
         combined_f.extend_from_slice(&fitness_host);
         let mut idx: Vec<usize> = (0..combined_f.len()).collect();
-        idx.sort_by(|&a, &b| combined_f[b].partial_cmp(&combined_f[a]).unwrap());
+        // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+        let sane: Vec<f32> = combined_f
+            .iter()
+            .map(|&f| crate::fitness::sanitize_fitness(f))
+            .collect();
+        idx.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
         idx.truncate(k);
         #[allow(clippy::cast_possible_wrap)]
         let top_idx = Tensor::<B, 1, Int>::from_data(

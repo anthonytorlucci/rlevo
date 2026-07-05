@@ -268,7 +268,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let raw = fitness.into_data().into_vec::<f32>().unwrap_or_default();
         let sanitized: Vec<f32> = raw
             .iter()
-            .map(|&f| crate::local_search::sanitize_fitness(f))
+            .map(|&f| crate::fitness::sanitize_fitness(f))
             .collect();
         let n = sanitized.len();
         let device = population.device();

@@ -211,7 +211,7 @@ mod tests {
         let a: Vec<f32> = vec![2.0, 1.0, 1.0, 2.0];
         let (vals, vecs) = jacobi_eigen(&a, 2);
         let mut sorted: Vec<f32> = vals.clone();
-        sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        sorted.sort_by(f32::total_cmp);
         approx::assert_relative_eq!(sorted[0], 1.0, epsilon = 1e-5);
         approx::assert_relative_eq!(sorted[1], 3.0, epsilon = 1e-5);
         let recon = reconstruct(&vals, &vecs, 2);

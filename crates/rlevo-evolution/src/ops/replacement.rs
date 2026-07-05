@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(rows.len(), 4);
         // fitness should be {50.0, 100.0}
         let mut f_sorted = f;
-        f_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        f_sorted.sort_by(f32::total_cmp);
         approx::assert_relative_eq!(f_sorted[0], 50.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f_sorted[1], 100.0, epsilon = 1e-6);
     }
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(next.dims(), [2, 2]);
         // best two of offspring (highest fitness): 5.0 and 3.0
         let mut fs = f;
-        fs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        fs.sort_by(f32::total_cmp);
         approx::assert_relative_eq!(fs[0], 3.0, epsilon = 1e-6);
         approx::assert_relative_eq!(fs[1], 5.0, epsilon = 1e-6);
     }

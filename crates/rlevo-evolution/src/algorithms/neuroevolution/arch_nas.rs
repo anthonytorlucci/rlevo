@@ -573,11 +573,13 @@ impl<B: Backend> ArchNasStrategy<B> {
         // Elitism: indices sorted by descending (better, canonical maximise)
         // fitness — highest first.
         let mut order: Vec<usize> = (0..pop).collect();
-        order.sort_by(|&a, &b| {
-            state.fitness[b]
-                .partial_cmp(&state.fitness[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+        let sane: Vec<f32> = state
+            .fitness
+            .iter()
+            .map(|&f| crate::fitness::sanitize_fitness(f))
+            .collect();
+        order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
         let elite_count = params.elite_count.min(pop);
         let tournament_size = params.tournament_size.max(1);
 

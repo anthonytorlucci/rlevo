@@ -250,6 +250,30 @@ where
     }
 }
 
+/// Maps a `NaN` fitness to [`f32::NEG_INFINITY`], passing finite values through.
+///
+/// `−inf` is the worst value under the maximise convention, so a sanitized
+/// `NaN` can never seed or displace a finite best-so-far and thus never
+/// propagates to a returned fitness. This is the crate-wide fitness-hygiene
+/// primitive: it is applied by
+/// [`BudgetedEval::eval`](crate::local_search::BudgetedEval) (every probe,
+/// including the seeding eval), the searchers'
+/// [`refine_with_known_fitness`](crate::local_search::LocalSearch::refine_with_known_fitness)
+/// overrides (applied to the `known_fitness` hint, which does not flow through
+/// `BudgetedEval`), the EDA `tell` chokepoint
+/// ([`crate::algorithms::eda::EdaStrategy`]), and every NaN-safe fitness sort
+/// across the crate (selection, replacement, the ES/NEAT/ACO rankers) so a `NaN`
+/// can neither become the best-so-far nor corrupt an ordering. For the finite
+/// benchmark landscapes the searchers ship against this branch is never taken,
+/// so it costs only one `is_nan` check.
+pub(crate) fn sanitize_fitness(f: f32) -> f32 {
+    if f.is_nan() {
+        f32::NEG_INFINITY
+    } else {
+        f
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -417,11 +417,13 @@ where
         // feeds the engine `−cost`, so this descending canonical order
         // matches the `pycma` ascending-cost order point-for-point.
         let mut ranked: Vec<usize> = (0..lambda).collect();
-        ranked.sort_by(|&a, &b| {
-            fitness_host[b]
-                .partial_cmp(&fitness_host[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // Sanitize NaN → −inf (worst) so it can never rank as best, then order
+        // by `total_cmp` (deterministic; sanitized NaN sorts last).
+        let sane: Vec<f32> = fitness_host
+            .iter()
+            .map(|&f| crate::fitness::sanitize_fitness(f))
+            .collect();
+        ranked.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
 
         let m_old: Vec<f32> = state.mean.clone();
         let sigma_old: f32 = state.sigma;

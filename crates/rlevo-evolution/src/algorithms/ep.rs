@@ -355,14 +355,17 @@ where
             }
         }
 
-        // Sort by (win_count desc, fitness desc) and pick top μ.
+        // Sort by (win_count desc, fitness desc) and pick top μ. Sanitize the
+        // fitness tiebreak (NaN → −inf, worst) so a NaN can never rank as best.
         let mut indexed: Vec<usize> = (0..n).collect();
+        let sane: Vec<f32> = combined_fit
+            .iter()
+            .map(|&f| crate::fitness::sanitize_fitness(f))
+            .collect();
         indexed.sort_by(|&a, &b| {
-            win_counts[b].cmp(&win_counts[a]).then_with(|| {
-                combined_fit[b]
-                    .partial_cmp(&combined_fit[a])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+            win_counts[b]
+                .cmp(&win_counts[a])
+                .then_with(|| sane[b].total_cmp(&sane[a]))
         });
         indexed.truncate(mu);
         #[allow(clippy::cast_possible_wrap)]

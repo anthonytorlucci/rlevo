@@ -338,8 +338,14 @@ where
         let n_abandon = (params.p_a * pop as f32) as usize;
         if n_abandon > 0 {
             let mut rank: Vec<usize> = (0..pop).collect();
-            // Ascending: lowest fitness (worst under maximise) first.
-            rank.sort_by(|&a, &b| state.fitness[a].partial_cmp(&state.fitness[b]).unwrap());
+            // Ascending: lowest fitness (worst under maximise) first. Sanitize
+            // NaN → −inf so a NaN-fitness nest is treated as worst (abandoned).
+            let sane: Vec<f32> = state
+                .fitness
+                .iter()
+                .map(|&f| crate::fitness::sanitize_fitness(f))
+                .collect();
+            rank.sort_by(|&a, &b| sane[a].total_cmp(&sane[b]));
             let worst: Vec<usize> = rank.into_iter().take(n_abandon).collect();
             let (lo, hi): (f32, f32) = params.bounds.into();
             // Host-sample abandoned-nest replacements from a deterministic

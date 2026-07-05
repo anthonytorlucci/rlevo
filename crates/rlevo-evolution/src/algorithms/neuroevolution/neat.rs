@@ -347,11 +347,13 @@ impl<B: Backend> NeatStrategy<B> {
             &mut rep_rng,
         );
 
-        if let Some((idx, &best)) = state
+        // Sanitize NaN → −inf (worst) so a NaN fitness can never become best.
+        if let Some((idx, best)) = state
             .fitness
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, &f)| (i, crate::fitness::sanitize_fitness(f)))
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             && best > state.best_fitness
         {
             state.best_fitness = best;
@@ -508,11 +510,13 @@ fn produce_offspring(
     }
     let sp = &ctx.species[species_idx];
     let mut members = sp.members.clone();
-    members.sort_by(|&a, &b| {
-        ctx.fitness[b]
-            .partial_cmp(&ctx.fitness[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
+    let sane: Vec<f32> = ctx
+        .fitness
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .collect();
+    members.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
 
     let mut produced = 0usize;
     // Champion elitism: copy the best member unchanged (H5).

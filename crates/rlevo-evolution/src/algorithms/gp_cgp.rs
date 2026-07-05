@@ -451,10 +451,13 @@ where
         // (1+λ): parent survives only if NO offspring strictly beats it;
         // canonical CGP uses `>=` (under the maximise convention) to break
         // ties in favor of offspring (neutral mutations accumulate).
+        // Sanitize NaN → −inf (worst) so a NaN offspring can never be picked as
+        // best; the raw `best_off_fit >= parent` check below then rejects it.
         let best_off_idx = fitness_host
             .iter()
+            .map(|&f| crate::fitness::sanitize_fitness(f))
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .map_or(0, |(i, _)| i);
         let best_off_fit = fitness_host[best_off_idx];
         if best_off_fit >= state.parent_fitness {
