@@ -91,5 +91,8 @@ pub mod grids;
 pub mod locomotion;
 pub mod pixel_grid;
 pub mod render;
+/// Shared helpers for decoding tensors back into discrete environment types
+/// (e.g. `NaN`-safe argmax for action `from_tensor`).
+pub(crate) mod tensor_decode;
 pub mod toy_text;
 pub mod wrappers;

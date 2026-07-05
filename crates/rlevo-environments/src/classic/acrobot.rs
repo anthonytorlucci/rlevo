@@ -830,12 +830,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotActio
             .map_err(|e| TensorConversionError {
                 message: e.to_string(),
             })?;
-        let idx = v
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+        let idx = crate::tensor_decode::argmax(&v);
         Ok(Self::from_index(idx))
     }
 }
@@ -924,6 +919,19 @@ mod tests {
         assert_eq!(AcrobotAction::ACTION_COUNT, 3);
         assert_eq!(AcrobotAction::from_index(0), AcrobotAction::TorqueNeg);
         assert_eq!(AcrobotAction::from_index(2), AcrobotAction::TorquePos);
+    }
+
+    #[test]
+    fn action_from_tensor_is_nan_safe() {
+        use burn::tensor::{Tensor, TensorData as TD};
+        type TestBackend = burn::backend::Flex;
+        let device = Default::default();
+        // An all-NaN logit vector must not panic; falls back to index 0.
+        let data = TD::new(vec![f32::NAN, f32::NAN, f32::NAN], [3]);
+        let tensor = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let back = <AcrobotAction as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+            .expect("all-NaN decodes to fallback");
+        assert_eq!(back, AcrobotAction::from_index(0));
     }
 
     #[test]
