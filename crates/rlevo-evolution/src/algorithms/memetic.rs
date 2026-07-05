@@ -562,10 +562,15 @@ fn coverage_indices(policy: &CoveragePolicy, fitness: &[f32], pop_size: usize) -
         CoveragePolicy::TopK { k } => {
             let k: usize = k.min(pop_size);
             let mut ranked: Vec<usize> = (0..pop_size).collect();
-            // Stable sort by (fitness desc, index): `total_cmp` orders NaN
-            // deterministically, and `sort_by` is stable so equal fitnesses keep
-            // ascending-index order — making ties break by lower index.
-            ranked.sort_by(|&a, &b| fitness[b].total_cmp(&fitness[a]));
+            // Sanitize NaN → −inf (worst) so a NaN-fitness member can never be
+            // covered as a top-k member. Stable sort by (fitness desc, index):
+            // `sort_by` is stable so equal fitnesses keep ascending-index order,
+            // making ties break by lower index.
+            let sane: Vec<f32> = fitness
+                .iter()
+                .map(|&f| crate::fitness::sanitize_fitness(f))
+                .collect();
+            ranked.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
             ranked.truncate(k);
             ranked
         }
@@ -743,6 +748,21 @@ mod tests {
     #[test]
     fn coverage_policy_default_is_top_k_one() {
         assert_eq!(CoveragePolicy::default(), CoveragePolicy::TopK { k: 1 });
+    }
+
+    #[test]
+    fn coverage_indices_never_covers_nan_fitness() {
+        // NaN sanitises to −inf (worst), so a NaN-fitness member must never be
+        // selected as a top-k covered member ahead of a finite one.
+        let fitness = [3.0f32, f32::NAN, 5.0, 1.0];
+        let top3 = coverage_indices(&CoveragePolicy::TopK { k: 3 }, &fitness, 4);
+        // Best-first among finite fitnesses: 5.0 (idx 2), 3.0 (idx 0), 1.0 (idx 3);
+        // the NaN member (idx 1) is excluded.
+        assert_eq!(top3, vec![2, 0, 3]);
+        assert!(!top3.contains(&1));
+        // Covering all four ranks the NaN member last.
+        let all = coverage_indices(&CoveragePolicy::TopK { k: 4 }, &fitness, 4);
+        assert_eq!(all, vec![2, 0, 3, 1]);
     }
 
     // ---------------------------------------------------------------------
