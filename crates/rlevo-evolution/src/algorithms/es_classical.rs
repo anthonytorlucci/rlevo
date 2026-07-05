@@ -27,6 +27,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::ops::replacement::{mu_comma_lambda, mu_plus_lambda};
 use crate::rng::{SeedPurpose, seed_stream};
@@ -92,6 +94,40 @@ impl EsConfig {
             initial_sigma: 1.0,
             tau,
         }
+    }
+}
+
+impl Validate for EsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "EsConfig";
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
+        config::positive(C, "tau", f64::from(self.tau))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        match self.kind {
+            EsKind::OnePlusOne => {}
+            EsKind::OnePlusLambda { lambda } => {
+                config::at_least(C, "lambda", lambda, 1)?;
+            }
+            EsKind::MuPlusLambda { mu, lambda } => {
+                config::at_least(C, "mu", mu, 1)?;
+                config::at_least(C, "lambda", lambda, 1)?;
+            }
+            EsKind::MuCommaLambda { mu, lambda } => {
+                config::at_least(C, "mu", mu, 1)?;
+                config::at_least(C, "lambda", lambda, 1)?;
+                if lambda < mu {
+                    return Err(ConfigError {
+                        config: C,
+                        field: "lambda",
+                        kind: ConstraintKind::Custom(
+                            "(mu, lambda) requires lambda >= mu",
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -194,6 +230,7 @@ where
     /// via a deterministic `seed_stream` (host-RNG convention) and
     /// initializes all σ values to `params.initial_sigma`.
     fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EsState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid EsConfig reached init: {params:?}");
         let (parents, sigmas) = Self::sample_initial_parents(params, rng, device);
         EsState {
             parents,
@@ -515,6 +552,18 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        let cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_comma_lambda_below_mu() {
+        let cfg = EsConfig::default_for(EsKind::MuCommaLambda { mu: 10, lambda: 5 }, 10);
+        assert_eq!(cfg.validate().unwrap_err().field, "lambda");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -537,7 +586,7 @@ mod tests {
             seed,
             device,
             generations,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

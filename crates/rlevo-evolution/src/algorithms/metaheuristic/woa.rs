@@ -36,6 +36,8 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -65,6 +67,18 @@ impl WoaConfig {
             max_generations: 500,
             b: 1.0,
         }
+    }
+}
+
+impl Validate for WoaConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "WoaConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::at_least(C, "max_generations", self.max_generations, 1)?;
+        config::positive(C, "b", f64::from(self.b))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -132,6 +146,7 @@ where
     /// [`WoaConfig::bounds`] using the host-RNG convention and sets the
     /// generation counter to zero.
     fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> WoaState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid WoaConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
@@ -348,6 +363,18 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(WoaConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_nonpositive_b() {
+        let mut cfg = WoaConfig::default_for(30, 10);
+        cfg.b = 0.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "b");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -370,7 +397,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 5, device, 600,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

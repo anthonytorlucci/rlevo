@@ -25,6 +25,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -70,6 +72,19 @@ impl AcoRConfig {
     }
 }
 
+impl Validate for AcoRConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "AcoRConfig";
+        config::at_least(C, "archive_size", self.archive_size, 2)?;
+        config::at_least(C, "m", self.m, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::positive(C, "xi", f64::from(self.xi))?;
+        config::positive(C, "q", f64::from(self.q))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
+    }
+}
+
 /// Generation state for [`AntColonyReal`].
 #[derive(Debug, Clone)]
 pub struct AcoRState<B: Backend> {
@@ -90,11 +105,9 @@ pub struct AcoRState<B: Backend> {
 
 /// Ant Colony Optimization (continuous domains).
 ///
-/// # Panics
-///
-/// [`Strategy::init`] panics if `params.archive_size < 2` (the σ
-/// computation needs at least two archive solutions to take a pairwise
-/// distance) or if `params.m < 1` (no offspring to draw).
+/// The `archive_size >= 2` (the σ computation needs at least two archive
+/// solutions to take a pairwise distance) and `m >= 1` invariants are enforced
+/// by [`Validate::validate`] at the harness chokepoint.
 ///
 /// # Example
 ///
@@ -156,14 +169,8 @@ where
     /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
     /// thread schedules when multiple tests or harnesses share the same
     /// process-wide Burn RNG state.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `params.archive_size < 2` or `params.m < 1`; see
-    /// [`AntColonyReal`] struct-level docs for details.
     fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AcoRState<B> {
-        assert!(params.archive_size >= 2, "ACO_R requires archive_size >= 2");
-        assert!(params.m >= 1, "ACO_R requires m >= 1");
+        debug_assert!(params.validate().is_ok(), "invalid AcoRConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Host-sample the initial archive from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -388,6 +395,18 @@ mod tests {
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(AcoRConfig::default_for(50, 30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_archive_below_two() {
+        let mut cfg = AcoRConfig::default_for(50, 30, 10);
+        cfg.archive_size = 1;
+        assert_eq!(cfg.validate().unwrap_err().field, "archive_size");
+    }
+
     type TestBackend = Flex;
 
     struct Sphere;
@@ -415,7 +434,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 17, device, 400,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

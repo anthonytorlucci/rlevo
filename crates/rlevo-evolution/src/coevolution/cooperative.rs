@@ -23,6 +23,7 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
+use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::Strategy;
@@ -57,9 +58,9 @@ pub enum RepresentativePolicy {
 /// Static parameters for [`CooperativeCoEA`].
 ///
 /// Population A evolves the genes named by `dims_a`; population B evolves the
-/// complement within `0..total_dims`. The split is validated by
-/// [`validate`](Self::validate) (called by [`new`](Self::new) and by
-/// [`CooperativeCoEA`]'s `init`).
+/// complement within `0..total_dims`. The split is validated by the
+/// [`Validate`] impl (called by [`new`](Self::new), and asserted in
+/// [`CooperativeCoEA`]'s `init` in debug builds).
 #[derive(Debug, Clone)]
 pub struct CooperativeCoEAParams<PA, PB> {
     /// Params for population A's inner strategy (genome width must equal
@@ -82,12 +83,12 @@ pub struct CooperativeCoEAParams<PA, PB> {
 }
 
 impl<PA, PB> CooperativeCoEAParams<PA, PB> {
-    /// Build and eagerly [`validate`](Self::validate) the parameters.
+    /// Build and eagerly [`validate`](Validate::validate) the parameters.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the dimension split is invalid — see [`validate`](Self::validate).
-    #[must_use]
+    /// Returns a [`ConfigError`] if the dimension split is invalid — see the
+    /// [`Validate`] impl.
     pub fn new(
         params_a: PA,
         params_b: PB,
@@ -95,7 +96,7 @@ impl<PA, PB> CooperativeCoEAParams<PA, PB> {
         total_dims: usize,
         representative_policy: RepresentativePolicy,
         evaluations_per_generation: usize,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let params = Self {
             params_a,
             params_b,
@@ -104,49 +105,58 @@ impl<PA, PB> CooperativeCoEAParams<PA, PB> {
             representative_policy,
             evaluations_per_generation,
         };
-        params.validate();
-        params
+        params.validate()?;
+        Ok(params)
     }
+}
 
-    /// Validate that `dims_a` is a proper subset of `0..total_dims`, so that
-    /// `dims_a.len() + dims_b_count == total_dims` with a non-empty B.
-    ///
-    /// # Panics
-    ///
-    /// Panics with a message naming the violated invariant when `total_dims`
-    /// is zero, `dims_a` is empty, contains an out-of-range index, contains
-    /// duplicates, or covers every dimension (leaving population B empty).
-    pub fn validate(&self) {
-        assert!(self.total_dims > 0, "total_dims must be positive, got 0");
-        assert!(!self.dims_a.is_empty(), "dims_a must be non-empty");
+/// Validates that `dims_a` is a proper subset of `0..total_dims`, so that
+/// `dims_a.len() + dims_b_count == total_dims` with a non-empty B.
+///
+/// The inner `params_a` / `params_b` are validated when their respective
+/// strategies consume them; this impl checks only the dimension split (it has
+/// no `PA: Validate` / `PB: Validate` bound so it stays usable with unit-typed
+/// params in tests).
+impl<PA, PB> Validate for CooperativeCoEAParams<PA, PB> {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CooperativeCoEAParams";
+        if self.total_dims == 0 {
+            return Err(ConfigError { config: C, field: "total_dims", kind: ConstraintKind::Zero });
+        }
+        if self.dims_a.is_empty() {
+            return Err(ConfigError {
+                config: C,
+                field: "dims_a",
+                kind: ConstraintKind::Custom("dims_a must be non-empty"),
+            });
+        }
         for &d in &self.dims_a {
-            assert!(
-                d < self.total_dims,
-                "dims_a index {d} is out of range for total_dims {}",
-                self.total_dims
-            );
+            if d >= self.total_dims {
+                return Err(ConfigError {
+                    config: C,
+                    field: "dims_a",
+                    kind: ConstraintKind::Custom("dims_a index is out of range for total_dims"),
+                });
+            }
         }
         let unique: HashSet<usize> = self.dims_a.iter().copied().collect();
-        assert_eq!(
-            unique.len(),
-            self.dims_a.len(),
-            "dims_a contains duplicate indices: {:?}",
-            self.dims_a
-        );
-        let dims_b_count = self.total_dims - self.dims_a.len();
-        assert!(
-            dims_b_count > 0,
-            "dims_a covers all {} dimensions, leaving population B empty",
-            self.total_dims
-        );
-        assert_eq!(
-            self.dims_a.len() + dims_b_count,
-            self.total_dims,
-            "dimension split invariant violated: dims_a.len() ({}) + dims_b_count ({}) != total_dims ({})",
-            self.dims_a.len(),
-            dims_b_count,
-            self.total_dims
-        );
+        if unique.len() != self.dims_a.len() {
+            return Err(ConfigError {
+                config: C,
+                field: "dims_a",
+                kind: ConstraintKind::Custom("dims_a contains duplicate indices"),
+            });
+        }
+        if self.total_dims - self.dims_a.len() == 0 {
+            return Err(ConfigError {
+                config: C,
+                field: "dims_a",
+                kind: ConstraintKind::Custom(
+                    "dims_a covers every dimension, leaving population B empty",
+                ),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -241,7 +251,11 @@ where
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::State {
-        params.validate();
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid CooperativeCoEAParams reached init: {:?}",
+            params.validate().err()
+        );
         let state_a = self.strategy_a.init(&params.params_a, rng, device);
         let state_b = self.strategy_b.init(&params.params_b, rng, device);
         CooperativeState {
@@ -506,26 +520,32 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "out of range")]
-    fn params_new_panics_on_out_of_range_dim() {
-        let _ = CooperativeCoEAParams::new((), (), vec![0, 1, 4], 4, RepresentativePolicy::Best, 0);
+    fn params_new_rejects_out_of_range_dim() {
+        let err = CooperativeCoEAParams::new((), (), vec![0, 1, 4], 4, RepresentativePolicy::Best, 0)
+            .unwrap_err();
+        assert_eq!(err.field, "dims_a");
+        assert!(err.to_string().contains("out of range"));
     }
 
     #[test]
-    #[should_panic(expected = "leaving population B empty")]
-    fn params_new_panics_when_a_covers_everything() {
-        let _ = CooperativeCoEAParams::new((), (), vec![0, 1, 2, 3], 4, RepresentativePolicy::Best, 0);
+    fn params_new_rejects_when_a_covers_everything() {
+        let err =
+            CooperativeCoEAParams::new((), (), vec![0, 1, 2, 3], 4, RepresentativePolicy::Best, 0)
+                .unwrap_err();
+        assert!(err.to_string().contains("leaving population B empty"));
     }
 
     #[test]
-    #[should_panic(expected = "duplicate")]
-    fn params_new_panics_on_duplicate_dims() {
-        let _ = CooperativeCoEAParams::new((), (), vec![0, 0, 1], 4, RepresentativePolicy::Best, 0);
+    fn params_new_rejects_duplicate_dims() {
+        let err = CooperativeCoEAParams::new((), (), vec![0, 0, 1], 4, RepresentativePolicy::Best, 0)
+            .unwrap_err();
+        assert!(err.to_string().contains("duplicate"));
     }
 
     #[test]
     fn params_new_accepts_equal_split() {
-        let p = CooperativeCoEAParams::new((), (), vec![0, 1], 4, RepresentativePolicy::Best, 16);
+        let p = CooperativeCoEAParams::new((), (), vec![0, 1], 4, RepresentativePolicy::Best, 16)
+            .unwrap();
         assert_eq!(complement(&p.dims_a, p.total_dims), vec![2, 3]);
     }
 }

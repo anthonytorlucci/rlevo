@@ -35,6 +35,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -69,6 +71,21 @@ impl CuckooConfig {
             beta: 1.5,
             p_a: 0.25,
         }
+    }
+}
+
+impl Validate for CuckooConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CuckooConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::positive(C, "alpha", f64::from(self.alpha))?;
+        // β ∈ (0, 2), open on both ends.
+        config::positive(C, "beta", f64::from(self.beta))?;
+        config::ordered(C, "beta", f64::from(self.beta), 2.0)?;
+        config::in_range(C, "p_a", 0.0, 1.0, f64::from(self.p_a))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -177,6 +194,7 @@ where
     /// [`ask`]: Strategy::ask
     /// [`tell`]: Strategy::tell
     fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid CuckooConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Host-sample the initial nests from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -400,6 +418,18 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(CuckooConfig::default_for(25, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_beta_at_upper_bound() {
+        let mut cfg = CuckooConfig::default_for(25, 10);
+        cfg.beta = 2.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "beta");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -442,7 +472,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 19, device, 800,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

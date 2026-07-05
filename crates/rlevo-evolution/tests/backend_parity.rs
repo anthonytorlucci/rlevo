@@ -79,7 +79,7 @@ where
         seed,
         device,
         gens,
-    );
+    ).expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {
@@ -108,7 +108,7 @@ where
         seed,
         device,
         gens,
-    );
+    ).expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {

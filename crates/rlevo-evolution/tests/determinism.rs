@@ -56,6 +56,7 @@ impl FitnessEvaluable for SphereFit {
 fn run<S>(strategy: S, params: S::Params, seed: u64, gens: usize) -> Vec<f32>
 where
     S: Strategy<B>,
+    S::Params: rlevo_core::config::Validate,
     <S as Strategy<B>>::Genome: 'static,
     FromFitnessEvaluable<SphereFit, Sphere>: BatchFitnessFn<B, S::Genome>,
 {
@@ -67,7 +68,7 @@ where
         seed,
         device,
         gens,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory = Vec::with_capacity(gens);
     loop {
@@ -173,7 +174,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         seed,
         device,
         gens,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
@@ -215,7 +216,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         seed,
         device,
         gens,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {

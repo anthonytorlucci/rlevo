@@ -51,11 +51,12 @@ impl FitnessEvaluable for RastriginFit {
 fn run<S, F>(strategy: S, params: S::Params, fitness_fn: F, seed: u64, gens: usize) -> Vec<f32>
 where
     S: Strategy<B>,
+    S::Params: rlevo_core::config::Validate,
     F: BatchFitnessFn<B, S::Genome>,
 {
     let device = Default::default();
     let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens);
+        EvolutionaryHarness::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens).expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {

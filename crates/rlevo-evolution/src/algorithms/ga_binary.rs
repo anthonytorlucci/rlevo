@@ -47,6 +47,7 @@ use crate::ops::mutation::bit_flip_mutation;
 use crate::ops::selection::{tournament_indices_host, truncation_indices_host};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Static configuration for a [`BinaryGeneticAlgorithm`] run.
 #[derive(Debug, Clone)]
@@ -81,6 +82,32 @@ impl BinaryGaConfig {
             tournament_size: 2,
             elitism_k: 1,
         }
+    }
+}
+
+impl Validate for BinaryGaConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "BinaryGaConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
+        config::in_range(C, "crossover_p", 0.0, 1.0, f64::from(self.crossover_p))?;
+        config::at_least(C, "tournament_size", self.tournament_size, 1)?;
+        if self.tournament_size > self.pop_size {
+            return Err(ConfigError {
+                config: C,
+                field: "tournament_size",
+                kind: ConstraintKind::Custom("tournament_size must not exceed pop_size"),
+            });
+        }
+        if self.elitism_k > self.pop_size {
+            return Err(ConfigError {
+                config: C,
+                field: "elitism_k",
+                kind: ConstraintKind::Custom("elitism_k must not exceed pop_size"),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -168,6 +195,10 @@ where
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> BinaryGaState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid BinaryGaConfig reached init: {params:?}"
+        );
         BinaryGaState {
             population: Self::sample_initial_population(params, rng, device),
             fitness: Vec::new(),
@@ -374,6 +405,18 @@ mod tests {
     use burn::backend::Flex;
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(BinaryGaConfig::default_for(32, 16).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_elitism_larger_than_pop() {
+        let mut cfg = BinaryGaConfig::default_for(8, 16);
+        cfg.elitism_k = 16;
+        assert_eq!(cfg.validate().unwrap_err().field, "elitism_k");
+    }
+
     /// `OneMax` as a native maximisation: `fitness = count_ones`, optimum at
     /// `D` (all ones).
     struct OneMax {
@@ -424,7 +467,7 @@ mod tests {
             7,
             device,
             200,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

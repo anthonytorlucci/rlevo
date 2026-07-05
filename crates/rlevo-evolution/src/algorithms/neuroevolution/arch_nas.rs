@@ -55,6 +55,8 @@ use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::param_reshaper::{ModuleReshaper, ParamReshaper};
 use crate::rng::{SeedPurpose, seed_stream};
 
@@ -180,6 +182,30 @@ pub struct NasParams {
     pub elite_count: usize,
 }
 
+impl Validate for NasParams {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "NasParams";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::at_least(C, "num_variants", self.num_variants, 1)?;
+        if self.per_variant_params.len() != self.num_variants {
+            return Err(ConfigError {
+                config: C,
+                field: "per_variant_params",
+                kind: ConstraintKind::Custom("per_variant_params length must equal num_variants"),
+            });
+        }
+        config::at_least(C, "tournament_size", self.tournament_size, 1)?;
+        if self.elite_count > self.pop_size {
+            return Err(ConfigError {
+                config: C,
+                field: "elite_count",
+                kind: ConstraintKind::Custom("elite_count must not exceed pop_size"),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Evolving state for [`ArchNasStrategy`]: resident population plus best-ever
 /// tracking.
 ///
@@ -255,6 +281,31 @@ pub struct NasBuilderConfig {
     pub tournament_size: usize,
     /// Number of elites preserved unmutated each generation.
     pub elite_count: usize,
+}
+
+impl Validate for NasBuilderConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "NasBuilderConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::in_range(C, "arch_mutation_rate", 0.0, 1.0, f64::from(self.arch_mutation_rate))?;
+        config::in_range(
+            C,
+            "weight_mutation_std",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.weight_mutation_std),
+        )?;
+        config::in_range(C, "weight_init_std", 0.0, f64::INFINITY, f64::from(self.weight_init_std))?;
+        config::at_least(C, "tournament_size", self.tournament_size, 1)?;
+        if self.elite_count > self.pop_size {
+            return Err(ConfigError {
+                config: C,
+                field: "elite_count",
+                kind: ConstraintKind::Custom("elite_count must not exceed pop_size"),
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Builder that registers architecture variants in order and emits a matched
@@ -429,6 +480,7 @@ impl<B: Backend> ArchNasStrategy<B> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> NasState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid NasParams reached init: {params:?}");
         let pop = params.pop_size;
         let max = params.max_param_count;
 
@@ -675,6 +727,48 @@ mod tests {
     use rand::SeedableRng;
 
     type TestBackend = Flex;
+
+    fn valid_builder_config() -> NasBuilderConfig {
+        NasBuilderConfig {
+            pop_size: 16,
+            arch_mutation_rate: 0.1,
+            weight_mutation_std: 0.1,
+            weight_init_std: 0.5,
+            tournament_size: 2,
+            elite_count: 1,
+        }
+    }
+
+    #[test]
+    fn builder_config_validates() {
+        assert!(valid_builder_config().validate().is_ok());
+    }
+
+    #[test]
+    fn builder_config_rejects_elite_above_pop() {
+        let mut cfg = valid_builder_config();
+        cfg.elite_count = 32;
+        assert_eq!(cfg.validate().unwrap_err().field, "elite_count");
+    }
+
+    #[test]
+    fn nas_params_validate_and_reject() {
+        let good = NasParams {
+            pop_size: 16,
+            num_variants: 2,
+            per_variant_params: vec![10, 20],
+            max_param_count: 20,
+            arch_mutation_rate: 0.1,
+            weight_mutation_std: 0.1,
+            weight_init_std: 0.5,
+            tournament_size: 2,
+            elite_count: 1,
+        };
+        assert!(good.validate().is_ok());
+        let mut bad = good.clone();
+        bad.per_variant_params = vec![10];
+        assert_eq!(bad.validate().unwrap_err().field, "per_variant_params");
+    }
 
     /// One-hidden-layer MLP variant: `2 -> H -> 1`.
     #[derive(Module, Debug)]

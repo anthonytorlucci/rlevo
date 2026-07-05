@@ -36,6 +36,8 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -65,6 +67,17 @@ impl GwoConfig {
             bounds: (-5.12, 5.12),
             max_generations: 500,
         }
+    }
+}
+
+impl Validate for GwoConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "GwoConfig";
+        config::at_least(C, "pop_size", self.pop_size, 3)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::at_least(C, "max_generations", self.max_generations, 1)?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -142,11 +155,10 @@ where
     /// Samples the initial pack uniformly within [`GwoConfig::bounds`] using
     /// the host-RNG convention and sets the generation counter to zero.
     ///
-    /// # Panics
-    ///
-    /// Panics if `params.pop_size < 3`.
+    /// The `pop_size >= 3` invariant is enforced by [`Validate::validate`] at
+    /// the harness chokepoint.
     fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GwoState<B> {
-        assert!(params.pop_size >= 3, "GWO requires pop_size >= 3");
+        debug_assert!(params.validate().is_ok(), "invalid GwoConfig reached init: {params:?}");
         let pack = Self::sample_initial(params, rng, device);
         GwoState {
             pack,
@@ -341,6 +353,18 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(GwoConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_pop_size_below_three() {
+        let mut cfg = GwoConfig::default_for(30, 10);
+        cfg.pop_size = 2;
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -372,7 +396,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 11, device, 600,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

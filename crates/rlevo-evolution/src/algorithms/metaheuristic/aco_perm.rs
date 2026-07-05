@@ -18,6 +18,7 @@ use burn::tensor::{backend::Backend, Int, Tensor};
 use rand::Rng;
 
 use crate::strategy::{Strategy, StrategyMetrics};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Static configuration placeholder for the permutation ACO.
 #[derive(Debug, Clone)]
@@ -45,6 +46,20 @@ impl AcoPermConfig {
             alpha: 1.0,
             beta: 2.0,
         }
+    }
+}
+
+impl Validate for AcoPermConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "AcoPermConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::at_least(C, "n_nodes", self.n_nodes, 1)?;
+        // ρ ∈ (0, 1]: strictly positive and at most one.
+        config::positive(C, "rho", f64::from(self.rho))?;
+        config::in_range(C, "rho", 0.0, 1.0, f64::from(self.rho))?;
+        config::in_range(C, "alpha", 0.0, f64::INFINITY, f64::from(self.alpha))?;
+        config::in_range(C, "beta", 0.0, f64::INFINITY, f64::from(self.beta))?;
+        Ok(())
     }
 }
 
@@ -143,6 +158,18 @@ mod tests {
     fn stub_is_constructible() {
         let _strategy = AntColonyPermutation::<TestBackend>::new();
         let _params = AcoPermConfig::default_for(32, 20);
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(AcoPermConfig::default_for(32, 20).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_rho_above_one() {
+        let mut cfg = AcoPermConfig::default_for(32, 20);
+        cfg.rho = 1.5;
+        assert_eq!(cfg.validate().unwrap_err().field, "rho");
     }
 
     #[test]

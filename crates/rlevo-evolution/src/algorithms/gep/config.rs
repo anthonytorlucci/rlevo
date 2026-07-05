@@ -1,5 +1,7 @@
 //! Runtime configuration for a Gene Expression Programming run.
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 /// Static parameters for a [`GepStrategy`](super::GepStrategy) run.
 ///
 /// GEP chromosomes are fixed-length: a `head` of `head_len` loci (which may
@@ -49,20 +51,22 @@ impl GepConfig {
     /// public fields afterwards to override. The point-mutation rate defaults
     /// to `2 / genome_len` (≈ two genes per chromosome).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics with a descriptive message if `head_len`, `max_arity`, `n_vars`,
-    /// or `pop_size` is zero — each would make the genome layout or the tree
-    /// decode degenerate.
-    #[must_use]
-    pub fn new(head_len: usize, max_arity: usize, n_vars: usize, pop_size: usize) -> Self {
-        assert!(head_len >= 1, "GepConfig: head_len must be >= 1");
-        assert!(
-            max_arity >= 1,
-            "GepConfig: max_arity must be >= 1 (function set has no multi-ary functions)"
-        );
-        assert!(n_vars >= 1, "GepConfig: n_vars must be >= 1");
-        assert!(pop_size >= 1, "GepConfig: pop_size must be >= 1");
+    /// Returns a [`ConfigError`] if `max_arity`, `head_len`, `n_vars`, or
+    /// `pop_size` is zero — each would make the genome layout or the tree
+    /// decode degenerate. `max_arity` is checked here (it is consumed to derive
+    /// `tail_len` rather than stored); the remaining field invariants are
+    /// checked via [`Validate`].
+    pub fn new(
+        head_len: usize,
+        max_arity: usize,
+        n_vars: usize,
+        pop_size: usize,
+    ) -> Result<Self, ConfigError> {
+        // `max_arity` is not a stored field (it is consumed below to derive
+        // `tail_len`), so it cannot be re-checked by `validate`; guard it here.
+        config::at_least("GepConfig", "max_arity", max_arity, 1)?;
 
         // Tail sized to the worst case: a head of all-max-arity functions
         // demands exactly `head_len * (max_arity - 1) + 1` terminals, so this is
@@ -72,7 +76,7 @@ impl GepConfig {
         #[allow(clippy::cast_precision_loss)]
         let mutation_rate = 2.0 / genome_len as f32;
 
-        Self {
+        let config = Self {
             head_len,
             tail_len,
             pop_size,
@@ -82,13 +86,31 @@ impl GepConfig {
             ris_transpose_rate: 0.1,
             crossover_1p_rate: 0.3,
             crossover_2p_rate: 0.3,
-        }
+        };
+        config.validate()?;
+        Ok(config)
     }
 
     /// Total chromosome length (`head_len + tail_len`).
     #[must_use]
     pub fn genome_len(&self) -> usize {
         self.head_len + self.tail_len
+    }
+}
+
+impl Validate for GepConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "GepConfig";
+        config::at_least(C, "head_len", self.head_len, 1)?;
+        config::at_least(C, "tail_len", self.tail_len, 1)?;
+        config::at_least(C, "n_vars", self.n_vars, 1)?;
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
+        config::in_range(C, "is_transpose_rate", 0.0, 1.0, f64::from(self.is_transpose_rate))?;
+        config::in_range(C, "ris_transpose_rate", 0.0, 1.0, f64::from(self.ris_transpose_rate))?;
+        config::in_range(C, "crossover_1p_rate", 0.0, 1.0, f64::from(self.crossover_1p_rate))?;
+        config::in_range(C, "crossover_2p_rate", 0.0, 1.0, f64::from(self.crossover_2p_rate))?;
+        Ok(())
     }
 }
 
@@ -99,7 +121,7 @@ mod tests {
     #[test]
     fn derives_tail_for_max_arity_two() {
         // head 7, max_arity 2 -> tail = 7 * 1 + 1 = 8, genome = 15.
-        let cfg = GepConfig::new(7, 2, 1, 100);
+        let cfg = GepConfig::new(7, 2, 1, 100).unwrap();
         assert_eq!(cfg.tail_len, 8);
         assert_eq!(cfg.genome_len(), 15);
     }
@@ -107,26 +129,31 @@ mod tests {
     #[test]
     fn derives_tail_for_max_arity_three() {
         // head 5, max_arity 3 -> tail = 5 * 2 + 1 = 11.
-        let cfg = GepConfig::new(5, 3, 2, 50);
+        let cfg = GepConfig::new(5, 3, 2, 50).unwrap();
         assert_eq!(cfg.tail_len, 11);
         assert_eq!(cfg.genome_len(), 16);
     }
 
     #[test]
-    #[should_panic(expected = "head_len must be >= 1")]
     fn rejects_zero_head() {
-        let _ = GepConfig::new(0, 2, 1, 10);
+        let err = GepConfig::new(0, 2, 1, 10).unwrap_err();
+        assert_eq!(err.field, "head_len");
     }
 
     #[test]
-    #[should_panic(expected = "n_vars must be >= 1")]
     fn rejects_zero_vars() {
-        let _ = GepConfig::new(4, 2, 0, 10);
+        let err = GepConfig::new(4, 2, 0, 10).unwrap_err();
+        assert_eq!(err.field, "n_vars");
     }
 
     #[test]
-    #[should_panic(expected = "max_arity must be >= 1")]
     fn rejects_zero_arity() {
-        let _ = GepConfig::new(4, 0, 1, 10);
+        let err = GepConfig::new(4, 0, 1, 10).unwrap_err();
+        assert_eq!(err.field, "max_arity");
+    }
+
+    #[test]
+    fn accepts_valid_config() {
+        assert!(GepConfig::new(6, 2, 3, 64).unwrap().validate().is_ok());
     }
 }

@@ -27,6 +27,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -69,6 +71,26 @@ impl EpConfig {
             tau,
             tournament_q: 10,
         }
+    }
+}
+
+impl Validate for EpConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "EpConfig";
+        config::at_least(C, "mu", self.mu, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
+        config::positive(C, "tau", f64::from(self.tau))?;
+        config::at_least(C, "tournament_q", self.tournament_q, 1)?;
+        if self.tournament_q > 2 * self.mu {
+            return Err(ConfigError {
+                config: C,
+                field: "tournament_q",
+                kind: ConstraintKind::Custom("tournament_q must not exceed 2 * mu"),
+            });
+        }
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -155,6 +177,7 @@ where
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
     fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid EpConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Host-sample the initial parents from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -411,6 +434,18 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(EpConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_tournament_q_above_two_mu() {
+        let mut cfg = EpConfig::default_for(5, 10);
+        cfg.tournament_q = 11;
+        assert_eq!(cfg.validate().unwrap_err().field, "tournament_q");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -433,7 +468,7 @@ mod tests {
             3,
             device,
             300,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {
@@ -456,7 +491,7 @@ mod tests {
             5,
             device,
             2000,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

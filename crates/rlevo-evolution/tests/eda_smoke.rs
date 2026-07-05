@@ -51,7 +51,7 @@ where
         7,
         device,
         10,
-    );
+    ).expect("valid params");
     harness.reset();
     loop {
         let step = harness.step(());

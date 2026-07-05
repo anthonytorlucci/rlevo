@@ -41,6 +41,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::ops::linalg::{jacobi_eigen, matvec};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -120,12 +122,10 @@ impl CmaEsConfig {
     /// Larger `λ` improves basin-finding on multimodal landscapes (Hansen 2016,
     /// §A); all derived weights and learning rates follow from `(λ, D)`.
     ///
-    /// # Panics
-    ///
-    /// Panics if `pop_size < 2` (need at least one selected parent).
+    /// The `pop_size ≥ 2` invariant is enforced by [`Validate::validate`] at the
+    /// harness chokepoint, not by this infallible producer.
     #[must_use]
     pub fn with_pop_size(pop_size: usize, genome_dim: usize) -> Self {
-        assert!(pop_size >= 2, "CMA-ES needs λ ≥ 2");
         #[allow(clippy::cast_precision_loss)]
         let d = genome_dim as f32;
         let mu: usize = pop_size / 2;
@@ -170,6 +170,25 @@ impl CmaEsConfig {
             c_mu,
             chi_n,
         }
+    }
+}
+
+impl Validate for CmaEsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CmaEsConfig";
+        config::at_least(C, "pop_size", self.pop_size, 2)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
+        config::at_least(C, "mu", self.mu, 1)?;
+        if self.mu > self.pop_size {
+            return Err(ConfigError {
+                config: C,
+                field: "mu",
+                kind: rlevo_core::config::ConstraintKind::Custom("mu must not exceed pop_size"),
+            });
+        }
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -242,6 +261,7 @@ where
         rng: &mut dyn Rng,
         _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> CmaEsState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid CmaEsConfig reached init: {params:?}");
         let d = params.genome_dim;
         let (lo, hi) = params.bounds;
         let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
@@ -489,6 +509,18 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(CmaEsConfig::default_for(10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_pop_size_below_two() {
+        let mut cfg = CmaEsConfig::default_for(10);
+        cfg.pop_size = 1;
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
 
     #[test]
     fn default_for_d10_constants() {

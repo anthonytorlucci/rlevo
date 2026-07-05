@@ -60,6 +60,7 @@ use crate::fitness::{BatchFitnessFn, FitnessFn};
 use crate::local_search::LocalSearch;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::objective::ObjectiveSense;
 
 /// Controls how a refined genome's gains are written back into the population.
@@ -155,6 +156,17 @@ pub struct MemeticParams<SP, LP> {
     pub writeback: WritebackPolicy,
     /// Which individuals are refined. See [`CoveragePolicy`].
     pub coverage: CoveragePolicy,
+}
+
+/// Validation delegates to the wrapped inner strategy's config — the memetic
+/// wrapper is the harness chokepoint for that inner config. Only `SP: Validate`
+/// is required (the local-searcher params `LP` carry only simple step-size
+/// knobs and are left unconstrained), so `MemeticParams` stays usable with any
+/// local searcher while still rejecting an invalid inner configuration.
+impl<SP: Validate, LP> Validate for MemeticParams<SP, LP> {
+    fn validate(&self) -> Result<(), ConfigError> {
+        self.inner.validate()
+    }
 }
 
 /// Generation-to-generation state for a [`MemeticWrapper`].
@@ -1034,7 +1046,7 @@ mod tests {
         };
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, SphereBatch, 17, device, 20,
-        );
+        ).expect("valid params");
         harness.reset();
         let _ = harness.step(());
         let first: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
@@ -1070,7 +1082,7 @@ mod tests {
         };
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, SphereBatch, 5, device, 5,
-        );
+        ).expect("valid params");
         harness.reset();
         for _ in 0..5 {
             let _ = harness.step(());
