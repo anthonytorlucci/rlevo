@@ -9,6 +9,17 @@
 use burn::prelude::ElementConversion;
 use burn::tensor::{backend::Backend, Tensor};
 
+/// Error returned by fallible fitness-shaping transforms.
+#[derive(Debug, thiserror::Error)]
+pub enum ShapingError {
+    /// The input tensor's element data could not be read as `f32` — e.g. an
+    /// integer-typed backend tensor was passed to a transform that ranks host
+    /// values. This is a backend/dtype mismatch, surfaced as a recoverable error
+    /// rather than a panic.
+    #[error("shaping transform requires f32 tensor data")]
+    NonFloatData,
+}
+
 /// Returns `fitness - fitness.mean()` divided by the (population) std-dev,
 /// clamped to avoid divide-by-zero when all fitnesses are equal.
 ///
@@ -68,27 +79,26 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 ///
 /// let device = Default::default();
 /// let t = Tensor::<Flex, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
-/// let r = centered_rank(t, &device);
+/// let r = centered_rank(t, &device).unwrap();
 /// let values = r.into_data().into_vec::<f32>().unwrap();
 /// // Smallest value maps to -0.5, largest to +0.5.
 /// assert!((values[0] - (-0.5)).abs() < 1e-6);
 /// assert!((values[3] - 0.5).abs() < 1e-6);
 /// ```
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the tensor's element data cannot be converted to `f32` —
-/// for example, when using a backend that stores integer-typed tensors
-/// and `into_vec::<f32>()` returns an error.
-#[must_use]
-pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+/// Returns [`ShapingError::NonFloatData`] if the tensor's element data cannot be
+/// read as `f32` — for example, when using a backend that stores integer-typed
+/// tensors and `into_vec::<f32>()` fails.
+pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Result<Tensor<B, 1>, ShapingError> {
     let raw = fitness
         .into_data()
         .into_vec::<f32>()
-        .expect("centered_rank requires f32 tensor data");
+        .map_err(|_| ShapingError::NonFloatData)?;
     let n = raw.len();
     if n == 0 {
-        return Tensor::<B, 1>::from_floats([0.0f32; 0], device);
+        return Ok(Tensor::<B, 1>::from_floats([0.0f32; 0], device));
     }
     // Sanitize NaN → −inf (worst under maximise) so a NaN fitness ranks lowest
     // rather than corrupting the ascending order.
@@ -107,7 +117,7 @@ pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::ten
         let r = rank as f32 / n_f - 0.5;
         ranks[idx] = r;
     }
-    Tensor::<B, 1>::from_floats(ranks.as_slice(), device)
+    Ok(Tensor::<B, 1>::from_floats(ranks.as_slice(), device))
 }
 
 #[cfg(test)]
@@ -131,7 +141,7 @@ mod tests {
     fn centered_rank_spans_half_interval() {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
-        let r = centered_rank(t, &device);
+        let r = centered_rank(t, &device).unwrap();
         let values = r.into_data().into_vec::<f32>().unwrap();
         // smallest → -0.5, largest → +0.5
         approx::assert_relative_eq!(values[0], -0.5, epsilon = 1e-6);
@@ -142,12 +152,20 @@ mod tests {
     fn centered_rank_preserves_order() {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([3.0f32, 1.0, 2.0], &device);
-        let r = centered_rank(t, &device);
+        let r = centered_rank(t, &device).unwrap();
         let values = r.into_data().into_vec::<f32>().unwrap();
         // original: 3, 1, 2 → ranks sorted ascending: [1, 2, 3] at indices [1, 2, 0]
         // rank-positions centered: index 1 → -0.5, index 2 → 0.0, index 0 → 0.5
         approx::assert_relative_eq!(values[1], -0.5, epsilon = 1e-6);
         approx::assert_relative_eq!(values[2], 0.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[0], 0.5, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn centered_rank_empty_is_ok() {
+        let device = Default::default();
+        let t = Tensor::<TestBackend, 1>::from_floats([0.0f32; 0], &device);
+        let r = centered_rank(t, &device).expect("empty input is not an error");
+        assert_eq!(r.dims()[0], 0);
     }
 }
