@@ -91,4 +91,5 @@ pub use local_search::{
     HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
 };
 pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
+pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};

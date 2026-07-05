@@ -23,6 +23,9 @@ parking_lot = { workspace = true }
 # Programming (3e-R1 §5). Pinned at the workspace version.
 rayon = { workspace = true }
 serde = { workspace = true }
+# Derives `ShapingError` (fallible fitness-shaping transforms). Workspace-pinned
+# at 2.x, same as `rlevo-core`.
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -213,17 +213,33 @@ pub struct StrategyMetrics {
 impl StrategyMetrics {
     /// Computes population statistics from a host-side fitness slice.
     ///
+    /// Each value is passed through the crate's NaN-hygiene primitive
+    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) before folding, so
+    /// a `NaN` is treated as `f32::NEG_INFINITY` (the worst value under the
+    /// maximise convention, ADR 0023) *consistently* across every statistic. A
+    /// generation containing any `NaN` therefore yields `worst_fitness = −∞` and
+    /// `mean_fitness = −∞` while `best_fitness` remains the largest finite value —
+    /// degenerate but well-defined, rather than the old silent asymmetry where
+    /// `best`/`worst` ignored the `NaN` (comparisons against `NaN` are false) yet
+    /// `mean` propagated it.
+    ///
     /// # Panics
     ///
-    /// Panics if `fitnesses` is empty.
+    /// Panics if `fitnesses` is empty. Callers hold a non-empty population by
+    /// construction — `pop_size` is validated non-zero at the harness
+    /// constructor (ADR 0026).
     #[must_use]
     pub fn from_host_fitness(generation: usize, fitnesses: &[f32], best_fitness_ever: f32) -> Self {
         assert!(!fitnesses.is_empty(), "fitness slice must be non-empty");
         let population_size = fitnesses.len();
         // Canonical (maximise) space: best is the largest value, worst the
-        // smallest, and best-ever a rolling maximum.
+        // smallest, and best-ever a rolling maximum. Each value is sanitized
+        // (NaN → −∞) up front so all three statistics agree on the crate-wide
+        // NaN convention instead of best/worst silently dropping NaN while the
+        // sum propagates it.
         let (mut best, mut worst, mut sum) = (f32::NEG_INFINITY, f32::INFINITY, 0.0_f32);
         for &f in fitnesses {
+            let f = crate::fitness::sanitize_fitness(f);
             if f > best {
                 best = f;
             }
@@ -243,6 +259,43 @@ impl StrategyMetrics {
             best_fitness_ever: best_fitness_ever.max(best),
         }
     }
+}
+
+/// Builds a per-generation [`PopulationSnapshot`] from a host-side fitness
+/// vector, or `None` when the vector is empty.
+///
+/// `fitnesses` is in **natural (user-sense)** space: the best individual is the
+/// smallest value for a [`Minimize`](ObjectiveSense::Minimize) objective and the
+/// largest for [`Maximize`](ObjectiveSense::Maximize). Returning `None` on an
+/// empty vector guards against emitting an out-of-range `best_index` (the fold
+/// would otherwise default to `0`, indexing into a zero-length slice).
+fn build_population_snapshot(
+    generation: u32,
+    fitnesses: Vec<f32>,
+    sense: ObjectiveSense,
+) -> Option<PopulationSnapshot> {
+    if fitnesses.is_empty() {
+        return None;
+    }
+    let best_index = fitnesses
+        .iter()
+        .enumerate()
+        .reduce(|best, cur| {
+            let better = match sense {
+                ObjectiveSense::Minimize => cur.1 < best.1,
+                ObjectiveSense::Maximize => cur.1 > best.1,
+            };
+            if better { cur } else { best }
+        })
+        .map_or(0, |(i, _)| u32::try_from(i).unwrap_or(0));
+    Some(PopulationSnapshot {
+        generation,
+        fitnesses,
+        diversity: None,
+        best_index,
+        best_genome_digest: None,
+        parents_of_best: Vec::new(),
+    })
 }
 
 /// Wraps a [`Strategy`] into a [`BenchEnv`] so the benchmark harness can
@@ -534,28 +587,36 @@ where
             "evolution generation",
         );
         if let (Some(observer), Some(fitnesses)) = (self.observer.as_ref(), snapshot_fitness) {
-            // `fitnesses` is in natural space; the best individual is the
-            // smallest for a `Minimize` objective, the largest for `Maximize`.
-            let best_index = fitnesses
-                .iter()
-                .enumerate()
-                .reduce(|best, cur| {
-                    let better = match sense {
-                        ObjectiveSense::Minimize => cur.1 < best.1,
-                        ObjectiveSense::Maximize => cur.1 > best.1,
-                    };
-                    if better { cur } else { best }
-                })
-                .map_or(0, |(i, _)| u32::try_from(i).unwrap_or(0));
-            let snapshot = PopulationSnapshot {
-                generation: u32::try_from(metrics.generation).unwrap_or(u32::MAX),
-                fitnesses,
-                diversity: None,
-                best_index,
-                best_genome_digest: None,
-                parents_of_best: Vec::new(),
-            };
-            observer.lock().on_population(snapshot);
+            let generation = u32::try_from(metrics.generation).unwrap_or(u32::MAX);
+            match build_population_snapshot(generation, fitnesses, sense) {
+                Some(snapshot) => {
+                    // Isolate the observer: a panicking third-party sink drops
+                    // this snapshot but must not abort an otherwise-healthy
+                    // optimization run. `SharedPopulationObserver` is backed by a
+                    // `parking_lot::Mutex` (no poisoning), so the guard drops
+                    // during unwind and the next generation re-locks cleanly.
+                    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        observer.lock().on_population(snapshot);
+                    }));
+                    if dispatched.is_err() {
+                        tracing::warn!(
+                            generation,
+                            "population observer panicked; dropping snapshot and continuing",
+                        );
+                    }
+                }
+                None => {
+                    // An empty fitness vector means the device→host transfer at
+                    // `snapshot_fitness` yielded nothing (a masked conversion
+                    // failure). Surface it rather than emitting an out-of-range
+                    // `best_index` into a zero-length vector.
+                    tracing::warn!(
+                        generation,
+                        "empty population fitness vector; skipping observer snapshot \
+                         (device→host transfer likely failed)",
+                    );
+                }
+            }
         }
         self.latest_metrics = Some(metrics);
         let done = self.generation >= self.max_generations;
@@ -747,6 +808,36 @@ mod tests {
         approx::assert_relative_eq!(m.best_fitness_ever, 5.0, epsilon = 1e-6);
     }
 
+    #[test]
+    fn from_host_fitness_sanitizes_nan() {
+        // A NaN is sanitized to −∞ (worst under maximise) *consistently*: it
+        // never becomes best, and it drags worst and mean to −∞ rather than the
+        // old asymmetry where best/worst ignored it but mean turned NaN.
+        let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::NAN, 3.0, 2.0], 0.0);
+        approx::assert_relative_eq!(m.best_fitness, 3.0, epsilon = 1e-6);
+        assert!(m.worst_fitness.is_infinite() && m.worst_fitness.is_sign_negative());
+        assert!(m.mean_fitness.is_infinite() && m.mean_fitness.is_sign_negative());
+        approx::assert_relative_eq!(m.best_fitness_ever, 3.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn build_population_snapshot_empty_returns_none() {
+        assert!(build_population_snapshot(0, Vec::new(), ObjectiveSense::Minimize).is_none());
+    }
+
+    #[test]
+    fn build_population_snapshot_picks_best_for_sense() {
+        // Values: [0.3, 0.1, 0.9]. Minimize → best is the smallest (index 1);
+        // Maximize → best is the largest (index 2).
+        let min = build_population_snapshot(7, vec![0.3, 0.1, 0.9], ObjectiveSense::Minimize)
+            .expect("non-empty");
+        assert_eq!(min.best_index, 1);
+        assert_eq!(min.generation, 7);
+        let max = build_population_snapshot(7, vec![0.3, 0.1, 0.9], ObjectiveSense::Maximize)
+            .expect("non-empty");
+        assert_eq!(max.best_index, 2);
+    }
+
     /// Per-individual fitness = `1.0 / (i + 1)` so the best (smallest)
     /// is always at index `pop_size - 1` — a deterministic shape the
     /// observer test can pin against.
@@ -816,6 +907,45 @@ mod tests {
         assert!(guard.snapshots[0].diversity.is_none());
         assert!(guard.snapshots[0].best_genome_digest.is_none());
         assert!(guard.snapshots[0].parents_of_best.is_empty());
+    }
+
+    /// Observer whose callback always panics — used to prove the harness
+    /// isolates a misbehaving sink instead of aborting the run.
+    #[derive(Debug, Default)]
+    struct PanicObserver;
+
+    impl crate::observer::PopulationObserver for PanicObserver {
+        fn on_population(&mut self, _snapshot: PopulationSnapshot) {
+            panic!("observer intentionally panics");
+        }
+    }
+
+    #[test]
+    fn harness_survives_panicking_observer() {
+        use std::sync::Arc;
+
+        use parking_lot::Mutex;
+        let device = Default::default();
+        let observer = Arc::new(Mutex::new(PanicObserver));
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            Constant,
+            Params {
+                pop_size: 4,
+                dim: 2,
+            },
+            RankedFitness,
+            1,
+            device,
+            2,
+        )
+        .expect("valid params")
+        .with_observer(observer.clone() as SharedPopulationObserver);
+        harness.reset();
+        // Each step's observer dispatch panics; the harness must swallow it and
+        // keep advancing generations to completion.
+        assert!(!harness.step(()).done);
+        assert!(harness.step(()).done);
+        assert_eq!(harness.generation(), 2);
     }
 
     #[test]
