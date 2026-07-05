@@ -367,7 +367,7 @@ where
     /// For evaluation use [`act_greedy`](Self::act_greedy) (no exploration
     /// noise) or [`act_greedy_env_row_with`](Self::act_greedy_env_row_with)
     /// (no autodiff graph overhead).
-    pub fn act(&self, obs: &O, rng: &mut dyn Rng) -> ActOutcome {
+    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
 

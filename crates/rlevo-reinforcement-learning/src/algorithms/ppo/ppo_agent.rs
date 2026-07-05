@@ -328,7 +328,7 @@ where
     /// and entropy plus the value-network prediction at that observation.
     ///
     /// Batched rollout is not supported in v1 (num_envs == 1).
-    pub fn act(&self, obs: &O, rng: &mut dyn Rng) -> ActOutcome {
+    pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
 

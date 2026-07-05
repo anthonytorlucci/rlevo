@@ -151,10 +151,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     /// `z` is stored in the rollout buffer, not the tanh-squashed env action
     /// `a = scale · tanh(z)`. See the module-level note on why the tanh
     /// Jacobian is omitted.
-    fn sample_with_logprob(
+    fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
-        rng: &mut dyn Rng,
+        rng: &mut R,
     ) -> PolicyOutput<B, Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();

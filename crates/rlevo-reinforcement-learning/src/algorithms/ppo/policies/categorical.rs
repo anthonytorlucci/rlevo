@@ -90,10 +90,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     /// Gumbel-max (`argmax(logits + Gumbel(0,1))`) is equivalent to categorical
     /// sampling but uses the explicit `rng` argument, keeping results
     /// bitwise-reproducible under seeded host RNGs regardless of backend.
-    fn sample_with_logprob(
+    fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
-        rng: &mut dyn Rng,
+        rng: &mut R,
     ) -> PolicyOutput<B, Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();

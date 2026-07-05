@@ -68,10 +68,10 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     /// Samples actions for each row of `obs`, returning action, log-prob, and
     /// entropy. Implementations must thread `rng` explicitly rather than
     /// relying on thread-local state.
-    fn sample_with_logprob(
+    fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, DB>,
-        rng: &mut dyn Rng,
+        rng: &mut R,
     ) -> PolicyOutput<B, Self::ActionTensor>;
 
     /// Evaluates log-probability and entropy of `actions` under the current
