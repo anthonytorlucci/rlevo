@@ -206,15 +206,20 @@ impl<const K: usize> ConstructableEnv for KArmedBandit<K> {
     fn new(render: bool) -> Self {
         let _ = render;                       // bandit has nothing to render
         Self::with_config(KArmedBanditConfig::default())
+            .expect("default config must validate")
     }
 }
 ```
 
 Offer a richer builder alongside it for callers that need to configure the
 environment — the bandit exposes `with_config(KArmedBanditConfig { max_steps,
-seed })` and a `with_seed(seed)` shortcut. Generic harness code calls
-`ConstructableEnv::new`; an experiment script that needs a specific seed calls
-`with_config`.
+seed })` and a `with_seed(seed)` shortcut. `with_config` validates the config and
+returns `Result<Self, ConfigError>` (see the config-validation contract below), so
+a caller supplying its own values can react to a bad one. `ConstructableEnv::new`
+stays infallible: it feeds the *default* config, which your `Validate` impl
+guarantees is valid, so the single `.expect` is the one blessed panic. Generic
+harness code calls `new`; an experiment script that needs a specific seed calls
+`with_config` and handles the `Result`.
 
 ## The contract your implementation must satisfy
 
@@ -228,6 +233,14 @@ algorithm will drive your environment correctly:
   caller will `reset()` before the next `step()`.
 - **Neither method panics on valid input.** Return `EnvironmentError::InvalidAction`
   for out-of-range actions; reserve panics for genuine internal-logic bugs.
+- **Your config validates its own invariants.** Implement
+  [`Validate`](https://docs.rs/rlevo-core) for `KArmedBanditConfig` (checking, say,
+  `max_steps > 0`) and call it at the `with_config` chokepoint so a bad
+  hyperparameter is rejected as a field-named `ConfigError` at construction, not as
+  a confusing panic mid-episode. A config that derives `Deserialize` is
+  user-supplied runtime data, so this must be a `Result`, never a panic (ADR 0026).
+  Back it with a `assert!(KArmedBanditConfig::default().validate().is_ok())` unit
+  test — that is what lets `ConstructableEnv::new` stay infallible.
 - **Determinism is seedable.** Thread all randomness through a seed you store, so
   `(config, action sequence)` reproduces the trajectory — the bandit re-draws its
   arm means from `config.seed` on every `reset`. This is what makes RL results

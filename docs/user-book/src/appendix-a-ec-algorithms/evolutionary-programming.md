@@ -122,7 +122,7 @@ fn main() {
         /* seed */ 42,
         device,
         /* max_generations */ 2000,
-    );
+    ).expect("valid config");
 
     harness.reset();
     loop {

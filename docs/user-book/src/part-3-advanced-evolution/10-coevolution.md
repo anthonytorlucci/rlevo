@@ -104,10 +104,12 @@ let params = CooperativeCoEAParams::new(
     total_dims,    // full problem dimensionality (B gets the complement)
     RepresentativePolicy::Best,
     evals_per_generation,
-);
+)
+.expect("valid decomposition");
 ```
 
-`new` validates the split eagerly — `dims_a` must be non-empty, in range,
+`new` validates the split eagerly and returns `Result<_, ConfigError>` — `dims_a`
+must be non-empty, in range,
 duplicate-free, and must leave at least one dimension for B. The key tuning choice
 is the **representative policy**, which decides *who* from the other population a
 candidate is paired against:

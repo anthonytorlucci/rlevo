@@ -186,6 +186,18 @@ cma.initial_sigma = 2.0; // wider initial step covers more basins
 | `initial_sigma` | `f32` | 0.3–3.0 × range | Initial global step size |
 | derived | — | — | `mu`, `weights`, `mu_eff`, learning rates, `chi_n` (CMA); `tau`, `tau_c` (CMSA) |
 
+The `default_for` and `with_pop_size` producers keep the derived fields mutually
+consistent, and the harness validates the config for you at construction. Because
+`CmaEsConfig` exposes those derived fields publicly, though, a hand-built literal
+can desync several at once — so [`CmaEsConfig`](https://docs.rs/rlevo-evolution)
+overrides [`validate_all`](https://docs.rs/rlevo-core), reporting *every*
+violation in one pass rather than stopping at the first. It checks that `weights`
+has length μ, is strictly positive, and sums to one; that the learning rates each
+lie in \\([0, 1]\\); and — the invariant that matters most — that \\(c_1 + c_\mu
+\le 1\\). That last bound is not cosmetic: the covariance retention factor above is
+\\(1 - c_1 - c_\mu\\), so a pair summing past one turns it negative and \\(C\\)
+loses positive-definiteness.
+
 ## Fitness convention
 
 All strategies in `rlevo::evo` maximise a **canonical** fitness — higher is better. You declare a cost objective's direction with [`ObjectiveSense::Minimize`](https://docs.rs/rlevo-core) and the harness reconciles it at one chokepoint, so you never hand-negate. The Sphere function is a cost surface: declare `ObjectiveSense::Minimize` and the harness maximises \\(-\sum x_i^2\\) internally; `best_fitness` still reads as the natural cost (→ 0).
@@ -235,7 +247,7 @@ fn main() {
         /* seed */ 42,
         device,
         /* max_generations */ 1000,
-    );
+    ).expect("valid config");
 
     harness.reset();
     loop {

@@ -177,7 +177,7 @@ let mut harness = EvolutionaryHarness::<B, _, _>::new(
     GaConfig::default_for(32, 5),                 // params
     FromFitnessEvaluable::new(SphereFit, Sphere), // fitness fn
     seed, device, max_generations,
-);
+).expect("valid config");
 harness.reset();
 while !harness.step(()).done {}
 ```
