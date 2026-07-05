@@ -9,6 +9,7 @@
 use burn::module::Module;
 use burn::tensor::{Tensor, backend::Backend};
 
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::Environment;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
 use rlevo_evolution::WeightOnly;
@@ -62,6 +63,11 @@ where
     /// is the inner strategy's configuration — its genome width must equal the
     /// template's parameter count. `fitness` is a [`RolloutFitness`] built over
     /// a reshaper for the same template.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] when `params` fails [`Validate::validate`] at
+    /// the underlying [`EvolutionaryHarness`] chokepoint.
     pub fn new(
         inner: S,
         params: S::Params,
@@ -70,11 +76,14 @@ where
         seed: u64,
         device: B::Device,
         max_generations: usize,
-    ) -> Self {
+    ) -> Result<Self, ConfigError>
+    where
+        S::Params: Validate,
+    {
         let strategy = WeightOnly::new(inner, template);
         let harness =
-            EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_generations);
-        Self { harness }
+            EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_generations)?;
+        Ok(Self { harness })
     }
 
     /// Reset to a fresh initial population.

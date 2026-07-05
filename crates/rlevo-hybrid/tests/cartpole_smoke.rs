@@ -84,7 +84,8 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
         7,
         device,
         2,
-    );
+    )
+    .expect("valid params");
 
     pn.reset();
     assert!(!pn.step(), "first generation should not exhaust the budget");
