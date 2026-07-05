@@ -269,7 +269,7 @@ parameters `MP`:
 |---|---|---|
 | `pop_size` | `usize` | Individuals sampled per generation |
 | `selection_ratio` | `f32` | Truncation fraction; strictly in \\((0, 1)\\). Effective \\(k = \lceil \rho \cdot \texttt{pop\_size}\rceil\\) clamped to \\([2,\ \texttt{pop\_size}]\\) |
-| `bounds` | `Option<(f32, f32)>` | Inclusive clamp applied after sampling; a no-op for the binary models |
+| `bounds` | `Option<Bounds>` | Inclusive clamp applied after sampling; a no-op for the binary models |
 | `model` | `MP` | Model parameters (includes `genome_dim`) |
 
 Each model supplies a `default_for(genome_dim)` constructor:

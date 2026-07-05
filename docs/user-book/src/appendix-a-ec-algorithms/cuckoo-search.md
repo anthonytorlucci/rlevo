@@ -113,7 +113,7 @@ let config = CuckooConfig::default_for(30, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 15 – 50 | Number of nests; one evaluation per nest per generation |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each nest |
-| `bounds` | `(f32, f32)` | problem-defined | Initial nests sampled here; steps clamped here; abandoned nests refilled here |
+| `bounds` | `Bounds` | problem-defined | Initial nests sampled here; steps clamped here; abandoned nests refilled here |
 | `alpha` (\\(\alpha\\)) | `f32` | 0.01 – 0.5 | Step-size scale; the primary knob. Larger → bolder moves |
 | `beta` (\\(\beta\\)) | `f32` | (0, 2), ~1.5 | Lévy index; smaller → heavier tails, more long jumps |
 | `p_a` (\\(p_a\\)) | `f32` | 0.1 – 0.5 | Fraction of worst nests abandoned each generation |

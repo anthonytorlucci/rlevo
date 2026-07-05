@@ -110,7 +110,7 @@ let config = BatConfig::default_for(40, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 20 – 50 | Number of bats |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each bat |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; candidates clamped here |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; candidates clamped here |
 | `f_min`, `f_max` (\\(f_{\min}, f_{\max}\\)) | `f32` | \\(0\\) – \\(O(1)\\) | Frequency range; sets the velocity step scale |
 | `a0` (\\(A_0\\)) | `f32` | ~1.0 | Initial loudness; gates acceptance, decays by \\(\alpha\\) |
 | `r0` (\\(r_0\\)) | `f32` | 0 – 1 | Initial pulse rate; gates the local walk, grows with \\(t\\) |

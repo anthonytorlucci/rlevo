@@ -64,7 +64,7 @@ let config = DeConfig::default_for(30, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 10·D – 30·D | DE literature recommends 10×D as a starting point; `Rand2Bin` needs ≥ 6 |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial population sampled here; trial vectors clamped after crossover |
+| `bounds` | `Bounds` | problem-defined | Initial population sampled here; trial vectors clamped after crossover |
 | `f` | `f32` | 0.4 – 0.9 | Differential weight; higher F → more exploration, slower convergence |
 | `cr` | `f32` | 0.1 – 0.9 | Crossover probability; higher CR → more genes from mutant vector |
 | `variant` | `DeVariant` | — | See table above; `Rand1Bin` is the canonical starting point |

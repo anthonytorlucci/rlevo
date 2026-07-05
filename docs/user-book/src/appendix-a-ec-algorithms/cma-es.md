@@ -182,7 +182,7 @@ cma.initial_sigma = 2.0; // wider initial step covers more basins
 |---|---|---|---|
 | `pop_size` | `usize` | `4 + ⌊3 ln D⌋` | Offspring count λ; raise it for multimodal landscapes |
 | `genome_dim` | `usize` | problem-defined | Dimensionality D |
-| `bounds` | `(f32, f32)` | problem-defined | Used **only** to sample the initial mean; offspring are not clamped |
+| `bounds` | `Bounds` | problem-defined | Used **only** to sample the initial mean; offspring are not clamped |
 | `initial_sigma` | `f32` | 0.3–3.0 × range | Initial global step size |
 | derived | — | — | `mu`, `weights`, `mu_eff`, learning rates, `chi_n` (CMA); `tau`, `tau_c` (CMSA) |
 

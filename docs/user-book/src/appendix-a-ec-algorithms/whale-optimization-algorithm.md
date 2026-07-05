@@ -92,7 +92,7 @@ let config = WoaConfig::default_for(32, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 20 – 50 | Number of whales |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each whale |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; steps clamped here. Mind the origin bias — see implementation notes |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; steps clamped here. Mind the origin bias — see implementation notes |
 | `max_generations` | `usize` | match your budget | Annealing horizon for \\(a\\); paces exploration→exploitation only |
 | `b` (\\(b\\)) | `f32` | ~1.0 | Spiral shape; Mirjalili's canonical \\(1.0\\) |
 

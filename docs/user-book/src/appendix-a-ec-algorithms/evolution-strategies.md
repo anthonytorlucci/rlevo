@@ -111,7 +111,7 @@ let config = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 1
 |---|---|---|---|
 | `kind` | `EsKind` | — | Selects the variant; see table above |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial population sampled here; offspring clamped after mutation |
+| `bounds` | `Bounds` | problem-defined | Initial population sampled here; offspring clamped after mutation |
 | `initial_sigma` | `f32` | 0.1–3.0 | Relative to the `bounds` width; 1.0 is a reasonable start |
 | `tau` | `f32` | `1/sqrt(2·sqrt(D))` | Learning rate for log-normal σ update; `default_for` computes the standard value |
 

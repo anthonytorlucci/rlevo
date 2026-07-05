@@ -106,7 +106,7 @@ let config = AcoRConfig::default_for(/* k */ 50, /* m */ 30, /* dim */ 10);
 | `archive_size` (`k`) | `usize` | 20 – 100 | Pheromone memory; **≥ 2 required** (σ needs a pairwise distance). Paper recommends 50 |
 | `m` | `usize` | k/2 – 2k | Offspring per generation; **≥ 1 required**. Larger → more exploration per generation |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial archive sampled here; offspring clamped here after sampling |
+| `bounds` | `Bounds` | problem-defined | Initial archive sampled here; offspring clamped here after sampling |
 | `xi` (`ξ`) | `f32` | 0.5 – 1.0 | Exploration scale on `σ`; higher → wider kernels, slower convergence |
 | `q` | `f32` | 0.01 – 0.5 | Rank-weight decay; **small → sharp exploitation**, large → flat exploration |
 

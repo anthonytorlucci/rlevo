@@ -80,7 +80,7 @@ explosion of type parameters while still letting a run mix and match:
 pub struct GaConfig {
     pub pop_size: usize,
     pub genome_dim: usize,
-    pub bounds: (f32, f32),          // initial-sample range and clamp range
+    pub bounds: Bounds,              // initial-sample range and clamp range
     pub mutation_sigma: f32,
     pub selection:   GaSelection,    // Tournament { size }
     pub crossover:   GaCrossover,    // BlxAlpha { alpha } | Uniform { p }
@@ -100,6 +100,12 @@ pub struct GaState<B: Backend> {
     pub generation:   usize,
 }
 ```
+
+The `bounds` field is a [`Bounds`](https://docs.rs/rlevo-core) — a small newtype
+over a `(lo, hi)` pair that we validate at construction (it rejects an inverted
+`lo > hi` or a `NaN` endpoint) so an invalid search box can never reach the
+sampler or the clamp. You build one with `Bounds::new(lo, hi)`; the population
+sampler and the per-generation clamp both read `bounds.lo()` and `bounds.hi()`.
 
 **`init`** samples an `(pop_size, genome_dim)` population uniformly within
 `bounds`, leaves the fitness cache empty, and sets `best_fitness` to

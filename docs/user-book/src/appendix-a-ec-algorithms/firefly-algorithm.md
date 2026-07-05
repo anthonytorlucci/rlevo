@@ -105,7 +105,7 @@ let config = FireflyConfig::default_for(32, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 15 – 128 | Number of fireflies; **capped at 128** on the pure-tensor path |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each firefly |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; steps clamped here |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; steps clamped here |
 | `beta0` (\\(\beta_0\\)) | `f32` | ~1.0 | Pull strength at zero distance |
 | `gamma` (\\(\gamma\\)) | `f32` | \\(\sim 1/L^2\\) | Absorption; smaller → longer sight range. Retune with `bounds` |
 | `alpha` (\\(\alpha\\)) | `f32` | 0.01 – 0.5 | Random-walk noise; the exploration floor |
