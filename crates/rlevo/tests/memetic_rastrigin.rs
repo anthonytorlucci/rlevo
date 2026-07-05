@@ -115,7 +115,7 @@ fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) ->
         seed,
         device,
         max_gens,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
@@ -174,7 +174,7 @@ fn memetic_evals_to_target(
         seed,
         device,
         max_gens,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;

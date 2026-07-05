@@ -20,6 +20,7 @@ use rand::{Rng, RngExt};
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -144,7 +145,18 @@ where
     A: DiscreteAction<1>,
 {
     /// Constructs a new agent from a pre-built policy network and config.
-    pub fn new(policy_net: M, config: C51TrainingConfig, device: B::Device) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`C51TrainingConfig::validate`](rlevo_core::config::Validate::validate)
+    /// (e.g. `v_min >= v_max`).
+    pub fn new(
+        policy_net: M,
+        config: C51TrainingConfig,
+        device: B::Device,
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let target_net = policy_net.valid();
         let adam = config.optimizer.clone();
         let optimizer = match &config.clip_grad {
@@ -159,7 +171,7 @@ where
             config.epsilon_decay,
         );
         let stats = AgentStats::<C51Metrics>::new(100);
-        Self {
+        Ok(Self {
             policy_net: Some(policy_net),
             target_net,
             optimizer,
@@ -170,7 +182,7 @@ where
             step: 0,
             stats,
             _action: PhantomData,
-        }
+        })
     }
 
     /// Current exploration rate (ε).

@@ -79,9 +79,10 @@ fn build_agent() -> Agent {
         .replay_buffer_capacity(10_000)
         .learning_starts(0)
         .train_frequency(1)
-        .build();
+        .build()
+        .expect("valid config");
     let model: DqnMlp<Be> = DqnMlp::new(&device);
-    DqnAgent::new(model, config, device)
+    DqnAgent::new(model, config, device).expect("valid config")
 }
 
 fn bench_act(c: &mut Criterion) {
@@ -104,7 +105,7 @@ fn bench_learn(c: &mut Criterion) {
     // Prime a buffer by stepping a real CartPole for a bit; we measure pure
     // `learn_step` wall-clock with the buffer already populated.
     let mut agent = build_agent();
-    let mut env = CartPole::with_config(CartPoleConfig::default());
+    let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
     let mut rng = StdRng::seed_from_u64(0);
 
     let mut snap = env.reset().expect("reset");

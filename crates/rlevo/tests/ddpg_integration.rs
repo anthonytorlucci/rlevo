@@ -163,8 +163,9 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .tau(0.02)
         .exploration_noise(0.2)
         .policy_frequency(2)
-        .build();
-    let mut agent: LinearAgent = DdpgAgent::new(actor, critic, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
@@ -194,7 +195,7 @@ fn random_pendulum(seed: u64) -> f32 {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
     random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
@@ -235,8 +236,9 @@ fn ddpg_act_with_matches_deterministic_act() {
         .tau(0.02)
         .exploration_noise(0.2)
         .policy_frequency(2)
-        .build();
-    let agent: LinearAgent = DdpgAgent::new(actor, critic, config, device);
+        .build()
+        .expect("valid config");
+    let agent: LinearAgent = DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     let net = agent.inference_net();
     let mut rng = StdRng::seed_from_u64(seed);
@@ -272,7 +274,7 @@ fn ddpg_pendulum_improves_over_random() {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -288,7 +290,8 @@ fn ddpg_pendulum_improves_over_random() {
         .tau(0.005)
         .exploration_noise(0.1)
         .policy_frequency(2)
-        .build();
+        .build()
+        .expect("valid config");
     let mut agent: DdpgAgent<
         Be,
         Actor<Be>,
@@ -299,7 +302,7 @@ fn ddpg_pendulum_improves_over_random() {
         2,
         1,
         2,
-    > = DdpgAgent::new(actor, critic, config, device);
+    > = DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, 50_000, 0,

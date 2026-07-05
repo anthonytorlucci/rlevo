@@ -63,6 +63,8 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::probability_model::ProbabilityModel;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -87,6 +89,25 @@ pub struct EdaParams<MP> {
     pub bounds: Option<(f32, f32)>,
     /// Model-specific parameters (includes `genome_dim`).
     pub model: MP,
+}
+
+/// Validation covers the engine-level knobs shared by every EDA model:
+/// `pop_size >= 2` and `selection_ratio ∈ (0, 1)` (open on both ends, since a
+/// ratio of `0` selects no parents and `1` defeats truncation). Model-specific
+/// params `MP` (which carry their own `genome_dim` etc.) are left to the model's
+/// own `fit`; no `MP: Validate` bound is imposed, keeping `EdaParams` usable
+/// with any model.
+impl<MP> Validate for EdaParams<MP> {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "EdaParams";
+        config::at_least(C, "pop_size", self.pop_size, 2)?;
+        config::positive(C, "selection_ratio", f64::from(self.selection_ratio))?;
+        config::ordered(C, "selection_ratio", f64::from(self.selection_ratio), 1.0)?;
+        if let Some((lo, hi)) = self.bounds {
+            config::ordered(C, "bounds", f64::from(lo), f64::from(hi))?;
+        }
+        Ok(())
+    }
 }
 
 /// Generation-to-generation state carried by [`EdaStrategy`].
@@ -182,11 +203,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::State {
-        debug_assert!(
-            params.selection_ratio > 0.0 && params.selection_ratio < 1.0,
-            "selection_ratio must lie strictly in (0, 1), got {}",
-            params.selection_ratio
-        );
+        debug_assert!(params.validate().is_ok(), "invalid EdaParams reached init: {params:?}");
         let _ = rng;
         let model_state = self.model.fit(
             &params.model,

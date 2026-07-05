@@ -4,6 +4,8 @@
 //! [`Default`] impl reproduces the Gymnasium v5 reacher XML values; override
 //! individual fields when constructing via [`super::Reacher::with_config`].
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::locomotion::common::Gear;
 
 /// Environment configuration for [`super::Reacher`].
@@ -68,5 +70,39 @@ impl Default for ReacherConfig {
             link_mass: 0.0356,
             target_disk_radius: 0.2,
         }
+    }
+}
+
+impl Validate for ReacherConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "ReacherConfig";
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
+        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
+        config::in_range(C, "ctrl_cost_weight", 0.0, f64::INFINITY, f64::from(self.ctrl_cost_weight))?;
+        config::positive(C, "link1_length", f64::from(self.link1_length))?;
+        config::positive(C, "link2_length", f64::from(self.link2_length))?;
+        config::positive(C, "link_radius", f64::from(self.link_radius))?;
+        config::positive(C, "link_mass", f64::from(self.link_mass))?;
+        config::positive(C, "target_disk_radius", f64::from(self.target_disk_radius))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(ReacherConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_link1_length() {
+        let bad = ReacherConfig { link1_length: 0.0, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "link1_length");
     }
 }

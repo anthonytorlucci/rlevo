@@ -35,7 +35,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = GoToDoorConfig::new(6, 100, 0, Color::Red);
-//! let mut env = GoToDoorEnv::with_config(cfg, false);
+//! let mut env = GoToDoorEnv::with_config(cfg, false).expect("valid config");
 //! let snap = env.reset().unwrap();
 //! println!("Mission: {}", env.mission().describe());
 //! ```
@@ -58,6 +58,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -161,6 +162,15 @@ impl Default for GoToDoorConfig {
     }
 }
 
+impl Validate for GoToDoorConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "GoToDoorConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 fn parse_color(s: &str) -> Result<Color, String> {
     match s.trim().to_ascii_lowercase().as_str() {
         "red" => Ok(Color::Red),
@@ -260,21 +270,27 @@ impl GoToDoorEnv {
     /// let env = GoToDoorEnv::with_config(
     ///     GoToDoorConfig::new(6, 100, 0, Color::Blue),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: GoToDoorConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    pub fn with_config(config: GoToDoorConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
         let mission = Mission::new(config.target_color);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             mission,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns the environment's active configuration.
@@ -364,7 +380,7 @@ impl Display for GoToDoorEnv {
 
 impl ConstructableEnv for GoToDoorEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(GoToDoorConfig::default(), render)
+        Self::with_config(GoToDoorConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -410,6 +426,18 @@ mod tests {
 
     fn env_6x6(target: Color) -> GoToDoorEnv {
         GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, 0, target), false)
+            .expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(GoToDoorConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = GoToDoorConfig { size: 0, ..Default::default() };
+        assert!(GoToDoorEnv::with_config(bad, false).is_err());
     }
 
     #[test]
@@ -550,8 +578,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = GoToDoorConfig::new(6, 100, 9, Color::Yellow);
-        let mut a = GoToDoorEnv::with_config(cfg, false);
-        let mut b = GoToDoorEnv::with_config(cfg, false);
+        let mut a = GoToDoorEnv::with_config(cfg, false).expect("valid config");
+        let mut b = GoToDoorEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         assert_eq!(sa.observation(), sb.observation());

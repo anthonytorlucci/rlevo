@@ -52,6 +52,8 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -111,6 +113,19 @@ impl CgpConfig {
     #[must_use]
     pub fn genome_len(&self) -> usize {
         self.rows * self.cols * Self::GENES_PER_NODE + Self::OUTPUT_GENES
+    }
+}
+
+impl Validate for CgpConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CgpConfig";
+        config::at_least(C, "lambda", self.lambda, 1)?;
+        config::at_least(C, "n_inputs", self.n_inputs, 1)?;
+        config::at_least(C, "rows", self.rows, 1)?;
+        config::at_least(C, "cols", self.cols, 1)?;
+        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
+        config::at_least(C, "levels_back", self.levels_back, 1)?;
+        Ok(())
     }
 }
 
@@ -343,6 +358,7 @@ where
     /// feed-forward input connections via `rng`, then uploads the genotype as
     /// a `(1, genome_len)` integer tensor.
     fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CgpState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid CgpConfig reached init: {params:?}");
         let genome_vec = Self::sample_initial_genome(params, rng);
         let parent = Tensor::<B, 2, Int>::from_data(
             TensorData::new(genome_vec, [1, params.genome_len()]),
@@ -500,6 +516,18 @@ mod tests {
     use burn::backend::Flex;
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(CgpConfig::default_for(1).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_rows() {
+        let mut cfg = CgpConfig::default_for(1);
+        cfg.rows = 0;
+        assert_eq!(cfg.validate().unwrap_err().field, "rows");
+    }
+
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].
     struct SymRegression {
         params: CgpConfig,
@@ -584,7 +612,7 @@ mod tests {
             21,
             device,
             2000,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

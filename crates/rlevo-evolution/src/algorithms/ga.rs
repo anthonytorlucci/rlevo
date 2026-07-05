@@ -33,6 +33,8 @@ use crate::ops::{
     replacement::{elitist, generational},
     selection::tournament_select,
 };
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -93,6 +95,51 @@ impl GaConfig {
             crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
+    }
+}
+
+impl Validate for GaConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "GaConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::in_range(C, "mutation_sigma", 0.0, f64::INFINITY, f64::from(self.mutation_sigma))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        match self.selection {
+            GaSelection::Tournament { size } => {
+                config::at_least(C, "selection.size", size, 1)?;
+                if size > self.pop_size {
+                    return Err(ConfigError {
+                        config: C,
+                        field: "selection.size",
+                        kind: ConstraintKind::Custom(
+                            "tournament size must not exceed pop_size",
+                        ),
+                    });
+                }
+            }
+        }
+        match self.crossover {
+            GaCrossover::BlxAlpha { alpha } => {
+                config::in_range(C, "crossover.alpha", 0.0, f64::INFINITY, f64::from(alpha))?;
+            }
+            GaCrossover::Uniform { p } => {
+                config::in_range(C, "crossover.p", 0.0, 1.0, f64::from(p))?;
+            }
+        }
+        match self.replacement {
+            GaReplacement::Generational => {}
+            GaReplacement::Elitist { elitism_k } => {
+                if elitism_k > self.pop_size {
+                    return Err(ConfigError {
+                        config: C,
+                        field: "replacement.elitism_k",
+                        kind: ConstraintKind::Custom("elitism_k must not exceed pop_size"),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -185,6 +232,7 @@ where
     /// worst value under the maximise convention); the first
     /// [`tell`](Self::tell) call populates both.
     fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GaState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid GaConfig reached init: {params:?}");
         let population = Self::sample_initial_population(params, rng, device);
         GaState {
             population,
@@ -404,6 +452,18 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(GaConfig::default_for(64, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_tournament_larger_than_pop() {
+        let mut cfg = GaConfig::default_for(8, 10);
+        cfg.selection = GaSelection::Tournament { size: 16 };
+        assert_eq!(cfg.validate().unwrap_err().field, "selection.size");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -431,7 +491,7 @@ mod tests {
 
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 42, device, 200,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

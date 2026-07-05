@@ -34,6 +34,8 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -134,6 +136,19 @@ impl DeConfig {
             cr: 0.9,
             variant: DeVariant::Rand1Bin,
         }
+    }
+}
+
+impl Validate for DeConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DeConfig";
+        let min_pop = if self.variant == DeVariant::Rand2Bin { 5 } else { 4 };
+        config::at_least(C, "pop_size", self.pop_size, min_pop)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::in_range(C, "f", 0.0, 2.0, f64::from(self.f))?;
+        config::in_range(C, "cr", 0.0, 1.0, f64::from(self.cr))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -263,6 +278,7 @@ where
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
     fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> DeState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid DeConfig reached init: {params:?}");
         let population = Self::sample_initial_population(params, rng, device);
         DeState {
             population,
@@ -554,6 +570,18 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(DeConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_pop_size_below_min() {
+        let mut cfg = DeConfig::default_for(3, 10);
+        cfg.pop_size = 3;
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -576,7 +604,7 @@ mod tests {
             11,
             device,
             gens,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

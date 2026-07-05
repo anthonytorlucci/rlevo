@@ -274,7 +274,7 @@ where
     let mut env = SantaFeAnt::with_config(SantaFeAntConfig {
         max_steps,
         render: false,
-    });
+    }).expect("valid config");
     let mut snap = env.reset().expect("reset");
     let mut h = policy.init_hidden(device);
     let mut eaten = 0.0_f32;
@@ -365,10 +365,11 @@ pub fn run_strategy<B, S, M, F>(
 where
     B: Backend,
     S: Strategy<B, Genome = Tensor<B, 2>>,
+    S::Params: rlevo_core::config::Validate,
     M: Module<B> + Sync,
     F: Fn(&M) -> f32 + Send,
 {
-    let mut harness = EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_gens);
+    let mut harness = EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_gens).expect("valid params");
     harness.reset();
     let mut evals_to_solved = None;
     let mut generations = 0;

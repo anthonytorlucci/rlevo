@@ -119,9 +119,10 @@ fn fresh_agent(seed: u64) -> Agent {
         .replay_buffer_capacity(50_000)
         .num_quantiles(num_quantiles)
         .kappa(1.0)
-        .build();
+        .build()
+        .expect("valid config");
     let model: QrDqnMlp<Be> = QrDqnMlp::new(num_quantiles, &device);
-    QrDqnAgent::new(model, config, device)
+    QrDqnAgent::new(model, config, device).expect("valid config")
 }
 
 /// Builds and trains a QR-DQN agent on the shared seeded `CartPole` for `total`

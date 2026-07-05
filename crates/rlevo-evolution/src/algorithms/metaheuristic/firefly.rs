@@ -28,6 +28,8 @@ use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -73,6 +75,31 @@ impl FireflyConfig {
     }
 }
 
+impl Validate for FireflyConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "FireflyConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        // Without the fused kernel the pure-tensor path materialises an
+        // (N, N, D) tensor, so cap the swarm at FIREFLY_PURE_TENSOR_CAP.
+        #[cfg(not(feature = "custom-kernels"))]
+        if self.pop_size > FIREFLY_PURE_TENSOR_CAP {
+            return Err(ConfigError {
+                config: C,
+                field: "pop_size",
+                kind: rlevo_core::config::ConstraintKind::Custom(
+                    "pop_size exceeds the pure-tensor cap (128); enable `custom-kernels`",
+                ),
+            });
+        }
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::in_range(C, "beta0", 0.0, f64::INFINITY, f64::from(self.beta0))?;
+        config::positive(C, "gamma", f64::from(self.gamma))?;
+        config::in_range(C, "alpha", 0.0, f64::INFINITY, f64::from(self.alpha))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
+    }
+}
+
 /// Generation state for [`FireflyAlgorithm`].
 #[derive(Debug, Clone)]
 pub struct FireflyState<B: Backend> {
@@ -90,15 +117,13 @@ pub struct FireflyState<B: Backend> {
 
 /// Firefly Algorithm strategy.
 ///
-/// # Panics
-///
-/// [`Strategy::init`] enforces a `pop_size <= FIREFLY_PURE_TENSOR_CAP`
-/// (= 128) cap when the `custom-kernels` feature is **off**, since the
-/// pure-tensor path materializes an `(N, N, D)` pairwise tensor.
-/// With the feature on the same cap is enforced via `debug_assert!`,
-/// because the fused kernel
-/// [`super::kernels::pairwise_attract_cube`] is still designed-only and
-/// the strategy keeps using the pure-tensor path in the meantime.
+/// When the `custom-kernels` feature is **off**, [`FireflyConfig`] enforces a
+/// `pop_size <= FIREFLY_PURE_TENSOR_CAP` (= 128) cap through
+/// [`Validate::validate`] at the harness chokepoint, since the pure-tensor path
+/// materializes an `(N, N, D)` pairwise tensor. With the feature on the same
+/// cap is surfaced via a `debug_assert!` in [`Strategy::init`], because the
+/// fused kernel [`super::kernels::pairwise_attract_cube`] is still designed-only
+/// and the strategy keeps using the pure-tensor path in the meantime.
 ///
 /// # Example
 ///
@@ -198,23 +223,16 @@ where
     /// initialisation is bit-stable regardless of core count or test
     /// ordering; the process-wide Flex RNG is never touched.
     ///
-    /// # Panics
-    ///
-    /// Panics (in release builds without `custom-kernels`) if
-    /// `params.pop_size > FIREFLY_PURE_TENSOR_CAP`. See the struct-level
-    /// docs for the cap rationale.
+    /// The `pop_size <= FIREFLY_PURE_TENSOR_CAP` cap (without `custom-kernels`)
+    /// is enforced by [`FireflyConfig`]'s [`Validate`] impl at the harness
+    /// chokepoint.
     fn init(
         &self,
         params: &FireflyConfig,
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> FireflyState<B> {
-        #[cfg(not(feature = "custom-kernels"))]
-        assert!(
-            params.pop_size <= FIREFLY_PURE_TENSOR_CAP,
-            "Firefly without `custom-kernels` feature caps pop_size at {FIREFLY_PURE_TENSOR_CAP} \
-             to keep the O(N²D) pairwise tensor bounded; enable `custom-kernels` for larger swarms",
-        );
+        debug_assert!(params.validate().is_ok(), "invalid FireflyConfig reached init: {params:?}");
         // Even with the kernel feature active, the fused pairwise-attract
         // kernel is currently a design placeholder and the pure-tensor
         // path is still in use. A debug assert surfaces the limitation in
@@ -360,6 +378,18 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(FireflyConfig::default_for(32, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_gamma() {
+        let mut cfg = FireflyConfig::default_for(32, 10);
+        cfg.gamma = 0.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "gamma");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -381,7 +411,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 29, device, 500,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

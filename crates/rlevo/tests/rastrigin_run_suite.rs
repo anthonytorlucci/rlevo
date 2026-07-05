@@ -67,7 +67,7 @@ fn ga_factory(
         seed,
         device,
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 /// Creates a (5+30)-ES harness on Rastrigin-D10 with self-adaptive step sizes.
@@ -83,7 +83,7 @@ fn es_factory(
         seed,
         device,
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 /// Creates an EP harness on Rastrigin-D10 with population size 30.
@@ -100,7 +100,7 @@ fn ep_factory(
         seed,
         device,
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 /// Creates a DE/Rand/1/bin harness on Rastrigin-D10 with F=0.5 and CR=0.9.
@@ -119,7 +119,7 @@ fn de_factory(
         seed,
         device,
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 /// Returns a minimal [`EvaluatorConfig`] for the Rastrigin run-suite tests.

@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
         seed: SEED,
         ..InvertedPendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut tap: RecordingTap<_, 1, 1, 1> =
         RecordingTap::with_locomotion_payload(env, sink.clone());
 

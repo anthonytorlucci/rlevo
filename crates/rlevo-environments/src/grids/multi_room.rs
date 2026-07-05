@@ -35,7 +35,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = MultiRoomConfig::new(3, 5, 5, 300, 0);
-//! let mut env = MultiRoomEnv::with_config(cfg, false);
+//! let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
 //! let snap = env.reset().unwrap();
 //! println!("walls: {:?}", env.wall_columns());
 //! ```
@@ -58,6 +58,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -141,6 +142,17 @@ impl Default for MultiRoomConfig {
             max_steps: 4 * num_rooms * room_width * height,
             seed: 0,
         }
+    }
+}
+
+impl Validate for MultiRoomConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "MultiRoomConfig";
+        config::nonzero(C, "num_rooms", self.num_rooms)?;
+        config::nonzero(C, "room_width", self.room_width)?;
+        config::nonzero(C, "height", self.height)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
     }
 }
 
@@ -253,19 +265,25 @@ impl MultiRoomEnv {
     /// let env = MultiRoomEnv::with_config(
     ///     MultiRoomConfig::new(3, 5, 5, 300, 0),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: MultiRoomConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero
+    /// `num_rooms`, `room_width`, `height`, or `max_steps`).
+    pub fn with_config(config: MultiRoomConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns the environment's active configuration.
@@ -374,6 +392,7 @@ impl Display for MultiRoomEnv {
 impl ConstructableEnv for MultiRoomEnv {
     fn new(render: bool) -> Self {
         Self::with_config(MultiRoomConfig::default(), render)
+            .expect("default config must validate")
     }
 }
 
@@ -412,7 +431,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> MultiRoomEnv {
-        MultiRoomEnv::with_config(MultiRoomConfig::default(), false)
+        MultiRoomEnv::with_config(MultiRoomConfig::default(), false).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(MultiRoomConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_num_rooms() {
+        let bad = MultiRoomConfig { num_rooms: 0, ..Default::default() };
+        assert!(MultiRoomEnv::with_config(bad, false).is_err());
     }
 
     #[test]
@@ -505,8 +535,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = MultiRoomConfig::new(3, 5, 5, 300, 2);
-        let mut a = MultiRoomEnv::with_config(cfg, false);
-        let mut b = MultiRoomEnv::with_config(cfg, false);
+        let mut a = MultiRoomEnv::with_config(cfg, false).expect("valid config");
+        let mut b = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         assert_eq!(sa.observation(), sb.observation());
@@ -521,7 +551,7 @@ mod tests {
     #[test]
     fn timeout_terminates_with_zero_reward() {
         let cfg = MultiRoomConfig::new(3, 5, 5, 3, 0);
-        let mut env = MultiRoomEnv::with_config(cfg, false);
+        let mut env = MultiRoomEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();

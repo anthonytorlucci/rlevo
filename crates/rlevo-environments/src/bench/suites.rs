@@ -30,10 +30,10 @@ pub fn ten_armed_bandit_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<TenArm
 #[must_use]
 pub fn cartpole_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<CartPole, 1, 1, 1>> {
     Suite::new("cartpole", cfg).with_env("cartpole-default", |seed| {
-        BenchAdapter::new(CartPole::with_config(CartPoleConfig {
-            seed,
-            ..CartPoleConfig::default()
-        }))
+        BenchAdapter::new(
+            CartPole::with_config(CartPoleConfig { seed, ..CartPoleConfig::default() })
+                .expect("valid config"),
+        )
     })
 }
 
@@ -41,9 +41,9 @@ pub fn cartpole_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<CartPole, 1, 1
 #[must_use]
 pub fn pendulum_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<Pendulum, 1, 1, 1>> {
     Suite::new("pendulum", cfg).with_env("pendulum-default", |seed| {
-        BenchAdapter::new(Pendulum::with_config(PendulumConfig {
-            seed,
-            ..PendulumConfig::default()
-        }))
+        BenchAdapter::new(
+            Pendulum::with_config(PendulumConfig { seed, ..PendulumConfig::default() })
+                .expect("valid config"),
+        )
     })
 }

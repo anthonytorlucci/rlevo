@@ -42,6 +42,7 @@ const SEED: u64 = 17;
 fn run_to_best<S, L>(strategy: S, params: S::Params, landscape: L) -> f32
 where
     S: Strategy<B>,
+    S::Params: rlevo_core::config::Validate,
     L: rlevo_core::fitness::Landscape + 'static,
     EvolutionaryHarness<B, S, FromLandscape<L>>: Sized,
     FromLandscape<L>: rlevo_evolution::fitness::BatchFitnessFn<B, S::Genome>,
@@ -54,7 +55,7 @@ where
         SEED,
         device,
         MAX_GENS,
-    );
+    ).expect("valid params");
     harness.reset();
     while !harness.step(()).done {}
     harness

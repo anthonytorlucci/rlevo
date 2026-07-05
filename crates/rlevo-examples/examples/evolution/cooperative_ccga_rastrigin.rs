@@ -99,7 +99,8 @@ fn main() {
         TOTAL,
         RepresentativePolicy::Best,
         TOTAL * POP,
-    );
+    )
+    .expect("valid cooperative params");
     let mut rng = StdRng::seed_from_u64(7);
     let mut state = algo.init(&params, &mut rng, &device);
 

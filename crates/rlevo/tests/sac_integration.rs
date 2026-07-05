@@ -233,8 +233,9 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(2)
-        .build();
-    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
@@ -264,7 +265,7 @@ fn random_pendulum(seed: u64) -> f32 {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
     random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
@@ -307,8 +308,9 @@ fn sac_alpha_moves_under_autotune() {
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(1)
-        .build();
-    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     // Prime the buffer past warm-up so learn_step proceeds.
     prime_buffer(&mut agent, &mut env, &mut rng, 128);
@@ -346,8 +348,9 @@ fn sac_alpha_frozen_when_autotune_disabled() {
         .autotune(false)
         .initial_alpha(0.2)
         .policy_frequency(1)
-        .build();
-    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     prime_buffer(&mut agent, &mut env, &mut rng, 128);
     for _ in 0..50 {
@@ -370,7 +373,7 @@ fn sac_pendulum_improves_over_random() {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -389,7 +392,8 @@ fn sac_pendulum_improves_over_random() {
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(2)
-        .build();
+        .build()
+        .expect("valid config");
     let mut agent: SacAgent<
         Be,
         StochasticActor<Be>,
@@ -400,7 +404,7 @@ fn sac_pendulum_improves_over_random() {
         2,
         1,
         2,
-    > = SacAgent::new(actor, critic_1, critic_2, config, device);
+    > = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, 30_000, 0,

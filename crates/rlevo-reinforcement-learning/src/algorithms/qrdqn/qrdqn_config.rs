@@ -14,6 +14,7 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration for training a Quantile Regression DQN (QR-DQN) agent.
 ///
@@ -115,6 +116,25 @@ impl Default for QrDqnTrainingConfig {
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
         }
+    }
+}
+
+impl Validate for QrDqnTrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "QrDqnTrainingConfig";
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::in_range(C, "gamma", 0.0, 1.0, self.gamma)?;
+        config::in_range(C, "tau", 0.0, 1.0, self.tau)?;
+        config::positive(C, "learning_rate", self.learning_rate)?;
+        config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
+        config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
+        config::in_range(C, "epsilon_decay", 0.0, 1.0, self.epsilon_decay)?;
+        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
+        config::nonzero(C, "train_frequency", self.train_frequency)?;
+        config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
+        config::nonzero(C, "num_quantiles", self.num_quantiles)?;
+        config::in_range(C, "kappa", 0.0, f64::INFINITY, f64::from(self.kappa))?;
+        Ok(())
     }
 }
 
@@ -245,8 +265,15 @@ impl QrDqnTrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the assembled [`QrDqnTrainingConfig`].
-    pub fn build(self) -> QrDqnTrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`QrDqnTrainingConfig::validate`] (e.g. zero `num_quantiles`
+    /// or a negative `kappa`).
+    pub fn build(self) -> Result<QrDqnTrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -270,17 +297,35 @@ mod tests {
             .num_quantiles(51)
             .kappa(0.5)
             .batch_size(128)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.num_quantiles, 51);
         assert!((cfg.kappa - 0.5).abs() < f32::EPSILON);
         assert_eq!(cfg.batch_size, 128);
     }
 
     #[test]
+    fn default_config_is_valid() {
+        assert!(QrDqnTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_quantiles() {
+        let err = QrDqnTrainingConfigBuilder::new()
+            .num_quantiles(0)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "num_quantiles");
+    }
+
+    #[test]
     fn taus_midpoints_match_dabney_eq_9_for_n_4() {
         // N = 4 ⇒ τ_i = (i + 0.5) / 4 ⇒ {0.125, 0.375, 0.625, 0.875}.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let cfg = QrDqnTrainingConfigBuilder::new().num_quantiles(4).build();
+        let cfg = QrDqnTrainingConfigBuilder::new()
+            .num_quantiles(4)
+            .build()
+            .expect("valid config");
         let taus: Tensor<B, 1> = cfg.quantile_taus::<B>(&device);
         let v: Vec<f32> = taus.into_data().convert::<f32>().into_vec::<f32>().unwrap();
         let expected = [0.125_f32, 0.375, 0.625, 0.875];

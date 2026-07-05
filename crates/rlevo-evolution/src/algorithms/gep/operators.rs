@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn point_mutation_preserves_tail_invariant() {
         let a = alphabet();
-        let cfg = GepConfig::new(7, 2, 1, 100);
+        let cfg = GepConfig::new(7, 2, 1, 100).unwrap();
         let mut rng = seed_stream(1, 0, SeedPurpose::Mutation);
         for _ in 0..1000 {
             let mut g = sample_valid(&a, &cfg, &mut rng);
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn all_operators_yield_decodable_offspring() {
         let a = alphabet();
-        let cfg = GepConfig::new(7, 2, 1, 100);
+        let cfg = GepConfig::new(7, 2, 1, 100).unwrap();
         let mut rng = seed_stream(2, 0, SeedPurpose::Crossover);
 
         for _ in 0..500 {
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn ris_roots_a_function() {
         let a = alphabet();
-        let cfg = GepConfig::new(7, 2, 1, 10);
+        let cfg = GepConfig::new(7, 2, 1, 10).unwrap();
         let mut rng = seed_stream(3, 0, SeedPurpose::Crossover);
         let mut rooted = 0;
         for _ in 0..200 {
@@ -259,7 +259,7 @@ mod tests {
     #[allow(clippy::similar_names)]
     fn transposition_does_not_touch_tail() {
         let a = alphabet();
-        let cfg = GepConfig::new(7, 2, 1, 10);
+        let cfg = GepConfig::new(7, 2, 1, 10).unwrap();
         let mut rng = seed_stream(4, 0, SeedPurpose::Crossover);
         let g = sample_valid(&a, &cfg, &mut rng);
         let tail_before = g[cfg.head_len..].to_vec();

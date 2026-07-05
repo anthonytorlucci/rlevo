@@ -36,7 +36,7 @@ fn main() {
         SCRIPT.len()
     );
 
-    let mut env = DoorKeyEnv::with_config(cfg, false);
+    let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
     env.reset().expect("reset");
 
     println!("\ninitial state:");

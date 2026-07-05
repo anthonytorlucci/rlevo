@@ -11,6 +11,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration for training a SAC agent.
 #[derive(Clone, Debug)]
@@ -85,6 +86,24 @@ impl Default for SacTrainingConfig {
     }
 }
 
+impl Validate for SacTrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "SacTrainingConfig";
+        config::nonzero(C, "buffer_capacity", self.buffer_capacity)?;
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::positive(C, "actor_lr", self.actor_lr)?;
+        config::positive(C, "critic_lr", self.critic_lr)?;
+        config::positive(C, "alpha_lr", self.alpha_lr)?;
+        config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
+        config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
+        config::positive(C, "initial_alpha", f64::from(self.initial_alpha))?;
+        config::ordered(C, "log_std_max", f64::from(self.log_std_min), f64::from(self.log_std_max))?;
+        config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
+        config::at_least(C, "target_update_frequency", self.target_update_frequency, 1)?;
+        Ok(())
+    }
+}
+
 /// Fluent builder for [`SacTrainingConfig`]. All unset fields default to
 /// [`SacTrainingConfig::default`].
 ///
@@ -96,7 +115,8 @@ impl Default for SacTrainingConfig {
 /// let cfg = SacTrainingConfigBuilder::new()
 ///     .batch_size(128)
 ///     .autotune(true)
-///     .build();
+///     .build()
+///     .expect("valid config");
 /// ```
 pub struct SacTrainingConfigBuilder {
     config: SacTrainingConfig,
@@ -223,8 +243,15 @@ impl SacTrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the final config.
-    pub fn build(self) -> SacTrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`SacTrainingConfig::validate`] (e.g. `log_std_min >=
+    /// log_std_max` or a non-positive `initial_alpha`).
+    pub fn build(self) -> Result<SacTrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -260,7 +287,8 @@ mod tests {
             .initial_alpha(0.2)
             .target_entropy(Some(-1.0))
             .policy_frequency(1)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.batch_size, 64);
         assert!(!cfg.autotune);
         assert!((cfg.initial_alpha - 0.2).abs() < 1e-6);
@@ -268,5 +296,20 @@ mod tests {
         assert_eq!(cfg.policy_frequency, 1);
         // Untouched fields retain defaults.
         assert_eq!(cfg.learning_starts, 5_000);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(SacTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_inverted_log_std_bounds() {
+        let err = SacTrainingConfigBuilder::new()
+            .log_std_min(2.0)
+            .log_std_max(-5.0)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "log_std_max");
     }
 }

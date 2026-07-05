@@ -43,7 +43,7 @@ fn main() {
         shape,
     );
 
-    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false).expect("valid config");
     let snap = env.reset().expect("reset");
 
     println!("\ninitial state — latent (agent={}, goal={})", env.state().agent(), env.state().goal());

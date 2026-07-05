@@ -14,6 +14,8 @@ use std::marker::PhantomData;
 use burn::tensor::{Tensor, backend::Backend};
 use rand::Rng;
 
+use rlevo_core::config::{ConfigError, Validate};
+
 use crate::strategy::Strategy;
 
 use super::fitness::CoupledFitness;
@@ -28,6 +30,16 @@ pub struct CompetitiveCoEAParams<PA, PB> {
     pub params_a: PA,
     /// Params for population B's inner strategy.
     pub params_b: PB,
+}
+
+/// Validation delegates to nothing: [`CompetitiveCoEAParams`] carries only the
+/// two inner-strategy params, each already validated at that strategy's own
+/// harness chokepoint. No `PA: Validate` / `PB: Validate` bound is imposed, so
+/// the params stay usable with unit-typed inner params in tests.
+impl<PA, PB> Validate for CompetitiveCoEAParams<PA, PB> {
+    fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
+    }
 }
 
 /// Competitive co-evolutionary algorithm over two adversarial populations.

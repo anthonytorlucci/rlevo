@@ -30,13 +30,15 @@ with code that actually compiles and trains.
 
 CartPole lives in `rlevo::envs::classic::cartpole::CartPole`. It implements
 `Environment<1, 1, 1>` — observation, state, and action spaces are all rank-1
-(flat). Construction goes through `with_config` (or `ConstructableEnv::new`):
+(flat). Construction goes through `with_config` — which validates the config and
+returns `Result<_, ConfigError>` — or the infallible `ConstructableEnv::new`,
+whose default config is guaranteed valid:
 
 ```rust,no_run
 use rlevo::envs::classic::cartpole::{CartPole, CartPoleConfig};
 use rlevo::core::environment::Environment;
 
-let mut env = CartPole::with_config(CartPoleConfig::default());
+let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 let snapshot = env.reset()?;
 
 let obs = snapshot.observation();          // &CartPoleObservation

@@ -25,6 +25,7 @@ use rand::RngExt;
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -218,13 +219,19 @@ where
     /// The caller is expected to initialise `critic_1` and `critic_2` with
     /// different random seeds — Fujimoto et al. rely on independent initial
     /// errors so the `min` target actually suppresses overestimation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`Td3TrainingConfig::validate`](rlevo_core::config::Validate::validate).
     pub fn new(
         actor: Actor,
         critic_1: Critic,
         critic_2: Critic,
         config: Td3TrainingConfig,
         device: B::Device,
-    ) -> Self {
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let target_actor = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
@@ -249,7 +256,7 @@ where
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<Td3Metrics>::new(100);
-        Self {
+        Ok(Self {
             actor: Some(actor),
             target_actor,
             critic_1: Some(critic_1),
@@ -270,7 +277,7 @@ where
             stats,
             last_actor_loss: 0.0,
             _action: PhantomData,
-        }
+        })
     }
 
     /// Current agent statistics.

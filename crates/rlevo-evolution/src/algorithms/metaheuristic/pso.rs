@@ -52,6 +52,8 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -134,6 +136,26 @@ impl PsoConfig {
     }
 }
 
+impl Validate for PsoConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PsoConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::in_range(C, "c1", 0.0, f64::INFINITY, f64::from(self.c1))?;
+        config::in_range(C, "c2", 0.0, f64::INFINITY, f64::from(self.c2))?;
+        config::positive(C, "v_max", f64::from(self.v_max))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        if self.variant == PsoVariant::Constriction && self.c1 + self.c2 <= 4.0 {
+            return Err(ConfigError {
+                config: C,
+                field: "c1",
+                kind: ConstraintKind::Custom("constriction requires c1 + c2 > 4"),
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Generation state for [`ParticleSwarm`].
 #[derive(Debug, Clone)]
 pub struct PsoState<B: Backend> {
@@ -207,6 +229,7 @@ where
     type Genome = Tensor<B, 2>;
 
     fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> PsoState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid PsoConfig reached init: {params:?}");
         let positions = Self::sample_positions(params, rng, device);
         let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
         let personal_best = positions.clone();
@@ -404,6 +427,19 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(PsoConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_constriction_with_insufficient_phi() {
+        let mut cfg = PsoConfig::default_for(30, 10);
+        cfg.variant = PsoVariant::Constriction;
+        // default c1 = c2 = 1.49618 gives phi ≈ 2.99 < 4.
+        assert_eq!(cfg.validate().unwrap_err().field, "c1");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -432,7 +468,7 @@ mod tests {
             seed,
             device,
             generations,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

@@ -37,6 +37,8 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -65,6 +67,17 @@ impl SalpConfig {
             bounds: (-5.12, 5.12),
             max_generations: 500,
         }
+    }
+}
+
+impl Validate for SalpConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "SalpConfig";
+        config::at_least(C, "pop_size", self.pop_size, 2)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        config::at_least(C, "max_generations", self.max_generations, 1)?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -132,11 +145,10 @@ where
     /// Samples the initial swarm uniformly within [`SalpConfig::bounds`]
     /// using the host-RNG convention and sets the generation counter to zero.
     ///
-    /// # Panics
-    ///
-    /// Panics if `params.pop_size < 2`.
+    /// The `pop_size >= 2` invariant is enforced by [`Validate::validate`] at
+    /// the harness chokepoint.
     fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
-        assert!(params.pop_size >= 2, "SSA requires pop_size >= 2");
+        debug_assert!(params.validate().is_ok(), "invalid SalpConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Host-sample the initial swarm from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -315,6 +327,18 @@ mod tests {
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(SalpConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_pop_size_below_two() {
+        let mut cfg = SalpConfig::default_for(30, 10);
+        cfg.pop_size = 1;
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
     type TestBackend = Flex;
 
     struct Sphere;
@@ -339,7 +363,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 3, device, 600,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

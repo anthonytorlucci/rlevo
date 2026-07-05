@@ -43,6 +43,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -83,6 +84,14 @@ impl CliffWalkingConfig {
     /// Returns a builder for constructing a `CliffWalkingConfig`.
     pub fn builder() -> CliffWalkingConfigBuilder {
         CliffWalkingConfigBuilder::default()
+    }
+}
+
+impl Validate for CliffWalkingConfig {
+    /// [`CliffWalkingConfig`] carries only a boolean toggle and a seed, so it
+    /// has no numeric invariant to check; validation always succeeds.
+    fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
     }
 }
 
@@ -278,16 +287,24 @@ pub struct CliffWalking {
 
 impl CliffWalking {
     /// Creates a [`CliffWalking`] environment with the given configuration.
-    pub fn with_config(config: CliffWalkingConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`].
+    /// [`CliffWalkingConfig`] currently has no numeric invariant, so this never
+    /// fails in practice; the fallible signature keeps the construction
+    /// contract uniform across environments.
+    pub fn with_config(config: CliffWalkingConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: CliffWalkingState {
                 row: START.0,
                 col: START.1,
             },
             config,
             rng,
-        }
+        })
     }
 
     fn resolve_action(&mut self, action: CliffWalkingAction) -> CliffWalkingAction {
@@ -306,7 +323,7 @@ impl CliffWalking {
 
 impl ConstructableEnv for CliffWalking {
     fn new(_render: bool) -> Self {
-        Self::with_config(CliffWalkingConfig::default())
+        Self::with_config(CliffWalkingConfig::default()).expect("default config must validate")
     }
 }
 
@@ -452,7 +469,12 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn make_env() -> CliffWalking {
-        CliffWalking::with_config(CliffWalkingConfig::default())
+        CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(CliffWalkingConfig::default().validate().is_ok());
     }
 
     #[test]
@@ -563,7 +585,7 @@ mod tests {
             .is_slippery(true)
             .seed(7)
             .build();
-        let mut env = CliffWalking::with_config(cfg);
+        let mut env = CliffWalking::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // Place at (1, 6): move Right; count how often we end up at (1,7), (0,6), (2,6).
         let n = 12_000u32;
@@ -598,7 +620,7 @@ mod tests {
             .seed(3)
             .build();
         let run = || {
-            let mut env = CliffWalking::with_config(cfg.clone());
+            let mut env = CliffWalking::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut total = 0.0_f32;
             for _ in 0..20 {
@@ -618,7 +640,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -631,7 +653,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, GOAL_FG, HAZARD_FG};
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
 
@@ -663,7 +685,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

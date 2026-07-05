@@ -53,7 +53,7 @@ fn main() {
     println!("  force_mag     = {} N", cfg.force_mag);
     println!("  tau           = {} s", cfg.tau);
 
-    let env = CartPole::with_config(cfg);
+    let env = CartPole::with_config(cfg).expect("valid config");
     let mut timed = TimeLimit::new(env, TIME_LIMIT);
     let mut rng = StdRng::seed_from_u64(99);
     let dist = Uniform::new(0, CartPoleAction::ACTION_COUNT).unwrap();

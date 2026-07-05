@@ -155,7 +155,7 @@ fn main() {
         /* seed */ 3,
         device,
         /* max_generations */ 600,
-    );
+    ).expect("valid config");
 
     harness.reset();
     while !harness.step(()).done {}

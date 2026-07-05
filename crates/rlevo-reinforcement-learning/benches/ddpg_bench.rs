@@ -132,8 +132,9 @@ fn build_agent() -> Agent {
         .batch_size(256)
         .learning_starts(0)
         .policy_frequency(2)
-        .build();
-    DdpgAgent::new(actor, critic, config, device)
+        .build()
+        .expect("valid config");
+    DdpgAgent::new(actor, critic, config, device).expect("valid config")
 }
 
 fn bench_act(c: &mut Criterion) {
@@ -153,7 +154,7 @@ fn bench_act(c: &mut Criterion) {
 
 fn bench_learn(c: &mut Criterion) {
     let mut agent = build_agent();
-    let mut env = Pendulum::with_config(PendulumConfig::default());
+    let mut env = Pendulum::with_config(PendulumConfig::default()).expect("valid config");
     let mut rng = StdRng::seed_from_u64(0);
 
     let mut snap = env.reset().expect("reset");

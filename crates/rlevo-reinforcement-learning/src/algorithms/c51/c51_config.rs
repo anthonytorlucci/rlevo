@@ -7,6 +7,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration for training a Categorical DQN (C51) agent.
 ///
@@ -108,6 +109,26 @@ impl Default for C51TrainingConfig {
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
         }
+    }
+}
+
+impl Validate for C51TrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "C51TrainingConfig";
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::in_range(C, "gamma", 0.0, 1.0, self.gamma)?;
+        config::in_range(C, "tau", 0.0, 1.0, self.tau)?;
+        config::positive(C, "learning_rate", self.learning_rate)?;
+        config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
+        config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
+        config::in_range(C, "epsilon_decay", 0.0, 1.0, self.epsilon_decay)?;
+        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
+        config::nonzero(C, "train_frequency", self.train_frequency)?;
+        config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
+        config::at_least(C, "num_atoms", self.num_atoms, 2)?;
+        config::distinct(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
+        config::ordered(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
+        Ok(())
     }
 }
 
@@ -244,8 +265,15 @@ impl C51TrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the finalised [`C51TrainingConfig`].
-    pub fn build(self) -> C51TrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`C51TrainingConfig::validate`] (e.g. `v_min >= v_max` or
+    /// fewer than two atoms).
+    pub fn build(self) -> Result<C51TrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -267,7 +295,8 @@ mod tests {
             .num_atoms(51)
             .v_min(-10.0)
             .v_max(10.0)
-            .build();
+            .build()
+            .expect("valid config");
         // 50 gaps spanning 20.0 → 0.4 per atom.
         assert!((cfg.delta_z() - 0.4).abs() < 1e-6);
     }
@@ -279,11 +308,27 @@ mod tests {
             .v_min(-5.0)
             .v_max(5.0)
             .batch_size(128)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.num_atoms, 21);
         assert_eq!(cfg.v_min, -5.0);
         assert_eq!(cfg.v_max, 5.0);
         assert_eq!(cfg.batch_size, 128);
         assert!((cfg.delta_z() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(C51TrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_degenerate_support() {
+        let err = C51TrainingConfigBuilder::new()
+            .v_min(5.0)
+            .v_max(5.0)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "v_max");
     }
 }

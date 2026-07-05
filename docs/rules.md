@@ -139,8 +139,8 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   ```
 - Return `Result<T, SpecificError>` — never erase error types with `Box<dyn Error>` in library-facing APIs.
 - Domain boundaries: `EnvironmentError` for environment ops, `TensorConversionError` for tensor ops, `ReplayBufferError` for buffer ops.
-- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, invalid builder config). Document every panic site in a `# Panics` doc section.
-- Never panic in response to user-supplied runtime data; return `Err(...)` instead.
+- **Panics are permitted only for programming errors** (index out of bounds, dimension mismatch, or an out-of-domain argument to a single documented builder setter — see the Panic Contracts table and the Config Validation Contract below). Document every panic site in a `# Panics` doc section.
+- Never panic in response to user-supplied runtime data; return `Err(...)` instead. A `Deserialize`-able config *is* user-supplied runtime data.
 
 ### Documented Panic Contracts
 
@@ -159,6 +159,30 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `ops::replacement::elitist` | `k > pop_size` or `pop_size − k > offspring count` |
 | `ops::replacement::mu_plus_lambda` | `mu > parent count + offspring count` |
 | `ops::replacement::mu_comma_lambda` | `mu > offspring count` (i.e. `λ < μ`) |
+
+The `Builder with_capacity(n)` / `with_alpha(x)` rows are the blessed
+**setter-guard** exception: a single `with_*` method may panic on an
+out-of-domain argument because the panic points at the offending call site.
+They do **not** replace whole-config validation — see below.
+
+### Config Validation Contract (ADR 0026)
+
+- Every public `*Config` (and any hyperparameter-bearing builder) implements
+  `rlevo_core::config::Validate` — `fn validate(&self) -> Result<(), ConfigError>`.
+  `ConfigError` names the config, the field, and the violated `ConstraintKind`
+  (structured, allocation-free).
+- Construction that consumes a **caller-supplied or deserialized** config calls
+  `config.validate()?` and returns `Result<_, ConfigError>`. It **must not
+  panic** — a config can arrive via `Deserialize` or struct-update syntax with
+  no guarded setter, and such data falls under the "never panic on
+  user-supplied runtime data" rule above.
+- `Default` construction stays infallible, but every `impl Validate` unit-tests
+  that its own `Default` passes `validate()` (a library default must be valid).
+- The line: a **setter guard** (`with_x(v)`) may panic on one out-of-domain
+  argument at its call site; validating an **assembled config as a whole**
+  (cross-field invariants, or fields set without a guarded setter) returns
+  `ConfigError`. If an invalid value can arrive via `Deserialize`, it must be an
+  `Err`, never a panic.
 
 ---
 

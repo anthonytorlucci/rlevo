@@ -42,7 +42,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = DistShiftConfig::new(DistShiftVariant::Two, 100, 0);
-//! let mut env = DistShiftEnv::with_config(cfg, false);
+//! let mut env = DistShiftEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -63,6 +63,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -170,6 +171,14 @@ impl Default for DistShiftConfig {
     }
 }
 
+impl Validate for DistShiftConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DistShiftConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 impl FromStr for DistShiftConfig {
     type Err = String;
 
@@ -225,7 +234,8 @@ impl FromStr for DistShiftConfig {
 /// let mut env = DistShiftEnv::with_config(
 ///     DistShiftConfig::new(DistShiftVariant::One, 100, 0),
 ///     false,
-/// );
+/// )
+/// .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -252,19 +262,25 @@ impl DistShiftEnv {
     /// let env = DistShiftEnv::with_config(
     ///     DistShiftConfig::new(DistShiftVariant::Two, 100, 42),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: DistShiftConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero
+    /// `max_steps`).
+    pub fn with_config(config: DistShiftConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -336,7 +352,7 @@ impl Display for DistShiftEnv {
 
 impl ConstructableEnv for DistShiftEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(DistShiftConfig::default(), render)
+        Self::with_config(DistShiftConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -373,6 +389,17 @@ impl Environment<3, 3, 1> for DistShiftEnv {
 mod tests {
     use super::*;
     use rlevo_core::environment::Snapshot;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(DistShiftConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = DistShiftConfig { max_steps: 0, ..Default::default() };
+        assert!(DistShiftEnv::with_config(bad, false).is_err());
+    }
 
     #[test]
     fn default_config_is_variant_one() {
@@ -418,7 +445,7 @@ mod tests {
 
     #[test]
     fn build_variant_one_places_lava_in_row_three() {
-        let env = DistShiftEnv::with_config(DistShiftConfig::default(), false);
+        let env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         for x in 2..=6 {
             assert_eq!(env.state().grid.get(x, 3), Entity::Lava);
         }
@@ -430,7 +457,7 @@ mod tests {
     #[test]
     fn build_variant_two_places_lava_in_row_five() {
         let env =
-            DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false);
+            DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false).expect("valid config");
         for x in 2..=6 {
             assert_eq!(env.state().grid.get(x, 5), Entity::Lava);
             // Row 3 should be clear in this variant.
@@ -440,7 +467,7 @@ mod tests {
 
     #[test]
     fn optimal_rollout_along_top_row_reaches_goal() {
-        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false);
+        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         env.reset().unwrap();
         let mut last = None;
         for _ in 0..6 {
@@ -454,7 +481,7 @@ mod tests {
 
     #[test]
     fn walking_into_lava_terminates_zero_reward() {
-        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false);
+        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         env.reset().unwrap();
         // Two Forwards to (3, 1), then turn south and step onto lava at (3, 3).
         env.step(GridAction::Forward).unwrap(); // (2,1)
@@ -471,8 +498,8 @@ mod tests {
     fn reset_is_deterministic_between_variants() {
         let cfg_a = DistShiftConfig::new(DistShiftVariant::One, 100, 0);
         let cfg_b = DistShiftConfig::new(DistShiftVariant::Two, 100, 0);
-        let mut a = DistShiftEnv::with_config(cfg_a, false);
-        let mut b = DistShiftEnv::with_config(cfg_b, false);
+        let mut a = DistShiftEnv::with_config(cfg_a, false).expect("valid config");
+        let mut b = DistShiftEnv::with_config(cfg_b, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         // The two variants must emit distinct observations because the

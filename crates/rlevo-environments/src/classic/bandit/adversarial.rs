@@ -33,7 +33,7 @@
 //!     amplitude: 1.0,
 //!     ..AdversarialBanditConfig::default()
 //! };
-//! let mut env = AdversarialBandit::<10>::with_config(cfg);
+//! let mut env = AdversarialBandit::<10>::with_config(cfg).expect("valid config");
 //! let _ = <AdversarialBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm in range");
@@ -45,6 +45,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{Action, Reward, State};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -81,6 +82,16 @@ impl Default for AdversarialBanditConfig {
             period: 10,
             amplitude: 1.0,
         }
+    }
+}
+
+impl Validate for AdversarialBanditConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "AdversarialBanditConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::nonzero(C, "period", self.period)?;
+        config::positive(C, "amplitude", f64::from(self.amplitude))?;
+        Ok(())
     }
 }
 
@@ -203,7 +214,7 @@ impl<const K: usize> AdversarialBandit<K> {
             seed,
             ..AdversarialBanditConfig::default()
         };
-        Self::with_config(config)
+        Self::with_config(config).expect("default-derived config must validate")
     }
 
     /// Construct with an explicit config.
@@ -211,17 +222,23 @@ impl<const K: usize> AdversarialBandit<K> {
     /// Seeds the RNG from `config.seed` and draws the per-arm phase offsets
     /// from `Uniform(0, period)`. The same seed and config will always produce
     /// the same phase array and therefore the same reward schedule.
-    pub fn with_config(config: AdversarialBanditConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// `max_steps == 0`, `period == 0`, or non-positive `amplitude`).
+    pub fn with_config(config: AdversarialBanditConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let phases = sample_phases::<K>(&mut rng, config.period.max(1));
-        Self {
+        Ok(Self {
             state: KArmedBanditState,
             steps: 0,
             done: false,
             config,
             rng,
             phases,
-        }
+        })
     }
 
     /// Read-only view of the per-arm phase offsets used by the reward
@@ -250,7 +267,7 @@ fn sample_phases<const K: usize>(rng: &mut StdRng, period: usize) -> [usize; K] 
 impl<const K: usize> ConstructableEnv for AdversarialBandit<K> {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(AdversarialBanditConfig::default())
+        Self::with_config(AdversarialBanditConfig::default()).expect("default config must validate")
     }
 }
 
@@ -328,8 +345,19 @@ mod tests {
     const K: usize = 10;
 
     #[test]
+    fn default_config_validates() {
+        assert!(AdversarialBanditConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_period() {
+        let bad = AdversarialBanditConfig { period: 0, ..Default::default() };
+        assert!(AdversarialBandit::<10>::with_config(bad).is_err());
+    }
+
+    #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default());
+        let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default()).expect("valid config");
         let snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
@@ -343,7 +371,7 @@ mod tests {
             period: 7,
             amplitude: 1.0,
         };
-        let mut env = AdversarialBandit::<K>::with_config(cfg);
+        let mut env = AdversarialBandit::<K>::with_config(cfg).expect("valid config");
         <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         for step in 0..50 {
             let action = KArmedBanditAction::<K>::from_index(step % K);
@@ -365,8 +393,8 @@ mod tests {
             period: 8,
             amplitude: 1.0,
         };
-        let mut a = AdversarialBandit::<K>::with_config(cfg.clone());
-        let mut b = AdversarialBandit::<K>::with_config(cfg);
+        let mut a = AdversarialBandit::<K>::with_config(cfg.clone()).expect("valid config");
+        let mut b = AdversarialBandit::<K>::with_config(cfg).expect("valid config");
         <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
         <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
         assert_eq!(a.phases(), b.phases());
@@ -391,7 +419,7 @@ mod tests {
             period: 5,
             amplitude: 1.0,
         };
-        let env = AdversarialBandit::<K>::with_config(cfg);
+        let env = AdversarialBandit::<K>::with_config(cfg).expect("valid config");
         let r0 = env.reward_at(2, 0);
         let r5 = env.reward_at(2, 5);
         let r10 = env.reward_at(2, 10);
@@ -406,7 +434,8 @@ mod tests {
             seed: 1,
             period: 4,
             amplitude: 1.0,
-        });
+        })
+        .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <AdversarialBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());

@@ -44,7 +44,7 @@ fn main() {
     let fitness_fn = FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize);
 
     let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS);
+        EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS).expect("valid params");
 
     harness.reset();
 
@@ -85,7 +85,7 @@ mod tests {
             SEED,
             device,
             GENS,
-        );
+        ).expect("valid params");
 
         harness.reset();
         loop {

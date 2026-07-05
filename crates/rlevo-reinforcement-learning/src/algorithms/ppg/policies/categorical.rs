@@ -16,6 +16,7 @@ use burn::tensor::activation::{log_softmax, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::algorithms::ppg::ppg_policy::PpgAuxValueHead;
 use crate::algorithms::ppo::ppo_policy::{LogProbEntropy, PolicyOutput, PpoPolicy};
@@ -45,6 +46,16 @@ impl PpgCategoricalPolicyHeadConfig {
             aux_value_head: LinearConfig::new(self.hidden, 1).init(device),
             num_actions: self.num_actions,
         }
+    }
+}
+
+impl Validate for PpgCategoricalPolicyHeadConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PpgCategoricalPolicyHeadConfig";
+        config::nonzero(C, "obs_dim", self.obs_dim)?;
+        config::nonzero(C, "hidden", self.hidden)?;
+        config::nonzero(C, "num_actions", self.num_actions)?;
+        Ok(())
     }
 }
 
@@ -241,6 +252,12 @@ mod tests {
     use rand::rngs::StdRng;
 
     type B = Autodiff<Flex>;
+
+    #[test]
+    fn representative_head_config_is_valid() {
+        let cfg = PpgCategoricalPolicyHeadConfig { obs_dim: 4, hidden: 64, num_actions: 2 };
+        assert!(cfg.validate().is_ok());
+    }
 
     fn head() -> PpgCategoricalPolicyHead<B> {
         let device = Default::default();

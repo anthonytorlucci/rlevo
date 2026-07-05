@@ -46,6 +46,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -110,6 +111,14 @@ impl TaxiConfig {
     /// Returns a builder for constructing a `TaxiConfig`.
     pub fn builder() -> TaxiConfigBuilder {
         TaxiConfigBuilder::default()
+    }
+}
+
+impl Validate for TaxiConfig {
+    /// [`TaxiConfig`] carries only boolean toggles and a seed, so it has no
+    /// numeric invariant to check; validation always succeeds.
+    fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
     }
 }
 
@@ -333,9 +342,17 @@ pub struct Taxi {
 
 impl Taxi {
     /// Creates a [`Taxi`] environment with the given configuration.
-    pub fn with_config(config: TaxiConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]. [`TaxiConfig`]
+    /// currently has no numeric invariant, so this never fails in practice; the
+    /// fallible signature keeps the construction contract uniform across
+    /// environments.
+    pub fn with_config(config: TaxiConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: TaxiState {
                 taxi_row: 0,
                 taxi_col: 0,
@@ -345,7 +362,7 @@ impl Taxi {
             config,
             rng,
             fickle_armed: false,
-        }
+        })
     }
 
     fn sample_initial_state(&mut self) -> TaxiState {
@@ -382,7 +399,7 @@ impl Taxi {
 
 impl ConstructableEnv for Taxi {
     fn new(_render: bool) -> Self {
-        Self::with_config(TaxiConfig::default())
+        Self::with_config(TaxiConfig::default()).expect("default config must validate")
     }
 }
 
@@ -634,7 +651,12 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn make_env() -> Taxi {
-        Taxi::with_config(TaxiConfig::default())
+        Taxi::with_config(TaxiConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(TaxiConfig::default().validate().is_ok());
     }
 
     #[test]
@@ -725,7 +747,7 @@ mod tests {
     /// Verifies the rainy-mode slip distribution: 80% intended, 10% each perpendicular.
     fn is_rainy_slip_distribution() {
         let cfg = TaxiConfig::builder().is_rainy(true).seed(17).build();
-        let mut env = Taxi::with_config(cfg);
+        let mut env = Taxi::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
         let n = 10_000u32;
@@ -762,7 +784,7 @@ mod tests {
             .fickle_passenger(true)
             .seed(31)
             .build();
-        let mut env = Taxi::with_config(cfg);
+        let mut env = Taxi::with_config(cfg).expect("valid config");
         env.reset().unwrap();
 
         let n = 10_000u32;
@@ -797,7 +819,7 @@ mod tests {
     fn determinism() {
         let cfg = TaxiConfig::builder().is_rainy(true).seed(55).build();
         let run = || {
-            let mut env = Taxi::with_config(cfg.clone());
+            let mut env = Taxi::with_config(cfg.clone()).expect("valid config");
             let mut total = 0.0_f32;
             for _ in 0..3 {
                 env.reset().unwrap();
@@ -819,7 +841,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = Taxi::with_config(TaxiConfig::default());
+        let mut env = Taxi::with_config(TaxiConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -832,7 +854,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, WALL_FG};
 
-        let mut env = Taxi::with_config(TaxiConfig::default());
+        let mut env = Taxi::with_config(TaxiConfig::default()).expect("valid config");
         env.reset().unwrap();
         // Pin a state with a guaranteed-visible destination (LOCS[1] = (0,4))
         // while the taxi sits at (2, 2) and the passenger waits at LOCS[0].
@@ -880,7 +902,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = Taxi::with_config(TaxiConfig::default());
+        let mut env = Taxi::with_config(TaxiConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

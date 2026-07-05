@@ -23,6 +23,7 @@ use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -96,7 +97,12 @@ impl BipedalWalker {
     ///
     /// The physics world is fully built and warm-started during construction,
     /// so the environment is ready to receive `reset()` immediately.
-    pub fn with_config(config: BipedalWalkerConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `motors_torque`, `dt`, or `max_steps == 0`).
+    pub fn with_config(config: BipedalWalkerConfig) -> Result<Self, ConfigError> {
         let terrain: Box<dyn TerrainGenerator> = Box::new(FlatTerrain);
         Self::build(config, terrain)
     }
@@ -106,11 +112,22 @@ impl BipedalWalker {
     ///
     /// Use this to supply a custom terrain implementation or to inject a
     /// seeded generator for reproducible test scenarios.
-    pub fn with_terrain(config: BipedalWalkerConfig, terrain: Box<dyn TerrainGenerator>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`].
+    pub fn with_terrain(
+        config: BipedalWalkerConfig,
+        terrain: Box<dyn TerrainGenerator>,
+    ) -> Result<Self, ConfigError> {
         Self::build(config, terrain)
     }
 
-    fn build(config: BipedalWalkerConfig, terrain: Box<dyn TerrainGenerator>) -> Self {
+    fn build(
+        config: BipedalWalkerConfig,
+        terrain: Box<dyn TerrainGenerator>,
+    ) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let mut env = Self {
             world: RapierWorld::new(Vector::new(0.0, config.gravity), config.dt),
@@ -136,7 +153,7 @@ impl BipedalWalker {
             total_reward: 0.0,
         };
         env.rebuild_world();
-        env
+        Ok(env)
     }
 
     /// Tear down and rebuild the rapier world with fresh terrain and walker bodies.
@@ -421,7 +438,7 @@ impl BipedalWalker {
 
 impl ConstructableEnv for BipedalWalker {
     fn new(_render: bool) -> Self {
-        Self::with_config(BipedalWalkerConfig::default())
+        Self::with_config(BipedalWalkerConfig::default()).expect("default config must validate")
     }
 }
 
@@ -583,7 +600,7 @@ mod tests {
 
     /// Creates a default flat-terrain environment for use in tests.
     fn make_env() -> BipedalWalker {
-        BipedalWalker::with_config(BipedalWalkerConfig::default())
+        BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config")
     }
 
     #[test]
@@ -625,13 +642,13 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = BipedalWalkerConfig::builder().seed(42).build();
+        let cfg = BipedalWalkerConfig::builder().seed(42).build().expect("valid config");
         let actions: Vec<BipedalWalkerAction> = (0..20)
             .map(|i| BipedalWalkerAction([(i as f32 * 0.1).sin(); 4]))
             .collect();
 
         let run = |actions: &[BipedalWalkerAction]| {
-            let mut env = BipedalWalker::with_config(cfg.clone());
+            let mut env = BipedalWalker::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut last_obs = BipedalWalkerObservation::default();
             for a in actions {
@@ -654,7 +671,7 @@ mod tests {
     fn test_terrain_generator_pluggable() {
         use crate::box2d::bipedal_walker::terrain::FlatTerrain;
         let cfg = BipedalWalkerConfig::default();
-        let mut env = BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain));
+        let mut env = BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain)).expect("valid config");
         let snap = env.reset().unwrap();
         assert!(snap.observation().is_finite());
     }
@@ -663,7 +680,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
@@ -674,7 +691,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
         let label = styled.lines[0]
@@ -690,7 +707,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

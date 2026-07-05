@@ -42,6 +42,7 @@ use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 use rlevo_core::objective::ObjectiveSense;
 
@@ -273,7 +274,7 @@ impl StrategyMetrics {
 ///     GaConfig::default_for(32, 5),
 ///     FromFitnessEvaluable::new(SphereFit, Sphere),
 ///     0, device, 100,
-/// );
+/// ).expect("valid params");
 /// harness.reset();
 /// while !harness.step(()).done {}
 /// ```
@@ -347,8 +348,18 @@ where
 {
     /// Build a new harness from its parts.
     ///
+    /// The caller-supplied `params` are validated up front — this is the
+    /// harness consumption chokepoint (ADR 0026), so an invalid configuration
+    /// is rejected here rather than surfacing as a panic deep inside a
+    /// strategy's tensor code.
+    ///
     /// The harness is lazily initialized — the first [`reset`](BenchEnv::reset)
     /// call materializes the initial state on the supplied device.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] when `params` fails [`Validate::validate`],
+    /// naming the offending field and violated invariant.
     pub fn new(
         strategy: S,
         params: S::Params,
@@ -356,8 +367,12 @@ where
         seed: u64,
         device: B::Device,
         max_generations: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ConfigError>
+    where
+        S::Params: Validate,
+    {
+        params.validate()?;
+        Ok(Self {
             strategy,
             params,
             fitness_fn,
@@ -370,7 +385,7 @@ where
             latest_metrics: None,
             observer: None,
             _backend: PhantomData,
-        }
+        })
     }
 
     /// Attach a per-generation [`PopulationObserver`].
@@ -590,6 +605,14 @@ mod tests {
         dim: usize,
     }
 
+    impl Validate for Params {
+        fn validate(&self) -> Result<(), ConfigError> {
+            rlevo_core::config::nonzero("Params", "pop_size", self.pop_size)?;
+            rlevo_core::config::nonzero("Params", "dim", self.dim)?;
+            Ok(())
+        }
+    }
+
     #[derive(Debug, Clone)]
     struct State {
         generation: usize,
@@ -680,7 +703,7 @@ mod tests {
             dim: 3,
         };
         let mut harness =
-            EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5);
+            EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5).expect("valid params");
         harness.reset();
         let step = harness.step(());
         assert_eq!(step.reward, -42.0);
@@ -705,7 +728,7 @@ mod tests {
             1,
             device,
             2,
-        );
+        ).expect("valid params");
         harness.reset();
         assert!(!harness.step(()).done);
         assert!(harness.step(()).done);
@@ -776,7 +799,7 @@ mod tests {
             1,
             device,
             3,
-        )
+        ).expect("valid params")
         .with_observer(observer.clone() as SharedPopulationObserver);
         harness.reset();
         for _ in 0..3 {
@@ -811,7 +834,7 @@ mod tests {
             1,
             device,
             1,
-        );
+        ).expect("valid params");
         harness.reset();
         let step = harness.step(());
         assert!(step.done);

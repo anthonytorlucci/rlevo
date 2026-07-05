@@ -169,8 +169,9 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .policy_noise(0.2)
         .noise_clip(0.5)
         .policy_frequency(2)
-        .build();
-    let mut agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
@@ -200,7 +201,7 @@ fn random_pendulum(seed: u64) -> f32 {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
     random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
@@ -254,8 +255,9 @@ fn td3_act_with_matches_deterministic_act() {
         .policy_noise(0.2)
         .noise_clip(0.5)
         .policy_frequency(2)
-        .build();
-    let agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     let net = agent.inference_net();
     let mut rng = StdRng::seed_from_u64(seed);
@@ -290,8 +292,9 @@ fn td3_delayed_update_skips_actor_step() {
         .batch_size(8)
         .learning_starts(32)
         .policy_frequency(2)
-        .build();
-    let mut agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device);
+        .build()
+        .expect("valid config");
+    let mut agent: LinearAgent = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     // Prime the buffer past both the batch-size and warm-up thresholds.
     let mut snap = env.reset().expect("reset");
@@ -343,7 +346,7 @@ fn td3_pendulum_improves_over_random() {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    });
+    }).expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -362,7 +365,8 @@ fn td3_pendulum_improves_over_random() {
         .policy_noise(0.2)
         .noise_clip(0.5)
         .policy_frequency(2)
-        .build();
+        .build()
+        .expect("valid config");
     let mut agent: Td3Agent<
         Be,
         Actor<Be>,
@@ -373,7 +377,7 @@ fn td3_pendulum_improves_over_random() {
         2,
         1,
         2,
-    > = Td3Agent::new(actor, critic_1, critic_2, config, device);
+    > = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, 500_000, 0,

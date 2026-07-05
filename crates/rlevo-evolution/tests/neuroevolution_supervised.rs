@@ -105,7 +105,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template);
 
     let mut harness =
-        EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50);
+        EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50).expect("valid params");
     harness.reset();
 
     // Generation 0.

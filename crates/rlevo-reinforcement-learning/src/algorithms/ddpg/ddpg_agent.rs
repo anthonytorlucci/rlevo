@@ -20,6 +20,7 @@ use rand::RngExt;
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -194,12 +195,18 @@ where
     /// [`DdpgTrainingConfig::optimizer`]; if
     /// [`DdpgTrainingConfig::clip_grad`] is `Some`, the same clipping
     /// configuration is applied to both the actor and critic optimizers.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`DdpgTrainingConfig::validate`](rlevo_core::config::Validate::validate).
     pub fn new(
         actor: Actor,
         critic: Critic,
         config: DdpgTrainingConfig,
         device: B::Device,
-    ) -> Self {
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let target_actor = actor.valid();
         let target_critic = critic.valid();
         let adam = config.optimizer.clone();
@@ -219,7 +226,7 @@ where
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<DdpgMetrics>::new(100);
-        Self {
+        Ok(Self {
             actor: Some(actor),
             target_actor,
             critic: Some(critic),
@@ -237,7 +244,7 @@ where
             stats,
             last_actor_loss: 0.0,
             _action: PhantomData,
-        }
+        })
     }
 
     /// Current agent statistics.

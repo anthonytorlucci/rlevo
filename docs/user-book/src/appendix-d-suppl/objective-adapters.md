@@ -189,7 +189,7 @@ let strategy = GeneticAlgorithm::<B>::new();
 let config = GaConfig::default_for(/* pop = */ 64, /* dim = */ 3);
 
 let mut harness =
-    EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200);
+    EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, 42, device, 200).expect("valid config");
 
 harness.reset();
 while !harness.step(()).done {}

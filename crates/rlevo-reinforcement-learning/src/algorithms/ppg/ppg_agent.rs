@@ -27,6 +27,7 @@ use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -224,21 +225,20 @@ where
     /// `config.ppo.batch_size()`, and an empty auxiliary buffer. The
     /// `total_iterations` value is used only for learning-rate annealing.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `config.ppo.num_envs != 1`. PPG v1 supports sequential rollout
-    /// only.
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`PpgConfig::validate`](rlevo_core::config::Validate::validate). In
+    /// particular, PPG v1 supports sequential rollout only, so
+    /// `config.ppo.num_envs != 1` is rejected here.
     pub fn new(
         policy: P,
         value: V,
         config: PpgConfig,
         device: B::Device,
         total_iterations: usize,
-    ) -> Self {
-        assert_eq!(
-            config.ppo.num_envs, 1,
-            "v1 supports sequential rollout only (num_envs == 1)"
-        );
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let action_dim = policy.action_dim();
         let capacity = config.ppo.batch_size();
 
@@ -261,7 +261,7 @@ where
         let aux_buffer = AuxRolloutBuffer::new();
         let stats = AgentStats::<PpgMetrics>::new(100);
 
-        Self {
+        Ok(Self {
             policy: Some(policy),
             value: Some(value),
             policy_optim,
@@ -275,7 +275,7 @@ where
             step: 0,
             stats,
             last_aux: None,
-        }
+        })
     }
 
     /// Number of policy-phase updates completed so far.

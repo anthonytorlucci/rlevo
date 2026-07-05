@@ -35,8 +35,9 @@
 //! let cfg = BipedalWalkerConfig::builder()
 //!     .terrain(BipedalTerrain::Rough)
 //!     .seed(42)
-//!     .build();
-//! let mut env = BipedalWalker::with_config(cfg);
+//!     .build()
+//!     .expect("valid config");
+//! let mut env = BipedalWalker::with_config(cfg).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(BipedalWalkerAction([0.1, -0.1, 0.1, -0.1])).unwrap();
 //! println!("reward: {:?}", snap.reward());

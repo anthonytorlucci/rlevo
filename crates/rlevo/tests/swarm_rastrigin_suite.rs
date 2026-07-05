@@ -144,7 +144,7 @@ where
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn gwo_ra(
@@ -157,7 +157,7 @@ fn gwo_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn woa_ra(
@@ -170,7 +170,7 @@ fn woa_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn salp_ra(
@@ -183,7 +183,7 @@ fn salp_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn abc_ra(
@@ -196,7 +196,7 @@ fn abc_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn bat_ra(
@@ -209,7 +209,7 @@ fn bat_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn aco_r_ra(
@@ -222,7 +222,7 @@ fn aco_r_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn cuckoo_ra(
@@ -237,7 +237,7 @@ fn cuckoo_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn firefly_ra(
@@ -250,7 +250,7 @@ fn firefly_ra(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 // ---------------------------------------------------------------------
@@ -267,7 +267,7 @@ fn pso_ak(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 fn de_rand1_ak(
@@ -287,7 +287,7 @@ fn de_rand1_ak(
         seed,
         Default::default(),
         MAX_GENS,
-    )
+    ).expect("valid params")
 }
 
 #[test]

@@ -430,13 +430,13 @@ mod tests {
         max_gens: usize,
     ) -> f32 {
         let device = Default::default();
-        let cfg = GepConfig::new(7, 2, n_vars, 100);
+        let cfg = GepConfig::new(7, 2, n_vars, 100).unwrap();
         let genome_len = cfg.genome_len();
         let strategy = GepStrategy::<TestBackend, _>::new(alphabet(n_vars));
         let fitness = GepSymRegression::new(alphabet(n_vars), genome_len, inputs, targets);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, cfg, fitness, seed, device, max_gens,
-        );
+        ).expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

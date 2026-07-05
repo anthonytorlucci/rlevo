@@ -19,7 +19,7 @@ use rlevo_environments::pixel_grid::{
 /// visible in the very first snapshot the agent receives.
 #[test]
 fn reset_yields_rank3_observation_over_rank1_state() {
-    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false).expect("valid config");
     let snap = env.reset().expect("reset succeeds");
 
     assert_eq!(snap.status(), EpisodeStatus::Running);
@@ -47,7 +47,7 @@ fn reset_yields_rank3_observation_over_rank1_state() {
 fn optimal_rollout_reaches_goal_with_positive_reward() {
     // Fixed placement: agent at cell 0 (row 0, col 0), goal at cell 24 (row 4,
     // col 4). Optimal path is 4 Downs + 4 Rights = 8 steps.
-    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false).expect("valid config");
     env.reset().expect("reset succeeds");
 
     let script = [
@@ -81,7 +81,7 @@ fn optimal_rollout_reaches_goal_with_positive_reward() {
 fn step_limit_truncates_with_zero_reward() {
     // Budget of 3 steps; bump the top-left wall (Up is a no-op) so the goal is
     // never reached.
-    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(3, 0, false), false);
+    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(3, 0, false), false).expect("valid config");
     env.reset().expect("reset succeeds");
 
     env.step(PixelGridAction::Up).unwrap();
@@ -98,7 +98,7 @@ fn step_limit_truncates_with_zero_reward() {
 /// random policy never errors.
 #[test]
 fn random_policy_never_errors() {
-    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(50, 7, true), false);
+    let mut env = PixelGridEnv::with_config(PixelGridConfig::new(50, 7, true), false).expect("valid config");
     env.reset().expect("reset succeeds");
     for i in 0..50 {
         let action = PixelGridAction::from_index(i % PixelGridAction::ACTION_COUNT);

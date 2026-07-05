@@ -35,6 +35,7 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -288,6 +289,14 @@ impl Default for KArmedBanditConfig {
     }
 }
 
+impl Validate for KArmedBanditConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "KArmedBanditConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 /// Parses configs from `"max_steps=N"`, `"seed=S"`, `"max_steps=N,seed=S"`,
 /// or a bare integer interpreted as `max_steps`.
 impl FromStr for KArmedBanditConfig {
@@ -409,21 +418,27 @@ impl<const K: usize> KArmedBandit<K> {
             seed,
             ..KArmedBanditConfig::default()
         };
-        Self::with_config(config)
+        Self::with_config(config).expect("default-derived config must validate")
     }
 
     /// Construct with an explicit config.
-    pub fn with_config(config: KArmedBanditConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]
+    /// (`max_steps == 0`).
+    pub fn with_config(config: KArmedBanditConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let arm_means = sample_arm_means::<K>(&mut rng);
-        Self {
+        Ok(Self {
             state: KArmedBanditState,
             steps: 0,
             done: false,
             config,
             rng,
             arm_means,
-        }
+        })
     }
 
     /// Inherent reset — re-seeds RNG and re-samples arm means.
@@ -491,7 +506,7 @@ pub(super) fn sample_arm_means<const K: usize>(rng: &mut StdRng) -> [f32; K] {
 impl<const K: usize> ConstructableEnv for KArmedBandit<K> {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(KArmedBanditConfig::default())
+        Self::with_config(KArmedBanditConfig::default()).expect("default config must validate")
     }
 }
 
@@ -597,6 +612,17 @@ mod tests {
     use super::*;
     use rlevo_core::environment::Snapshot;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(KArmedBanditConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = KArmedBanditConfig { max_steps: 0, seed: 0 };
+        assert!(KArmedBandit::<3>::with_config(bad).is_err());
+    }
+
     type TestBackend = burn::backend::Flex;
     const K: usize = 10;
 
@@ -686,7 +712,7 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = KArmedBandit::<K>::with_config(KArmedBanditConfig::default());
+        let mut env = KArmedBandit::<K>::with_config(KArmedBanditConfig::default()).expect("valid config");
         let snap = <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
@@ -697,7 +723,8 @@ mod tests {
         let mut env = KArmedBandit::<K>::with_config(KArmedBanditConfig {
             max_steps: 3,
             seed: 1,
-        });
+        })
+        .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <KArmedBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
@@ -713,8 +740,8 @@ mod tests {
             max_steps: 64,
             seed: 7,
         };
-        let mut a = KArmedBandit::<K>::with_config(cfg.clone());
-        let mut b = KArmedBandit::<K>::with_config(cfg);
+        let mut a = KArmedBandit::<K>::with_config(cfg.clone()).expect("valid config");
+        let mut b = KArmedBandit::<K>::with_config(cfg).expect("valid config");
         <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
         <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
         assert_eq!(a.arm_means(), b.arm_means());
@@ -734,7 +761,7 @@ mod tests {
             max_steps: 10,
             seed: 99,
         };
-        let mut env = KArmedBandit::<K>::with_config(cfg);
+        let mut env = KArmedBandit::<K>::with_config(cfg).expect("valid config");
         let means_before = *env.arm_means();
         for _ in 0..5 {
             let _ = env.pull(0);
@@ -750,7 +777,7 @@ mod tests {
         // Confirms the `pub type TenArmedBandit = KArmedBandit<10>` alias in
         // `super::mod` produces an equivalent environment.
         use crate::classic::{TenArmedBandit, TenArmedBanditAction};
-        let mut env = TenArmedBandit::with_config(KArmedBanditConfig::default());
+        let mut env = TenArmedBandit::with_config(KArmedBanditConfig::default()).expect("valid config");
         <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let action = TenArmedBanditAction::from_index(0);
         let snap = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
@@ -761,7 +788,7 @@ mod tests {
     #[test]
     fn k_other_than_10_constructs_and_steps() {
         // Smoke-test the genericity: a 4-armed bandit walks through reset/step.
-        let mut env = KArmedBandit::<4>::with_config(KArmedBanditConfig::default());
+        let mut env = KArmedBandit::<4>::with_config(KArmedBanditConfig::default()).expect("valid config");
         <KArmedBandit<4> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         assert_eq!(env.arm_means().len(), 4);
         let action = KArmedBanditAction::<4>::from_index(3);

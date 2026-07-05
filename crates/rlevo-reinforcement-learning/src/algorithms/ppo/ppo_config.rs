@@ -9,6 +9,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Configuration for training a PPO agent.
 ///
@@ -141,6 +142,34 @@ impl Default for PpoTrainingConfig {
             action_log_std_init: 0.0,
             action_scale: 1.0,
         }
+    }
+}
+
+impl Validate for PpoTrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PpoTrainingConfig";
+        if self.num_envs != 1 {
+            return Err(ConfigError {
+                config: C,
+                field: "num_envs",
+                kind: ConstraintKind::Custom("v1 supports num_envs == 1 only"),
+            });
+        }
+        config::nonzero(C, "num_steps", self.num_steps)?;
+        config::nonzero(C, "num_minibatches", self.num_minibatches)?;
+        config::nonzero(C, "update_epochs", self.update_epochs)?;
+        config::positive(C, "learning_rate", self.learning_rate)?;
+        config::positive(C, "max_grad_norm", f64::from(self.max_grad_norm))?;
+        config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
+        config::in_range(C, "gae_lambda", 0.0, 1.0, f64::from(self.gae_lambda))?;
+        config::positive(C, "clip_coef", f64::from(self.clip_coef))?;
+        config::in_range(C, "entropy_coef", 0.0, f64::INFINITY, f64::from(self.entropy_coef))?;
+        config::in_range(C, "value_coef", 0.0, f64::INFINITY, f64::from(self.value_coef))?;
+        if let Some(kl) = self.target_kl {
+            config::positive(C, "target_kl", f64::from(kl))?;
+        }
+        config::positive(C, "action_scale", f64::from(self.action_scale))?;
+        Ok(())
     }
 }
 
@@ -285,8 +314,15 @@ impl PpoTrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the assembled [`PpoTrainingConfig`].
-    pub fn build(self) -> PpoTrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`PpoTrainingConfig::validate`] (e.g. `num_envs != 1` or a
+    /// zero `num_steps`).
+    pub fn build(self) -> Result<PpoTrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -327,7 +363,8 @@ mod tests {
             .num_envs(1)
             .num_steps(128)
             .num_minibatches(4)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.batch_size(), 128);
         assert_eq!(cfg.minibatch_size(), 32);
     }
@@ -352,10 +389,22 @@ mod tests {
             .clip_coef(0.1)
             .entropy_coef(0.0)
             .action_scale(2.0)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.num_steps, 256);
         assert_eq!(cfg.clip_coef, 0.1);
         assert_eq!(cfg.entropy_coef, 0.0);
         assert_eq!(cfg.action_scale, 2.0);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(PpoTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_multiple_envs() {
+        let err = PpoTrainingConfigBuilder::new().num_envs(2).build().unwrap_err();
+        assert_eq!(err.field, "num_envs");
     }
 }

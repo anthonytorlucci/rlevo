@@ -38,7 +38,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = EmptyConfig::new(8, 256, 0);
-//! let mut env = EmptyEnv::with_config(cfg, false);
+//! let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -59,6 +59,7 @@ use super::core::{
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::State;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,15 @@ impl Default for EmptyConfig {
             max_steps: 4 * size * size,
             seed: 0,
         }
+    }
+}
+
+impl Validate for EmptyConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "EmptyConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
     }
 }
 
@@ -188,7 +198,7 @@ fn apply_positional(cfg: &mut EmptyConfig, index: usize, value: &str) -> Result<
 /// use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
 /// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
-/// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
+/// let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -208,6 +218,11 @@ impl EmptyEnv {
     /// Call [`Environment::reset`] before the first [`Environment::step`] to
     /// obtain the first observation.
     ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -216,19 +231,20 @@ impl EmptyEnv {
     /// let env = EmptyEnv::with_config(
     ///     EmptyConfig::new(8, 256, 0),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: EmptyConfig, render: bool) -> Self {
+    pub fn with_config(config: EmptyConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let (grid, agent) = Self::build(&config);
-        Self {
+        Ok(Self {
             state: GridState::new(grid, agent),
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -297,7 +313,7 @@ impl Display for EmptyEnv {
 
 impl ConstructableEnv for EmptyEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(EmptyConfig::default(), render)
+        Self::with_config(EmptyConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -337,6 +353,17 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(EmptyConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = EmptyConfig { size: 0, ..Default::default() };
+        assert!(EmptyEnv::with_config(bad, false).is_err());
+    }
 
     #[test]
     fn default_config_is_8x8_with_budget() {
@@ -383,7 +410,7 @@ mod tests {
 
     #[test]
     fn new_places_goal_and_agent() {
-        let env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
+        let env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config");
         let grid = &env.state().grid;
         assert_eq!(grid.get(3, 3), Entity::Goal);
         assert_eq!(env.state().agent.x, 1);
@@ -394,8 +421,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic_for_same_seed() {
         let cfg = EmptyConfig::new(5, 100, 42);
-        let mut a = EmptyEnv::with_config(cfg, false);
-        let mut b = EmptyEnv::with_config(cfg, false);
+        let mut a = EmptyEnv::with_config(cfg, false).expect("valid config");
+        let mut b = EmptyEnv::with_config(cfg, false).expect("valid config");
         let snap_a = a.reset().unwrap();
         let snap_b = b.reset().unwrap();
         assert_eq!(snap_a.observation(), snap_b.observation());
@@ -410,7 +437,7 @@ mod tests {
     #[test]
     fn forward_into_wall_bumps_and_holds_position() {
         let cfg = EmptyConfig::new(5, 100, 0);
-        let mut env = EmptyEnv::with_config(cfg, false);
+        let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         // Turn to face north; wall lies at (1, 0).
         env.step(GridAction::TurnLeft).unwrap();
@@ -422,7 +449,7 @@ mod tests {
     #[test]
     fn optimal_rollout_reaches_goal_with_positive_reward() {
         let cfg = EmptyConfig::new(5, 100, 0);
-        let mut env = EmptyEnv::with_config(cfg, false);
+        let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
 
         // Agent at (1,1) facing East. Goal at (3,3).
@@ -451,7 +478,7 @@ mod tests {
     #[test]
     fn timeout_terminates_with_zero_reward() {
         let cfg = EmptyConfig::new(5, 3, 0);
-        let mut env = EmptyEnv::with_config(cfg, false);
+        let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
 
         env.step(GridAction::TurnLeft).unwrap();
@@ -465,7 +492,7 @@ mod tests {
     #[test]
     fn reset_clears_step_counter() {
         let cfg = EmptyConfig::new(5, 100, 0);
-        let mut env = EmptyEnv::with_config(cfg, false);
+        let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         for _ in 0..3 {
             env.step(GridAction::TurnLeft).unwrap();
@@ -479,7 +506,7 @@ mod tests {
     fn random_policy_never_errors() {
         // Sanity check that `step` is total under all 7 actions.
         let cfg = EmptyConfig::new(5, 50, 0);
-        let mut env = EmptyEnv::with_config(cfg, false);
+        let mut env = EmptyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         for i in 0..50 {
             let action = GridAction::from_index(i % GridAction::ACTION_COUNT);
@@ -492,7 +519,7 @@ mod tests {
 
     #[test]
     fn display_contains_step_budget() {
-        let env = EmptyEnv::with_config(EmptyConfig::new(5, 50, 0), false);
+        let env = EmptyEnv::with_config(EmptyConfig::new(5, 50, 0), false).expect("valid config");
         let s = env.to_string();
         assert!(s.contains("EmptyEnv"));
         assert!(s.contains("50"));

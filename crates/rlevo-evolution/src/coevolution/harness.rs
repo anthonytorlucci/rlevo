@@ -14,6 +14,7 @@ use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};
 
 use super::CoEvolutionaryAlgorithm;
@@ -106,16 +107,28 @@ where
     /// Build a new harness from an algorithm, its params, a seed, a device,
     /// and a generation budget.
     ///
+    /// The caller-supplied `params` are validated up front — this is the
+    /// co-evolutionary harness consumption chokepoint (ADR 0026).
+    ///
     /// The harness is lazily initialized — the first [`reset`](Self::reset)
     /// call materializes the joint state on `device`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] when `params` fails [`Validate::validate`],
+    /// naming the offending field and violated invariant.
     pub fn new(
         algorithm: C,
         params: C::Params,
         seed: u64,
         device: B::Device,
         max_generations: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ConfigError>
+    where
+        C::Params: Validate,
+    {
+        params.validate()?;
+        Ok(Self {
             algorithm,
             params,
             state: None,
@@ -126,7 +139,7 @@ where
             max_generations,
             latest_metrics: None,
             _backend: PhantomData,
-        }
+        })
     }
 
     /// The most recent generation's metrics, if any.

@@ -122,7 +122,7 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
 fn run_row<S>(label: &str, strategy: S, params: S::Params, evals: &Arc<AtomicUsize>)
 where
     S: Strategy<B, Genome = Tensor<B, 2>>,
-    S::Params: std::fmt::Debug,
+    S::Params: std::fmt::Debug + rlevo_core::config::Validate,
 {
     let device: <B as BackendTypes>::Device = Default::default();
     let fitness: CountingRastrigin = CountingRastrigin {
@@ -131,7 +131,7 @@ where
     };
     let mut harness = EvolutionaryHarness::<B, S, CountingRastrigin>::new(
         strategy, params, fitness, SEED, device, MAX_GENS,
-    );
+    ).expect("valid params");
     harness.reset();
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
     loop {

@@ -101,7 +101,7 @@ fn make_env() -> Env {
         CartPole::with_config(CartPoleConfig {
             seed: SEED,
             ..CartPoleConfig::default()
-        }),
+        }).expect("valid config"),
         TIME_LIMIT,
     )
 }
@@ -128,9 +128,10 @@ fn train_dqn_agent() -> DqnCartPoleAgent {
         .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .double_q(false)
-        .build();
+        .build()
+        .expect("valid config");
     let model: VecMlpDqn<Backend_> = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
-    let mut agent: DqnCartPoleAgent = DqnAgent::new(model, config, device);
+    let mut agent: DqnCartPoleAgent = DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
     agent
 }
@@ -155,9 +156,10 @@ fn train_c51_agent() -> C51CartPoleAgent {
         .num_atoms(NUM_ATOMS)
         .v_min(0.0)
         .v_max(500.0)
-        .build();
+        .build()
+        .expect("valid config");
     let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
-    let mut agent: C51CartPoleAgent = C51Agent::new(model, config, device);
+    let mut agent: C51CartPoleAgent = C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
     agent
 }
@@ -181,9 +183,10 @@ fn train_qrdqn_agent() -> QrDqnCartPoleAgent {
         .replay_buffer_capacity(50_000)
         .num_quantiles(NUM_QUANTILES)
         .kappa(1.0)
-        .build();
+        .build()
+        .expect("valid config");
     let model: QrDqnMlp<Backend_> = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
-    let mut agent: QrDqnCartPoleAgent = QrDqnAgent::new(model, config, device);
+    let mut agent: QrDqnCartPoleAgent = QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
     agent
 }
@@ -214,15 +217,16 @@ fn train_ppg_agent() -> PpgCartPoleAgent {
                 .gamma(0.99)
                 .gae_lambda(0.95)
                 .anneal_lr(p.anneal_lr)
-                .build()
+                .build().expect("valid config")
         })
         .n_iteration(32)
         .e_aux(6)
         .beta_clone(1.0)
-        .build();
+        .build()
+        .expect("valid config");
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
     let mut agent: PpgCartPoleAgent =
-        PpgAgent::new(policy, value, config, device, total_iterations);
+        PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config");
     train_ppg::<Backend_, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
         &mut agent,
         &mut env,

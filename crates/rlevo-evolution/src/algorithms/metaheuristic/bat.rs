@@ -31,6 +31,8 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -72,6 +74,29 @@ impl BatConfig {
             alpha: 0.9,
             gamma: 0.9,
         }
+    }
+}
+
+impl Validate for BatConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "BatConfig";
+        config::at_least(C, "pop_size", self.pop_size, 1)?;
+        config::nonzero(C, "genome_dim", self.genome_dim)?;
+        if self.f_min > self.f_max {
+            return Err(ConfigError {
+                config: C,
+                field: "f_min",
+                kind: ConstraintKind::Custom("f_min must not exceed f_max"),
+            });
+        }
+        config::in_range(C, "a0", 0.0, f64::INFINITY, f64::from(self.a0))?;
+        config::in_range(C, "r0", 0.0, 1.0, f64::from(self.r0))?;
+        // α ∈ (0, 1]: strictly positive and at most one.
+        config::positive(C, "alpha", f64::from(self.alpha))?;
+        config::in_range(C, "alpha", 0.0, 1.0, f64::from(self.alpha))?;
+        config::positive(C, "gamma", f64::from(self.gamma))?;
+        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
+        Ok(())
     }
 }
 
@@ -145,6 +170,7 @@ where
     /// from a deterministic [`seed_stream`]; the process-wide Flex RNG is
     /// never touched.
     fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> BatState<B> {
+        debug_assert!(params.validate().is_ok(), "invalid BatConfig reached init: {params:?}");
         let (lo, hi) = params.bounds;
         // Sample initial positions on the host from a deterministic
         // `seed_stream`, mirroring `ask`/`tell`. The Flex backend's
@@ -417,6 +443,19 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(BatConfig::default_for(30, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_inverted_frequency_range() {
+        let mut cfg = BatConfig::default_for(30, 10);
+        cfg.f_min = 3.0;
+        cfg.f_max = 1.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "f_min");
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {
@@ -441,7 +480,7 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 23, device, 800,
-        );
+        ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever;

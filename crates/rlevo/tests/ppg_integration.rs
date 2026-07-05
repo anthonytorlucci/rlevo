@@ -115,16 +115,18 @@ fn make_cart_pole_agent(
         .value_coef(0.5)
         .gamma(0.99)
         .gae_lambda(0.95)
-        .build();
+        .build()
+        .expect("valid config");
     let config = PpgConfigBuilder::new()
         .ppo(ppo)
         .n_iteration(n_iteration)
         .e_aux(6)
         .beta_clone(1.0)
         .aux_batch_size(128)
-        .build();
+        .build()
+        .expect("valid config");
     let total_iterations = total_timesteps / config.batch_size().max(1);
-    PpgAgent::new(policy, value, config, device, total_iterations)
+    PpgAgent::new(policy, value, config, device, total_iterations).expect("valid config")
 }
 
 /// Builds and trains a PPG agent on the shared seeded `CartPole` for `total`

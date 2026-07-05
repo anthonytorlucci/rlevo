@@ -9,6 +9,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration for training a Twin Delayed DDPG (TD3) agent.
 #[derive(Clone, Debug)]
@@ -71,6 +72,23 @@ impl Default for Td3TrainingConfig {
     }
 }
 
+impl Validate for Td3TrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "Td3TrainingConfig";
+        config::nonzero(C, "buffer_capacity", self.buffer_capacity)?;
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::positive(C, "actor_lr", self.actor_lr)?;
+        config::positive(C, "critic_lr", self.critic_lr)?;
+        config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
+        config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
+        config::in_range(C, "exploration_noise", 0.0, f64::INFINITY, f64::from(self.exploration_noise))?;
+        config::in_range(C, "policy_noise", 0.0, f64::INFINITY, f64::from(self.policy_noise))?;
+        config::in_range(C, "noise_clip", 0.0, f64::INFINITY, f64::from(self.noise_clip))?;
+        config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
+        Ok(())
+    }
+}
+
 /// Fluent builder for [`Td3TrainingConfig`].
 ///
 /// All unset fields default to [`Td3TrainingConfig::default`].
@@ -84,7 +102,8 @@ impl Default for Td3TrainingConfig {
 ///     .batch_size(128)
 ///     .policy_noise(0.2)
 ///     .noise_clip(0.5)
-///     .build();
+///     .build()
+///     .expect("valid config");
 /// ```
 pub struct Td3TrainingConfigBuilder {
     config: Td3TrainingConfig,
@@ -185,8 +204,15 @@ impl Td3TrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the final config.
-    pub fn build(self) -> Td3TrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`Td3TrainingConfig::validate`] (e.g. a negative
+    /// `policy_noise` or a zero `batch_size`).
+    pub fn build(self) -> Result<Td3TrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -217,12 +243,27 @@ mod tests {
             .policy_noise(0.3)
             .noise_clip(0.4)
             .policy_frequency(4)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.batch_size, 64);
         assert!((cfg.policy_noise - 0.3).abs() < 1e-6);
         assert!((cfg.noise_clip - 0.4).abs() < 1e-6);
         assert_eq!(cfg.policy_frequency, 4);
         // Untouched fields retain defaults.
         assert!((cfg.exploration_noise - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(Td3TrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_negative_policy_noise() {
+        let err = Td3TrainingConfigBuilder::new()
+            .policy_noise(-0.1)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "policy_noise");
     }
 }

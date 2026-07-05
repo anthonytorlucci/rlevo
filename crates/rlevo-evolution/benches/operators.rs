@@ -78,7 +78,7 @@ fn bench_de_generation(c: &mut Criterion) {
                         11,
                         device,
                         1_000,
-                    );
+                    ).expect("valid params");
                     harness.reset();
                     // Warm up: run one generation so init costs are
                     // outside the measurement window.

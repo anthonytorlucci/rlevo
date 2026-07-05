@@ -44,6 +44,7 @@ use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::MarkovState;
@@ -325,6 +326,14 @@ impl Default for SantaFeAntConfig {
     }
 }
 
+impl Validate for SantaFeAntConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "SantaFeAntConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
@@ -373,12 +382,17 @@ pub struct SantaFeAnt {
 
 impl SantaFeAnt {
     /// Build the env from an explicit [`SantaFeAntConfig`].
-    #[must_use]
-    pub fn with_config(config: SantaFeAntConfig) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]
+    /// (`max_steps == 0`).
+    pub fn with_config(config: SantaFeAntConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
+        Ok(Self {
             state: Self::fresh_state(),
             config,
-        }
+        })
     }
 
     /// The pristine start state: the full Santa Fe Trail, ant at the `S` marker
@@ -429,6 +443,7 @@ impl ConstructableEnv for SantaFeAnt {
             render,
             ..SantaFeAntConfig::default()
         })
+        .expect("default config must validate")
     }
 }
 
@@ -753,6 +768,17 @@ mod tests {
     use super::*;
     use rlevo_core::environment::Snapshot;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(SantaFeAntConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = SantaFeAntConfig { max_steps: 0, render: false };
+        assert!(SantaFeAnt::with_config(bad).is_err());
+    }
+
     type TestBackend = burn::backend::Flex;
 
     fn env() -> SantaFeAnt {
@@ -915,7 +941,8 @@ mod tests {
         let mut e = SantaFeAnt::with_config(SantaFeAntConfig {
             max_steps: 5,
             render: false,
-        });
+        })
+        .expect("valid config");
         let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset");
         // Spin in place so no early termination from clearing the trail.
         for _ in 0..5 {

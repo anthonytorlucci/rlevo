@@ -34,6 +34,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -191,6 +192,14 @@ impl FrozenLakeConfig {
     /// Returns a builder for constructing a `FrozenLakeConfig`.
     pub fn builder() -> FrozenLakeConfigBuilder {
         FrozenLakeConfigBuilder::default()
+    }
+}
+
+impl Validate for FrozenLakeConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "FrozenLakeConfig";
+        config::in_range(C, "success_rate", 0.0, 1.0, f64::from(self.success_rate))?;
+        Ok(())
     }
 }
 
@@ -545,7 +554,10 @@ impl FrozenLake {
     ///   [`MapError::NoGoal`], [`MapError::GoalUnreachable`], or [`MapError::InvalidTile`].
     /// - `Random` maps: [`MapError::MaxRetriesExceeded`] if 1000 attempts all produce
     ///   unreachable goals (unlikely at the default `frozen_prob = 0.8`).
+    /// - Any map: [`MapError::InvalidConfig`] if `config` fails [`Validate`]
+    ///   (e.g. `success_rate` outside `[0, 1]`).
     pub fn with_config(config: FrozenLakeConfig) -> Result<Self, MapError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let map = Self::resolve_map(&config.map, &mut rng)?;
         let state = FrozenLakeState {
@@ -772,6 +784,17 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(FrozenLakeConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_out_of_range_success_rate() {
+        let bad = FrozenLakeConfig { success_rate: 1.5, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "success_rate");
+    }
 
     fn four_env() -> FrozenLake {
         FrozenLake::with_config(
