@@ -41,7 +41,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate, Violations};
 
 use crate::ops::linalg::{jacobi_eigen, matvec};
 use crate::rng::{SeedPurpose, seed_stream};
@@ -174,21 +174,85 @@ impl CmaEsConfig {
 }
 
 impl Validate for CmaEsConfig {
+    /// Fail-fast: reports the first violation, derived from [`validate_all`] so
+    /// the two never disagree.
+    ///
+    /// [`validate_all`]: CmaEsConfig::validate_all
     fn validate(&self) -> Result<(), ConfigError> {
+        self.validate_all().map_err(|mut errs| errs.remove(0))
+    }
+
+    /// Accumulate-all: reports every violated invariant in one pass.
+    ///
+    /// Unlike most configs, `CmaEsConfig` exposes its **derived** fields —
+    /// recombination `weights`, `mu_eff`, and the five learning rates — as
+    /// public struct fields (so callers can construct one by hand). The
+    /// [`default_for`] / [`with_pop_size`] producers keep them mutually
+    /// consistent, but a hand-built literal can desync several at once; listing
+    /// all violations then beats fixing them one recompile at a time.
+    ///
+    /// [`default_for`]: CmaEsConfig::default_for
+    /// [`with_pop_size`]: CmaEsConfig::with_pop_size
+    fn validate_all(&self) -> Result<(), Vec<ConfigError>> {
         const C: &str = "CmaEsConfig";
-        config::at_least(C, "pop_size", self.pop_size, 2)?;
-        config::nonzero(C, "genome_dim", self.genome_dim)?;
-        config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
-        config::at_least(C, "mu", self.mu, 1)?;
+        let mut v = Violations::new();
+
+        // Primary inputs.
+        v.check(config::at_least(C, "pop_size", self.pop_size, 2));
+        v.check(config::nonzero(C, "genome_dim", self.genome_dim));
+        v.check(config::positive(C, "initial_sigma", f64::from(self.initial_sigma)));
+        v.check(config::at_least(C, "mu", self.mu, 1));
         if self.mu > self.pop_size {
-            return Err(ConfigError {
+            v.check(Err(ConfigError {
                 config: C,
                 field: "mu",
-                kind: rlevo_core::config::ConstraintKind::Custom("mu must not exceed pop_size"),
-            });
+                kind: ConstraintKind::Custom("mu must not exceed pop_size"),
+            }));
         }
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
-        Ok(())
+        v.check(config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1)));
+
+        // Derived recombination weights: length μ, strictly positive, sum ≈ 1.
+        if self.weights.len() != self.mu {
+            v.check(Err(ConfigError {
+                config: C,
+                field: "weights",
+                kind: ConstraintKind::Custom("weights length must equal mu"),
+            }));
+        }
+        if !self.weights.iter().all(|w| *w > 0.0) {
+            v.check(Err(ConfigError {
+                config: C,
+                field: "weights",
+                kind: ConstraintKind::Custom("recombination weights must all be positive"),
+            }));
+        }
+        let weight_sum = f64::from(self.weights.iter().sum::<f32>());
+        v.check(config::in_range(C, "weights", 1.0 - 1e-3, 1.0 + 1e-3, weight_sum));
+
+        // Derived scalars. mu_eff = 1/Σwᵢ² ≥ 1; d_sigma and chi_n are positive
+        // denominators/scales — a non-positive value diverges the step-size
+        // control or the covariance update.
+        v.check(config::in_range(C, "mu_eff", 1.0, f64::INFINITY, f64::from(self.mu_eff)));
+        v.check(config::positive(C, "d_sigma", f64::from(self.d_sigma)));
+        v.check(config::positive(C, "chi_n", f64::from(self.chi_n)));
+
+        // Covariance/step-size learning rates each live in [0, 1], and the pair
+        // (c_1, c_mu) must not sum past 1: the rank-update retention factor is
+        // `1 − c_1 − c_mu`, so c_1 + c_mu > 1 turns it negative and the
+        // covariance matrix loses positive-definiteness.
+        v.check(config::in_range(C, "c_sigma", 0.0, 1.0, f64::from(self.c_sigma)));
+        v.check(config::in_range(C, "c_c", 0.0, 1.0, f64::from(self.c_c)));
+        v.check(config::in_range(C, "c_1", 0.0, 1.0, f64::from(self.c_1)));
+        v.check(config::in_range(C, "c_mu", 0.0, 1.0, f64::from(self.c_mu)));
+        v.check(config::in_range(
+            C,
+            "c_1_plus_c_mu",
+            0.0,
+            1.0,
+            f64::from(self.c_1) + f64::from(self.c_mu),
+        ));
+
+        v.into_result()
     }
 }
 
@@ -520,6 +584,50 @@ mod tests {
         let mut cfg = CmaEsConfig::default_for(10);
         cfg.pop_size = 1;
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
+    #[test]
+    fn default_config_validates_all() {
+        assert!(CmaEsConfig::default_for(10).validate_all().is_ok());
+    }
+
+    #[test]
+    fn rejects_desynced_weights() {
+        // A hand-built literal that dropped a weight: length no longer equals μ
+        // and the remaining weights no longer sum to 1.
+        let mut cfg = CmaEsConfig::default_for(10);
+        cfg.weights.pop();
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "weights");
+    }
+
+    #[test]
+    fn rejects_diverging_covariance_rates() {
+        let mut cfg = CmaEsConfig::default_for(10);
+        // c_1 + c_mu > 1 makes the rank-update retention factor negative.
+        cfg.c_1 = 0.7;
+        cfg.c_mu = 0.7;
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "c_1_plus_c_mu");
+    }
+
+    #[test]
+    fn validate_all_reports_every_violation() {
+        // Desync three independent derived fields at once; fail-fast would hide
+        // all but the first, validate_all surfaces them together.
+        let mut cfg = CmaEsConfig::default_for(10);
+        cfg.weights.pop(); // weights length + sum
+        cfg.d_sigma = -1.0; // non-positive damping
+        cfg.c_1 = 0.7;
+        cfg.c_mu = 0.7; // c_1 + c_mu > 1
+        let errs = cfg.validate_all().unwrap_err();
+        let fields: Vec<&str> = errs.iter().map(|e| e.field).collect();
+        assert!(fields.contains(&"weights"));
+        assert!(fields.contains(&"d_sigma"));
+        assert!(fields.contains(&"c_1_plus_c_mu"));
+        assert!(errs.len() >= 3, "expected all violations, got {fields:?}");
+        // validate() stays consistent — it is the first of these.
+        assert_eq!(cfg.validate().unwrap_err(), errs[0]);
     }
 
     #[test]
