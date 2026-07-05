@@ -358,9 +358,15 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, ContextualBanditObservation<C>, ScalarReward>;
 
+    /// Reset episode state and reveal a fresh first context.
+    ///
+    /// The fixed per-context arm means (the problem) are sampled once at
+    /// construction and **preserved** across resets; the persistent RNG is
+    /// **not** re-seeded, so the revealed context and the reward realisations
+    /// vary independently each episode (host-RNG seeding convention,
+    /// `docs/rules.md` §8). For a reproducible problem, construct with a fixed
+    /// seed.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
-        self.arm_means = sample_arm_means::<C, K>(&mut self.rng);
         self.state.context = self.rng.random_range(0..C);
         self.steps = 0;
         self.done = false;
@@ -533,6 +539,54 @@ mod tests {
             assert_eq!(snap_a.observation().context, snap_b.observation().context);
             assert_eq!(snap_a.status(), snap_b.status());
         }
+    }
+
+    #[test]
+    fn reset_keeps_stable_arm_means() {
+        // The per-context arm means (the problem) are sampled once at
+        // construction and preserved across resets.
+        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig {
+            max_steps: 32,
+            seed: 5,
+        })
+        .expect("valid config");
+        let before = *env.arm_means();
+        let action = KArmedBanditAction::<K>::from_index(0);
+        for _ in 0..5 {
+            let _ = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action);
+        }
+        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        assert_eq!(before, *env.arm_means());
+    }
+
+    #[test]
+    fn successive_episodes_draw_independent_rewards() {
+        // The persistent RNG advances across resets, so the revealed contexts
+        // and reward realisations differ between episodes on the same problem.
+        let cfg = ContextualBanditConfig {
+            max_steps: 100,
+            seed: 5,
+        };
+        let mut env = ContextualBandit::<C, K>::with_config(cfg).expect("valid config");
+        let action = KArmedBanditAction::<K>::from_index(0);
+        let episode = |env: &mut ContextualBandit<C, K>| -> Vec<f32> {
+            (0..16)
+                .map(|_| {
+                    f32::from(
+                        *<ContextualBandit<C, K> as Environment<1, 1, 1>>::step(env, action)
+                            .unwrap()
+                            .reward(),
+                    )
+                })
+                .collect()
+        };
+        let episode1 = episode(&mut env);
+        <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        let episode2 = episode(&mut env);
+        assert_ne!(
+            episode1, episode2,
+            "reward realisations must differ across episodes"
+        );
     }
 
     #[test]

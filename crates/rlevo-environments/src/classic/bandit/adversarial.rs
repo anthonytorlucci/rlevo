@@ -177,10 +177,13 @@ impl FromStr for AdversarialBanditConfig {
 /// Adversarial k-armed bandit with an oblivious periodic reward schedule.
 ///
 /// Rewards are deterministic: each arm follows a cosine wave offset by a
-/// per-arm phase drawn once from the seeded RNG on construction and again on
-/// every [`Environment::reset`]. Because the schedule is fixed before the
-/// agent acts, the adversary is *oblivious* — the standard setting for EXP3
-/// and related algorithms.
+/// per-arm phase drawn once from the seeded RNG on construction and **fixed for
+/// the lifetime of the bandit** — [`Environment::reset`] preserves the schedule
+/// rather than redrawing it. Because the schedule is fixed before the agent
+/// acts, the adversary is *oblivious* — the standard setting for EXP3 and
+/// related algorithms. Reward is a pure function of the step index, so this
+/// bandit has no per-episode randomness (host-RNG seeding convention,
+/// `docs/rules.md` §8); the RNG is therefore not retained past construction.
 ///
 /// See the module-level docs for the precise formula and the default parameter
 /// values exposed via [`AdversarialBanditConfig`].
@@ -190,7 +193,6 @@ pub struct AdversarialBandit<const K: usize> {
     steps: usize,
     done: bool,
     config: AdversarialBanditConfig,
-    rng: StdRng,
     phases: [usize; K],
 }
 
@@ -236,7 +238,6 @@ impl<const K: usize> AdversarialBandit<K> {
             steps: 0,
             done: false,
             config,
-            rng,
             phases,
         })
     }
@@ -278,9 +279,11 @@ impl<const K: usize> Environment<1, 1, 1> for AdversarialBandit<K> {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
+    /// Reset episode state. The per-arm phase offsets (the fixed reward
+    /// schedule) are sampled once at construction and preserved; the reward is
+    /// deterministic in the step index, so every episode replays the same
+    /// schedule by design (host-RNG seeding convention, `docs/rules.md` §8).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
-        self.phases = sample_phases::<K>(&mut self.rng, self.config.period.max(1));
         self.state = KArmedBanditState;
         self.steps = 0;
         self.done = false;

@@ -358,6 +358,38 @@ Supplementary rules:
 - All crate features must be enabled at the workspace level; individual crates must not re-declare features unless they are crate-local.
 - Do not add new workspace dependencies without updating `CLAUDE.md` and writing a decision record in `decisions/`.
 
+### Host-RNG seeding convention (ADR 0029)
+
+Stochastic environments and algorithms **own a persistent RNG that advances
+across calls**. Seed it once at construction; never re-seed from stored config
+inside `reset()` / `step()` / a per-generation loop. Re-seeding each call replays
+bit-identical randomness and silently destroys the episode-to-episode (or
+generation-to-generation) diversity the caller relies on.
+
+- **Environments.** `reset()` draws from the persistent stream and lets it
+  advance, so successive episodes see independent noise. A fixed *problem
+  instance* (bandit arm-means / phases / context, procedural layout, …) is
+  sampled **once at construction** and preserved across resets — restored to its
+  baseline where an episode mutates it (e.g. a non-stationary bandit's drift),
+  never re-seeded to reproduce it. Run-level reproducibility is already
+  guaranteed by the construction seed (a fixed seed yields a fixed *sequence* of
+  resets). For deterministic replay of one specific episode, expose an inherent
+  `reset_with_seed(&mut self, seed: u64)`; `reset()` itself must not reseed.
+  Genuinely deterministic environments (e.g. `AdversarialBandit`, whose reward is
+  a pure function of the step index) have no per-episode randomness and simply
+  preserve their fixed schedule — they still must not re-seed on reset.
+- **Host sampling (evolution / RL).** Draw randomness on the host via
+  `rlevo_evolution::rng::seed_stream(base, generation, SeedPurpose::_)` (or an
+  `rlevo_core::util::seed::SeedStream`), fill a `Vec`, then build the tensor with
+  `Tensor::from_data`. **Never** `B::seed(..)` + `Tensor::random(..)` in a
+  production path: Burn's process-wide RNG mutex makes results depend on thread
+  schedule (→ core count) rather than the seed, which races the parallel test
+  runner. `rlevo-evolution` is the reference implementation. (ADR 0016, 0017)
+- **RNG trait bounds.** Functions that need randomness take `rng: &mut R` with
+  `R: rand::Rng + ?Sized`. Use `&mut dyn Rng` only where a call site genuinely
+  requires dynamic dispatch (an object-safe trait method); document any such
+  exception.
+
 ---
 
 ## 9. Linting

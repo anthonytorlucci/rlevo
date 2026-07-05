@@ -280,6 +280,21 @@ impl DynamicObstaclesEnv {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &DynamicObstaclesConfig {
@@ -449,7 +464,6 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
     type SnapshotType = GridSnapshot;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         let (state, obstacles) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.obstacles = obstacles;
@@ -619,8 +633,10 @@ mod tests {
         assert_eq!(env.steps(), 1);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
-        // Deterministic: obstacles should be at the same starting positions.
-        assert_eq!(env.obstacles(), initial.as_slice());
+        // The persistent RNG advances across resets, so the fresh episode is
+        // rebuilt with the same obstacle count but is not required to reproduce
+        // the previous placement. Use `reset_with_seed` for deterministic replay.
+        assert_eq!(env.obstacles().len(), initial.len());
     }
 
     #[test]
@@ -629,6 +645,40 @@ mod tests {
             DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(6, 3, 100, 0), false).expect("valid config");
         let s = env.to_string();
         assert!(s.contains("num_obstacles=3"));
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // The persistent RNG advances across resets, so successive episodes
+        // must spawn obstacles at varying positions. The grid is discrete, so
+        // a single pair could coincide by chance; assert that many resets
+        // yield more than one distinct spawn layout.
+        let mut env =
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 100, 7), false)
+                .expect("valid config");
+        let mut layouts = std::collections::HashSet::new();
+        for _ in 0..20 {
+            env.reset().unwrap();
+            layouts.insert(env.obstacles().to_vec());
+        }
+        assert!(
+            layouts.len() > 1,
+            "successive resets must spawn independent obstacle layouts"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env =
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 100, 7), false)
+                .expect("valid config");
+        env.reset_with_seed(999).unwrap();
+        let a = env.obstacles().to_vec();
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        env.reset_with_seed(999).unwrap();
+        let b = env.obstacles().to_vec();
+        assert_eq!(a, b, "reset_with_seed must reproduce the same layout");
     }
 }
 

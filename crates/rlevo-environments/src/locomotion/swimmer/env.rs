@@ -79,6 +79,24 @@ impl Swimmer<Rapier3DBackend> {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<LocomotionSnapshot<SwimmerObservation>, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     fn build_world(config: &SwimmerConfig, rng: &mut StdRng) -> (Rapier3DWorld, SwimmerState) {
         // Zero gravity — swimmer floats in open water.
         // Pass frame_skip=1 to the world: the env owns its own substep loop so
@@ -317,9 +335,10 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// Reset the episode to a freshly sampled initial state.
     ///
     /// All generalised positions and velocities are sampled independently
-    /// from `U(-reset_noise_scale, reset_noise_scale)`. The RNG is
-    /// re-seeded from `config.seed` on every reset, so repeated calls
-    /// produce identical initial states for the same seed.
+    /// from `U(-reset_noise_scale, reset_noise_scale)`, drawn from the
+    /// environment's persistent RNG. The stream **advances** across resets, so
+    /// successive episodes see independent initial states. For deterministic
+    /// replay of a specific initial state, use [`Swimmer::reset_with_seed`].
     ///
     /// The returned snapshot has `EpisodeStatus::Running`, reward `0.0`, and
     /// metadata components `forward = 0.0` and `ctrl = 0.0`.
@@ -329,7 +348,6 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// This implementation does not currently return an error; the signature
     /// reflects the `Environment` trait contract.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = SwimmerObservation::default();
@@ -545,6 +563,46 @@ mod tests {
         };
         let actions = [[0.1, -0.2], [0.5, 0.3], [-0.4, 0.2], [0.0, 0.0]];
         assert_eq!(rollout(&actions), rollout(&actions));
+    }
+
+    /// Observation fingerprint used by the RNG-diversity tests.
+    fn obs_key(o: &SwimmerObservation) -> [f32; 6] {
+        [
+            o.body_angle(),
+            o.joint1_angle(),
+            o.joint2_angle(),
+            o.omega_body(),
+            o.joint1_dot(),
+            o.joint2_dot(),
+        ]
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // The persistent RNG advances across resets (default reset noise > 0),
+        // so back-to-back resets must sample independent initial states.
+        let mut env = SwimmerRapier::with_config(cfg(7)).expect("valid config");
+        let first = *env.reset().unwrap().observation();
+        let second = *env.reset().unwrap().observation();
+        assert_ne!(
+            obs_key(&first),
+            obs_key(&second),
+            "successive resets must draw independent initial states"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env = SwimmerRapier::with_config(cfg(7)).expect("valid config");
+        let a = *env.reset_with_seed(999).unwrap().observation();
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        let b = *env.reset_with_seed(999).unwrap().observation();
+        assert_eq!(
+            obs_key(&a),
+            obs_key(&b),
+            "reset_with_seed must reproduce the same initial state"
+        );
     }
 
     #[test]

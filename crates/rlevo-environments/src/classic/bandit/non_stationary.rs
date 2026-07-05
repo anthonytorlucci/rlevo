@@ -169,6 +169,9 @@ pub struct NonStationaryBandit<const K: usize> {
     config: NonStationaryBanditConfig,
     rng: StdRng,
     arm_means: [f32; K],
+    /// The construction-time baseline the drifting `arm_means` are restored to
+    /// on [`Environment::reset`] — the fixed problem, preserved across episodes.
+    initial_arm_means: [f32; K],
 }
 
 impl<const K: usize> Display for NonStationaryBandit<K> {
@@ -208,6 +211,7 @@ impl<const K: usize> NonStationaryBandit<K> {
             config,
             rng,
             arm_means,
+            initial_arm_means: arm_means,
         })
     }
 
@@ -251,9 +255,16 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
+    /// Reset episode state and restore the drifting arm means to their fixed
+    /// construction baseline.
+    ///
+    /// The baseline problem is sampled once at construction and preserved; the
+    /// persistent RNG is **not** re-seeded, so the random-walk drift and reward
+    /// realisations advance independently each episode (host-RNG seeding
+    /// convention, `docs/rules.md` §8). For a reproducible problem, construct
+    /// with a fixed seed.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
-        self.arm_means = sample_arm_means::<K>(&mut self.rng);
+        self.arm_means = self.initial_arm_means;
         self.state = KArmedBanditState;
         self.steps = 0;
         self.done = false;
@@ -413,6 +424,61 @@ mod tests {
             assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
         }
         assert_eq!(a.arm_means(), b.arm_means());
+    }
+
+    #[test]
+    fn reset_restores_baseline_arm_means() {
+        // Means drift within an episode; reset restores them to the fixed
+        // construction baseline so the problem is preserved across episodes.
+        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig {
+            max_steps: 100,
+            seed: 7,
+            sigma_walk: 0.1,
+        })
+        .expect("valid config");
+        let baseline = *env.arm_means();
+        let action = KArmedBanditAction::<K>::from_index(0);
+        for _ in 0..10 {
+            <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
+        }
+        assert_ne!(baseline, *env.arm_means(), "means should have drifted");
+        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        assert_eq!(
+            baseline,
+            *env.arm_means(),
+            "reset must restore the construction baseline"
+        );
+    }
+
+    #[test]
+    fn successive_episodes_draw_independent_rewards() {
+        // The persistent RNG advances across resets, so drift and reward
+        // realisations differ between episodes on the same baseline problem.
+        let cfg = NonStationaryBanditConfig {
+            max_steps: 200,
+            seed: 7,
+            sigma_walk: 0.05,
+        };
+        let mut env = NonStationaryBandit::<K>::with_config(cfg).expect("valid config");
+        let action = KArmedBanditAction::<K>::from_index(0);
+        let episode = |env: &mut NonStationaryBandit<K>| -> Vec<f32> {
+            (0..16)
+                .map(|_| {
+                    f32::from(
+                        *<NonStationaryBandit<K> as Environment<1, 1, 1>>::step(env, action)
+                            .unwrap()
+                            .reward(),
+                    )
+                })
+                .collect()
+        };
+        let episode1 = episode(&mut env);
+        <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        let episode2 = episode(&mut env);
+        assert_ne!(
+            episode1, episode2,
+            "reward realisations must differ across episodes"
+        );
     }
 
     #[test]

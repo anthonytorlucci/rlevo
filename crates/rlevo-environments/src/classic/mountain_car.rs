@@ -295,6 +295,24 @@ impl MountainCar {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<SnapshotBase<1, MountainCarObservation, ScalarReward>, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     /// Current step count within the episode.
     pub fn steps(&self) -> usize {
         self.steps
@@ -362,14 +380,15 @@ impl Environment<1, 1, 1> for MountainCar {
 
     /// Resets the environment to a random initial state and returns the first snapshot.
     ///
-    /// Re-seeds the internal RNG from `config.seed` so repeated calls with the
-    /// same seed produce identical initial positions in `[-0.6, -0.4]`.
+    /// The initial position in `[-0.6, -0.4]` is drawn from the environment's
+    /// persistent RNG. The stream **advances** across resets, so successive
+    /// episodes see independent initial positions. For deterministic replay of
+    /// a specific initial state, use [`MountainCar::reset_with_seed`].
     ///
     /// # Errors
     ///
     /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
@@ -710,6 +729,33 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // The persistent RNG advances across resets (reset draws the initial
+        // position from U(-0.6, -0.4)), so back-to-back resets must sample
+        // independent initial states.
+        let mut env = default_env();
+        let first = env.reset().unwrap().observation().to_array();
+        let second = env.reset().unwrap().observation().to_array();
+        assert_ne!(
+            first, second,
+            "successive resets must draw independent initial states"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env = default_env();
+        let a = env.reset_with_seed(999).unwrap().observation().to_array();
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        let b = env.reset_with_seed(999).unwrap().observation().to_array();
+        assert_eq!(
+            a, b,
+            "reset_with_seed must reproduce the same initial state"
+        );
     }
 }
 

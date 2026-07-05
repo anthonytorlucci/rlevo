@@ -119,10 +119,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// - `action` — shape `(batch, 1)`, integer action index.
     /// - `log_prob` — shape `(batch,)`, log-probability of the sampled action.
     /// - `entropy` — shape `(batch,)`, per-row categorical entropy.
-    fn sample_with_logprob(
+    fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
-        rng: &mut dyn Rng,
+        rng: &mut R,
     ) -> PolicyOutput<B, Self::ActionTensor> {
         let device = obs.device();
         let [batch, _] = obs.dims();
