@@ -1,5 +1,6 @@
 //! Configuration for [`super::InvertedDoublePendulum`].
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
@@ -34,9 +35,9 @@ pub struct InvertedDoublePendulumConfig {
     /// Maximum number of steps before the episode is truncated. Default
     /// `1000`.
     pub max_steps: usize,
-    /// `(min, max)` bounds applied to the raw action before the gear
-    /// multiplier. Default `(-1.0, 1.0)`.
-    pub action_clip: (f32, f32),
+    /// `[min, max]` bounds applied to the raw action before the gear
+    /// multiplier. Default `[-1.0, 1.0]`.
+    pub action_clip: Bounds,
     // Physical geometry
     /// Total mass of the cart body in kg. Default `10.0`.
     pub cart_mass: f32,
@@ -80,13 +81,13 @@ impl Default for InvertedDoublePendulumConfig {
             dt: 0.01,
             frame_skip: 1,
             healthy: HealthyCheck {
-                z_range: Some((1.0, f32::INFINITY)),
+                z_range: Some(Bounds::new(1.0, f32::INFINITY)),
                 ..HealthyCheck::none()
             },
             termination: TerminationMode::OnUnhealthy,
             reset_noise_scale: 0.1,
             max_steps: 1000,
-            action_clip: (-1.0, 1.0),
+            action_clip: Bounds::new(-1.0, 1.0),
             cart_mass: 10.0,
             pole_mass: 0.5,
             pole_length: 0.6,
@@ -109,7 +110,6 @@ impl Validate for InvertedDoublePendulumConfig {
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
         config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
         config::positive(C, "cart_mass", f64::from(self.cart_mass))?;
         config::positive(C, "pole_mass", f64::from(self.pole_mass))?;
         config::positive(C, "pole_length", f64::from(self.pole_length))?;
@@ -121,9 +121,6 @@ impl Validate for InvertedDoublePendulumConfig {
         config::in_range(C, "x_tip_weight", 0.0, f64::INFINITY, f64::from(self.x_tip_weight))?;
         config::in_range(C, "omega1_weight", 0.0, f64::INFINITY, f64::from(self.omega1_weight))?;
         config::in_range(C, "omega2_weight", 0.0, f64::INFINITY, f64::from(self.omega2_weight))?;
-        if let Some((low, high)) = self.healthy.z_range {
-            config::ordered(C, "healthy.z_range", f64::from(low), f64::from(high))?;
-        }
         Ok(())
     }
 }

@@ -15,6 +15,7 @@
 //!   gate Gymnasium uses.
 
 use rlevo_core::base::Observation;
+use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::{EpisodeStatus, Snapshot, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
@@ -95,13 +96,13 @@ impl Default for ObservationComponents {
 /// (they never terminate on unhealthy).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HealthyCheck {
-    /// Inclusive `(low, high)` range for the torso's world-frame z (height).
-    pub z_range: Option<(f32, f32)>,
-    /// Inclusive `(low, high)` range for the torso's pitch angle (radians).
-    pub angle_range: Option<(f32, f32)>,
-    /// Inclusive `(low, high)` range applied to every element of the packed
-    /// state vector (qpos+qvel). Gymnasium uses `(-100, 100)` for Hopper.
-    pub state_range: Option<(f32, f32)>,
+    /// Inclusive `[lo, hi]` range for the torso's world-frame z (height).
+    pub z_range: Option<Bounds>,
+    /// Inclusive `[lo, hi]` range for the torso's pitch angle (radians).
+    pub angle_range: Option<Bounds>,
+    /// Inclusive `[lo, hi]` range applied to every element of the packed
+    /// state vector (qpos+qvel). Gymnasium uses `[-100, 100]` for Hopper.
+    pub state_range: Option<Bounds>,
 }
 
 impl HealthyCheck {
@@ -122,18 +123,18 @@ impl HealthyCheck {
         if !torso_z.is_finite() || !torso_angle.is_finite() {
             return false;
         }
-        if let Some((lo, hi)) = self.z_range
-            && (torso_z < lo || torso_z > hi)
+        if let Some(b) = self.z_range
+            && (torso_z < b.lo() || torso_z > b.hi())
         {
             return false;
         }
-        if let Some((lo, hi)) = self.angle_range
-            && (torso_angle < lo || torso_angle > hi)
+        if let Some(b) = self.angle_range
+            && (torso_angle < b.lo() || torso_angle > b.hi())
         {
             return false;
         }
-        if let Some((lo, hi)) = self.state_range
-            && !state.iter().all(|v| v.is_finite() && *v >= lo && *v <= hi)
+        if let Some(b) = self.state_range
+            && !state.iter().all(|v| v.is_finite() && *v >= b.lo() && *v <= b.hi())
         {
             return false;
         }
@@ -209,8 +210,8 @@ pub fn is_finite_state(state: &[f32]) -> bool {
 /// Clamp a contact-cost scalar into the env's allowed range, matching
 /// Gymnasium's `np.clip(contact_cost, lo, hi)` pattern.
 #[must_use]
-pub fn clip_contact_cost(contact_cost: f32, range: (f32, f32)) -> f32 {
-    contact_cost.clamp(range.0, range.1)
+pub fn clip_contact_cost(contact_cost: f32, range: Bounds) -> f32 {
+    range.clamp(contact_cost)
 }
 
 /// Normalise an angle (radians) to the half-open interval `(-π, π]`.
@@ -343,7 +344,7 @@ mod tests {
     #[test]
     fn healthy_check_z_range_gates_height() {
         let check = HealthyCheck {
-            z_range: Some((0.2, 1.0)),
+            z_range: Some(Bounds::new(0.2, 1.0)),
             ..HealthyCheck::none()
         };
         assert!(check.is_healthy(0.5, 0.0, &[]));
@@ -354,9 +355,9 @@ mod tests {
     #[test]
     fn healthy_check_hopper_style_all_three_ranges() {
         let check = HealthyCheck {
-            z_range: Some((0.7, f32::INFINITY)),
-            angle_range: Some((-0.2, 0.2)),
-            state_range: Some((-100.0, 100.0)),
+            z_range: Some(Bounds::new(0.7, f32::INFINITY)),
+            angle_range: Some(Bounds::new(-0.2, 0.2)),
+            state_range: Some(Bounds::new(-100.0, 100.0)),
         };
         assert!(check.is_healthy(1.25, 0.0, &[1.0, -2.0, 3.0]));
         assert!(!check.is_healthy(0.5, 0.0, &[1.0])); // z too low
@@ -393,9 +394,9 @@ mod tests {
 
     #[test]
     fn clip_contact_cost_respects_range() {
-        assert_eq!(clip_contact_cost(5.0, (0.0, 10.0)), 5.0);
-        assert_eq!(clip_contact_cost(15.0, (0.0, 10.0)), 10.0);
-        assert_eq!(clip_contact_cost(-1.0, (0.0, 10.0)), 0.0);
+        assert_eq!(clip_contact_cost(5.0, Bounds::new(0.0, 10.0)), 5.0);
+        assert_eq!(clip_contact_cost(15.0, Bounds::new(0.0, 10.0)), 10.0);
+        assert_eq!(clip_contact_cost(-1.0, Bounds::new(0.0, 10.0)), 0.0);
     }
 
     #[test]

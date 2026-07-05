@@ -4,6 +4,7 @@
 //! [`Default`] impl reproduces the Gymnasium v5 reacher XML values; override
 //! individual fields when constructing via [`super::Reacher::with_config`].
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::locomotion::common::Gear;
@@ -35,8 +36,8 @@ pub struct ReacherConfig {
     /// `EpisodeStatus::Truncated`. Default: `50`.
     pub max_steps: usize,
     /// Inclusive bounds applied to each action element before gear
-    /// multiplication. Default: `(-1.0, 1.0)`.
-    pub action_clip: (f32, f32),
+    /// multiplication. Default: `[-1.0, 1.0]`.
+    pub action_clip: Bounds,
     /// Weight applied to the squared control norm in the reward:
     /// `reward_control = -ctrl_cost_weight · ‖action‖²`. Default: `0.1`.
     pub ctrl_cost_weight: f32,
@@ -62,7 +63,7 @@ impl Default for ReacherConfig {
             frame_skip: 2,
             reset_noise_scale: 0.1,
             max_steps: 50,
-            action_clip: (-1.0, 1.0),
+            action_clip: Bounds::new(-1.0, 1.0),
             ctrl_cost_weight: 0.1,
             link1_length: 0.10,
             link2_length: 0.11,
@@ -80,7 +81,6 @@ impl Validate for ReacherConfig {
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
         config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
         config::in_range(C, "ctrl_cost_weight", 0.0, f64::INFINITY, f64::from(self.ctrl_cost_weight))?;
         config::positive(C, "link1_length", f64::from(self.link1_length))?;
         config::positive(C, "link2_length", f64::from(self.link2_length))?;

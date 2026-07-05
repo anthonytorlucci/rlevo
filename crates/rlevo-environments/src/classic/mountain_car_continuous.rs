@@ -10,8 +10,8 @@
 //!
 //! The car moves along a one-dimensional track whose height profile is the
 //! sinusoidal hill `$y(x) = \sin(3x)$`, with the position `$x$` confined to
-//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` ([`MountainCarContinuousConfig::min_pos`],
-//! [`MountainCarContinuousConfig::max_pos`]). The goal flag is at
+//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` (the position bounds
+//! [`MountainCarContinuousConfig::pos_bounds`]). The goal flag is at
 //! `$x_\text{goal} = 0.45$`. The state is the 2-vector
 //!
 //! ```math
@@ -19,9 +19,8 @@
 //! ```
 //!
 //! the car's position and velocity. Unlike the discrete variant, the agent
-//! supplies a **continuous** force `$a \in [-1, 1]$`
-//! ([`MountainCarContinuousConfig::min_action`],
-//! [`MountainCarContinuousConfig::max_action`]) scaled by a power coefficient
+//! supplies a **continuous** force `$a \in [-1, 1]$` (the action bounds
+//! [`MountainCarContinuousConfig::action_bounds`]) scaled by a power coefficient
 //! `$P$` ([`MountainCarContinuousConfig::power`]).
 //!
 //! ## Equations of motion
@@ -98,6 +97,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -134,20 +134,16 @@ pub const REWARD_GOAL: &str = "goal";
 /// ```
 #[derive(Debug, Clone)]
 pub struct MountainCarContinuousConfig {
-    /// Minimum valid action value. Default: `-1.0`.
-    pub min_action: f32,
-    /// Maximum valid action value. Default: `1.0`.
-    pub max_action: f32,
+    /// Inclusive valid action bounds `[min, max]`. Default: `[-1.0, 1.0]`.
+    pub action_bounds: Bounds,
     /// Power multiplier applied to the clamped force. Default: `0.0015`.
     pub power: f32,
     /// Goal position (m). Default: `0.45`.
     pub goal_position: f32,
     /// Minimum velocity at goal for termination. Default: `0.0`.
     pub goal_velocity: f32,
-    /// Left wall position (m). Default: `-1.2`.
-    pub min_pos: f32,
-    /// Right boundary (m). Default: `0.6`.
-    pub max_pos: f32,
+    /// Inclusive position bounds `[min, max]` (m). Default: `[-1.2, 0.6]`.
+    pub pos_bounds: Bounds,
     /// Maximum absolute velocity (m/s). Default: `0.07`.
     pub max_speed: f32,
     /// RNG seed; `reset()` re-seeds from this value. Default: `0`.
@@ -157,13 +153,11 @@ pub struct MountainCarContinuousConfig {
 impl Default for MountainCarContinuousConfig {
     fn default() -> Self {
         Self {
-            min_action: -1.0,
-            max_action: 1.0,
+            action_bounds: Bounds::new(-1.0, 1.0),
             power: 0.0015,
             goal_position: 0.45,
             goal_velocity: 0.0,
-            min_pos: -1.2,
-            max_pos: 0.6,
+            pos_bounds: Bounds::new(-1.2, 0.6),
             max_speed: 0.07,
             seed: 0,
         }
@@ -173,9 +167,7 @@ impl Default for MountainCarContinuousConfig {
 impl Validate for MountainCarContinuousConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "MountainCarContinuousConfig";
-        config::ordered(C, "min_action", f64::from(self.min_action), f64::from(self.max_action))?;
-        config::ordered(C, "min_pos", f64::from(self.min_pos), f64::from(self.max_pos))?;
-        config::in_range(C, "goal_position", f64::from(self.min_pos), f64::from(self.max_pos), f64::from(self.goal_position))?;
+        config::in_range(C, "goal_position", f64::from(self.pos_bounds.lo()), f64::from(self.pos_bounds.hi()), f64::from(self.goal_position))?;
         config::positive(C, "max_speed", f64::from(self.max_speed))?;
         config::positive(C, "power", f64::from(self.power))?;
         Ok(())
@@ -345,9 +337,9 @@ impl MountainCarContinuous {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
-    /// `min_action >= max_action`, `min_pos >= max_pos`, a `goal_position`
-    /// outside `[min_pos, max_pos]`, or non-positive `max_speed` / `power`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g. a
+    /// `goal_position` outside `pos_bounds`, or non-positive `max_speed` /
+    /// `power`).
     pub fn with_config(config: MountainCarContinuousConfig) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -377,12 +369,12 @@ impl MountainCarContinuous {
         force: f32,
         cfg: &MountainCarContinuousConfig,
     ) -> MountainCarContinuousState {
-        let clamped = force.clamp(cfg.min_action, cfg.max_action);
+        let clamped = cfg.action_bounds.clamp(force);
         let mut vel = state.velocity + clamped * cfg.power - 0.0025 * (3.0 * state.position).cos();
         vel = vel.clamp(-cfg.max_speed, cfg.max_speed);
         let mut pos = state.position + vel;
-        pos = pos.clamp(cfg.min_pos, cfg.max_pos);
-        if pos <= cfg.min_pos {
+        pos = cfg.pos_bounds.clamp(pos);
+        if pos <= cfg.pos_bounds.lo() {
             vel = 0.0;
         }
         MountainCarContinuousState {
@@ -441,7 +433,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 
     /// Advances the simulation by one time step and returns the resulting snapshot.
     ///
-    /// Clamps the force to `[min_action, max_action]`, integrates physics
+    /// Clamps the force to `action_bounds`, integrates physics
     /// (velocity → clamp → position → left-wall inelastic collision), then
     /// computes `reward = -0.1 * force² + 100 * goal_reached`. The episode
     /// terminates when `position ≥ goal_position` and `velocity ≥ goal_velocity`.
@@ -531,8 +523,8 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarC
 impl crate::render::AsciiRenderable for MountainCarContinuous {
     fn render_ascii(&self) -> String {
         let width = 40_usize;
-        let span = self.config.max_pos - self.config.min_pos;
-        let frac = ((self.state.position - self.config.min_pos) / span).clamp(0.0, 1.0);
+        let span = self.config.pos_bounds.span();
+        let frac = ((self.state.position - self.config.pos_bounds.lo()) / span).clamp(0.0, 1.0);
         let col = (frac * (width as f32 - 1.0)) as usize;
         let mut track = vec!['.'; width];
         track[col] = 'A';
@@ -616,8 +608,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unordered_actions() {
-        let bad = MountainCarContinuousConfig { min_action: 1.0, max_action: -1.0, ..Default::default() };
+    fn rejects_goal_outside_pos_bounds() {
+        let bad = MountainCarContinuousConfig { goal_position: 5.0, ..Default::default() };
+        let err = bad.validate().unwrap_err();
+        assert_eq!(err.field, "goal_position");
         assert!(MountainCarContinuous::with_config(bad).is_err());
     }
 
@@ -771,7 +765,7 @@ mod tests {
 impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCarContinuous {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
         use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
-        let (lo, hi) = (self.config.min_pos, self.config.max_pos);
+        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
         let terrain: Vec<Point2> = (0..=SAMPLES)
