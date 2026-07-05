@@ -44,6 +44,8 @@
 use burn::tensor::backend::Backend;
 use rand::Rng;
 
+use rlevo_core::bounds::Bounds;
+
 use crate::fitness::FitnessFn;
 
 pub mod hill_climbing;
@@ -286,8 +288,8 @@ pub(crate) fn sanitize_fitness(f: f32) -> f32 {
 /// above `hi` are lowered to `hi`. Uses `x.max(lo).min(hi)`, so a degenerate
 /// range where `lo > hi` collapses every coordinate to `hi` — the `min` is
 /// applied last and wins. Callers are expected to supply valid bounds.
-pub(crate) fn clamp_vec(genome: &mut [f32], bounds: (f32, f32)) {
-    let (lo, hi) = bounds;
+pub(crate) fn clamp_vec(genome: &mut [f32], bounds: Bounds) {
+    let (lo, hi): (f32, f32) = bounds.into();
     for x in genome.iter_mut() {
         *x = x.max(lo).min(hi);
     }
@@ -343,7 +345,7 @@ mod tests {
     #[test]
     fn clamp_vec_respects_bounds() {
         let mut g = vec![-10.0_f32, 0.5, 10.0, -0.5];
-        clamp_vec(&mut g, (-1.0, 1.0));
+        clamp_vec(&mut g, Bounds::new(-1.0, 1.0));
         assert_eq!(g, vec![-1.0, 0.5, 1.0, -0.5]);
     }
 }

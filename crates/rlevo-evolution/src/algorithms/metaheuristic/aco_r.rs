@@ -25,6 +25,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -41,7 +42,7 @@ pub struct AcoRConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Exploration scale (`ξ`). Higher → wider sampling. Canonical 0.85.
     pub xi: f32,
     /// Rank-weight decay (`q`). Smaller → stronger bias toward top of
@@ -57,7 +58,7 @@ impl AcoRConfig {
             archive_size,
             m,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             xi: 0.85,
             q: 0.1,
         }
@@ -80,7 +81,6 @@ impl Validate for AcoRConfig {
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::positive(C, "xi", f64::from(self.xi))?;
         config::positive(C, "q", f64::from(self.q))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -171,7 +171,7 @@ where
     /// process-wide Burn RNG state.
     fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AcoRState<B> {
         debug_assert!(params.validate().is_ok(), "invalid AcoRConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial archive from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -286,7 +286,7 @@ where
             let normal = Normal::new(mean_rows[idx], sigma_rows[idx]).expect("sigma > 0");
             *out = normal.sample(&mut sample_rng);
         }
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         for v in &mut offspring {
             *v = v.clamp(lo, hi);
         }

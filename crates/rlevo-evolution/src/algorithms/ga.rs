@@ -33,6 +33,7 @@ use crate::ops::{
     replacement::{elitist, generational},
     selection::tournament_select,
 };
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -71,7 +72,7 @@ pub struct GaConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Lower / upper bound on initial samples and clamping.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// σ for isotropic Gaussian mutation.
     pub mutation_sigma: f32,
     /// Selection operator.
@@ -89,7 +90,7 @@ impl GaConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             mutation_sigma: 0.3,
             selection: GaSelection::Tournament { size: 2 },
             crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
@@ -104,7 +105,6 @@ impl Validate for GaConfig {
         config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::in_range(C, "mutation_sigma", 0.0, f64::INFINITY, f64::from(self.mutation_sigma))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         match self.selection {
             GaSelection::Tournament { size } => {
                 config::at_least(C, "selection.size", size, 1)?;
@@ -165,6 +165,7 @@ pub struct GaState<B: Backend> {
 ///
 /// ```no_run
 /// use burn::backend::Flex;
+/// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::algorithms::ga::{
 ///     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 /// };
@@ -173,7 +174,7 @@ pub struct GaState<B: Backend> {
 /// let params = GaConfig {
 ///     pop_size: 64,
 ///     genome_dim: 10,
-///     bounds: (-5.12, 5.12),
+///     bounds: Bounds::new(-5.12, 5.12),
 ///     mutation_sigma: 0.3,
 ///     selection: GaSelection::Tournament { size: 2 },
 ///     crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
@@ -200,7 +201,7 @@ impl<B: Backend> GeneticAlgorithm<B> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
@@ -333,7 +334,7 @@ where
         let offspring = gaussian_mutation(offspring, *mutation_sigma, &mut mutation_rng, device);
 
         // 4. Clamp to bounds.
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let offspring = offspring.clamp(lo, hi);
 
         (offspring, state.clone())
@@ -481,7 +482,7 @@ mod tests {
         let params = GaConfig {
             pop_size: 64,
             genome_dim: 2,
-            bounds: (-5.0, 5.0),
+            bounds: Bounds::new(-5.0, 5.0),
             mutation_sigma: 0.2,
             selection: GaSelection::Tournament { size: 2 },
             crossover: GaCrossover::BlxAlpha { alpha: 0.5 },

@@ -42,6 +42,7 @@ use rand_distr::{Distribution as _, Normal};
 
 use crate::fitness::FitnessFn;
 use crate::local_search::{clamp_vec, LocalSearch};
+use rlevo_core::bounds::Bounds;
 
 /// Static configuration for a [`RandomRestart`] run.
 ///
@@ -65,7 +66,7 @@ pub struct RandomRestartParams<LP: Clone + Debug + Send + Sync> {
     pub restarts: usize,
     /// Inclusive search-space bounds `(lo, hi)`; perturbed starts are clamped
     /// here.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Standard deviation of the Gaussian perturbation applied to the input
     /// genome for runs `1..=restarts`. Default `0.1 * (hi - lo)`.
     pub perturbation: f32,
@@ -75,8 +76,12 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
     /// Default parameters: `restarts = 2`, `perturbation = 0.1 * (hi - lo)`,
     /// wrapping the supplied inner `params`.
     #[must_use]
-    pub fn default_for(inner: LP, bounds: (f32, f32)) -> Self {
-        let (lo, hi) = bounds;
+    pub fn default_for(inner: LP, bounds: Bounds) -> Self {
+        let (lo, hi): (f32, f32) = bounds.into();
+        debug_assert!(
+            (hi - lo) > 0.0,
+            "RandomRestartParams::default_for: zero-width bounds yields perturbation 0 (restarts cannot move)"
+        );
         Self {
             inner,
             restarts: 2,
@@ -104,6 +109,7 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::fitness::FitnessFn;
+/// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{
 ///     HillClimbing, HillClimbingParams, LocalSearch, RandomRestart, RandomRestartParams,
 /// };
@@ -118,8 +124,8 @@ impl<LP: Clone + Debug + Send + Sync> RandomRestartParams<LP> {
 ///
 /// // Wrap hill climbing in random restart: 3 perturbed restarts + run 0.
 /// let searcher = RandomRestart::new(HillClimbing);
-/// let inner = HillClimbingParams::default_for((-5.12, 5.12));
-/// let mut params = RandomRestartParams::default_for(inner, (-5.12, 5.12));
+/// let inner = HillClimbingParams::default_for(Bounds::new(-5.12, 5.12));
+/// let mut params = RandomRestartParams::default_for(inner, Bounds::new(-5.12, 5.12));
 /// params.restarts = 3;
 /// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
@@ -276,7 +282,7 @@ mod tests {
 
     type TestBackend = Flex;
 
-    const BOUNDS: (f32, f32) = (-5.12, 5.12);
+    const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
     /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
     /// origin.
@@ -472,7 +478,7 @@ mod tests {
         let inner = HillClimbingParams::default_for(BOUNDS);
         let params = rr_params(inner, 2);
         let mut rng = StdRng::seed_from_u64(11);
-        let (lo, hi) = BOUNDS;
+        let (lo, hi): (f32, f32) = BOUNDS.into();
         for _ in 0..5 {
             let start: Vec<f32> = (0..2)
                 .map(|_| lo + (hi - lo) * rng.random::<f32>())
@@ -497,7 +503,7 @@ mod tests {
         let params = rr_params(inner, 2);
         let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(3);
-        let (lo, hi) = BOUNDS;
+        let (lo, hi): (f32, f32) = BOUNDS.into();
         for dim in [1_usize, 2, 5, 10] {
             let start: Vec<f32> = (0..dim)
                 .map(|_| lo + (hi - lo) * rng.random::<f32>())
@@ -546,7 +552,7 @@ mod tests {
         let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(5);
         // Start at the upper boundary in every coordinate.
-        let start = vec![BOUNDS.1; 4];
+        let start = vec![BOUNDS.hi(); 4];
         let (g, _f) = LocalSearch::<TestBackend>::refine(
             &searcher,
             &params,
@@ -556,7 +562,7 @@ mod tests {
         );
         for &x in &g {
             assert!(
-                x >= BOUNDS.0 && x <= BOUNDS.1,
+                x >= BOUNDS.lo() && x <= BOUNDS.hi(),
                 "coord {x} out of bounds {BOUNDS:?}"
             );
         }

@@ -52,6 +52,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -76,7 +77,7 @@ pub struct PsoConfig {
     /// Genome (position) dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds for initialization and position clamping.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Inertia weight (only used by [`PsoVariant::Inertia`]).
     pub inertia: f32,
     /// Cognitive coefficient (personal-best pull).
@@ -106,7 +107,7 @@ impl PsoConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             inertia: 0.7298,
             c1: 1.49618,
             c2: 1.49618,
@@ -144,7 +145,6 @@ impl Validate for PsoConfig {
         config::in_range(C, "c1", 0.0, f64::INFINITY, f64::from(self.c1))?;
         config::in_range(C, "c2", 0.0, f64::INFINITY, f64::from(self.c2))?;
         config::positive(C, "v_max", f64::from(self.v_max))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         if self.variant == PsoVariant::Constriction && self.c1 + self.c2 <= 4.0 {
             return Err(ConfigError {
                 config: C,
@@ -204,7 +204,7 @@ impl<B: Backend> ParticleSwarm<B> {
     }
 
     fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
         // interleave with sibling tests under the parallel runner and are
@@ -306,7 +306,7 @@ where
             }
         };
         let new_velocities = new_velocities.clamp(-params.v_max, params.v_max);
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let new_positions = (state.positions.clone() + new_velocities.clone()).clamp(lo, hi);
 
         let mut next = state.clone();

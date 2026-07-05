@@ -35,13 +35,14 @@ use rand::Rng;
 
 use crate::fitness::FitnessFn;
 use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use rlevo_core::bounds::Bounds;
 
 /// Static configuration for a [`NelderMead`] run.
 #[derive(Debug, Clone)]
 pub struct NelderMeadParams {
     /// Inclusive search-space bounds `(lo, hi)`; refined genomes are clamped
     /// here and simplex vertices are flipped inward at the boundary.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
     /// counting the up-to-`n + 1` simplex-initialization evaluations.
     /// Default `200`.
@@ -72,8 +73,8 @@ impl NelderMeadParams {
     /// `initial_step = 0.05 * (hi - lo)`, `tolerance = 1e-8`,
     /// `max_iters = 200`.
     #[must_use]
-    pub fn default_for(bounds: (f32, f32)) -> Self {
-        let (lo, hi) = bounds;
+    pub fn default_for(bounds: Bounds) -> Self {
+        let (lo, hi): (f32, f32) = bounds.into();
         Self {
             bounds,
             max_iters: 200,
@@ -100,6 +101,7 @@ impl NelderMeadParams {
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::fitness::FitnessFn;
+/// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{LocalSearch, NelderMead, NelderMeadParams};
 ///
 /// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
@@ -111,7 +113,7 @@ impl NelderMeadParams {
 /// }
 ///
 /// let searcher = NelderMead;
-/// let params = NelderMeadParams::default_for((-5.12, 5.12));
+/// let params = NelderMeadParams::default_for(Bounds::new(-5.12, 5.12));
 /// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
@@ -176,7 +178,7 @@ impl NelderMead {
         // The tracked best — always returned. Updated on EVERY evaluation via
         // `evaluate`, so the monotone + fresh-fitness invariants hold
         // structurally. The input genome is the first point evaluated.
-        let (lo, hi): (f32, f32) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
 
         // Is the raw input already feasible? A known-fitness hint describes the
         // raw input, so it is valid for vertex 0 only when clamping is a no-op.
@@ -438,7 +440,7 @@ fn centroid_excluding_worst(simplex: &[Vertex], dim: usize) -> Vec<f32> {
 ///
 /// This is the shared shape of the reflection, expansion, and contraction
 /// updates; the caller picks `base`, `a`, `b`, and `coeff` accordingly.
-fn affine(base: &[f32], a: &[f32], b: &[f32], coeff: f32, bounds: (f32, f32)) -> Vec<f32> {
+fn affine(base: &[f32], a: &[f32], b: &[f32], coeff: f32, bounds: Bounds) -> Vec<f32> {
     let mut out: Vec<f32> = Vec::with_capacity(base.len());
     for k in 0..base.len() {
         out.push(base[k] + coeff * (a[k] - b[k]));
@@ -506,10 +508,10 @@ mod tests {
         }
     }
 
-    const BOUNDS: (f32, f32) = (-5.12, 5.12);
+    const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
-    fn random_start(rng: &mut StdRng, dim: usize, bounds: (f32, f32)) -> Vec<f32> {
-        let (lo, hi) = bounds;
+    fn random_start(rng: &mut StdRng, dim: usize, bounds: Bounds) -> Vec<f32> {
+        let (lo, hi): (f32, f32) = bounds.into();
         (0..dim)
             .map(|_| lo + (hi - lo) * rng.random::<f32>())
             .collect()
@@ -668,12 +670,12 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(9);
         // Start at the upper boundary in every coordinate, so the forward axis
         // nudge would leave bounds and must flip inward.
-        let start = vec![BOUNDS.1; 4];
+        let start = vec![BOUNDS.hi(); 4];
         let (g, _f) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         for &x in &g {
             assert!(
-                x >= BOUNDS.0 && x <= BOUNDS.1,
+                x >= BOUNDS.lo() && x <= BOUNDS.hi(),
                 "coord {x} out of bounds {BOUNDS:?}"
             );
         }

@@ -27,6 +27,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::ops::mutation::gaussian_mutation_per_row;
@@ -68,7 +69,7 @@ pub struct EsConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds; used for initialization and clamping.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Initial σ (log-normal self-adaptation modifies it in state).
     pub initial_sigma: f32,
     /// Learning-rate scale for log-normal σ update. Standard default is
@@ -90,7 +91,7 @@ impl EsConfig {
         Self {
             kind,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             initial_sigma: 1.0,
             tau,
         }
@@ -103,7 +104,6 @@ impl Validate for EsConfig {
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
         config::positive(C, "tau", f64::from(self.tau))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         match self.kind {
             EsKind::OnePlusOne => {}
             EsKind::OnePlusLambda { lambda } => {
@@ -197,7 +197,7 @@ impl<B: Backend> EvolutionStrategy<B> {
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let mu = Self::mu(params.kind);
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -324,7 +324,7 @@ where
         );
 
         // Clamp to bounds.
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let mutated = mutated.clamp(lo, hi);
 
         let mut state = state.clone();

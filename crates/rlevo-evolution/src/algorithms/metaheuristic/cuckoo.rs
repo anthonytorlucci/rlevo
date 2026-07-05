@@ -35,6 +35,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as RandDistDist, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -48,7 +49,7 @@ pub struct CuckooConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Step size scale (`α` in the paper). Canonical `α = 0.01`
     /// multiplied by the search-space width; strategy users should
     /// tune relative to their domain.
@@ -66,7 +67,7 @@ impl CuckooConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             alpha: 0.05,
             beta: 1.5,
             p_a: 0.25,
@@ -84,7 +85,6 @@ impl Validate for CuckooConfig {
         config::positive(C, "beta", f64::from(self.beta))?;
         config::ordered(C, "beta", f64::from(self.beta), 2.0)?;
         config::in_range(C, "p_a", 0.0, 1.0, f64::from(self.p_a))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -195,7 +195,7 @@ where
     /// [`tell`]: Strategy::tell
     fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
         debug_assert!(params.validate().is_ok(), "invalid CuckooConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial nests from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -257,7 +257,7 @@ where
         }
         let step_tensor = Tensor::<B, 2>::from_data(TensorData::new(step, [pop, d]), device);
 
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let new_nests = (state.nests.clone() + step_tensor.mul_scalar(params.alpha)).clamp(lo, hi);
 
         let mut next = state.clone();
@@ -341,7 +341,7 @@ where
             // Ascending: lowest fitness (worst under maximise) first.
             rank.sort_by(|&a, &b| state.fitness[a].partial_cmp(&state.fitness[b]).unwrap());
             let worst: Vec<usize> = rank.into_iter().take(n_abandon).collect();
-            let (lo, hi) = params.bounds;
+            let (lo, hi): (f32, f32) = params.bounds.into();
             // Host-sample abandoned-nest replacements from a deterministic
             // `seed_stream` so the refill is reproducible across thread
             // schedules rather than racing the global Flex RNG.

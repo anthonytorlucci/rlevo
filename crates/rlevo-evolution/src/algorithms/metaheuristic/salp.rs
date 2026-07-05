@@ -37,6 +37,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -52,7 +53,7 @@ pub struct SalpConfig {
     pub genome_dim: usize,
     /// Search-space bounds. The leader update pulls from a scaled
     /// uniform over this range.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Budget pacing the `c1` decay.
     pub max_generations: usize,
 }
@@ -64,7 +65,7 @@ impl SalpConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             max_generations: 500,
         }
     }
@@ -76,7 +77,6 @@ impl Validate for SalpConfig {
         config::at_least(C, "pop_size", self.pop_size, 2)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::at_least(C, "max_generations", self.max_generations, 1)?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -149,7 +149,7 @@ where
     /// the harness chokepoint.
     fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
         debug_assert!(params.validate().is_ok(), "invalid SalpConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel
@@ -199,7 +199,7 @@ where
         let pop_size = params.pop_size;
         let genome_dim = params.genome_dim;
         let n_leaders = pop_size / 2;
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
 
         // c1 decay: 2 * exp(-(4t/T)^2)
         #[allow(clippy::cast_precision_loss)]

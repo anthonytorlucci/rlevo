@@ -28,6 +28,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -46,7 +47,7 @@ pub struct FireflyConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Base attractiveness `β₀`. Canonical 1.0.
     pub beta0: f32,
     /// Light-absorption coefficient `γ`. Canonical 1.0; controls the
@@ -67,7 +68,7 @@ impl FireflyConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             beta0: 1.0,
             gamma: 0.01,
             alpha: 0.2,
@@ -95,7 +96,6 @@ impl Validate for FireflyConfig {
         config::in_range(C, "beta0", 0.0, f64::INFINITY, f64::from(self.beta0))?;
         config::positive(C, "gamma", f64::from(self.gamma))?;
         config::in_range(C, "alpha", 0.0, f64::INFINITY, f64::from(self.alpha))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -244,7 +244,7 @@ where
             "Firefly pop_size > {FIREFLY_PURE_TENSOR_CAP} requires the fused pairwise-attract kernel; \
              the placeholder kernel module still runs the pure-tensor path"
         );
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -301,7 +301,7 @@ where
             device,
             seed,
         );
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let new_positions = (state.positions.clone() + delta).clamp(lo, hi);
 
         let mut next = state.clone();

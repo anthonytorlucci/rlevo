@@ -36,6 +36,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -49,7 +50,7 @@ pub struct WoaConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Budget pacing `a = 2·(1 − t/max_generations)`.
     pub max_generations: usize,
     /// Spiral shape constant (Mirjalili's canonical `b = 1`).
@@ -63,7 +64,7 @@ impl WoaConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             max_generations: 500,
             b: 1.0,
         }
@@ -77,7 +78,6 @@ impl Validate for WoaConfig {
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::at_least(C, "max_generations", self.max_generations, 1)?;
         config::positive(C, "b", f64::from(self.b))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -147,7 +147,7 @@ where
     /// generation counter to zero.
     fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> WoaState<B> {
         debug_assert!(params.validate().is_ok(), "invalid WoaConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
@@ -289,7 +289,7 @@ where
         let encircle = enc_rand.mask_where(m_abs_a_lt_one, enc_best);
         let new_positions = spiral.mask_where(m_p_lt_half, encircle);
 
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let new_positions = new_positions.clamp(lo, hi);
 
         let mut next = state.clone();

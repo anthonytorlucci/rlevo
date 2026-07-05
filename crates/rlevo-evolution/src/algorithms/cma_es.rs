@@ -41,6 +41,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate, Violations};
 
 use crate::ops::linalg::{jacobi_eigen, matvec};
@@ -79,7 +80,7 @@ pub struct CmaEsConfig {
     pub genome_dim: usize,
     /// Search-space bounds; used only to sample the initial mean `m⁰`.
     /// Offspring are **not** clamped (CMA-ES samples in unbounded ℝᴰ).
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Initial global step size `σ`.
     pub initial_sigma: f32,
     /// Number of selected parents `μ = ⌊λ/2⌋`.
@@ -158,7 +159,7 @@ impl CmaEsConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             initial_sigma: 1.0,
             mu,
             weights,
@@ -209,7 +210,6 @@ impl Validate for CmaEsConfig {
                 kind: ConstraintKind::Custom("mu must not exceed pop_size"),
             }));
         }
-        v.check(config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1)));
 
         // Derived recombination weights: length μ, strictly positive, sum ≈ 1.
         if self.weights.len() != self.mu {
@@ -327,7 +327,7 @@ where
     ) -> CmaEsState<B> {
         debug_assert!(params.validate().is_ok(), "invalid CmaEsConfig reached init: {params:?}");
         let d = params.genome_dim;
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
         let mean: Vec<f32> = (0..d).map(|_| lo + (hi - lo) * stream.random::<f32>()).collect();
         let mut cov: Vec<f32> = vec![0.0; d * d];

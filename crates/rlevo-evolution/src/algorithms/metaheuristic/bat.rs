@@ -31,6 +31,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -44,7 +45,7 @@ pub struct BatConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Minimum frequency.
     pub f_min: f32,
     /// Maximum frequency.
@@ -66,7 +67,7 @@ impl BatConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             f_min: 0.0,
             f_max: 2.0,
             a0: 1.0,
@@ -95,7 +96,6 @@ impl Validate for BatConfig {
         config::positive(C, "alpha", f64::from(self.alpha))?;
         config::in_range(C, "alpha", 0.0, 1.0, f64::from(self.alpha))?;
         config::positive(C, "gamma", f64::from(self.gamma))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -171,7 +171,7 @@ where
     /// never touched.
     fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> BatState<B> {
         debug_assert!(params.validate().is_ok(), "invalid BatConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Sample initial positions on the host from a deterministic
         // `seed_stream`, mirroring `ask`/`tell`. The Flex backend's
         // `Tensor::random` draws from a process-wide RNG mutex; under the
@@ -241,7 +241,7 @@ where
 
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
 
         // Host-side sampling for β, pulse check, acceptance draw, and
         // local-walk ε. Keeping these on host preserves bit-parity

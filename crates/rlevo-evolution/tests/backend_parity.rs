@@ -34,6 +34,7 @@
 //! concurrently.
 
 use burn::backend::{Flex, Wgpu};
+use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
@@ -66,7 +67,7 @@ where
     let params = GaConfig {
         pop_size: 64,
         genome_dim: 10,
-        bounds: (-5.12, 5.12),
+        bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: 0.2,
         selection: GaSelection::Tournament { size: 2 },
         crossover: GaCrossover::BlxAlpha { alpha: 0.5 },

@@ -7,6 +7,7 @@
 //! exercise the full ask → evaluate → tell loop end to end.
 
 use burn::backend::Flex;
+use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
 
 use rlevo_evolution::algorithms::eda::{
@@ -75,7 +76,7 @@ fn smoke_univariate_gaussian() {
     let params = EdaParams {
         pop_size: 20,
         selection_ratio: 0.5,
-        bounds: Some((-5.12, 5.12)),
+        bounds: Some(Bounds::new(-5.12, 5.12)),
         model: UnivariateGaussianParams::default_for(8),
     };
     smoke(UnivariateGaussian, params);
@@ -86,7 +87,7 @@ fn smoke_dependency_chain() {
     let params = EdaParams {
         pop_size: 20,
         selection_ratio: 0.5,
-        bounds: Some((-5.12, 5.12)),
+        bounds: Some(Bounds::new(-5.12, 5.12)),
         model: DependencyChainParams::default_for(8),
     };
     smoke(DependencyChain, params);
