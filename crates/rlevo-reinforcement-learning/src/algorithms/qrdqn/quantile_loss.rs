@@ -132,14 +132,14 @@ mod tests {
     }
 
     fn scalar(t: Tensor<B, 1>) -> f32 {
-        t.into_data().convert::<f32>().into_vec::<f32>().unwrap()[0]
+        t.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built")[0]
     }
 
     #[test]
     fn huber_zero_on_zero_input() {
         let u = tensor_2d(vec![0.0; 6], 2, 3);
         let h = huber::<B, 2>(u, 1.0);
-        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().unwrap();
+        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
         for x in v {
             assert!(x.abs() < 1e-6);
         }
@@ -150,7 +150,7 @@ mod tests {
         // |u| < kappa ⇒ 0.5 u²
         let u = tensor_2d(vec![0.2_f32, -0.5, 0.75, -0.9], 2, 2);
         let h = huber::<B, 2>(u, 1.0);
-        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().unwrap();
+        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
         let expected = [0.02_f32, 0.125, 0.28125, 0.405];
         for (got, want) in v.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-5, "got {got}, want {want}");
@@ -162,7 +162,7 @@ mod tests {
         // |u| > kappa ⇒ kappa*(|u| − 0.5*kappa) with kappa=1.0 ⇒ |u| − 0.5
         let u = tensor_2d(vec![2.0_f32, -3.0, 5.0, -1.5], 2, 2);
         let h = huber::<B, 2>(u, 1.0);
-        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().unwrap();
+        let v: Vec<f32> = h.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
         let expected = [1.5_f32, 2.5, 4.5, 1.0];
         for (got, want) in v.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-5, "got {got}, want {want}");

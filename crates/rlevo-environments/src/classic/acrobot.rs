@@ -782,8 +782,12 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
 // ---------------------------------------------------------------------------
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObservation {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats(self.to_array(), device)
+    fn row_shape() -> [usize; 1] {
+        [6]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.to_array());
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -811,10 +815,14 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotObser
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for AcrobotAction {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
+    fn row_shape() -> [usize; 1] {
+        [3]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let mut one_hot = [0.0_f32; 3];
         one_hot[self.to_index()] = 1.0;
-        burn::tensor::Tensor::from_floats(one_hot, device)
+        buf.extend_from_slice(&one_hot);
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {

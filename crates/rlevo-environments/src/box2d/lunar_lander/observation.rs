@@ -85,11 +85,12 @@ impl Observation<1> for LunarLanderObservation {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderObservation {
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats(self.values, device)
+    fn row_shape() -> [usize; 1] {
+        [8]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.values);
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {

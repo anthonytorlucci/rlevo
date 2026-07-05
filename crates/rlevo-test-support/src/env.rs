@@ -10,8 +10,8 @@
 //! The fixture intentionally avoids any physics simulator so `cargo test` stays
 //! tractable: tiny networks and modest step budgets converge in seconds.
 
-use burn::tensor::backend::{Backend, BackendTypes};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::backend::Backend;
+use burn::tensor::Tensor;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
@@ -81,8 +81,11 @@ impl Observation<1> for LinearObservation {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
-    fn to_tensor(&self, device: &<B as BackendTypes>::Device) -> Tensor<B, 1> {
-        Tensor::from_data(TensorData::new(vec![self.x], vec![1]), device)
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.x);
     }
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let v = tensor.into_data().convert::<f32>();

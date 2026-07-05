@@ -61,10 +61,13 @@ limited to a handful of sensors.
 
 An observation is only useful to a neural policy once it becomes a tensor. The
 [`TensorConvertible`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.TensorConvertible.html)
-trait is that bridge. It defines a strict round-trip for a backend `B`: `to_tensor`
-encodes your value for the network, and `from_tensor` decodes it back into your
-custom type, returning a `TensorConversionError` if the shape or contents are
-invalid.
+trait is that bridge. You implement the host side of the encoding —
+`row_shape` names your value's tensor shape, and `write_host_row` appends its
+flat `f32` payload to a buffer — and the trait's provided `to_tensor` method
+derives the device tensor from that row (batch helpers reuse the same row to
+upload many values in one transfer). `from_tensor` is the decode direction: it
+turns a tensor back into your custom type, returning a `TensorConversionError`
+if the shape or contents are invalid.
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_grid_agent.rs:tensor}}

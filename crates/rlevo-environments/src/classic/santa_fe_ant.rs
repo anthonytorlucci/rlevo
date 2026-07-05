@@ -122,11 +122,16 @@ impl DiscreteAction<1> for SantaFeAntAction {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {
-    /// One-hot encoding of the action as a rank-1 tensor of length [`ACTION_COUNT`].
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    /// Row shape of the one-hot action encoding: `[ACTION_COUNT]`.
+    fn row_shape() -> [usize; 1] {
+        [ACTION_COUNT]
+    }
+
+    /// One-hot encoding of the action, length [`ACTION_COUNT`].
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let mut one_hot: [f32; ACTION_COUNT] = [0.0; ACTION_COUNT];
         one_hot[self.to_index()] = 1.0;
-        Tensor::from_floats(one_hot, device)
+        buf.extend_from_slice(&one_hot);
     }
 
     /// Reconstruct an action from a one-hot tensor by argmax.
@@ -174,10 +179,15 @@ impl Observation<1> for SantaFeAntObservation {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
-    /// Encode the food-ahead bit as a length-1 tensor (`[1.0]` / `[0.0]`).
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    /// Row shape of the food-ahead bit: `[1]`.
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+
+    /// Encode the food-ahead bit as a single element (`1.0` / `0.0`).
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let value: f32 = if self.food_ahead { 1.0 } else { 0.0 };
-        Tensor::from_floats([value], device)
+        buf.push(value);
     }
 
     /// Decode the food-ahead bit, thresholding the single element at `0.5`.

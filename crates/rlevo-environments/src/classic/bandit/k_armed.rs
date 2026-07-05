@@ -95,9 +95,14 @@ impl Display for KArmedBanditState {
 }
 
 impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
-    /// Encodes the stateless bandit state as a 1-D tensor `[0.0]`.
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
-        Tensor::from_floats([0.0_f32; 1], device)
+    /// Row shape of the stateless bandit state: `[1]`.
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+
+    /// Encodes the stateless bandit state as a single `0.0` element.
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(0.0_f32);
     }
 
     /// Accepts any rank-1 tensor of shape `[1]`; contents are ignored because
@@ -226,11 +231,16 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
 }
 
 impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
-    /// One-hot encoding of the selected arm as a rank-1 tensor of length `K`.
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    /// Row shape of the one-hot arm encoding: `[K]`.
+    fn row_shape() -> [usize; 1] {
+        [K]
+    }
+
+    /// One-hot encoding of the selected arm, length `K`.
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let mut one_hot = [0.0_f32; K];
         one_hot[self.selected_arm] = 1.0;
-        Tensor::from_floats(one_hot, device)
+        buf.extend_from_slice(&one_hot);
     }
 
     /// Reconstructs an action from a one-hot tensor by argmax.

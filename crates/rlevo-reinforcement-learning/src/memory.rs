@@ -9,7 +9,7 @@
 //! buffer.
 
 use crate::experience::{ExperienceTuple, History};
-use rlevo_core::base::{Action, Observation, Reward, TensorConvertible};
+use rlevo_core::base::{stack_to_tensor, Action, Observation, Reward, TensorConvertible};
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use rand::prelude::IteratorRandom;
@@ -384,37 +384,24 @@ where
             dones_vec.push(if exp.is_done { 1.0 } else { 0.0 });
         }
 
-        // Convert individual observations to tensors and stack them into a batch
-        let observations_tensors: Vec<Tensor<B, D>> = observations_vec
-            .iter()
-            .map(|obs| obs.to_tensor(device))
-            .collect();
+        // Stage each field host-side and upload it in a single
+        // `Tensor::from_data`. `stack_to_tensor` flattens every row into one
+        // contiguous buffer and yields the batched rank `BD = D + 1` /
+        // `BAD = AD + 1`; it owns the `BR == R + 1` assertion. Rewards must stay
+        // rank-1 `[batch]`, so they bypass the helper (which would produce
+        // `[batch, 1]`) and are staged directly through `write_host_row`.
+        let observations: Tensor<B, BD> =
+            stack_to_tensor::<D, BD, _, B>(&observations_vec, device);
+        let actions: Tensor<B, BAD> = stack_to_tensor::<AD, BAD, _, B>(&actions_vec, device);
 
-        let actions_tensors: Vec<Tensor<B, AD>> = actions_vec
-            .iter()
-            .map(|action| action.to_tensor(device))
-            .collect();
+        let mut rewards_buf: Vec<f32> = Vec::with_capacity(batch_size);
+        for reward in &rewards_vec {
+            reward.write_host_row(&mut rewards_buf);
+        }
+        let rewards: Tensor<B, 1> = Tensor::from_floats(rewards_buf.as_slice(), device);
 
-        let rewards_tensors: Vec<Tensor<B, 1>> = rewards_vec
-            .iter()
-            .map(|reward| reward.to_tensor(device))
-            .collect();
-
-        let next_observations_tensors: Vec<Tensor<B, D>> = next_observations_vec
-            .iter()
-            .map(|obs| obs.to_tensor(device))
-            .collect();
-
-        // Stack individual tensors into batch tensors. Stacking bumps the
-        // rank by 1 — `BD = D + 1`, `BAD = AD + 1` — enforced by the
-        // `assert_eq!`s at the top of the function. Rewards come through as
-        // rank-1 `[1]` tensors from `TensorConvertible<1, B>`, so we use
-        // `cat` (rank-preserving) instead of `stack` to produce shape
-        // `[batch]`.
-        let observations: Tensor<B, BD> = Tensor::stack(observations_tensors, 0);
-        let actions: Tensor<B, BAD> = Tensor::stack(actions_tensors, 0);
-        let rewards: Tensor<B, 1> = Tensor::cat(rewards_tensors, 0);
-        let next_observations: Tensor<B, BD> = Tensor::stack(next_observations_tensors, 0);
+        let next_observations: Tensor<B, BD> =
+            stack_to_tensor::<D, BD, _, B>(&next_observations_vec, device);
         let dones: Tensor<B, 1> = Tensor::from_floats(dones_vec.as_slice(), device);
 
         Ok(TrainingBatch {
@@ -872,8 +859,11 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Obs {
-        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
-            Tensor::from_floats([self.0, self.1, self.2], device)
+        fn row_shape() -> [usize; 1] {
+            [3]
+        }
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&[self.0, self.1, self.2]);
         }
         fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by this test")
@@ -893,10 +883,13 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Act {
-        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+        fn row_shape() -> [usize; 1] {
+            [2]
+        }
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
             let mut one_hot = [0.0_f32; 2];
             one_hot[self.0 as usize] = 1.0;
-            Tensor::from_floats(one_hot, device)
+            buf.extend_from_slice(&one_hot);
         }
         fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by this test")
@@ -926,8 +919,11 @@ mod sample_batch_tests {
     }
 
     impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Rew {
-        fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
-            Tensor::from_floats([self.0], device)
+        fn row_shape() -> [usize; 1] {
+            [1]
+        }
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.push(self.0);
         }
         fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by this test")
@@ -1002,5 +998,169 @@ mod sample_batch_tests {
         let device = Default::default();
         // BAD = 1 is wrong (should be AD + 1 = 2).
         let _ = per.sample_batch::<2, 1, Be>(2, &device);
+    }
+
+    /// Migration parity: the host-staged seam (`stack_to_tensor` +
+    /// `write_host_row`) must yield byte-identical tensors to the
+    /// pre-migration path of per-element `to_tensor` + `Tensor::stack`
+    /// (observations/actions/next-observations) and `Tensor::cat` (rewards).
+    ///
+    /// `sample_batch` samples through an internal, unseeded RNG, so the drawn
+    /// index order is not observable here. Every buffer entry is therefore made
+    /// identical: the sampled batch is invariant under whichever permutation is
+    /// drawn, giving a deterministic `into_data()` comparison without a seed
+    /// hook. Batch-axis ordering across *distinct* rows is covered separately by
+    /// `stack_to_tensor`'s own parity test in `rlevo-core`.
+    #[test]
+    fn sample_batch_matches_pre_migration_stack_path() {
+        let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
+
+        let obs: Obs = Obs(1.0, 2.0, 3.0);
+        let act: Act = Act(1); // one-hot [0.0, 1.0]
+        let rew: Rew = Rew(0.5);
+        let next: Obs = Obs(4.0, 5.0, 6.0);
+
+        let batch_size: usize = 6;
+        let mut per = PrioritizedExperienceReplayBuilder::<1, 1, Obs, Act, Rew>::new()
+            .with_capacity(batch_size)
+            .with_alpha(0.0) // uniform branch
+            .build();
+        for _ in 0..batch_size {
+            per.add(obs, act, rew, next, false, Some(1.0));
+        }
+
+        let batch = per
+            .sample_batch::<2, 2, Be>(batch_size, &device)
+            .expect("sample_batch");
+
+        // Pre-migration path: per-element `to_tensor` then `stack`/`cat` over the
+        // (identical) sampled set.
+        let obs_old: Tensor<Be, 2> = Tensor::stack(
+            (0..batch_size)
+                .map(|_| <Obs as TensorConvertible<1, Be>>::to_tensor(&obs, &device))
+                .collect::<Vec<Tensor<Be, 1>>>(),
+            0,
+        );
+        let act_old: Tensor<Be, 2> = Tensor::stack(
+            (0..batch_size)
+                .map(|_| <Act as TensorConvertible<1, Be>>::to_tensor(&act, &device))
+                .collect::<Vec<Tensor<Be, 1>>>(),
+            0,
+        );
+        let rew_old: Tensor<Be, 1> = Tensor::cat(
+            (0..batch_size)
+                .map(|_| <Rew as TensorConvertible<1, Be>>::to_tensor(&rew, &device))
+                .collect::<Vec<Tensor<Be, 1>>>(),
+            0,
+        );
+        let next_old: Tensor<Be, 2> = Tensor::stack(
+            (0..batch_size)
+                .map(|_| <Obs as TensorConvertible<1, Be>>::to_tensor(&next, &device))
+                .collect::<Vec<Tensor<Be, 1>>>(),
+            0,
+        );
+
+        // Shapes honour the `TrainingBatch` contract.
+        assert_eq!(batch.observations.dims(), [batch_size, 3]);
+        assert_eq!(batch.actions.dims(), [batch_size, 2]);
+        assert_eq!(batch.rewards.dims(), [batch_size]);
+        assert_eq!(batch.dones.dims(), [batch_size]);
+
+        // Byte-identical data vs the pre-migration path.
+        assert_eq!(
+            batch.observations.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
+            obs_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+        );
+        assert_eq!(
+            batch.actions.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
+            act_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+        );
+        assert_eq!(
+            batch.rewards.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
+            rew_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+        );
+        assert_eq!(
+            batch.next_observations.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
+            next_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+        );
+    }
+
+    /// Cross-field row alignment: within each sampled batch row the
+    /// observation, action, reward, and next-observation must all originate
+    /// from the *same* stored experience. A shuffle that paired row `i`'s
+    /// observation with another experience's reward/action/next-obs would
+    /// silently corrupt replay training, and the identical-entry parity test
+    /// cannot detect it (every per-field row is the same there).
+    ///
+    /// The buffer is built with per-slot-distinct values whose fields are
+    /// derivable from the observation's first feature `f = i`:
+    /// `next_obs == obs + 1.0` elementwise, `reward == obs[0] * 0.5`, and the
+    /// action one-hot index equals `obs[0] as usize % 2`. All values are
+    /// exactly representable in f32, so the checks reconstruct the expected
+    /// per-field tensors *from the returned observations* and compare for exact
+    /// equality — independent of the unseeded draw order (the invariants hold
+    /// for any drawn set, with or without replacement).
+    #[test]
+    fn sample_batch_preserves_cross_field_row_alignment() {
+        let device: <Be as burn::tensor::backend::BackendTypes>::Device = Default::default();
+
+        let capacity: usize = 8;
+        let mut per = PrioritizedExperienceReplayBuilder::<1, 1, Obs, Act, Rew>::new()
+            .with_capacity(capacity)
+            .with_alpha(0.0) // uniform draw covers the full buffer once
+            .build();
+        for i in 0..capacity {
+            let f: f32 = i as f32;
+            let obs: Obs = Obs(f, f + 0.1, f + 0.2);
+            // Fields derived from `obs` so the invariants hold by construction.
+            let next: Obs = Obs(obs.0 + 1.0, obs.1 + 1.0, obs.2 + 1.0);
+            let rew: Rew = Rew(obs.0 * 0.5);
+            let act: Act = Act((i % 2) as u32);
+            per.add(obs, act, rew, next, i == capacity - 1, Some(1.0));
+        }
+
+        let batch = per
+            .sample_batch::<2, 2, Be>(capacity, &device)
+            .expect("sample_batch");
+
+        let obs_host: Vec<f32> = batch
+            .observations
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let next_host: Vec<f32> = batch
+            .next_observations
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let act_host: Vec<f32> = batch
+            .actions
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let rew_host: Vec<f32> = batch
+            .rewards
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+
+        // next_obs row == obs row + 1.0, elementwise, for every sampled row.
+        let next_expected: Vec<f32> = obs_host.iter().map(|&v| v + 1.0).collect();
+        assert_eq!(next_host, next_expected);
+
+        // reward[i] == obs[i][0] * 0.5.
+        let rew_expected: Vec<f32> = (0..capacity).map(|i| obs_host[i * 3] * 0.5).collect();
+        assert_eq!(rew_host, rew_expected);
+
+        // action[i] is one-hot at `obs[i][0] as usize % 2`.
+        let act_expected: Vec<f32> = (0..capacity)
+            .flat_map(|i| {
+                let parity: usize = (obs_host[i * 3] as usize) % 2;
+                let mut row: [f32; 2] = [0.0, 0.0];
+                row[parity] = 1.0;
+                row
+            })
+            .collect();
+        assert_eq!(act_host, act_expected);
     }
 }

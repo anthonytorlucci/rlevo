@@ -327,7 +327,7 @@ mod tests {
             .build()
             .expect("valid config");
         let taus: Tensor<B, 1> = cfg.quantile_taus::<B>(&device);
-        let v: Vec<f32> = taus.into_data().convert::<f32>().into_vec::<f32>().unwrap();
+        let v: Vec<f32> = taus.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
         let expected = [0.125_f32, 0.375, 0.625, 0.875];
         for (got, want) in v.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-6, "got {got}, want {want}");

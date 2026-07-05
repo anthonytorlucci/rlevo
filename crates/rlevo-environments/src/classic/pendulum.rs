@@ -513,8 +513,12 @@ fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
 // ---------------------------------------------------------------------------
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObservation {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats(self.to_array(), device)
+    fn row_shape() -> [usize; 1] {
+        [3]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.extend_from_slice(&self.to_array());
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
@@ -539,8 +543,12 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObse
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumAction {
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> burn::tensor::Tensor<B, 1> {
-        burn::tensor::Tensor::from_floats([self.0], device)
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.0);
     }
 
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {

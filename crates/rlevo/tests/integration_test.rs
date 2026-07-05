@@ -40,12 +40,12 @@ impl Observation<1> for WalkObservation {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        Tensor::from_floats([self.position as f32], device)
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.position as f32);
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         // Not exercised by these tests; included only for trait completeness.
@@ -115,12 +115,12 @@ impl DiscreteAction<1> for WalkAction {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
     #[allow(clippy::cast_precision_loss)]
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        Tensor::from_floats([self.to_index() as f32], device)
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.to_index() as f32);
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         Err(TensorConversionError {
@@ -155,11 +155,11 @@ impl From<WalkReward> for f32 {
 }
 
 impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
-    fn to_tensor(
-        &self,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> Tensor<B, 1> {
-        Tensor::from_floats([self.0], device)
+    fn row_shape() -> [usize; 1] {
+        [1]
+    }
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        buf.push(self.0);
     }
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         Err(TensorConversionError {

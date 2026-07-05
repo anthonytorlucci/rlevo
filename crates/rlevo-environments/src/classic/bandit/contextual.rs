@@ -113,11 +113,16 @@ impl<const C: usize> State<1> for ContextualBanditState<C> {
 }
 
 impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {
-    /// One-hot encoding of the current context as a rank-1 tensor of length `C`.
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    /// Row shape of the one-hot context encoding: `[C]`.
+    fn row_shape() -> [usize; 1] {
+        [C]
+    }
+
+    /// One-hot encoding of the current context, length `C`.
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
         let mut one_hot = [0.0_f32; C];
         one_hot[self.context] = 1.0;
-        Tensor::from_floats(one_hot, device)
+        buf.extend_from_slice(&one_hot);
     }
 
     /// Reconstructs an observation from a one-hot tensor by argmax.
