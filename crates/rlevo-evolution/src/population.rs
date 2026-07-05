@@ -26,14 +26,18 @@
 //!                                 0.7, 0.8, 0.9,
 //!                                 1.0, 1.1, 1.2], [4, 3]);
 //! let tensor = Tensor::<Flex, 2>::from_data(data, &device);
-//! let pop = Population::<Flex, Real>::new_real(tensor);
+//! // Construction validates that the tensor is non-empty, so it returns a
+//! // `Result`; a 0×n or m×0 tensor is rejected as a `ConfigError`.
+//! let pop = Population::<Flex, Real>::new_real(tensor).unwrap();
 //! assert_eq!(pop.pop_size(), 4);
 //! assert_eq!(pop.genome_dim(), 3);
 //! ```
 
 use burn::tensor::{backend::Backend, Int, Tensor};
 
-use crate::genome::{Binary, Integer, Real, TensorGenome};
+use rlevo_core::config::{self, ConfigError};
+
+use crate::genome::{Binary, Integer, Permutation, Real, TensorGenome};
 
 /// Population stored on a Burn backend device.
 ///
@@ -100,6 +104,13 @@ impl<B: Backend> Population<B, Real> {
     /// calls to [`pop_size`](Population::pop_size) and
     /// [`genome_dim`](Population::genome_dim) reflect those dimensions.
     ///
+    /// # Errors
+    ///
+    /// Returns [`ConstraintKind::Zero`](rlevo_core::config::ConstraintKind::Zero)
+    /// (as `field` `"pop_size"` or `"genome_dim"`) if the tensor has zero rows
+    /// or zero columns. Rejecting the empty case here names `Population` as the
+    /// source instead of surfacing later as an opaque operator panic.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -112,18 +123,19 @@ impl<B: Backend> Population<B, Real> {
     /// let data = TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0], [2, 2]);
     /// let pop = Population::<Flex, Real>::new_real(
     ///     Tensor::from_data(data, &device),
-    /// );
+    /// ).unwrap();
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 2);
     /// ```
-    #[must_use]
-    pub fn new_real(tensor: Tensor<B, 2>) -> Self {
+    pub fn new_real(tensor: Tensor<B, 2>) -> Result<Self, ConfigError> {
         let dims = tensor.dims();
-        Self {
+        config::nonzero("Population", "pop_size", dims[0])?;
+        config::nonzero("Population", "genome_dim", dims[1])?;
+        Ok(Self {
             pop_size: dims[0],
             genome_dim: dims[1],
             tensor,
-        }
+        })
     }
 }
 
@@ -132,6 +144,12 @@ impl<B: Backend> Population<B, Binary> {
     ///
     /// Each element is expected to be `0` or `1`; the constructor does not
     /// validate element values. Shape is read from `tensor.dims()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConstraintKind::Zero`](rlevo_core::config::ConstraintKind::Zero)
+    /// (as `field` `"pop_size"` or `"genome_dim"`) if the tensor has zero rows
+    /// or zero columns.
     ///
     /// # Examples
     ///
@@ -148,18 +166,19 @@ impl<B: Backend> Population<B, Binary> {
     ///                                 0, 0, 1, 1], [3, 4]);
     /// let pop = Population::<Flex, Binary>::new_binary(
     ///     Tensor::from_data(data, &device),
-    /// );
+    /// ).unwrap();
     /// assert_eq!(pop.pop_size(), 3);
     /// assert_eq!(pop.genome_dim(), 4);
     /// ```
-    #[must_use]
-    pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Self {
+    pub fn new_binary(tensor: Tensor<B, 2, Int>) -> Result<Self, ConfigError> {
         let dims = tensor.dims();
-        Self {
+        config::nonzero("Population", "pop_size", dims[0])?;
+        config::nonzero("Population", "genome_dim", dims[1])?;
+        Ok(Self {
             pop_size: dims[0],
             genome_dim: dims[1],
             tensor,
-        }
+        })
     }
 }
 
@@ -169,6 +188,12 @@ impl<B: Backend> Population<B, Integer> {
     /// Elements represent non-negative integer indices (e.g. node indices in
     /// CGP, symbol indices in integer-coded GA). The constructor does not
     /// validate element bounds. Shape is read from `tensor.dims()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConstraintKind::Zero`](rlevo_core::config::ConstraintKind::Zero)
+    /// (as `field` `"pop_size"` or `"genome_dim"`) if the tensor has zero rows
+    /// or zero columns.
     ///
     /// # Examples
     ///
@@ -184,18 +209,68 @@ impl<B: Backend> Population<B, Integer> {
     ///                                 2, 0, 4, 1, 3], [2, 5]);
     /// let pop = Population::<Flex, Integer>::new_integer(
     ///     Tensor::from_data(data, &device),
-    /// );
+    /// ).unwrap();
     /// assert_eq!(pop.pop_size(), 2);
     /// assert_eq!(pop.genome_dim(), 5);
     /// ```
-    #[must_use]
-    pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Self {
+    pub fn new_integer(tensor: Tensor<B, 2, Int>) -> Result<Self, ConfigError> {
         let dims = tensor.dims();
-        Self {
+        config::nonzero("Population", "pop_size", dims[0])?;
+        config::nonzero("Population", "genome_dim", dims[1])?;
+        Ok(Self {
             pop_size: dims[0],
             genome_dim: dims[1],
             tensor,
-        }
+        })
+    }
+}
+
+impl<B: Backend> Population<B, Permutation> {
+    /// Constructs a permutation population from a `Tensor<B, 2, Int>`.
+    ///
+    /// Each row is *assumed* to be a permutation of `0..genome_dim`, but the
+    /// constructor validates only shape — the per-row bijection invariant is
+    /// **not** checked, mirroring how [`new_binary`](Population::new_binary) and
+    /// [`new_integer`](Population::new_integer) leave element values unchecked.
+    /// Shape is read from `tensor.dims()`.
+    ///
+    /// The permutation operators (Ant Colony Optimization over TSP/QAP) are
+    /// planned for a future release; this constructor exists so downstream code
+    /// can allocate and reference `Population<B, Permutation>` today.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConstraintKind::Zero`](rlevo_core::config::ConstraintKind::Zero)
+    /// (as `field` `"pop_size"` or `"genome_dim"`) if the tensor has zero rows
+    /// or zero columns.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use burn::backend::Flex;
+    /// use burn::tensor::{Int, Tensor, TensorData};
+    /// use rlevo_evolution::genome::Permutation;
+    /// use rlevo_evolution::population::Population;
+    ///
+    /// let device = Default::default();
+    /// // 2 ants, each a permutation of a 4-node tour.
+    /// let data = TensorData::new(vec![0i64, 1, 2, 3,
+    ///                                 2, 0, 3, 1], [2, 4]);
+    /// let pop = Population::<Flex, Permutation>::new_permutation(
+    ///     Tensor::from_data(data, &device),
+    /// ).unwrap();
+    /// assert_eq!(pop.pop_size(), 2);
+    /// assert_eq!(pop.genome_dim(), 4);
+    /// ```
+    pub fn new_permutation(tensor: Tensor<B, 2, Int>) -> Result<Self, ConfigError> {
+        let dims = tensor.dims();
+        config::nonzero("Population", "pop_size", dims[0])?;
+        config::nonzero("Population", "genome_dim", dims[1])?;
+        Ok(Self {
+            pop_size: dims[0],
+            genome_dim: dims[1],
+            tensor,
+        })
     }
 }
 
@@ -211,7 +286,7 @@ mod tests {
         let device = Default::default();
         let data = TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0], [2, 2]);
         let tensor = Tensor::<TestBackend, 2>::from_data(data, &device);
-        let pop = Population::<TestBackend, Real>::new_real(tensor);
+        let pop = Population::<TestBackend, Real>::new_real(tensor).unwrap();
         assert_eq!(pop.pop_size(), 2);
         assert_eq!(pop.genome_dim(), 2);
         assert_eq!(pop.tensor().dims(), [2, 2]);
@@ -222,8 +297,44 @@ mod tests {
         let device = Default::default();
         let data = TensorData::new(vec![0i64, 1, 1, 0, 1, 0], [2, 3]);
         let tensor = Tensor::<TestBackend, 2, Int>::from_data(data, &device);
-        let pop = Population::<TestBackend, Binary>::new_binary(tensor);
+        let pop = Population::<TestBackend, Binary>::new_binary(tensor).unwrap();
         assert_eq!(pop.pop_size(), 2);
         assert_eq!(pop.genome_dim(), 3);
+    }
+
+    #[test]
+    fn permutation_population_reports_shape() {
+        let device = Default::default();
+        let data = TensorData::new(vec![0i64, 1, 2, 3, 2, 0, 3, 1], [2, 4]);
+        let tensor = Tensor::<TestBackend, 2, Int>::from_data(data, &device);
+        let pop =
+            Population::<TestBackend, Permutation>::new_permutation(tensor).unwrap();
+        assert_eq!(pop.pop_size(), 2);
+        assert_eq!(pop.genome_dim(), 4);
+    }
+
+    #[test]
+    fn new_real_rejects_zero_rows() {
+        let device = Default::default();
+        let data = TensorData::new(Vec::<f32>::new(), [0, 3]);
+        let tensor = Tensor::<TestBackend, 2>::from_data(data, &device);
+        let err = Population::<TestBackend, Real>::new_real(tensor).unwrap_err();
+        assert_eq!(err.field, "pop_size");
+    }
+
+    #[test]
+    fn new_real_rejects_zero_width() {
+        let device = Default::default();
+        let data = TensorData::new(Vec::<f32>::new(), [3, 0]);
+        let tensor = Tensor::<TestBackend, 2>::from_data(data, &device);
+        let err = Population::<TestBackend, Real>::new_real(tensor).unwrap_err();
+        assert_eq!(err.field, "genome_dim");
+    }
+
+    #[test]
+    fn population_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Population<TestBackend, Real>>();
+        assert_send_sync::<Population<TestBackend, Permutation>>();
     }
 }

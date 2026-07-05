@@ -133,13 +133,20 @@ companion trait:
 
 ```rust
 pub trait TensorGenome: GenomeKind {
-    type Tensor<B: Backend>: Clone + Debug;
+    type Tensor<B: Backend>: Clone + Debug + Send + Sync;
 }
 
-impl TensorGenome for Real    { type Tensor<B: Backend> = Tensor<B, 2>; }
-impl TensorGenome for Binary  { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
-impl TensorGenome for Integer { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
+impl TensorGenome for Real        { type Tensor<B: Backend> = Tensor<B, 2>; }
+impl TensorGenome for Binary      { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
+impl TensorGenome for Integer     { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
+impl TensorGenome for Permutation { type Tensor<B: Backend> = Tensor<B, 2, Int>; }
 ```
+
+The `Send + Sync` on the associated type is not decoration: every
+[`Strategy`](https://docs.rs/rlevo-evolution) is `Send + Sync`, and a
+`Population<B, K>` is only shareable across threads if its stored tensor is too.
+Bounding the tensor here lets generic code over `K: TensorGenome` rely on that
+without re-stating it at every call site.
 
 So `Population<B, Real>` *is* a population whose field is a `Tensor<B, 2>`, and
 `Population<B, Binary>` *is* one whose field is a `Tensor<B, 2, Int>` — the kind
@@ -158,15 +165,18 @@ out, both of which tighten the earlier design:
   not just documented.
 
 Each kind still gets an explicit constructor — `new_real`, `new_binary`,
-`new_integer` — because reading `pop_size`/`genome_dim` from `tensor.dims()`
-happens where the concrete tensor type is in hand:
+`new_integer`, `new_permutation` — because reading `pop_size`/`genome_dim` from
+`tensor.dims()` happens where the concrete tensor type is in hand. Each returns a
+`Result`: we reject an empty (`0`-row or `0`-column) tensor at construction so the
+failure names `Population` as its source, rather than surfacing later as an opaque
+operator panic deep in a selection kernel.
 
 ```rust
-let pop = Population::<B, Real>::new_real(tensor);
+let pop = Population::<B, Real>::new_real(tensor)?;
 assert_eq!(pop.pop_size(), 4);                          // rows
 assert_eq!(pop.genome_dim(), 3);                        // columns
 
-let bits = Population::<B, Binary>::new_binary(int_tensor);
+let bits = Population::<B, Binary>::new_binary(int_tensor)?;
 ```
 
 The wrapper exists for one reason: to give operators and strategies a **single
@@ -259,28 +269,30 @@ fitness function can run. Neither side needs to know about the other.
 
 ## Kinds on the roadmap
 
-Two further markers exist as **type-level placeholders** for representations that
-do not fit the rectangular-tensor mould, so the API can name them before the
-machinery lands:
+Two further markers exist so the API can name representations whose *operators*
+have not fully landed yet. They sit on opposite sides of the tensor seam, and
+that difference is exactly what `TensorGenome` captures.
 
+- **`Permutation`** — each row a permutation of `0..n`, for ordering problems
+  (TSP, QAP) driven by Ant Colony Optimization. It *is* rectangular — each row is
+  a length-`n` integer vector — so it implements `TensorGenome` today
+  (`Tensor<B, 2, Int>`) and `Population<B, Permutation>` type-checks and
+  constructs via `new_permutation`. What is still stubbed is the *operator* set:
+  a stubbed consumer ships now, and the full pheromone/tour-construction
+  machinery is planned. Note that `new_permutation` validates only shape — it
+  does **not** check that each row is a genuine bijection of `0..n`, mirroring
+  how the binary and integer constructors leave gene *values* unchecked.
 - **`Tree`** — variable-length ASTs for classical Koza-style genetic programming.
   Tree genomes cannot be batched into a rectangular GPU tensor, so they have no
-  tensor representation in this crate; the marker reserves the name for a
-  host-side implementation in a future release.
-- **`Permutation`** — each row a permutation of `0..n`, for ordering problems
-  (TSP, QAP) driven by Ant Colony Optimization. A stubbed consumer ships today;
-  the full operator set is planned.
+  tensor representation in this crate: `Tree` *stays* a plain `GenomeKind` and
+  never implements `TensorGenome`, so `Population<B, Tree>` does not type-check.
+  The marker reserves the name for a host-side implementation in a future release.
 
 Both implement `GenomeKind`, so strategies and operators can already name them.
-They differ on the tensor seam, though, and that difference is exactly what
-`TensorGenome` captures. `Permutation` is rectangular — each row is a length-`n`
-integer vector — so it will implement `TensorGenome` and gain a
-`Population<B, Permutation>` when its operators land. `Tree` is not: its genomes
-are variable-length, host-side ASTs with no rectangular tensor form, so it will
-*stay* a plain `GenomeKind` and never implement `TensorGenome` — its genetic
-programming machinery lives off-device. Listing both here is deliberate: it marks
-the seams where the representation layer is designed to grow without disturbing
-the kinds that already work.
+Listing them here is deliberate: it marks the seams where the representation layer
+is designed to grow — `Permutation` already across the tensor seam and awaiting
+operators, `Tree` deliberately off-device — without disturbing the kinds that
+already work.
 
 ## Putting it together
 

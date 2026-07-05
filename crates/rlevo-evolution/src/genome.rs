@@ -74,11 +74,18 @@ pub struct Tree;
 
 /// Permutation genome (each row is a permutation of `0..n_nodes`).
 ///
-/// Populations are stored as `Tensor<B, 2, Int>` of shape
-/// `(pop_size, n_nodes)` where every row is a valid permutation. Used by
-/// Ant Colony Optimization over combinatorial domains (TSP, QAP, …);
-/// only a stubbed consumer ships in this release — a full implementation
-/// is planned for a future release.
+/// Rectangular and device-resident: populations are stored as
+/// `Tensor<B, 2, Int>` of shape `(pop_size, n_nodes)`, so this kind
+/// implements [`TensorGenome`] and `Population<B, Permutation>` type-checks.
+/// The permutation invariant (every row is a bijection of `0..n_nodes`) is
+/// **not** enforced at construction — [`new_permutation`] validates only
+/// shape, matching how `Binary`/`Integer` leave element values unchecked.
+///
+/// Used by Ant Colony Optimization over combinatorial domains (TSP, QAP, …);
+/// only a stubbed consumer ships in this release — the operators are planned
+/// for a future release.
+///
+/// [`new_permutation`]: crate::population::Population::new_permutation
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Permutation;
 
@@ -100,7 +107,8 @@ impl GenomeKind for Permutation {
 /// [`Population`](crate::population::Population) can store on-device. The
 /// associated [`Tensor`](TensorGenome::Tensor) type names *which* tensor flavour
 /// backs the kind, tying the storage type to the marker at compile time: `Real`
-/// maps to `Tensor<B, 2>`; `Binary` and `Integer` map to `Tensor<B, 2, Int>`.
+/// maps to `Tensor<B, 2>`; `Binary`, `Integer`, and `Permutation` map to
+/// `Tensor<B, 2, Int>`.
 ///
 /// Because the storage type is chosen by the trait impl, `Population<B, K>` needs
 /// only one field and no run-time tag — the wrong-tensor-for-this-kind state is
@@ -110,7 +118,13 @@ impl GenomeKind for Permutation {
 pub trait TensorGenome: GenomeKind {
     /// Device tensor type storing a whole population of this kind, shape
     /// `(pop_size, genome_dim)`.
-    type Tensor<B: Backend>: Clone + Debug;
+    ///
+    /// The `Send + Sync` bound keeps `Population<B, K>` thread-safe under the
+    /// crate-wide [`Strategy: Send + Sync`](crate::strategy::Strategy) contract:
+    /// without it, generic code over `K: TensorGenome` could not prove the
+    /// stored tensor — and therefore the population — is shareable across
+    /// threads, even though every concrete Burn tensor is.
+    type Tensor<B: Backend>: Clone + Debug + Send + Sync;
 }
 
 impl TensorGenome for Real {
@@ -122,6 +136,10 @@ impl TensorGenome for Binary {
 }
 
 impl TensorGenome for Integer {
+    type Tensor<B: Backend> = Tensor<B, 2, Int>;
+}
+
+impl TensorGenome for Permutation {
     type Tensor<B: Backend> = Tensor<B, 2, Int>;
 }
 
@@ -154,5 +172,30 @@ mod tests {
         let _ = format!(
             "{Real:?} {Binary:?} {Integer:?} {Tree:?} {Permutation:?}"
         );
+    }
+
+    #[test]
+    fn permutation_impls_tensor_genome() {
+        use burn::backend::Flex;
+
+        // Compiles iff `Permutation: TensorGenome` with its tensor flavour
+        // unifying with `Tensor<Flex, 2, Int>`.
+        fn takes_perm_tensor(t: <Permutation as TensorGenome>::Tensor<Flex>) -> Tensor<Flex, 2, Int> {
+            t
+        }
+        let _ = takes_perm_tensor;
+    }
+
+    #[test]
+    fn tensor_genome_storage_is_send_sync() {
+        use burn::backend::Flex;
+
+        // Regression guard for the `Send + Sync` GAT bound: instantiating this
+        // for each kind fails to compile if the bound is ever dropped.
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<<Real as TensorGenome>::Tensor<Flex>>();
+        assert_send_sync::<<Binary as TensorGenome>::Tensor<Flex>>();
+        assert_send_sync::<<Integer as TensorGenome>::Tensor<Flex>>();
+        assert_send_sync::<<Permutation as TensorGenome>::Tensor<Flex>>();
     }
 }
