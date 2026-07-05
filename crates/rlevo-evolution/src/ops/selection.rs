@@ -113,8 +113,9 @@ pub fn tournament_select<B: Backend>(
 ///
 /// Sorts the population by fitness (descending, i.e. highest first) and
 /// returns the first `top_k` indices. The returned `Vec` is ordered from
-/// best to worst among the selected members. Ties are broken by
-/// `f32::partial_cmp`, with `NaN` values sorted last.
+/// best to worst among the selected members. `NaN` fitnesses are sanitised to
+/// `−inf` (worst, per the maximise convention) and ordered with `f32::total_cmp`,
+/// so a `NaN`-fitness member always sorts last and can never be selected as best.
 ///
 /// This is the host-side building block; call [`truncation_select`] when
 /// you need the corresponding population rows as a tensor.
@@ -140,10 +141,15 @@ pub fn tournament_select<B: Backend>(
 pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
     assert!(top_k <= fitness.len(), "top_k must be <= population size");
-    let mut indexed: Vec<(usize, f32)> = fitness.iter().copied().enumerate().collect();
-    // Descending: highest fitness first. NaN sorts last either way.
-    indexed
-        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    // Sanitize NaN → −inf (worst under maximise) so a NaN-fitness member can
+    // never rank as best; `total_cmp` then gives a deterministic total order.
+    let mut indexed: Vec<(usize, f32)> = fitness
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .enumerate()
+        .collect();
+    // Descending: highest fitness first; sanitized NaN sorts last.
+    indexed.sort_by(|a, b| b.1.total_cmp(&a.1));
     #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     indexed
         .into_iter()
@@ -216,6 +222,19 @@ mod tests {
         assert!(idx.contains(&2));
     }
     // ANCHOR_END: truncation_ordering_test
+
+    #[test]
+    fn truncation_sorts_nan_fitness_last() {
+        // `total_cmp` must place NaN-fitness members last (never panic), so a
+        // full-population truncation ranks the finite members ahead of the NaN.
+        let fitness = [3.0f32, f32::NAN, 5.0, 1.0];
+        let idx = truncation_indices_host(&fitness, fitness.len());
+        assert_eq!(idx.len(), 4);
+        // Best-first among finite fitnesses: 5.0 (idx 2), 3.0 (idx 0), 1.0 (idx 3).
+        assert_eq!(&idx[..3], &[2, 0, 3]);
+        // The NaN-fitness member (idx 1) sorts last.
+        assert_eq!(idx[3], 1);
+    }
 
     // ANCHOR: tournament_select_shape_test
     #[test]

@@ -252,14 +252,14 @@ pub fn remove_stagnant(species: &mut Vec<Species>, generation: u64, stagnation_l
     if species.len() <= 1 {
         return;
     }
-    // Rank by best fitness (descending) to find the protected set.
+    // Rank by best fitness (descending) to find the protected set. Sanitize
+    // NaN → −inf (worst) so a NaN-fitness species can never be protected.
     let mut order: Vec<usize> = (0..species.len()).collect();
-    order.sort_by(|&a, &b| {
-        species[b]
-            .best_fitness
-            .partial_cmp(&species[a].best_fitness)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let sane: Vec<f32> = species
+        .iter()
+        .map(|s| crate::fitness::sanitize_fitness(s.best_fitness))
+        .collect();
+    order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
     let protected_count = STAGNATION_PROTECT_TOP_K.min(species.len());
     let mut keep = vec![false; species.len()];
     for &idx in order.iter().take(protected_count) {
@@ -330,15 +330,16 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
         fracs.push((i, share - base));
     }
 
+    // Primary key: fractional remainder (finite by construction). Secondary
+    // tiebreak by best fitness, sanitizing NaN → −inf (worst).
     fracs.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                species[b.0]
-                    .best_fitness
-                    .partial_cmp(&species[a.0].best_fitness)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        b.1.total_cmp(&a.1).then_with(|| {
+            let (fa, fb) = (
+                crate::fitness::sanitize_fitness(species[a.0].best_fitness),
+                crate::fitness::sanitize_fitness(species[b.0].best_fitness),
+            );
+            fb.total_cmp(&fa)
+        })
     });
     // Reconcile to an exact total: independently-floored f32 shares can under-
     // or (rarely) over-shoot `pop_size`. Award leftover seats to the largest

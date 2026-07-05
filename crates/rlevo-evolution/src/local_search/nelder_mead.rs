@@ -248,12 +248,10 @@ impl NelderMead {
         let n: usize = simplex.len(); // == dim + 1
         loop {
             // Sort descending by fitness: index 0 is best (highest), last is
-            // worst (lowest).
-            simplex.sort_by(|a, b| {
-                b.fitness
-                    .partial_cmp(&a.fitness)
-                    .unwrap_or(core::cmp::Ordering::Equal)
-            });
+            // worst (lowest). Simplex fitnesses flow through `BudgetedEval`,
+            // which already sanitizes NaN → −inf, so `total_cmp` needs no extra
+            // guard here.
+            simplex.sort_by(|a, b| b.fitness.total_cmp(&a.fitness));
 
             let f_best: f32 = simplex[0].fitness;
             let f_worst: f32 = simplex[n - 1].fitness;

@@ -47,6 +47,10 @@ use rand::Rng;
 use rlevo_core::bounds::Bounds;
 
 use crate::fitness::FitnessFn;
+// `sanitize_fitness` is the crate-wide fitness-hygiene primitive; it now lives in
+// [`crate::fitness`]. Re-exported here so the searchers below (and existing
+// `crate::fitness::sanitize_fitness` callers) keep resolving it unchanged.
+pub(crate) use crate::fitness::sanitize_fitness;
 
 pub mod hill_climbing;
 pub mod nelder_mead;
@@ -259,28 +263,6 @@ impl<'a> BudgetedEval<'a> {
     }
 }
 
-/// Maps a `NaN` fitness to [`f32::NEG_INFINITY`], passing finite values through.
-///
-/// `−inf` is the worst value under the maximise convention, so a sanitized
-/// `NaN` can never seed or displace a finite best-so-far and thus never
-/// propagates to a returned fitness. This is the single rule shared by
-/// [`BudgetedEval::eval`] (applied to every probe, including the seeding eval),
-/// the searchers'
-/// [`refine_with_known_fitness`](LocalSearch::refine_with_known_fitness)
-/// overrides (applied to the `known_fitness` hint, which does not flow through
-/// `BudgetedEval`), and the EDA `tell` chokepoint
-/// ([`crate::algorithms::eda::EdaStrategy`]), which sanitizes the whole
-/// per-generation fitness vector before argmax/selection so a `NaN` can neither
-/// become the best-so-far nor corrupt the truncation ordering. For the finite
-/// benchmark landscapes the searchers ship
-/// against this branch is never taken, so it costs only one `is_nan` check.
-pub(crate) fn sanitize_fitness(f: f32) -> f32 {
-    if f.is_nan() {
-        f32::NEG_INFINITY
-    } else {
-        f
-    }
-}
 
 /// Clamps every coordinate of `genome` into the inclusive range `bounds`.
 ///

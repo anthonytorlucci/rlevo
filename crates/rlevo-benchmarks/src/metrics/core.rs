@@ -85,7 +85,7 @@ pub fn median(xs: &[f64]) -> f64 {
         return 0.0;
     }
     let mut sorted: Vec<f64> = xs.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(f64::total_cmp);
     let n = sorted.len();
     if n.is_multiple_of(2) {
         f64::midpoint(sorted[n / 2 - 1], sorted[n / 2])

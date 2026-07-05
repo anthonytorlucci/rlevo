@@ -82,16 +82,22 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// and `into_vec::<f32>()` returns an error.
 #[must_use]
 pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
-    let data = fitness
+    let raw = fitness
         .into_data()
         .into_vec::<f32>()
         .expect("centered_rank requires f32 tensor data");
-    let n = data.len();
+    let n = raw.len();
     if n == 0 {
         return Tensor::<B, 1>::from_floats([0.0f32; 0], device);
     }
+    // Sanitize NaN → −inf (worst under maximise) so a NaN fitness ranks lowest
+    // rather than corrupting the ascending order.
+    let data: Vec<f32> = raw
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .collect();
     let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_by(|&i, &j| data[i].partial_cmp(&data[j]).unwrap_or(std::cmp::Ordering::Equal));
+    indices.sort_by(|&i, &j| data[i].total_cmp(&data[j]));
 
     #[allow(clippy::cast_precision_loss)]
     let n_f = (n - 1).max(1) as f32;

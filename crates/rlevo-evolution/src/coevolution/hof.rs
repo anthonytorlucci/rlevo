@@ -18,6 +18,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use parking_lot::Mutex;
 
 use super::fitness::CoupledFitness;
+use crate::fitness::sanitize_fitness;
 
 /// Per-population archive of past champions, capped at a fixed capacity.
 ///
@@ -93,17 +94,21 @@ impl<B: Backend> HallOfFame<B> {
             if fit_host.is_empty() {
                 continue;
             }
+            // Sanitize NaN → −inf (worst) so a NaN-fitness member can never be
+            // crowned champion over a finite one; this also keeps `archive_fitness`
+            // NaN-free, which the eviction `min_by` below relies on.
+            let sane: Vec<f32> = fit_host.iter().map(|&f| sanitize_fitness(f)).collect();
             // Argmax (best, highest fitness — canonical maximise) — ties
             // resolve to the lowest index. Hand-rolled with a strict
             // `total_cmp == Greater` so equal-fitness ties keep the earliest
             // index (`Iterator::max_by` would instead keep the last).
             let mut best_idx = 0_usize;
-            for i in 1..fit_host.len() {
-                if fit_host[i].total_cmp(&fit_host[best_idx]) == std::cmp::Ordering::Greater {
+            for i in 1..sane.len() {
+                if sane[i].total_cmp(&sane[best_idx]) == std::cmp::Ordering::Greater {
                     best_idx = i;
                 }
             }
-            let best_f = fit_host[best_idx];
+            let best_f = sane[best_idx];
             let device = populations[p].device();
             // usize → i64 index tensor; population indices never approach i64::MAX.
             #[allow(clippy::cast_possible_wrap)]
@@ -119,6 +124,8 @@ impl<B: Backend> HallOfFame<B> {
 
             if self.archive_fitness[p].len() > self.capacity {
                 // Worst = lowest fitness under the maximise convention.
+                // `archive_fitness` is sanitised at push (no NaN), so a plain
+                // `total_cmp` correctly evicts the worst here.
                 // Over capacity => non-empty, so `min_by` is always `Some`.
                 let Some(worst_idx) = self.archive_fitness[p]
                     .iter()
