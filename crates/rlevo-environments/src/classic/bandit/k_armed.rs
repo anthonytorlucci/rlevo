@@ -419,10 +419,13 @@ impl<const K: usize> Display for KArmedBandit<K> {
 impl<const K: usize> KArmedBandit<K> {
     /// Construct a bandit with a specific seed.
     ///
-    /// Sets `config.seed = seed` (so [`Environment::reset`] will re-draw the
-    /// same arm means) and samples `arm_means` from `N(0, 1)`. Keeps other
-    /// config fields at their defaults. Used by `rlevo-benchmarks` for
-    /// reproducible trials.
+    /// Sets `config.seed = seed` and samples `arm_means` once from `N(0, 1)`.
+    /// The arm means are fixed for the lifetime of the bandit — [`reset`] does
+    /// not redraw them — so `rlevo-benchmarks` gets a reproducible problem per
+    /// trial by constructing with a fixed seed. Keeps other config fields at
+    /// their defaults.
+    ///
+    /// [`reset`]: Environment::reset
     pub fn with_seed(seed: u64) -> Self {
         let config = KArmedBanditConfig {
             seed,
@@ -451,15 +454,20 @@ impl<const K: usize> KArmedBandit<K> {
         })
     }
 
-    /// Inherent reset — re-seeds RNG and re-samples arm means.
+    /// Inherent reset — clears episode state only.
+    ///
+    /// The fixed arm means (the bandit problem) are sampled once at
+    /// construction and **preserved** across resets, and the persistent RNG is
+    /// **not** re-seeded, so successive episodes draw independent reward
+    /// realisations from the same problem (per the host-RNG seeding convention,
+    /// `docs/rules.md` §8). For a reproducible problem, construct a fresh bandit
+    /// with the same seed.
     ///
     /// This is the bespoke entry point used by `rlevo-benchmarks`; it
     /// discards the snapshot return value. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
     /// [`SnapshotBase`] for composition with wrappers.
     pub fn reset(&mut self) {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
-        self.arm_means = sample_arm_means::<K>(&mut self.rng);
         self.state = KArmedBanditState;
         self.steps = 0;
         self.done = false;
@@ -766,7 +774,9 @@ mod tests {
     }
 
     #[test]
-    fn reset_redraws_arm_means_from_config_seed() {
+    fn reset_keeps_stable_arm_means() {
+        // The bandit problem (arm means) is sampled once at construction and
+        // preserved across resets — reset() clears only episode state.
         let cfg = KArmedBanditConfig {
             max_steps: 10,
             seed: 99,
@@ -780,6 +790,25 @@ mod tests {
         let means_after = *env.arm_means();
         assert_eq!(means_before, means_after);
         assert_eq!(env.steps, 0);
+    }
+
+    #[test]
+    fn successive_episodes_draw_independent_rewards() {
+        // The persistent RNG advances across resets, so pulling the same arm
+        // after a reset yields a different reward realisation — the same fixed
+        // problem, independent noise per episode (not bit-identical replay).
+        let cfg = KArmedBanditConfig {
+            max_steps: 100,
+            seed: 7,
+        };
+        let mut env = KArmedBandit::<K>::with_config(cfg).expect("valid config");
+        let episode1: Vec<f32> = (0..16).map(|_| env.pull(0)).collect();
+        <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
+        let episode2: Vec<f32> = (0..16).map(|_| env.pull(0)).collect();
+        assert_ne!(
+            episode1, episode2,
+            "reward realisations must differ across episodes"
+        );
     }
 
     #[test]

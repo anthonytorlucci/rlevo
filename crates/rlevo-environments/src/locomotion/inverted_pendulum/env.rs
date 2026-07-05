@@ -60,6 +60,24 @@ impl InvertedPendulum<Rapier3DBackend> {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<LocomotionSnapshot<InvertedPendulumObservation>, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     fn build_world(
         config: &InvertedPendulumConfig,
         rng: &mut StdRng,
@@ -197,8 +215,10 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
 
     /// Resets the environment to a new initial state sampled from
     /// `U(-reset_noise_scale, reset_noise_scale)` on each of the four state
-    /// variables. Re-seeds the internal RNG from `config.seed`, so resets are
-    /// deterministic for a given seed.
+    /// variables, drawn from the environment's persistent RNG. The stream
+    /// **advances** across resets, so successive episodes see independent
+    /// initial states. For deterministic replay of a specific initial state,
+    /// use [`InvertedPendulum::reset_with_seed`].
     ///
     /// Returns a `Running` snapshot with reward `0.0` and the initial
     /// observation. The `METADATA_KEY_ALIVE` component is set to `0.0` on
@@ -209,7 +229,6 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
     /// This implementation is currently infallible, but returns `Result` for
     /// trait conformance.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = InvertedPendulumObservation::default();
@@ -499,5 +518,39 @@ mod tests {
                 break;
             }
         }
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // The persistent RNG advances across resets (default reset noise > 0),
+        // so back-to-back resets must sample independent initial states.
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+            seed: 7,
+            ..Default::default()
+        })
+        .expect("valid config");
+        let first = env.reset().unwrap().observation().0;
+        let second = env.reset().unwrap().observation().0;
+        assert_ne!(
+            first, second,
+            "successive resets must draw independent initial states"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
+            seed: 7,
+            ..Default::default()
+        })
+        .expect("valid config");
+        let a = env.reset_with_seed(999).unwrap().observation().0;
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        let b = env.reset_with_seed(999).unwrap().observation().0;
+        assert_eq!(
+            a, b,
+            "reset_with_seed must reproduce the same initial state"
+        );
     }
 }

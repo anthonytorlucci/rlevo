@@ -585,6 +585,24 @@ impl PixelGridEnv {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<SnapshotBase<3, PixelObservation, ScalarReward>, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     /// Returns a reference to the active configuration.
     #[must_use]
     pub const fn config(&self) -> &PixelGridConfig {
@@ -674,7 +692,6 @@ impl Environment<3, 1, 1> for PixelGridEnv {
     type SnapshotType = SnapshotBase<3, PixelObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = Self::initial_state(self.config, &mut self.rng);
         self.steps = 0;
         Ok(self.snapshot(0.0, SnapshotStatus::Running))
@@ -900,5 +917,37 @@ mod tests {
         let s = env.to_string();
         assert!(s.contains("PixelGridEnv"));
         assert!(s.contains("50"));
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // With random placement the persistent RNG advances across resets, so
+        // successive episodes must place the agent/goal on varying cells.
+        // The grid is discrete, so a single pair could coincide by chance;
+        // assert that many resets yield more than one distinct placement.
+        let mut env =
+            PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false).expect("valid config");
+        let mut placements = std::collections::HashSet::new();
+        for _ in 0..20 {
+            env.reset().unwrap();
+            placements.insert((env.state().agent(), env.state().goal()));
+        }
+        assert!(
+            placements.len() > 1,
+            "random_placement resets must vary across episodes"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env =
+            PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false).expect("valid config");
+        env.reset_with_seed(999).unwrap();
+        let a = (env.state().agent(), env.state().goal());
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        env.reset_with_seed(999).unwrap();
+        let b = (env.state().agent(), env.state().goal());
+        assert_eq!(a, b, "reset_with_seed must reproduce the same placement");
     }
 }

@@ -70,6 +70,24 @@ impl Reacher<Rapier3DBackend> {
         })
     }
 
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes differ; use this when you need a *specific* episode
+    /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
+    /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(
+        &mut self,
+        seed: u64,
+    ) -> Result<LocomotionSnapshot<ReacherObservation>, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
+    }
+
     fn build_world(config: &ReacherConfig, rng: &mut StdRng) -> (Rapier3DWorld, ReacherState) {
         // Zero gravity — the arm is planar and must not droop in z.
         let mut world =
@@ -245,18 +263,19 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 
     /// Reset the environment to a freshly sampled initial state.
     ///
-    /// Re-seeds the internal RNG from `config.seed` so that every call to
-    /// `reset` on the same config produces an identical initial state, making
-    /// rollouts reproducible. The returned snapshot has reward `0.0` and
-    /// `EpisodeStatus::Running`; both reward-component metadata keys are set
-    /// to `0.0` to satisfy the invariant that Σ components = total reward.
+    /// Reset noise and the target position are drawn from the environment's
+    /// persistent RNG. The stream **advances** across resets, so successive
+    /// episodes see independent initial states and targets. For deterministic
+    /// replay of a specific initial state, use [`Reacher::reset_with_seed`].
+    /// The returned snapshot has reward `0.0` and `EpisodeStatus::Running`;
+    /// both reward-component metadata keys are set to `0.0` to satisfy the
+    /// invariant that Σ components = total reward.
     ///
     /// # Errors
     ///
     /// This implementation never returns `Err`; the signature is required by
     /// the `Environment` trait.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = ReacherObservation::default();
@@ -556,5 +575,31 @@ mod tests {
             let c = snap.metadata().unwrap().components[METADATA_KEY_REWARD_CONTROL];
             assert!(c <= 0.0, "reward_control must be ≤ 0, got {c} at step {i}");
         }
+    }
+
+    #[test]
+    fn two_successive_resets_differ() {
+        // The persistent RNG advances across resets (default reset noise > 0),
+        // so back-to-back resets must sample independent initial states.
+        let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");
+        let first = env.reset().unwrap().observation().0;
+        let second = env.reset().unwrap().observation().0;
+        assert_ne!(
+            first, second,
+            "successive resets must draw independent initial states"
+        );
+    }
+
+    #[test]
+    fn reset_with_seed_is_reproducible() {
+        let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");
+        let a = env.reset_with_seed(999).unwrap().observation().0;
+        // Advance the stream with an ordinary reset, then re-seed identically.
+        env.reset().unwrap();
+        let b = env.reset_with_seed(999).unwrap().observation().0;
+        assert_eq!(
+            a, b,
+            "reset_with_seed must reproduce the same initial state"
+        );
     }
 }
