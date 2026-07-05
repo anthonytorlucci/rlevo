@@ -18,6 +18,7 @@
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
+//! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty in v0.1.x while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
@@ -88,6 +89,7 @@
 //! [`ObjectiveSense`]: crate::objective::ObjectiveSense
 //! [`Validate`]: crate::config::Validate
 //! [`ConfigError`]: crate::config::ConfigError
+//! [`Bounds`]: crate::bounds::Bounds
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 //! [`Renderer`]: crate::render::Renderer
 
@@ -130,6 +132,19 @@ pub mod agent;
 /// [`ConfigError`]: crate::config::ConfigError
 /// [`ConstraintKind`]: crate::config::ConstraintKind
 pub mod config;
+
+/// Validated closed-range primitive.
+///
+/// Provides [`Bounds`], an inclusive `[lo, hi]` range over `f32` that is valid
+/// by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`, permits a
+/// one-sided infinite endpoint), plus its
+/// [`BoundsError`]. Makes the `f32::clamp` panic and `x.max(lo).min(hi)`
+/// silent-collapse hazards unrepresentable wherever a `Bounds` is held.
+/// Complements the [`config`] convention rather than replacing it (ADR 0027).
+///
+/// [`Bounds`]: crate::bounds::Bounds
+/// [`BoundsError`]: crate::bounds::BoundsError
+pub mod bounds;
 
 /// Agent/environment interaction protocol.
 ///
