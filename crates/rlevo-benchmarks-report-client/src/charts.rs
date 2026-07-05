@@ -225,7 +225,7 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
         // `interactive_line_view`'s hover lookup (nearest_by_x) requires x-sorted
         // input. Step counters are monotone in practice, but sort here so the
         // contract holds regardless of emission order.
-        raw_full.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        raw_full.sort_by(|a, b| a.0.total_cmp(&b.0));
         let dec_xy: Vec<(f64, f64)> =
             decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         let title = title_for(&name).to_string();

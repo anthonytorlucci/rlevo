@@ -308,7 +308,7 @@ pub fn low_diversity_threshold(diversity: &[(u32, f64)]) -> Option<f64> {
     if firsts.is_empty() {
         return None;
     }
-    firsts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    firsts.sort_by(f64::total_cmp);
     Some(quantile(&firsts, 0.05))
 }
 
@@ -525,7 +525,7 @@ pub fn population_box_data(samples: &[PopulationSample]) -> Vec<BoxStats> {
 /// the raw min/max so the box still renders.
 fn box_stats_for(generation: u32, fitnesses: &[f32]) -> BoxStats {
     let mut sorted: Vec<f64> = fitnesses.iter().map(|f| f64::from(*f)).collect();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(f64::total_cmp);
     let q1 = quantile(&sorted, 0.25);
     let median = quantile(&sorted, 0.5);
     let q3 = quantile(&sorted, 0.75);
@@ -611,7 +611,11 @@ pub fn diversity_series(samples: &[PopulationSample]) -> Vec<(u32, f64)> {
 
 /// Selection-pressure indicator: `best / median` per generation. Skips
 /// generations whose median is zero (degenerate, all-zero fitness) and
-/// generations with empty fitness vectors.
+/// generations with no finite fitness values.
+///
+/// Non-finite fitnesses (`NaN`, `±inf`) are dropped before ordering: a positive
+/// `NaN` sorts as the maximum under `total_cmp` and would otherwise be reported
+/// as the "best" value under [`ObjectiveSense::Maximize`].
 ///
 /// `sense` orients which end of the sorted fitness vector counts as "best":
 /// for [`ObjectiveSense::Maximize`] the best is the largest value, for
@@ -625,12 +629,16 @@ pub fn selection_pressure_series(
     samples
         .iter()
         .filter_map(|s| {
-            if s.fitnesses.is_empty() {
+            let mut sorted: Vec<f64> = s
+                .fitnesses
+                .iter()
+                .map(|f| f64::from(*f))
+                .filter(|v| v.is_finite())
+                .collect();
+            if sorted.is_empty() {
                 return None;
             }
-            let mut sorted: Vec<f64> = s.fitnesses.iter().map(|f| f64::from(*f)).collect();
-            sorted
-                .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            sorted.sort_by(f64::total_cmp);
             let median = quantile(&sorted, 0.5);
             if median.abs() < f64::EPSILON {
                 return None;
@@ -646,7 +654,11 @@ pub fn selection_pressure_series(
 
 /// `(best, median, worst)` overlay traces for the box-plot reference
 /// lines. One tuple of three series, all sharing the same x-axis
-/// (generation). Empty samples produce three empty vectors.
+/// (generation). Samples with no finite fitness produce no point.
+///
+/// Non-finite fitnesses (`NaN`, `±inf`) are dropped before ordering: a positive
+/// `NaN` sorts as the maximum under `total_cmp` and would otherwise be reported
+/// as the "best" value under [`ObjectiveSense::Maximize`].
 ///
 /// `sense` orients which end of the sorted fitness vector is "best": for
 /// [`ObjectiveSense::Maximize`] best is the largest value and worst the
@@ -661,11 +673,16 @@ pub fn fitness_range_series(
     let mut median = Vec::new();
     let mut worst = Vec::new();
     for s in samples {
-        if s.fitnesses.is_empty() {
+        let mut sorted: Vec<f64> = s
+            .fitnesses
+            .iter()
+            .map(|f| f64::from(*f))
+            .filter(|v| v.is_finite())
+            .collect();
+        if sorted.is_empty() {
             continue;
         }
-        let mut sorted: Vec<f64> = s.fitnesses.iter().map(|f| f64::from(*f)).collect();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(f64::total_cmp);
         let lo = sorted[0];
         let hi = *sorted.last().unwrap_or(&0.0);
         let (best_v, worst_v) = match sense {
@@ -1326,5 +1343,45 @@ mod tests {
         assert!(best.is_empty());
         assert!(median.is_empty());
         assert!(worst.is_empty());
+    }
+
+    #[test]
+    fn selection_pressure_drops_nan_from_best() {
+        // A positive NaN sorts as the maximum under `total_cmp`; without the
+        // finite filter it would be reported as the Maximize "best", yielding a
+        // NaN ratio. The filter drops it so best = 3.0, median = 2.0 → 1.5.
+        let samples = vec![pop_sample(0, vec![1.0, 2.0, 3.0, f32::NAN], None)];
+        let out = selection_pressure_series(&samples, ObjectiveSense::Maximize);
+        assert_eq!(out, vec![(0, 1.5)]);
+        assert!(out[0].1.is_finite());
+    }
+
+    #[test]
+    fn selection_pressure_skips_all_nan_generation() {
+        let samples = vec![pop_sample(0, vec![f32::NAN, f32::NAN], None)];
+        assert!(selection_pressure_series(&samples, ObjectiveSense::Maximize).is_empty());
+    }
+
+    #[test]
+    fn fitness_range_drops_nan_from_best_and_worst() {
+        // NaN must never surface as best (Maximize) or worst; the finite values
+        // are 1.0..=3.0 so best = 3.0, worst = 1.0, median = 2.0.
+        let samples = vec![pop_sample(0, vec![1.0, 2.0, 3.0, f32::NAN], None)];
+        let (best, median, worst) = fitness_range_series(&samples, ObjectiveSense::Maximize);
+        assert_eq!(best, vec![(0, 3.0)]);
+        assert_eq!(median, vec![(0, 2.0)]);
+        assert_eq!(worst, vec![(0, 1.0)]);
+        assert!(best[0].1.is_finite() && worst[0].1.is_finite());
+    }
+
+    #[test]
+    fn fitness_range_skips_all_nan_generation() {
+        let samples = vec![
+            pop_sample(0, vec![f32::NAN, f32::INFINITY], None),
+            pop_sample(1, vec![1.0, 2.0, 3.0], None),
+        ];
+        let (best, _, _) = fitness_range_series(&samples, ObjectiveSense::Maximize);
+        // Only the finite generation 1 produces a point.
+        assert_eq!(best, vec![(1, 3.0)]);
     }
 }
