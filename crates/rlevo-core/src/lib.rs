@@ -17,6 +17,7 @@
 //! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — object-safe environment interface for harnesses |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
+//! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty in v0.1.x while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
@@ -85,6 +86,8 @@
 //! [`Metric`]: crate::fitness::Metric
 //! [`MetricsProvider`]: crate::fitness::MetricsProvider
 //! [`ObjectiveSense`]: crate::objective::ObjectiveSense
+//! [`Validate`]: crate::config::Validate
+//! [`ConfigError`]: crate::config::ConfigError
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 //! [`Renderer`]: crate::render::Renderer
 
@@ -114,6 +117,19 @@ pub mod action;
 /// Empty in v0.3.x. Concrete RL and evolutionary agents currently live in
 /// `rlevo-reinforcement-learning` and `rlevo-evolution` respectively.
 pub mod agent;
+
+/// Shared configuration-validation convention.
+///
+/// Provides [`Validate`], the trait every `*Config` implements to check its
+/// invariants at construction, plus the structured [`ConfigError`] /
+/// [`ConstraintKind`] it returns and ergonomic check helpers. Construction that
+/// consumes a caller-supplied config returns `Result<_, ConfigError>` rather
+/// than panicking (ADR 0026).
+///
+/// [`Validate`]: crate::config::Validate
+/// [`ConfigError`]: crate::config::ConfigError
+/// [`ConstraintKind`]: crate::config::ConstraintKind
+pub mod config;
 
 /// Agent/environment interaction protocol.
 ///
