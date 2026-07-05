@@ -26,6 +26,7 @@ use rand::RngExt;
 
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -233,13 +234,19 @@ where
     /// The caller is expected to initialise `critic_1` and `critic_2` with
     /// different random seeds — SAC, like TD3, relies on independent initial
     /// errors so the `min` target meaningfully suppresses overestimation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`SacTrainingConfig::validate`](rlevo_core::config::Validate::validate).
     pub fn new(
         actor: Actor,
         critic_1: Critic,
         critic_2: Critic,
         config: SacTrainingConfig,
         device: B::Device,
-    ) -> Self {
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let actor_snapshot = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
@@ -268,7 +275,7 @@ where
         let target_entropy = config.target_entropy.unwrap_or_else(|| -(A::RANK as f32));
         let buffer_capacity = config.buffer_capacity;
         let stats = AgentStats::<SacMetrics>::new(100);
-        Self {
+        Ok(Self {
             actor: Some(actor),
             actor_snapshot,
             critic_1: Some(critic_1),
@@ -292,7 +299,7 @@ where
             last_alpha: initial_alpha,
             last_entropy: 0.0,
             _action: PhantomData,
-        }
+        })
     }
 
     /// Current agent statistics.

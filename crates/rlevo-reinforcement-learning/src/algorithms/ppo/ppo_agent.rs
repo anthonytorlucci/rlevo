@@ -16,6 +16,7 @@ use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
 use rlevo_core::base::{Observation, TensorConvertible};
+use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
 use crate::metrics::{AgentStats, PerformanceRecord};
 
@@ -212,17 +213,21 @@ where
     ///
     /// `total_iterations` is used for linear LR annealing. If it is zero,
     /// annealing is disabled regardless of the `anneal_lr` config flag.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
+    /// fails [`PpoTrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    /// In particular, v1 supports sequential rollout only, so `num_envs != 1`
+    /// is rejected here.
     pub fn new(
         policy: P,
         value: V,
         config: PpoTrainingConfig,
         device: B::Device,
         total_iterations: usize,
-    ) -> Self {
-        assert_eq!(
-            config.num_envs, 1,
-            "v1 supports sequential rollout only (num_envs == 1)"
-        );
+    ) -> Result<Self, rlevo_core::config::ConfigError> {
+        config.validate()?;
         let action_dim = policy.action_dim();
         let capacity = config.batch_size();
 
@@ -244,7 +249,7 @@ where
         let buffer = RolloutBuffer::new(capacity, action_dim);
         let stats = AgentStats::<PpoMetrics>::new(100);
 
-        Self {
+        Ok(Self {
             policy: Some(policy),
             value: Some(value),
             policy_optim,
@@ -256,7 +261,7 @@ where
             total_iterations,
             step: 0,
             stats,
-        }
+        })
     }
 
     /// Current iteration (one per rollout+update pair).

@@ -27,6 +27,7 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
 
@@ -69,6 +70,18 @@ impl SquashedGaussianPolicyHeadConfig {
             action_scale: self.action_scale,
             action_bias: self.action_bias,
         }
+    }
+}
+
+impl Validate for SquashedGaussianPolicyHeadConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "SquashedGaussianPolicyHeadConfig";
+        config::nonzero(C, "obs_dim", self.obs_dim)?;
+        config::nonzero(C, "hidden", self.hidden)?;
+        config::nonzero(C, "action_dim", self.action_dim)?;
+        config::ordered(C, "log_std_max", f64::from(self.log_std_min), f64::from(self.log_std_max))?;
+        config::positive(C, "action_scale", f64::from(self.action_scale))?;
+        Ok(())
     }
 }
 
@@ -258,6 +271,20 @@ mod tests {
 
     type B = Autodiff<Flex>;
     type BI = Flex;
+
+    #[test]
+    fn representative_head_config_is_valid() {
+        let cfg = SquashedGaussianPolicyHeadConfig {
+            obs_dim: 4,
+            hidden: 64,
+            action_dim: 2,
+            log_std_min: -5.0,
+            log_std_max: 2.0,
+            action_scale: 1.0,
+            action_bias: 0.0,
+        };
+        assert!(cfg.validate().is_ok());
+    }
 
     /// Pin μ=0, log_std=0, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
     /// Hand-rolled reference:

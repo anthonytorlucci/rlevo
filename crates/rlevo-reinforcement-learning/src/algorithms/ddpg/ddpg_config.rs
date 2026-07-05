@@ -6,6 +6,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration for training a Deep Deterministic Policy Gradient agent.
 #[derive(Clone, Debug)]
@@ -57,6 +58,21 @@ impl Default for DdpgTrainingConfig {
     }
 }
 
+impl Validate for DdpgTrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DdpgTrainingConfig";
+        config::nonzero(C, "buffer_capacity", self.buffer_capacity)?;
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::positive(C, "actor_lr", self.actor_lr)?;
+        config::positive(C, "critic_lr", self.critic_lr)?;
+        config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
+        config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
+        config::in_range(C, "exploration_noise", 0.0, f64::INFINITY, f64::from(self.exploration_noise))?;
+        config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
+        Ok(())
+    }
+}
+
 /// Fluent builder for [`DdpgTrainingConfig`].
 ///
 /// All unset fields default to [`DdpgTrainingConfig::default`].
@@ -70,7 +86,8 @@ impl Default for DdpgTrainingConfig {
 ///     .batch_size(128)
 ///     .actor_lr(1e-4)
 ///     .critic_lr(1e-3)
-///     .build();
+///     .build()
+///     .expect("valid config");
 /// ```
 pub struct DdpgTrainingConfigBuilder {
     config: DdpgTrainingConfig,
@@ -159,8 +176,15 @@ impl DdpgTrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the final config.
-    pub fn build(self) -> DdpgTrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`DdpgTrainingConfig::validate`] (e.g. a zero `batch_size` or
+    /// a non-positive learning rate).
+    pub fn build(self) -> Result<DdpgTrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -188,11 +212,23 @@ mod tests {
             .batch_size(64)
             .actor_lr(1e-4)
             .exploration_noise(0.2)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.batch_size, 64);
         assert!((cfg.actor_lr - 1e-4).abs() < 1e-12);
         assert!((cfg.exploration_noise - 0.2).abs() < 1e-6);
         // Untouched fields retain defaults.
         assert_eq!(cfg.policy_frequency, 2);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(DdpgTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_batch_size() {
+        let err = DdpgTrainingConfigBuilder::new().batch_size(0).build().unwrap_err();
+        assert_eq!(err.field, "batch_size");
     }
 }

@@ -13,6 +13,7 @@
 //! [`crate::algorithms::ppo`].
 
 use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Training configuration for a PPG agent.
 ///
@@ -68,6 +69,18 @@ impl PpgConfig {
     #[must_use]
     pub fn batch_size(&self) -> usize {
         self.ppo.batch_size()
+    }
+}
+
+impl Validate for PpgConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PpgConfig";
+        self.ppo.validate()?;
+        config::nonzero(C, "n_iteration", self.n_iteration)?;
+        config::nonzero(C, "e_aux", self.e_aux)?;
+        config::in_range(C, "beta_clone", 0.0, f64::INFINITY, f64::from(self.beta_clone))?;
+        config::nonzero(C, "aux_batch_size", self.aux_batch_size)?;
+        Ok(())
     }
 }
 
@@ -129,8 +142,16 @@ impl PpgConfigBuilder {
         self
     }
 
-    pub fn build(self) -> PpgConfig {
-        self.config
+    /// Consumes the builder and returns the assembled [`PpgConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config (including the wrapped
+    /// [`PpoTrainingConfig`]) violates any invariant checked by
+    /// [`PpgConfig::validate`].
+    pub fn build(self) -> Result<PpgConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -156,7 +177,8 @@ mod tests {
             .beta_clone(0.5)
             .aux_batch_size(64)
             .with_ppo(|p| PpoTrainingConfig { num_steps: 64, ..p })
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.n_iteration, 8);
         assert_eq!(cfg.e_aux, 3);
         assert!((cfg.beta_clone - 0.5).abs() < 1e-6);
@@ -172,7 +194,28 @@ mod tests {
                 num_steps: 128,
                 ..p
             })
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.batch_size(), 128);
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(PpgConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_e_aux() {
+        let err = PpgConfigBuilder::new().e_aux(0).build().unwrap_err();
+        assert_eq!(err.field, "e_aux");
+    }
+
+    #[test]
+    fn delegates_to_wrapped_ppo() {
+        let err = PpgConfigBuilder::new()
+            .with_ppo(|p| PpoTrainingConfig { num_envs: 2, ..p })
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "num_envs");
     }
 }

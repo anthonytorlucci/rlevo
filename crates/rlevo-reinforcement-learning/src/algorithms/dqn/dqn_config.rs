@@ -2,6 +2,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
+use rlevo_core::config::{self, ConfigError, Validate};
 
 /// Configuration structure for training a Deep Q-Network (DQN).
 ///
@@ -124,6 +125,23 @@ impl Default for DqnTrainingConfig {
     }
 }
 
+impl Validate for DqnTrainingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DqnTrainingConfig";
+        config::nonzero(C, "batch_size", self.batch_size)?;
+        config::in_range(C, "gamma", 0.0, 1.0, self.gamma)?;
+        config::in_range(C, "tau", 0.0, 1.0, self.tau)?;
+        config::positive(C, "learning_rate", self.learning_rate)?;
+        config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
+        config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
+        config::in_range(C, "epsilon_decay", 0.0, 1.0, self.epsilon_decay)?;
+        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
+        config::nonzero(C, "train_frequency", self.train_frequency)?;
+        config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
+        Ok(())
+    }
+}
+
 /// Builder for [`DqnTrainingConfig`] with fluent setters.
 ///
 /// All unset fields default to the values from [`DqnTrainingConfig::default`].
@@ -134,13 +152,14 @@ impl Default for DqnTrainingConfig {
 /// use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 ///
 /// // Default configuration.
-/// let cfg = DqnTrainingConfigBuilder::new().build();
+/// let cfg = DqnTrainingConfigBuilder::new().build().expect("valid config");
 ///
 /// // Custom learning rate and batch size.
 /// let cfg = DqnTrainingConfigBuilder::new()
 ///     .learning_rate(0.0005)
 ///     .batch_size(64)
-///     .build();
+///     .build()
+///     .expect("valid config");
 /// ```
 pub struct DqnTrainingConfigBuilder {
     config: DqnTrainingConfig,
@@ -252,7 +271,30 @@ impl DqnTrainingConfigBuilder {
     }
 
     /// Consumes the builder and returns the final `DqnTrainingConfig`.
-    pub fn build(self) -> DqnTrainingConfig {
-        self.config
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config violates any invariant
+    /// checked by [`DqnTrainingConfig::validate`] (e.g. a zero `batch_size` or a
+    /// `gamma` outside `[0, 1]`).
+    pub fn build(self) -> Result<DqnTrainingConfig, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(DqnTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_gamma_out_of_range() {
+        let err = DqnTrainingConfigBuilder::new().gamma(1.5).build().unwrap_err();
+        assert_eq!(err.field, "gamma");
     }
 }

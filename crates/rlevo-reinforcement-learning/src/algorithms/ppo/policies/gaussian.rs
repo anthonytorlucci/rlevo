@@ -27,6 +27,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, StandardNormal};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::algorithms::ppo::ppo_policy::{LogProbEntropy, PolicyOutput, PpoPolicy};
 
@@ -59,6 +60,17 @@ impl TanhGaussianPolicyHeadConfig {
             action_dim: self.action_dim,
             action_scale: self.action_scale,
         }
+    }
+}
+
+impl Validate for TanhGaussianPolicyHeadConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "TanhGaussianPolicyHeadConfig";
+        config::nonzero(C, "obs_dim", self.obs_dim)?;
+        config::nonzero(C, "hidden", self.hidden)?;
+        config::nonzero(C, "action_dim", self.action_dim)?;
+        config::positive(C, "action_scale", f64::from(self.action_scale))?;
+        Ok(())
     }
 }
 
@@ -258,6 +270,18 @@ mod tests {
     use rand::rngs::StdRng;
 
     type B = Autodiff<Flex>;
+
+    #[test]
+    fn representative_head_config_is_valid() {
+        let cfg = TanhGaussianPolicyHeadConfig {
+            obs_dim: 3,
+            hidden: 64,
+            action_dim: 1,
+            log_std_init: 0.0,
+            action_scale: 2.0,
+        };
+        assert!(cfg.validate().is_ok());
+    }
 
     #[test]
     fn gaussian_logprob_consistency_between_sample_and_evaluate() {
