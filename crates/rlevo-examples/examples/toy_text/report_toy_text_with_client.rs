@@ -103,8 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     is_slippery: false,
                     seed,
                     ..FrozenLakeConfig::default()
-                }).expect("valid config")
-                .expect("FrozenLake construction with preset map cannot fail");
+                }).expect("FrozenLake construction with preset map cannot fail");
                 let recorded: RecordingTap<FrozenLake, 1, 1, 1> =
                     RecordingTap::new(env, sink.clone());
                 BenchAdapter::new(recorded)
