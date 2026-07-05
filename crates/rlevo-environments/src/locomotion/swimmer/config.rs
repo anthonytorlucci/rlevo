@@ -1,5 +1,7 @@
 //! Configuration for [`super::Swimmer`].
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::locomotion::common::Gear;
 
 /// Environment configuration for [`super::Swimmer`].
@@ -109,5 +111,39 @@ impl Default for SwimmerConfig {
             segment_radius: 0.05,
             segment_mass: 0.947,
         }
+    }
+}
+
+impl Validate for SwimmerConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "SwimmerConfig";
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
+        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
+        config::in_range(C, "ctrl_cost_weight", 0.0, f64::INFINITY, f64::from(self.ctrl_cost_weight))?;
+        config::in_range(C, "drag_coefficient", 0.0, f64::INFINITY, f64::from(self.drag_coefficient))?;
+        config::in_range(C, "angular_drag_coefficient", 0.0, f64::INFINITY, f64::from(self.angular_drag_coefficient))?;
+        config::positive(C, "segment_length", f64::from(self.segment_length))?;
+        config::positive(C, "segment_radius", f64::from(self.segment_radius))?;
+        config::positive(C, "segment_mass", f64::from(self.segment_mass))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(SwimmerConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_segment_mass() {
+        let bad = SwimmerConfig { segment_mass: 0.0, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "segment_mass");
     }
 }

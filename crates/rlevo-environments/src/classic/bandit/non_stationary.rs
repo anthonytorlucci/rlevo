@@ -24,7 +24,7 @@
 //!     sigma_walk: 0.01,
 //!     ..NonStationaryBanditConfig::default()
 //! };
-//! let mut env = NonStationaryBandit::<10>::with_config(cfg);
+//! let mut env = NonStationaryBandit::<10>::with_config(cfg).expect("valid config");
 //! let _ = <NonStationaryBandit<10> as Environment<1, 1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(3).expect("arm in range");
@@ -36,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{Action, Reward, State};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -72,6 +73,15 @@ impl Default for NonStationaryBanditConfig {
             seed: 42,
             sigma_walk: 0.01,
         }
+    }
+}
+
+impl Validate for NonStationaryBanditConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "NonStationaryBanditConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::in_range(C, "sigma_walk", 0.0, f64::INFINITY, f64::from(self.sigma_walk))?;
+        Ok(())
     }
 }
 
@@ -178,21 +188,27 @@ impl<const K: usize> NonStationaryBandit<K> {
             seed,
             ..NonStationaryBanditConfig::default()
         };
-        Self::with_config(config)
+        Self::with_config(config).expect("default-derived config must validate")
     }
 
     /// Construct with an explicit config.
-    pub fn with_config(config: NonStationaryBanditConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// `max_steps == 0` or a negative `sigma_walk`).
+    pub fn with_config(config: NonStationaryBanditConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let arm_means = sample_arm_means::<K>(&mut rng);
-        Self {
+        Ok(Self {
             state: KArmedBanditState,
             steps: 0,
             done: false,
             config,
             rng,
             arm_means,
-        }
+        })
     }
 
     /// Read-only view of the current (drifting) arm means.
@@ -224,6 +240,7 @@ impl<const K: usize> ConstructableEnv for NonStationaryBandit<K> {
     fn new(render: bool) -> Self {
         let _ = render;
         Self::with_config(NonStationaryBanditConfig::default())
+            .expect("default config must validate")
     }
 }
 
@@ -301,8 +318,19 @@ mod tests {
     const K: usize = 10;
 
     #[test]
+    fn default_config_validates() {
+        assert!(NonStationaryBanditConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = NonStationaryBanditConfig { max_steps: 0, ..Default::default() };
+        assert!(NonStationaryBandit::<10>::with_config(bad).is_err());
+    }
+
+    #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default());
+        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default()).expect("valid config");
         let snap =
             <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
@@ -315,7 +343,8 @@ mod tests {
             max_steps: 3,
             seed: 1,
             sigma_walk: 0.01,
-        });
+        })
+        .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <NonStationaryBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
@@ -330,7 +359,8 @@ mod tests {
             max_steps: 100,
             seed: 7,
             sigma_walk: 0.1, // large enough to make drift overwhelmingly likely
-        });
+        })
+        .expect("valid config");
         <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
@@ -351,7 +381,8 @@ mod tests {
             max_steps: 100,
             seed: 7,
             sigma_walk: 0.0,
-        });
+        })
+        .expect("valid config");
         <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let before = *env.arm_means();
         let action = KArmedBanditAction::<K>::from_index(0);
@@ -369,8 +400,8 @@ mod tests {
             seed: 13,
             sigma_walk: 0.05,
         };
-        let mut a = NonStationaryBandit::<K>::with_config(cfg.clone());
-        let mut b = NonStationaryBandit::<K>::with_config(cfg);
+        let mut a = NonStationaryBandit::<K>::with_config(cfg.clone()).expect("valid config");
+        let mut b = NonStationaryBandit::<K>::with_config(cfg).expect("valid config");
         <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
         <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
         for step in 0..32 {

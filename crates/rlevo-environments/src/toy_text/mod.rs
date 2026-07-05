@@ -31,4 +31,7 @@ pub enum MapError {
     /// Random map generation failed to produce a solvable map within the retry budget.
     #[error("failed to generate solvable random map within retry limit")]
     MaxRetriesExceeded,
+    /// The supplied configuration failed [`Validate`](rlevo_core::config::Validate).
+    #[error(transparent)]
+    InvalidConfig(#[from] rlevo_core::config::ConfigError),
 }

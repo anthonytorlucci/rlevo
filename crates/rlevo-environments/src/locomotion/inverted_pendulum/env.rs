@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
 
@@ -39,18 +40,24 @@ pub type InvertedPendulumRapier = InvertedPendulum<Rapier3DBackend>;
 
 impl InvertedPendulum<Rapier3DBackend> {
     /// Create with an explicit configuration.
-    #[must_use]
-    pub fn with_config(config: InvertedPendulumConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `dt`, inverted `action_clip`, or non-positive body
+    /// dimensions).
+    pub fn with_config(config: InvertedPendulumConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let (world, state) = Self::build_world(&config, &mut rng);
-        Self {
+        Ok(Self {
             world,
             state,
             config,
             rng,
             steps: 0,
             _marker: PhantomData,
-        }
+        })
     }
 
     fn build_world(
@@ -177,6 +184,7 @@ impl ConstructableEnv for InvertedPendulum<Rapier3DBackend> {
     /// [`InvertedPendulum::with_config`] for full control.
     fn new(_render: bool) -> Self {
         Self::with_config(InvertedPendulumConfig::default())
+            .expect("default config must validate")
     }
 }
 
@@ -356,7 +364,8 @@ mod tests {
             seed: 7,
             reset_noise_scale: 0.0,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let snap = env.reset().unwrap();
         assert!(!snap.is_done());
         for v in snap.observation().0 {
@@ -367,7 +376,7 @@ mod tests {
     #[test]
     fn ctrl_cost_not_paid() {
         // InvertedPendulum's Gymnasium reward is +1 alive, not a quadratic cost.
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default());
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(InvertedPendulumAction::new(3.0)).unwrap();
         // Reward is +1 per step while healthy regardless of action magnitude.
@@ -377,7 +386,7 @@ mod tests {
 
     #[test]
     fn reward_roundtrip_matches_components() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default());
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         for _ in 0..5 {
             let snap = env.step(InvertedPendulumAction::new(0.0)).unwrap();
@@ -400,7 +409,8 @@ mod tests {
             reset_noise_scale: 0.0,
             max_steps: 2000,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         env.reset().unwrap();
         // Kick the pole with one sharp +x impulse on the cart, then let it fall.
         let mut terminated = false;
@@ -430,7 +440,8 @@ mod tests {
             termination: TerminationMode::Never,
             reset_noise_scale: 0.0,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         env.reset().unwrap();
         let mut status = EpisodeStatus::Running;
         for _ in 0..5 {
@@ -447,7 +458,7 @@ mod tests {
             ..Default::default()
         };
         let rollout = |actions: &[f32]| {
-            let mut env = InvertedPendulumRapier::with_config(cfg.clone());
+            let mut env = InvertedPendulumRapier::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut last = InvertedPendulumObservation::default();
             for &a in actions {
@@ -463,7 +474,7 @@ mod tests {
 
     #[test]
     fn invalid_action_is_error() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default());
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         let bad = InvertedPendulumAction::new(f32::NAN);
         assert!(env.step(bad).is_err());
@@ -479,7 +490,7 @@ mod tests {
 
     #[test]
     fn obs_is_finite_after_rollout() {
-        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default());
+        let mut env = InvertedPendulumRapier::with_config(InvertedPendulumConfig::default()).expect("valid config");
         env.reset().unwrap();
         for _ in 0..50 {
             let snap = env.step(InvertedPendulumAction::new(0.1)).unwrap();

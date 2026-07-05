@@ -135,7 +135,7 @@
 //! use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
-//! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
+//! let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(AcrobotAction::TorquePos).unwrap();
 //! println!("terminated: {}", snap.is_terminated());
@@ -147,6 +147,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
@@ -339,6 +340,24 @@ impl Default for AcrobotConfig {
             torque_noise_max: 0.0,
             seed: 0,
         }
+    }
+}
+
+impl Validate for AcrobotConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "AcrobotConfig";
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::positive(C, "link_length_1", f64::from(self.link_length_1))?;
+        config::positive(C, "link_length_2", f64::from(self.link_length_2))?;
+        config::positive(C, "link_mass_1", f64::from(self.link_mass_1))?;
+        config::positive(C, "link_mass_2", f64::from(self.link_mass_2))?;
+        config::in_range(C, "link_com_pos_1", 0.0, 1.0, f64::from(self.link_com_pos_1))?;
+        config::in_range(C, "link_com_pos_2", 0.0, 1.0, f64::from(self.link_com_pos_2))?;
+        config::positive(C, "link_moi", f64::from(self.link_moi))?;
+        config::positive(C, "max_vel_1", f64::from(self.max_vel_1))?;
+        config::positive(C, "max_vel_2", f64::from(self.max_vel_2))?;
+        config::in_range(C, "torque_noise_max", 0.0, f64::INFINITY, f64::from(self.torque_noise_max))?;
+        Ok(())
     }
 }
 
@@ -592,7 +611,7 @@ impl DiscreteAction<1> for AcrobotAction {
 /// use rlevo_environments::classic::acrobot::{Acrobot, AcrobotAction, AcrobotConfig, BookDynamics};
 /// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
-/// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default());
+/// let mut env = Acrobot::<BookDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
 /// env.reset().unwrap();
 /// loop {
 ///     let snap = env.step(AcrobotAction::TorquePos).unwrap();
@@ -609,28 +628,27 @@ pub struct Acrobot<D: AcrobotDynamicsFn = BookDynamics> {
 
 impl<D: AcrobotDynamicsFn + Default> Acrobot<D> {
     /// Construct with explicit config, using the default dynamics variant.
-    pub fn with_config(config: AcrobotConfig) -> Self {
-        let rng = StdRng::seed_from_u64(config.seed);
-        Self {
-            state: AcrobotState {
-                theta1: 0.0,
-                theta2: 0.0,
-                theta1_dot: 0.0,
-                theta2_dot: 0.0,
-            },
-            config,
-            dynamics: D::default(),
-            rng,
-            steps: 0,
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `dt`, link geometry, or a COM position outside `[0, 1]`).
+    pub fn with_config(config: AcrobotConfig) -> Result<Self, ConfigError> {
+        Self::with_config_and_dynamics(config, D::default())
     }
 }
 
 impl<D: AcrobotDynamicsFn> Acrobot<D> {
     /// Construct with an explicit config and dynamics instance.
-    pub fn with_config_and_dynamics(config: AcrobotConfig, dynamics: D) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `dt`, link geometry, or a COM position outside `[0, 1]`).
+    pub fn with_config_and_dynamics(config: AcrobotConfig, dynamics: D) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: AcrobotState {
                 theta1: 0.0,
                 theta2: 0.0,
@@ -641,7 +659,7 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
             dynamics,
             rng,
             steps: 0,
-        }
+        })
     }
 
     fn sample_init_state(&mut self) -> AcrobotState {
@@ -694,7 +712,7 @@ impl<D: AcrobotDynamicsFn> fmt::Display for Acrobot<D> {
 impl<D: AcrobotDynamicsFn + Default> ConstructableEnv for Acrobot<D> {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(AcrobotConfig::default())
+        Self::with_config(AcrobotConfig::default()).expect("default config must validate")
     }
 }
 
@@ -882,7 +900,18 @@ mod tests {
     type DefaultAcrobot = Acrobot<BookDynamics>;
 
     fn default_env() -> DefaultAcrobot {
-        DefaultAcrobot::with_config(AcrobotConfig::default())
+        DefaultAcrobot::with_config(AcrobotConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(AcrobotConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_com_pos_out_of_range() {
+        let bad = AcrobotConfig { link_com_pos_1: 1.5, ..Default::default() };
+        assert!(DefaultAcrobot::with_config(bad).is_err());
     }
 
     #[test]
@@ -951,11 +980,13 @@ mod tests {
         let mut a = DefaultAcrobot::with_config(AcrobotConfig {
             seed: 5,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let mut b = DefaultAcrobot::with_config(AcrobotConfig {
             seed: 5,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         a.reset().unwrap();
         b.reset().unwrap();
         for action in [
@@ -972,8 +1003,8 @@ mod tests {
     #[test]
     fn book_and_nips_produce_different_trajectories() {
         let cfg = AcrobotConfig::default();
-        let mut book = Acrobot::<BookDynamics>::with_config(cfg.clone());
-        let mut nips = Acrobot::<NipsDynamics>::with_config(cfg);
+        let mut book = Acrobot::<BookDynamics>::with_config(cfg.clone()).expect("valid config");
+        let mut nips = Acrobot::<NipsDynamics>::with_config(cfg).expect("valid config");
         book.reset().unwrap();
         nips.reset().unwrap();
         // Force same initial state

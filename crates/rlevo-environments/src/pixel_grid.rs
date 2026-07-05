@@ -50,7 +50,8 @@
 //! use rlevo_environments::pixel_grid::{PixelGridConfig, PixelGridEnv};
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
-//! let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+//! let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
+//!     .expect("valid config");
 //! let snapshot = env.reset().unwrap();
 //! # let _ = snapshot;
 //! ```
@@ -59,6 +60,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::Observable;
@@ -509,6 +511,14 @@ impl Default for PixelGridConfig {
     }
 }
 
+impl Validate for PixelGridConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PixelGridConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
@@ -527,7 +537,8 @@ impl Default for PixelGridConfig {
 /// use rlevo_environments::pixel_grid::{PixelGridConfig, PixelGridEnv};
 /// use rlevo_core::environment::{ConstructableEnv, Environment};
 ///
-/// let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+/// let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
+///     .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -550,20 +561,26 @@ impl PixelGridEnv {
     /// ```rust
     /// use rlevo_environments::pixel_grid::{PixelGridConfig, PixelGridEnv};
     ///
-    /// let env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false);
+    /// let env = PixelGridEnv::with_config(PixelGridConfig::new(100, 0, false), false)
+    ///     .expect("valid config");
     /// assert_eq!(env.steps(), 0);
     /// ```
-    #[must_use]
-    pub fn with_config(config: PixelGridConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero
+    /// `max_steps`).
+    pub fn with_config(config: PixelGridConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let state = Self::initial_state(config, &mut rng);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -643,6 +660,7 @@ impl Display for PixelGridEnv {
 impl ConstructableEnv for PixelGridEnv {
     fn new(render: bool) -> Self {
         Self::with_config(PixelGridConfig::default(), render)
+            .expect("default config must validate")
     }
 }
 
@@ -680,6 +698,17 @@ mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::{EpisodeStatus, Snapshot};
+
+    #[test]
+    fn default_config_validates() {
+        assert!(PixelGridConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = PixelGridConfig { max_steps: 0, ..Default::default() };
+        assert!(PixelGridEnv::with_config(bad, false).is_err());
+    }
 
     #[test]
     fn state_shape_matches_numel() {
@@ -776,7 +805,7 @@ mod tests {
     #[test]
     fn reset_is_deterministic_for_fixed_placement() {
         let cfg = PixelGridConfig::new(100, 0, false);
-        let mut env = PixelGridEnv::with_config(cfg, false);
+        let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
         assert_eq!(snap.status(), EpisodeStatus::Running);
         assert_eq!(env.state().agent(), 0);
@@ -786,8 +815,8 @@ mod tests {
     #[test]
     fn random_placement_is_distinct_and_seeded() {
         let cfg = PixelGridConfig::new(100, 42, true);
-        let mut a = PixelGridEnv::with_config(cfg, false);
-        let mut b = PixelGridEnv::with_config(cfg, false);
+        let mut a = PixelGridEnv::with_config(cfg, false).expect("valid config");
+        let mut b = PixelGridEnv::with_config(cfg, false).expect("valid config");
         a.reset().unwrap();
         b.reset().unwrap();
         assert_ne!(a.state().agent(), a.state().goal());
@@ -823,7 +852,7 @@ mod tests {
     fn reaching_goal_terminates_with_positive_reward() {
         // Place agent adjacent to goal: agent cell 23, goal cell 24 → one Right.
         let cfg = PixelGridConfig::new(100, 0, false);
-        let mut env = PixelGridEnv::with_config(cfg, false);
+        let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         // Override placement for a one-step solve.
         env.state = PixelGridState::new(23, 24);
@@ -840,7 +869,7 @@ mod tests {
     fn step_limit_truncates_with_zero_reward() {
         // Goal unreachable in 3 steps from a fixed corner if we move away/idle.
         let cfg = PixelGridConfig::new(3, 0, false);
-        let mut env = PixelGridEnv::with_config(cfg, false);
+        let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         // Bump the top-left corner: Up is a no-op, never reaching the goal.
         env.step(PixelGridAction::Up).unwrap();
@@ -855,7 +884,7 @@ mod tests {
     #[test]
     fn snapshot_observation_is_rank3_over_rank1_state() {
         let cfg = PixelGridConfig::new(100, 0, false);
-        let mut env = PixelGridEnv::with_config(cfg, false);
+        let mut env = PixelGridEnv::with_config(cfg, false).expect("valid config");
         let snap = env.reset().unwrap();
         assert_eq!(snap.observation().pixels().len(), PIXEL_COUNT);
         assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
@@ -864,7 +893,7 @@ mod tests {
 
     #[test]
     fn display_contains_step_budget() {
-        let env = PixelGridEnv::with_config(PixelGridConfig::new(50, 0, false), false);
+        let env = PixelGridEnv::with_config(PixelGridConfig::new(50, 0, false), false).expect("valid config");
         let s = env.to_string();
         assert!(s.contains("PixelGridEnv"));
         assert!(s.contains("50"));

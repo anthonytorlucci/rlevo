@@ -41,7 +41,7 @@ macro_rules! assert_solvable {
 
 #[test]
 fn empty_is_solvable() {
-    let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false);
+    let mut env = EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::Forward,
@@ -55,7 +55,7 @@ fn empty_is_solvable() {
 
 #[test]
 fn door_key_is_solvable() {
-    let mut env = DoorKeyEnv::with_config(DoorKeyConfig::new(5, 100, 0), false);
+    let mut env = DoorKeyEnv::with_config(DoorKeyConfig::new(5, 100, 0), false).expect("valid config");
     let script = [
         GridAction::Pickup,
         GridAction::TurnRight,
@@ -71,7 +71,7 @@ fn door_key_is_solvable() {
 
 #[test]
 fn lava_gap_is_solvable() {
-    let mut env = LavaGapEnv::with_config(LavaGapConfig::new(5, 100, 0), false);
+    let mut env = LavaGapEnv::with_config(LavaGapConfig::new(5, 100, 0), false).expect("valid config");
     let script = [
         GridAction::TurnRight,
         GridAction::Forward,
@@ -86,7 +86,7 @@ fn lava_gap_is_solvable() {
 
 #[test]
 fn unlock_is_solvable() {
-    let mut env = UnlockEnv::with_config(UnlockConfig::new(5, 100, 0), false);
+    let mut env = UnlockEnv::with_config(UnlockConfig::new(5, 100, 0), false).expect("valid config");
     let script = [
         GridAction::Pickup,
         GridAction::TurnLeft,
@@ -98,7 +98,7 @@ fn unlock_is_solvable() {
 
 #[test]
 fn unlock_pickup_is_solvable() {
-    let mut env = UnlockPickupEnv::with_config(UnlockPickupConfig::new(7, 196, 0), false);
+    let mut env = UnlockPickupEnv::with_config(UnlockPickupConfig::new(7, 196, 0), false).expect("valid config");
     let script = [
         GridAction::Pickup,
         GridAction::TurnRight,
@@ -121,7 +121,7 @@ fn unlock_pickup_is_solvable() {
 #[test]
 fn crossing_lava_is_solvable() {
     let mut env =
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Lava), false);
+        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Lava), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::Forward,
@@ -140,7 +140,7 @@ fn crossing_lava_is_solvable() {
 #[test]
 fn crossing_wall_is_solvable() {
     let mut env =
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Wall), false);
+        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Wall), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::Forward,
@@ -159,7 +159,7 @@ fn crossing_wall_is_solvable() {
 #[test]
 fn dist_shift_variant_one_is_solvable() {
     let mut env =
-        DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::One, 100, 0), false);
+        DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::One, 100, 0), false).expect("valid config");
     let script = [GridAction::Forward; 6];
     assert_solvable!(env, script);
 }
@@ -167,14 +167,14 @@ fn dist_shift_variant_one_is_solvable() {
 #[test]
 fn dist_shift_variant_two_is_solvable() {
     let mut env =
-        DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false);
+        DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false).expect("valid config");
     let script = [GridAction::Forward; 6];
     assert_solvable!(env, script);
 }
 
 #[test]
 fn go_to_door_red_is_solvable() {
-    let mut env = GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, 0, Color::Red), false);
+    let mut env = GoToDoorEnv::with_config(GoToDoorConfig::new(6, 100, 0, Color::Red), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::TurnLeft,
@@ -186,7 +186,7 @@ fn go_to_door_red_is_solvable() {
 
 #[test]
 fn four_rooms_is_solvable() {
-    let mut env = FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false);
+    let mut env = FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false).expect("valid config");
     let script = [
         GridAction::TurnRight,
         GridAction::Forward,
@@ -214,7 +214,7 @@ fn four_rooms_is_solvable() {
 
 #[test]
 fn multi_room_is_solvable() {
-    let mut env = MultiRoomEnv::with_config(MultiRoomConfig::default(), false);
+    let mut env = MultiRoomEnv::with_config(MultiRoomConfig::default(), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::Forward,
@@ -237,7 +237,7 @@ fn multi_room_is_solvable() {
 
 #[test]
 fn memory_default_is_solvable() {
-    let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false);
+    let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
     let script = [
         GridAction::TurnRight,
         GridAction::TurnRight,
@@ -252,7 +252,7 @@ fn memory_default_is_solvable() {
 
 #[test]
 fn memory_swapped_is_solvable() {
-    let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false);
+    let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
     let script = [
         GridAction::TurnRight,
         GridAction::TurnRight,
@@ -268,7 +268,7 @@ fn memory_swapped_is_solvable() {
 #[test]
 fn dynamic_obstacles_with_zero_obstacles_is_solvable() {
     let mut env =
-        DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(5, 0, 100, 0), false);
+        DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(5, 0, 100, 0), false).expect("valid config");
     let script = [
         GridAction::Forward,
         GridAction::Forward,

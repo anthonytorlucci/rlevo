@@ -84,7 +84,7 @@
 //! use rlevo_environments::wrappers::TimeLimit;
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
-//! let env = Pendulum::with_config(PendulumConfig::default());
+//! let env = Pendulum::with_config(PendulumConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 200);
 //! let mut snap = timed.reset().unwrap();
 //! while !snap.is_done() {
@@ -98,6 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
@@ -150,6 +151,18 @@ impl Default for PendulumConfig {
             l: 1.0,
             seed: 0,
         }
+    }
+}
+
+impl Validate for PendulumConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "PendulumConfig";
+        config::positive(C, "max_speed", f64::from(self.max_speed))?;
+        config::positive(C, "max_torque", f64::from(self.max_torque))?;
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::positive(C, "m", f64::from(self.m))?;
+        config::positive(C, "l", f64::from(self.l))?;
+        Ok(())
     }
 }
 
@@ -328,9 +341,15 @@ pub struct Pendulum {
 
 impl Pendulum {
     /// Construct with an explicit config.
-    pub fn with_config(config: PendulumConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `max_speed`, `max_torque`, `dt`, mass, or length).
+    pub fn with_config(config: PendulumConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: PendulumState {
                 theta: 0.0,
                 theta_dot: 0.0,
@@ -338,7 +357,7 @@ impl Pendulum {
             config,
             rng,
             steps: 0,
-        }
+        })
     }
 
     fn sample_init_state(&mut self) -> PendulumState {
@@ -394,7 +413,7 @@ impl fmt::Display for Pendulum {
 impl ConstructableEnv for Pendulum {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(PendulumConfig::default())
+        Self::with_config(PendulumConfig::default()).expect("default config must validate")
     }
 }
 
@@ -555,7 +574,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> Pendulum {
-        Pendulum::with_config(PendulumConfig::default())
+        Pendulum::with_config(PendulumConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(PendulumConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_dt() {
+        let bad = PendulumConfig { dt: 0.0, ..Default::default() };
+        assert!(Pendulum::with_config(bad).is_err());
     }
 
     #[test]
@@ -639,11 +669,13 @@ mod tests {
         let mut a = Pendulum::with_config(PendulumConfig {
             seed: 11,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let mut b = Pendulum::with_config(PendulumConfig {
             seed: 11,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         a.reset().unwrap();
         b.reset().unwrap();
         let action = PendulumAction::unchecked(0.5);

@@ -44,7 +44,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = FourRoomsConfig::new(11, 484, 0);
-//! let mut env = FourRoomsEnv::with_config(cfg, false);
+//! let mut env = FourRoomsEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -65,6 +65,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,15 @@ impl Default for FourRoomsConfig {
     }
 }
 
+impl Validate for FourRoomsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "FourRoomsConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 impl FromStr for FourRoomsConfig {
     type Err = String;
 
@@ -196,7 +206,8 @@ impl FromStr for FourRoomsConfig {
 /// let mut env = FourRoomsEnv::with_config(
 ///     FourRoomsConfig::new(11, 484, 0),
 ///     false,
-/// );
+/// )
+/// .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -223,19 +234,25 @@ impl FourRoomsEnv {
     /// let env = FourRoomsEnv::with_config(
     ///     FourRoomsConfig::new(11, 484, 0),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: FourRoomsConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    pub fn with_config(config: FourRoomsConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -324,7 +341,7 @@ impl Display for FourRoomsEnv {
 
 impl ConstructableEnv for FourRoomsEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(FourRoomsConfig::default(), render)
+        Self::with_config(FourRoomsConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -363,7 +380,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn env_11() -> FourRoomsEnv {
-        FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false)
+        FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(FourRoomsConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = FourRoomsConfig { size: 0, ..Default::default() };
+        assert!(FourRoomsEnv::with_config(bad, false).is_err());
     }
 
     #[test]
@@ -404,8 +432,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = FourRoomsConfig::new(11, 400, 5);
-        let mut a = FourRoomsEnv::with_config(cfg, false);
-        let mut b = FourRoomsEnv::with_config(cfg, false);
+        let mut a = FourRoomsEnv::with_config(cfg, false).expect("valid config");
+        let mut b = FourRoomsEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         assert_eq!(sa.observation(), sb.observation());
@@ -469,7 +497,7 @@ mod tests {
     #[test]
     fn timeout_ends_with_zero_reward() {
         let cfg = FourRoomsConfig::new(11, 3, 0);
-        let mut env = FourRoomsEnv::with_config(cfg, false);
+        let mut env = FourRoomsEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         env.step(GridAction::TurnLeft).unwrap();

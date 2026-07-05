@@ -27,6 +27,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -77,8 +78,15 @@ pub struct CarRacing {
 }
 
 impl CarRacing {
-    /// Create with default configuration.
-    pub fn with_config(config: CarRacingConfig) -> Self {
+    /// Create with an explicit configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive `track_width`, `lap_complete_percent` outside `(0, 1]`, or
+    /// a non-negative `frame_penalty`).
+    pub fn with_config(config: CarRacingConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let track = Track::generate(&config, &mut rng);
         let mut env = Self {
@@ -99,7 +107,7 @@ impl CarRacing {
             steps: 0,
         };
         env.build_world();
-        env
+        Ok(env)
     }
 
     fn build_world(&mut self) {
@@ -279,7 +287,7 @@ impl ConstructableEnv for CarRacing {
     /// effect; the pixel observation is always produced regardless of this value.
     /// Use [`CarRacing::with_config`] to control the seed and other parameters.
     fn new(_render: bool) -> Self {
-        Self::with_config(CarRacingConfig::default())
+        Self::with_config(CarRacingConfig::default()).expect("default config must validate")
     }
 }
 
@@ -414,7 +422,7 @@ mod tests {
 
     /// Creates a default seeded CarRacing environment for use in tests.
     fn make_env() -> CarRacing {
-        CarRacing::with_config(CarRacingConfig::default())
+        CarRacing::with_config(CarRacingConfig::default()).expect("valid config")
     }
 
     #[test]
@@ -473,7 +481,7 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = CarRacingConfig::builder().seed(5).build();
+        let cfg = CarRacingConfig::builder().seed(5).build().expect("valid config");
         let action = CarRacingAction {
             steer: 0.1,
             gas: 0.5,
@@ -481,7 +489,7 @@ mod tests {
         };
 
         let run = |a: &CarRacingAction| {
-            let mut env = CarRacing::with_config(cfg.clone());
+            let mut env = CarRacing::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut reward_sum = 0.0f32;
             for _ in 0..5 {
@@ -505,7 +513,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
@@ -516,7 +524,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
         let label = styled.lines[0]
@@ -532,7 +540,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CarRacing::with_config(CarRacingConfig::default());
+        let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

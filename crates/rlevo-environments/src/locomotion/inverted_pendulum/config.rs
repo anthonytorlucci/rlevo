@@ -1,5 +1,7 @@
 //! Configuration for [`super::InvertedPendulum`].
 
+use rlevo_core::config::{self, ConfigError, Validate};
+
 use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 
 /// Environment configuration for [`super::InvertedPendulum`].
@@ -72,5 +74,43 @@ impl Default for InvertedPendulumConfig {
             cart_half_extents: [0.15, 0.05, 0.05],
             gravity: -9.81,
         }
+    }
+}
+
+impl Validate for InvertedPendulumConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "InvertedPendulumConfig";
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
+        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
+        config::positive(C, "cart_mass", f64::from(self.cart_mass))?;
+        config::positive(C, "pole_mass", f64::from(self.pole_mass))?;
+        config::positive(C, "pole_length", f64::from(self.pole_length))?;
+        config::positive(C, "pole_radius", f64::from(self.pole_radius))?;
+        for extent in self.cart_half_extents {
+            config::positive(C, "cart_half_extents", f64::from(extent))?;
+        }
+        if let Some((low, high)) = self.healthy.angle_range {
+            config::ordered(C, "healthy.angle_range", f64::from(low), f64::from(high))?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        assert!(InvertedPendulumConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_dt() {
+        let bad = InvertedPendulumConfig { dt: 0.0, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "dt");
     }
 }

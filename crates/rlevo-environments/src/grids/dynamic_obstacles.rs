@@ -49,7 +49,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = DynamicObstaclesConfig::new(6, 2, 144, 0);
-//! let mut env = DynamicObstaclesEnv::with_config(cfg, false);
+//! let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -72,6 +72,7 @@ use super::core::{
 };
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -151,6 +152,15 @@ impl Default for DynamicObstaclesConfig {
     }
 }
 
+impl Validate for DynamicObstaclesConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DynamicObstaclesConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 impl FromStr for DynamicObstaclesConfig {
     type Err = String;
 
@@ -219,7 +229,8 @@ impl FromStr for DynamicObstaclesConfig {
 /// let mut env = DynamicObstaclesEnv::with_config(
 ///     DynamicObstaclesConfig::new(6, 2, 144, 0),
 ///     false,
-/// );
+/// )
+/// .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -239,6 +250,11 @@ impl DynamicObstaclesEnv {
     /// positions, and seeds the internal RNG. Call [`Environment::reset`]
     /// before the first [`Environment::step`] to obtain the first observation.
     ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -247,20 +263,21 @@ impl DynamicObstaclesEnv {
     /// let env = DynamicObstaclesEnv::with_config(
     ///     DynamicObstaclesConfig::new(8, 4, 256, 99),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: DynamicObstaclesConfig, render: bool) -> Self {
+    pub fn with_config(config: DynamicObstaclesConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let (state, obstacles) = Self::build(&config, &mut rng);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             obstacles,
             rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -420,6 +437,7 @@ impl Display for DynamicObstaclesEnv {
 impl ConstructableEnv for DynamicObstaclesEnv {
     fn new(render: bool) -> Self {
         Self::with_config(DynamicObstaclesConfig::default(), render)
+            .expect("default config must validate")
     }
 }
 
@@ -465,6 +483,18 @@ mod tests {
 
     fn env_no_obstacles() -> DynamicObstaclesEnv {
         DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(5, 0, 100, 0), false)
+            .expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(DynamicObstaclesConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = DynamicObstaclesConfig { size: 0, ..Default::default() };
+        assert!(DynamicObstaclesEnv::with_config(bad, false).is_err());
     }
 
     #[test]
@@ -489,7 +519,7 @@ mod tests {
     #[test]
     fn build_places_correct_number_of_obstacles() {
         let env =
-            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 200, 0), false);
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 200, 0), false).expect("valid config");
         assert_eq!(env.obstacles().len(), 4);
         for &(x, y) in env.obstacles() {
             assert_eq!(env.state().grid.get(x, y), Entity::Ball(OBSTACLE_COLOR));
@@ -522,8 +552,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = DynamicObstaclesConfig::new(6, 3, 200, 42);
-        let mut a = DynamicObstaclesEnv::with_config(cfg, false);
-        let mut b = DynamicObstaclesEnv::with_config(cfg, false);
+        let mut a = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+        let mut b = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
         let _ = a.reset().unwrap();
         let _ = b.reset().unwrap();
         assert_eq!(a.obstacles(), b.obstacles());
@@ -544,7 +574,7 @@ mod tests {
     fn episode_terminates_within_budget_with_obstacles() {
         // Even with a small budget, the episode must cleanly terminate.
         let cfg = DynamicObstaclesConfig::new(6, 2, 50, 7);
-        let mut env = DynamicObstaclesEnv::with_config(cfg, false);
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         let mut done = false;
         for _ in 0..60 {
@@ -562,7 +592,7 @@ mod tests {
         // Craft a configuration where a ball sits next to the agent and
         // has no legal move except onto the agent's cell.
         let cfg = DynamicObstaclesConfig::new(5, 0, 100, 0);
-        let mut env = DynamicObstaclesEnv::with_config(cfg, false);
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         // Box the ball in with walls on 3 sides so the only legal move
         // is onto the agent.
@@ -582,7 +612,7 @@ mod tests {
     #[test]
     fn reset_clears_step_counter_and_obstacles() {
         let cfg = DynamicObstaclesConfig::new(6, 2, 200, 5);
-        let mut env = DynamicObstaclesEnv::with_config(cfg, false);
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         let initial = env.obstacles().to_vec();
         env.step(GridAction::TurnLeft).unwrap();
@@ -596,7 +626,7 @@ mod tests {
     #[test]
     fn display_contains_obstacle_count() {
         let env =
-            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(6, 3, 100, 0), false);
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(6, 3, 100, 0), false).expect("valid config");
         let s = env.to_string();
         assert!(s.contains("num_obstacles=3"));
     }

@@ -32,7 +32,7 @@
 //! ```no_run
 //! # use rlevo_environments::box2d::car_racing::{CarRacing, CarRacingAction, CarRacingConfig};
 //! # use rlevo_core::environment::{Environment, Snapshot};
-//! let mut env = CarRacing::with_config(CarRacingConfig::default());
+//! let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(CarRacingAction { steer: 0.0, gas: 0.5, brake: 0.0 }).unwrap();
 //! println!("reward: {:?}", snap.reward());

@@ -39,7 +39,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
-//! let mut env = CrossingEnv::with_config(cfg, false);
+//! let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -62,6 +62,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -178,6 +179,15 @@ impl Default for CrossingConfig {
     }
 }
 
+impl Validate for CrossingConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CrossingConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 impl FromStr for CrossingConfig {
     type Err = String;
 
@@ -234,7 +244,8 @@ impl FromStr for CrossingConfig {
 /// let mut env = CrossingEnv::with_config(
 ///     CrossingConfig::new(7, 196, 0, CrossingKind::Lava),
 ///     false,
-/// );
+/// )
+/// .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -261,19 +272,25 @@ impl CrossingEnv {
     /// let env = CrossingEnv::with_config(
     ///     CrossingConfig::new(9, 324, 42, CrossingKind::Wall),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: CrossingConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    pub fn with_config(config: CrossingConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -377,7 +394,7 @@ impl Display for CrossingEnv {
 
 impl ConstructableEnv for CrossingEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(CrossingConfig::default(), render)
+        Self::with_config(CrossingConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -416,7 +433,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn default_env(kind: CrossingKind) -> CrossingEnv {
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, kind), false)
+        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, kind), false).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(CrossingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = CrossingConfig { size: 0, ..Default::default() };
+        assert!(CrossingEnv::with_config(bad, false).is_err());
     }
 
     /// Optimal rollout that works for both lava and wall variants.
@@ -529,8 +557,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = CrossingConfig::new(7, 100, 5, CrossingKind::Wall);
-        let mut a = CrossingEnv::with_config(cfg, false);
-        let mut b = CrossingEnv::with_config(cfg, false);
+        let mut a = CrossingEnv::with_config(cfg, false).expect("valid config");
+        let mut b = CrossingEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         assert_eq!(sa.observation(), sb.observation());

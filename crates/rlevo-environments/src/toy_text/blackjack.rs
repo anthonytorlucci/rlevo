@@ -36,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
+use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -126,6 +127,14 @@ impl BlackjackConfig {
     /// Returns a builder for constructing a `BlackjackConfig`.
     pub fn builder() -> BlackjackConfigBuilder {
         BlackjackConfigBuilder::default()
+    }
+}
+
+impl Validate for BlackjackConfig {
+    /// [`BlackjackConfig`] carries only a rule variant and a seed, so it has no
+    /// numeric invariant to check; validation always succeeds.
+    fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
     }
 }
 
@@ -270,9 +279,17 @@ pub struct Blackjack {
 
 impl Blackjack {
     /// Create a Blackjack environment with the given configuration.
-    pub fn with_config(config: BlackjackConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`].
+    /// [`BlackjackConfig`] currently has no numeric invariant, so this never
+    /// fails in practice; the fallible signature keeps the construction
+    /// contract uniform across environments.
+    pub fn with_config(config: BlackjackConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: BlackjackState {
                 player_sum: 0,
                 dealer_showing: 1,
@@ -282,7 +299,7 @@ impl Blackjack {
             },
             config,
             rng,
-        }
+        })
     }
 
     fn deal_initial(&mut self) {
@@ -318,7 +335,7 @@ impl Blackjack {
 
 impl ConstructableEnv for Blackjack {
     fn new(_render: bool) -> Self {
-        Self::with_config(BlackjackConfig::default())
+        Self::with_config(BlackjackConfig::default()).expect("default config must validate")
     }
 }
 
@@ -444,7 +461,12 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn make_env() -> Blackjack {
-        Blackjack::with_config(BlackjackConfig::default())
+        Blackjack::with_config(BlackjackConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(BlackjackConfig::default().validate().is_ok());
     }
 
     impl Blackjack {
@@ -555,7 +577,7 @@ mod tests {
             })
             .seed(0)
             .build();
-        let mut env = Blackjack::with_config(cfg);
+        let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // Natural player [1,10]=21, dealer [8,9]=17 (not natural, no draw).
         env.set_hands(vec![1, 10], vec![8, 9]);
@@ -572,7 +594,7 @@ mod tests {
             .variant(BlackjackVariant::SuttonBarto)
             .seed(0)
             .build();
-        let mut env = Blackjack::with_config(cfg);
+        let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // SAB: player natural [1,10], dealer non-natural [8,9] → reward = 1.0.
         env.set_hands(vec![1, 10], vec![8, 9]);
@@ -592,7 +614,7 @@ mod tests {
             .variant(BlackjackVariant::SuttonBarto)
             .seed(0)
             .build();
-        let mut env = Blackjack::with_config(cfg);
+        let mut env = Blackjack::with_config(cfg).expect("valid config");
         env.reset().unwrap();
         // SAB: dealer natural [1,10], player non-natural [9,7] → reward = -1.0.
         env.set_hands(vec![9, 7], vec![1, 10]);
@@ -613,7 +635,7 @@ mod tests {
             seed: 99,
         };
         let run = || {
-            let mut env = Blackjack::with_config(cfg.clone());
+            let mut env = Blackjack::with_config(cfg.clone()).expect("valid config");
             let mut total = 0.0_f32;
             for _ in 0..10 {
                 env.reset().unwrap();
@@ -645,7 +667,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        let mut env = Blackjack::with_config(BlackjackConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -658,7 +680,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        let mut env = Blackjack::with_config(BlackjackConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
         let label = styled.lines[0]
@@ -674,7 +696,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = Blackjack::with_config(BlackjackConfig::default());
+        let mut env = Blackjack::with_config(BlackjackConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

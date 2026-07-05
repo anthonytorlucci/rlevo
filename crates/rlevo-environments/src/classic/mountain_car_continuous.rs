@@ -98,6 +98,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
@@ -166,6 +167,18 @@ impl Default for MountainCarContinuousConfig {
             max_speed: 0.07,
             seed: 0,
         }
+    }
+}
+
+impl Validate for MountainCarContinuousConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "MountainCarContinuousConfig";
+        config::ordered(C, "min_action", f64::from(self.min_action), f64::from(self.max_action))?;
+        config::ordered(C, "min_pos", f64::from(self.min_pos), f64::from(self.max_pos))?;
+        config::in_range(C, "goal_position", f64::from(self.min_pos), f64::from(self.max_pos), f64::from(self.goal_position))?;
+        config::positive(C, "max_speed", f64::from(self.max_speed))?;
+        config::positive(C, "power", f64::from(self.power))?;
+        Ok(())
     }
 }
 
@@ -329,9 +342,16 @@ pub struct MountainCarContinuous {
 
 impl MountainCarContinuous {
     /// Construct with an explicit config.
-    pub fn with_config(config: MountainCarContinuousConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// `min_action >= max_action`, `min_pos >= max_pos`, a `goal_position`
+    /// outside `[min_pos, max_pos]`, or non-positive `max_speed` / `power`).
+    pub fn with_config(config: MountainCarContinuousConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: MountainCarContinuousState {
                 position: -0.5,
                 velocity: 0.0,
@@ -339,7 +359,7 @@ impl MountainCarContinuous {
             config,
             rng,
             steps: 0,
-        }
+        })
     }
 
     fn sample_init_state(&mut self) -> MountainCarContinuousState {
@@ -390,6 +410,7 @@ impl ConstructableEnv for MountainCarContinuous {
     fn new(render: bool) -> Self {
         let _ = render;
         Self::with_config(MountainCarContinuousConfig::default())
+            .expect("default config must validate")
     }
 }
 
@@ -586,6 +607,18 @@ mod tests {
 
     fn default_env() -> MountainCarContinuous {
         MountainCarContinuous::with_config(MountainCarContinuousConfig::default())
+            .expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(MountainCarContinuousConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unordered_actions() {
+        let bad = MountainCarContinuousConfig { min_action: 1.0, max_action: -1.0, ..Default::default() };
+        assert!(MountainCarContinuous::with_config(bad).is_err());
     }
 
     #[test]
@@ -664,11 +697,13 @@ mod tests {
         let mut a = MountainCarContinuous::with_config(MountainCarContinuousConfig {
             seed: 3,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let mut b = MountainCarContinuous::with_config(MountainCarContinuousConfig {
             seed: 3,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         a.reset().unwrap();
         b.reset().unwrap();
         let act = MountainCarContinuousAction::new(0.5).unwrap();

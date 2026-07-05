@@ -4,6 +4,7 @@
 //! [`BipedalWalkerConfig::builder`] for ergonomic construction; call
 //! [`Default::default`] for a flat-terrain, 1600-step episode.
 
+use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
 
 /// Terrain difficulty preset for a [`super::BipedalWalker`] episode.
@@ -70,6 +71,21 @@ impl Default for BipedalWalkerConfig {
     }
 }
 
+impl Validate for BipedalWalkerConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "BipedalWalkerConfig";
+        config::in_range(C, "hull_friction", 0.0, f64::INFINITY, f64::from(self.hull_friction))?;
+        config::in_range(C, "leg_friction", 0.0, f64::INFINITY, f64::from(self.leg_friction))?;
+        config::positive(C, "motors_torque", f64::from(self.motors_torque))?;
+        config::positive(C, "speed_hip", f64::from(self.speed_hip))?;
+        config::positive(C, "speed_knee", f64::from(self.speed_knee))?;
+        config::positive(C, "lidar_range", f64::from(self.lidar_range))?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::positive(C, "dt", f64::from(self.dt))?;
+        Ok(())
+    }
+}
+
 impl BipedalWalkerConfig {
     /// Return a builder for configuring a `BipedalWalkerConfig`.
     pub fn builder() -> BipedalWalkerConfigBuilder {
@@ -117,8 +133,14 @@ impl BipedalWalkerConfigBuilder {
     }
 
     /// Consumes the builder and returns the configured [`BipedalWalkerConfig`].
-    pub fn build(self) -> BipedalWalkerConfig {
-        self.inner
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config fails [`Validate`]
+    /// (e.g. non-positive `motors_torque`, `dt`, or `max_steps == 0`).
+    pub fn build(self) -> Result<BipedalWalkerConfig, ConfigError> {
+        self.inner.validate()?;
+        Ok(self.inner)
     }
 }
 
@@ -140,9 +162,21 @@ mod tests {
             .terrain(BipedalTerrain::Hardcore)
             .seed(42)
             .max_steps(500)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.terrain, BipedalTerrain::Hardcore);
         assert_eq!(cfg.seed, 42);
         assert_eq!(cfg.max_steps, 500);
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(BipedalWalkerConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_motors_torque() {
+        let bad = BipedalWalkerConfig { motors_torque: 0.0, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "motors_torque");
     }
 }

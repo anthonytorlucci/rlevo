@@ -4,6 +4,7 @@
 //! [`super::LunarLanderDiscrete`] and [`super::LunarLanderContinuous`].
 //! Use [`LunarLanderConfig::builder`] for ergonomic construction.
 
+use rlevo_core::config::{self, ConfigError, Validate};
 use serde::{Deserialize, Serialize};
 
 /// Wind model (design decision D2).
@@ -65,6 +66,22 @@ impl Default for LunarLanderConfig {
     }
 }
 
+impl Validate for LunarLanderConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "LunarLanderConfig";
+        config::positive(C, "main_engine_power", f64::from(self.main_engine_power))?;
+        config::positive(C, "side_engine_power", f64::from(self.side_engine_power))?;
+        config::in_range(C, "initial_random", 0.0, f64::INFINITY, f64::from(self.initial_random))?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        config::positive(C, "dt", f64::from(self.dt))?;
+        config::positive(C, "lander_density", f64::from(self.lander_density))?;
+        if let WindMode::Stochastic { max_force, .. } = self.wind_mode {
+            config::in_range(C, "wind_mode.max_force", 0.0, f64::INFINITY, f64::from(max_force))?;
+        }
+        Ok(())
+    }
+}
+
 impl LunarLanderConfig {
     /// Return a builder for `LunarLanderConfig`.
     pub fn builder() -> LunarLanderConfigBuilder {
@@ -112,8 +129,14 @@ impl LunarLanderConfigBuilder {
     }
 
     /// Consumes the builder and returns the configured [`LunarLanderConfig`].
-    pub fn build(self) -> LunarLanderConfig {
-        self.inner
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the assembled config fails [`Validate`]
+    /// (e.g. non-positive `main_engine_power`, `dt`, or `max_steps == 0`).
+    pub fn build(self) -> Result<LunarLanderConfig, ConfigError> {
+        self.inner.validate()?;
+        Ok(self.inner)
     }
 }
 
@@ -134,9 +157,21 @@ mod tests {
             .seed(7)
             .wind_mode(WindMode::Constant { force: 2.5 })
             .max_steps(500)
-            .build();
+            .build()
+            .expect("valid config");
         assert_eq!(cfg.seed, 7);
         assert_eq!(cfg.max_steps, 500);
         assert!(matches!(cfg.wind_mode, WindMode::Constant { .. }));
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(LunarLanderConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_main_engine_power() {
+        let bad = LunarLanderConfig { main_engine_power: 0.0, ..Default::default() };
+        assert_eq!(bad.validate().unwrap_err().field, "main_engine_power");
     }
 }

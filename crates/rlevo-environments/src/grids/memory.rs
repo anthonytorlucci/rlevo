@@ -40,7 +40,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = MemoryConfig::new(140, 0, false);
-//! let mut env = MemoryEnv::with_config(cfg, false);
+//! let mut env = MemoryEnv::with_config(cfg, false).expect("valid config");
 //! let snap = env.reset().unwrap();
 //! println!("match pos: {:?}", env.match_pos());
 //! ```
@@ -64,6 +64,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,14 @@ impl Default for MemoryConfig {
             seed: 0,
             swap_fork: false,
         }
+    }
+}
+
+impl Validate for MemoryConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "MemoryConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
     }
 }
 
@@ -214,6 +223,11 @@ impl MemoryEnv {
     /// Call [`Environment::reset`] before the first [`Environment::step`] to
     /// obtain the first observation.
     ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero
+    /// `max_steps`).
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -222,20 +236,21 @@ impl MemoryEnv {
     /// let env = MemoryEnv::with_config(
     ///     MemoryConfig::new(140, 0, false),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: MemoryConfig, render: bool) -> Self {
+    pub fn with_config(config: MemoryConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let (state, match_pos) = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             match_pos,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns the environment's active configuration.
@@ -334,7 +349,7 @@ impl Display for MemoryEnv {
 
 impl ConstructableEnv for MemoryEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(MemoryConfig::default(), render)
+        Self::with_config(MemoryConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -380,6 +395,17 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     #[test]
+    fn default_config_validates() {
+        assert!(MemoryConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = MemoryConfig { max_steps: 0, ..Default::default() };
+        assert!(MemoryEnv::with_config(bad, false).is_err());
+    }
+
+    #[test]
     fn default_config_values() {
         let cfg = MemoryConfig::default();
         assert_eq!(cfg.max_steps, 4 * WIDTH * HEIGHT);
@@ -399,7 +425,7 @@ mod tests {
 
     #[test]
     fn build_default_has_match_at_top() {
-        let env = MemoryEnv::with_config(MemoryConfig::default(), false);
+        let env = MemoryEnv::with_config(MemoryConfig::default(), false).expect("valid config");
         assert_eq!(env.match_pos(), (5, 1));
         assert_eq!(env.state().grid.get(5, 1), Entity::Key(CUE_COLOR));
         assert_eq!(env.state().grid.get(5, 3), Entity::Ball(DISTRACTOR_COLOR));
@@ -409,7 +435,7 @@ mod tests {
 
     #[test]
     fn build_with_swap_fork_moves_match_to_bottom() {
-        let env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false);
+        let env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
         assert_eq!(env.match_pos(), (5, 3));
         assert_eq!(env.state().grid.get(5, 1), Entity::Ball(DISTRACTOR_COLOR));
         assert_eq!(env.state().grid.get(5, 3), Entity::Key(CUE_COLOR));
@@ -417,7 +443,7 @@ mod tests {
 
     #[test]
     fn optimal_rollout_default_picks_top_fork() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false);
+        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight, // W → N
@@ -440,7 +466,7 @@ mod tests {
 
     #[test]
     fn optimal_rollout_swapped_picks_bottom_fork() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false);
+        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight,
@@ -463,7 +489,7 @@ mod tests {
 
     #[test]
     fn done_at_distractor_terminates_with_zero() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false);
+        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight,
@@ -486,7 +512,7 @@ mod tests {
 
     #[test]
     fn done_in_empty_corridor_terminates_with_zero() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false);
+        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(GridAction::Done).unwrap();
         assert!(snap.is_done());
@@ -496,7 +522,7 @@ mod tests {
 
     #[test]
     fn interior_wall_blocks_diagonal_cell() {
-        let env = MemoryEnv::with_config(MemoryConfig::default(), false);
+        let env = MemoryEnv::with_config(MemoryConfig::default(), false).expect("valid config");
         assert_eq!(env.state().grid.get(4, 1), Entity::Wall);
         assert_eq!(env.state().grid.get(4, 3), Entity::Wall);
         assert_eq!(env.state().grid.get(4, 2), Entity::Empty);
@@ -504,7 +530,7 @@ mod tests {
 
     #[test]
     fn navigating_to_distractor_does_not_face_match() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::default(), false);
+        let mut env = MemoryEnv::with_config(MemoryConfig::default(), false).expect("valid config");
         env.reset().unwrap();
         // Navigate to (5, 2) facing south so the distractor at (5, 3) is in front.
         env.step(GridAction::TurnRight).unwrap();

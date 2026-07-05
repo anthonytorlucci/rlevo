@@ -82,6 +82,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
@@ -137,6 +138,17 @@ impl Default for MountainCarConfig {
             goal_velocity: 0.0,
             seed: 0,
         }
+    }
+}
+
+impl Validate for MountainCarConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "MountainCarConfig";
+        config::ordered(C, "min_pos", f64::from(self.min_pos), f64::from(self.max_pos))?;
+        config::in_range(C, "goal_position", f64::from(self.min_pos), f64::from(self.max_pos), f64::from(self.goal_position))?;
+        config::positive(C, "max_speed", f64::from(self.max_speed))?;
+        config::positive(C, "force", f64::from(self.force))?;
+        Ok(())
     }
 }
 
@@ -266,9 +278,16 @@ pub struct MountainCar {
 
 impl MountainCar {
     /// Construct with an explicit config.
-    pub fn with_config(config: MountainCarConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// `min_pos >= max_pos`, a `goal_position` outside `[min_pos, max_pos]`, or
+    /// non-positive `max_speed` / `force`).
+    pub fn with_config(config: MountainCarConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: MountainCarState {
                 position: -0.5,
                 velocity: 0.0,
@@ -276,7 +295,7 @@ impl MountainCar {
             config,
             rng,
             steps: 0,
-        }
+        })
     }
 
     /// Current step count within the episode.
@@ -333,7 +352,7 @@ impl fmt::Display for MountainCar {
 impl ConstructableEnv for MountainCar {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(MountainCarConfig::default())
+        Self::with_config(MountainCarConfig::default()).expect("default config must validate")
     }
 }
 
@@ -526,7 +545,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> MountainCar {
-        MountainCar::with_config(MountainCarConfig::default())
+        MountainCar::with_config(MountainCarConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(MountainCarConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unordered_bounds() {
+        let bad = MountainCarConfig { min_pos: 1.0, max_pos: -1.0, ..Default::default() };
+        assert!(MountainCar::with_config(bad).is_err());
     }
 
     #[test]
@@ -594,11 +624,13 @@ mod tests {
         let mut a = MountainCar::with_config(MountainCarConfig {
             seed: 7,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let mut b = MountainCar::with_config(MountainCarConfig {
             seed: 7,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         a.reset().unwrap();
         b.reset().unwrap();
         for action in [

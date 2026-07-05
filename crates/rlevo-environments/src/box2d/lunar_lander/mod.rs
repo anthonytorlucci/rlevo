@@ -32,7 +32,7 @@
 //! #     LunarLanderDiscrete, LunarLanderDiscreteAction, LunarLanderConfig,
 //! # };
 //! # use rlevo_core::environment::{Environment, Snapshot};
-//! let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default());
+//! let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
 //! let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
 //! println!("reward: {:?}", snap.reward());

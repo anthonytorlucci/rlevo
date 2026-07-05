@@ -137,7 +137,7 @@ fn classic_santa_fe_ant() {
 #[test]
 fn grids_empty() {
     use rlevo_environments::grids::empty::{EmptyConfig, EmptyEnv};
-    let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
+    let mut env = EmptyEnv::with_config(EmptyConfig::default(), false).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "EmptyEnv");
 }
@@ -145,7 +145,7 @@ fn grids_empty() {
 #[test]
 fn grids_lava_gap() {
     use rlevo_environments::grids::lava_gap::{LavaGapConfig, LavaGapEnv};
-    let mut env = LavaGapEnv::with_config(LavaGapConfig::default(), false);
+    let mut env = LavaGapEnv::with_config(LavaGapConfig::default(), false).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "LavaGapEnv");
 }
@@ -153,7 +153,7 @@ fn grids_lava_gap() {
 #[test]
 fn grids_door_key() {
     use rlevo_environments::grids::door_key::{DoorKeyConfig, DoorKeyEnv};
-    let mut env = DoorKeyEnv::with_config(DoorKeyConfig::default(), false);
+    let mut env = DoorKeyEnv::with_config(DoorKeyConfig::default(), false).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "DoorKeyEnv");
 }
@@ -171,7 +171,7 @@ fn toy_text_frozen_lake() {
 #[test]
 fn toy_text_cliff_walking() {
     use rlevo_environments::toy_text::cliff_walking::{CliffWalking, CliffWalkingConfig};
-    let mut env = CliffWalking::with_config(CliffWalkingConfig::default());
+    let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "CliffWalking");
 }
@@ -179,7 +179,7 @@ fn toy_text_cliff_walking() {
 #[test]
 fn toy_text_taxi() {
     use rlevo_environments::toy_text::taxi::{Taxi, TaxiConfig};
-    let mut env = Taxi::with_config(TaxiConfig::default());
+    let mut env = Taxi::with_config(TaxiConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "Taxi");
 }
@@ -187,7 +187,7 @@ fn toy_text_taxi() {
 #[test]
 fn toy_text_blackjack() {
     use rlevo_environments::toy_text::blackjack::{Blackjack, BlackjackConfig};
-    let mut env = Blackjack::with_config(BlackjackConfig::default());
+    let mut env = Blackjack::with_config(BlackjackConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "Blackjack");
 }
@@ -221,7 +221,7 @@ fn landscapes_ackley() {
 #[test]
 fn box2d_lunar_lander_discrete() {
     use rlevo_environments::box2d::lunar_lander::{LunarLanderConfig, LunarLanderDiscrete};
-    let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default());
+    let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "LunarLanderDiscrete");
 }
@@ -230,7 +230,7 @@ fn box2d_lunar_lander_discrete() {
 #[test]
 fn box2d_lunar_lander_continuous() {
     use rlevo_environments::box2d::lunar_lander::{LunarLanderConfig, LunarLanderContinuous};
-    let mut env = LunarLanderContinuous::with_config(LunarLanderConfig::default());
+    let mut env = LunarLanderContinuous::with_config(LunarLanderConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "LunarLanderContinuous");
 }
@@ -239,7 +239,7 @@ fn box2d_lunar_lander_continuous() {
 #[test]
 fn box2d_bipedal_walker() {
     use rlevo_environments::box2d::bipedal_walker::{BipedalWalker, BipedalWalkerConfig};
-    let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default());
+    let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "BipedalWalker");
 }
@@ -248,7 +248,7 @@ fn box2d_bipedal_walker() {
 #[test]
 fn box2d_car_racing() {
     use rlevo_environments::box2d::car_racing::{CarRacing, CarRacingConfig};
-    let mut env = CarRacing::with_config(CarRacingConfig::default());
+    let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "CarRacing");
 }

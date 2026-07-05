@@ -121,7 +121,7 @@
 //! use rlevo_environments::wrappers::TimeLimit;
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
-//! let env = CartPole::with_config(CartPoleConfig::default());
+//! let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 //! let mut timed = TimeLimit::new(env, 500);
 //! let mut snap = timed.reset().unwrap();
 //! while !snap.is_done() {
@@ -135,6 +135,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
@@ -213,6 +214,20 @@ impl Default for CartPoleConfig {
             sutton_barto_reward: false,
             seed: 0,
         }
+    }
+}
+
+impl Validate for CartPoleConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "CartPoleConfig";
+        config::positive(C, "masscart", f64::from(self.masscart))?;
+        config::positive(C, "masspole", f64::from(self.masspole))?;
+        config::positive(C, "length", f64::from(self.length))?;
+        config::positive(C, "force_mag", f64::from(self.force_mag))?;
+        config::positive(C, "tau", f64::from(self.tau))?;
+        config::positive(C, "theta_threshold_radians", f64::from(self.theta_threshold_radians))?;
+        config::positive(C, "x_threshold", f64::from(self.x_threshold))?;
+        Ok(())
     }
 }
 
@@ -450,14 +465,20 @@ pub struct CartPole {
 
 impl CartPole {
     /// Construct with an explicit config.
-    pub fn with_config(config: CartPoleConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
+    /// non-positive mass, length, `tau`, or termination thresholds).
+    pub fn with_config(config: CartPoleConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
-        Self {
+        Ok(Self {
             state: CartPoleState::new(0.0, 0.0, 0.0, 0.0),
             config,
             rng,
             steps: 0,
-        }
+        })
     }
 
     /// Current step count within the episode.
@@ -555,7 +576,7 @@ impl fmt::Display for CartPole {
 impl ConstructableEnv for CartPole {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(CartPoleConfig::default())
+        Self::with_config(CartPoleConfig::default()).expect("default config must validate")
     }
 }
 
@@ -813,7 +834,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> CartPole {
-        CartPole::with_config(CartPoleConfig::default())
+        CartPole::with_config(CartPoleConfig::default()).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(CartPoleConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_non_positive_length() {
+        let bad = CartPoleConfig { length: 0.0, ..Default::default() };
+        assert!(CartPole::with_config(bad).is_err());
     }
 
     #[test]
@@ -907,7 +939,7 @@ mod tests {
             sutton_barto_reward: true,
             ..Default::default()
         };
-        let mut env = CartPole::with_config(config);
+        let mut env = CartPole::with_config(config).expect("valid config");
         env.reset().unwrap();
         // Force termination next step
         env.state.theta = 0.3;
@@ -922,7 +954,7 @@ mod tests {
             sutton_barto_reward: true,
             ..Default::default()
         };
-        let mut env = CartPole::with_config(config);
+        let mut env = CartPole::with_config(config).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(CartPoleAction::Right).unwrap();
         if !snap.is_done() {
@@ -935,11 +967,13 @@ mod tests {
         let mut env_a = CartPole::with_config(CartPoleConfig {
             seed: 42,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         let mut env_b = CartPole::with_config(CartPoleConfig {
             seed: 42,
             ..Default::default()
-        });
+        })
+        .expect("valid config");
         env_a.reset().unwrap();
         env_b.reset().unwrap();
 
@@ -967,8 +1001,8 @@ mod tests {
             seed: 1,
             ..Default::default()
         };
-        let mut euler_env = CartPole::with_config(euler_cfg);
-        let mut si_env = CartPole::with_config(si_cfg);
+        let mut euler_env = CartPole::with_config(euler_cfg).expect("valid config");
+        let mut si_env = CartPole::with_config(si_cfg).expect("valid config");
         euler_env.reset().unwrap();
         si_env.reset().unwrap();
 

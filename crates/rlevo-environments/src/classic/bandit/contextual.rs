@@ -20,7 +20,8 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
 //! use rlevo_environments::classic::{ContextualBandit, ContextualBanditConfig, KArmedBanditAction};
 //!
-//! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default());
+//! let mut env = ContextualBandit::<4, 10>::with_config(ContextualBanditConfig::default())
+//!     .expect("valid config");
 //! let _ = <ContextualBandit<4, 10> as Environment<1, 1, 1>>::reset(&mut env)
 //!     .expect("reset succeeds");
 //! let action = KArmedBanditAction::<10>::new(2).expect("arm in range");
@@ -38,6 +39,7 @@ use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -167,6 +169,14 @@ impl Default for ContextualBanditConfig {
     }
 }
 
+impl Validate for ContextualBanditConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "ContextualBanditConfig";
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 /// Parses the same `"N"` / `"max_steps=N,seed=S"` formats as
 /// [`super::k_armed::KArmedBanditConfig`].
 ///
@@ -274,22 +284,28 @@ impl<const C: usize, const K: usize> ContextualBandit<C, K> {
             seed,
             ..ContextualBanditConfig::default()
         };
-        Self::with_config(config)
+        Self::with_config(config).expect("default-derived config must validate")
     }
 
     /// Construct with an explicit config.
-    pub fn with_config(config: ContextualBanditConfig) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]
+    /// (`max_steps == 0`).
+    pub fn with_config(config: ContextualBanditConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
         let mut rng = StdRng::seed_from_u64(config.seed);
         let arm_means = sample_arm_means::<C, K>(&mut rng);
         let context = rng.random_range(0..C);
-        Self {
+        Ok(Self {
             state: ContextualBanditState { context },
             steps: 0,
             done: false,
             config,
             rng,
             arm_means,
-        }
+        })
     }
 
     /// Read-only view of the per-context, per-arm means.
@@ -326,7 +342,7 @@ fn sample_arm_means<const C: usize, const K: usize>(rng: &mut StdRng) -> [[f32; 
 impl<const C: usize, const K: usize> ConstructableEnv for ContextualBandit<C, K> {
     fn new(render: bool) -> Self {
         let _ = render;
-        Self::with_config(ContextualBanditConfig::default())
+        Self::with_config(ContextualBanditConfig::default()).expect("default config must validate")
     }
 }
 
@@ -404,6 +420,17 @@ mod tests {
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::Snapshot;
 
+    #[test]
+    fn default_config_validates() {
+        assert!(ContextualBanditConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_max_steps() {
+        let bad = ContextualBanditConfig { max_steps: 0, seed: 0 };
+        assert!(ContextualBandit::<4, 10>::with_config(bad).is_err());
+    }
+
     type TestBackend = burn::backend::Flex;
     const C: usize = 4;
     const K: usize = 10;
@@ -442,7 +469,7 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default());
+        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
         let snap =
             <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
@@ -452,7 +479,7 @@ mod tests {
 
     #[test]
     fn step_observation_matches_revealed_context_after_step() {
-        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default());
+        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
         <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let action = KArmedBanditAction::<K>::from_index(0);
         let snap =
@@ -467,7 +494,8 @@ mod tests {
         let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig {
             max_steps: 3,
             seed: 1,
-        });
+        })
+        .expect("valid config");
         let action = KArmedBanditAction::<K>::from_index(0);
         let s1 = <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(!s1.is_done());
@@ -483,8 +511,8 @@ mod tests {
             max_steps: 32,
             seed: 11,
         };
-        let mut a = ContextualBandit::<C, K>::with_config(cfg.clone());
-        let mut b = ContextualBandit::<C, K>::with_config(cfg);
+        let mut a = ContextualBandit::<C, K>::with_config(cfg.clone()).expect("valid config");
+        let mut b = ContextualBandit::<C, K>::with_config(cfg).expect("valid config");
         <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut a).unwrap();
         <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut b).unwrap();
         assert_eq!(a.arm_means(), b.arm_means());
@@ -504,7 +532,7 @@ mod tests {
 
     #[test]
     fn arm_means_dimensions_match_const_generics() {
-        let env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default());
+        let env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
         assert_eq!(env.arm_means().len(), C);
         for row in env.arm_means() {
             assert_eq!(row.len(), K);

@@ -43,7 +43,7 @@
 //! use rlevo_core::environment::{ConstructableEnv, Environment};
 //!
 //! let cfg = DoorKeyConfig::new(5, 100, 0);
-//! let mut env = DoorKeyEnv::with_config(cfg, false);
+//! let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
 //! ```
 //!
@@ -66,6 +66,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -136,6 +137,15 @@ impl Default for DoorKeyConfig {
     }
 }
 
+impl Validate for DoorKeyConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        const C: &str = "DoorKeyConfig";
+        config::nonzero(C, "size", self.size)?;
+        config::nonzero(C, "max_steps", self.max_steps)?;
+        Ok(())
+    }
+}
+
 impl FromStr for DoorKeyConfig {
     type Err = String;
 
@@ -194,7 +204,8 @@ impl FromStr for DoorKeyConfig {
 /// let mut env = DoorKeyEnv::with_config(
 ///     DoorKeyConfig::new(5, 100, 0),
 ///     false,
-/// );
+/// )
+/// .expect("valid config");
 /// env.reset().unwrap();
 /// ```
 #[derive(Debug)]
@@ -221,19 +232,25 @@ impl DoorKeyEnv {
     /// let env = DoorKeyEnv::with_config(
     ///     DoorKeyConfig::new(7, 196, 99),
     ///     true, // render ASCII grid to stdout
-    /// );
+    /// )
+    /// .expect("valid config");
     /// ```
-    #[must_use]
-    pub fn with_config(config: DoorKeyConfig, render: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
+    /// `max_steps`).
+    pub fn with_config(config: DoorKeyConfig, render: bool) -> Result<Self, ConfigError> {
+        config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
-        Self {
+        Ok(Self {
             state,
             config,
             steps: 0,
             render,
             _rng: rng,
-        }
+        })
     }
 
     /// Returns a reference to the active configuration.
@@ -334,7 +351,7 @@ impl Display for DoorKeyEnv {
 
 impl ConstructableEnv for DoorKeyEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(DoorKeyConfig::default(), render)
+        Self::with_config(DoorKeyConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -373,7 +390,18 @@ mod tests {
     use rlevo_core::environment::Snapshot;
 
     fn env_5x5() -> DoorKeyEnv {
-        DoorKeyEnv::with_config(DoorKeyConfig::new(5, 100, 0), false)
+        DoorKeyEnv::with_config(DoorKeyConfig::new(5, 100, 0), false).expect("valid config")
+    }
+
+    #[test]
+    fn default_config_validates() {
+        assert!(DoorKeyConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_size() {
+        let bad = DoorKeyConfig { size: 0, ..Default::default() };
+        assert!(DoorKeyEnv::with_config(bad, false).is_err());
     }
 
     #[test]
@@ -414,8 +442,8 @@ mod tests {
     #[test]
     fn reset_is_deterministic() {
         let cfg = DoorKeyConfig::new(5, 100, 17);
-        let mut a = DoorKeyEnv::with_config(cfg, false);
-        let mut b = DoorKeyEnv::with_config(cfg, false);
+        let mut a = DoorKeyEnv::with_config(cfg, false).expect("valid config");
+        let mut b = DoorKeyEnv::with_config(cfg, false).expect("valid config");
         let sa = a.reset().unwrap();
         let sb = b.reset().unwrap();
         assert_eq!(sa.observation(), sb.observation());
@@ -462,7 +490,7 @@ mod tests {
     #[test]
     fn timeout_terminates_without_reward() {
         let cfg = DoorKeyConfig::new(5, 2, 0);
-        let mut env = DoorKeyEnv::with_config(cfg, false);
+        let mut env = DoorKeyEnv::with_config(cfg, false).expect("valid config");
         env.reset().unwrap();
         env.step(GridAction::TurnLeft).unwrap();
         let snap = env.step(GridAction::TurnLeft).unwrap();
