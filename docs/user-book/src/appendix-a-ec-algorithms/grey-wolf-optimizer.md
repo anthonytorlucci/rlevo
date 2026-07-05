@@ -97,7 +97,7 @@ let config = GwoConfig::default_for(32, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | ≥ 3 | Pack size; **panics below 3** (needs three leaders) |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each wolf |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; steps clamped here |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; steps clamped here |
 | `max_generations` | `usize` | match your budget | Annealing horizon for \\(a\\); paces exploration→exploitation only |
 
 ## Fitness convention

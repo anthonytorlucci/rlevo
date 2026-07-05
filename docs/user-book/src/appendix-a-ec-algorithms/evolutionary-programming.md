@@ -68,7 +68,7 @@ let config = EpConfig::default_for(30, 10);
 |---|---|---|---|
 | `mu` | `usize` | 10–100 | Parent population size; offspring count equals `mu` (always `μ + μ`) |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial population sampled here; offspring clamped after mutation |
+| `bounds` | `Bounds` | problem-defined | Initial population sampled here; offspring clamped after mutation |
 | `initial_sigma` | `f32` | 0.1–3.0 | Initial step size; adapts per-individual during the run |
 | `tau` | `f32` | `1/sqrt(2·sqrt(D))` | Log-normal learning rate; `default_for` computes the standard value |
 | `tournament_q` | `usize` | 5–20 | Opponents per bout; higher → stronger selection pressure |

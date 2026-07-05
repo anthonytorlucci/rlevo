@@ -25,6 +25,7 @@ use rand::{Rng, RngExt};
 
 use crate::fitness::FitnessFn;
 use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use rlevo_core::bounds::Bounds;
 
 /// Acceptance strategy for [`HillClimbing`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +43,7 @@ pub enum HillClimbVariant {
 pub struct HillClimbingParams {
     /// Inclusive search-space bounds `(lo, hi)`; refined genomes are clamped
     /// here.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
     /// including the mandatory initial re-evaluation of the input genome.
     /// Default `100`.
@@ -64,8 +65,8 @@ impl HillClimbingParams {
     /// `step_size = 0.1 * (hi - lo)`, `step_decay = 0.5`, `max_iters = 100`,
     /// variant [`FirstImprovement`](HillClimbVariant::FirstImprovement).
     #[must_use]
-    pub fn default_for(bounds: (f32, f32)) -> Self {
-        let (lo, hi) = bounds;
+    pub fn default_for(bounds: Bounds) -> Self {
+        let (lo, hi): (f32, f32) = bounds.into();
         Self {
             bounds,
             max_iters: 100,
@@ -88,6 +89,7 @@ impl HillClimbingParams {
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::fitness::FitnessFn;
+/// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams, LocalSearch};
 ///
 /// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
@@ -99,7 +101,7 @@ impl HillClimbingParams {
 /// }
 ///
 /// let searcher = HillClimbing;
-/// let params = HillClimbingParams::default_for((-5.12, 5.12));
+/// let params = HillClimbingParams::default_for(Bounds::new(-5.12, 5.12));
 /// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
@@ -341,10 +343,10 @@ mod tests {
         }
     }
 
-    const BOUNDS: (f32, f32) = (-5.12, 5.12);
+    const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
-    fn random_start(rng: &mut StdRng, dim: usize, bounds: (f32, f32)) -> Vec<f32> {
-        let (lo, hi) = bounds;
+    fn random_start(rng: &mut StdRng, dim: usize, bounds: Bounds) -> Vec<f32> {
+        let (lo, hi): (f32, f32) = bounds.into();
         (0..dim).map(|_| lo + (hi - lo) * rng.random::<f32>()).collect()
     }
 
@@ -470,7 +472,7 @@ mod tests {
         let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
-        let start = vec![BOUNDS.1; 4];
+        let start = vec![BOUNDS.hi(); 4];
         let (g, _f) = LocalSearch::<TestBackend>::refine(
             &searcher,
             &params,
@@ -480,7 +482,7 @@ mod tests {
         );
         for &x in &g {
             assert!(
-                x >= BOUNDS.0 && x <= BOUNDS.1,
+                x >= BOUNDS.lo() && x <= BOUNDS.hi(),
                 "coord {x} out of bounds {BOUNDS:?}"
             );
         }

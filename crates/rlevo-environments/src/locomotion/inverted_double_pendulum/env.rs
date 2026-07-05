@@ -223,7 +223,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// apply the resulting force to the cart along world-x for the current
     /// substep.
     fn apply_action(&mut self, action: &InvertedDoublePendulumAction) {
-        let (lo, hi) = self.config.action_clip;
+        let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
         let force = torques[0];

@@ -1,5 +1,6 @@
 //! Configuration for [`super::InvertedPendulum`].
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
@@ -33,9 +34,9 @@ pub struct InvertedPendulumConfig {
     /// Maximum number of steps before the episode is truncated.
     /// Gymnasium default: `1000`.
     pub max_steps: usize,
-    /// Inclusive `(min, max)` bounds to which the raw action scalar is clipped
-    /// before the gear multiplier is applied. Default: `(-3.0, 3.0)`.
-    pub action_clip: (f32, f32),
+    /// Inclusive `[min, max]` bounds to which the raw action scalar is clipped
+    /// before the gear multiplier is applied. Default: `[-3.0, 3.0]`.
+    pub action_clip: Bounds,
     /// Mass of the cart body in kilograms. Default: `10.0 kg`.
     pub cart_mass: f32,
     /// Mass of the pole body in kilograms. Default: `1.0 kg`.
@@ -60,13 +61,13 @@ impl Default for InvertedPendulumConfig {
             dt: 0.01,
             frame_skip: 1,
             healthy: HealthyCheck {
-                angle_range: Some((-0.2, 0.2)),
+                angle_range: Some(Bounds::new(-0.2, 0.2)),
                 ..HealthyCheck::none()
             },
             termination: TerminationMode::OnUnhealthy,
             reset_noise_scale: 0.01,
             max_steps: 1000,
-            action_clip: (-3.0, 3.0),
+            action_clip: Bounds::new(-3.0, 3.0),
             cart_mass: 10.0,
             pole_mass: 1.0,
             pole_length: 0.6,
@@ -84,16 +85,12 @@ impl Validate for InvertedPendulumConfig {
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
         config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
         config::positive(C, "cart_mass", f64::from(self.cart_mass))?;
         config::positive(C, "pole_mass", f64::from(self.pole_mass))?;
         config::positive(C, "pole_length", f64::from(self.pole_length))?;
         config::positive(C, "pole_radius", f64::from(self.pole_radius))?;
         for extent in self.cart_half_extents {
             config::positive(C, "cart_half_extents", f64::from(extent))?;
-        }
-        if let Some((low, high)) = self.healthy.angle_range {
-            config::ordered(C, "healthy.angle_range", f64::from(low), f64::from(high))?;
         }
         Ok(())
     }

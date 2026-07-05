@@ -46,6 +46,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::ops::linalg::{cholesky, matvec};
@@ -96,7 +97,7 @@ pub struct CmsaEsConfig {
     /// Genome dimensionality `D`.
     pub genome_dim: usize,
     /// Search-space bounds; used only to sample the initial mean `m⁰`.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Initial global step size `σ̄`.
     pub initial_sigma: f32,
     /// Number of selected parents `μ = ⌊λ/2⌋`.
@@ -137,7 +138,7 @@ impl CmsaEsConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             initial_sigma: 1.0,
             mu,
             tau,
@@ -162,7 +163,6 @@ impl Validate for CmsaEsConfig {
         }
         config::positive(C, "tau", f64::from(self.tau))?;
         config::in_range(C, "tau_c", 1.0, f64::INFINITY, f64::from(self.tau_c))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -233,7 +233,7 @@ where
     ) -> CmsaEsState<B> {
         debug_assert!(params.validate().is_ok(), "invalid CmsaEsConfig reached init: {params:?}");
         let d = params.genome_dim;
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
         let mean: Vec<f32> = (0..d).map(|_| lo + (hi - lo) * stream.random::<f32>()).collect();
         let mut cov: Vec<f32> = vec![0.0; d * d];

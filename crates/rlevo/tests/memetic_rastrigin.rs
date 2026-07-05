@@ -32,6 +32,7 @@ use std::sync::Arc;
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
 use rlevo_evolution::algorithms::memetic::{
@@ -44,7 +45,7 @@ use rlevo_evolution::strategy::EvolutionaryHarness;
 type B = Flex;
 
 const DIM: usize = 10;
-const BOUNDS: (f32, f32) = (-5.12, 5.12);
+const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
 /// Row-counting Rastrigin fitness.
 ///

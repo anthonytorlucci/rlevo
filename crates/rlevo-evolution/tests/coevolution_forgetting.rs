@@ -33,6 +33,7 @@ use burn::tensor::{Tensor, TensorData};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -163,7 +164,7 @@ fn ga_config() -> GaConfig {
     GaConfig {
         pop_size: POP,
         genome_dim: K,
-        bounds: (0.0, 1.0),
+        bounds: Bounds::new(0.0, 1.0),
         mutation_sigma: 0.1,
         selection: GaSelection::Tournament { size: 3 },
         crossover: GaCrossover::Uniform { p: 0.5 },

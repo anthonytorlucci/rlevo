@@ -1,5 +1,6 @@
 //! Configuration for [`super::Swimmer`].
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::locomotion::common::Gear;
@@ -37,9 +38,9 @@ pub struct SwimmerConfig {
     /// Episode length after which `EpisodeStatus::Truncated` is returned.
     /// Default `1000`.
     pub max_steps: usize,
-    /// `(min, max)` bounds applied to each action element before gear
-    /// multiplication and ctrl-cost computation. Default `(-1.0, 1.0)`.
-    pub action_clip: (f32, f32),
+    /// `[min, max]` bounds applied to each action element before gear
+    /// multiplication and ctrl-cost computation. Default `[-1.0, 1.0]`.
+    pub action_clip: Bounds,
     /// Scale factor on the forward-velocity reward component. Default `1.0`.
     pub forward_reward_weight: f32,
     /// Scale factor on the quadratic control-cost penalty. Default `1e-4`.
@@ -102,7 +103,7 @@ impl Default for SwimmerConfig {
             frame_skip: 8,
             reset_noise_scale: 0.1,
             max_steps: 1000,
-            action_clip: (-1.0, 1.0),
+            action_clip: Bounds::new(-1.0, 1.0),
             forward_reward_weight: 1.0,
             ctrl_cost_weight: 1e-4,
             drag_coefficient: 0.1,
@@ -121,7 +122,6 @@ impl Validate for SwimmerConfig {
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
         config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::ordered(C, "action_clip", f64::from(self.action_clip.0), f64::from(self.action_clip.1))?;
         config::in_range(C, "ctrl_cost_weight", 0.0, f64::INFINITY, f64::from(self.ctrl_cost_weight))?;
         config::in_range(C, "drag_coefficient", 0.0, f64::INFINITY, f64::from(self.drag_coefficient))?;
         config::in_range(C, "angular_drag_coefficient", 0.0, f64::INFINITY, f64::from(self.angular_drag_coefficient))?;

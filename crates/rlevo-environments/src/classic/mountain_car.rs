@@ -10,8 +10,8 @@
 //!
 //! The car moves along a one-dimensional track whose height profile is the
 //! sinusoidal hill `$y(x) = \sin(3x)$`, with the position `$x$` confined to
-//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` ([`MountainCarConfig::min_pos`],
-//! [`MountainCarConfig::max_pos`]). The valley floor sits near `$x = -\tfrac{\pi}{6}$`
+//! `$[x_{\min}, x_{\max}] = [-1.2,\, 0.6]$` (the position bounds
+//! [`MountainCarConfig::pos_bounds`]). The valley floor sits near `$x = -\tfrac{\pi}{6}$`
 //! and the goal flag is at `$x_\text{goal} = 0.5$`. The state is the 2-vector
 //!
 //! ```math
@@ -82,6 +82,7 @@ use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
@@ -112,10 +113,8 @@ pub struct MountainCarConfig {
     pub force: f32,
     /// Gravity pulling the car back (slope factor). Default: `0.0025`.
     pub gravity: f32,
-    /// Left wall position (m). Default: `-1.2`.
-    pub min_pos: f32,
-    /// Right boundary (m). Default: `0.6`.
-    pub max_pos: f32,
+    /// Inclusive position bounds `[min, max]` (m). Default: `[-1.2, 0.6]`.
+    pub pos_bounds: Bounds,
     /// Maximum absolute velocity (m/s). Default: `0.07`.
     pub max_speed: f32,
     /// X position considered the goal. Default: `0.5`.
@@ -131,8 +130,7 @@ impl Default for MountainCarConfig {
         Self {
             force: 0.001,
             gravity: 0.0025,
-            min_pos: -1.2,
-            max_pos: 0.6,
+            pos_bounds: Bounds::new(-1.2, 0.6),
             max_speed: 0.07,
             goal_position: 0.5,
             goal_velocity: 0.0,
@@ -144,8 +142,7 @@ impl Default for MountainCarConfig {
 impl Validate for MountainCarConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "MountainCarConfig";
-        config::ordered(C, "min_pos", f64::from(self.min_pos), f64::from(self.max_pos))?;
-        config::in_range(C, "goal_position", f64::from(self.min_pos), f64::from(self.max_pos), f64::from(self.goal_position))?;
+        config::in_range(C, "goal_position", f64::from(self.pos_bounds.lo()), f64::from(self.pos_bounds.hi()), f64::from(self.goal_position))?;
         config::positive(C, "max_speed", f64::from(self.max_speed))?;
         config::positive(C, "force", f64::from(self.force))?;
         Ok(())
@@ -281,9 +278,9 @@ impl MountainCar {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
-    /// `min_pos >= max_pos`, a `goal_position` outside `[min_pos, max_pos]`, or
-    /// non-positive `max_speed` / `force`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g. a
+    /// `goal_position` outside `pos_bounds`, or non-positive `max_speed` /
+    /// `force`).
     pub fn with_config(config: MountainCarConfig) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -323,9 +320,9 @@ impl MountainCar {
             state.velocity + action_val * cfg.force - (3.0 * state.position).cos() * cfg.gravity;
         vel = vel.clamp(-cfg.max_speed, cfg.max_speed);
         let mut pos = state.position + vel;
-        pos = pos.clamp(cfg.min_pos, cfg.max_pos);
+        pos = cfg.pos_bounds.clamp(pos);
         // Inelastic left wall
-        if pos <= cfg.min_pos {
+        if pos <= cfg.pos_bounds.lo() {
             vel = 0.0;
         }
         MountainCarState {
@@ -412,8 +409,8 @@ impl Environment<1, 1, 1> for MountainCar {
 impl crate::render::AsciiRenderable for MountainCar {
     fn render_ascii(&self) -> String {
         let width = 40_usize;
-        let span = self.config.max_pos - self.config.min_pos;
-        let frac = ((self.state.position - self.config.min_pos) / span).clamp(0.0, 1.0);
+        let span = self.config.pos_bounds.span();
+        let frac = ((self.state.position - self.config.pos_bounds.lo()) / span).clamp(0.0, 1.0);
         let col = (frac * (width as f32 - 1.0)) as usize;
         let mut track = vec!['.'; width];
         track[col] = 'A';
@@ -554,8 +551,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unordered_bounds() {
-        let bad = MountainCarConfig { min_pos: 1.0, max_pos: -1.0, ..Default::default() };
+    fn rejects_goal_outside_pos_bounds() {
+        let bad = MountainCarConfig { goal_position: 5.0, ..Default::default() };
+        let err = bad.validate().unwrap_err();
+        assert_eq!(err.field, "goal_position");
         assert!(MountainCar::with_config(bad).is_err());
     }
 
@@ -595,7 +594,7 @@ mod tests {
             velocity: -0.05,
         };
         let next = MountainCar::apply_physics(state, MountainCarAction::Left, &cfg);
-        assert_eq!(next.position, cfg.min_pos);
+        assert_eq!(next.position, cfg.pos_bounds.lo());
         assert_eq!(next.velocity, 0.0);
     }
 
@@ -701,7 +700,7 @@ mod tests {
 impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
         use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
-        let (lo, hi) = (self.config.min_pos, self.config.max_pos);
+        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
         let terrain: Vec<Point2> = (0..=SAMPLES)

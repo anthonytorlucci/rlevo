@@ -30,6 +30,7 @@ use rlevo_evolution::algorithms::eda::{
     BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
     UnivariateBernoulliParams, UnivariateGaussianParams,
 };
+use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
@@ -51,7 +52,7 @@ fn run<M, L>(
     model: M,
     model_params: M::Params,
     selection_ratio: f32,
-    bounds: Option<(f32, f32)>,
+    bounds: Option<Bounds>,
     landscape: L,
     seed: u64,
 ) -> f32
@@ -79,7 +80,7 @@ fn run_config<M, L>(
     model_params: M::Params,
     pop_size: usize,
     selection_ratio: f32,
-    bounds: Option<(f32, f32)>,
+    bounds: Option<Bounds>,
     landscape: L,
     gens: usize,
     seed: u64,
@@ -123,7 +124,7 @@ fn median(values: &mut [f32]) -> f32 {
 fn all_five_models_reach_sphere_threshold() {
     const SEED: u64 = 42;
     const TARGET: f32 = 0.01;
-    let bounds = Some((-5.12, 5.12));
+    let bounds = Some(Bounds::new(-5.12, 5.12));
 
     let umda = run(
         UnivariateGaussian,
@@ -250,7 +251,7 @@ fn boa_solves_trap_where_umda_and_mimic_stall() {
                 p,
                 TRAP_POP,
                 TRAP_RATIO,
-                Some((0.0, 1.0)),
+                Some(Bounds::new(0.0, 1.0)),
                 trap,
                 TRAP_GENS,
                 seed,
@@ -268,7 +269,7 @@ fn boa_solves_trap_where_umda_and_mimic_stall() {
                 p,
                 TRAP_POP,
                 TRAP_RATIO,
-                Some((0.0, 1.0)),
+                Some(Bounds::new(0.0, 1.0)),
                 trap,
                 TRAP_GENS,
                 seed,
@@ -328,7 +329,7 @@ fn mimic_beats_umda_median_on_rosenbrock() {
     const INIT_MEAN: f32 = 0.5;
     const INIT_STD: f32 = 0.5;
     const MIN_VARIANCE: f32 = 1e-3;
-    let bounds = Some((-2.048, 2.048));
+    let bounds = Some(Bounds::new(-2.048, 2.048));
 
     let mut umda: Vec<f32> = SEEDS
         .iter()

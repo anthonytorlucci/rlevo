@@ -97,7 +97,7 @@ let config = SalpConfig::default_for(40, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | ≥ 2 | Swarm size; split into `pop_size/2` leaders and the rest followers. **Panics below 2** |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of each salp |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; leader step scales with these bounds (see the shift-variance note) |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; leader step scales with these bounds (see the shift-variance note) |
 | `max_generations` | `usize` | match your budget | Annealing horizon for \\(c_1\\); paces the leader step decay only |
 
 > **The leader/follower split is `pop_size/2`, not the paper's single leader.**

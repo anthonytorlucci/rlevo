@@ -36,6 +36,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -49,7 +50,7 @@ pub struct GwoConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Budget used to schedule `a = 2·(1 − t/max_generations)`.
     /// The strategy itself is memoryless with respect to the harness's
     /// stopping criterion, so this value simply paces the exploration
@@ -64,7 +65,7 @@ impl GwoConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             max_generations: 500,
         }
     }
@@ -76,7 +77,6 @@ impl Validate for GwoConfig {
         config::at_least(C, "pop_size", self.pop_size, 3)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::at_least(C, "max_generations", self.max_generations, 1)?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -128,7 +128,7 @@ impl<B: Backend> GreyWolfOptimizer<B> {
     }
 
     fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
         // interleave with sibling tests under the parallel runner and are
@@ -244,7 +244,7 @@ where
             update = update + x_k_prime;
         }
         let new_pack = update.div_scalar(3.0);
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let new_pack = new_pack.clamp(lo, hi);
 
         let mut next = state.clone();

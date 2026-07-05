@@ -97,7 +97,7 @@ let config = AbcConfig::default_for(30, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 20 – 100 | Colony size; **≥ 2 required** (a neighbour `k ≠ i` must exist). Each generation costs `2 · pop_size` evaluations |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial colony sampled here; candidates clamped here after perturbation |
+| `bounds` | `Bounds` | problem-defined | Initial colony sampled here; candidates clamped here after perturbation |
 | `limit` | `usize` | `pop_size · D / 2` | Scout trigger: a source with `trial > limit` is abandoned. Lower → more aggressive restarts |
 | `tournament_size` | `usize` | 2 – 5 | Onlooker selection pressure; `1` would make onlookers uniform-random, defeating the fitness bias |
 

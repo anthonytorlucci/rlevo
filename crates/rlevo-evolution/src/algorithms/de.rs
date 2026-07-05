@@ -34,6 +34,7 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -114,7 +115,7 @@ pub struct DeConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds (initialization and clamping).
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Differential weight (F). Typical range [0.4, 0.9].
     pub f: f32,
     /// Crossover probability (CR). Typical range [0.1, 0.9].
@@ -131,7 +132,7 @@ impl DeConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             f: 0.5,
             cr: 0.9,
             variant: DeVariant::Rand1Bin,
@@ -147,7 +148,6 @@ impl Validate for DeConfig {
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::in_range(C, "f", 0.0, 2.0, f64::from(self.f))?;
         config::in_range(C, "cr", 0.0, 1.0, f64::from(self.cr))?;
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -218,7 +218,7 @@ impl<B: Backend> DifferentialEvolution<B> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 2> {
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
         // `Tensor::random`), whose draws interleave with sibling tests under
@@ -439,7 +439,7 @@ where
 
         // Where cross_mask == 1, take from v; otherwise from state.population.
         let trial = state.population.clone().mask_where(mask_bool, v);
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let trial = trial.clamp(lo, hi);
 
         (trial, state.clone())

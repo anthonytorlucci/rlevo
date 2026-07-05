@@ -39,6 +39,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::rng::{SeedPurpose, seed_stream};
@@ -53,7 +54,7 @@ pub struct AbcConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Scout trigger. A bee with `trial > limit` is reinitialized.
     /// Karaboga's canonical default is `pop_size · genome_dim / 2`.
     pub limit: usize,
@@ -74,7 +75,7 @@ impl AbcConfig {
         Self {
             pop_size,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             limit: (pop_size * genome_dim) / 2,
             tournament_size: 3,
         }
@@ -95,7 +96,6 @@ impl Validate for AbcConfig {
                 kind: ConstraintKind::Custom("tournament_size must not exceed 2 * pop_size"),
             });
         }
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -210,7 +210,7 @@ where
 
     fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AbcState<B> {
         debug_assert!(params.validate().is_ok(), "invalid AbcConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial colony from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -294,7 +294,7 @@ where
             genome_dim,
             device,
         );
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let candidates = candidates.clamp(lo, hi);
 
         let mut next = state.clone();
@@ -390,7 +390,7 @@ where
             }
         }
         if !scouts.is_empty() {
-            let (lo, hi) = params.bounds;
+            let (lo, hi): (f32, f32) = params.bounds.into();
             // Host-sample scout replacements from a deterministic
             // `seed_stream` so the refill is reproducible across thread
             // schedules rather than racing the global Flex RNG.

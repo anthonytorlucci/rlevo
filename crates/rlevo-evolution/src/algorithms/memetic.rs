@@ -218,6 +218,7 @@ pub struct MemeticState<St> {
 /// };
 /// use rlevo_evolution::fitness::BatchFitnessFn;
 /// use rlevo_evolution::local_search::{HillClimbing, HillClimbingParams};
+/// use rlevo_core::bounds::Bounds;
 ///
 /// // Sphere objective: sum of squares per row (a cost → Minimize).
 /// use rlevo_core::objective::ObjectiveSense;
@@ -235,7 +236,7 @@ pub struct MemeticState<St> {
 /// }
 ///
 /// let device = Default::default();
-/// let bounds = (-5.12_f32, 5.12);
+/// let bounds = Bounds::new(-5.12, 5.12);
 /// let strategy = MemeticWrapper::<Flex, _, _, _>::new(
 ///     DifferentialEvolution::<Flex>::new(),
 ///     HillClimbing,
@@ -580,6 +581,7 @@ mod tests {
         HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
     };
     use crate::strategy::EvolutionaryHarness;
+    use rlevo_core::bounds::Bounds;
     use burn::backend::Flex;
     use burn::tensor::backend::BackendTypes;
     use rand::rngs::StdRng;
@@ -587,7 +589,7 @@ mod tests {
 
     type TestBackend = Flex;
 
-    const BOUNDS: (f32, f32) = (-5.12, 5.12);
+    const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
     // ---------------------------------------------------------------------
     // Probes.

@@ -70,7 +70,7 @@ use rlevo::evo::strategy::{EvolutionaryHarness, Strategy};
 type B = Flex;
 
 const DIM: usize = 10;
-const BOUNDS: (f32, f32) = (-5.12, 5.12);
+const BOUNDS: rlevo_core::bounds::Bounds = rlevo_core::bounds::Bounds::new(-5.12, 5.12);
 /// The seed pinned by the `memetic_rastrigin` acceptance test, so this
 /// example's headline row reproduces the test's provenance numbers.
 const SEED: u64 = 7;

@@ -105,7 +105,7 @@ let config = PsoConfig::default_for(32, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 20 – 50 | Swarm size; one evaluation per particle per generation |
 | `genome_dim` | `usize` | problem-defined | Position dimensionality |
-| `bounds` | `(f32, f32)` | problem-defined | Initial positions sampled here; positions clamped here each step |
+| `bounds` | `Bounds` | problem-defined | Initial positions sampled here; positions clamped here each step |
 | `inertia` (`ω`) | `f32` | 0.4 – 0.9 | Momentum; **Inertia variant only**. Higher → more exploration |
 | `c1` | `f32` | ~1.5 – 2.05 | Cognitive pull toward `pbest` |
 | `c2` | `f32` | ~1.5 – 2.05 | Social pull toward `gbest` |

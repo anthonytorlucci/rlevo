@@ -36,6 +36,7 @@
 //! strategies.
 
 use burn::backend::Flex;
+use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
@@ -95,7 +96,7 @@ where
     L: Landscape + Copy,
 {
     #[allow(clippy::cast_possible_truncation)]
-    let bounds = (bounds.0 as f32, bounds.1 as f32);
+    let bounds: Bounds = Bounds::new(bounds.0 as f32, bounds.1 as f32);
 
     println!(
         "{title}-D{dim} showcase — {GENS} generations, Flex backend, seed={SEED}\n{:-<80}",

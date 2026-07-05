@@ -26,6 +26,7 @@ use rand_distr::{Distribution as _, Normal};
 
 use crate::fitness::FitnessFn;
 use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use rlevo_core::bounds::Bounds;
 
 /// Temperature-cooling schedule for [`SimulatedAnnealing`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,7 +47,7 @@ pub enum CoolingSchedule {
 #[derive(Debug, Clone)]
 pub struct SimulatedAnnealingParams {
     /// Inclusive search-space bounds `(lo, hi)`; proposals are clamped here.
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
     /// including the initial evaluation of the input genome. Default `200`.
     pub max_iters: usize,
@@ -68,8 +69,12 @@ impl SimulatedAnnealingParams {
     /// `initial_temp = 1.0`, `cooling = Geometric { factor: 0.95 }`,
     /// `min_temp = 1e-6`, `step_size = 0.1 * (hi - lo)`, `max_iters = 200`.
     #[must_use]
-    pub fn default_for(bounds: (f32, f32)) -> Self {
-        let (lo, hi) = bounds;
+    pub fn default_for(bounds: Bounds) -> Self {
+        let (lo, hi): (f32, f32) = bounds.into();
+        debug_assert!(
+            (hi - lo) > 0.0,
+            "SimulatedAnnealingParams::default_for: zero-width bounds yields step_size 0 (search cannot move)"
+        );
         Self {
             bounds,
             max_iters: 200,
@@ -94,6 +99,7 @@ impl SimulatedAnnealingParams {
 /// use burn::backend::Flex;
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rlevo_evolution::fitness::FitnessFn;
+/// use rlevo_core::bounds::Bounds;
 /// use rlevo_evolution::local_search::{LocalSearch, SimulatedAnnealing, SimulatedAnnealingParams};
 ///
 /// // Maximize the negated 2-D sphere; the optimum is the origin with fitness 0.
@@ -105,7 +111,7 @@ impl SimulatedAnnealingParams {
 /// }
 ///
 /// let searcher = SimulatedAnnealing;
-/// let params = SimulatedAnnealingParams::default_for((-5.12, 5.12));
+/// let params = SimulatedAnnealingParams::default_for(Bounds::new(-5.12, 5.12));
 /// let mut fitness = NegSphere;
 /// let mut rng = StdRng::seed_from_u64(7);
 ///
@@ -339,10 +345,10 @@ mod tests {
         }
     }
 
-    const BOUNDS: (f32, f32) = (-5.12, 5.12);
+    const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
-    fn random_start(rng: &mut StdRng, dim: usize, bounds: (f32, f32)) -> Vec<f32> {
-        let (lo, hi) = bounds;
+    fn random_start(rng: &mut StdRng, dim: usize, bounds: Bounds) -> Vec<f32> {
+        let (lo, hi): (f32, f32) = bounds.into();
         (0..dim)
             .map(|_| lo + (hi - lo) * rng.random::<f32>())
             .collect()
@@ -546,7 +552,7 @@ mod tests {
         let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
-        let start = vec![BOUNDS.1; 4];
+        let start = vec![BOUNDS.hi(); 4];
         let (g, _f) = LocalSearch::<TestBackend>::refine(
             &searcher,
             &params,
@@ -556,7 +562,7 @@ mod tests {
         );
         for &x in &g {
             assert!(
-                x >= BOUNDS.0 && x <= BOUNDS.1,
+                x >= BOUNDS.lo() && x <= BOUNDS.hi(),
                 "coord {x} out of bounds {BOUNDS:?}"
             );
         }

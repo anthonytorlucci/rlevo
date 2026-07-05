@@ -14,6 +14,7 @@
 //! byte-for-byte.
 
 use burn::backend::Flex;
+use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
 
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
@@ -85,7 +86,7 @@ fn run_ga(seed: u64, gens: usize) -> Vec<f32> {
     let params = GaConfig {
         pop_size: 32,
         genome_dim: 5,
-        bounds: (-5.0, 5.0),
+        bounds: Bounds::new(-5.0, 5.0),
         mutation_sigma: 0.2,
         selection: GaSelection::Tournament { size: 2 },
         crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
@@ -155,7 +156,7 @@ fn run_firefly(seed: u64, gens: usize) -> Vec<f32> {
 fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     let dim: usize = 5;
-    let bounds: (f32, f32) = (-5.12, 5.12);
+    let bounds: Bounds = Bounds::new(-5.12, 5.12);
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
         DifferentialEvolution::<B>::new(),
         HillClimbing,
@@ -197,7 +198,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
 fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
     let dim: usize = 5;
-    let bounds: (f32, f32) = (-5.12, 5.12);
+    let bounds: Bounds = Bounds::new(-5.12, 5.12);
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
         DifferentialEvolution::<B>::new(),
         SimulatedAnnealing,

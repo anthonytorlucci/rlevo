@@ -70,7 +70,7 @@ let config = GaConfig::default_for(64, 10);
 |---|---|---|---|
 | `pop_size` | `usize` | 32–512 | Larger slows each generation; helps on multi-modal landscapes |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
-| `bounds` | `(f32, f32)` | problem-defined | Initial population sampled uniformly here; offspring clamped here after mutation |
+| `bounds` | `Bounds` | problem-defined | Initial population sampled uniformly here; offspring clamped here after mutation |
 | `mutation_sigma` | `f32` | 0.05–1.0 | Scale relative to `bounds` width; σ ≈ 0.3 / D for high-D problems |
 | `GaSelection::Tournament { size }` | `usize` | 2–5 | k = 2 is low pressure; k = pop_size is truncation selection |
 | `GaCrossover::BlxAlpha { alpha }` | `f32` | 0.0–1.0 | 0.5 is the standard choice; increase for more exploration |

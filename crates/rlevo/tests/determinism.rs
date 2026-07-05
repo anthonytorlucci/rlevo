@@ -16,6 +16,7 @@ use rlevo_evolution::algorithms::eda::{
     BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
     UnivariateBernoulliParams, UnivariateGaussianParams,
 };
+use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
@@ -29,11 +30,11 @@ type B = Flex;
 const DIM: usize = 10;
 const SEED: u64 = 1_234_567;
 const GENS: usize = 30;
-const BOUNDS: Option<(f32, f32)> = Some((-5.12, 5.12));
+const BOUNDS: Option<Bounds> = Some(Bounds::new(-5.12, 5.12));
 
 /// Drives one EDA model through `GENS` generations on Sphere-D10 and
 /// collects the per-generation best-fitness trajectory.
-fn run<M>(model: M, model_params: M::Params, bounds: Option<(f32, f32)>) -> Vec<f32>
+fn run<M>(model: M, model_params: M::Params, bounds: Option<Bounds>) -> Vec<f32>
 where
     M: ProbabilityModel<B> + 'static,
 {

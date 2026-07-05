@@ -27,6 +27,7 @@ use rand::Rng;
 use rand::RngExt;
 use rand_distr::{Distribution as _, Normal};
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::ops::mutation::gaussian_mutation_per_row;
@@ -42,7 +43,7 @@ pub struct EpConfig {
     /// Genome dimensionality.
     pub genome_dim: usize,
     /// Search-space bounds (initialization and clamping).
-    pub bounds: (f32, f32),
+    pub bounds: Bounds,
     /// Initial σ for every individual.
     pub initial_sigma: f32,
     /// Learning rate for the log-normal σ update. Default is
@@ -66,7 +67,7 @@ impl EpConfig {
         Self {
             mu,
             genome_dim,
-            bounds: (-5.12, 5.12),
+            bounds: Bounds::new(-5.12, 5.12),
             initial_sigma: 1.0,
             tau,
             tournament_q: 10,
@@ -89,7 +90,6 @@ impl Validate for EpConfig {
                 kind: ConstraintKind::Custom("tournament_q must not exceed 2 * mu"),
             });
         }
-        config::ordered(C, "bounds", f64::from(self.bounds.0), f64::from(self.bounds.1))?;
         Ok(())
     }
 }
@@ -178,7 +178,7 @@ where
     /// parallel test threads.
     fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
         debug_assert!(params.validate().is_ok(), "invalid EpConfig reached init: {params:?}");
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
         // whose draws interleave with sibling tests under the parallel runner
@@ -265,7 +265,7 @@ where
             &mut mutation_rng,
             device,
         );
-        let (lo, hi) = params.bounds;
+        let (lo, hi): (f32, f32) = params.bounds.into();
         let offspring = offspring.clamp(lo, hi);
 
         // Stash offspring σ onto state via concatenation (parent_σ || offspring_σ).

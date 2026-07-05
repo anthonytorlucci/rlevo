@@ -216,7 +216,7 @@ impl Reacher<Rapier3DBackend> {
     }
 
     fn apply_action(&mut self, action: &ReacherAction) {
-        let (lo, hi) = self.config.action_clip;
+        let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
         // Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
@@ -305,7 +305,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         let reward_distance: f32 = -(dx * dx + dy * dy).sqrt();
         // Clip to the bound-enforced action before computing ctrl cost so that
         // unclipped inputs don't inflate the cost.
-        let (lo, hi) = self.config.action_clip;
+        let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         let reward_control: f32 = -ctrl_cost(self.config.ctrl_cost_weight, &clipped);
         let total = reward_distance + reward_control;

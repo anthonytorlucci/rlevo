@@ -63,6 +63,7 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::probability_model::ProbabilityModel;
@@ -86,7 +87,7 @@ pub struct EdaParams<MP> {
     /// Optional inclusive `[lo, hi]` clamp applied to each gene after
     /// sampling. A no-op for binary models ([`UnivariateBernoulli`],
     /// [`CompactGenetic`]) whose genes are already `{0, 1}`.
-    pub bounds: Option<(f32, f32)>,
+    pub bounds: Option<Bounds>,
     /// Model-specific parameters (includes `genome_dim`).
     pub model: MP,
 }
@@ -103,9 +104,6 @@ impl<MP> Validate for EdaParams<MP> {
         config::at_least(C, "pop_size", self.pop_size, 2)?;
         config::positive(C, "selection_ratio", f64::from(self.selection_ratio))?;
         config::ordered(C, "selection_ratio", f64::from(self.selection_ratio), 1.0)?;
-        if let Some((lo, hi)) = self.bounds {
-            config::ordered(C, "bounds", f64::from(lo), f64::from(hi))?;
-        }
         Ok(())
     }
 }
@@ -146,12 +144,13 @@ pub struct EdaState<B: Backend, MS> {
 /// use burn::backend::Flex;
 /// use rlevo_evolution::algorithms::eda::{EdaParams, EdaStrategy, UnivariateGaussian};
 /// use rlevo_evolution::algorithms::eda::univariate_gaussian::UnivariateGaussianParams;
+/// use rlevo_core::bounds::Bounds;
 ///
 /// let strategy = EdaStrategy::<Flex, _>::new(UnivariateGaussian);
 /// let params = EdaParams {
 ///     pop_size: 32,
 ///     selection_ratio: 0.5,
-///     bounds: Some((-5.12, 5.12)),
+///     bounds: Some(Bounds::new(-5.12, 5.12)),
 ///     model: UnivariateGaussianParams::default_for(8),
 /// };
 /// let _ = (strategy, params);
@@ -238,8 +237,8 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let mut pop = self
             .model
             .sample(&state.model_state, params.pop_size, &mut stream, device);
-        if let Some((lo, hi)) = params.bounds {
-            pop = pop.clamp(lo, hi);
+        if let Some(b) = params.bounds {
+            pop = pop.clamp(b.lo(), b.hi());
         }
         (pop, state.clone())
     }
@@ -467,7 +466,7 @@ mod tests {
         let p = EdaParams {
             pop_size: 64,
             selection_ratio: 0.5,
-            bounds: Some((-0.5, 0.5)),
+            bounds: Some(Bounds::new(-0.5, 0.5)),
             model: UnivariateGaussianParams {
                 genome_dim: 3,
                 init_mean: 0.0,

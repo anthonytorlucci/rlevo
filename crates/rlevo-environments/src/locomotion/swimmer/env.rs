@@ -225,7 +225,7 @@ impl Swimmer<Rapier3DBackend> {
     }
 
     fn apply_action(&mut self, action: &SwimmerAction) {
-        let (lo, hi) = self.config.action_clip;
+        let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
 
@@ -384,7 +384,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
         let forward = self.config.forward_reward_weight * obs.vx_com();
         // Clip to the bound-enforced action before computing ctrl cost so that
         // out-of-bound inputs can't inflate the cost beyond the Gymnasium convention.
-        let (lo, hi) = self.config.action_clip;
+        let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         let ctrl = -ctrl_cost(self.config.ctrl_cost_weight, &clipped);
         let total = forward + ctrl;
