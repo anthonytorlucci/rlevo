@@ -9,7 +9,9 @@
 //!   deterministic order and concatenates them into a 1-D tensor.
 //! - [`unflatten`](ParamReshaper::unflatten) clones a template module and
 //!   replaces each float leaf with the matching slice of a flat tensor, in the
-//!   *same* order.
+//!   *same* order. The reconstructed leaves are **views into the flat tensor's
+//!   storage**, not copies — see [`unflatten`](ParamReshaper::unflatten)'s
+//!   `# Aliasing` note.
 //!
 //! [`ModuleReshaper`] is the concrete implementation. It relies on the fact
 //! that Burn's `#[derive(Module)]` generates `visit`/`map` traversals that
@@ -80,6 +82,15 @@ pub trait ParamReshaper<B: Backend>: Send + Sync {
     /// Clone the template module and replace its float leaves with slices of
     /// `flat`, in the same order as [`flatten`](Self::flatten).
     ///
+    /// # Aliasing
+    ///
+    /// The returned module's leaves are **views into `flat`'s storage** (Burn
+    /// `Tensor::clone` is a refcount bump; `slice`/`reshape` are view ops). This
+    /// is allocation-free and safe for the forward-only scoring this bridge
+    /// exists for. Do **not** mutate `flat` or the returned module's weights in
+    /// place while the other is live — they share backing storage. The output
+    /// module inherits `flat`'s device.
+    ///
     /// # Panics
     ///
     /// Panics if `flat.dims()[0] != self.num_params()`.
@@ -96,14 +107,8 @@ pub trait ParamReshaper<B: Backend>: Send + Sync {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use rlevo_evolution::param_reshaper::{ModuleReshaper, ParamReshaper};
-///
-/// let template = MyMlp::<B>::new(&device);
-/// let reshaper = ModuleReshaper::new(template.clone());
-/// let flat = reshaper.flatten(&template, &device);
-/// let restored = reshaper.unflatten(flat);
-/// ```
+/// See the [`module_eval_fn`](crate::module_eval_fn) tests for a runnable
+/// end-to-end example of `flatten`/`unflatten` in the weight-only pipeline.
 pub struct ModuleReshaper<B: Backend, M: Module<B>> {
     template: M,
     num_params: usize,
@@ -254,13 +259,13 @@ mod tests {
     /// Float-leaf count: `3*4 + 4` (l1 weight + bias) `+ 4*2 + 2`
     /// (l2 weight + bias) = `26`.
     #[derive(Module, Debug)]
-    struct Mlp<B: Backend> {
+    struct TestMlp<B: Backend> {
         l1: Linear<B>,
         act: Relu,
         l2: Linear<B>,
     }
 
-    impl<B: Backend> Mlp<B> {
+    impl<B: Backend> TestMlp<B> {
         fn new(device: &B::Device) -> Self {
             Self {
                 l1: LinearConfig::new(3, 4).init(device),
@@ -271,8 +276,8 @@ mod tests {
     }
 
     fn approx_eq(a: &Tensor<TestBackend, 1>, b: &Tensor<TestBackend, 1>) {
-        let av = a.clone().into_data().into_vec::<f32>().unwrap();
-        let bv = b.clone().into_data().into_vec::<f32>().unwrap();
+        let av = a.to_data().into_vec::<f32>().unwrap();
+        let bv = b.to_data().into_vec::<f32>().unwrap();
         assert_eq!(av.len(), bv.len(), "length mismatch");
         for (x, y) in av.iter().zip(bv.iter()) {
             approx::assert_relative_eq!(x, y, epsilon = 1e-6);
@@ -280,20 +285,45 @@ mod tests {
     }
 
     #[test]
-    fn num_params_matches_expected() {
+    fn test_module_reshaper_num_params_matches_expected() {
         let device = Default::default();
-        let mlp = Mlp::<TestBackend>::new(&device);
+        let mlp = TestMlp::<TestBackend>::new(&device);
         let reshaper = ModuleReshaper::new(mlp);
         assert_eq!(reshaper.num_params(), 26);
+    }
+
+    /// `flatten` panics when the module has no float leaves — locks the
+    /// documented `# Panics` contract. `Relu` is a `Module` with zero
+    /// parameters, so its visitor collects no parts.
+    #[test]
+    #[should_panic(expected = "module has no float parameters to flatten")]
+    fn test_module_reshaper_flatten_panics_on_empty_module() {
+        let device = Default::default();
+        let reshaper = ModuleReshaper::<TestBackend, Relu>::new(Relu::new());
+        let _ = reshaper.flatten(&Relu::new(), &device);
+    }
+
+    /// `unflatten` panics when the flat length differs from `num_params` —
+    /// locks the documented `# Panics` contract.
+    #[test]
+    #[should_panic(expected = "flat length")]
+    fn test_module_reshaper_unflatten_panics_on_length_mismatch() {
+        let device = Default::default();
+        let reshaper = ModuleReshaper::new(TestMlp::<TestBackend>::new(&device));
+        let wrong = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![0f32; 10], [10]),
+            &device,
+        );
+        let _ = reshaper.unflatten(wrong);
     }
 
     /// AC #2: `unflatten(flatten(m)) ≈ m`. We compare via re-flatten, which is
     /// element-wise injective over the deterministic leaf order, so equality of
     /// the flat vectors is equivalent to equality of the modules' float leaves.
     #[test]
-    fn round_trip_mlp() {
+    fn test_module_reshaper_round_trip_mlp() {
         let device = Default::default();
-        let mlp = Mlp::<TestBackend>::new(&device);
+        let mlp = TestMlp::<TestBackend>::new(&device);
         let reshaper = ModuleReshaper::new(mlp.clone());
 
         let flat = reshaper.flatten(&mlp, &device);
@@ -307,9 +337,9 @@ mod tests {
     /// Property test catching leaf-ordering bugs: a known flat buffer survives
     /// `unflatten -> flatten` unchanged.
     #[test]
-    fn round_trip_arbitrary_flat() {
+    fn test_module_reshaper_round_trip_arbitrary_flat() {
         let device = Default::default();
-        let mlp = Mlp::<TestBackend>::new(&device);
+        let mlp = TestMlp::<TestBackend>::new(&device);
         let reshaper = ModuleReshaper::new(mlp);
 
         #[allow(clippy::cast_precision_loss)]
@@ -328,7 +358,7 @@ mod tests {
     /// therefore exposes `4*d` float leaves: `gamma`, `beta`, `running_mean`,
     /// `running_var`.
     #[test]
-    fn batchnorm_running_stats_are_traversed() {
+    fn test_module_reshaper_batchnorm_running_stats_traversed() {
         let device = Default::default();
         let d = 5;
         let bn: BatchNorm<TestBackend> = BatchNormConfig::new(d).init(&device);
@@ -348,7 +378,7 @@ mod tests {
     /// A non-trivial module with a conv layer also round-trips, confirming the
     /// reshaper is not MLP-specific.
     #[test]
-    fn round_trip_conv() {
+    fn test_module_reshaper_round_trip_conv() {
         let device = Default::default();
         let conv: Conv2d<TestBackend> = Conv2dConfig::new([2, 3], [3, 3]).init(&device);
         let reshaper = ModuleReshaper::new(conv.clone());
@@ -369,12 +399,12 @@ mod tests {
 
     /// Minimal one-hidden-layer MLP variant for the enum-derive probe.
     #[derive(Module, Debug)]
-    struct SmallMlp<B: Backend> {
+    struct TestSmallMlp<B: Backend> {
         l1: Linear<B>,
         l2: Linear<B>,
     }
 
-    impl<B: Backend> SmallMlp<B> {
+    impl<B: Backend> TestSmallMlp<B> {
         fn new(device: &B::Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, 4).init(device),
@@ -385,13 +415,13 @@ mod tests {
 
     /// Minimal two-hidden-layer MLP variant for the enum-derive probe.
     #[derive(Module, Debug)]
-    struct LargeMlp<B: Backend> {
+    struct TestLargeMlp<B: Backend> {
         l1: Linear<B>,
         l2: Linear<B>,
         l3: Linear<B>,
     }
 
-    impl<B: Backend> LargeMlp<B> {
+    impl<B: Backend> TestLargeMlp<B> {
         fn new(device: &B::Device) -> Self {
             Self {
                 l1: LinearConfig::new(2, 8).init(device),
@@ -408,21 +438,21 @@ mod tests {
     #[allow(clippy::large_enum_variant)]
     #[derive(Module, Debug)]
     enum TestArch<B: Backend> {
-        Shallow(SmallMlp<B>),
-        Deep(LargeMlp<B>),
+        Shallow(TestSmallMlp<B>),
+        Deep(TestLargeMlp<B>),
     }
 
     /// Probe: confirm `#[derive(Module)]` on a heterogeneous-arm enum compiles
     /// and that the enum can be visited as a `Module` (flattened) — i.e. the
     /// derive emits real `visit`/`map` traversals, not just a stub.
     #[test]
-    fn burn_enum_derive_probe() {
+    fn test_module_reshaper_enum_derive_compiles() {
         let device = Default::default();
 
-        let shallow = TestArch::<TestBackend>::Shallow(SmallMlp::new(&device));
-        let deep = TestArch::<TestBackend>::Deep(LargeMlp::new(&device));
+        let shallow = TestArch::<TestBackend>::Shallow(TestSmallMlp::new(&device));
+        let deep = TestArch::<TestBackend>::Deep(TestLargeMlp::new(&device));
 
-        // SmallMlp: 2*4 + 4 + 4*1 + 1 = 17 ; LargeMlp: 2*8+8 + 8*4+4 + 4*1+1 = 65.
+        // TestSmallMlp: 2*4 + 4 + 4*1 + 1 = 17 ; TestLargeMlp: 2*8+8 + 8*4+4 + 4*1+1 = 65.
         let shallow_reshaper = ModuleReshaper::new(shallow);
         let deep_reshaper = ModuleReshaper::new(deep);
 
