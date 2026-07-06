@@ -252,6 +252,13 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
     /// `k = ceil(selection_ratio · pop_size)` clamped to `[2, pop_size]`),
     /// and refits the model to them (passing `prev = Some(model_state)`).
     ///
+    /// The selected population is also sanitized before the refit as a coarse
+    /// backstop: non-finite genome values are mapped `NaN → 0.0` and `±inf`
+    /// clamped to `±f32::MAX`, so a single divergent gene cannot poison a
+    /// model's fitted statistics. Each model's `fit` keeps its own precise
+    /// finite-guards (which also protect direct trait callers that bypass this
+    /// path).
+    ///
     /// The `fitness` tensor is forwarded to [`ProbabilityModel::fit`]; models
     /// that weight or rank their selected individuals can use it. The five
     /// built-in models ([`UnivariateGaussian`], [`UnivariateBernoulli`],
@@ -315,6 +322,16 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         let idx_vec: Vec<i64> = order.iter().map(|&i| i as i64).collect();
         let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(idx_vec, [k]), &device);
         let selected = population.clone().select(0, idx);
+        // Coarse defense-in-depth backstop: sanitize non-finite genome values
+        // before forwarding to `fit`. `tell` already sanitizes *fitness*, but a
+        // single non-finite *gene* (e.g. from a divergent DRL rollout) would
+        // otherwise poison a model's fitted statistics. Replace `NaN → 0.0` and
+        // clamp `±inf → ±f32::MAX`. The per-model `fit` guards remain the precise
+        // correctness layer (and protect direct trait callers this path cannot).
+        let nan_mask = selected.clone().is_nan();
+        let selected = selected
+            .mask_fill(nan_mask, 0.0_f32)
+            .clamp(-f32::MAX, f32::MAX);
         let selected_fitness_host: Vec<f32> = order.iter().map(|&i| sanitized[i]).collect();
         let selected_fitness =
             Tensor::<B, 1>::from_data(TensorData::new(selected_fitness_host, [k]), &device);
@@ -455,6 +472,43 @@ mod tests {
         approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
         assert!(m.best_fitness().is_finite());
+    }
+
+    #[test]
+    fn nonfinite_genome_sanitized_before_fit_yields_finite_samples() {
+        // End-to-end (#129): a population carrying NaN/±inf genes must not
+        // poison the fitted model. The `tell` backstop sanitizes the selected
+        // population, and the per-model guards floor any residual non-finite
+        // statistics, so the next `ask` draws a finite population.
+        let device = Default::default();
+        let strategy = EdaStrategy::<TestBackend, _>::new(UnivariateGaussian);
+        let mut rng = StdRng::seed_from_u64(1);
+        let p = params(4, 0.75, 2);
+        let state = strategy.init(&p, &mut rng, &device);
+        let pop = make_pop(
+            &[
+                f32::NAN, 0.0, //
+                f32::INFINITY, 1.0, //
+                f32::NEG_INFINITY, 2.0, //
+                0.5, 3.0,
+            ],
+            4,
+            2,
+        );
+        let fitness = make_fitness(&[1.0, 2.0, 3.0, 4.0]);
+        let (state, _m) = strategy.tell(&p, pop, fitness, state, &mut rng);
+        // Fitted state must be finite.
+        for &m in state.model_state.mean() {
+            assert!(m.is_finite(), "fitted mean must be finite, got {m}");
+        }
+        for &v in state.model_state.variance() {
+            assert!(v.is_finite() && v > 0.0, "fitted variance must be finite/positive, got {v}");
+        }
+        // Sampling the next generation must yield an all-finite population.
+        let (next_pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
+        for x in next_pop.into_data().into_vec::<f32>().unwrap() {
+            assert!(x.is_finite(), "sampled genome must be finite, got {x}");
+        }
     }
 
     #[test]

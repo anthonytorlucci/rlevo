@@ -173,6 +173,20 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
         };
 
         let [k, d] = population.dims();
+        if k < 2 {
+            // Correlation is unidentifiable from fewer than two rows: `kf` would
+            // be `0`/`1`, driving `/= kf` to `NaN`/degenerate stats that then
+            // poison `std`/`link_corr` and later panic in `sample`. Return the
+            // prior-shaped state (independent dimensions) to keep the run alive.
+            // `EdaStrategy::tell` clamps `k ≥ 2`, but `fit` is a public trait
+            // method reachable directly with a `0×D`/`1×D` population.
+            return DependencyChainState {
+                chain: (0..d).collect(),
+                mean: vec![params.init_mean; d],
+                std: vec![params.init_std; d],
+                link_corr: vec![0.0; d],
+            };
+        }
         let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
         // k is a selected-population count, far below f32's 2^24 exact-integer
         // limit; the cast is lossless in practice.
@@ -357,9 +371,22 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                 let cond_mean = mu_c + r * (sigma_c / sigma_p) * (rows[base + parent] - mu_p);
                 // 1 - r² ≥ 1 - 0.9999² > 0.
                 let cond_std = (sigma_c * sigma_c * (1.0 - r * r)).sqrt();
-                let normal = Normal::new(cond_mean, cond_std)
-                    .expect("conditional std is positive and finite");
-                rows[base + cur] = normal.sample(rng);
+                // `Normal::new` rejects a non-finite std but accepts any mean, so
+                // an overflowed `cond_mean` (large parent value × near-1 `r`)
+                // would silently emit `NaN` samples and poison the next
+                // generation. If either parameter is non-finite, fall back to the
+                // marginal Gaussian of `cur` — the distribution the link
+                // degenerates to at `r = 0`.
+                rows[base + cur] = if cond_mean.is_finite() && cond_std.is_finite() && cond_std > 0.0
+                {
+                    Normal::new(cond_mean, cond_std)
+                        .expect("guarded: conditional std positive and finite")
+                        .sample(rng)
+                } else {
+                    Normal::new(mu_c, sigma_c)
+                        .expect("floored marginal std is positive and finite")
+                        .sample(rng)
+                };
             }
         }
         Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
@@ -545,5 +572,42 @@ mod tests {
         assert_eq!(a.mean, b.mean);
         assert_eq!(a.std, b.std);
         assert_eq!(a.link_corr, b.link_corr);
+    }
+
+    #[test]
+    fn fit_k_less_than_two_returns_prior() {
+        // n = 1 (k = 1): correlation is unidentifiable and `/= kf` would poison
+        // the state with NaN. The guard (#129) returns the prior-shaped state.
+        let p = DependencyChainParams::default_for(2);
+        let state = refit(&p, vec![1.0, 2.0], 1, 2);
+        assert_eq!(state.chain, vec![0, 1]);
+        assert_eq!(state.mean, vec![p.init_mean, p.init_mean]);
+        assert_eq!(state.std, vec![p.init_std, p.init_std]);
+        assert_eq!(state.link_corr, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn sample_with_degenerate_link_stays_finite() {
+        // A pathological state whose conditional link overflows (σ_c/σ_p → inf):
+        // the sample() guard (#129) must fall back to the marginal Gaussian
+        // rather than emit NaN/inf into the population.
+        let device = Default::default();
+        let state = DependencyChainState {
+            chain: vec![0, 1],
+            mean: vec![0.0, 0.0],
+            std: vec![1e-30, 1e30],
+            link_corr: vec![0.0, 0.9999],
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let samples = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+            &DependencyChain,
+            &state,
+            16,
+            &mut rng,
+            &device,
+        );
+        for v in samples.into_data().into_vec::<f32>().unwrap() {
+            assert!(v.is_finite(), "degenerate link must yield finite samples, got {v}");
+        }
     }
 }
