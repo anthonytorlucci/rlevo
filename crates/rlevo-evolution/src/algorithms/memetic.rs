@@ -62,6 +62,7 @@ use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::probability::Probability;
 
 /// Controls how a refined genome's gains are written back into the population.
 ///
@@ -80,21 +81,20 @@ pub enum WritebackPolicy {
     /// probability `p`, otherwise keep the original genome (Baldwinian). The
     /// refined fitness is used either way.
     ///
-    /// `p` is expected to lie in `[0, 1]`; values outside that range trip a
-    /// `debug_assert!` and otherwise saturate naturally (`rng < p` is always
-    /// true for `p >= 1`, always false for `p <= 0`).
+    /// `p` is a [`Probability`], valid by construction (`[0, 1]`, NaN/Inf
+    /// rejected), so the writeback draw `rng < p` can never silently degenerate.
     ///
     /// Because `Partial` writeback draws from a dedicated mask RNG stream that
-    /// is independent of the refinement stream, `Partial(1.0)` is
-    /// **bit-identical** to [`Lamarckian`](WritebackPolicy::Lamarckian) and
-    /// `Partial(0.0)` is bit-identical to
+    /// is independent of the refinement stream, `Partial(Probability::new(1.0))`
+    /// is **bit-identical** to [`Lamarckian`](WritebackPolicy::Lamarckian) and
+    /// `Partial(Probability::new(0.0))` is bit-identical to
     /// [`Baldwinian`](WritebackPolicy::Baldwinian) on the same seed.
-    Partial(f32),
+    Partial(Probability),
 }
 
 impl Default for WritebackPolicy {
     fn default() -> Self {
-        Self::Partial(0.5)
+        Self::Partial(Probability::new(0.5))
     }
 }
 
@@ -464,12 +464,9 @@ where
         let mut ls_rng = seed_stream(base, generation, SeedPurpose::LocalSearch);
         let mut mask_rng = seed_stream(base, generation, SeedPurpose::Replacement);
 
-        if let WritebackPolicy::Partial(p) = params.writeback {
-            debug_assert!(
-                (0.0..=1.0).contains(&p),
-                "WritebackPolicy::Partial probability {p} must lie in [0, 1]"
-            );
-        }
+        // `WritebackPolicy::Partial` now carries a `Probability` (valid by
+        // construction), so the old debug-only range assert is unnecessary —
+        // see ADR 0031.
 
         // (4) Refine each covered row; collect Lamarckian writebacks.
         let mut writeback_rows: Vec<(usize, Vec<f32>)> = Vec::with_capacity(indices.len());
@@ -510,7 +507,7 @@ where
                     // One Bernoulli draw per refined index, from the dedicated
                     // mask stream, so Lamarckian/Baldwinian runs share an
                     // identical `ls_rng` schedule (they draw nothing here).
-                    WritebackPolicy::Partial(p) => mask_rng.random::<f32>() < p,
+                    WritebackPolicy::Partial(p) => mask_rng.random::<f32>() < p.get(),
                 };
                 if writeback {
                     writeback_rows.push((i, refined));
@@ -742,7 +739,7 @@ mod tests {
 
     #[test]
     fn writeback_policy_default_is_partial_half() {
-        assert_eq!(WritebackPolicy::default(), WritebackPolicy::Partial(0.5));
+        assert_eq!(WritebackPolicy::default(), WritebackPolicy::Partial(Probability::new(0.5)));
     }
 
     #[test]
@@ -943,11 +940,11 @@ mod tests {
     #[test]
     fn partial_one_equals_lamarckian_partial_zero_equals_baldwinian() {
         let lam = sa_trajectory(WritebackPolicy::Lamarckian, 33, 3);
-        let p1 = sa_trajectory(WritebackPolicy::Partial(1.0), 33, 3);
+        let p1 = sa_trajectory(WritebackPolicy::Partial(Probability::new(1.0)), 33, 3);
         assert_eq!(lam, p1, "Partial(1.0) must be bit-identical to Lamarckian");
 
         let bald = sa_trajectory(WritebackPolicy::Baldwinian, 33, 3);
-        let p0 = sa_trajectory(WritebackPolicy::Partial(0.0), 33, 3);
+        let p0 = sa_trajectory(WritebackPolicy::Partial(Probability::new(0.0)), 33, 3);
         assert_eq!(bald, p0, "Partial(0.0) must be bit-identical to Baldwinian");
     }
 
@@ -957,12 +954,12 @@ mod tests {
 
     #[test]
     fn partial_is_seed_reproducible_and_seed_sensitive() {
-        let a = sa_trajectory(WritebackPolicy::Partial(0.5), 55, 3);
-        let b = sa_trajectory(WritebackPolicy::Partial(0.5), 55, 3);
+        let a = sa_trajectory(WritebackPolicy::Partial(Probability::new(0.5)), 55, 3);
+        let b = sa_trajectory(WritebackPolicy::Partial(Probability::new(0.5)), 55, 3);
         assert_eq!(a, b, "same seed must replay identically");
 
         // A different seed (almost surely) yields a different writeback pattern.
-        let c = sa_trajectory(WritebackPolicy::Partial(0.5), 56, 3);
+        let c = sa_trajectory(WritebackPolicy::Partial(Probability::new(0.5)), 56, 3);
         assert_ne!(a, c, "different seed should diverge");
     }
 
@@ -1157,7 +1154,7 @@ mod tests {
         );
         assert_eq!(
             baseline,
-            next_after(WritebackPolicy::Partial(0.5), CoveragePolicy::Full),
+            next_after(WritebackPolicy::Partial(Probability::new(0.5)), CoveragePolicy::Full),
         );
         assert_eq!(
             baseline,

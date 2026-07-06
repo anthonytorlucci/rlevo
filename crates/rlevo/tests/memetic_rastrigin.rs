@@ -33,6 +33,7 @@ use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::probability::Probability;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
 use rlevo_evolution::algorithms::memetic::{
@@ -266,7 +267,7 @@ fn calibration_explorer() {
         (
             "k1/it15/first/p0.3",
             make_hc(15, 0.4, HillClimbVariant::FirstImprovement),
-            WritebackPolicy::Partial(0.3),
+            WritebackPolicy::Partial(Probability::new(0.3)),
             CoveragePolicy::TopK { k: 1 },
         ),
         (

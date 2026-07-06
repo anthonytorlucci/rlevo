@@ -87,13 +87,14 @@ loudness/pulse updates. The acceptance gate goes live from the second generation
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::bat::BatConfig;
 
 // Explicit construction:
 let config = BatConfig {
     pop_size:   40,
     genome_dim: 10,
-    bounds:     (-5.12, 5.12),
+    bounds:     Bounds::new(-5.12, 5.12),
     f_min:      0.0,    // minimum echolocation frequency
     f_max:      2.0,    // maximum echolocation frequency
     a0:         1.0,    // initial loudness

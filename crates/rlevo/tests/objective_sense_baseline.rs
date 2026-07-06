@@ -29,6 +29,7 @@ use rlevo_evolution::algorithms::ga::{
 };
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -70,9 +71,9 @@ fn ga_config() -> GaConfig {
         pop_size: 64,
         genome_dim: DIM,
         bounds: Bounds::new(-5.12, 5.12),
-        mutation_sigma: 0.3,
+        mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     }
 }

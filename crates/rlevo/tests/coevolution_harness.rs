@@ -18,6 +18,7 @@ use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
 use rlevo_core::bounds::Bounds;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -78,9 +79,9 @@ fn ga_config() -> GaConfig {
         pop_size: POP,
         genome_dim: DIM,
         bounds: Bounds::new(-5.0, 5.0),
-        mutation_sigma: 0.2,
+        mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     }
 }

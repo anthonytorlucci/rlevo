@@ -73,13 +73,14 @@ exploration-to-exploitation transition to complete.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::woa::WoaConfig;
 
 // Explicit construction:
 let config = WoaConfig {
     pop_size:        32,
     genome_dim:      10,
-    bounds:          (-5.12, 5.12),
+    bounds:          Bounds::new(-5.12, 5.12),
     max_generations: 500,   // paces a = 2(1 − t/T); not a stop condition
     b:               1.0,   // logarithmic-spiral shape constant
 };

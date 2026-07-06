@@ -39,14 +39,15 @@ preferred when the number of relevant schemata is unknown.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::probability::Probability;
 use rlevo::evo::algorithms::ga_binary::BinaryGaConfig;
 
 // Explicit construction:
 let config = BinaryGaConfig {
     pop_size:       64,
     genome_dim:     20,
-    mutation_rate:  1.0 / 20.0,   // 1/D rule
-    crossover_p:    0.5,
+    mutation_rate:  Probability::new(1.0 / 20.0),   // 1/D rule
+    crossover_p:    Probability::new(0.5),
     tournament_size: 2,
     elitism_k:      1,
 };
@@ -60,8 +61,8 @@ let config = BinaryGaConfig::default_for(64, 20);
 |---|---|---|---|
 | `pop_size` | `usize` | 32–512 | Larger populations slow per-generation cost but reduce drift |
 | `genome_dim` | `usize` | problem-defined | Number of binary genes |
-| `mutation_rate` | `f32` | `1/D`–`5/D` | Higher rates help deceptive problems; too high destroys convergence |
-| `crossover_p` | `f32` | 0.5–0.7 | Probability each gene comes from parent A in uniform crossover |
+| `mutation_rate` | `Probability` | `1/D`–`5/D` | Higher rates help deceptive problems; too high destroys convergence |
+| `crossover_p` | `Probability` | 0.5–0.7 | Probability each gene comes from parent A in uniform crossover |
 | `tournament_size` | `usize` | 2–5 | Larger k → stronger selection pressure |
 | `elitism_k` | `usize` | 1–3 | Elites copied verbatim; set 0 for fully generational replacement |
 

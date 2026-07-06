@@ -93,13 +93,14 @@ re-pointed only on strict improvement.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::cuckoo::CuckooConfig;
 
 // Explicit construction:
 let config = CuckooConfig {
     pop_size:   30,
     genome_dim: 10,
-    bounds:     (-5.12, 5.12),
+    bounds:     Bounds::new(-5.12, 5.12),
     alpha:      0.05,   // step-size scale; tune to your domain
     beta:       1.5,    // Lévy index, must be in (0, 2)
     p_a:        0.25,   // abandonment fraction

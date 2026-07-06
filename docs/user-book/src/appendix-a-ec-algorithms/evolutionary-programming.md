@@ -47,13 +47,14 @@ offspring).
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::ep::EpConfig;
 
 // Explicit construction:
 let config = EpConfig {
     mu:            30,
     genome_dim:    10,
-    bounds:        (-5.12, 5.12),
+    bounds:        Bounds::new(-5.12, 5.12),
     initial_sigma: 1.0,
     tau:           1.0 / (2.0 * (10.0_f32).sqrt()).sqrt(),
     tournament_q:  10,

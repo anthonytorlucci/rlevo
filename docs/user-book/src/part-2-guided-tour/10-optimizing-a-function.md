@@ -42,6 +42,8 @@ fitness. The classic one is a **genetic algorithm**: keep the fittest, mate them
 mutate the children. We configure it with `GaConfig`:
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
+use rlevo::core::rate::NonNegativeRate;
 use rlevo::evo::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -49,10 +51,10 @@ use rlevo::evo::algorithms::ga::{
 let config = GaConfig {
     pop_size: 64,
     genome_dim: 8,
-    bounds: (-5.12, 5.12),
-    mutation_sigma: 0.3,
+    bounds: Bounds::new(-5.12, 5.12),
+    mutation_sigma: NonNegativeRate::new(0.3),
     selection: GaSelection::Tournament { size: 3 },
-    crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+    crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
     replacement: GaReplacement::Elitist { elitism_k: 2 },
 };
 ```
@@ -62,6 +64,16 @@ to the box; **tournament selection** picks parents by holding 3-way contests;
 **BLX-α crossover** blends two parents; and **elitism** carries the best 2 into
 the next generation untouched so progress never regresses. Don't memorise these —
 each is one enum variant and the others are listed in the API docs.
+
+You may have noticed we wrap the scalars: the search box is a
+[`Bounds`](https://docs.rs/rlevo-core), the mutation step \\(\sigma\\) and the
+BLX-α \\(\alpha\\) are a [`NonNegativeRate`](https://docs.rs/rlevo-core), and a
+probability like a crossover \\(p\\) is a
+[`Probability`](https://docs.rs/rlevo-core). These are validated newtypes — they
+reject a `NaN`, an infinity, or an out-of-range value *at construction*, so a
+malformed rate can never silently degenerate an operator half a run later. You
+build one with `NonNegativeRate::new(0.3)`; pass user-supplied values through the
+fallible `try_new` instead.
 
 ## Step 3 — turning the crank with the harness
 

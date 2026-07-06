@@ -22,6 +22,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -79,9 +80,9 @@ fn ga_config() -> GaConfig {
         pop_size: POP,
         genome_dim: HALF,
         bounds: Bounds::new(-5.12, 5.12),
-        mutation_sigma: 0.3,
+        mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     }
 }

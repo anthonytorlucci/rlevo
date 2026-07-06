@@ -91,13 +91,14 @@ ability to rescale each axis independently.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::es_classical::{EsConfig, EsKind};
 
 // Explicit construction:
 let config = EsConfig {
     kind:          EsKind::MuPlusLambda { mu: 5, lambda: 20 },
     genome_dim:    10,
-    bounds:        (-5.12, 5.12),
+    bounds:        Bounds::new(-5.12, 5.12),
     initial_sigma: 1.0,
     tau:           1.0 / (2.0 * (10.0_f32).sqrt()).sqrt(),
 };

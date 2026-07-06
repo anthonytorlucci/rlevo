@@ -78,13 +78,14 @@ wins (see *Greedy per-target replacement* below).
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::abc::AbcConfig;
 
 // Explicit construction:
 let config = AbcConfig {
     pop_size:        30,
     genome_dim:      10,
-    bounds:          (-5.12, 5.12),
+    bounds:          Bounds::new(-5.12, 5.12),
     limit:           150,           // (pop_size · genome_dim) / 2
     tournament_size: 3,
 };

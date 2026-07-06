@@ -16,6 +16,8 @@
 use burn::backend::Flex;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::probability::Probability;
+use rlevo_core::rate::NonNegativeRate;
 
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 use rlevo_evolution::algorithms::ga::{
@@ -87,9 +89,9 @@ fn run_ga(seed: u64, gens: usize) -> Vec<f32> {
         pop_size: 32,
         genome_dim: 5,
         bounds: Bounds::new(-5.0, 5.0),
-        mutation_sigma: 0.2,
+        mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 2 },
-        crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
     run(GeneticAlgorithm::<B>::new(), params, seed, gens)
@@ -165,7 +167,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let params: MemeticParams<DeConfig, HillClimbingParams> = MemeticParams {
         inner: DeConfig::default_for(16, dim),
         local: HillClimbingParams::default_for(bounds),
-        writeback: WritebackPolicy::Partial(0.5),
+        writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
     let mut harness = EvolutionaryHarness::<B, _, _>::new(
@@ -207,7 +209,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     let params: MemeticParams<DeConfig, SimulatedAnnealingParams> = MemeticParams {
         inner: DeConfig::default_for(16, dim),
         local: SimulatedAnnealingParams::default_for(bounds),
-        writeback: WritebackPolicy::Partial(0.5),
+        writeback: WritebackPolicy::Partial(Probability::new(0.5)),
         coverage: CoveragePolicy::TopK { k: 2 },
     };
     let mut harness = EvolutionaryHarness::<B, _, _>::new(
