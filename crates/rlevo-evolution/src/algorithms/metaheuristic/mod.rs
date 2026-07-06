@@ -53,3 +53,31 @@ pub mod kernels;
 pub mod pso;
 pub mod salp;
 pub mod woa;
+
+use rlevo_core::config::{ConfigError, ConstraintKind};
+
+/// Rejects a host-side per-individual vector whose length is neither `pop`
+/// nor `0`.
+///
+/// Swarm `*State` structs cache one host-side scalar per individual (fitness,
+/// trial counters, loudness, …). Every such vector must have length `pop`,
+/// except at bootstrap where `init` leaves the caches empty until the first
+/// `tell`. This is the shared length invariant checked by each state's
+/// `try_new`, so a mismatched non-empty length is rejected at construction
+/// rather than surfacing as an out-of-bounds panic generations later.
+pub(crate) fn len_matches_pop(
+    config: &'static str,
+    field: &'static str,
+    pop: usize,
+    len: usize,
+) -> Result<(), ConfigError> {
+    if len == 0 || len == pop {
+        Ok(())
+    } else {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::Custom("per-individual vector length must equal pop_size"),
+        })
+    }
+}

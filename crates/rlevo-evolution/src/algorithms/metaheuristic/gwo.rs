@@ -39,6 +39,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use super::len_matches_pop;
 use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -86,15 +87,72 @@ impl Validate for GwoConfig {
 #[derive(Debug, Clone)]
 pub struct GwoState<B: Backend> {
     /// Current pack positions, shape `(pop_size, D)`.
-    pub pack: Tensor<B, 2>,
+    pack: Tensor<B, 2>,
     /// Host-side fitness cache.
-    pub fitness: Vec<f32>,
+    fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, D)` — corresponds to α.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Generation counter.
-    pub generation: usize,
+    generation: usize,
+}
+
+impl<B: Backend> GwoState<B> {
+    /// Assembles a wolf-pack state, checking the fitness cache matches `pop`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `pack` has zero rows or if `fitness` is
+    /// non-empty with a length other than `pop_size`.
+    pub fn try_new(
+        pack: Tensor<B, 2>,
+        fitness: Vec<f32>,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+        generation: usize,
+    ) -> Result<Self, ConfigError> {
+        let pop = pack.dims()[0];
+        config::nonzero("GwoState", "pop_size", pop)?;
+        len_matches_pop("GwoState", "fitness", pop, fitness.len())?;
+        Ok(Self {
+            pack,
+            fitness,
+            best_genome,
+            best_fitness,
+            generation,
+        })
+    }
+
+    /// Current pack positions, shape `(pop_size, D)`.
+    #[must_use]
+    pub fn pack(&self) -> &Tensor<B, 2> {
+        &self.pack
+    }
+
+    /// Host-side fitness cache (empty at bootstrap, else `pop_size` long).
+    #[must_use]
+    pub fn fitness(&self) -> &[f32] {
+        &self.fitness
+    }
+
+    /// Best-so-far genome (α), or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
 }
 
 /// Grey Wolf Optimizer strategy.
@@ -341,6 +399,17 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn try_new_checks_fitness_length() {
+        let device = Default::default();
+        let pack = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        assert!(GwoState::try_new(pack.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
+        assert!(GwoState::try_new(pack.clone(), vec![], None, f32::MIN, 0).is_ok());
+        assert!(GwoState::try_new(pack, vec![1.0; 2], None, 1.0, 1).is_err());
+        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        assert!(GwoState::try_new(empty, vec![], None, 1.0, 0).is_err());
+    }
 
     #[test]
     fn default_config_validates() {
