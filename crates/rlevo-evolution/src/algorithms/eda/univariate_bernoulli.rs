@@ -148,6 +148,16 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         };
 
         let [k, d] = population.dims();
+        if k == 0 {
+            // Empty selected population: the argmax/argmin below would leave
+            // `best_idx`/`worst_idx` at `0` and then index `rows[0 * d + j]` on
+            // an empty `rows`, panicking out of bounds. Return the previous
+            // probabilities unchanged. `EdaStrategy::tell` clamps `k ≥ 2`, but
+            // `fit` is a public trait method reachable directly.
+            return UnivariateBernoulliState {
+                prob: prev.prob.clone(),
+            };
+        }
         let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
         let fit_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
 
@@ -158,7 +168,14 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
         let mut best_f = f32::NEG_INFINITY;
         let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            let f = fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY);
+            // Sanitize `NaN → −inf` at the seam, mirroring `compact_genetic` so
+            // the two binary EDAs stay symmetric. `tell` sanitizes upstream, but
+            // a direct `fit` caller passing a `NaN` fitness would otherwise have
+            // it sort as the largest value under `total_cmp` and be picked as the
+            // best individual.
+            let f = crate::fitness::sanitize_fitness(
+                fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY),
+            );
             if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
                 best_f = f;
                 best_idx = i;
@@ -352,6 +369,44 @@ mod tests {
             #[allow(clippy::float_cmp)]
             let is_binary = v == 0.0 || v == 1.0;
             assert!(is_binary, "non-binary gene {v}");
+        }
+    }
+
+    #[test]
+    fn fit_empty_population_returns_prior() {
+        // k == 0 would index an empty `rows` and panic; the guard (#129) returns
+        // the previous probabilities unchanged.
+        let device = Default::default();
+        let p = UnivariateBernoulliParams::default_for(3);
+        let prior = fit_prior(&p);
+        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateBernoulli,
+            &p,
+            Some(&prior),
+            pop(vec![], 0, 3),
+            fitness(vec![]),
+            &device,
+        );
+        assert_eq!(state.prob, prior.prob, "empty population must return prior unchanged");
+    }
+
+    #[test]
+    fn nan_fitness_not_selected_as_best() {
+        // Row 0 all-ones + NaN fitness; row 1 all-zeros + finite fitness. The
+        // sanitized seam (#129) must pick row 1 as best and push prob toward 0.
+        let device = Default::default();
+        let p = UnivariateBernoulliParams::default_for(2);
+        let prior = fit_prior(&p);
+        let state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateBernoulli,
+            &p,
+            Some(&prior),
+            pop(vec![1.0, 1.0, 0.0, 0.0], 2, 2),
+            fitness(vec![f32::NAN, 5.0]),
+            &device,
+        );
+        for &pj in &state.prob {
+            assert!(pj < 0.5, "best should be the finite-fitness zero row, got {pj}");
         }
     }
 }

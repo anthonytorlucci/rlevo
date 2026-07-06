@@ -148,7 +148,14 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         let mut best_f = f32::NEG_INFINITY;
         let mut worst_f = f32::INFINITY;
         for i in 0..k {
-            let f = fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY);
+            // Sanitize `NaN → −inf` at the seam. `EdaStrategy::tell` already does
+            // this upstream, but `fit` is a public trait method reachable
+            // directly; without this a `NaN` would sort as the largest value
+            // under `total_cmp` and be selected as the winner, nudging the model
+            // toward a meaningless genome.
+            let f = crate::fitness::sanitize_fitness(
+                fit_host.get(i).copied().unwrap_or(f32::NEG_INFINITY),
+            );
             if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
                 best_f = f;
                 winner_idx = i;
@@ -368,6 +375,29 @@ mod tests {
             #[allow(clippy::float_cmp)]
             let is_binary = v == 0.0 || v == 1.0;
             assert!(is_binary);
+        }
+    }
+
+    #[test]
+    fn nan_fitness_not_selected_as_winner() {
+        // Row 0 all-ones with NaN fitness, row 1 all-zeros with finite fitness.
+        // Under total_cmp, an unsanitized NaN would sort as the largest value
+        // and be picked as the winner; with the seam guard (#129) the finite
+        // row is the winner and probabilities move toward 0.
+        let device = Default::default();
+        let p = CompactGeneticParams::default_for(2);
+        let prior = fit_prior(&p);
+        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+            &CompactGenetic,
+            &p,
+            Some(&prior),
+            pop(vec![1.0, 1.0, 0.0, 0.0], 2, 2),
+            fitness(vec![f32::NAN, 5.0]),
+            &device,
+        );
+        for &pj in &state.prob {
+            assert!(pj.is_finite() && (0.0..=1.0).contains(&pj), "prob out of range: {pj}");
+            assert!(pj < 0.5, "winner should be the finite-fitness zero row, got {pj}");
         }
     }
 }

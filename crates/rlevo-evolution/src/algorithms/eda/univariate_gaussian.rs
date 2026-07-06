@@ -189,7 +189,14 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
             }
         }
         for m in &mut mean {
-            *m /= kf;
+            let mu = *m / kf;
+            // `Normal::new` accepts any mean, so a single non-finite genome value
+            // (common from divergent DRL rollouts) would propagate into every
+            // sample for this dimension and silently poison the search. Fall back
+            // to the prior mean. (The `tell` chokepoint now also sanitizes the
+            // population as a coarse backstop; this is the precise per-dimension
+            // guard for direct `fit` callers.)
+            *m = if mu.is_finite() { mu } else { params.init_mean };
         }
 
         let mut variance = vec![0.0_f32; d];
@@ -200,7 +207,18 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
             }
         }
         for v in &mut variance {
-            *v = (*v / kf).max(params.min_variance);
+            // Floor the lower bound AND reject non-finite estimates. `f32::max`
+            // suppresses `NaN` (returns `min_variance`), but an overflowed `inf`
+            // MLE variance would flow through as `inf` → `inf` std →
+            // `Normal::new` rejects non-finite σ → `sample` panics. Making the
+            // stored variance always finite and `≥ min_variance` keeps `sample`
+            // panic-free.
+            let mle = *v / kf;
+            *v = if mle.is_finite() && mle > params.min_variance {
+                mle
+            } else {
+                params.min_variance
+            };
         }
 
         UnivariateGaussianState { mean, variance }
@@ -408,5 +426,50 @@ mod tests {
         }
         approx::assert_relative_eq!(sum0 / 10_000.0, 3.0, epsilon = 0.1);
         approx::assert_relative_eq!(sum1 / 10_000.0, -1.0, epsilon = 0.1);
+    }
+
+    #[test]
+    fn inf_variance_floored_to_min() {
+        // Squared deviations overflow f32 → inf MLE variance. The floor (#129)
+        // must reject the non-finite estimate instead of passing inf through to
+        // sample() (where Normal::new would then panic on a non-finite σ).
+        let device = Default::default();
+        let p = UnivariateGaussianParams::default_for(1);
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateGaussian, &p, None, pop(vec![], 0, 0), fitness(vec![]), &device,
+        );
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateGaussian,
+            &p,
+            Some(&prior),
+            pop(vec![1e38, -1e38], 2, 1),
+            fitness(vec![0.0, 1.0]),
+            &device,
+        );
+        let v = state.variance[0];
+        assert!(v.is_finite(), "variance must be finite, got {v}");
+        approx::assert_relative_eq!(v, p.min_variance, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn nonfinite_gene_mean_falls_back_to_init_mean() {
+        // A NaN gene makes the column mean NaN; the guard (#129) falls back to
+        // init_mean so the fitted mean stays finite (and sampling stays sane).
+        let device = Default::default();
+        let mut p = UnivariateGaussianParams::default_for(1);
+        p.init_mean = 3.0;
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateGaussian, &p, None, pop(vec![], 0, 0), fitness(vec![]), &device,
+        );
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &UnivariateGaussian,
+            &p,
+            Some(&prior),
+            pop(vec![f32::NAN, 0.0], 2, 1),
+            fitness(vec![0.0, 1.0]),
+            &device,
+        );
+        assert!(state.mean[0].is_finite(), "mean must be finite");
+        approx::assert_relative_eq!(state.mean[0], p.init_mean, epsilon = 1e-12);
     }
 }

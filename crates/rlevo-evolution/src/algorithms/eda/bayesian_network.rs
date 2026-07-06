@@ -107,7 +107,9 @@ pub struct BayesianNetworkParams {
     pub init_prob: f32,
     /// Laplace pseudo-count `s` added per CPT cell during estimation; `s ≥ 1`
     /// keeps every probability strictly inside `(0, 1)`. Applies only to CPT
-    /// estimation for sampling, never to the BIC structure score.
+    /// estimation for sampling, never to the BIC structure score. The value is
+    /// floored to `1` inside [`fit`](ProbabilityModel::fit), so a supplied `0`
+    /// is treated as `1` to uphold the strictly-interior guarantee.
     pub smoothing_count: usize,
 }
 
@@ -162,11 +164,23 @@ pub struct BayesianNetwork;
 
 /// Build the edgeless prior state: natural order, no parents, single-cell CPTs
 /// initialised to `init_prob`.
+///
+/// `init_prob` is clamped into the open interior `(0, 1)` before it seeds the
+/// CPTs. This is the single chokepoint for every prior return, so a
+/// misconfigured or non-finite `init_prob` (e.g. `NaN`, `1.5`, `-0.3`) cannot
+/// silently produce a degenerate population during sampling. `NaN` maps to the
+/// neutral `0.5` (`f32::clamp` would *propagate* `NaN`); `±inf` clamp to the
+/// interior bounds.
 fn prior_state(d: usize, init_prob: f32) -> BayesianNetworkState {
+    let p = if init_prob.is_nan() {
+        0.5
+    } else {
+        init_prob.clamp(1e-6, 1.0 - 1e-6)
+    };
     BayesianNetworkState {
         order: (0..d).collect(),
         parents: vec![Vec::new(); d],
-        cpt: vec![vec![init_prob]; d],
+        cpt: vec![vec![p]; d],
     }
 }
 
@@ -438,7 +452,11 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
         }
 
         // CPT estimation from the final structure: one counting pass per node.
-        let s = params.smoothing_count;
+        // Floor the smoothing at 1 so every probability stays strictly inside
+        // `(0, 1)` (the field-doc guarantee): with `s ≥ 1`, `den = N(c) + 2s > 0`
+        // always, so the `0/0` case is unreachable and `count_1/count_total`
+        // cannot pin a cell to an absorbing `0.0`/`1.0`.
+        let s = params.smoothing_count.max(1);
         let mut cpt: Vec<Vec<f32>> = Vec::with_capacity(d);
         // Laplace pseudo-count as f64; `s` is a tiny smoothing constant, far
         // below f64's exact-integer range, so the cast is lossless.
@@ -458,19 +476,15 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             for c in 0..num_configs {
                 let count_1 = counts[c * 2 + 1];
                 let count_total = counts[c * 2] + count_1;
-                let prob = if s == 0 && count_total == 0 {
-                    // Guard 0/0: unseen config with no smoothing ⇒ prior marginal.
-                    params.init_prob
-                } else {
-                    // (N(c,1) + s) / (N(c) + 2s); f64::from(u32) is lossless.
-                    let num = f64::from(count_1) + s_f;
-                    let den = f64::from(count_total) + 2.0 * s_f;
-                    // Probability in (0, 1) for s ≥ 1; the f64→f32 narrowing of a
-                    // value in [0, 1] cannot truncate meaningfully.
-                    #[allow(clippy::cast_possible_truncation)]
-                    let prob_f32 = (num / den) as f32;
-                    prob_f32
-                };
+                // (N(c,1) + s) / (N(c) + 2s); f64::from(u32) is lossless. With
+                // `s ≥ 1` the denominator is always positive, so no `0/0` guard
+                // is needed.
+                let num = f64::from(count_1) + s_f;
+                let den = f64::from(count_total) + 2.0 * s_f;
+                // Probability in (0, 1) for s ≥ 1; the f64→f32 narrowing of a
+                // value in [0, 1] cannot truncate meaningfully.
+                #[allow(clippy::cast_possible_truncation)]
+                let prob = (num / den) as f32;
                 table.push(prob);
             }
             cpt.push(table);
@@ -834,5 +848,44 @@ mod tests {
             frac > 0.9,
             "sampled columns 0 and 1 should agree on > 90% of rows, got {frac}"
         );
+    }
+
+    #[test]
+    fn nan_init_prob_clamped_on_prior() {
+        // A non-finite init_prob must not propagate into the CPTs (#129): the
+        // prior clamps it into the open interior (0, 1).
+        let mut p = BayesianNetworkParams::default_for(3);
+        p.init_prob = f32::NAN;
+        let state = fit_prior(&p);
+        for table in &state.cpt {
+            let v = table[0];
+            assert!(v.is_finite(), "clamped init_prob must be finite, got {v}");
+            assert!(v > 0.0 && v < 1.0, "clamped init_prob must be interior, got {v}");
+        }
+    }
+
+    #[test]
+    fn out_of_range_init_prob_clamped_on_prior() {
+        for bad in [1.5_f32, -0.3, f32::INFINITY] {
+            let mut p = BayesianNetworkParams::default_for(2);
+            p.init_prob = bad;
+            let state = fit_prior(&p);
+            for table in &state.cpt {
+                let v = table[0];
+                assert!(v > 0.0 && v < 1.0, "init_prob {bad} must clamp interior, got {v}");
+            }
+        }
+    }
+
+    #[test]
+    fn smoothing_count_zero_keeps_cpt_interior() {
+        // s = 0 with a constant-1 column would give count_1/count_total = 1.0
+        // (an absorbing gene) without the floor. Flooring s at 1 keeps it in
+        // (0, 1). Single gene, all ones ⇒ one CPT cell.
+        let mut p = BayesianNetworkParams::default_for(1);
+        p.smoothing_count = 0;
+        let state = refit(&p, vec![1.0, 1.0, 1.0, 1.0], 4, 1);
+        let v = state.cpt[0][0];
+        assert!(v > 0.0 && v < 1.0, "s=0 must be floored to keep CPT interior, got {v}");
     }
 }
