@@ -85,6 +85,7 @@ x_{i,d} \sim \mathcal{N}\!\bigl(x_{l,d},\ \sigma_{l,d}\bigr),
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::aco_r::AcoRConfig;
 
 // Explicit construction:
@@ -92,7 +93,7 @@ let config = AcoRConfig {
     archive_size: 50,            // k — the pheromone memory
     m:            30,            // offspring sampled per generation
     genome_dim:   10,
-    bounds:       (-5.12, 5.12),
+    bounds:       Bounds::new(-5.12, 5.12),
     xi:           0.85,          // exploration scale
     q:            0.1,           // rank-weight decay
 };

@@ -81,7 +81,7 @@ pub struct GaConfig {
     pub pop_size: usize,
     pub genome_dim: usize,
     pub bounds: Bounds,              // initial-sample range and clamp range
-    pub mutation_sigma: f32,
+    pub mutation_sigma: NonNegativeRate,
     pub selection:   GaSelection,    // Tournament { size }
     pub crossover:   GaCrossover,    // BlxAlpha { alpha } | Uniform { p }
     pub replacement: GaReplacement,  // Generational | Elitist { elitism_k }
@@ -106,6 +106,17 @@ over a `(lo, hi)` pair that we validate at construction (it rejects an inverted
 `lo > hi` or a `NaN` endpoint) so an invalid search box can never reach the
 sampler or the clamp. You build one with `Bounds::new(lo, hi)`; the population
 sampler and the per-generation clamp both read `bounds.lo()` and `bounds.hi()`.
+
+The rate scalars follow the same principle. `mutation_sigma` is a
+[`NonNegativeRate`](https://docs.rs/rlevo-core) (finite and \\(\ge 0\\)), and the
+`GaCrossover` payloads are validated too — `BlxAlpha`'s \\(\alpha\\) is a
+`NonNegativeRate`, `Uniform`'s \\(p\\) a [`Probability`](https://docs.rs/rlevo-core)
+in \\([0, 1]\\). Each rejects a `NaN`, an infinity, or an out-of-range value at
+construction, so the operators downstream can never be handed a rate that would
+silently degenerate them. Because a `Bounds` or rate field is self-validating,
+`GaConfig::validate` no longer re-checks those fields — it only enforces the
+cross-field constraints the types cannot express (a tournament size that fits the
+population, an `elitism_k` within `pop_size`).
 
 **`init`** samples an `(pop_size, genome_dim)` population uniformly within
 `bounds`, leaves the fitness cache empty, and sets `best_fitness` to

@@ -47,6 +47,8 @@ perturbed every generation. After mutation, offspring are clamped to `bounds`.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
+use rlevo::core::rate::NonNegativeRate;
 use rlevo::evo::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection,
 };
@@ -55,10 +57,10 @@ use rlevo::evo::algorithms::ga::{
 let config = GaConfig {
     pop_size:       64,
     genome_dim:     10,
-    bounds:         (-5.12, 5.12),
-    mutation_sigma: 0.3,
+    bounds:         Bounds::new(-5.12, 5.12),
+    mutation_sigma: NonNegativeRate::new(0.3),
     selection:      GaSelection::Tournament { size: 2 },
-    crossover:      GaCrossover::BlxAlpha { alpha: 0.5 },
+    crossover:      GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
     replacement:    GaReplacement::Elitist { elitism_k: 1 },
 };
 
@@ -71,10 +73,10 @@ let config = GaConfig::default_for(64, 10);
 | `pop_size` | `usize` | 32–512 | Larger slows each generation; helps on multi-modal landscapes |
 | `genome_dim` | `usize` | problem-defined | Dimensionality of the search space |
 | `bounds` | `Bounds` | problem-defined | Initial population sampled uniformly here; offspring clamped here after mutation |
-| `mutation_sigma` | `f32` | 0.05–1.0 | Scale relative to `bounds` width; σ ≈ 0.3 / D for high-D problems |
+| `mutation_sigma` | `NonNegativeRate` | 0.05–1.0 | Scale relative to `bounds` width; σ ≈ 0.3 / D for high-D problems |
 | `GaSelection::Tournament { size }` | `usize` | 2–5 | k = 2 is low pressure; k = pop_size is truncation selection |
-| `GaCrossover::BlxAlpha { alpha }` | `f32` | 0.0–1.0 | 0.5 is the standard choice; increase for more exploration |
-| `GaCrossover::Uniform { p }` | `f32` | 0.3–0.7 | Per-gene swap probability |
+| `GaCrossover::BlxAlpha { alpha }` | `NonNegativeRate` | 0.0–1.0 | 0.5 is the standard choice; increase for more exploration |
+| `GaCrossover::Uniform { p }` | `Probability` | 0.3–0.7 | Per-gene swap probability |
 | `GaReplacement::Elitist { elitism_k }` | `usize` | 1–5 | Elites copied verbatim; higher k slows diversity loss |
 | `GaReplacement::Generational` | — | — | Full population replacement; faster convergence, less stable |
 
@@ -91,6 +93,8 @@ for the manual loop if you need custom logging or early stopping.
 ```rust,no_run
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
+use rlevo::core::bounds::Bounds;
+use rlevo::core::rate::NonNegativeRate;
 use rlevo::evo::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -133,10 +137,10 @@ fn main() {
     let config = GaConfig {
         pop_size:       64,
         genome_dim:     dim,
-        bounds:         (-5.12, 5.12),
-        mutation_sigma: 0.3,
+        bounds:         Bounds::new(-5.12, 5.12),
+        mutation_sigma: NonNegativeRate::new(0.3),
         selection:      GaSelection::Tournament { size: 2 },
-        crossover:      GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover:      GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement:    GaReplacement::Elitist { elitism_k: 1 },
     };
 

@@ -85,13 +85,14 @@ Until that kernel lands, treat 128 as the working ceiling on swarm size.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::firefly::FireflyConfig;
 
 // Explicit construction:
 let config = FireflyConfig {
     pop_size:   32,
     genome_dim: 10,
-    bounds:     (-5.12, 5.12),
+    bounds:     Bounds::new(-5.12, 5.12),
     beta0:      1.0,    // attractiveness at zero distance
     gamma:      0.01,   // absorption; scale ≈ 1/L² to your box width
     alpha:      0.2,    // random-walk noise scale

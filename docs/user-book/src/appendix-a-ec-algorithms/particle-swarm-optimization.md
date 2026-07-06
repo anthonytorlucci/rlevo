@@ -83,13 +83,14 @@ the same dynamics at the canonical settings, and differ only when you retune.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::pso::{PsoConfig, PsoVariant};
 
 // Explicit construction:
 let config = PsoConfig {
     pop_size:   32,
     genome_dim: 10,
-    bounds:     (-5.12, 5.12),
+    bounds:     Bounds::new(-5.12, 5.12),
     inertia:    0.7298,            // ω — only used by the Inertia variant
     c1:         1.49618,           // cognitive (pbest) coefficient
     c2:         1.49618,           // social (gbest) coefficient

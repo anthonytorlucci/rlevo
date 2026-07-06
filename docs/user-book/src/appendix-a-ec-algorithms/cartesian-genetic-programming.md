@@ -182,6 +182,7 @@ bootstraps the parent fitness without running selection.
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::probability::Probability;
 use rlevo::evo::algorithms::gp_cgp::CgpConfig;
 
 // Explicit construction:
@@ -190,7 +191,7 @@ let config = CgpConfig {
     n_inputs:      1,
     rows:          1,
     cols:          30,
-    mutation_rate: 3.0 / 91.0,   // ~3 genes per genome
+    mutation_rate: Probability::new(3.0 / 91.0),   // ~3 genes per genome
     levels_back:   usize::MAX,   // any previous column
 };
 
@@ -204,7 +205,7 @@ let config = CgpConfig::default_for(1);
 | `n_inputs` | `usize` | problem-defined | Number of independent variables the program reads |
 | `rows` | `usize` | 1 | Grid rows; 1 makes the graph a linear column chain |
 | `cols` | `usize` | 30 | Grid columns; bounds program length and depth |
-| `mutation_rate` | `f32` | \\(3 / L\\) | Per-gene mutation probability; default flips ~3 genes |
+| `mutation_rate` | `Probability` | \\(3 / L\\) | Per-gene mutation probability; default flips ~3 genes |
 | `levels_back` | `usize` | `usize::MAX` | Earlier-column reach of a node's wires; `MAX` = unrestricted |
 
 The grid size \\(R \times C\\) caps the program's complexity: more nodes admit

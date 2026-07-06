@@ -79,13 +79,14 @@ where \\(t\\) is the current generation and \\(T = \texttt{max\_generations}\\).
 ## Configuration
 
 ```rust,no_run
+use rlevo::core::bounds::Bounds;
 use rlevo::evo::algorithms::metaheuristic::gwo::GwoConfig;
 
 // Explicit construction:
 let config = GwoConfig {
     pop_size:        32,
     genome_dim:      10,
-    bounds:          (-5.12, 5.12),
+    bounds:          Bounds::new(-5.12, 5.12),
     max_generations: 500,   // paces a = 2(1 − t/T); not a stop condition
 };
 

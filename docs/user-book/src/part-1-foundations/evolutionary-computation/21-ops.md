@@ -29,7 +29,7 @@ read it as the table above, run forward:
 
 ```rust
 let parents   = selection::tournament_select(&pop, &fitness, 3, lambda, rng, device);
-let offspring = crossover::blx_alpha(parent_a, parent_b, 0.5, rng, device);
+let offspring = crossover::blx_alpha(parent_a, parent_b, NonNegativeRate::new(0.5), rng, device);
 let mutated   = mutation::gaussian_mutation(offspring, sigma, rng, device);
 let (next, next_fitness) =
     replacement::mu_plus_lambda(pop, &fitness, mutated, &child_fitness, mu, device);
@@ -53,13 +53,22 @@ untouched:
 ```rust
 pub fn gaussian_mutation<B: Backend>(
     population: Tensor<B, 2>,
-    sigma: f32,
+    sigma: NonNegativeRate,
     rng: &mut dyn Rng,
     device: &B::Device,
 ) -> Tensor<B, 2>;
 ```
 
-We chose this deliberately. A `Strategy` calls exactly the operators it needs,
+Notice the step-size is a [`NonNegativeRate`](https://docs.rs/rlevo-core), not a
+bare `f32` — and likewise every operator that takes a probability \\(p\\) (the
+uniform-crossover and bit-flip moves) takes a
+[`Probability`](https://docs.rs/rlevo-core). These are validated newtypes: a
+`NaN`, an infinity, or an out-of-range value is rejected *at construction*, so an
+operator can never be handed a rate that would silently poison the offspring
+tensor or collapse a Bernoulli mask to a no-op. The invariant travels with the
+value; the operator body never re-checks it.
+
+We chose the free-function shape deliberately. A `Strategy` calls exactly the operators it needs,
 in the order it needs, with no virtual dispatch and no trait machinery sitting
 between the algorithm and the tensor math — which is why composing a generation
 reads as nothing more than calling functions, the way the four-line recipe did.
