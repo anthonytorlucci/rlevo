@@ -574,7 +574,7 @@ fn topological_order(genome: &TopologyGenome) -> Vec<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neuroevolution::topology::{ConnectionGene, NodeGene};
+    use crate::neuroevolution::topology::{ConnectionGene, InnovationId, NodeGene};
     use burn::backend::Flex;
 
     type TestBackend = Flex;
@@ -588,15 +588,15 @@ mod tests {
     fn test_interpreted_phenotype_reproduces_truth_table() {
         let device = Default::default();
         let nodes = vec![
-            NodeGene { id: 0, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 1, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 2, kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: 3, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
+            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(1), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene { id: NodeId::new(3), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
         ];
         let conns = vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 1.0, enabled: true },
-            ConnectionGene { innovation: 1, source: 1, target: 2, weight: 1.0, enabled: true },
-            ConnectionGene { innovation: 2, source: 2, target: 3, weight: 2.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(2), target: NodeId::new(3), weight: 2.0, enabled: true },
         ];
         let genome = TopologyGenome::new(nodes, conns);
 
@@ -622,14 +622,14 @@ mod tests {
     fn test_interpreted_phenotype_skips_disabled_edges() {
         let device = Default::default();
         let nodes = vec![
-            NodeGene { id: 0, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 1, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 1.0 },
+            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(1), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 1.0 },
         ];
         // Single edge 0 -> 1 is DISABLED, so output = bias = 1.0 regardless.
         let conns = vec![ConnectionGene {
-            innovation: 0,
-            source: 0,
-            target: 1,
+            innovation: InnovationId::new(0),
+            source: NodeId::new(0),
+            target: NodeId::new(1),
             weight: 99.0,
             enabled: false,
         }];
