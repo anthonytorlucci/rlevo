@@ -44,23 +44,27 @@ pub enum CoolingSchedule {
 }
 
 /// Static configuration for a [`SimulatedAnnealing`] run.
+///
+/// Fields are private: start from [`default_for`](SimulatedAnnealingParams::default_for)
+/// and override with the fluent `with_*` setters, which reject out-of-domain
+/// values at the call site rather than letting an invalid config reach `refine`.
 #[derive(Debug, Clone)]
 pub struct SimulatedAnnealingParams {
     /// Inclusive search-space bounds `(lo, hi)`; proposals are clamped here.
-    pub bounds: Bounds,
+    bounds: Bounds,
     /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
     /// including the initial evaluation of the input genome. Default `200`.
-    pub max_iters: usize,
+    max_iters: usize,
     /// Starting temperature. Default `1.0`.
-    pub initial_temp: f32,
+    initial_temp: f32,
     /// Cooling schedule. Default `Geometric { factor: 0.95 }`.
-    pub cooling: CoolingSchedule,
+    cooling: CoolingSchedule,
     /// Early-stop temperature floor — the walk stops once `T < min_temp`.
     /// Default `1e-6`.
-    pub min_temp: f32,
+    min_temp: f32,
     /// Standard deviation of the Gaussian proposal step. Default
     /// `0.1 * (hi - lo)`.
-    pub step_size: f32,
+    step_size: f32,
 }
 
 impl SimulatedAnnealingParams {
@@ -83,6 +87,134 @@ impl SimulatedAnnealingParams {
             min_temp: 1e-6,
             step_size: 0.1 * (hi - lo),
         }
+    }
+
+    /// Overrides the search-space bounds.
+    #[must_use]
+    pub fn with_bounds(mut self, bounds: Bounds) -> Self {
+        self.bounds = bounds;
+        self
+    }
+
+    /// Overrides the total evaluation budget per `refine`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_iters == 0` — a `refine` must evaluate the input at
+    /// least once.
+    #[must_use]
+    pub fn with_max_iters(mut self, max_iters: usize) -> Self {
+        assert!(
+            max_iters >= 1,
+            "SimulatedAnnealingParams::with_max_iters: max_iters must be >= 1"
+        );
+        self.max_iters = max_iters;
+        self
+    }
+
+    /// Overrides the starting temperature.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `initial_temp` is not strictly positive and finite.
+    #[must_use]
+    pub fn with_initial_temp(mut self, initial_temp: f32) -> Self {
+        assert!(
+            initial_temp.is_finite() && initial_temp > 0.0,
+            "SimulatedAnnealingParams::with_initial_temp: initial_temp must be finite and > 0"
+        );
+        self.initial_temp = initial_temp;
+        self
+    }
+
+    /// Overrides the cooling schedule.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the schedule's parameter is out of domain: a
+    /// [`Geometric`](CoolingSchedule::Geometric) `factor` outside `(0, 1)`, or
+    /// a [`Linear`](CoolingSchedule::Linear) `delta` that is not strictly
+    /// positive and finite.
+    #[must_use]
+    pub fn with_cooling(mut self, cooling: CoolingSchedule) -> Self {
+        match cooling {
+            CoolingSchedule::Geometric { factor } => assert!(
+                factor.is_finite() && factor > 0.0 && factor < 1.0,
+                "SimulatedAnnealingParams::with_cooling: geometric factor must be in (0, 1)"
+            ),
+            CoolingSchedule::Linear { delta } => assert!(
+                delta.is_finite() && delta > 0.0,
+                "SimulatedAnnealingParams::with_cooling: linear delta must be finite and > 0"
+            ),
+        }
+        self.cooling = cooling;
+        self
+    }
+
+    /// Overrides the early-stop temperature floor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `min_temp` is negative or non-finite.
+    #[must_use]
+    pub fn with_min_temp(mut self, min_temp: f32) -> Self {
+        assert!(
+            min_temp.is_finite() && min_temp >= 0.0,
+            "SimulatedAnnealingParams::with_min_temp: min_temp must be finite and >= 0"
+        );
+        self.min_temp = min_temp;
+        self
+    }
+
+    /// Overrides the Gaussian proposal step size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `step_size` is not strictly positive and finite.
+    #[must_use]
+    pub fn with_step_size(mut self, step_size: f32) -> Self {
+        assert!(
+            step_size.is_finite() && step_size > 0.0,
+            "SimulatedAnnealingParams::with_step_size: step_size must be finite and > 0"
+        );
+        self.step_size = step_size;
+        self
+    }
+
+    /// Inclusive search-space bounds.
+    #[must_use]
+    pub fn bounds(&self) -> Bounds {
+        self.bounds
+    }
+
+    /// Total evaluation budget per `refine`.
+    #[must_use]
+    pub fn max_iters(&self) -> usize {
+        self.max_iters
+    }
+
+    /// Starting temperature.
+    #[must_use]
+    pub fn initial_temp(&self) -> f32 {
+        self.initial_temp
+    }
+
+    /// Cooling schedule.
+    #[must_use]
+    pub fn cooling(&self) -> CoolingSchedule {
+        self.cooling
+    }
+
+    /// Early-stop temperature floor.
+    #[must_use]
+    pub fn min_temp(&self) -> f32 {
+        self.min_temp
+    }
+
+    /// Gaussian proposal step size.
+    #[must_use]
+    pub fn step_size(&self) -> f32 {
+        self.step_size
     }
 }
 
@@ -276,6 +408,28 @@ mod tests {
     use rand::SeedableRng;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn with_setters_override_defaults() {
+        let sa = SimulatedAnnealingParams::default_for(Bounds::new(-2.0, 2.0))
+            .with_max_iters(50)
+            .with_initial_temp(3.0)
+            .with_cooling(CoolingSchedule::Linear { delta: 0.1 })
+            .with_min_temp(0.01)
+            .with_step_size(0.5);
+        assert_eq!(sa.max_iters(), 50);
+        assert!((sa.initial_temp() - 3.0).abs() < 1e-6);
+        assert_eq!(sa.cooling(), CoolingSchedule::Linear { delta: 0.1 });
+        assert!((sa.min_temp() - 0.01).abs() < 1e-6);
+        assert!((sa.step_size() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    #[should_panic(expected = "geometric factor must be in (0, 1)")]
+    fn with_cooling_rejects_out_of_range_geometric_factor() {
+        let _ = SimulatedAnnealingParams::default_for(Bounds::new(-2.0, 2.0))
+            .with_cooling(CoolingSchedule::Geometric { factor: 1.5 });
+    }
 
     /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
     /// origin.

@@ -194,12 +194,11 @@ fn run_memetic_row(
 /// progress, greedy enough that each polished elite pulls the population
 /// toward a basin.
 fn headline_hc() -> HillClimbingParams {
-    let mut hc: HillClimbingParams = HillClimbingParams::default_for(BOUNDS);
-    hc.max_iters = 20;
-    hc.step_size = 0.4;
-    hc.step_decay = 0.5;
-    hc.variant = HillClimbVariant::BestImprovement;
-    hc
+    HillClimbingParams::default_for(BOUNDS)
+        .with_max_iters(20)
+        .with_step_size(0.4)
+        .with_step_decay(0.5)
+        .with_variant(HillClimbVariant::BestImprovement)
 }
 
 fn main() {
