@@ -147,13 +147,13 @@ mod tests {
 
         let state = model.fit(&params, None, empty_pop, empty_fitness, &device);
 
-        assert_eq!(state.mean.len(), 3);
-        assert_eq!(state.variance.len(), 3);
-        for &m in &state.mean {
+        assert_eq!(state.mean().len(), 3);
+        assert_eq!(state.variance().len(), 3);
+        for &m in state.mean() {
             approx::assert_relative_eq!(m, params.init_mean, epsilon = 1e-6);
         }
         let expected_var = params.init_std * params.init_std;
-        for &v in &state.variance {
+        for &v in state.variance() {
             approx::assert_relative_eq!(v, expected_var, epsilon = 1e-6);
         }
     }

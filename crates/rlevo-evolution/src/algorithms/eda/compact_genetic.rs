@@ -26,6 +26,7 @@
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
+use rlevo_core::config::{self, ConfigError};
 
 use crate::probability_model::ProbabilityModel;
 
@@ -63,10 +64,37 @@ impl CompactGeneticParams {
 /// The vector has length `genome_dim`. On the prior path (`prev = None`) it
 /// is uniformly `0.5`; on subsequent calls entries are nudged by
 /// `±1 / virtual_pop_size` and clamped to `[0, 1]`.
+///
+/// The field is private so an out-of-range probability is unrepresentable
+/// from outside this module; build one with
+/// [`try_new`](CompactGeneticState::try_new) and read it via
+/// [`prob`](CompactGeneticState::prob).
 #[derive(Debug, Clone)]
 pub struct CompactGeneticState {
     /// Per-gene probability of sampling a `1.0` (always in `[0, 1]`).
-    pub prob: Vec<f32>,
+    prob: Vec<f32>,
+}
+
+impl CompactGeneticState {
+    /// Builds a cGA state from a per-gene probability vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `prob` is empty or if any entry is outside
+    /// the closed interval `[0, 1]` (or is non-finite).
+    pub fn try_new(prob: Vec<f32>) -> Result<Self, ConfigError> {
+        config::nonzero("CompactGeneticState", "prob", prob.len())?;
+        for &p in &prob {
+            config::in_range("CompactGeneticState", "prob", 0.0, 1.0, f64::from(p))?;
+        }
+        Ok(Self { prob })
+    }
+
+    /// Per-gene probabilities of sampling a `1.0`, each in `[0, 1]`.
+    #[must_use]
+    pub fn prob(&self) -> &[f32] {
+        &self.prob
+    }
 }
 
 /// Compact Genetic Algorithm for binary spaces (cGA).
@@ -215,6 +243,16 @@ mod tests {
     fn prior_is_half() {
         let p = CompactGeneticParams::default_for(3);
         assert_eq!(fit_prior(&p).prob, vec![0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn try_new_accepts_valid_and_rejects_out_of_range() {
+        let state = CompactGeneticState::try_new(vec![0.0, 0.5, 1.0]).unwrap();
+        assert_eq!(state.prob(), &[0.0, 0.5, 1.0]);
+        assert!(CompactGeneticState::try_new(vec![]).is_err());
+        assert!(CompactGeneticState::try_new(vec![0.5, 1.5]).is_err());
+        assert!(CompactGeneticState::try_new(vec![-0.1]).is_err());
+        assert!(CompactGeneticState::try_new(vec![f32::NAN]).is_err());
     }
 
     #[test]

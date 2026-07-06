@@ -24,6 +24,7 @@
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand_distr::{Distribution as _, Normal};
+use rlevo_core::config::{self, ConfigError, ConstraintKind};
 
 use crate::probability_model::ProbabilityModel;
 
@@ -69,13 +70,59 @@ impl UnivariateGaussianParams {
 /// they are initialised from [`UnivariateGaussianParams::init_mean`] /
 /// `init_std²`; on subsequent calls they hold the unweighted MLE estimates
 /// computed from the truncation-selected population.
+///
+/// Fields are private so a mismatched `mean` / `variance` length (or a
+/// negative / non-finite variance) is unrepresentable from outside this
+/// module; use [`try_new`](UnivariateGaussianState::try_new) to build one and
+/// the [`mean`](UnivariateGaussianState::mean) /
+/// [`variance`](UnivariateGaussianState::variance) accessors to read it.
 #[derive(Debug, Clone)]
 pub struct UnivariateGaussianState {
     /// Per-dimension MLE mean.
-    pub mean: Vec<f32>,
+    mean: Vec<f32>,
     /// Per-dimension MLE variance, floored at
     /// [`UnivariateGaussianParams::min_variance`].
-    pub variance: Vec<f32>,
+    variance: Vec<f32>,
+}
+
+impl UnivariateGaussianState {
+    /// Builds a fitted Gaussian state from per-dimension `mean` and `variance`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `mean` is empty, if `mean` and `variance`
+    /// differ in length, or if any variance is negative or non-finite. A
+    /// variance is a squared deviation, so it must be `>= 0` and finite.
+    pub fn try_new(mean: Vec<f32>, variance: Vec<f32>) -> Result<Self, ConfigError> {
+        config::nonzero("UnivariateGaussianState", "mean", mean.len())?;
+        if mean.len() != variance.len() {
+            return Err(ConfigError {
+                config: "UnivariateGaussianState",
+                field: "variance",
+                kind: ConstraintKind::Custom("mean and variance must have equal length"),
+            });
+        }
+        if variance.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err(ConfigError {
+                config: "UnivariateGaussianState",
+                field: "variance",
+                kind: ConstraintKind::Custom("every variance must be finite and non-negative"),
+            });
+        }
+        Ok(Self { mean, variance })
+    }
+
+    /// Per-dimension MLE means, length `genome_dim`.
+    #[must_use]
+    pub fn mean(&self) -> &[f32] {
+        &self.mean
+    }
+
+    /// Per-dimension MLE variances, length `genome_dim`.
+    #[must_use]
+    pub fn variance(&self) -> &[f32] {
+        &self.variance
+    }
 }
 
 /// Univariate Marginal Distribution Algorithm for continuous spaces (UMDA).
@@ -321,6 +368,21 @@ mod tests {
         );
         assert_eq!(a.mean, b.mean);
         assert_eq!(a.variance, b.variance);
+    }
+
+    #[test]
+    fn try_new_accepts_valid_and_round_trips() {
+        let state = UnivariateGaussianState::try_new(vec![1.0, -2.0], vec![0.5, 4.0]).unwrap();
+        assert_eq!(state.mean(), &[1.0, -2.0]);
+        assert_eq!(state.variance(), &[0.5, 4.0]);
+    }
+
+    #[test]
+    fn try_new_rejects_length_mismatch_and_bad_variance() {
+        assert!(UnivariateGaussianState::try_new(vec![0.0, 0.0], vec![1.0]).is_err());
+        assert!(UnivariateGaussianState::try_new(vec![], vec![]).is_err());
+        assert!(UnivariateGaussianState::try_new(vec![0.0], vec![-1.0]).is_err());
+        assert!(UnivariateGaussianState::try_new(vec![0.0], vec![f32::NAN]).is_err());
     }
 
     #[test]

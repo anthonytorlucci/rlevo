@@ -228,8 +228,8 @@ fn rosenbrock_demo() {
         |row| rosenbrock_fitness(landscape, row),
         |g, st: &UnivariateGaussianState| {
             if logged(g) {
-                let mean_abs_mu = mean(&st.mean.iter().map(|m| m.abs()).collect::<Vec<_>>());
-                let mean_sigma = mean(&st.variance.iter().map(|v| v.sqrt()).collect::<Vec<_>>());
+                let mean_abs_mu = mean(&st.mean().iter().map(|m| m.abs()).collect::<Vec<_>>());
+                let mean_sigma = mean(&st.variance().iter().map(|v| v.sqrt()).collect::<Vec<_>>());
                 println!("  {:>4} {mean_abs_mu:>12.5} {mean_sigma:>10.5}", g + 1);
             }
         },
@@ -399,7 +399,7 @@ fn onemax_demo() {
         ONEMAX_GENS,
         onemax_zeros,
         |g, st: &UnivariateBernoulliState| {
-            println!("  {:>4} {:>9.4}  {}", g + 1, mean(&st.prob), prob_bar(&st.prob));
+            println!("  {:>4} {:>9.4}  {}", g + 1, mean(st.prob()), prob_bar(st.prob()));
         },
     );
     println!("  → best fitness (0 = all-ones found): {pbil_best:.1}\n");
@@ -418,7 +418,7 @@ fn onemax_demo() {
         ONEMAX_GENS,
         onemax_zeros,
         |g, st: &CompactGeneticState| {
-            println!("  {:>4} {:>9.4}  {}", g + 1, mean(&st.prob), prob_bar(&st.prob));
+            println!("  {:>4} {:>9.4}  {}", g + 1, mean(st.prob()), prob_bar(st.prob()));
         },
     );
     println!("  → best fitness (0 = all-ones found): {cga_best:.1}\n");
@@ -566,7 +566,7 @@ fn trap_demo() {
         |row| trap_fitness(trap, row),
         |g, st: &UnivariateGaussianState| {
             if logged(g) {
-                println!("  {:>4} {:>10.5}", g + 1, mean(&st.mean));
+                println!("  {:>4} {:>10.5}", g + 1, mean(st.mean()));
             }
         },
     );
