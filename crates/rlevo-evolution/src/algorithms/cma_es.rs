@@ -265,21 +265,126 @@ impl Validate for CmaEsConfig {
 #[derive(Debug, Clone)]
 pub struct CmaEsState<B: Backend> {
     /// Distribution mean `m`, length `D`.
-    pub mean: Vec<f32>,
+    mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `D × D`.
-    pub cov: Vec<f32>,
+    cov: Vec<f32>,
     /// Conjugate evolution path `p_σ`, length `D`.
-    pub p_sigma: Vec<f32>,
+    p_sigma: Vec<f32>,
     /// Anisotropic evolution path `p_c`, length `D`.
-    pub p_c: Vec<f32>,
+    p_c: Vec<f32>,
     /// Global step size `σ`.
-    pub sigma: f32,
+    sigma: f32,
     /// Completed-generation counter.
-    pub generation: usize,
+    generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness (canonical maximise convention).
-    pub best_fitness: f32,
+    best_fitness: f32,
+}
+
+impl<B: Backend> CmaEsState<B> {
+    /// Assembles a CMA-ES state, checking the distribution parameters are
+    /// dimensionally consistent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `D × D`
+    /// row-major (`D = mean.len()`), if `p_sigma` or `p_c` differs from `D`,
+    /// or if `sigma` is not strictly positive and finite.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        mean: Vec<f32>,
+        cov: Vec<f32>,
+        p_sigma: Vec<f32>,
+        p_c: Vec<f32>,
+        sigma: f32,
+        generation: usize,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+    ) -> Result<Self, ConfigError> {
+        let d = mean.len();
+        config::nonzero("CmaEsState", "mean", d)?;
+        if cov.len() != d * d {
+            return Err(ConfigError {
+                config: "CmaEsState",
+                field: "cov",
+                kind: ConstraintKind::Custom("covariance must be a row-major D × D matrix"),
+            });
+        }
+        if p_sigma.len() != d {
+            return Err(ConfigError {
+                config: "CmaEsState",
+                field: "p_sigma",
+                kind: ConstraintKind::Custom("evolution path length must equal D"),
+            });
+        }
+        if p_c.len() != d {
+            return Err(ConfigError {
+                config: "CmaEsState",
+                field: "p_c",
+                kind: ConstraintKind::Custom("evolution path length must equal D"),
+            });
+        }
+        config::positive("CmaEsState", "sigma", f64::from(sigma))?;
+        Ok(Self {
+            mean,
+            cov,
+            p_sigma,
+            p_c,
+            sigma,
+            generation,
+            best_genome,
+            best_fitness,
+        })
+    }
+
+    /// Distribution mean `m`, length `D`.
+    #[must_use]
+    pub fn mean(&self) -> &[f32] {
+        &self.mean
+    }
+
+    /// Covariance matrix `C`, row-major `D × D`.
+    #[must_use]
+    pub fn cov(&self) -> &[f32] {
+        &self.cov
+    }
+
+    /// Conjugate evolution path `p_σ`, length `D`.
+    #[must_use]
+    pub fn p_sigma(&self) -> &[f32] {
+        &self.p_sigma
+    }
+
+    /// Anisotropic evolution path `p_c`, length `D`.
+    #[must_use]
+    pub fn p_c(&self) -> &[f32] {
+        &self.p_c
+    }
+
+    /// Global step size `σ`.
+    #[must_use]
+    pub fn sigma(&self) -> f32 {
+        self.sigma
+    }
+
+    /// Completed-generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
 }
 
 /// Covariance Matrix Adaptation Evolution Strategy.
@@ -575,6 +680,53 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::backend::Flex;
+
+    #[test]
+    fn try_new_checks_dimensions() {
+        // D = 2: cov is 2×2 = 4 entries, both paths length 2, σ > 0.
+        assert!(
+            CmaEsState::<Flex>::try_new(
+                vec![0.0, 0.0],
+                vec![1.0, 0.0, 0.0, 1.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                0.5,
+                0,
+                None,
+                f32::MIN,
+            )
+            .is_ok()
+        );
+        // cov length 3 ≠ D·D.
+        assert!(
+            CmaEsState::<Flex>::try_new(
+                vec![0.0, 0.0],
+                vec![1.0, 0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                0.5,
+                0,
+                None,
+                f32::MIN,
+            )
+            .is_err()
+        );
+        // Non-positive σ.
+        assert!(
+            CmaEsState::<Flex>::try_new(
+                vec![0.0, 0.0],
+                vec![1.0, 0.0, 0.0, 1.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                0.0,
+                0,
+                None,
+                f32::MIN,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn default_config_validates() {

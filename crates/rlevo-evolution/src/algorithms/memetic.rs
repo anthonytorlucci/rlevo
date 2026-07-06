@@ -173,13 +173,43 @@ impl<SP: Validate, LP> Validate for MemeticParams<SP, LP> {
 ///
 /// Wraps the inner strategy's state and carries the memetic generation counter
 /// (used to derive deterministic per-generation refinement seeds).
+///
+/// Fields are private for consistency with the rest of the crate's state
+/// types; the wrapped `inner` is an opaque `St` with no invariant this wrapper
+/// can check, so construction is the infallible [`new`](MemeticState::new)
+/// rather than a `try_new`.
 #[derive(Clone, Debug)]
 pub struct MemeticState<St> {
     /// The wrapped inner [`Strategy`] state.
-    pub inner: St,
+    inner: St,
     /// Number of completed `tell` calls — the generation index threaded into
     /// [`seed_stream`] so each generation refines from an independent stream.
-    pub generation: u64,
+    generation: u64,
+}
+
+impl<St> MemeticState<St> {
+    /// Wraps an inner strategy state with a memetic generation counter.
+    #[must_use]
+    pub fn new(inner: St, generation: u64) -> Self {
+        Self { inner, generation }
+    }
+
+    /// Borrows the wrapped inner strategy state.
+    #[must_use]
+    pub fn inner(&self) -> &St {
+        &self.inner
+    }
+
+    /// Mutably borrows the wrapped inner strategy state.
+    pub fn inner_mut(&mut self) -> &mut St {
+        &mut self.inner
+    }
+
+    /// Number of completed `tell` calls.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
 }
 
 /// Wraps an inner [`Strategy`] with per-individual [`LocalSearch`] refinement.
@@ -590,6 +620,15 @@ mod tests {
     use rand::SeedableRng;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn memetic_state_new_round_trips() {
+        let mut state = MemeticState::new(7_u32, 3);
+        assert_eq!(*state.inner(), 7);
+        assert_eq!(state.generation(), 3);
+        *state.inner_mut() = 11;
+        assert_eq!(*state.inner(), 11);
+    }
 
     const BOUNDS: Bounds = Bounds::new(-5.12, 5.12);
 
