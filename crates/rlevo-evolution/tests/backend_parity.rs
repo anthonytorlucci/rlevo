@@ -36,6 +36,7 @@
 use burn::backend::{Flex, Wgpu};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
@@ -68,9 +69,9 @@ where
         pop_size: 64,
         genome_dim: 10,
         bounds: Bounds::new(-5.12, 5.12),
-        mutation_sigma: 0.2,
+        mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 2 },
-        crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
     let mut harness = EvolutionaryHarness::<B, _, _>::new(

@@ -24,6 +24,8 @@
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
+use rlevo_core::probability::Probability;
+use rlevo_core::rate::NonNegativeRate;
 
 /// Builds an `(n·d,)` host vector of `U[0, 1)` draws sized for a
 /// `(n, d)` genome tensor.
@@ -61,7 +63,7 @@ fn unit_uniform_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 pub fn blx_alpha<B: Backend>(
     parent_a: Tensor<B, 2>,
     parent_b: Tensor<B, 2>,
-    alpha: f32,
+    alpha: NonNegativeRate,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
@@ -72,6 +74,7 @@ pub fn blx_alpha<B: Backend>(
     );
     let [n, d] = parent_a.dims();
 
+    let alpha = alpha.get();
     let min = parent_a.clone().min_pair(parent_b.clone());
     let max = parent_a.max_pair(parent_b);
     let diff = max.clone() - min.clone();
@@ -109,7 +112,7 @@ pub fn blx_alpha<B: Backend>(
 pub fn uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2>,
     parent_b: Tensor<B, 2>,
-    p: f32,
+    p: Probability,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
@@ -120,7 +123,7 @@ pub fn uniform_crossover<B: Backend>(
     );
     let [n, d] = parent_a.dims();
     let u = Tensor::<B, 2>::from_data(TensorData::new(unit_uniform_rows(n, d, rng), [n, d]), device);
-    let keep_a = u.lower_elem(p);
+    let keep_a = u.lower_elem(p.get());
     parent_a.mask_where(keep_a.bool_not(), parent_b)
 }
 
@@ -143,7 +146,7 @@ pub fn uniform_crossover<B: Backend>(
 pub fn binary_uniform_crossover<B: Backend>(
     parent_a: Tensor<B, 2, Int>,
     parent_b: Tensor<B, 2, Int>,
-    p: f32,
+    p: Probability,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2, Int> {
@@ -154,7 +157,7 @@ pub fn binary_uniform_crossover<B: Backend>(
     );
     let [n, d] = parent_a.dims();
     let u = Tensor::<B, 2>::from_data(TensorData::new(unit_uniform_rows(n, d, rng), [n, d]), device);
-    let keep_a = u.lower_elem(p);
+    let keep_a = u.lower_elem(p.get());
     parent_a.mask_where(keep_a.bool_not(), parent_b)
 }
 
@@ -180,7 +183,7 @@ mod tests {
             TensorData::new(vec![1.0_f32, 1.0, 1.0, 1.0], [2, 2]),
             &device,
         );
-        let c = blx_alpha(a, b, 0.0, &mut rng, &device);
+        let c = blx_alpha(a, b, NonNegativeRate::new(0.0), &mut rng, &device);
         let values = c.into_data().into_vec::<f32>().unwrap();
         // α = 0: children lie strictly in [0, 1].
         for v in values {
@@ -200,7 +203,7 @@ mod tests {
             TensorData::new(vec![-7.0_f32, -7.0, -7.0, -7.0], [2, 2]),
             &device,
         );
-        let c = uniform_crossover(a, b, 1.0, &mut rng, &device);
+        let c = uniform_crossover(a, b, Probability::new(1.0), &mut rng, &device);
         let values = c.into_data().into_vec::<f32>().unwrap();
         for v in values {
             approx::assert_relative_eq!(v, 7.0, epsilon = 1e-6);
@@ -219,10 +222,25 @@ mod tests {
             TensorData::new(vec![-7.0_f32, -7.0, -7.0, -7.0], [2, 2]),
             &device,
         );
-        let c = uniform_crossover(a, b, 0.0, &mut rng, &device);
+        let c = uniform_crossover(a, b, Probability::new(0.0), &mut rng, &device);
         let values = c.into_data().into_vec::<f32>().unwrap();
         for v in values {
             approx::assert_relative_eq!(v, -7.0, epsilon = 1e-6);
         }
+    }
+
+    #[test]
+    fn nan_and_inf_rates_are_unconstructable() {
+        // Regression for #144 (ADR 0031): the crossover/mutation rate scalars
+        // used to be bare `f32`s, so a NaN silently degenerated `u.lower_elem(p)`
+        // to an all-false mask (a no-op / one-parent clone) and a NaN/Inf BLX-α
+        // poisoned the whole offspring tensor. The operators now take validated
+        // newtypes, so those inputs cannot even be constructed — the hazard is
+        // unrepresentable rather than silently mishandled.
+        assert!(Probability::try_new(f32::NAN).is_err());
+        assert!(Probability::try_new(1.5).is_err());
+        assert!(NonNegativeRate::try_new(f32::NAN).is_err());
+        assert!(NonNegativeRate::try_new(f32::INFINITY).is_err());
+        assert!(NonNegativeRate::try_new(-1.0).is_err());
     }
 }

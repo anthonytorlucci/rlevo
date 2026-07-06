@@ -35,6 +35,8 @@ use crate::ops::{
 };
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+use rlevo_core::probability::Probability;
+use rlevo_core::rate::NonNegativeRate;
 
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -49,10 +51,12 @@ pub enum GaSelection {
 /// Crossover algorithm choice.
 #[derive(Debug, Clone, Copy)]
 pub enum GaCrossover {
-    /// BLX-α real-valued crossover.
-    BlxAlpha { alpha: f32 },
-    /// Uniform swap crossover with per-gene probability `p`.
-    Uniform { p: f32 },
+    /// BLX-α real-valued crossover. `alpha` is a non-negative expansion
+    /// factor (finite, `>= 0`), valid by construction.
+    BlxAlpha { alpha: NonNegativeRate },
+    /// Uniform swap crossover with per-gene probability `p` (valid by
+    /// construction, `[0, 1]`).
+    Uniform { p: Probability },
 }
 
 /// Replacement algorithm choice.
@@ -73,8 +77,9 @@ pub struct GaConfig {
     pub genome_dim: usize,
     /// Lower / upper bound on initial samples and clamping.
     pub bounds: Bounds,
-    /// σ for isotropic Gaussian mutation.
-    pub mutation_sigma: f32,
+    /// σ for isotropic Gaussian mutation. A non-negative step size (finite,
+    /// `>= 0`), valid by construction.
+    pub mutation_sigma: NonNegativeRate,
     /// Selection operator.
     pub selection: GaSelection,
     /// Crossover operator.
@@ -91,9 +96,9 @@ impl GaConfig {
             pop_size,
             genome_dim,
             bounds: Bounds::new(-5.12, 5.12),
-            mutation_sigma: 0.3,
+            mutation_sigma: NonNegativeRate::new(0.3),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
     }
@@ -104,7 +109,10 @@ impl Validate for GaConfig {
         const C: &str = "GaConfig";
         config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
-        config::in_range(C, "mutation_sigma", 0.0, f64::INFINITY, f64::from(self.mutation_sigma))?;
+        // `mutation_sigma` is a `NonNegativeRate` (finite, `>= 0`); the
+        // `GaCrossover` payloads (`alpha: NonNegativeRate`, `p: Probability`)
+        // are likewise valid by construction — no scalar `in_range` checks
+        // here, see ADR 0031.
         match self.selection {
             GaSelection::Tournament { size } => {
                 config::at_least(C, "selection.size", size, 1)?;
@@ -117,14 +125,6 @@ impl Validate for GaConfig {
                         ),
                     });
                 }
-            }
-        }
-        match self.crossover {
-            GaCrossover::BlxAlpha { alpha } => {
-                config::in_range(C, "crossover.alpha", 0.0, f64::INFINITY, f64::from(alpha))?;
-            }
-            GaCrossover::Uniform { p } => {
-                config::in_range(C, "crossover.p", 0.0, 1.0, f64::from(p))?;
             }
         }
         match self.replacement {
@@ -166,6 +166,7 @@ pub struct GaState<B: Backend> {
 /// ```no_run
 /// use burn::backend::Flex;
 /// use rlevo_core::bounds::Bounds;
+/// use rlevo_core::rate::NonNegativeRate;
 /// use rlevo_evolution::algorithms::ga::{
 ///     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 /// };
@@ -175,9 +176,9 @@ pub struct GaState<B: Backend> {
 ///     pop_size: 64,
 ///     genome_dim: 10,
 ///     bounds: Bounds::new(-5.12, 5.12),
-///     mutation_sigma: 0.3,
+///     mutation_sigma: NonNegativeRate::new(0.3),
 ///     selection: GaSelection::Tournament { size: 2 },
-///     crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+///     crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
 ///     replacement: GaReplacement::Elitist { elitism_k: 2 },
 /// };
 /// let _ = (strategy, params);
@@ -483,9 +484,9 @@ mod tests {
             pop_size: 64,
             genome_dim: 2,
             bounds: Bounds::new(-5.0, 5.0),
-            mutation_sigma: 0.2,
+            mutation_sigma: NonNegativeRate::new(0.2),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);

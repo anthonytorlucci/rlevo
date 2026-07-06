@@ -53,6 +53,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
 use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::probability::Probability;
 
 use crate::function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
 use crate::rng::{SeedPurpose, seed_stream};
@@ -74,8 +75,9 @@ pub struct CgpConfig {
     pub rows: usize,
     /// Number of grid columns.
     pub cols: usize,
-    /// Mutation rate applied to each gene of the integer genome.
-    pub mutation_rate: f32,
+    /// Mutation rate applied to each gene of the integer genome. Valid by
+    /// construction (`[0, 1]`).
+    pub mutation_rate: Probability,
     /// Levels-back parameter: how many previous columns a node can
     /// connect to. `usize::MAX` means "any previous column".
     pub levels_back: usize,
@@ -92,7 +94,7 @@ impl CgpConfig {
         let output_genes = 1;
         let total_genes = rows * cols * genes_per_node + output_genes;
         #[allow(clippy::cast_precision_loss)]
-        let mutation_rate = 3.0 / total_genes as f32;
+        let mutation_rate = Probability::new(3.0 / total_genes as f32);
         Self {
             lambda: 4,
             n_inputs,
@@ -123,7 +125,8 @@ impl Validate for CgpConfig {
         config::at_least(C, "n_inputs", self.n_inputs, 1)?;
         config::at_least(C, "rows", self.rows, 1)?;
         config::at_least(C, "cols", self.cols, 1)?;
-        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
+        // `mutation_rate` is a `Probability`: valid by construction, so no
+        // `in_range` check here — see ADR 0031.
         config::at_least(C, "levels_back", self.levels_back, 1)?;
         Ok(())
     }
@@ -237,7 +240,7 @@ fn mutate_genome(genome: &mut [i64], params: &CgpConfig, rng: &mut dyn Rng) {
     let genes_per_node = CgpConfig::GENES_PER_NODE;
     let node_genes = params.rows * params.cols * genes_per_node;
     for (gene_idx, gene) in genome.iter_mut().enumerate() {
-        if rng.random::<f32>() >= params.mutation_rate {
+        if rng.random::<f32>() >= params.mutation_rate.get() {
             continue;
         }
         if gene_idx < node_genes {

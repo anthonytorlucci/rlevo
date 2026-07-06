@@ -45,6 +45,7 @@ use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
 use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -110,9 +111,9 @@ where
             pop_size: 64,
             genome_dim: dim,
             bounds,
-            mutation_sigma,
+            mutation_sigma: NonNegativeRate::new(mutation_sigma),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: 0.5 },
+            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
             replacement: GaReplacement::Elitist { elitism_k: 2 },
         },
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),

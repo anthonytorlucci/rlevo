@@ -19,6 +19,8 @@
 //! | [`objective`] | [`ObjectiveSense`] — the maximise/minimise direction primitive reconciled at one chokepoint |
 //! | [`config`] | [`Validate`], [`ConfigError`] — the shared config-validation convention checked at construction |
 //! | [`bounds`] | [`Bounds`] — an inclusive range valid by construction (invariant `lo <= hi`: rejects `lo > hi` and `NaN`) |
+//! | [`probability`] | [`Probability`] — a `[0, 1]` rate valid by construction (rejects `NaN`, `Inf`, out-of-range) |
+//! | [`rate`] | [`NonNegativeRate`] — a finite non-negative magnitude valid by construction (BLX-α, σ) |
 //! | [`render`] | [`AsciiRenderable`], [`Renderer`](crate::render::Renderer), styled/palette/payload sub-modules — optional debug and TUI visualization layer |
 //! | [`agent`] | Reserved; empty in v0.1.x while the unified agent trait hierarchy stabilizes |
 //! | [`util`] | Shared utility helpers |
@@ -90,6 +92,8 @@
 //! [`Validate`]: crate::config::Validate
 //! [`ConfigError`]: crate::config::ConfigError
 //! [`Bounds`]: crate::bounds::Bounds
+//! [`Probability`]: crate::probability::Probability
+//! [`NonNegativeRate`]: crate::rate::NonNegativeRate
 //! [`AsciiRenderable`]: crate::render::AsciiRenderable
 //! [`Renderer`]: crate::render::Renderer
 
@@ -188,6 +192,32 @@ pub mod fitness;
 ///
 /// [`ObjectiveSense`]: crate::objective::ObjectiveSense
 pub mod objective;
+
+/// Validated unit-interval probability primitive.
+///
+/// Provides [`Probability`], a value in the closed interval `[0, 1]` valid by
+/// construction (invariant `0.0 <= p <= 1.0`: rejects `NaN`, `Inf`, and
+/// out-of-range values), plus its [`ProbabilityError`]. Makes the silent
+/// all-false-mask degeneracy of a `NaN`/out-of-range Bernoulli rate
+/// unrepresentable wherever a `Probability` is held. Complements the [`config`]
+/// convention rather than replacing it (ADR 0031).
+///
+/// [`Probability`]: crate::probability::Probability
+/// [`ProbabilityError`]: crate::probability::ProbabilityError
+pub mod probability;
+
+/// Validated non-negative rate primitive.
+///
+/// Provides [`NonNegativeRate`], a finite non-negative `f32` valid by
+/// construction (invariant `is_finite() && r >= 0.0`), plus its
+/// [`NonNegativeRateError`]. The unbounded companion to [`Probability`] for
+/// magnitudes such as BLX-α's expansion factor or Gaussian mutation's σ, where
+/// a `NaN`/`Inf` would otherwise poison the offspring tensor (ADR 0031).
+///
+/// [`NonNegativeRate`]: crate::rate::NonNegativeRate
+/// [`NonNegativeRateError`]: crate::rate::NonNegativeRateError
+/// [`Probability`]: crate::probability::Probability
+pub mod rate;
 
 /// Optional rendering layer for debug output and TUI visualization.
 ///

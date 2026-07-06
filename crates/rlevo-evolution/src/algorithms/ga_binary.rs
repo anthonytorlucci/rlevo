@@ -48,6 +48,7 @@ use crate::ops::selection::{tournament_indices_host, truncation_indices_host};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+use rlevo_core::probability::Probability;
 
 /// Static configuration for a [`BinaryGeneticAlgorithm`] run.
 #[derive(Debug, Clone)]
@@ -56,10 +57,11 @@ pub struct BinaryGaConfig {
     pub pop_size: usize,
     /// Genome dimensionality.
     pub genome_dim: usize,
-    /// Probability of bit flip per gene.
-    pub mutation_rate: f32,
-    /// Probability of taking parent A's bit in uniform crossover.
-    pub crossover_p: f32,
+    /// Probability of bit flip per gene. Valid by construction (`[0, 1]`).
+    pub mutation_rate: Probability,
+    /// Probability of taking parent A's bit in uniform crossover. Valid by
+    /// construction (`[0, 1]`).
+    pub crossover_p: Probability,
     /// Tournament size for parent selection.
     pub tournament_size: usize,
     /// Number of elites carried over to the next generation.
@@ -77,8 +79,8 @@ impl BinaryGaConfig {
             pop_size,
             genome_dim,
             #[allow(clippy::cast_precision_loss)]
-            mutation_rate: 1.0 / genome_dim as f32,
-            crossover_p: 0.5,
+            mutation_rate: Probability::new(1.0 / genome_dim as f32),
+            crossover_p: Probability::new(0.5),
             tournament_size: 2,
             elitism_k: 1,
         }
@@ -90,8 +92,9 @@ impl Validate for BinaryGaConfig {
         const C: &str = "BinaryGaConfig";
         config::at_least(C, "pop_size", self.pop_size, 1)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
-        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
-        config::in_range(C, "crossover_p", 0.0, 1.0, f64::from(self.crossover_p))?;
+        // `mutation_rate` / `crossover_p` are `Probability`: valid by
+        // construction (`[0, 1]`, NaN/Inf rejected), so no `in_range` check
+        // here — see ADR 0031.
         config::at_least(C, "tournament_size", self.tournament_size, 1)?;
         if self.tournament_size > self.pop_size {
             return Err(ConfigError {

@@ -12,6 +12,8 @@
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
+use rlevo_core::probability::Probability;
+use rlevo_core::rate::NonNegativeRate;
 
 /// Builds an `(n·d,)` host vector of `N(0, 1)` draws sized for a
 /// `(n, d)` tensor.
@@ -42,14 +44,14 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 #[must_use]
 pub fn gaussian_mutation<B: Backend>(
     population: Tensor<B, 2>,
-    sigma: f32,
+    sigma: NonNegativeRate,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let [n, d] = population.dims();
     let noise =
         Tensor::<B, 2>::from_data(TensorData::new(standard_normal_rows(n, d, rng), [n, d]), device);
-    population + noise.mul_scalar(sigma)
+    population + noise.mul_scalar(sigma.get())
 }
 
 /// Per-individual anisotropic Gaussian mutation.
@@ -108,7 +110,7 @@ pub fn uniform_reset<B: Backend>(
     population: Tensor<B, 2>,
     lo: f32,
     hi: f32,
-    p: f32,
+    p: Probability,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
@@ -121,7 +123,7 @@ pub fn uniform_reset<B: Backend>(
     }
     let noise = Tensor::<B, 2>::from_data(TensorData::new(noise_rows, [n, d]), device);
     let coin = Tensor::<B, 2>::from_data(TensorData::new(coin_rows, [n, d]), device);
-    let reset = coin.lower_elem(p);
+    let reset = coin.lower_elem(p.get());
     population.mask_where(reset, noise)
 }
 
@@ -145,7 +147,7 @@ pub fn uniform_reset<B: Backend>(
 #[must_use]
 pub fn bit_flip_mutation<B: Backend>(
     population: Tensor<B, 2, Int>,
-    p: f32,
+    p: Probability,
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2, Int> {
@@ -156,7 +158,7 @@ pub fn bit_flip_mutation<B: Backend>(
         coin_rows.push(rng.random::<f32>());
     }
     let coin = Tensor::<B, 2>::from_data(TensorData::new(coin_rows, [n, d]), device);
-    let flip = coin.lower_elem(p);
+    let flip = coin.lower_elem(p.get());
     // XOR via arithmetic: new = (1 - old) where flip, else old.
     let ones = Tensor::<B, 2, Int>::ones(shape, device);
     let flipped = ones - population.clone();
@@ -183,7 +185,7 @@ mod tests {
             TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]),
             &device,
         );
-        let out = gaussian_mutation(input.clone(), 0.0, &mut rng, &device);
+        let out = gaussian_mutation(input.clone(), NonNegativeRate::new(0.0), &mut rng, &device);
         let before = input.into_data().into_vec::<f32>().unwrap();
         let after = out.into_data().into_vec::<f32>().unwrap();
         for (a, b) in before.iter().zip(after.iter()) {
@@ -199,7 +201,7 @@ mod tests {
             TensorData::new(vec![0.0_f32; 12], [3, 4]),
             &device,
         );
-        let out = gaussian_mutation(input, 1.0, &mut rng, &device);
+        let out = gaussian_mutation(input, NonNegativeRate::new(1.0), &mut rng, &device);
         assert_eq!(out.dims(), [3, 4]);
     }
 
@@ -230,7 +232,7 @@ mod tests {
             TensorData::new(vec![3.0_f32, 4.0, 5.0, 6.0], [2, 2]),
             &device,
         );
-        let out = uniform_reset(input.clone(), -10.0, 10.0, 0.0, &mut rng, &device);
+        let out = uniform_reset(input.clone(), -10.0, 10.0, Probability::new(0.0), &mut rng, &device);
         let before = input.into_data().into_vec::<f32>().unwrap();
         let after = out.into_data().into_vec::<f32>().unwrap();
         for (a, b) in before.iter().zip(after.iter()) {

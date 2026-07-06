@@ -16,6 +16,7 @@ use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, TensorData, activation, backend::Backend};
 
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
@@ -101,7 +102,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     );
 
     let mut params = GaConfig::default_for(64, num_params);
-    params.mutation_sigma = 0.3;
+    params.mutation_sigma = NonNegativeRate::new(0.3);
     let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template);
 
     let mut harness =
