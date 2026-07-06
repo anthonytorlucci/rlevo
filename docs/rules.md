@@ -63,6 +63,25 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
 - Identity/utility methods: `zero()`, `enumerate()`, `aggregate()`, `encode()`, `decode()`.
 
+### Struct Field Encapsulation
+
+- **State / params / genome structs do not expose `pub` data-bag fields.**
+  A `*State`, `*Params`, or `*Genome` type keeps its fields private (or
+  `pub(crate)` when a family of in-crate operators mutates it in place) and
+  exposes `#[must_use]` read accessors named after the field
+  (`fitness()`, `best_fitness()`, …). This prevents external — or careless
+  internal — code from struct-literal-constructing a structurally invalid
+  value (mismatched lengths, out-of-range probabilities, a broken derived
+  tail) that only panics generations later. (issue #141; mirrors `Population`
+  and the ADR 0022/0030 accessor style.)
+- **Guarded construction.** A struct with a checkable invariant offers a
+  validating `try_new(...) -> Result<Self, ConfigError>` (structural checks:
+  lengths agree, counts non-zero, `σ > 0`) as its public entry point; the
+  trusted in-module construction path may keep a struct literal. A struct
+  with no invariant offers an infallible `new`. Hyperparameter-bearing
+  `*Params` follow the Config Validation Contract below and expose their
+  overrides through validating `with_*` setters, not `pub` fields.
+
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
 - Const generic parameters: `D` (observation/state rank), `AD` (action rank), `SD` (state rank).
