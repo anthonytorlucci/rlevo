@@ -42,6 +42,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::ops::selection::{argmax_host, tournament_indices_host};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -60,7 +61,8 @@ pub struct AbcConfig {
     pub limit: usize,
     /// Tournament size for onlooker selection. Canonical ABC uses
     /// roulette (fitness-proportionate); tournament is a GPU-friendly
-    /// equivalent that reuses [`crate::ops::selection::tournament_select`].
+    /// equivalent that reuses
+    /// [`crate::ops::selection::tournament_indices_host`].
     pub tournament_size: usize,
 }
 
@@ -261,17 +263,13 @@ where
         for i in 0..pop {
             targets.push(i);
         }
-        // Onlooker phase — tournament selection, fitness-biased.
-        for _ in 0..pop {
-            let mut best = stream.random_range(0..pop);
-            for _ in 1..params.tournament_size {
-                let c = stream.random_range(0..pop);
-                if state.fitness[c] < state.fitness[best] {
-                    best = c;
-                }
-            }
-            targets.push(best);
-        }
+        // Onlooker phase — tournament selection biased toward the
+        // fittest (canonical maximise) sources.
+        targets.extend(
+            tournament_indices_host(&state.fitness, params.tournament_size, pop, &mut stream)
+                .into_iter()
+                .map(|w| usize::try_from(w).expect("winner index is non-negative")),
+        );
         // Neighbour + dim + φ for every candidate.
         for &t in &targets {
             let mut k = stream.random_range(0..pop);
@@ -319,7 +317,7 @@ where
         // First tell: population is the initial colony being scored.
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            let best_idx = argmax(&fitness_host);
+            let best_idx = argmax_host(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -424,7 +422,7 @@ where
 
         // Update best-so-far from the refreshed colony's fitness cache
         // (excluding INF-tagged scouts, which next `ask` evaluates).
-        let best_idx = argmax(&state.fitness);
+        let best_idx = argmax_host(&state.fitness);
         if state.fitness[best_idx].is_finite() && state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -450,24 +448,14 @@ where
     }
 }
 
-fn argmax(xs: &[f32]) -> usize {
-    let mut best_idx = 0usize;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in xs.iter().enumerate() {
-        if v > best {
-            best = v;
-            best_idx = i;
-        }
-    }
-    best_idx
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
@@ -492,6 +480,34 @@ mod tests {
         fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
+    }
+
+    // Regression for the inverted onlooker sense (issue #150): under the
+    // canonical maximise convention onlookers must concentrate on the
+    // *fittest* source, not the worst.
+    #[test]
+    fn onlooker_targets_prefer_best_source() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let mut params = AbcConfig::default_for(16, 4);
+        params.tournament_size = 8;
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut state = strategy.init(&params, &mut rng, &device);
+        // Simulate a scored colony where bee 3 dominates.
+        state.fitness = vec![0.0; 16];
+        state.fitness[3] = 100.0;
+        let (_candidates, next) = strategy.ask(&params, &state, &mut rng, &device);
+        // Rows 0..pop are the employed phase; rows pop.. are onlookers.
+        let onlooker_hits = next.target_of_candidate[16..]
+            .iter()
+            .filter(|&&t| t == 3)
+            .count();
+        // P(best wins an 8-ary tournament over pop 16) ≈ 0.40, so ~6 of
+        // 16 onlookers in expectation; the inverted sense yields ~0.
+        assert!(
+            onlooker_hits >= 3,
+            "onlooker hits on the best bee = {onlooker_hits} (expected ~6)",
+        );
     }
 
     #[test]
