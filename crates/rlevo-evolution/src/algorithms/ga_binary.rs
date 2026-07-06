@@ -323,7 +323,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             state.population = offspring;
             return (state, m);
         }
@@ -362,7 +362,7 @@ where
         state.fitness.clone_from(&next_fit);
         state.generation += 1;
         let m = StrategyMetrics::from_host_fitness(state.generation, &next_fit, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -477,7 +477,7 @@ mod tests {
                 break;
             }
         }
-        let best = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
         // OneMax optimum: all ones → fitness == D.
         #[allow(clippy::cast_precision_loss)]
         let optimum = dim as f32;

@@ -157,10 +157,10 @@ where
         state.state_a = next_a;
         state.state_b = next_b;
         state.generation += 1;
-        state.best_a = metrics_a.best_fitness_ever;
-        state.best_b = metrics_b.best_fitness_ever;
-        state.mean_a = metrics_a.mean_fitness;
-        state.mean_b = metrics_b.mean_fitness;
+        state.best_a = metrics_a.best_fitness_ever();
+        state.best_b = metrics_b.best_fitness_ever();
+        state.mean_a = metrics_a.mean_fitness();
+        state.mean_b = metrics_b.mean_fitness();
 
         let metrics = self.snapshot(&state);
         (state, metrics)

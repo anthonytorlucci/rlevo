@@ -136,7 +136,7 @@ where
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
     loop {
         let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         for (slot, &target) in crossings.iter_mut().zip(TARGETS.iter()) {
             if slot.is_none() && best < target {
                 *slot = Some(evals.load(Ordering::Relaxed));
@@ -146,7 +146,7 @@ where
             break;
         }
     }
-    let final_best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+    let final_best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
     let cells: String = TARGETS
         .iter()
         .zip(crossings.iter())
@@ -194,12 +194,11 @@ fn run_memetic_row(
 /// progress, greedy enough that each polished elite pulls the population
 /// toward a basin.
 fn headline_hc() -> HillClimbingParams {
-    let mut hc: HillClimbingParams = HillClimbingParams::default_for(BOUNDS);
-    hc.max_iters = 20;
-    hc.step_size = 0.4;
-    hc.step_decay = 0.5;
-    hc.variant = HillClimbVariant::BestImprovement;
-    hc
+    HillClimbingParams::default_for(BOUNDS)
+        .with_max_iters(20)
+        .with_step_size(0.4)
+        .with_step_decay(0.5)
+        .with_variant(HillClimbVariant::BestImprovement)
 }
 
 fn main() {

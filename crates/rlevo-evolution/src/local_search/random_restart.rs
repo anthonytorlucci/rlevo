@@ -360,8 +360,7 @@ mod tests {
         // full inner budget. Total evals must respect the product formula and
         // exceed a single inner run (proving the restarts actually ran).
         let searcher = RandomRestart::new(HillClimbing);
-        let mut inner = HillClimbingParams::default_for(BOUNDS);
-        inner.max_iters = 20;
+        let inner = HillClimbingParams::default_for(BOUNDS).with_max_iters(20);
         let restarts = 3_usize;
         let params = rr_params(inner.clone(), restarts);
 
@@ -377,7 +376,7 @@ mod tests {
             &mut rng,
         );
 
-        let upper = (restarts + 1) * inner.max_iters;
+        let upper = (restarts + 1) * inner.max_iters();
         assert!(
             counting.calls <= upper,
             "evals {} must not exceed product budget {}",
@@ -385,10 +384,10 @@ mod tests {
             upper
         );
         assert!(
-            counting.calls > inner.max_iters,
+            counting.calls > inner.max_iters(),
             "evals {} must exceed a single inner run ({}) — restarts must run",
             counting.calls,
-            inner.max_iters
+            inner.max_iters()
         );
     }
 
@@ -434,10 +433,10 @@ mod tests {
         // run (restarts=0) settles onto that peak; restarts with healthy
         // perturbation escape to a strictly better fitness.
         let searcher = RandomRestart::new(HillClimbing);
-        let mut inner = HillClimbingParams::default_for(BOUNDS);
         // Small step so run 0 stays trapped near the start peak.
-        inner.step_size = 0.25;
-        inner.max_iters = 120;
+        let inner = HillClimbingParams::default_for(BOUNDS)
+            .with_step_size(0.25)
+            .with_max_iters(120);
         // Start near a non-global Neg-Rastrigin local maximum (lattice point
         // (4, -3), a local minimum of the original Rastrigin).
         let start = vec![4.0_f32, -3.0];
@@ -541,10 +540,10 @@ mod tests {
     #[test]
     fn boundary_start_with_large_perturbation_stays_within_bounds() {
         let searcher = RandomRestart::new(HillClimbing);
-        let mut inner = HillClimbingParams::default_for(BOUNDS);
         // Big inner step, no decay, so probes push hard on bounds too.
-        inner.step_size = 4.0;
-        inner.step_decay = 1.0;
+        let inner = HillClimbingParams::default_for(BOUNDS)
+            .with_step_size(4.0)
+            .with_step_decay(1.0);
         let mut params = rr_params(inner, 4);
         // Large perturbation relative to range: starts will spill past bounds
         // before clamping.
@@ -607,8 +606,7 @@ mod tests {
         // step-underflow (not the budget) terminates each run, total evals drop
         // by exactly one: run 0's seeding eval.
         let searcher = RandomRestart::new(HillClimbing);
-        let mut inner = HillClimbingParams::default_for(BOUNDS);
-        inner.max_iters = 10_000;
+        let inner = HillClimbingParams::default_for(BOUNDS).with_max_iters(10_000);
         let params = rr_params(inner, 3);
         let start = vec![1.0_f32, 2.0, 3.0];
 

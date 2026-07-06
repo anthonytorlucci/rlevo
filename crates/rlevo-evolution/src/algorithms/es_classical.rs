@@ -137,26 +137,118 @@ impl Validate for EsConfig {
 pub struct EsState<B: Backend> {
     /// Parent population. `(μ, D)` for μ-parent variants; `(1, D)` for
     /// (1+1) and (1+λ).
-    pub parents: Tensor<B, 2>,
+    parents: Tensor<B, 2>,
     /// Per-parent σ values.
     ///
     /// Shape between generations is `(μ,)` for log-normal adaptation and
     /// `(1,)` for `(1+1)`/`(1+λ)` with shared σ. Between an `ask` and the
     /// matching `tell` the tensor is temporarily `(μ + λ,)`: parent σ
     /// followed by per-offspring σ. See `ask` for the rationale.
-    pub sigmas: Tensor<B, 1>,
+    sigmas: Tensor<B, 1>,
     /// Parent fitnesses.
-    pub parent_fitness: Vec<f32>,
+    parent_fitness: Vec<f32>,
     /// Best-so-far genome, shape `(1, D)`.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Completed-generation counter.
-    pub generation: usize,
+    generation: usize,
     /// (1+1) only: running success-rate counter for the 1/5th rule.
-    pub successes_in_window: u32,
+    successes_in_window: u32,
     /// (1+1) only: window length observed so far.
-    pub window_len: u32,
+    window_len: u32,
+}
+
+impl<B: Backend> EsState<B> {
+    /// Assembles an ES state, checking the parent fitness cache matches the
+    /// parent count.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `parents` has zero rows or if
+    /// `parent_fitness` is non-empty with a length other than the parent
+    /// count `μ` (`parents.dims()[0]`). The bootstrap state (empty
+    /// `parent_fitness`) is accepted.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        parents: Tensor<B, 2>,
+        sigmas: Tensor<B, 1>,
+        parent_fitness: Vec<f32>,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+        generation: usize,
+        successes_in_window: u32,
+        window_len: u32,
+    ) -> Result<Self, ConfigError> {
+        let mu = parents.dims()[0];
+        config::nonzero("EsState", "parents", mu)?;
+        if !parent_fitness.is_empty() && parent_fitness.len() != mu {
+            return Err(ConfigError {
+                config: "EsState",
+                field: "parent_fitness",
+                kind: ConstraintKind::Custom("length must equal the parent count μ"),
+            });
+        }
+        Ok(Self {
+            parents,
+            sigmas,
+            parent_fitness,
+            best_genome,
+            best_fitness,
+            generation,
+            successes_in_window,
+            window_len,
+        })
+    }
+
+    /// Parent population, shape `(μ, D)` (or `(1, D)` for `(1+1)`/`(1+λ)`).
+    #[must_use]
+    pub fn parents(&self) -> &Tensor<B, 2> {
+        &self.parents
+    }
+
+    /// Per-parent σ values (see the field docs for the transient `(μ + λ,)`
+    /// shape held between `ask` and `tell`).
+    #[must_use]
+    pub fn sigmas(&self) -> &Tensor<B, 1> {
+        &self.sigmas
+    }
+
+    /// Parent fitnesses (empty at bootstrap, else `μ` long).
+    #[must_use]
+    pub fn parent_fitness(&self) -> &[f32] {
+        &self.parent_fitness
+    }
+
+    /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Completed-generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// `(1+1)` only: running success count for the 1/5th rule.
+    #[must_use]
+    pub fn successes_in_window(&self) -> u32 {
+        self.successes_in_window
+    }
+
+    /// `(1+1)` only: window length observed so far.
+    #[must_use]
+    pub fn window_len(&self) -> u32 {
+        self.window_len
+    }
 }
 
 /// Classical Evolution Strategy.
@@ -379,7 +471,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             state.parents = offspring;
             // Restore parent-count σ vector.
             let mu = Self::mu(params.kind);
@@ -500,7 +592,7 @@ where
         update_best(&mut state, &offspring, &fitness_host);
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -540,6 +632,35 @@ mod tests {
     use burn::backend::Flex;
     use rlevo_core::fitness::FitnessEvaluable;
     type TestBackend = Flex;
+
+    #[test]
+    fn try_new_checks_parent_fitness_length() {
+        let device = Default::default();
+        let parents = Tensor::<TestBackend, 2>::zeros([4, 2], &device);
+        let sigmas = Tensor::<TestBackend, 1>::ones([4], &device);
+        // Bootstrap (empty) and fully-populated caches both accept.
+        assert!(
+            EsState::try_new(parents.clone(), sigmas.clone(), vec![], None, f32::MIN, 0, 0, 0)
+                .is_ok()
+        );
+        assert!(
+            EsState::try_new(
+                parents.clone(),
+                sigmas.clone(),
+                vec![1.0; 4],
+                None,
+                1.0,
+                1,
+                0,
+                0,
+            )
+            .is_ok()
+        );
+        // parent_fitness length 3 ≠ μ = 4.
+        assert!(
+            EsState::try_new(parents, sigmas, vec![1.0; 3], None, 1.0, 1, 0, 0).is_err()
+        );
+    }
 
     #[test]
     fn default_config_validates() {
@@ -583,7 +704,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]

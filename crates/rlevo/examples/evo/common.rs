@@ -82,7 +82,7 @@ where
     // "Reading the output" section for how to interpret the two together.
     println!(
         "{label:>30} | gens={:>4} | best={:>.6e} | mean={:>.6e}",
-        m.generation, m.best_fitness_ever, m.mean_fitness,
+        m.generation(), m.best_fitness_ever(), m.mean_fitness(),
     );
 }
 

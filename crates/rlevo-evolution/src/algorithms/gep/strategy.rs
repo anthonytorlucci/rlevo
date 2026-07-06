@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 use rayon::prelude::*;
+use rlevo_core::config::{self, ConfigError};
 
 use crate::fitness::BatchFitnessFn;
 use crate::function_set::{FunctionSet, Symbol};
@@ -19,20 +20,92 @@ use super::operators::{
 };
 
 /// Generation state for [`GepStrategy`].
+///
+/// Fields are private so the host-side fitness cache cannot fall out of sync
+/// with the population from outside this module; build one with
+/// [`try_new`](GepState::try_new) and read it through the accessors.
 #[derive(Debug, Clone)]
 pub struct GepState<B: Backend> {
     /// Current population, shape `(pop_size, genome_len)`, `i32` symbol ids.
-    pub population: Tensor<B, 2, Int>,
+    population: Tensor<B, 2, Int>,
     /// Host-side fitness cache for the current population, in canonical
     /// (maximise) space — *higher is better*. Empty until the first
     /// [`Strategy::tell`].
-    pub fitnesses: Vec<f32>,
+    fitnesses: Vec<f32>,
     /// Best-so-far genome, shape `(1, genome_len)`.
-    pub best_genome: Option<Tensor<B, 2, Int>>,
+    best_genome: Option<Tensor<B, 2, Int>>,
     /// Best-so-far fitness.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Generation counter.
-    pub generation: usize,
+    generation: usize,
+}
+
+impl<B: Backend> GepState<B> {
+    /// Assembles a GEP state, checking the fitness cache matches the
+    /// population.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `population` has zero rows or if
+    /// `fitnesses` is non-empty with a length other than `pop_size`. The
+    /// bootstrap state (empty `fitnesses`) is accepted.
+    pub fn try_new(
+        population: Tensor<B, 2, Int>,
+        fitnesses: Vec<f32>,
+        best_genome: Option<Tensor<B, 2, Int>>,
+        best_fitness: f32,
+        generation: usize,
+    ) -> Result<Self, ConfigError> {
+        let pop = population.dims()[0];
+        config::nonzero("GepState", "pop_size", pop)?;
+        if !fitnesses.is_empty() && fitnesses.len() != pop {
+            return Err(ConfigError {
+                config: "GepState",
+                field: "fitnesses",
+                kind: rlevo_core::config::ConstraintKind::Custom(
+                    "fitness cache length must equal pop_size",
+                ),
+            });
+        }
+        Ok(Self {
+            population,
+            fitnesses,
+            best_genome,
+            best_fitness,
+            generation,
+        })
+    }
+
+    /// Current population, shape `(pop_size, genome_len)`.
+    #[must_use]
+    pub fn population(&self) -> &Tensor<B, 2, Int> {
+        &self.population
+    }
+
+    /// Host-side fitness cache (empty at bootstrap, else `pop_size` long).
+    #[must_use]
+    pub fn fitnesses(&self) -> &[f32] {
+        &self.fitnesses
+    }
+
+    /// Best-so-far genome (shape `(1, genome_len)`), or `None` before the
+    /// first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2, Int>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
 }
 
 /// Gene Expression Programming as a generational [`Strategy`].
@@ -316,7 +389,7 @@ where
 
         let metrics =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = metrics.best_fitness_ever;
+        state.best_fitness = metrics.best_fitness_ever();
         // Cache this generation's fitness for the next `ask`'s roulette draw.
         state.fitnesses = fitness_host;
         (state, metrics)
@@ -417,6 +490,15 @@ mod tests {
 
     type TestBackend = Flex;
 
+    #[test]
+    fn try_new_checks_fitness_length() {
+        let device = Default::default();
+        let pop = Tensor::<TestBackend, 2, Int>::zeros([3, 4], &device);
+        assert!(GepState::try_new(pop.clone(), vec![], None, f32::MIN, 0).is_ok());
+        assert!(GepState::try_new(pop.clone(), vec![1.0; 3], None, 1.0, 1).is_ok());
+        assert!(GepState::try_new(pop, vec![1.0; 2], None, 1.0, 1).is_err());
+    }
+
     fn alphabet(n_vars: usize) -> Alphabet<ArithmeticFunctionSet> {
         Alphabet::new(ArithmeticFunctionSet, n_vars, vec![])
     }
@@ -443,7 +525,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     /// Converges on `f(x) = x² + x + 1` over 20 points in [-1, 1].

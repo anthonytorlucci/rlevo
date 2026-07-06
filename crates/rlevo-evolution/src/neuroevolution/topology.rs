@@ -131,12 +131,20 @@ pub struct ConnectionGene {
 /// connection-gene list.
 ///
 /// See the [module docs](self) for the two structural invariants.
+///
+/// Fields are `pub(crate)` rather than public: the innovation-sort invariant on
+/// `connections` is maintained collectively by the NEAT mutation, crossover,
+/// and speciation operators (`neat.rs`, `species.rs`, `phenotype.rs`), which
+/// edit the vectors in place. Exposing them publicly would let external code
+/// build an unsorted genome by struct literal; instead, construct one with
+/// [`TopologyGenome::new`] / [`TopologyGenome::minimal`] (which establish the
+/// invariant) and extend it with [`insert_connection_sorted`](TopologyGenome::insert_connection_sorted).
 #[derive(Clone, Debug)]
 pub struct TopologyGenome {
     /// Node genes (inputs, outputs, and any hidden nodes).
-    pub nodes: Vec<NodeGene>,
+    pub(crate) nodes: Vec<NodeGene>,
     /// Connection genes, kept sorted by [`ConnectionGene::innovation`].
-    pub connections: Vec<ConnectionGene>,
+    pub(crate) connections: Vec<ConnectionGene>,
 }
 
 impl TopologyGenome {

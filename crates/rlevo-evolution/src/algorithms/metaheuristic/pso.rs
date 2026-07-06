@@ -347,7 +347,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             return (state, m);
         }
 
@@ -394,7 +394,7 @@ where
             &fitness_host,
             state.best_fitness.max(state.global_best_fitness),
         );
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -465,7 +465,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]

@@ -76,7 +76,7 @@ where
     let mut trajectory = Vec::with_capacity(gens);
     loop {
         let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }
@@ -182,7 +182,7 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
         let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }
@@ -224,7 +224,7 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
         let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }

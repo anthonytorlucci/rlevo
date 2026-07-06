@@ -482,7 +482,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             state.population = trial;
             return (state, m);
         }
@@ -518,7 +518,7 @@ where
         state.generation += 1;
         update_best(&mut state, &trial, &fitness_host);
         let m = StrategyMetrics::from_host_fitness(state.generation, &new_fit, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -600,7 +600,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     /// All five DE variants converge on Sphere-D10 within budget.

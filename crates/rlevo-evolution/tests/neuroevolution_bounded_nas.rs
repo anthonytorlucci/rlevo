@@ -145,13 +145,13 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
         elite_count: 2,
     });
 
-    assert_eq!(params.num_variants, 3, "exactly three architecture variants");
+    assert_eq!(params.num_variants(), 3, "exactly three architecture variants");
     assert_eq!(
-        params.per_variant_params,
+        params.per_variant_params(),
         vec![33, 193, 769],
         "param counts in registration order",
     );
-    assert_eq!(params.max_param_count, 769);
+    assert_eq!(params.max_param_count(), 769);
 
     let strat = ArchNasStrategy::<TestBackend>::new();
     let mut rng = StdRng::seed_from_u64(2026);
@@ -161,7 +161,7 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
     // variants makes a missing variant astronomically unlikely).
     for arch_id in 0..3 {
         assert!(
-            state.population().arch_ids.contains(&arch_id),
+            state.population().arch_ids().contains(&arch_id),
             "architecture {arch_id} must be represented after init",
         );
     }

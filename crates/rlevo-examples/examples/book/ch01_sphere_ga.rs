@@ -53,9 +53,9 @@ fn main() {
     loop {
         let step = harness.step(());
         if let Some(m) = harness.latest_metrics()
-            && (m.generation % PRINT_EVERY == 0 || step.done)
+            && (m.generation() % PRINT_EVERY == 0 || step.done)
         {
-            println!("gen {:>3}   best = {:.2e}", m.generation, m.best_fitness_ever);
+            println!("gen {:>3}   best = {:.2e}", m.generation(), m.best_fitness_ever());
         }
         if step.done {
             break;
@@ -96,7 +96,7 @@ mod tests {
             }
         }
 
-        let best = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(
             best < 1.0,
             "GA on Sphere-D{DIM} should reach best < 1.0 after {GENS} gens; got {best}"

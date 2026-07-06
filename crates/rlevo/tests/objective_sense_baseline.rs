@@ -63,7 +63,7 @@ where
     harness
         .latest_metrics()
         .expect("at least one generation ran")
-        .best_fitness_ever
+        .best_fitness_ever()
 }
 
 fn ga_config() -> GaConfig {

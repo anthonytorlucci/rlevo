@@ -184,11 +184,11 @@ pub trait Strategy<B: Backend>: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct StrategyMetrics {
     /// Zero-based generation index.
-    pub generation: usize,
+    generation: usize,
     /// Number of individuals evaluated in this generation.
-    pub population_size: usize,
+    population_size: usize,
     /// Best (canonical: largest) fitness observed in this generation.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Mean fitness across this generation's population.
     ///
     /// This is the arithmetic mean of the per-individual fitness vector
@@ -196,9 +196,9 @@ pub struct StrategyMetrics {
     /// after a run, this value reflects the *final* generation's average
     /// quality. See the struct-level docs for how to interpret the gap
     /// between this field and [`Self::best_fitness_ever`].
-    pub mean_fitness: f32,
+    mean_fitness: f32,
     /// Worst (canonical: smallest) fitness observed in this generation.
-    pub worst_fitness: f32,
+    worst_fitness: f32,
     /// Best fitness seen across *all* generations to date.
     ///
     /// This is a rolling maximum (`previous_best.max(current_generation_best)`)
@@ -207,7 +207,7 @@ pub struct StrategyMetrics {
     /// quality found during the entire run. For landscapes whose global
     /// optimum is known (e.g. Ackley → 0), the harness-reported value tells
     /// you how close the algorithm got to the theoretical optimum.
-    pub best_fitness_ever: f32,
+    best_fitness_ever: f32,
 }
 
 impl StrategyMetrics {
@@ -258,6 +258,42 @@ impl StrategyMetrics {
             worst_fitness: worst,
             best_fitness_ever: best_fitness_ever.max(best),
         }
+    }
+
+    /// Zero-based generation index.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Number of individuals evaluated in this generation.
+    #[must_use]
+    pub fn population_size(&self) -> usize {
+        self.population_size
+    }
+
+    /// Best (canonical: largest) fitness observed in this generation.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Mean fitness across this generation's population.
+    #[must_use]
+    pub fn mean_fitness(&self) -> f32 {
+        self.mean_fitness
+    }
+
+    /// Worst (canonical: smallest) fitness observed in this generation.
+    #[must_use]
+    pub fn worst_fitness(&self) -> f32 {
+        self.worst_fitness
+    }
+
+    /// Best (canonical: largest) fitness seen across *all* generations to date.
+    #[must_use]
+    pub fn best_fitness_ever(&self) -> f32 {
+        self.best_fitness_ever
     }
 }
 
@@ -725,7 +761,7 @@ mod tests {
             let values = fitness.into_data().into_vec::<f32>().unwrap();
             state.generation += 1;
             let metrics = StrategyMetrics::from_host_fitness(state.generation, &values, state.best);
-            state.best = metrics.best_fitness_ever;
+            state.best = metrics.best_fitness_ever();
             (state, metrics)
         }
 
@@ -798,14 +834,15 @@ mod tests {
     #[test]
     fn from_host_fitness_computes_stats() {
         let m = StrategyMetrics::from_host_fitness(5, &[3.0, 1.0, 5.0, 2.0], 4.0);
-        assert_eq!(m.generation, 5);
-        assert_eq!(m.population_size, 4);
+        // Read through the public accessors (fields are private).
+        assert_eq!(m.generation(), 5);
+        assert_eq!(m.population_size(), 4);
         // Canonical maximise: best is the largest, worst the smallest.
-        approx::assert_relative_eq!(m.best_fitness, 5.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(m.worst_fitness, 1.0, epsilon = 1e-6);
-        approx::assert_relative_eq!(m.mean_fitness, 2.75, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness(), 5.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.worst_fitness(), 1.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.mean_fitness(), 2.75, epsilon = 1e-6);
         // best_fitness_ever = max(prior=4.0, current=5.0)
-        approx::assert_relative_eq!(m.best_fitness_ever, 5.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness_ever(), 5.0, epsilon = 1e-6);
     }
 
     #[test]
@@ -814,10 +851,10 @@ mod tests {
         // never becomes best, and it drags worst and mean to −∞ rather than the
         // old asymmetry where best/worst ignored it but mean turned NaN.
         let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::NAN, 3.0, 2.0], 0.0);
-        approx::assert_relative_eq!(m.best_fitness, 3.0, epsilon = 1e-6);
-        assert!(m.worst_fitness.is_infinite() && m.worst_fitness.is_sign_negative());
-        assert!(m.mean_fitness.is_infinite() && m.mean_fitness.is_sign_negative());
-        approx::assert_relative_eq!(m.best_fitness_ever, 3.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness(), 3.0, epsilon = 1e-6);
+        assert!(m.worst_fitness().is_infinite() && m.worst_fitness().is_sign_negative());
+        assert!(m.mean_fitness().is_infinite() && m.mean_fitness().is_sign_negative());
+        approx::assert_relative_eq!(m.best_fitness_ever(), 3.0, epsilon = 1e-6);
     }
 
     #[test]

@@ -123,7 +123,7 @@ fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) ->
     let mut evals_at_target: Option<usize> = None;
     loop {
         let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
@@ -182,7 +182,7 @@ fn memetic_evals_to_target(
     let mut evals_at_target: Option<usize> = None;
     loop {
         let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         trajectory.push(best);
         if evals_at_target.is_none() && best < target {
             evals_at_target = Some(evals.load(Ordering::Relaxed));
@@ -211,12 +211,11 @@ fn shared_de_config() -> DeConfig {
 /// each polished elite pulls the whole population toward a basin. See the
 /// provenance block on the headline test for the eval-count data behind this.
 fn shared_hc_config() -> HillClimbingParams {
-    let mut hc: HillClimbingParams = HillClimbingParams::default_for(BOUNDS);
-    hc.max_iters = 20;
-    hc.step_size = 0.4;
-    hc.step_decay = 0.5;
-    hc.variant = HillClimbVariant::BestImprovement;
-    hc
+    HillClimbingParams::default_for(BOUNDS)
+        .with_max_iters(20)
+        .with_step_size(0.4)
+        .with_step_decay(0.5)
+        .with_variant(HillClimbVariant::BestImprovement)
 }
 
 // =====================================================================
@@ -244,12 +243,11 @@ fn calibration_explorer() {
     // max_iters=25/TopK{3} sweep, which was dominated by refinement cost on
     // easy targets).
     let make_hc = |max_iters: usize, step: f32, variant: HillClimbVariant| -> HillClimbingParams {
-        let mut hc: HillClimbingParams = HillClimbingParams::default_for(BOUNDS);
-        hc.max_iters = max_iters;
-        hc.step_size = step;
-        hc.step_decay = 0.5;
-        hc.variant = variant;
-        hc
+        HillClimbingParams::default_for(BOUNDS)
+            .with_max_iters(max_iters)
+            .with_step_size(step)
+            .with_step_decay(0.5)
+            .with_variant(variant)
     };
     let configs: Vec<(&str, HillClimbingParams, WritebackPolicy, CoveragePolicy)> = vec![
         (

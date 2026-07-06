@@ -42,6 +42,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use super::len_matches_pop;
 use crate::ops::selection::{argmax_host, tournament_indices_host};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -103,25 +104,114 @@ impl Validate for AbcConfig {
 }
 
 /// Generation state for [`ArtificialBeeColony`].
+///
+/// Fields are private so the per-bee caches cannot fall out of sync with the
+/// colony size from outside this module; construct one with
+/// [`try_new`](AbcState::try_new) and read it through the accessors.
 #[derive(Debug, Clone)]
 pub struct AbcState<B: Backend> {
     /// Current colony, shape `(pop_size, D)`.
-    pub colony: Tensor<B, 2>,
+    colony: Tensor<B, 2>,
     /// Host-side fitness cache.
-    pub fitness: Vec<f32>,
+    fitness: Vec<f32>,
     /// Per-bee trial counter.
-    pub trial: Vec<usize>,
+    trial: Vec<usize>,
     /// Target-bee mapping recorded by `ask` so `tell` knows which bee
     /// each candidate belongs to. Empty after `init` and after the
     /// bootstrap `ask` call (when `fitness` is still empty); populated
     /// with `2 · pop_size` indices from the second `ask` onward.
-    pub target_of_candidate: Vec<usize>,
+    target_of_candidate: Vec<usize>,
     /// Best-so-far genome.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Generation counter.
-    pub generation: usize,
+    generation: usize,
+}
+
+impl<B: Backend> AbcState<B> {
+    /// Assembles a colony state, checking the per-bee caches match the colony.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the colony has zero rows, if `fitness` or
+    /// `trial` is non-empty with a length other than `pop_size`, or if
+    /// `target_of_candidate` is non-empty with a length other than
+    /// `2 · pop_size`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        colony: Tensor<B, 2>,
+        fitness: Vec<f32>,
+        trial: Vec<usize>,
+        target_of_candidate: Vec<usize>,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+        generation: usize,
+    ) -> Result<Self, ConfigError> {
+        let pop = colony.dims()[0];
+        config::nonzero("AbcState", "pop_size", pop)?;
+        len_matches_pop("AbcState", "fitness", pop, fitness.len())?;
+        len_matches_pop("AbcState", "trial", pop, trial.len())?;
+        if !target_of_candidate.is_empty() && target_of_candidate.len() != 2 * pop {
+            return Err(ConfigError {
+                config: "AbcState",
+                field: "target_of_candidate",
+                kind: ConstraintKind::Custom("length must equal 2 * pop_size"),
+            });
+        }
+        Ok(Self {
+            colony,
+            fitness,
+            trial,
+            target_of_candidate,
+            best_genome,
+            best_fitness,
+            generation,
+        })
+    }
+
+    /// Current colony, shape `(pop_size, D)`.
+    #[must_use]
+    pub fn colony(&self) -> &Tensor<B, 2> {
+        &self.colony
+    }
+
+    /// Host-side fitness cache (empty at bootstrap, else `pop_size` long).
+    #[must_use]
+    pub fn fitness(&self) -> &[f32] {
+        &self.fitness
+    }
+
+    /// Per-bee trial counters, `pop_size` long.
+    #[must_use]
+    pub fn trial(&self) -> &[usize] {
+        &self.trial
+    }
+
+    /// Candidate-to-bee mapping recorded by `ask` (`2 · pop_size` long, or
+    /// empty at bootstrap).
+    #[must_use]
+    pub fn target_of_candidate(&self) -> &[usize] {
+        &self.target_of_candidate
+    }
+
+    /// Best-so-far genome, or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
 }
 
 /// Artificial Bee Colony strategy.
@@ -332,7 +422,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             return (state, m);
         }
 
@@ -436,7 +526,7 @@ where
         state.generation += 1;
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -459,6 +549,31 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn try_new_checks_cache_lengths() {
+        let device = Default::default();
+        let colony = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        // Bootstrap (empty caches) and fully-populated caches both accept.
+        assert!(
+            AbcState::try_new(colony.clone(), vec![], vec![0; 3], vec![], None, f32::MIN, 0).is_ok()
+        );
+        assert!(
+            AbcState::try_new(colony.clone(), vec![1.0; 3], vec![0; 3], vec![7; 6], None, 1.0, 1)
+                .is_ok()
+        );
+        // fitness length 2 ≠ pop 3, and target_of_candidate 5 ≠ 2·pop.
+        assert!(
+            AbcState::try_new(colony.clone(), vec![1.0; 2], vec![0; 3], vec![], None, 1.0, 1)
+                .is_err()
+        );
+        assert!(
+            AbcState::try_new(colony, vec![], vec![], vec![0; 5], None, 1.0, 1).is_err()
+        );
+        // Zero-row colony is rejected.
+        let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
+        assert!(AbcState::try_new(empty, vec![], vec![], vec![], None, 1.0, 0).is_err());
+    }
 
     #[test]
     fn default_config_validates() {
@@ -521,7 +636,7 @@ mod tests {
         ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "ABC D10 best={best}");
     }
 }

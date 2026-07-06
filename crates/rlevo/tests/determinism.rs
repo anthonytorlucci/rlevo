@@ -57,7 +57,7 @@ where
     let mut trajectory = Vec::with_capacity(GENS);
     loop {
         let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness);
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
         if step.done {
             break;
         }

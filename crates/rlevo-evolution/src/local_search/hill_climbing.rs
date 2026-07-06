@@ -39,24 +39,28 @@ pub enum HillClimbVariant {
 }
 
 /// Static configuration for a [`HillClimbing`] run.
+///
+/// Fields are private: start from [`default_for`](HillClimbingParams::default_for)
+/// and override with the fluent `with_*` setters, which reject out-of-domain
+/// values at the call site rather than letting an invalid config reach `refine`.
 #[derive(Debug, Clone)]
 pub struct HillClimbingParams {
     /// Inclusive search-space bounds `(lo, hi)`; refined genomes are clamped
     /// here.
-    pub bounds: Bounds,
+    bounds: Bounds,
     /// Hard cap on the **total** number of `evaluate_one` calls per `refine`,
     /// including the mandatory initial re-evaluation of the input genome.
     /// Default `100`.
-    pub max_iters: usize,
+    max_iters: usize,
     /// Per-coordinate perturbation magnitude. Default `0.1 * (hi - lo)` via
     /// [`HillClimbingParams::default_for`].
-    pub step_size: f32,
+    step_size: f32,
     /// Multiplicative shrink applied to `step_size` after a failed probe
     /// budget. `0.5` halves the step; `1.0` keeps it fixed. Default `0.5`.
-    pub step_decay: f32,
+    step_decay: f32,
     /// Acceptance strategy. Default
     /// [`FirstImprovement`](HillClimbVariant::FirstImprovement).
-    pub variant: HillClimbVariant,
+    variant: HillClimbVariant,
 }
 
 impl HillClimbingParams {
@@ -74,6 +78,98 @@ impl HillClimbingParams {
             step_decay: 0.5,
             variant: HillClimbVariant::FirstImprovement,
         }
+    }
+
+    /// Overrides the search-space bounds.
+    #[must_use]
+    pub fn with_bounds(mut self, bounds: Bounds) -> Self {
+        self.bounds = bounds;
+        self
+    }
+
+    /// Overrides the total evaluation budget per `refine`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_iters == 0` — a `refine` must evaluate at least the
+    /// input genome once.
+    #[must_use]
+    pub fn with_max_iters(mut self, max_iters: usize) -> Self {
+        assert!(
+            max_iters >= 1,
+            "HillClimbingParams::with_max_iters: max_iters must be >= 1"
+        );
+        self.max_iters = max_iters;
+        self
+    }
+
+    /// Overrides the per-coordinate perturbation magnitude.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `step_size` is not strictly positive and finite — a
+    /// non-positive step cannot move the search.
+    #[must_use]
+    pub fn with_step_size(mut self, step_size: f32) -> Self {
+        assert!(
+            step_size.is_finite() && step_size > 0.0,
+            "HillClimbingParams::with_step_size: step_size must be finite and > 0"
+        );
+        self.step_size = step_size;
+        self
+    }
+
+    /// Overrides the multiplicative step-shrink factor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `step_decay` is outside the half-open interval `(0, 1]` — a
+    /// factor `> 1` would grow the step unboundedly and `<= 0` would zero it.
+    #[must_use]
+    pub fn with_step_decay(mut self, step_decay: f32) -> Self {
+        assert!(
+            step_decay.is_finite() && step_decay > 0.0 && step_decay <= 1.0,
+            "HillClimbingParams::with_step_decay: step_decay must be in (0, 1]"
+        );
+        self.step_decay = step_decay;
+        self
+    }
+
+    /// Overrides the acceptance strategy.
+    #[must_use]
+    pub fn with_variant(mut self, variant: HillClimbVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Inclusive search-space bounds.
+    #[must_use]
+    pub fn bounds(&self) -> Bounds {
+        self.bounds
+    }
+
+    /// Total evaluation budget per `refine`.
+    #[must_use]
+    pub fn max_iters(&self) -> usize {
+        self.max_iters
+    }
+
+    /// Per-coordinate perturbation magnitude.
+    #[must_use]
+    pub fn step_size(&self) -> f32 {
+        self.step_size
+    }
+
+    /// Multiplicative step-shrink factor.
+    #[must_use]
+    pub fn step_decay(&self) -> f32 {
+        self.step_decay
+    }
+
+    /// Acceptance strategy.
+    #[must_use]
+    pub fn variant(&self) -> HillClimbVariant {
+        self.variant
     }
 }
 
@@ -298,6 +394,26 @@ mod tests {
     use rand::SeedableRng;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn with_setters_override_defaults() {
+        let bounds = Bounds::new(-1.0, 1.0);
+        let hc = HillClimbingParams::default_for(bounds)
+            .with_max_iters(20)
+            .with_step_size(0.4)
+            .with_step_decay(0.5)
+            .with_variant(HillClimbVariant::BestImprovement);
+        assert_eq!(hc.max_iters(), 20);
+        assert!((hc.step_size() - 0.4).abs() < 1e-6);
+        assert!((hc.step_decay() - 0.5).abs() < 1e-6);
+        assert_eq!(hc.variant(), HillClimbVariant::BestImprovement);
+    }
+
+    #[test]
+    #[should_panic(expected = "step_size must be finite and > 0")]
+    fn with_step_size_rejects_nonpositive() {
+        let _ = HillClimbingParams::default_for(Bounds::new(-1.0, 1.0)).with_step_size(0.0);
+    }
 
     /// Negated sphere `f(x) = -Σ x_i²` — concave bump; global maximum 0 at the
     /// origin.

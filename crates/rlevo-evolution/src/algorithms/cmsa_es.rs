@@ -369,7 +369,7 @@ where
             &fitness_host,
             state.best_fitness,
         );
-        state.best_fitness = metrics.best_fitness_ever;
+        state.best_fitness = metrics.best_fitness_ever();
 
         state.mean = mean_new;
         state.cov = cov_new;

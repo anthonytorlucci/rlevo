@@ -110,7 +110,7 @@ where
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever
+    harness.latest_metrics().unwrap().best_fitness_ever()
 }
 
 /// Median of a small sample; NaN-free by construction (fitness is

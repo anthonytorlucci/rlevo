@@ -29,6 +29,7 @@
 
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
+use rlevo_core::config::{self, ConfigError};
 
 use crate::probability_model::ProbabilityModel;
 
@@ -71,10 +72,37 @@ impl UnivariateBernoulliParams {
 /// The vector has length `genome_dim`. On the prior path (`prev = None`) it
 /// is uniformly `0.5`; on subsequent calls the entries are nudged by the PBIL
 /// update rule (see [module docs](self)).
+///
+/// The field is private so an out-of-range probability is unrepresentable
+/// from outside this module; build one with
+/// [`try_new`](UnivariateBernoulliState::try_new) and read it via
+/// [`prob`](UnivariateBernoulliState::prob).
 #[derive(Debug, Clone)]
 pub struct UnivariateBernoulliState {
     /// Per-gene probability of sampling a `1.0` (always in `[0, 1]`).
-    pub prob: Vec<f32>,
+    prob: Vec<f32>,
+}
+
+impl UnivariateBernoulliState {
+    /// Builds a PBIL state from a per-gene probability vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `prob` is empty or if any entry is outside
+    /// the closed interval `[0, 1]` (or is non-finite).
+    pub fn try_new(prob: Vec<f32>) -> Result<Self, ConfigError> {
+        config::nonzero("UnivariateBernoulliState", "prob", prob.len())?;
+        for &p in &prob {
+            config::in_range("UnivariateBernoulliState", "prob", 0.0, 1.0, f64::from(p))?;
+        }
+        Ok(Self { prob })
+    }
+
+    /// Per-gene probabilities of sampling a `1.0`, each in `[0, 1]`.
+    #[must_use]
+    pub fn prob(&self) -> &[f32] {
+        &self.prob
+    }
 }
 
 /// Population-Based Incremental Learning model for binary spaces (PBIL).
@@ -222,6 +250,16 @@ mod tests {
         let p = UnivariateBernoulliParams::default_for(4);
         let state = fit_prior(&p);
         assert_eq!(state.prob, vec![0.5, 0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn try_new_accepts_valid_and_rejects_out_of_range() {
+        let state = UnivariateBernoulliState::try_new(vec![0.0, 0.5, 1.0]).unwrap();
+        assert_eq!(state.prob(), &[0.0, 0.5, 1.0]);
+        assert!(UnivariateBernoulliState::try_new(vec![]).is_err());
+        assert!(UnivariateBernoulliState::try_new(vec![1.2]).is_err());
+        assert!(UnivariateBernoulliState::try_new(vec![-0.5]).is_err());
+        assert!(UnivariateBernoulliState::try_new(vec![f32::NAN]).is_err());
     }
 
     #[test]

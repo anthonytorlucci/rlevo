@@ -34,6 +34,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use super::len_matches_pop;
 use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
@@ -105,25 +106,120 @@ impl Validate for BatConfig {
 #[derive(Debug, Clone)]
 pub struct BatState<B: Backend> {
     /// Current positions, shape `(pop_size, D)`.
-    pub positions: Tensor<B, 2>,
+    positions: Tensor<B, 2>,
     /// Current velocities, shape `(pop_size, D)`.
-    pub velocities: Tensor<B, 2>,
+    velocities: Tensor<B, 2>,
     /// Per-bat loudness.
-    pub loudness: Vec<f32>,
+    loudness: Vec<f32>,
     /// Per-bat pulse rate.
-    pub pulse_rate: Vec<f32>,
+    pulse_rate: Vec<f32>,
     /// Host-side fitness cache for the current positions.
-    pub fitness: Vec<f32>,
+    fitness: Vec<f32>,
     /// Best-so-far genome.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness.
-    pub best_fitness: f32,
+    best_fitness: f32,
     /// Generation counter.
-    pub generation: usize,
+    generation: usize,
     /// Per-generation "accept this candidate?" decisions recorded in
     /// `ask` so `tell` can gate the loudness/pulse updates consistently
     /// with the RNG draws.
-    pub pending_accept: Vec<bool>,
+    pending_accept: Vec<bool>,
+}
+
+impl<B: Backend> BatState<B> {
+    /// Assembles a bat-swarm state, checking the per-bat caches match `pop`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `positions` has zero rows or if any of
+    /// `loudness` / `pulse_rate` / `fitness` / `pending_accept` is non-empty
+    /// with a length other than `pop_size`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        positions: Tensor<B, 2>,
+        velocities: Tensor<B, 2>,
+        loudness: Vec<f32>,
+        pulse_rate: Vec<f32>,
+        fitness: Vec<f32>,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+        generation: usize,
+        pending_accept: Vec<bool>,
+    ) -> Result<Self, ConfigError> {
+        let pop = positions.dims()[0];
+        config::nonzero("BatState", "pop_size", pop)?;
+        len_matches_pop("BatState", "loudness", pop, loudness.len())?;
+        len_matches_pop("BatState", "pulse_rate", pop, pulse_rate.len())?;
+        len_matches_pop("BatState", "fitness", pop, fitness.len())?;
+        len_matches_pop("BatState", "pending_accept", pop, pending_accept.len())?;
+        Ok(Self {
+            positions,
+            velocities,
+            loudness,
+            pulse_rate,
+            fitness,
+            best_genome,
+            best_fitness,
+            generation,
+            pending_accept,
+        })
+    }
+
+    /// Current positions, shape `(pop_size, D)`.
+    #[must_use]
+    pub fn positions(&self) -> &Tensor<B, 2> {
+        &self.positions
+    }
+
+    /// Current velocities, shape `(pop_size, D)`.
+    #[must_use]
+    pub fn velocities(&self) -> &Tensor<B, 2> {
+        &self.velocities
+    }
+
+    /// Per-bat loudness, `pop_size` long.
+    #[must_use]
+    pub fn loudness(&self) -> &[f32] {
+        &self.loudness
+    }
+
+    /// Per-bat pulse rate, `pop_size` long.
+    #[must_use]
+    pub fn pulse_rate(&self) -> &[f32] {
+        &self.pulse_rate
+    }
+
+    /// Host-side fitness cache (empty at bootstrap, else `pop_size` long).
+    #[must_use]
+    pub fn fitness(&self) -> &[f32] {
+        &self.fitness
+    }
+
+    /// Best-so-far genome, or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
+
+    /// Generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Per-candidate accept decisions recorded by `ask` (empty at bootstrap,
+    /// else `pop_size` long).
+    #[must_use]
+    pub fn pending_accept(&self) -> &[bool] {
+        &self.pending_accept
+    }
 }
 
 /// Bat Algorithm strategy.
@@ -363,7 +459,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             return (state, m);
         }
 
@@ -407,7 +503,7 @@ where
         state.generation += 1;
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         let _ = genome_dim;
         (state, m)
     }
@@ -431,6 +527,42 @@ mod tests {
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn try_new_checks_cache_lengths() {
+        let device = Default::default();
+        let pos = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        let vel = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
+        assert!(
+            BatState::try_new(
+                pos.clone(),
+                vel.clone(),
+                vec![1.0; 3],
+                vec![0.5; 3],
+                vec![1.0; 3],
+                None,
+                1.0,
+                1,
+                vec![false; 3],
+            )
+            .is_ok()
+        );
+        // loudness length 2 ≠ pop 3.
+        assert!(
+            BatState::try_new(
+                pos,
+                vel,
+                vec![1.0; 2],
+                vec![0.5; 3],
+                vec![1.0; 3],
+                None,
+                1.0,
+                1,
+                vec![false; 3],
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn default_config_validates() {
@@ -472,7 +604,7 @@ mod tests {
         ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 0.1, "Bat D10 best={best}");
     }
 }
