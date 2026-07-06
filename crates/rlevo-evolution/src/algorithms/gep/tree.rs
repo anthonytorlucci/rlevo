@@ -112,7 +112,7 @@ impl ExpressionTree {
                     let start = self.child_start[i];
                     arg_buf[..arity].copy_from_slice(&results[start..start + arity]);
                     let v = alphabet.functions.apply(symbol, &arg_buf[..arity]);
-                    if v.is_finite() { v } else { 0.0 }
+                    crate::function_set::finite_or_zero(v)
                 }
             };
         }
@@ -137,7 +137,7 @@ mod tests {
         let a = alphabet(1);
         // head [0, 8, 7], tail [8] (terminals). ORF = first 3 (add needs 2
         // children: x and const-1).
-        let genome = vec![Symbol(0), Symbol(8), Symbol(7), Symbol(8)];
+        let genome = vec![Symbol::from_raw(0), Symbol::from_raw(8), Symbol::from_raw(7), Symbol::from_raw(8)];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 3);
         approx::assert_relative_eq!(tree.eval(&a, &[2.0]), 3.0, epsilon = 1e-6);
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn evaluates_x_squared_with_depth_one() {
         let a = alphabet(1);
-        let genome = vec![Symbol(2), Symbol(8), Symbol(8), Symbol(8)];
+        let genome = vec![Symbol::from_raw(2), Symbol::from_raw(8), Symbol::from_raw(8), Symbol::from_raw(8)];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 3);
         assert_eq!(tree.depth(), 1);
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn single_terminal_is_leaf() {
         let a = alphabet(1);
-        let genome = vec![Symbol(8), Symbol(8), Symbol(8)];
+        let genome = vec![Symbol::from_raw(8), Symbol::from_raw(8), Symbol::from_raw(8)];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
         assert_eq!(tree.depth(), 0);

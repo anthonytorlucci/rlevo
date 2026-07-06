@@ -24,7 +24,7 @@
 //! function ids. `i32` is mandatory because populations are stored as Burn
 //! integer tensors (`Tensor<B, 2, Int>`), whose element type is `i32`.
 
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 /// A program symbol: an `i32` opcode id.
 ///
@@ -33,8 +33,72 @@ use std::fmt::Debug;
 /// [`Alphabet`](crate::algorithms::gep::Alphabet). The newtype keeps symbol
 /// ids from being confused with the many other `i32` indices in the genome
 /// (node indices, input indices, gene positions).
+///
+/// The inner id is private so a `Symbol` cannot be silently confused with a
+/// bare `i32`. Read it with [`value`](Symbol::value) (or `i32::from(symbol)`);
+/// construct one from a raw genome id with the crate-internal `from_raw`. Ids
+/// are not range-checked at construction — out-of-range ids classify as inert
+/// (arity `0`, `apply` → `0.0`), matching the evaluator's tolerance for
+/// mutated-but-unrepaired genotypes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Symbol(pub i32);
+pub struct Symbol(i32);
+
+impl Symbol {
+    /// The raw opcode id.
+    ///
+    /// Exposed for tensor serialization and table indexing; it is not a
+    /// constructor, so it cannot be used to fabricate an unchecked symbol from
+    /// outside the crate.
+    #[must_use]
+    #[inline]
+    pub const fn value(self) -> i32 {
+        self.0
+    }
+
+    /// Constructs a symbol from a raw `i32` id without range-checking it.
+    ///
+    /// For the GP evaluators that read ids straight from genome tensors, where
+    /// the id may legitimately fall outside the function range (an unrepaired
+    /// mutation). Out-of-range ids are inert at evaluation, so no validation is
+    /// needed here.
+    #[must_use]
+    #[inline]
+    pub(crate) const fn from_raw(id: i32) -> Self {
+        Self(id)
+    }
+}
+
+impl From<Symbol> for i32 {
+    #[inline]
+    fn from(symbol: Symbol) -> Self {
+        symbol.0
+    }
+}
+
+impl fmt::Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sym{}", self.0)
+    }
+}
+
+/// Collapses a non-finite phenotype value to the inert `0.0`.
+///
+/// This is the **node-level** numerical-stability guard: intermediate node
+/// values in the CGP ([`evaluate_cgp_with`](crate::algorithms::gp_cgp)) and GEP
+/// ([`ExpressionTree::eval`](crate::algorithms::gep::ExpressionTree::eval))
+/// evaluators are fed back into downstream node arithmetic, so a non-finite
+/// intermediate (overflow `±inf`, `0/0` `NaN`) must be neutralized *in place*
+/// with a finite value rather than allowed to poison the rest of the tree.
+///
+/// This is **not** the fitness `NaN → −inf` convention from `rules.md §3`: that
+/// rule applies to the final aggregated fitness and is handled separately by
+/// [`sanitize_fitness`](crate::fitness::sanitize_fitness). `0.0` is correct
+/// here precisely because the value is an operand, not a fitness score.
+#[must_use]
+#[inline]
+pub(crate) fn finite_or_zero(v: f32) -> f32 {
+    if v.is_finite() { v } else { 0.0 }
+}
 
 /// The function-opcode contract shared by CGP and GEP.
 ///
@@ -66,12 +130,24 @@ pub trait FunctionSet: Send + Sync + Debug {
 
     /// Applies a function opcode to its already-evaluated arguments.
     ///
-    /// # Preconditions
+    /// Callers pass `args.len() == self.arity(symbol)`. For zero-arity
+    /// functions (constants such as `1.0`), `args` is empty. Variable and
+    /// constant *terminals* are never passed here — they are resolved by the
+    /// caller's evaluator before `apply` is reached.
     ///
-    /// `args.len() == self.arity(symbol)`. For zero-arity functions
-    /// (constants such as `1.0`), `args` is empty. Variable and constant
-    /// *terminals* are never passed here — they are resolved by the caller's
-    /// evaluator before `apply` is reached.
+    /// A shorter-than-arity slice does **not** panic: missing arguments read as
+    /// `0.0`. This keeps a malformed or unrepaired genotype (runtime data) from
+    /// aborting a training run, per `rules.md §4`.
+    ///
+    /// # Numerical
+    ///
+    /// `apply` performs raw IEEE-754 `f32` arithmetic and **may return a
+    /// non-finite value** — overflow yields `±inf`, `0.0 / 0.0` yields `NaN`.
+    /// It does **not** sanitize its result. Finiteness is the caller's
+    /// responsibility at two distinct layers: intermediate node values are
+    /// collapsed to `0.0` for phenotype-evaluation stability (see the
+    /// `finite_or_zero` helper), and the final fitness is mapped to `−inf` by
+    /// the crate's `sanitize_fitness` per `rules.md §3`.
     fn apply(&self, symbol: Symbol, args: &[f32]) -> f32;
 }
 
@@ -112,7 +188,7 @@ impl FunctionSet for ArithmeticFunctionSet {
     }
 
     fn arity(&self, symbol: Symbol) -> usize {
-        usize::try_from(symbol.0)
+        usize::try_from(symbol.value())
             .ok()
             .and_then(|i| Self::ARITIES.get(i).copied())
             .unwrap_or(0)
@@ -123,21 +199,22 @@ impl FunctionSet for ArithmeticFunctionSet {
     }
 
     fn apply(&self, symbol: Symbol, args: &[f32]) -> f32 {
-        // Arms 0..=3 read two args, 4..=6 read one, 7 reads none. The caller
-        // slices `args` to the opcode's arity, so the indexing below is in
-        // bounds. Unknown ids collapse to 0.0, matching the historical
+        // Arms 0..=3 use two args, 4..=6 use one, 7 uses none. Missing
+        // arguments (a shorter-than-arity slice) read as 0.0 rather than
+        // panicking. Unknown ids collapse to 0.0, matching the historical
         // `_ => 0.0` arm of the inline CGP match.
-        match symbol.0 {
-            0 => args[0] + args[1],
-            1 => args[0] - args[1],
-            2 => args[0] * args[1],
+        let a = args.first().copied().unwrap_or(0.0);
+        let b = args.get(1).copied().unwrap_or(0.0);
+        match symbol.value() {
+            0 => a + b,
+            1 => a - b,
+            2 => a * b,
             3 => {
-                let (a, b) = (args[0], args[1]);
                 if b.abs() < 1e-6 { a } else { a / b }
             }
-            4 => args[0].sin(),
-            5 => args[0].cos(),
-            6 => args[0].tanh(),
+            4 => a.sin(),
+            5 => a.cos(),
+            6 => a.tanh(),
             7 => 1.0,
             _ => 0.0,
         }
@@ -170,7 +247,9 @@ mod tests {
             }
         };
         for func in 0..8 {
-            let sym = Symbol(i32::try_from(func).unwrap());
+            // `func` is in `0..8`, so neither truncation nor wrap can occur.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            let sym = Symbol::from_raw(func as i32);
             let arity = fs.arity(sym);
             let arg_buf = [a, b];
             let got = fs.apply(sym, &arg_buf[..arity]);
@@ -179,12 +258,33 @@ mod tests {
         }
     }
 
+    /// A shorter-than-arity slice must not panic; missing arguments read as
+    /// `0.0` (`rules.md §4`: never panic on runtime data).
+    #[test]
+    fn apply_handles_short_args_without_panic() {
+        let fs = ArithmeticFunctionSet;
+        // arity(add) == 2, but the slice is empty: 0.0 + 0.0 == 0.0.
+        approx::assert_relative_eq!(fs.apply(Symbol::from_raw(0), &[]), 0.0, epsilon = 1e-7);
+        // arity(sub) == 2 with a single arg: 5.0 - 0.0 == 5.0.
+        approx::assert_relative_eq!(fs.apply(Symbol::from_raw(1), &[5.0]), 5.0, epsilon = 1e-7);
+    }
+
+    /// `apply` does not sanitize: a `NaN` argument propagates through raw
+    /// arithmetic (finiteness is the caller's responsibility, see
+    /// [`finite_or_zero`]).
+    #[test]
+    fn apply_propagates_non_finite_arguments() {
+        let fs = ArithmeticFunctionSet;
+        assert!(fs.apply(Symbol::from_raw(0), &[f32::NAN, 1.0]).is_nan());
+        assert!(fs.apply(Symbol::from_raw(2), &[f32::INFINITY, 2.0]).is_infinite());
+    }
+
     /// Protected division returns the numerator when the denominator is near
     /// zero (no `inf`).
     #[test]
     fn protected_div_guards_small_denominator() {
         let fs = ArithmeticFunctionSet;
-        let got = fs.apply(Symbol(3), &[3.0, 1e-9]);
+        let got = fs.apply(Symbol::from_raw(3), &[3.0, 1e-9]);
         approx::assert_relative_eq!(got, 3.0, epsilon = 1e-7);
     }
 
@@ -193,9 +293,9 @@ mod tests {
     #[test]
     fn out_of_range_opcode_is_inert() {
         let fs = ArithmeticFunctionSet;
-        assert_eq!(fs.arity(Symbol(99)), 0);
-        assert_eq!(fs.arity(Symbol(-1)), 0);
-        approx::assert_relative_eq!(fs.apply(Symbol(99), &[]), 0.0, epsilon = 1e-7);
+        assert_eq!(fs.arity(Symbol::from_raw(99)), 0);
+        assert_eq!(fs.arity(Symbol::from_raw(-1)), 0);
+        approx::assert_relative_eq!(fs.apply(Symbol::from_raw(99), &[]), 0.0, epsilon = 1e-7);
     }
 
     #[test]
@@ -203,8 +303,8 @@ mod tests {
         let fs = ArithmeticFunctionSet;
         assert_eq!(fs.num_functions(), 8);
         assert_eq!(fs.max_arity(), 2);
-        assert_eq!(fs.arity(Symbol(0)), 2);
-        assert_eq!(fs.arity(Symbol(6)), 1);
-        assert_eq!(fs.arity(Symbol(7)), 0);
+        assert_eq!(fs.arity(Symbol::from_raw(0)), 2);
+        assert_eq!(fs.arity(Symbol::from_raw(6)), 1);
+        assert_eq!(fs.arity(Symbol::from_raw(7)), 0);
     }
 }

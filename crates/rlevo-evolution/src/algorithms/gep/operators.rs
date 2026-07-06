@@ -245,7 +245,7 @@ mod tests {
         for _ in 0..200 {
             let mut g = sample_valid(&a, &cfg, &mut rng);
             // Guarantee at least one function in the head.
-            g[0] = Symbol(0);
+            g[0] = Symbol::from_raw(0);
             ris_transposition(&mut g, cfg.head_len, &a, &mut rng);
             if a.arity(g[0]) >= 1 {
                 rooted += 1;

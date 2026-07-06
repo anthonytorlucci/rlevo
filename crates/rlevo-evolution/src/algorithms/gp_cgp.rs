@@ -337,11 +337,11 @@ pub fn evaluate_cgp_with<F: FunctionSet>(
             let b_idx = genome[base + 2] as usize;
             let a = buf[a_idx.min(buf.len() - 1)];
             let b = buf[b_idx.min(buf.len() - 1)];
-            let sym = Symbol(func);
+            let sym = Symbol::from_raw(func);
             let arity = fs.arity(sym);
             let arg_buf = [a, b];
             let v = fs.apply(sym, &arg_buf[..arity.min(arg_buf.len())]);
-            buf[n_inputs + node] = if v.is_finite() { v } else { 0.0 };
+            buf[n_inputs + node] = crate::function_set::finite_or_zero(v);
         }
         outputs.push(buf[output_idx.min(buf.len() - 1)]);
     }

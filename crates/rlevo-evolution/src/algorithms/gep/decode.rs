@@ -80,13 +80,13 @@ mod tests {
         let a = alphabet(1);
         // ids: + = 0, * = 2, x = 8
         let genome = vec![
-            Symbol(0),
-            Symbol(2),
-            Symbol(8),
-            Symbol(8),
-            Symbol(8),
-            Symbol(8), // tail junk
-            Symbol(8),
+            Symbol::from_raw(0),
+            Symbol::from_raw(2),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8), // tail junk
+            Symbol::from_raw(8),
         ];
         let tree = GepDecoder.decode(&a, &genome);
         // + (root) -> children {*, x}; * -> children {x, x}. 5 nodes.
@@ -98,13 +98,13 @@ mod tests {
     fn decode_is_deterministic() {
         let a = alphabet(2);
         let genome = vec![
-            Symbol(0),
-            Symbol(1),
-            Symbol(8),
-            Symbol(9),
-            Symbol(8),
-            Symbol(9),
-            Symbol(8),
+            Symbol::from_raw(0),
+            Symbol::from_raw(1),
+            Symbol::from_raw(8),
+            Symbol::from_raw(9),
+            Symbol::from_raw(8),
+            Symbol::from_raw(9),
+            Symbol::from_raw(8),
         ];
         let t1 = GepDecoder.decode(&a, &genome);
         let t2 = GepDecoder.decode(&a, &genome);
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn all_terminal_head_is_one_node() {
         let a = alphabet(1);
-        let genome = vec![Symbol(8), Symbol(8), Symbol(8)];
+        let genome = vec![Symbol::from_raw(8), Symbol::from_raw(8), Symbol::from_raw(8)];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
     }

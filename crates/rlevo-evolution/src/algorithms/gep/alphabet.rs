@@ -18,7 +18,7 @@ use crate::function_set::{FunctionSet, Symbol};
 /// the lint allowance documents that the cast is bounded by `num_functions()`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn function_symbol(i: usize) -> Symbol {
-    Symbol(i as i32)
+    Symbol::from_raw(i as i32)
 }
 
 /// The semantic class of a decoded symbol.
@@ -132,7 +132,7 @@ impl<F: FunctionSet> Alphabet<F> {
     /// (variables and constants are leaves).
     #[must_use]
     pub fn arity(&self, symbol: Symbol) -> usize {
-        match usize::try_from(symbol.0) {
+        match usize::try_from(symbol.value()) {
             Ok(id) if id < self.n_func() => self.functions.arity(symbol),
             _ => 0,
         }
@@ -148,7 +148,7 @@ impl<F: FunctionSet> Alphabet<F> {
         let n_func = self.n_func();
         let n_vars = self.n_vars;
         let n_const = self.constants.len();
-        let Ok(id_u) = usize::try_from(symbol.0) else {
+        let Ok(id_u) = usize::try_from(symbol.value()) else {
             return SymbolKind::Function { arity: 0 };
         };
         if id_u < n_func {
@@ -189,13 +189,13 @@ impl<F: FunctionSet> Alphabet<F> {
     pub fn sample_head_symbol(&self, rng: &mut dyn Rng) -> Symbol {
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let upper = self.len() as i32;
-        Symbol(rng.random_range(0..upper))
+        Symbol::from_raw(rng.random_range(0..upper))
     }
 
     /// Samples a uniformly-random terminal symbol from [`terminal_range`].
     pub fn sample_tail_symbol(&self, rng: &mut dyn Rng) -> Symbol {
         let range = self.terminal_range();
-        Symbol(rng.random_range(range))
+        Symbol::from_raw(rng.random_range(range))
     }
 
     /// True iff every arity-0 function id is `>=` every arity-≥1 function id.
@@ -231,15 +231,15 @@ mod tests {
         assert_eq!(a.n_func(), 8);
         assert_eq!(a.len(), 11);
         // function id 0
-        assert_eq!(a.classify(Symbol(0)), SymbolKind::Function { arity: 2 });
+        assert_eq!(a.classify(Symbol::from_raw(0)), SymbolKind::Function { arity: 2 });
         // arity-0 function (const 1.0) id 7
-        assert_eq!(a.classify(Symbol(7)), SymbolKind::Function { arity: 0 });
+        assert_eq!(a.classify(Symbol::from_raw(7)), SymbolKind::Function { arity: 0 });
         // variables ids 8, 9
-        assert_eq!(a.classify(Symbol(8)), SymbolKind::Variable { input_index: 0 });
-        assert_eq!(a.classify(Symbol(9)), SymbolKind::Variable { input_index: 1 });
+        assert_eq!(a.classify(Symbol::from_raw(8)), SymbolKind::Variable { input_index: 0 });
+        assert_eq!(a.classify(Symbol::from_raw(9)), SymbolKind::Variable { input_index: 1 });
         // constant id 10
         assert_eq!(
-            a.classify(Symbol(10)),
+            a.classify(Symbol::from_raw(10)),
             SymbolKind::Constant { value: 2.5 }
         );
     }
@@ -261,16 +261,16 @@ mod tests {
     #[test]
     fn arity_is_zero_for_terminals() {
         let a = alphabet(2, vec![1.0]);
-        assert_eq!(a.arity(Symbol(0)), 2);
-        assert_eq!(a.arity(Symbol(7)), 0);
-        assert_eq!(a.arity(Symbol(8)), 0); // variable
-        assert_eq!(a.arity(Symbol(10)), 0); // constant
+        assert_eq!(a.arity(Symbol::from_raw(0)), 2);
+        assert_eq!(a.arity(Symbol::from_raw(7)), 0);
+        assert_eq!(a.arity(Symbol::from_raw(8)), 0); // variable
+        assert_eq!(a.arity(Symbol::from_raw(10)), 0); // constant
     }
 
     #[test]
     fn out_of_range_classifies_inert() {
         let a = alphabet(1, vec![]);
-        assert_eq!(a.classify(Symbol(-1)), SymbolKind::Function { arity: 0 });
-        assert_eq!(a.classify(Symbol(999)), SymbolKind::Function { arity: 0 });
+        assert_eq!(a.classify(Symbol::from_raw(-1)), SymbolKind::Function { arity: 0 });
+        assert_eq!(a.classify(Symbol::from_raw(999)), SymbolKind::Function { arity: 0 });
     }
 }
