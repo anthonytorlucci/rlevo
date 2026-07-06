@@ -31,6 +31,7 @@ use rand::SeedableRng;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -329,7 +330,7 @@ where
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
 
-        let best_idx = argmax(&fitness_host);
+        let best_idx = argmax_host(&fitness_host);
         if fitness_host[best_idx] > state.best_fitness {
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -354,18 +355,6 @@ where
             .as_ref()
             .map(|g| (g.clone(), state.best_fitness))
     }
-}
-
-fn argmax(xs: &[f32]) -> usize {
-    let mut best_idx = 0usize;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in xs.iter().enumerate() {
-        if v > best {
-            best = v;
-            best_idx = i;
-        }
-    }
-    best_idx
 }
 
 #[cfg(test)]

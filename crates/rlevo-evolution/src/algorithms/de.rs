@@ -37,6 +37,7 @@ use rand::{Rng, RngExt};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -473,7 +474,7 @@ where
         // First `tell`: stash fitness for the initial population.
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            state.best_index = argmax(&fitness_host);
+            state.best_index = argmax_host(&fitness_host);
             state.generation += 1;
             update_best(&mut state, &trial, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -513,7 +514,7 @@ where
 
         state.population = next_pop;
         state.fitness.clone_from(&new_fit);
-        state.best_index = argmax(&new_fit);
+        state.best_index = argmax_host(&new_fit);
         state.generation += 1;
         update_best(&mut state, &trial, &fitness_host);
         let m = StrategyMetrics::from_host_fitness(state.generation, &new_fit, state.best_fitness);
@@ -533,23 +534,11 @@ where
     }
 }
 
-fn argmax(xs: &[f32]) -> usize {
-    let mut best_idx = 0usize;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in xs.iter().enumerate() {
-        if v > best {
-            best = v;
-            best_idx = i;
-        }
-    }
-    best_idx
-}
-
 fn update_best<B: Backend>(state: &mut DeState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
-    let best_idx = argmax(fitness);
+    let best_idx = argmax_host(fitness);
     let best_f = fitness[best_idx];
     if best_f > state.best_fitness {
         let device = pop.device();
