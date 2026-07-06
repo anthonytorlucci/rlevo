@@ -12,6 +12,8 @@ tags: [adr, decision, architecture, crates, rlevo-core, rlevo-benchmarks, rlevo-
 
 Active. Partially reverses [0002-collapse-evolution-traits-into-rlevo-evolution](0002-collapse-evolution-traits-into-rlevo-evolution.md) by reintroducing the `rlevo-evolution → rlevo-core` edge — but for a different trait surface than the one ADR 0002 cut.
 
+**Update (2026-07-06):** decision point #6's "keep the local splitmix64 mixer" and the corresponding "Neutral" consequence (line 95) are superseded by ADR [0033](0033-share-splitmix64-mixer-across-core-and-evolution.md), which dedupes the mixer into a single `pub` `rlevo_core::util::seed::splitmix64`. All other decisions in this ADR remain active.
+
 ## Context
 
 A 2026-04-28 audit of the workspace dependency graph found two related defects:

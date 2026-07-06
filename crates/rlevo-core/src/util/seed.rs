@@ -158,7 +158,26 @@ impl SeedStream {
     }
 }
 
-const fn splitmix64(mut x: u64) -> u64 {
+/// The splitmix64 finalizing mixer — a **frozen reference algorithm**.
+///
+/// Given any `u64`, returns a well-distributed `u64` via the canonical
+/// splitmix64 constants (`0x9E37_79B9_7F4A_7C15`, `0xBF58_476D_1CE4_E5B9`,
+/// `0x94D0_49BB_1331_11EB`). It is a pure, `const`, bijective mixing step.
+///
+/// # Stability contract
+///
+/// **This function's output must never change.** It is the single source of
+/// truth for the mixer used by both [`SeedStream`] (trial/env/agent fan-out)
+/// and `rlevo_evolution::rng::seed_stream` (operator sub-streams). Any edit to
+/// the constants or shifts would silently break the reproducibility of every
+/// stored seed, golden test, and recorded run in the workspace. It is pinned by
+/// `splitmix64_golden_values_are_frozen`; treat a failure of that test as "do
+/// not merge / revert," not "update the expected value."
+///
+/// The two derivation schemes that consume it are otherwise independent: they
+/// share this mixer, not a seed-derivation contract. See ADR 0033.
+#[must_use]
+pub const fn splitmix64(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
@@ -199,5 +218,16 @@ mod tests {
         let a = SeedStream::new(1).trial_seed(0, 0);
         let b = SeedStream::new(2).trial_seed(0, 0);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn splitmix64_golden_values_are_frozen() {
+        // Frozen reference outputs. If this test fails, the mixer was changed
+        // and the reproducibility of every stored seed / golden run in the
+        // workspace is broken. Do NOT update these constants — revert the
+        // change instead. See ADR 0033 and the `splitmix64` stability contract.
+        assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
+        assert_eq!(splitmix64(1), 0x910A_2DEC_8902_5CC1);
+        assert_eq!(splitmix64(u64::MAX), 0xE4D9_7177_1B65_2C20);
     }
 }

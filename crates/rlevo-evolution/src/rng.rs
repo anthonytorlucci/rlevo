@@ -2,8 +2,12 @@
 //!
 //! Callers derive sub-seeds by mixing a `base`, a `generation` index, and
 //! a [`SeedPurpose`] so parallel streams (selection, mutation, crossover)
-//! do not alias. The mixer is splitmix64, matching the algorithm used by
-//! [`rlevo_core::util::seed::SeedStream`] for trial-level seed fan-out.
+//! do not alias. The mixer is [`rlevo_core::util::seed::splitmix64`], the
+//! single frozen mixer shared with [`SeedStream`]'s trial-level seed fan-out
+//! (ADR 0033). The two seed-derivation *schemes* remain independent: they
+//! share the mixer, not a derivation contract.
+//!
+//! [`SeedStream`]: rlevo_core::util::seed::SeedStream
 //!
 //! # Host-RNG convention
 //!
@@ -17,6 +21,7 @@
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rlevo_core::util::seed::splitmix64;
 
 /// Tag identifying which evolutionary operation a sub-stream is for.
 ///
@@ -40,6 +45,25 @@ pub enum SeedPurpose {
     /// Differential-evolution trial-vector construction.
     Trial = 5,
     /// Catch-all for strategy-specific stochastic steps.
+    ///
+    /// # Isolation caveat
+    ///
+    /// Unlike the named purposes (each owning a distinct operator role),
+    /// `Other` is a **shared bucket** used by many unrelated strategies
+    /// (evolutionary programming, ES, NEAT, NAS, and the swarm family:
+    /// SALP/WOA/GWO/ABC/PSO/BAT). Two different strategies both passing
+    /// `Other` get the **same** domain constant, so their cross-strategy
+    /// isolation relies *entirely* on each call site passing a distinct
+    /// `base` (and/or `generation`) — typically a fresh `rng.next_u64()`.
+    /// If two `Other` call sites ever share the same `(base, generation)`,
+    /// their streams alias. Prefer a dedicated named variant for any operator
+    /// that needs guaranteed isolation within a fixed `(base, generation)`.
+    ///
+    /// Note: this variant's constant `0x9E37_79B9_7F4A_7C15` coincides with the
+    /// φ64 golden-ratio multiplier applied to `generation` in [`seed_stream`].
+    /// No concrete collision exists today (no purpose uses constant `0`, and
+    /// the generation term is multiplied), but it is a latent footgun — do not
+    /// assume the `Other` domain is independent of the generation axis.
     Other = 6,
     /// Local-search refinement (memetic algorithms).
     ///
@@ -132,13 +156,6 @@ pub fn seed_stream(base: u64, generation: u64, purpose: SeedPurpose) -> StdRng {
     StdRng::seed_from_u64(x)
 }
 
-const fn splitmix64(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,35 +170,69 @@ mod tests {
         }
     }
 
-    // One single-letter binding per purpose under test; the names index the
-    // purpose list rather than carrying independent meaning.
-    #[allow(clippy::many_single_char_names)]
+    // All `SeedPurpose` variants, kept exhaustive by `_exhaustiveness_guard`.
+    const ALL_PURPOSES: [SeedPurpose; 12] = [
+        SeedPurpose::Init,
+        SeedPurpose::Selection,
+        SeedPurpose::Crossover,
+        SeedPurpose::Mutation,
+        SeedPurpose::Replacement,
+        SeedPurpose::Trial,
+        SeedPurpose::Other,
+        SeedPurpose::LocalSearch,
+        SeedPurpose::EdaSampling,
+        SeedPurpose::Representative,
+        SeedPurpose::Transposition,
+        SeedPurpose::CmaSampling,
+    ];
+
+    // Compile-time guard: adding a variant makes this match non-exhaustive,
+    // forcing `ALL_PURPOSES` (and its length) to be updated in lock-step.
+    #[allow(dead_code)]
+    fn _exhaustiveness_guard(p: SeedPurpose) {
+        match p {
+            SeedPurpose::Init
+            | SeedPurpose::Selection
+            | SeedPurpose::Crossover
+            | SeedPurpose::Mutation
+            | SeedPurpose::Replacement
+            | SeedPurpose::Trial
+            | SeedPurpose::Other
+            | SeedPurpose::LocalSearch
+            | SeedPurpose::EdaSampling
+            | SeedPurpose::Representative
+            | SeedPurpose::Transposition
+            | SeedPurpose::CmaSampling => {}
+        }
+    }
+
     #[test]
-    fn different_purposes_produce_different_streams() {
-        let a = seed_stream(42, 0, SeedPurpose::Init).next_u64();
-        let b = seed_stream(42, 0, SeedPurpose::Selection).next_u64();
-        let c = seed_stream(42, 0, SeedPurpose::Mutation).next_u64();
-        let d = seed_stream(42, 0, SeedPurpose::LocalSearch).next_u64();
-        let e = seed_stream(42, 0, SeedPurpose::EdaSampling).next_u64();
-        let f = seed_stream(42, 0, SeedPurpose::Representative).next_u64();
-        let g = seed_stream(42, 0, SeedPurpose::CmaSampling).next_u64();
-        assert_ne!(a, b);
-        assert_ne!(a, c);
-        assert_ne!(b, c);
-        assert_ne!(a, d);
-        assert_ne!(b, d);
-        assert_ne!(c, d);
-        assert_ne!(a, e);
-        assert_ne!(b, e);
-        assert_ne!(c, e);
-        assert_ne!(d, e);
-        assert_ne!(a, f);
-        assert_ne!(e, f);
-        // CmaSampling is distinct from every other purpose stream.
-        assert_ne!(g, a);
-        assert_ne!(g, c);
-        assert_ne!(g, e);
-        assert_ne!(g, f);
+    fn all_purpose_domain_constants_are_pairwise_distinct() {
+        // Stronger than stream distinctness: catches the root cause (a
+        // duplicated or zero domain constant) directly, independent of the
+        // mixer.
+        for (i, &p) in ALL_PURPOSES.iter().enumerate() {
+            for &q in &ALL_PURPOSES[i + 1..] {
+                assert_ne!(
+                    p.constant(),
+                    q.constant(),
+                    "domain constants collide for {p:?} and {q:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn all_purposes_produce_distinct_first_draws() {
+        // Exhaustive all-pairs over every `SeedPurpose` variant at a fixed
+        // base/generation.
+        for (i, &p) in ALL_PURPOSES.iter().enumerate() {
+            let first_p = seed_stream(42, 0, p).next_u64();
+            for &q in &ALL_PURPOSES[i + 1..] {
+                let first_q = seed_stream(42, 0, q).next_u64();
+                assert_ne!(first_p, first_q, "first draws collide for {p:?} and {q:?}");
+            }
+        }
     }
 
     #[test]
