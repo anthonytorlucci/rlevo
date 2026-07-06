@@ -166,7 +166,7 @@ fn tensor_to_rows<B: Backend>(pop: &Tensor<B, 2, Int>, genome_len: usize) -> Vec
         .into_vec::<i32>()
         .unwrap_or_default();
     flat.chunks(genome_len)
-        .map(|row| row.iter().map(|&v| Symbol(v)).collect())
+        .map(|row| row.iter().map(|&v| Symbol::from_raw(v)).collect())
         .collect()
 }
 
@@ -179,7 +179,7 @@ fn rows_to_tensor<B: Backend>(
     let pop_size = rows.len();
     let mut flat: Vec<i32> = Vec::with_capacity(pop_size * genome_len);
     for row in rows {
-        flat.extend(row.iter().map(|s| s.0));
+        flat.extend(row.iter().map(|s| s.value()));
     }
     Tensor::<B, 2, Int>::from_data(TensorData::new(flat, [pop_size, genome_len]), device)
 }
