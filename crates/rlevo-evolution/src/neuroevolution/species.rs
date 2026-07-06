@@ -34,22 +34,36 @@ pub const STAGNATION_PROTECT_TOP_K: usize = 2;
 /// population stays the single owner of genome data and the partition is a cheap
 /// view. `representative` is a *cloned* genome (not an index) so it survives
 /// population turnover between generations.
+///
+/// Fields are `pub(crate)`: the NEAT speciation, reproduction, and stagnation
+/// operators (spread across `species.rs` and `neat.rs`) mutate them in place,
+/// but no code outside this crate constructs or reads a `Species` field, so
+/// crate-visibility blocks external struct-literal construction of an
+/// inconsistent species without imposing accessor churn on the operators.
 #[derive(Clone, Debug)]
 pub struct Species {
     /// Stable species id.
-    pub id: SpeciesId,
+    pub(crate) id: SpeciesId,
     /// Frozen comparison anchor for this generation's assignment pass — a
     /// randomly chosen member of the previous generation (canonical NEAT).
-    pub representative: TopologyGenome,
+    pub(crate) representative: TopologyGenome,
     /// Indices into the population `Vec` assigned to this species this generation.
-    pub members: Vec<usize>,
+    pub(crate) members: Vec<usize>,
     /// Best (maximization-oriented) fitness ever seen in this species.
-    pub best_fitness: f32,
+    pub(crate) best_fitness: f32,
     /// Generation at which `best_fitness` last improved — drives stagnation.
-    pub last_improved_generation: u64,
+    pub(crate) last_improved_generation: u64,
     /// Sum of size-adjusted fitness over members (= mean raw fitness); drives
     /// offspring allocation.
-    pub adjusted_fitness_sum: f32,
+    pub(crate) adjusted_fitness_sum: f32,
+}
+
+impl Species {
+    /// This species' stable identifier.
+    #[must_use]
+    pub fn id(&self) -> SpeciesId {
+        self.id
+    }
 }
 
 /// Compatibility distance `δ = c1·E/N + c2·D/N + c3·W̄` between two genomes

@@ -78,10 +78,43 @@ use crate::rng::{SeedPurpose, seed_stream};
 pub struct NasGenome<B: Backend> {
     /// Architecture index of each individual; length `pop_size`, each value in
     /// `0..num_variants`.
-    pub arch_ids: Vec<usize>,
+    arch_ids: Vec<usize>,
     /// Per-individual flat weights, shape `[pop_size, max_param_count]`. Columns
     /// beyond a variant's own parameter count are zero-padded.
-    pub weights: Tensor<B, 2>,
+    weights: Tensor<B, 2>,
+}
+
+impl<B: Backend> NasGenome<B> {
+    /// Assembles a population genome, checking one architecture id per row.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `weights` has zero rows or if `arch_ids`
+    /// does not have exactly one entry per weight row (`pop_size`).
+    pub fn try_new(arch_ids: Vec<usize>, weights: Tensor<B, 2>) -> Result<Self, ConfigError> {
+        let pop = weights.dims()[0];
+        config::nonzero("NasGenome", "pop_size", pop)?;
+        if arch_ids.len() != pop {
+            return Err(ConfigError {
+                config: "NasGenome",
+                field: "arch_ids",
+                kind: ConstraintKind::Custom("must have one architecture id per weight row"),
+            });
+        }
+        Ok(Self { arch_ids, weights })
+    }
+
+    /// Architecture index of each individual, length `pop_size`.
+    #[must_use]
+    pub fn arch_ids(&self) -> &[usize] {
+        &self.arch_ids
+    }
+
+    /// Per-individual flat weights, shape `[pop_size, max_param_count]`.
+    #[must_use]
+    pub fn weights(&self) -> &Tensor<B, 2> {
+        &self.weights
+    }
 }
 
 /// A type-erased per-variant evaluator.
@@ -160,26 +193,83 @@ impl<B: Backend> VariantEvaluator<B> {
 #[derive(Debug, Clone)]
 pub struct NasParams {
     /// Number of individuals per generation.
-    pub pop_size: usize,
+    pop_size: usize,
     /// Number of architecture variants (`arch_id` ranges over `0..num_variants`).
-    pub num_variants: usize,
+    num_variants: usize,
     /// Flat parameter count of each variant; length `num_variants`, indexed by
     /// `arch_id`.
-    pub per_variant_params: Vec<usize>,
+    per_variant_params: Vec<usize>,
     /// Width of the weight tensor — `per_variant_params.iter().max()`.
-    pub max_param_count: usize,
+    max_param_count: usize,
     /// Per-individual probability of reassigning the architecture id each
     /// generation (a changed id re-initializes that child's active weights).
-    pub arch_mutation_rate: f32,
+    arch_mutation_rate: f32,
     /// Standard deviation of the isotropic Gaussian weight perturbation.
-    pub weight_mutation_std: f32,
+    weight_mutation_std: f32,
     /// Standard deviation used to initialize (and re-initialize) weights.
-    pub weight_init_std: f32,
+    weight_init_std: f32,
     /// Tournament size for parent selection (clamped to `>= 1`).
-    pub tournament_size: usize,
+    tournament_size: usize,
     /// Number of best individuals carried over unmutated each generation
     /// (clamped to `<= pop_size`).
-    pub elite_count: usize,
+    elite_count: usize,
+}
+
+impl NasParams {
+    /// Number of individuals per generation.
+    #[must_use]
+    pub fn pop_size(&self) -> usize {
+        self.pop_size
+    }
+
+    /// Number of architecture variants (`arch_id` ranges over `0..num_variants`).
+    #[must_use]
+    pub fn num_variants(&self) -> usize {
+        self.num_variants
+    }
+
+    /// Flat parameter count of each variant, indexed by `arch_id`.
+    #[must_use]
+    pub fn per_variant_params(&self) -> &[usize] {
+        &self.per_variant_params
+    }
+
+    /// Width of the weight tensor (`per_variant_params.iter().max()`).
+    #[must_use]
+    pub fn max_param_count(&self) -> usize {
+        self.max_param_count
+    }
+
+    /// Per-individual probability of reassigning the architecture id each
+    /// generation.
+    #[must_use]
+    pub fn arch_mutation_rate(&self) -> f32 {
+        self.arch_mutation_rate
+    }
+
+    /// Standard deviation of the isotropic Gaussian weight perturbation.
+    #[must_use]
+    pub fn weight_mutation_std(&self) -> f32 {
+        self.weight_mutation_std
+    }
+
+    /// Standard deviation used to initialize (and re-initialize) weights.
+    #[must_use]
+    pub fn weight_init_std(&self) -> f32 {
+        self.weight_init_std
+    }
+
+    /// Tournament size for parent selection.
+    #[must_use]
+    pub fn tournament_size(&self) -> usize {
+        self.tournament_size
+    }
+
+    /// Number of best individuals carried over unmutated each generation.
+    #[must_use]
+    pub fn elite_count(&self) -> usize {
+        self.elite_count
+    }
 }
 
 impl Validate for NasParams {
@@ -715,6 +805,17 @@ mod tests {
     use rand::rngs::StdRng;
 
     type TestBackend = Flex;
+
+    #[test]
+    fn nas_genome_try_new_checks_one_arch_id_per_row() {
+        let device = Default::default();
+        let weights = Tensor::<TestBackend, 2>::zeros([3, 4], &device);
+        assert!(NasGenome::try_new(vec![0, 1, 2], weights).is_ok());
+        let weights = Tensor::<TestBackend, 2>::zeros([3, 4], &device);
+        assert!(NasGenome::try_new(vec![0, 1], weights).is_err());
+        let empty = Tensor::<TestBackend, 2>::zeros([0, 4], &device);
+        assert!(NasGenome::try_new(vec![], empty).is_err());
+    }
 
     fn valid_builder_config() -> NasBuilderConfig {
         NasBuilderConfig {
