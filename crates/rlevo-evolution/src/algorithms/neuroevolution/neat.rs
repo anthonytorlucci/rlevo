@@ -234,7 +234,7 @@ impl<B: Backend> NeatStrategy<B> {
             species: Vec::new(),
             registry,
             generation: 0,
-            next_species_id: 0,
+            next_species_id: SpeciesId::new(0),
             best: None,
             best_fitness: f32::NEG_INFINITY,
         }
@@ -889,20 +889,20 @@ mod tests {
     use crate::neuroevolution::topology::InnovationId;
     use rand::SeedableRng;
 
-    fn node(id: NodeId, kind: NodeKind) -> NodeGene {
+    fn node(id: u64, kind: NodeKind) -> NodeGene {
         NodeGene {
-            id,
+            id: NodeId::new(id),
             kind,
             activation: ActivationFn::Sigmoid,
             bias: 0.0,
         }
     }
 
-    fn conn(innovation: InnovationId, source: NodeId, target: NodeId) -> ConnectionGene {
+    fn conn(innovation: u64, source: u64, target: u64) -> ConnectionGene {
         ConnectionGene {
-            innovation,
-            source,
-            target,
+            innovation: InnovationId::new(innovation),
+            source: NodeId::new(source),
+            target: NodeId::new(target),
             weight: 0.5,
             enabled: true,
         }
@@ -912,7 +912,7 @@ mod tests {
     /// yields identical innovation AND node id sequences.
     #[test]
     fn test_innovation_numbering_is_deterministic() {
-        fn replay() -> (Vec<InnovationId>, Vec<NodeId>) {
+        fn replay() -> (Vec<u64>, Vec<NodeId>) {
             let registry = InnovationRegistry::new(3, 2);
             let mut rng = StdRng::seed_from_u64(99);
             let params = NeatParams::default_for(10, 2, 1);
@@ -922,7 +922,7 @@ mod tests {
             mutate_add_node(&mut g, &registry, &mut rng);
             mutate_weights(&mut g, &params, &mut rng);
             mutate_add_connection(&mut g, &params, &registry, &mut rng);
-            let innovs: Vec<InnovationId> = g.connections.iter().map(|c| c.innovation).collect();
+            let innovs: Vec<u64> = g.connections.iter().map(|c| c.innovation.get()).collect();
             let mut nodes: Vec<NodeId> = g.nodes.iter().map(|n| n.id).collect();
             nodes.sort_unstable();
             (innovs, nodes)
@@ -962,15 +962,15 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(3);
         let child = crossover(&p1, 2.0, &p2, 1.0, &params, &mut rng);
 
-        let innovs: Vec<InnovationId> = child.connections.iter().map(|c| c.innovation).collect();
+        let innovs: Vec<u64> = child.connections.iter().map(|c| c.innovation.get()).collect();
         assert_eq!(
             innovs,
             vec![0, 1, 2, 3],
             "matching (0,1) + fitter disjoint/excess (2,3); less-fit excess (4) dropped"
         );
         assert!(child.is_innovation_sorted(), "child stays innovation-sorted");
-        assert!(child.node(4).is_none(), "node only reachable via dropped gene is excluded");
-        assert!(child.node(3).is_some(), "hidden node from inherited gene is kept");
+        assert!(child.node(NodeId::new(4)).is_none(), "node only reachable via dropped gene is excluded");
+        assert!(child.node(NodeId::new(3)).is_some(), "hidden node from inherited gene is kept");
     }
 
     /// Equal fitness inherits disjoint/excess from both parents.
@@ -986,7 +986,7 @@ mod tests {
         let params = NeatParams::default_for(10, 2, 1);
         let mut rng = StdRng::seed_from_u64(5);
         let child = crossover(&p1, 1.0, &p2, 1.0, &params, &mut rng);
-        let innovs: Vec<InnovationId> = child.connections.iter().map(|c| c.innovation).collect();
+        let innovs: Vec<u64> = child.connections.iter().map(|c| c.innovation.get()).collect();
         assert_eq!(innovs, vec![0, 2, 3], "equal fitness keeps disjoint/excess from both");
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
             mutate_add_connection(&mut g, &params, &registry, &mut rng);
         }
         assert_eq!(g.connections.len(), before, "no cyclic edge is ever added");
-        assert!(!g.is_connected(3, 2), "the back-edge 3->2 is rejected");
+        assert!(!g.is_connected(NodeId::new(3), NodeId::new(2)), "the back-edge 3->2 is rejected");
     }
 
     /// Add-node splits an enabled connection: disables it, inserts one hidden
@@ -1049,12 +1049,12 @@ mod tests {
             .filter(|n| matches!(n.kind, NodeKind::Hidden))
             .collect();
         assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].id, 3, "new hidden node id follows the seed nodes");
+        assert_eq!(hidden[0].id.get(), 3, "new hidden node id follows the seed nodes");
         assert!(g.is_innovation_sorted(), "connections stay innovation-sorted");
         assert!(
             g.connections
                 .iter()
-                .any(|c| c.target == 3 && c.enabled && (c.weight - 1.0).abs() < 1e-6),
+                .any(|c| c.target == NodeId::new(3) && c.enabled && (c.weight - 1.0).abs() < 1e-6),
             "the source -> new edge has the function-preserving weight 1.0"
         );
     }
@@ -1078,7 +1078,7 @@ mod tests {
     #[test]
     fn test_add_node_guard_prevents_duplicate_node() {
         let registry = InnovationRegistry::new(3, 2);
-        let split = registry.register_node_split(0); // allocates node 3
+        let split = registry.register_node_split(InnovationId::new(0)); // allocates node 3
         // Genome already holds node 3; only innovation 0 (its split edge) is
         // enabled, so add-node is forced to re-select it.
         let nodes = vec![
@@ -1088,18 +1088,18 @@ mod tests {
             node(3, NodeKind::Hidden),
         ];
         let conns = vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 0.5, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 0.5, enabled: true },
             ConnectionGene {
                 innovation: split.in_innov,
-                source: 0,
-                target: 3,
+                source: NodeId::new(0),
+                target: NodeId::new(3),
                 weight: 1.0,
                 enabled: false,
             },
             ConnectionGene {
                 innovation: split.out_innov,
-                source: 3,
-                target: 2,
+                source: NodeId::new(3),
+                target: NodeId::new(2),
                 weight: 0.5,
                 enabled: false,
             },

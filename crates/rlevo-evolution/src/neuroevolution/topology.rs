@@ -32,12 +32,68 @@ use super::innovation::InnovationRegistry;
 /// Stable identifier for a node gene. Monotone within a run; allocated only by
 /// the [`InnovationRegistry`] (for hidden nodes) or fixed by the minimal
 /// topology (for inputs/outputs).
-pub type NodeId = u64;
+///
+/// An **opaque newtype** over `u64` (not a bare alias): a `NodeId` cannot be
+/// interchanged with an [`InnovationId`] or a raw integer, so the mutation and
+/// crossover logic can never confuse the two id spaces. It has no invariant —
+/// every `u64` is a legal id — so [`new`](NodeId::new) is infallible. Construct
+/// with `new`, read with [`get`](NodeId::get); the crate-internal
+/// [`succ`](NodeId::succ) is the only arithmetic, used solely by the
+/// [`InnovationRegistry`] counters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeId(u64);
+
+impl NodeId {
+    /// Wrap a raw id. Infallible — a node id has no invariant.
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// The underlying id.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The next id in sequence. Crate-internal because only the
+    /// [`InnovationRegistry`] allocates fresh node ids.
+    #[must_use]
+    pub(crate) const fn succ(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
 
 /// Historical marker for a connection gene — the *innovation number* that lets
 /// crossover align structurally-different genomes. Globally monotone within a
 /// run, but sparse within any one genome.
-pub type InnovationId = u64;
+///
+/// An **opaque newtype** over `u64` (not a bare alias); see [`NodeId`] for the
+/// rationale. Its derived [`Ord`] is what keeps `connections` innovation-sorted
+/// and drives the `O(n)` crossover / compatibility-distance merges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct InnovationId(u64);
+
+impl InnovationId {
+    /// Wrap a raw innovation number. Infallible — it has no invariant.
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// The underlying innovation number.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The next innovation in sequence. Crate-internal because only the
+    /// [`InnovationRegistry`] allocates fresh innovations.
+    #[must_use]
+    pub(crate) const fn succ(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
 
 /// Steepening gain of the canonical NEAT logistic sigmoid (Stanley &
 /// Miikkulainen 2002 use `4.9`). Shared by the host-side
@@ -188,8 +244,8 @@ impl TopologyGenome {
         weight_init_std: f32,
     ) -> Self {
         debug_assert!(
-            registry.next_node_id() >= (num_inputs + num_outputs) as NodeId
-                && registry.next_innovation() >= (num_inputs * num_outputs) as InnovationId,
+            registry.next_node_id().get() >= (num_inputs + num_outputs) as u64
+                && registry.next_innovation().get() >= (num_inputs * num_outputs) as u64,
             "registry counters must start after the minimal seed (H6)"
         );
         let normal = Normal::new(0.0_f32, weight_init_std)
@@ -198,7 +254,7 @@ impl TopologyGenome {
         let mut nodes: Vec<NodeGene> = Vec::with_capacity(num_inputs + num_outputs);
         for i in 0..num_inputs {
             nodes.push(NodeGene {
-                id: i as NodeId,
+                id: NodeId::new(i as u64),
                 kind: NodeKind::Input,
                 activation: ActivationFn::Linear,
                 bias: 0.0,
@@ -206,7 +262,7 @@ impl TopologyGenome {
         }
         for o in 0..num_outputs {
             nodes.push(NodeGene {
-                id: (num_inputs + o) as NodeId,
+                id: NodeId::new((num_inputs + o) as u64),
                 kind: NodeKind::Output,
                 activation: ActivationFn::Sigmoid,
                 bias: normal.sample(rng),
@@ -217,9 +273,9 @@ impl TopologyGenome {
         for i in 0..num_inputs {
             for o in 0..num_outputs {
                 connections.push(ConnectionGene {
-                    innovation: (i * num_outputs + o) as InnovationId,
-                    source: i as NodeId,
-                    target: (num_inputs + o) as NodeId,
+                    innovation: InnovationId::new((i * num_outputs + o) as u64),
+                    source: NodeId::new(i as u64),
+                    target: NodeId::new((num_inputs + o) as u64),
                     weight: normal.sample(rng),
                     enabled: true,
                 });
@@ -302,6 +358,19 @@ mod tests {
     use rand::rngs::StdRng;
 
     #[test]
+    fn test_id_newtypes_round_trip_and_succ() {
+        // The opaque-id surface: `new`/`get` round-trip and `succ` steps by one.
+        // `NodeId` and `InnovationId` are distinct types — a program that mixed
+        // them would not compile, which is the whole point of the newtype.
+        assert_eq!(NodeId::new(7).get(), 7);
+        assert_eq!(NodeId::new(7).succ(), NodeId::new(8));
+        assert_eq!(InnovationId::new(0).get(), 0);
+        assert_eq!(InnovationId::new(0).succ().succ(), InnovationId::new(2));
+        // Ordering (needed by the innovation-sorted invariant and BTreeMap keys).
+        assert!(InnovationId::new(1) < InnovationId::new(2));
+    }
+
+    #[test]
     fn test_activation_fn_apply_known_values() {
         // Linear is identity; Relu clamps negatives; Tanh is odd; Sigmoid is
         // steepened logistic centered at 0.5.
@@ -326,13 +395,13 @@ mod tests {
 
         // 2 inputs (0, 1) + 1 output (2).
         assert_eq!(g.nodes.len(), 3, "minimal seed has I + O nodes");
-        assert_eq!(g.node(0).unwrap().kind, NodeKind::Input);
-        assert_eq!(g.node(1).unwrap().kind, NodeKind::Input);
-        assert_eq!(g.node(2).unwrap().kind, NodeKind::Output);
+        assert_eq!(g.node(NodeId::new(0)).unwrap().kind, NodeKind::Input);
+        assert_eq!(g.node(NodeId::new(1)).unwrap().kind, NodeKind::Input);
+        assert_eq!(g.node(NodeId::new(2)).unwrap().kind, NodeKind::Output);
 
         // Fully connected inputs -> output with innovations 0 and 1.
         assert_eq!(g.connections.len(), 2, "I * O connections");
-        let innovs: Vec<InnovationId> = g.connections.iter().map(|c| c.innovation).collect();
+        let innovs: Vec<u64> = g.connections.iter().map(|c| c.innovation.get()).collect();
         assert_eq!(innovs, vec![0, 1], "initial innovations are 0..I*O");
         assert!(g.is_innovation_sorted());
     }
@@ -344,21 +413,21 @@ mod tests {
         let mut g = TopologyGenome::minimal(2, 1, &registry, &mut rng, 1.0);
         // Insert a smaller-than-max innovation out of order; must land in place.
         g.insert_connection_sorted(ConnectionGene {
-            innovation: 5,
-            source: 0,
-            target: 2,
+            innovation: InnovationId::new(5),
+            source: NodeId::new(0),
+            target: NodeId::new(2),
             weight: 0.1,
             enabled: true,
         });
         g.insert_connection_sorted(ConnectionGene {
-            innovation: 3,
-            source: 1,
-            target: 2,
+            innovation: InnovationId::new(3),
+            source: NodeId::new(1),
+            target: NodeId::new(2),
             weight: 0.2,
             enabled: true,
         });
         assert!(g.is_innovation_sorted(), "sorted invariant preserved on insert");
-        let innovs: Vec<InnovationId> = g.connections.iter().map(|c| c.innovation).collect();
+        let innovs: Vec<u64> = g.connections.iter().map(|c| c.innovation.get()).collect();
         assert_eq!(innovs, vec![0, 1, 3, 5]);
     }
 
@@ -366,38 +435,38 @@ mod tests {
     fn test_would_create_cycle_rejects_back_edge() {
         // Build 0 -> 2 -> 3 (feedforward). Adding 3 -> 0 would close a cycle.
         let nodes = vec![
-            NodeGene { id: 0, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 2, kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: 3, kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
+            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene { id: NodeId::new(3), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
         ];
         let conns = vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 1.0, enabled: true },
-            ConnectionGene { innovation: 1, source: 2, target: 3, weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(2), target: NodeId::new(3), weight: 1.0, enabled: true },
         ];
         let g = TopologyGenome::new(nodes, conns);
-        assert!(g.would_create_cycle(3, 0), "3 -> 0 closes a cycle through 0 -> 2 -> 3");
-        assert!(g.would_create_cycle(3, 2), "3 -> 2 closes a cycle through 2 -> 3");
-        assert!(!g.would_create_cycle(0, 3), "0 -> 3 is a forward edge");
-        assert!(g.would_create_cycle(0, 0), "self-loop is a cycle");
+        assert!(g.would_create_cycle(NodeId::new(3), NodeId::new(0)), "3 -> 0 closes a cycle through 0 -> 2 -> 3");
+        assert!(g.would_create_cycle(NodeId::new(3), NodeId::new(2)), "3 -> 2 closes a cycle through 2 -> 3");
+        assert!(!g.would_create_cycle(NodeId::new(0), NodeId::new(3)), "0 -> 3 is a forward edge");
+        assert!(g.would_create_cycle(NodeId::new(0), NodeId::new(0)), "self-loop is a cycle");
     }
 
     #[test]
     fn test_would_create_cycle_counts_disabled_edges() {
         // Disabled 2 -> 3 still constrains acyclicity (H2).
         let nodes = vec![
-            NodeGene { id: 2, kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: 3, kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
         ];
         let conns = vec![ConnectionGene {
-            innovation: 0,
-            source: 2,
-            target: 3,
+            innovation: InnovationId::new(0),
+            source: NodeId::new(2),
+            target: NodeId::new(3),
             weight: 1.0,
             enabled: false,
         }];
         let g = TopologyGenome::new(nodes, conns);
         assert!(
-            g.would_create_cycle(3, 2),
+            g.would_create_cycle(NodeId::new(3), NodeId::new(2)),
             "disabled edges are counted so the DAG survives re-enable"
         );
     }

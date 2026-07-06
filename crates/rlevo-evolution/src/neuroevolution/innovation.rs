@@ -74,8 +74,8 @@ impl InnovationRegistry {
     pub fn new(initial_node_count: usize, initial_innovation_count: usize) -> Self {
         Self {
             inner: Mutex::new(RegistryInner {
-                next_innovation: initial_innovation_count as InnovationId,
-                next_node: initial_node_count as NodeId,
+                next_innovation: InnovationId::new(initial_innovation_count as u64),
+                next_node: NodeId::new(initial_node_count as u64),
                 conn_cache: HashMap::new(),
                 node_cache: HashMap::new(),
             }),
@@ -96,7 +96,7 @@ impl InnovationRegistry {
             return id;
         }
         let id = inner.next_innovation;
-        inner.next_innovation += 1;
+        inner.next_innovation = id.succ();
         inner.conn_cache.insert((source, target), id);
         id
     }
@@ -117,10 +117,10 @@ impl InnovationRegistry {
             return existing;
         }
         let new_node = inner.next_node;
-        inner.next_node += 1;
+        inner.next_node = new_node.succ();
         let in_innov = inner.next_innovation;
-        let out_innov = inner.next_innovation + 1;
-        inner.next_innovation += 2;
+        let out_innov = in_innov.succ();
+        inner.next_innovation = out_innov.succ();
         let result = NodeSplit {
             new_node,
             in_innov,
@@ -152,9 +152,9 @@ mod tests {
     #[test]
     fn test_registry_starts_after_seed() {
         let registry = InnovationRegistry::new(3, 2);
-        assert_eq!(registry.next_node_id(), 3, "node ids start after I+O seed nodes");
+        assert_eq!(registry.next_node_id().get(), 3, "node ids start after I+O seed nodes");
         assert_eq!(
-            registry.next_innovation(),
+            registry.next_innovation().get(),
             2,
             "innovations start after the I*O seed connections"
         );
@@ -163,32 +163,32 @@ mod tests {
     #[test]
     fn test_register_connection_caches_id() {
         let registry = InnovationRegistry::new(3, 2);
-        let a = registry.register_connection(0, 2);
-        let b = registry.register_connection(1, 2);
+        let a = registry.register_connection(NodeId::new(0), NodeId::new(2));
+        let b = registry.register_connection(NodeId::new(1), NodeId::new(2));
         // Distinct pairs get distinct, monotone ids.
-        assert_eq!(a, 2);
-        assert_eq!(b, 3);
+        assert_eq!(a.get(), 2);
+        assert_eq!(b.get(), 3);
         // The same pair re-uses the cached id (crossover alignment).
-        assert_eq!(registry.register_connection(0, 2), a);
-        assert_eq!(registry.next_innovation(), 4);
+        assert_eq!(registry.register_connection(NodeId::new(0), NodeId::new(2)), a);
+        assert_eq!(registry.next_innovation().get(), 4);
     }
 
     #[test]
     fn test_register_node_split_caches_and_allocates_one_node_two_innovs() {
         let registry = InnovationRegistry::new(3, 2);
-        let s = registry.register_node_split(0);
-        assert_eq!(s.new_node, 3, "first hidden node id is after the seed nodes");
-        assert_eq!(s.in_innov, 2);
-        assert_eq!(s.out_innov, 3);
-        assert_eq!(registry.next_node_id(), 4);
-        assert_eq!(registry.next_innovation(), 4);
+        let s = registry.register_node_split(InnovationId::new(0));
+        assert_eq!(s.new_node.get(), 3, "first hidden node id is after the seed nodes");
+        assert_eq!(s.in_innov.get(), 2);
+        assert_eq!(s.out_innov.get(), 3);
+        assert_eq!(registry.next_node_id().get(), 4);
+        assert_eq!(registry.next_innovation().get(), 4);
         // Splitting the SAME connection again returns the cached split.
-        assert_eq!(registry.register_node_split(0), s);
+        assert_eq!(registry.register_node_split(InnovationId::new(0)), s);
         // Splitting a DIFFERENT connection allocates a fresh node + 2 innovs.
-        let t = registry.register_node_split(1);
-        assert_eq!(t.new_node, 4);
-        assert_eq!(t.in_innov, 4);
-        assert_eq!(t.out_innov, 5);
+        let t = registry.register_node_split(InnovationId::new(1));
+        assert_eq!(t.new_node.get(), 4);
+        assert_eq!(t.in_innov.get(), 4);
+        assert_eq!(t.out_innov.get(), 5);
     }
 
     #[test]
@@ -199,12 +199,12 @@ mod tests {
             let reg = InnovationRegistry::new(3, 2);
             let mut innovs = Vec::new();
             let mut nodes = Vec::new();
-            innovs.push(reg.register_connection(0, 2));
-            let s = reg.register_node_split(0);
+            innovs.push(reg.register_connection(NodeId::new(0), NodeId::new(2)));
+            let s = reg.register_node_split(InnovationId::new(0));
             nodes.push(s.new_node);
             innovs.push(s.in_innov);
             innovs.push(s.out_innov);
-            innovs.push(reg.register_connection(1, s.new_node));
+            innovs.push(reg.register_connection(NodeId::new(1), s.new_node));
             (innovs, nodes)
         }
         let (i1, n1) = run();
@@ -219,8 +219,8 @@ mod tests {
         // connection (same innovation) via the SAME shared registry get the same
         // node id and the same in/out innovations.
         let registry = InnovationRegistry::new(3, 2);
-        let split_in_genome_a = registry.register_node_split(0);
-        let split_in_genome_b = registry.register_node_split(0);
+        let split_in_genome_a = registry.register_node_split(InnovationId::new(0));
+        let split_in_genome_b = registry.register_node_split(InnovationId::new(0));
         assert_eq!(split_in_genome_a, split_in_genome_b);
     }
 }

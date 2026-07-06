@@ -22,7 +22,7 @@ use rlevo_evolution::neuroevolution::phenotype::{
     Phenotype, PhenotypeBuilder,
 };
 use rlevo_evolution::neuroevolution::topology::{
-    ActivationFn, ConnectionGene, NodeGene, NodeKind, TopologyGenome,
+    ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
 use rlevo_evolution::{GraphFitnessFn, NeatParams, NeatStrategy};
 
@@ -182,8 +182,8 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
 /// so the dense path is exercised on all four [`ActivationFn`] variants, padding
 /// (node counts 3..=5, so `N = 5`), a two-hidden-layer chain, and edge disabling.
 fn parity_population() -> Vec<TopologyGenome> {
-    let input = |id| NodeGene {
-        id,
+    let input = |id: u64| NodeGene {
+        id: NodeId::new(id),
         kind: NodeKind::Input,
         activation: ActivationFn::Linear,
         bias: 0.0,
@@ -194,11 +194,11 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: 2, kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.2 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.2 },
         ],
         vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 0.7, enabled: true },
-            ConnectionGene { innovation: 1, source: 1, target: 2, weight: -0.4, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 0.7, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: -0.4, enabled: true },
         ],
     );
 
@@ -207,14 +207,14 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: 2, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 3, kind: NodeKind::Hidden, activation: ActivationFn::Tanh, bias: 0.1 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Tanh, bias: 0.1 },
         ],
         vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 5.0, enabled: false },
-            ConnectionGene { innovation: 1, source: 0, target: 3, weight: 0.9, enabled: true },
-            ConnectionGene { innovation: 2, source: 1, target: 3, weight: -1.2, enabled: true },
-            ConnectionGene { innovation: 3, source: 3, target: 2, weight: 1.5, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 5.0, enabled: false },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(0), target: NodeId::new(3), weight: 0.9, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(1), target: NodeId::new(3), weight: -1.2, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(3), source: NodeId::new(3), target: NodeId::new(2), weight: 1.5, enabled: true },
         ],
     );
 
@@ -224,15 +224,15 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: 2, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: -0.3 },
-            NodeGene { id: 3, kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: 4, kind: NodeKind::Hidden, activation: ActivationFn::Sigmoid, bias: 0.05 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: -0.3 },
+            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene { id: NodeId::new(4), kind: NodeKind::Hidden, activation: ActivationFn::Sigmoid, bias: 0.05 },
         ],
         vec![
-            ConnectionGene { innovation: 0, source: 0, target: 3, weight: 1.1, enabled: true },
-            ConnectionGene { innovation: 1, source: 1, target: 3, weight: 0.6, enabled: true },
-            ConnectionGene { innovation: 2, source: 3, target: 4, weight: -0.8, enabled: true },
-            ConnectionGene { innovation: 3, source: 4, target: 2, weight: 2.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(3), weight: 1.1, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(3), weight: 0.6, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(3), target: NodeId::new(4), weight: -0.8, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(3), source: NodeId::new(4), target: NodeId::new(2), weight: 2.0, enabled: true },
         ],
     );
 
@@ -241,11 +241,11 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: 2, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
+            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
         ],
         vec![
-            ConnectionGene { innovation: 0, source: 0, target: 2, weight: 1.0, enabled: true },
-            ConnectionGene { innovation: 1, source: 1, target: 2, weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
+            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: 1.0, enabled: true },
         ],
     );
 

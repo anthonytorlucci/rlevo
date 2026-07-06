@@ -32,7 +32,7 @@ use rlevo_evolution::neuroevolution::phenotype::{
     BatchPhenotypeEvaluator, DensePaddedEvaluator, InterpretedBuilder, PhenotypeBuilder,
 };
 use rlevo_evolution::neuroevolution::topology::{
-    ActivationFn, ConnectionGene, NodeGene, NodeKind, TopologyGenome,
+    ActivationFn, ConnectionGene, InnovationId, NodeGene, NodeId, NodeKind, TopologyGenome,
 };
 use rlevo_evolution::{BatchGraphFitness, GraphFitnessFn, NeatParams, NeatStrategy};
 
@@ -161,22 +161,22 @@ fn neat_xor_generation(c: &mut Criterion) {
 /// sigmoid hidden nodes → `1` linear output, fully connected, random weights.
 fn wide_genome(num_hidden: usize, rng: &mut StdRng) -> TopologyGenome {
     let mut nodes = vec![
-        NodeGene { id: 0, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-        NodeGene { id: 1, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-        NodeGene { id: 2, kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
+        NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+        NodeGene { id: NodeId::new(1), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+        NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
     ];
     let mut conns = Vec::new();
-    let mut innovation = 0u64;
+    let mut innovation = InnovationId::new(0);
     let weight = |rng: &mut StdRng| rng.random::<f32>() - 0.5;
     for h in 0..num_hidden {
-        let id = 3 + h as u64;
+        let id = NodeId::new(3 + h as u64);
         nodes.push(NodeGene { id, kind: NodeKind::Hidden, activation: ActivationFn::Sigmoid, bias: 0.0 });
-        for source in [0u64, 1] {
+        for source in [NodeId::new(0), NodeId::new(1)] {
             conns.push(ConnectionGene { innovation, source, target: id, weight: weight(rng), enabled: true });
-            innovation += 1;
+            innovation = InnovationId::new(innovation.get() + 1);
         }
-        conns.push(ConnectionGene { innovation, source: id, target: 2, weight: weight(rng), enabled: true });
-        innovation += 1;
+        conns.push(ConnectionGene { innovation, source: id, target: NodeId::new(2), weight: weight(rng), enabled: true });
+        innovation = InnovationId::new(innovation.get() + 1);
     }
     TopologyGenome::new(nodes, conns)
 }

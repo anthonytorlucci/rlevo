@@ -19,10 +19,39 @@
 use rand::RngExt;
 use rand::rngs::StdRng;
 
-use super::topology::TopologyGenome;
+use super::topology::{InnovationId, TopologyGenome};
 
 /// Identifier for a species. Monotone within a run.
-pub type SpeciesId = u64;
+///
+/// An **opaque newtype** over `u64` (not a bare alias), so a `SpeciesId` cannot
+/// be confused with a node id, an innovation, or a population index. It has no
+/// invariant — every `u64` is a legal id — so [`new`](SpeciesId::new) is
+/// infallible. Construct with `new`, read with [`get`](SpeciesId::get); the
+/// crate-internal [`succ`](SpeciesId::succ) is the only arithmetic, used solely
+/// by the [`speciate`] id counter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SpeciesId(u64);
+
+impl SpeciesId {
+    /// Wrap a raw id. Infallible — a species id has no invariant.
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// The underlying id.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The next id in sequence. Crate-internal because only [`speciate`]
+    /// allocates fresh species ids.
+    #[must_use]
+    pub(crate) const fn succ(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
 
 /// Number of top-fitness species shielded from stagnation removal, so a
 /// population-wide plateau cannot wipe every species at once.
@@ -99,8 +128,8 @@ pub fn compatibility_distance(
         #[allow(clippy::cast_precision_loss)]
         return c1 * excess as f32 / n;
     }
-    let max_a = ca.last().map_or(0, |c| c.innovation);
-    let max_b = cb.last().map_or(0, |c| c.innovation);
+    let max_a = ca.last().map_or(InnovationId::new(0), |c| c.innovation);
+    let max_b = cb.last().map_or(InnovationId::new(0), |c| c.innovation);
 
     let (mut i, mut j) = (0usize, 0usize);
     let (mut excess, mut disjoint, mut matching) = (0u32, 0u32, 0u32);
@@ -219,7 +248,7 @@ pub fn speciate(
         }
         if !placed {
             let id = *next_species_id;
-            *next_species_id += 1;
+            *next_species_id = id.succ();
             species.push(Species {
                 id,
                 representative: genome.clone(),
@@ -388,14 +417,14 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neuroevolution::topology::{ActivationFn, ConnectionGene, NodeGene, NodeKind};
+    use crate::neuroevolution::topology::{ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind};
     use rand::SeedableRng;
 
     fn conn(innovation: u64, weight: f32) -> ConnectionGene {
         ConnectionGene {
-            innovation,
-            source: 0,
-            target: 1,
+            innovation: InnovationId::new(innovation),
+            source: NodeId::new(0),
+            target: NodeId::new(1),
             weight,
             enabled: true,
         }
@@ -403,8 +432,8 @@ mod tests {
 
     fn genome_with(conns: Vec<ConnectionGene>) -> TopologyGenome {
         let nodes = vec![
-            NodeGene { id: 0, kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: 1, kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
+            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
+            NodeGene { id: NodeId::new(1), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
         ];
         TopologyGenome::new(nodes, conns)
     }
@@ -446,9 +475,9 @@ mod tests {
         );
     }
 
-    fn species_with(id: SpeciesId, adjusted: f32, best: f32, last_improved: u64) -> Species {
+    fn species_with(id: u64, adjusted: f32, best: f32, last_improved: u64) -> Species {
         Species {
-            id,
+            id: SpeciesId::new(id),
             representative: genome_with(vec![conn(0, 0.0)]),
             members: vec![0],
             best_fitness: best,
@@ -495,7 +524,7 @@ mod tests {
             species_with(2, 1.0, 1.0, 0),
         ];
         remove_stagnant(&mut species, 30, 15);
-        let ids: Vec<SpeciesId> = species.iter().map(|s| s.id).collect();
+        let ids: Vec<u64> = species.iter().map(|s| s.id().get()).collect();
         assert!(ids.contains(&0), "top-fitness stagnant species is protected");
         assert!(ids.contains(&1), "recently-improved species survives");
         assert!(!ids.contains(&2), "low-fitness stagnant species is removed");
@@ -512,7 +541,7 @@ mod tests {
         let population = vec![g0, g1, g0_clone];
         let fitness = vec![1.0, 1.0, 1.0];
         let mut species: Vec<Species> = Vec::new();
-        let mut next_id = 0u64;
+        let mut next_id = SpeciesId::new(0);
         // c3=1.0, threshold 1.0: |0-10|=10 > 1 (split); |0-0.05|=0.05 < 1 (join).
         speciate(&population, &fitness, &mut species, 1.0, 1.0, 1.0, 1.0, &mut next_id, 0, &mut rng);
         assert_eq!(species.len(), 2, "distinct genome forms its own species");
