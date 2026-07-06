@@ -16,10 +16,48 @@
 //! Fitness values are **canonical (maximise)**: *higher is better*.
 //! Tournament selection retains the *largest* fitness seen across all
 //! candidates in a single draw; truncation selection returns the `top_k`
-//! entries with the largest fitnesses.
+//! entries with the largest fitnesses; [`argmax_host`] reduces a fitness
+//! slice to the index of its single largest entry.
 
 use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
+
+/// Returns the index of the largest fitness value.
+///
+/// `fitness` is canonical (maximise): *higher is better*. The scan keeps
+/// the running best under a strict `>` seeded from `NEG_INFINITY`, so:
+///
+/// - ties resolve to the lowest index,
+/// - `NaN` and `−inf` entries never displace the running best (every
+///   comparison against them or the seed is strict), and
+/// - a slice with no entry above `−inf` (e.g. all-`NaN`) falls back to
+///   index `0`.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_evolution::ops::selection::argmax_host;
+///
+/// let fitness = [1.0_f32, 5.0, 3.0];
+/// assert_eq!(argmax_host(&fitness), 1);
+/// ```
+///
+/// # Panics
+///
+/// Panics if `fitness.is_empty()`.
+#[must_use]
+pub fn argmax_host(fitness: &[f32]) -> usize {
+    assert!(!fitness.is_empty(), "fitness must be non-empty");
+    let mut best_idx = 0usize;
+    let mut best = f32::NEG_INFINITY;
+    for (i, &v) in fitness.iter().enumerate() {
+        if v > best {
+            best = v;
+            best_idx = i;
+        }
+    }
+    best_idx
+}
 
 /// K-ary tournament selection over a fitness slice.
 ///
@@ -32,7 +70,8 @@ use rand::{Rng, RngExt};
 /// `fitness` is a flat slice where index `i` is the canonical fitness of
 /// population member `i` (higher is better). `tournament_size` controls
 /// selection pressure: larger values yield stronger pressure toward
-/// higher-fitness members.
+/// higher-fitness members. A `tournament_size` of 1 degenerates to
+/// pressure-free uniform-random selection.
 ///
 /// # Examples
 ///
@@ -53,7 +92,7 @@ use rand::{Rng, RngExt};
 ///
 /// # Panics
 ///
-/// Panics if `fitness.is_empty()` or if `tournament_size < 2`.
+/// Panics if `fitness.is_empty()` or if `tournament_size == 0`.
 #[must_use]
 pub fn tournament_indices_host(
     fitness: &[f32],
@@ -62,7 +101,7 @@ pub fn tournament_indices_host(
     rng: &mut dyn Rng,
 ) -> Vec<i32> {
     assert!(!fitness.is_empty(), "fitness must be non-empty");
-    assert!(tournament_size >= 2, "tournament size must be >= 2");
+    assert!(tournament_size >= 1, "tournament size must be >= 1");
     let pop_size = fitness.len();
     let mut winners = Vec::with_capacity(n_winners);
     for _ in 0..n_winners {
@@ -94,7 +133,7 @@ pub fn tournament_indices_host(
 /// # Panics
 ///
 /// Inherits the panic conditions of [`tournament_indices_host`]:
-/// `fitness.is_empty()` or `tournament_size < 2`.
+/// `fitness.is_empty()` or `tournament_size == 0`.
 #[must_use]
 pub fn tournament_select<B: Backend>(
     population: &Tensor<B, 2>,
@@ -222,6 +261,53 @@ mod tests {
         assert!(idx.contains(&2));
     }
     // ANCHOR_END: truncation_ordering_test
+
+    #[test]
+    fn argmax_returns_index_of_largest() {
+        assert_eq!(argmax_host(&[1.0, 5.0, 3.0]), 1);
+        assert_eq!(argmax_host(&[-3.0, -1.0, -2.0]), 1);
+        assert_eq!(argmax_host(&[7.0]), 0);
+    }
+
+    #[test]
+    fn argmax_tie_resolves_to_lowest_index() {
+        assert_eq!(argmax_host(&[2.0, 5.0, 5.0, 5.0]), 1);
+    }
+
+    #[test]
+    fn argmax_nan_never_wins() {
+        assert_eq!(argmax_host(&[1.0, f32::NAN, 3.0]), 2);
+        assert_eq!(argmax_host(&[f32::NAN, 1.0]), 1);
+    }
+
+    #[test]
+    fn argmax_degenerate_slice_falls_back_to_zero() {
+        // No entry strictly exceeds the NEG_INFINITY seed, so the scan
+        // keeps the initial index 0.
+        assert_eq!(argmax_host(&[f32::NAN, f32::NAN]), 0);
+        assert_eq!(argmax_host(&[f32::NAN, f32::NEG_INFINITY]), 0);
+        assert_eq!(argmax_host(&[f32::NEG_INFINITY, f32::NEG_INFINITY]), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "fitness must be non-empty")]
+    fn argmax_empty_panics() {
+        let _ = argmax_host(&[]);
+    }
+
+    #[test]
+    fn tournament_size_one_is_uniform_random() {
+        // A 1-ary "tournament" is a single uniform draw: the dominant
+        // member wins ~1/4 of the time, not most of the time.
+        let mut rng = StdRng::seed_from_u64(3);
+        let fitness = [0.0f32, 100.0, 0.0, 0.0];
+        let winners = tournament_indices_host(&fitness, 1, 1000, &mut rng);
+        let wins_for_best = winners.iter().filter(|&&w| w == 1).count();
+        assert!(
+            (150..=350).contains(&wins_for_best),
+            "wins_for_best={wins_for_best} (expected ~250)",
+        );
+    }
 
     #[test]
     fn truncation_sorts_nan_fitness_last() {

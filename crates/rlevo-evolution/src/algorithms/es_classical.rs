@@ -32,6 +32,7 @@ use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::ops::mutation::gaussian_mutation_per_row;
 use crate::ops::replacement::{mu_comma_lambda, mu_plus_lambda};
+use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -437,7 +438,7 @@ where
             }
             EsKind::OnePlusLambda { .. } => {
                 // Best of (parent, offspring pool).
-                let best_off_idx = argmax(&fitness_host);
+                let best_off_idx = argmax_host(&fitness_host);
                 let best_off_fit = fitness_host[best_off_idx];
                 if best_off_fit > state.parent_fitness[0] {
                     #[allow(clippy::single_range_in_vec_init)]
@@ -513,23 +514,11 @@ where
     }
 }
 
-fn argmax(xs: &[f32]) -> usize {
-    let mut best_idx = 0usize;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in xs.iter().enumerate() {
-        if v > best {
-            best = v;
-            best_idx = i;
-        }
-    }
-    best_idx
-}
-
 fn update_best<B: Backend>(state: &mut EsState<B>, pop: &Tensor<B, 2>, fitness: &[f32]) {
     if fitness.is_empty() {
         return;
     }
-    let best_idx = argmax(fitness);
+    let best_idx = argmax_host(fitness);
     let best_f = fitness[best_idx];
     if best_f > state.best_fitness {
         let device = pop.device();

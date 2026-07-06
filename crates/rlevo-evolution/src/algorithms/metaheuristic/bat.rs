@@ -34,6 +34,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -347,7 +348,7 @@ where
 
         if state.fitness.is_empty() {
             state.fitness.clone_from(&fitness_host);
-            let best_idx = argmax(&fitness_host);
+            let best_idx = argmax_host(&fitness_host);
             state.best_fitness = fitness_host[best_idx];
             #[allow(clippy::cast_possible_wrap)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -392,7 +393,7 @@ where
         state.fitness = new_fitness;
 
         // Refresh global best.
-        let best_idx = argmax(&state.fitness);
+        let best_idx = argmax_host(&state.fitness);
         if state.fitness[best_idx] > state.best_fitness {
             state.best_fitness = state.fitness[best_idx];
             #[allow(clippy::cast_possible_wrap)]
@@ -419,18 +420,6 @@ where
             .as_ref()
             .map(|g| (g.clone(), state.best_fitness))
     }
-}
-
-fn argmax(xs: &[f32]) -> usize {
-    let mut best_idx = 0usize;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in xs.iter().enumerate() {
-        if v > best {
-            best = v;
-            best_idx = i;
-        }
-    }
-    best_idx
 }
 
 #[cfg(test)]

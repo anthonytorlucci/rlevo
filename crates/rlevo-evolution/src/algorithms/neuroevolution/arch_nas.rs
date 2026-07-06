@@ -51,12 +51,12 @@ use std::marker::PhantomData;
 
 use burn::module::Module;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
-use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::ops::selection::{argmax_host, tournament_indices_host, truncation_indices_host};
 use crate::param_reshaper::{ModuleReshaper, ParamReshaper};
 use crate::rng::{SeedPurpose, seed_stream};
 
@@ -571,15 +571,12 @@ impl<B: Backend> ArchNasStrategy<B> {
         let resident_arch = &state.population.arch_ids;
 
         // Elitism: indices sorted by descending (better, canonical maximise)
-        // fitness — highest first.
-        let mut order: Vec<usize> = (0..pop).collect();
-        // Sanitize NaN → −inf (worst) so it can never rank as best; descending.
-        let sane: Vec<f32> = state
-            .fitness
-            .iter()
-            .map(|&f| crate::fitness::sanitize_fitness(f))
+        // fitness — highest first; NaN sanitised to −inf so it never ranks
+        // as best.
+        let order: Vec<usize> = truncation_indices_host(&state.fitness, pop)
+            .into_iter()
+            .map(|i| usize::try_from(i).expect("winner index is non-negative"))
             .collect();
-        order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
         let elite_count = params.elite_count.min(pop);
         let tournament_size = params.tournament_size.max(1);
 
@@ -592,10 +589,19 @@ impl<B: Backend> ArchNasStrategy<B> {
             child_arch.push(resident_arch[ei]);
         }
 
-        // Fill the rest with offspring.
+        // Fill the rest with offspring. All parent tournaments draw from
+        // the dedicated `sel_rng` stream, so batching the draws up front
+        // preserves the exact per-child draw order.
+        let parents = tournament_indices_host(
+            &state.fitness,
+            tournament_size,
+            2 * (pop - elite_count),
+            &mut sel_rng,
+        );
         for ci in elite_count..pop {
-            let pa = tournament(&state.fitness, tournament_size, &mut sel_rng);
-            let pb = tournament(&state.fitness, tournament_size, &mut sel_rng);
+            let pair = 2 * (ci - elite_count);
+            let pa = usize::try_from(parents[pair]).expect("winner index is non-negative");
+            let pb = usize::try_from(parents[pair + 1]).expect("winner index is non-negative");
             let arch = resident_arch[pa];
             let n = params.per_variant_params[arch];
             let base = ci * max;
@@ -675,21 +681,6 @@ impl<B: Backend> ArchNasStrategy<B> {
     }
 }
 
-/// k-tournament selection over a host fitness slice (canonical maximise):
-/// returns the index of the best (highest-fitness) of `size` uniformly-drawn
-/// competitors.
-fn tournament(fitness: &[f32], size: usize, rng: &mut StdRng) -> usize {
-    let pop = fitness.len();
-    let mut best = rng.random_range(0..pop);
-    for _ in 1..size {
-        let challenger = rng.random_range(0..pop);
-        if fitness[challenger] > fitness[best] {
-            best = challenger;
-        }
-    }
-    best
-}
-
 /// Update best-ever tracking from a freshly-evaluated population.
 fn update_best<B: Backend>(
     state: &mut NasState<B>,
@@ -700,14 +691,8 @@ fn update_best<B: Backend>(
     if fitness.is_empty() {
         return;
     }
-    let mut best_idx = 0_usize;
-    let mut best_f = fitness[0];
-    for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f > best_f {
-            best_f = f;
-            best_idx = i;
-        }
-    }
+    let best_idx = argmax_host(fitness);
+    let best_f = fitness[best_idx];
     if best_f > state.best_fitness {
         #[allow(clippy::single_range_in_vec_init)]
         let row: Tensor<B, 1> = pop
@@ -727,6 +712,7 @@ mod tests {
     use burn::backend::Flex;
     use burn::nn::{Linear, LinearConfig};
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     type TestBackend = Flex;
 
