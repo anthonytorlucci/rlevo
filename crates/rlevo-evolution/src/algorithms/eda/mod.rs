@@ -330,7 +330,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         state.generation += 1;
         let metrics =
             StrategyMetrics::from_host_fitness(state.generation, &sanitized, state.best_fitness_ever);
-        state.best_fitness_ever = metrics.best_fitness_ever;
+        state.best_fitness_ever = metrics.best_fitness_ever();
         (state, metrics)
     }
 
@@ -454,7 +454,7 @@ mod tests {
         let v = genome.into_data().into_vec::<f32>().unwrap();
         approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
-        assert!(m.best_fitness.is_finite());
+        assert!(m.best_fitness().is_finite());
     }
 
     #[test]

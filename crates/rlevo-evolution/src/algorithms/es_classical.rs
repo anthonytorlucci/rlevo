@@ -471,7 +471,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             state.parents = offspring;
             // Restore parent-count σ vector.
             let mu = Self::mu(params.kind);
@@ -592,7 +592,7 @@ where
         update_best(&mut state, &offspring, &fitness_host);
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -704,7 +704,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     #[test]

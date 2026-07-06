@@ -707,7 +707,7 @@ mod tests {
             state.generation += 1;
             let metrics =
                 StrategyMetrics::from_host_fitness(state.generation, &fit_host, state.best);
-            state.best = metrics.best_fitness_ever;
+            state.best = metrics.best_fitness_ever();
             (state, metrics)
         }
 
@@ -1107,13 +1107,13 @@ mod tests {
         ).expect("valid params");
         harness.reset();
         let _ = harness.step(());
-        let first: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let first: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         loop {
             if harness.step(()).done {
                 break;
             }
         }
-        let last: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let last: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(last.is_finite(), "best must stay finite");
         // Maximise objective: best_fitness_ever climbs toward the optimum 0.
         assert!(last >= first, "best_fitness_ever must improve: {last} >= {first}");
@@ -1145,7 +1145,7 @@ mod tests {
         for _ in 0..5 {
             let _ = harness.step(());
         }
-        assert!(harness.latest_metrics().unwrap().best_fitness_ever.is_finite());
+        assert!(harness.latest_metrics().unwrap().best_fitness_ever().is_finite());
     }
 
     // ---------------------------------------------------------------------

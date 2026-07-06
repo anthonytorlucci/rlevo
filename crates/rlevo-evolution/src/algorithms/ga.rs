@@ -376,7 +376,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             return (state, m);
         }
 
@@ -404,7 +404,7 @@ where
         state.generation += 1;
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &next_fitness, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         (state, m)
     }
 
@@ -503,9 +503,9 @@ mod tests {
         }
         let m = harness.latest_metrics().unwrap();
         assert!(
-            m.best_fitness_ever < 1e-2,
+            m.best_fitness_ever() < 1e-2,
             "expected Sphere-D2 convergence, got best_fitness_ever={}",
-            m.best_fitness_ever
+            m.best_fitness_ever()
         );
     }
 }

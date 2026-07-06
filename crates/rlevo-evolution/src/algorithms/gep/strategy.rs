@@ -389,7 +389,7 @@ where
 
         let metrics =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = metrics.best_fitness_ever;
+        state.best_fitness = metrics.best_fitness_ever();
         // Cache this generation's fitness for the next `ask`'s roulette draw.
         state.fitnesses = fitness_host;
         (state, metrics)
@@ -525,7 +525,7 @@ mod tests {
                 break;
             }
         }
-        harness.latest_metrics().unwrap().best_fitness_ever
+        harness.latest_metrics().unwrap().best_fitness_ever()
     }
 
     /// Converges on `f(x) = x² + x + 1` over 20 points in [-1, 1].

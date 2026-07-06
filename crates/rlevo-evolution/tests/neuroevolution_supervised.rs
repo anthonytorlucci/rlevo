@@ -111,7 +111,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
 
     // Generation 0.
     harness.step(());
-    let initial_best = harness.latest_metrics().unwrap().best_fitness_ever;
+    let initial_best = harness.latest_metrics().unwrap().best_fitness_ever();
 
     // Generations 1..50.
     loop {
@@ -119,7 +119,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
             break;
         }
     }
-    let final_best = harness.latest_metrics().unwrap().best_fitness_ever;
+    let final_best = harness.latest_metrics().unwrap().best_fitness_ever();
 
     assert!(
         final_best < initial_best,

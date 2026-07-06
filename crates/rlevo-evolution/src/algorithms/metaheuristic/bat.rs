@@ -459,7 +459,7 @@ where
                 &fitness_host,
                 state.best_fitness,
             );
-            state.best_fitness = m.best_fitness_ever;
+            state.best_fitness = m.best_fitness_ever();
             return (state, m);
         }
 
@@ -503,7 +503,7 @@ where
         state.generation += 1;
         let m =
             StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
-        state.best_fitness = m.best_fitness_ever;
+        state.best_fitness = m.best_fitness_ever();
         let _ = genome_dim;
         (state, m)
     }
@@ -604,7 +604,7 @@ mod tests {
         ).expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
-        let best = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 0.1, "Bat D10 best={best}");
     }
 }

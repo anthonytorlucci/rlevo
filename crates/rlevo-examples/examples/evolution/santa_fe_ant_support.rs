@@ -379,7 +379,7 @@ where
         generations += 1;
         if evals_to_solved.is_none()
             && let Some(m) = harness.latest_metrics()
-            && m.best_fitness_ever >= SOLVED
+            && m.best_fitness_ever() >= SOLVED
         {
             evals_to_solved = Some(generations * pop);
         }

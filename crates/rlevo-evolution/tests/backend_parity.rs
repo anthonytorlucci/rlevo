@@ -88,7 +88,7 @@ where
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever
+    harness.latest_metrics().unwrap().best_fitness_ever()
 }
 
 fn run_sphere_pso<B>(seed: u64, gens: usize, device: B::Device) -> f32
@@ -117,7 +117,7 @@ where
             break;
         }
     }
-    harness.latest_metrics().unwrap().best_fitness_ever
+    harness.latest_metrics().unwrap().best_fitness_ever()
 }
 
 #[test]

@@ -136,7 +136,7 @@ where
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
     loop {
         let step = harness.step(());
-        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+        let best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         for (slot, &target) in crossings.iter_mut().zip(TARGETS.iter()) {
             if slot.is_none() && best < target {
                 *slot = Some(evals.load(Ordering::Relaxed));
@@ -146,7 +146,7 @@ where
             break;
         }
     }
-    let final_best: f32 = harness.latest_metrics().unwrap().best_fitness_ever;
+    let final_best: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
     let cells: String = TARGETS
         .iter()
         .zip(crossings.iter())

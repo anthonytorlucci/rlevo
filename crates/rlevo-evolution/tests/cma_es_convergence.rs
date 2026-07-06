@@ -61,7 +61,7 @@ where
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
         let step = harness.step(());
-        trajectory.push(harness.latest_metrics().unwrap().best_fitness_ever);
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness_ever());
         if step.done {
             break;
         }

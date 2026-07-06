@@ -63,7 +63,7 @@ where
     let metrics = harness.latest_metrics();
     assert!(metrics.is_some(), "latest_metrics must be Some after a run");
     assert!(
-        metrics.unwrap().best_fitness_ever.is_finite(),
+        metrics.unwrap().best_fitness_ever().is_finite(),
         "best fitness must be finite"
     );
     let best = harness.best();
