@@ -97,9 +97,17 @@ where
     R: ParamReshaper<B>,
     F: Fn(&R::Module) -> f32 + Send,
 {
+    /// Score every row of `population` by reconstructing one module per row.
+    ///
+    /// # Panics
+    ///
+    /// Panics at batch entry if the population width (`population.dims()[1]`)
+    /// differs from the reshaper's [`num_params`](ParamReshaper::num_params),
+    /// failing fast before any per-row work rather than mid-loop inside
+    /// [`ParamReshaper::unflatten`].
     fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &B::Device) -> Tensor<B, 1> {
         let [pop_size, num_params] = population.dims();
-        debug_assert_eq!(
+        assert_eq!(
             num_params,
             self.reshaper.num_params(),
             "population genome width must equal reshaper num_params"
@@ -134,11 +142,11 @@ mod tests {
 
     /// Single linear layer `2 -> 1`: 2 weights + 1 bias = 3 float leaves.
     #[derive(Module, Debug)]
-    struct Tiny<B: Backend> {
+    struct TestTiny<B: Backend> {
         l: Linear<B>,
     }
 
-    impl<B: Backend> Tiny<B> {
+    impl<B: Backend> TestTiny<B> {
         fn new(device: &B::Device) -> Self {
             Self {
                 l: LinearConfig::new(2, 1).init(device),
@@ -151,16 +159,16 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_batch_preserves_shape_and_order() {
+    fn test_module_eval_fn_evaluate_batch_preserves_shape_and_order() {
         let device = Default::default();
-        let reshaper = ModuleReshaper::new(Tiny::<TestBackend>::new(&device));
+        let reshaper = ModuleReshaper::new(TestTiny::<TestBackend>::new(&device));
         let num_params = reshaper.num_params();
         assert_eq!(num_params, 3);
 
         // Scorer: forward a fixed input [1, 1] through the reconstructed net and
         // return the scalar output — deterministic given the genome.
         let dev = device;
-        let mut eval = ModuleEvalFn::new(reshaper, move |m: &Tiny<TestBackend>| {
+        let mut eval = ModuleEvalFn::new(reshaper, move |m: &TestTiny<TestBackend>| {
             let x = Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![1.0f32, 1.0], [1, 2]), &dev);
             let y = m.forward(x);
             y.into_data().into_vec::<f32>().unwrap()[0]
