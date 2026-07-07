@@ -138,6 +138,7 @@ omission. The two landscape adapters carry it for you:
 | Improvement test | every `tell`; hill-climbing `local_search/hill_climbing.rs` | `if f > best` — never `<` |
 | **Sense declaration** (your objective) | `BatchFitnessFn::sense`; `Landscape::sense` (defaults `Minimize`) | required on the fitness fn; only a landscape defaults |
 | **Canonicalisation** (the chokepoint) | `strategy.rs` (`EvolutionaryHarness::step`); `fitness.rs` (`FromLandscape`/`FromFitnessEvaluable`) | `Minimize` → negate before `tell`; `from_canonical` for reporting |
+| **Fitness hygiene** (same chokepoint) | `strategy.rs` (`EvolutionaryHarness::step`); `fitness.rs` (`sanitize_fitness`/`sanitize_fitness_tensor`) | `NaN → −∞` (worst), `+∞ → f32::MAX` (finite top); the fitness handed to `tell` is finite-or-`−∞` (ADR 0034) |
 | Convergence assertions | `algorithms/*.rs` tests; `crates/rlevo/tests/rastrigin_run_suite.rs` | `assert!(best < tolerance)` on zero-at-optimum landscapes — in *natural* space |
 
 A [`Landscape`](https://docs.rs/rlevo-core) is a cost surface by definition, so its
@@ -163,6 +164,34 @@ assert!(harness.latest_metrics().unwrap().best_fitness_ever < 1e-3); // Sphere �
 > `reward = -best_fitness_ever` negation is gone, and so is the "negate your
 > maximisation objective" advice: a reward objective declares
 > `ObjectiveSense::Maximize` and is passed straight through.
+
+### Fitness hygiene: `NaN` and `Inf`
+
+A fitness function is *your* code, and real objectives misbehave — a `0/0` in a
+reward, an overflow in a simulated rollout, a diverging surrogate all produce a
+`NaN` or an `±∞`. Left alone, a `NaN` is worse than a bad score: Rust's `f32::NAN`
+is a *positive* NaN, so a naïve `total_cmp` ranks it as the **maximum** — a broken
+individual would masquerade as the champion and never be displaced.
+
+So the same chokepoint that canonicalises also **sanitises**, in one rule
+(ADR 0034), right before every `tell`:
+
+- `NaN → −∞` — the worst value under the maximise convention, so a broken
+  individual can never seed or displace a real best;
+- `+∞ → f32::MAX` — a genuinely optimal individual still ranks top, but as a
+  *finite* value, so it cannot blow `mean_fitness` or a reward up to `+∞`;
+- `−∞` passes through unchanged (it is the worst-value sentinel).
+
+The upshot for you as a caller: **the fitness a strategy's `tell` receives on a
+harness-driven run is always finite or `−∞`** — you never have to guard your
+objective against non-finite output, and a broken generation shows up honestly as
+a `broken_count > 0` rather than a silent `NaN` champion. (If you drive a strategy
+directly, bypassing the harness, apply
+[`sanitize_fitness`](https://docs.rs/rlevo-evolution) at your comparison sites
+yourself — the per-site rule is the correctness floor.) This is distinct from a
+program-*evaluation* collapse like GEP's or CGP's `non-finite → 0.0` node rule,
+which tames an intermediate arithmetic result *inside* one individual, not the
+fitness that ranks the population.
 
 ## Bridging a host objective: the two adapters
 
@@ -300,16 +329,22 @@ landscape reads as its natural cost), so the four fitness fields tell the story 
 the space you expect:
 
 - `best_fitness` — the best cost/score **this** generation;
-- `mean_fitness` — the generation's average;
+- `mean_fitness` — the generation's average, taken over the **finite** members only;
 - `worst_fitness` — the worst this generation;
-- `best_fitness_ever` — the best across **all** generations.
+- `best_fitness_ever` — the best across **all** generations;
+- `broken_count` — how many individuals evaluated to a non-finite fitness this
+  generation (a `NaN`, sanitised to `−∞`) and were therefore *excluded* from
+  `mean_fitness`. Zero on a healthy run; a non-zero value flags a population
+  carrying broken individuals (ADR 0034 — see [fitness hygiene](#fitness-hygiene-nan-and-inf)).
 
 The most informative reading is the *gap* between `best_fitness_ever` and
 `mean_fitness` in the final generation. A large gap signals **premature
 convergence** — a few elites found a good basin while the rest of the population is
 still scattered. A small gap means the whole population has settled near the same
 optimum. For landscapes with a known optimum (Ackley → 0), `best_fitness_ever`
-doubles as a direct "how close did we get" readout.
+doubles as a direct "how close did we get" readout. Averaging `mean_fitness` over
+the finite members keeps one broken individual from collapsing the whole statistic
+to `−∞`; `broken_count` surfaces that individual instead of hiding it.
 
 ## Putting it together
 
