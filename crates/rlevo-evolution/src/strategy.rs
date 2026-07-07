@@ -138,6 +138,17 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// `fitness` has shape `(pop_size,)` on the same device as the
     /// population. Strategies pull it to host only if they need to —
     /// e.g. for tournament index lookups.
+    ///
+    /// # Invariants
+    ///
+    /// When driven by [`EvolutionaryHarness`], the `fitness` tensor is
+    /// **canonical (maximise) and sanitized** (ADR 0034): every element is finite
+    /// or `f32::NEG_INFINITY` — no `NaN`, no `+∞`. A `tell` impl may therefore
+    /// build leaders / personal-best / global-best directly from it without a
+    /// finite check. Callers that invoke `tell` **directly, bypassing the
+    /// harness**, do *not* get this guarantee and must apply
+    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) at every
+    /// ordering/aggregation site (`rules.md` §3).
     fn tell(
         &self,
         params: &Self::Params,
@@ -208,20 +219,33 @@ pub struct StrategyMetrics {
     /// optimum is known (e.g. Ackley → 0), the harness-reported value tells
     /// you how close the algorithm got to the theoretical optimum.
     best_fitness_ever: f32,
+    /// Number of individuals whose sanitized fitness was non-finite (`−∞`) in
+    /// this generation — i.e. members that evaluated to `NaN` (or a genuine
+    /// worst-sentinel `−∞`) and were therefore **excluded from
+    /// [`mean_fitness`](Self::mean_fitness)** (ADR 0034). Zero on a healthy run;
+    /// a non-zero value flags a population carrying broken individuals without
+    /// letting them blank the mean to `−∞`.
+    broken_count: usize,
 }
 
 impl StrategyMetrics {
     /// Computes population statistics from a host-side fitness slice.
     ///
-    /// Each value is passed through the crate's NaN-hygiene primitive
+    /// Each value is passed through the crate's fitness-hygiene primitive
     /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) before folding, so
-    /// a `NaN` is treated as `f32::NEG_INFINITY` (the worst value under the
-    /// maximise convention, ADR 0023) *consistently* across every statistic. A
-    /// generation containing any `NaN` therefore yields `worst_fitness = −∞` and
-    /// `mean_fitness = −∞` while `best_fitness` remains the largest finite value —
-    /// degenerate but well-defined, rather than the old silent asymmetry where
-    /// `best`/`worst` ignored the `NaN` (comparisons against `NaN` are false) yet
-    /// `mean` propagated it.
+    /// `NaN → −∞` and `+∞ → f32::MAX` (the maximise convention, ADR 0023/0034)
+    /// *consistently* across every statistic — `best`/`worst` can no longer
+    /// silently drop a `NaN` (comparisons against `NaN` are false) while the sum
+    /// propagates it.
+    ///
+    /// `mean_fitness` is computed **over the finite members only**: a sanitized
+    /// `−∞` member (a `NaN` evaluation, or a genuine worst-sentinel) is excluded
+    /// from the average and counted in [`broken_count`](Self::broken_count)
+    /// instead (ADR 0034). This keeps a single broken individual from blanking
+    /// the whole mean to `−∞` while still surfacing that the population is
+    /// unhealthy. `+∞ → f32::MAX` members are finite and *are* included, so an
+    /// optimal individual cannot blow the mean to `+∞`. If *every* member is
+    /// broken, `mean_fitness = −∞` (degenerate but well-defined).
     ///
     /// # Panics
     ///
@@ -233,11 +257,15 @@ impl StrategyMetrics {
         assert!(!fitnesses.is_empty(), "fitness slice must be non-empty");
         let population_size = fitnesses.len();
         // Canonical (maximise) space: best is the largest value, worst the
-        // smallest, and best-ever a rolling maximum. Each value is sanitized
-        // (NaN → −∞) up front so all three statistics agree on the crate-wide
-        // NaN convention instead of best/worst silently dropping NaN while the
-        // sum propagates it.
-        let (mut best, mut worst, mut sum) = (f32::NEG_INFINITY, f32::INFINITY, 0.0_f32);
+        // smallest, best-ever a rolling maximum. Each value is sanitized up front
+        // so all statistics agree on the crate-wide convention. The mean is taken
+        // over finite members only; non-finite (`−∞`) members are counted as
+        // broken rather than dragging the mean to `−∞`.
+        let mut best = f32::NEG_INFINITY;
+        let mut worst = f32::INFINITY;
+        let mut finite_sum = 0.0_f32;
+        let mut finite_n = 0_usize;
+        let mut broken_count = 0_usize;
         for &f in fitnesses {
             let f = crate::fitness::sanitize_fitness(f);
             if f > best {
@@ -246,10 +274,21 @@ impl StrategyMetrics {
             if f < worst {
                 worst = f;
             }
-            sum += f;
+            if f.is_finite() {
+                finite_sum += f;
+                finite_n += 1;
+            } else {
+                broken_count += 1;
+            }
         }
-        #[allow(clippy::cast_precision_loss)]
-        let mean = sum / population_size as f32;
+        let mean = if finite_n > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            let n = finite_n as f32;
+            finite_sum / n
+        } else {
+            // Every member is broken: no finite value to average.
+            f32::NEG_INFINITY
+        };
         Self {
             generation,
             population_size,
@@ -257,6 +296,7 @@ impl StrategyMetrics {
             mean_fitness: mean,
             worst_fitness: worst,
             best_fitness_ever: best_fitness_ever.max(best),
+            broken_count,
         }
     }
 
@@ -279,9 +319,22 @@ impl StrategyMetrics {
     }
 
     /// Mean fitness across this generation's population.
+    ///
+    /// Averaged over the **finite** members only; broken (`−∞`) members are
+    /// excluded and reported by [`broken_count`](Self::broken_count) (ADR 0034).
     #[must_use]
     pub fn mean_fitness(&self) -> f32 {
         self.mean_fitness
+    }
+
+    /// Number of non-finite (broken) individuals excluded from
+    /// [`mean_fitness`](Self::mean_fitness) this generation (ADR 0034).
+    ///
+    /// Zero on a healthy run; non-zero flags a population carrying `NaN`/`−∞`
+    /// members.
+    #[must_use]
+    pub fn broken_count(&self) -> usize {
+        self.broken_count
     }
 
     /// Worst (canonical: smallest) fitness observed in this generation.
@@ -581,6 +634,14 @@ where
             ObjectiveSense::Maximize => fitness_natural,
             ObjectiveSense::Minimize => fitness_natural.neg(),
         };
+        // Fitness-hygiene chokepoint (ADR 0034). Sanitize in CANONICAL (maximise)
+        // space — `NaN → −∞` (worst), `+∞ → f32::MAX` — so no `Strategy::tell`
+        // impl can be poisoned by a non-finite fitness and every downstream best/
+        // leader/metric is finite-or-`−∞`. This runs *after* the `sense` negation
+        // on purpose: "NaN = worst" is defined in maximise space, so sanitizing
+        // the natural tensor before `neg()` would flip a `NaN` cost to `+∞`
+        // (canonical *best*) under `Minimize`.
+        let fitness_canon = crate::fitness::sanitize_fitness_tensor(fitness_canon);
         let (new_state, metrics_canon) =
             self.strategy
                 .tell(&self.params, population, fitness_canon, state, &mut self.rng);
@@ -605,6 +666,8 @@ where
             mean_fitness: sense.from_canonical(metrics_canon.mean_fitness),
             worst_fitness: sense.from_canonical(metrics_canon.worst_fitness),
             best_fitness_ever: sense.from_canonical(metrics_canon.best_fitness_ever),
+            // A count, not a value — sense-invariant, carried through verbatim.
+            broken_count: metrics_canon.broken_count,
         };
         // Structured per-generation event. Picked up by the
         // canonical-metric registry in
@@ -620,6 +683,7 @@ where
             mean_fitness = f64::from(metrics.mean_fitness),
             worst_fitness = f64::from(metrics.worst_fitness),
             best_fitness_ever = f64::from(metrics.best_fitness_ever),
+            broken_count = metrics.broken_count,
             "evolution generation",
         );
         if let (Some(observer), Some(fitnesses)) = (self.observer.as_ref(), snapshot_fitness) {
@@ -847,14 +911,174 @@ mod tests {
 
     #[test]
     fn from_host_fitness_sanitizes_nan() {
-        // A NaN is sanitized to −∞ (worst under maximise) *consistently*: it
-        // never becomes best, and it drags worst and mean to −∞ rather than the
-        // old asymmetry where best/worst ignored it but mean turned NaN.
+        // A NaN is sanitized to −∞ (worst under maximise): it never becomes best,
+        // and it drags `worst` to −∞. Under ADR 0034 it is *excluded* from the
+        // mean (counted as broken) rather than blanking the mean to −∞: the mean
+        // is over the finite members {1, 3, 2} = 2.0, with broken_count == 1.
         let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::NAN, 3.0, 2.0], 0.0);
         approx::assert_relative_eq!(m.best_fitness(), 3.0, epsilon = 1e-6);
         assert!(m.worst_fitness().is_infinite() && m.worst_fitness().is_sign_negative());
-        assert!(m.mean_fitness().is_infinite() && m.mean_fitness().is_sign_negative());
+        approx::assert_relative_eq!(m.mean_fitness(), 2.0, epsilon = 1e-6);
+        assert_eq!(m.broken_count(), 1);
         approx::assert_relative_eq!(m.best_fitness_ever(), 3.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn from_host_fitness_pos_inf_ranks_top_but_mean_stays_finite() {
+        // +∞ → f32::MAX (ADR 0034): it stays best/finite and is *included* in the
+        // mean (no −∞/broken), so an optimal individual cannot blow the mean up.
+        let m = StrategyMetrics::from_host_fitness(0, &[1.0, f32::INFINITY, 3.0], 0.0);
+        approx::assert_relative_eq!(m.best_fitness(), f32::MAX);
+        assert_eq!(m.broken_count(), 0);
+        assert!(m.mean_fitness().is_finite());
+    }
+
+    #[test]
+    fn from_host_fitness_all_broken_yields_neg_inf_mean() {
+        // Degenerate but well-defined: every member broken → mean = −∞.
+        let m = StrategyMetrics::from_host_fitness(0, &[f32::NAN, f32::NAN], 0.0);
+        assert_eq!(m.broken_count(), 2);
+        assert!(m.mean_fitness().is_infinite() && m.mean_fitness().is_sign_negative());
+    }
+
+    /// A misbehaving objective: row 0 → `NaN`, row 1 → `+∞`, the rest finite.
+    /// `Maximize` so natural == canonical (no `neg()` obscuring the sanitize).
+    struct NonFiniteFitness;
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NonFiniteFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)] // tiny test population indices
+            let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            vals[0] = f32::NAN;
+            if n > 1 {
+                vals[1] = f32::INFINITY;
+            }
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    /// A strategy that **trusts the harness guarantee** (ADR 0034): its `tell`
+    /// stores the fitness tensor it receives verbatim, *without* re-sanitizing.
+    /// This is the whole point of the chokepoint — a `tell` impl should be able
+    /// to build best/leaders directly from `fitness`. `received` lets the test
+    /// assert what actually crossed the seam.
+    #[derive(Debug, Clone, Copy)]
+    struct TrustingStrategy;
+
+    #[derive(Debug, Clone)]
+    struct TrustingState {
+        generation: usize,
+        best: f32,
+        received: Vec<f32>,
+    }
+
+    impl Strategy<TestBackend> for TrustingStrategy {
+        type Params = Params;
+        type State = TrustingState;
+        type Genome = Tensor<TestBackend, 2>;
+
+        fn init(
+            &self,
+            _: &Params,
+            _: &mut dyn Rng,
+            _: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
+        ) -> TrustingState {
+            TrustingState {
+                generation: 0,
+                best: f32::NEG_INFINITY,
+                received: Vec::new(),
+            }
+        }
+
+        fn ask(
+            &self,
+            params: &Params,
+            state: &TrustingState,
+            _: &mut dyn Rng,
+            device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
+        ) -> (Tensor<TestBackend, 2>, TrustingState) {
+            let data = TensorData::new(
+                vec![0.0f32; params.pop_size * params.dim],
+                [params.pop_size, params.dim],
+            );
+            (Tensor::<TestBackend, 2>::from_data(data, device), state.clone())
+        }
+
+        fn tell(
+            &self,
+            _: &Params,
+            _: Tensor<TestBackend, 2>,
+            fitness: Tensor<TestBackend, 1>,
+            mut state: TrustingState,
+            _: &mut dyn Rng,
+        ) -> (TrustingState, StrategyMetrics) {
+            // Deliberately NOT sanitized here — the harness must have done it.
+            let values: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap();
+            state.received = values.clone();
+            state.generation += 1;
+            let metrics: StrategyMetrics =
+                StrategyMetrics::from_host_fitness(state.generation, &values, state.best);
+            state.best = metrics.best_fitness_ever();
+            (state, metrics)
+        }
+
+        fn best(&self, _: &TrustingState) -> Option<(Tensor<TestBackend, 2>, f32)> {
+            None
+        }
+    }
+
+    /// End-to-end proof that the `EvolutionaryHarness::step` chokepoint (ADR
+    /// 0034) sanitizes a non-finite fitness **before** it reaches a real
+    /// `Strategy::tell`. This is the widest-blast-radius line in the design
+    /// (it covers every `Strategy` impl), so it gets a direct test rather than
+    /// relying on `StrategyMetrics::from_host_fitness`'s own sanitize: the
+    /// `TrustingStrategy` captures the raw tensor it was handed, so deleting or
+    /// mis-ordering the harness sanitize (relative to `neg()`) fails here.
+    #[test]
+    fn harness_sanitizes_non_finite_fitness_before_tell() {
+        let device = Default::default();
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            TrustingStrategy,
+            Params { pop_size: 4, dim: 2 },
+            NonFiniteFitness,
+            7,
+            device,
+            1,
+        )
+        .expect("valid params");
+        harness.reset();
+        harness.step(());
+
+        let received = &harness.state().expect("state after step").received;
+        assert_eq!(received.len(), 4);
+        // The chokepoint guarantee: what `tell` saw is finite-or-`−∞`.
+        assert!(
+            received.iter().all(|f| !f.is_nan()),
+            "harness must strip NaN before tell; got {received:?}"
+        );
+        assert!(
+            received.iter().all(|f| !(f.is_infinite() && f.is_sign_positive())),
+            "harness must clamp +∞ before tell; got {received:?}"
+        );
+        // Row 0 was NaN → −∞ (worst); row 1 was +∞ → f32::MAX (finite best).
+        assert!(
+            received[0].is_infinite() && received[0].is_sign_negative(),
+            "NaN row → −∞"
+        );
+        approx::assert_relative_eq!(received[1], f32::MAX);
+
+        // Metrics stay honest: best is finite (the f32::MAX row), one broken member.
+        let m = harness.latest_metrics().expect("metrics after step");
+        assert!(m.best_fitness().is_finite(), "best must be finite, got {}", m.best_fitness());
+        assert_eq!(m.broken_count(), 1, "the NaN row is the one broken member");
+        assert!(m.mean_fitness().is_finite(), "mean over finite members stays finite");
     }
 
     #[test]
