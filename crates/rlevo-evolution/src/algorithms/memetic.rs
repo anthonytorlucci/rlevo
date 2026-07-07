@@ -373,7 +373,7 @@ where
         let data: TensorData = TensorData::new(member.clone(), [1, dim]);
         let row: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, self.device);
         let fitness: Tensor<B, 1> = self.inner.evaluate_batch(&row, self.device);
-        let values: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let values: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let natural = values.first().copied().unwrap_or(f32::NEG_INFINITY);
         self.sense.to_canonical(natural)
     }
@@ -473,7 +473,7 @@ where
         let generation: u64 = state.generation;
 
         // (1) Host-pull fitness and one flat read-only host copy of the population.
-        let mut refined_fit: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let mut refined_fit: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let dims: [usize; 2] = population.dims();
         let pop_size: usize = dims[0];
         let dim: usize = dims[1];
@@ -482,7 +482,7 @@ where
             .clone()
             .into_data()
             .into_vec::<f32>()
-            .unwrap_or_default();
+            .expect("population tensor must be readable as f32");
 
         // (2) Coverage indices, processed in ascending index order.
         let mut indices: Vec<usize> = coverage_indices(&params.coverage, &refined_fit, pop_size);
@@ -700,8 +700,8 @@ mod tests {
             mut state: RecState,
             _rng: &mut dyn Rng,
         ) -> (RecState, StrategyMetrics) {
-            let pop_host = population.into_data().into_vec::<f32>().unwrap();
-            let fit_host = fitness.into_data().into_vec::<f32>().unwrap();
+            let pop_host = population.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+            let fit_host = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
             state.received_pop = Some(pop_host);
             state.received_fit = Some(fit_host.clone());
             state.generation += 1;
@@ -733,7 +733,7 @@ mod tests {
         ) -> Tensor<B, 1> {
             let dims = population.dims();
             self.rows += dims[0];
-            let flat = population.clone().into_data().into_vec::<f32>().unwrap();
+            let flat = population.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out = Vec::with_capacity(pop);
             for r in 0..pop {
@@ -827,7 +827,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
         let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().unwrap();
+        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
         // Original fitness for the asked population.
         let mut orig_fit = CountingBatchFitness::default();
         let orig =
@@ -838,7 +838,7 @@ mod tests {
             )
             .into_data()
             .into_vec::<f32>()
-            .unwrap();
+            .expect("fitness host-read of a tensor this test just built");
         let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig.clone(), [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
@@ -896,7 +896,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(11);
         let state = strategy.init(&params, &mut rng, &device);
         let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().unwrap();
+        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
         let mut fitfn = CountingBatchFitness::default();
         let orig =
             <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
@@ -904,7 +904,7 @@ mod tests {
             )
             .into_data()
             .into_vec::<f32>()
-            .unwrap();
+            .expect("fitness host-read of a tensor this test just built");
         let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
@@ -1028,7 +1028,7 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(3);
             let state = strategy.init(&params, &mut rng, &device);
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-            let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().unwrap();
+            let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
             let mut fitfn = CountingBatchFitness::default();
             let orig =
                 <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
@@ -1072,7 +1072,7 @@ mod tests {
             device: &<B as BackendTypes>::Device,
         ) -> Tensor<B, 1> {
             let dims = population.dims();
-            let flat = population.clone().into_data().into_vec::<f32>().unwrap();
+            let flat = population.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out: Vec<f32> = Vec::with_capacity(pop);
             for r in 0..pop {

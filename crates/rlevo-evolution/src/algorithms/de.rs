@@ -469,7 +469,7 @@ where
         mut state: DeState<B>,
         _rng: &mut dyn Rng,
     ) -> (DeState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         // First `tell`: stash fitness for the initial population.
         if state.fitness.is_empty() {

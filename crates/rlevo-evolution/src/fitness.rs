@@ -346,7 +346,7 @@ mod tests {
         let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
-        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 3);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
@@ -365,7 +365,7 @@ mod tests {
         let mut adapter = FromLandscape::new(SphereLandscape);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
-        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 3);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
@@ -404,7 +404,7 @@ mod tests {
             [5],
         );
         let t = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let out = sanitize_fitness_tensor(t).into_data().into_vec::<f32>().unwrap();
+        let out = sanitize_fitness_tensor(t).into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
 
         assert!(out[0].is_infinite() && out[0].is_sign_negative(), "NaN → −∞");
         approx::assert_relative_eq!(out[1], f32::MAX); // +∞ → f32::MAX
@@ -441,7 +441,7 @@ mod tests {
         // not `genome_dim` (2).
         assert_eq!(fitness.dims(), [4]);
 
-        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         for (i, &v) in values.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let expected = ((i + 1) * (i + 1)) as f32;
@@ -467,7 +467,7 @@ mod tests {
 
         assert_eq!(fitness.dims(), [4]);
 
-        let values = fitness.into_data().into_vec::<f32>().unwrap();
+        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         for (i, &v) in values.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let expected = ((i + 1) * (i + 1)) as f32;

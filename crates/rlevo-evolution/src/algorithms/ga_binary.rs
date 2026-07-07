@@ -310,7 +310,7 @@ where
         mut state: BinaryGaState<B>,
         _rng: &mut dyn Rng,
     ) -> (BinaryGaState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
         // First `tell`: initial population just evaluated.
@@ -438,7 +438,7 @@ mod tests {
                 .clone()
                 .into_data()
                 .into_vec::<i32>()
-                .unwrap_or_default();
+                .expect("genome host-read of a tensor this test just built");
             let mut fitness = Vec::with_capacity(pop_size);
             for row in 0..pop_size {
                 let mut ones = 0_u32;

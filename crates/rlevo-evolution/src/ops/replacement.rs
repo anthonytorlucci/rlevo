@@ -206,7 +206,7 @@ mod tests {
             offspring,
             vec![1.0, 1.0],
         );
-        let values = next.into_data().into_vec::<f32>().unwrap();
+        let values = next.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 1.0, epsilon = 1e-6);
         }
@@ -232,7 +232,7 @@ mod tests {
             2,
             &device,
         );
-        let rows = next.into_data().into_vec::<f32>().unwrap();
+        let rows = next.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
         // best two (highest fitness): parent row 1 (100.0) and offspring row 1 (50.0)
         assert_eq!(rows.len(), 4);
         // fitness should be {50.0, 100.0}

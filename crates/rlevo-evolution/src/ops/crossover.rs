@@ -184,7 +184,7 @@ mod tests {
             &device,
         );
         let c = blx_alpha(a, b, NonNegativeRate::new(0.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().unwrap();
+        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         // α = 0: children lie strictly in [0, 1].
         for v in values {
             assert!((0.0..=1.0).contains(&v), "value out of bounds: {v}");
@@ -204,7 +204,7 @@ mod tests {
             &device,
         );
         let c = uniform_crossover(a, b, Probability::new(1.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().unwrap();
+        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 7.0, epsilon = 1e-6);
         }
@@ -223,7 +223,7 @@ mod tests {
             &device,
         );
         let c = uniform_crossover(a, b, Probability::new(0.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().unwrap();
+        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, -7.0, epsilon = 1e-6);
         }

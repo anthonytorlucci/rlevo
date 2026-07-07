@@ -37,7 +37,7 @@ pub enum ShapingError {
 /// // Five fitness values: mean 3.0, all distinct.
 /// let t = Tensor::<Flex, 1>::from_floats([1.0f32, 2.0, 3.0, 4.0, 5.0], &device);
 /// let z = z_score(t);
-/// let values = z.into_data().into_vec::<f32>().unwrap();
+/// let values = z.into_data().into_vec::<f32>().expect("shaped tensor must be readable as f32");
 /// // After z-scoring the mean of the output is 0 (within floating-point tolerance).
 /// let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
 /// assert!(mean.abs() < 1e-5);
@@ -80,7 +80,7 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// let device = Default::default();
 /// let t = Tensor::<Flex, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
 /// let r = centered_rank(t, &device).unwrap();
-/// let values = r.into_data().into_vec::<f32>().unwrap();
+/// let values = r.into_data().into_vec::<f32>().expect("shaped tensor must be readable as f32");
 /// // Smallest value maps to -0.5, largest to +0.5.
 /// assert!((values[0] - (-0.5)).abs() < 1e-6);
 /// assert!((values[3] - 0.5).abs() < 1e-6);
@@ -132,7 +132,7 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([1.0f32, 2.0, 3.0, 4.0, 5.0], &device);
         let z = z_score(t);
-        let values = z.into_data().into_vec::<f32>().unwrap();
+        let values = z.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
         let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
         approx::assert_relative_eq!(mean, 0.0, epsilon = 1e-5);
     }
@@ -142,7 +142,7 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
         let r = centered_rank(t, &device).unwrap();
-        let values = r.into_data().into_vec::<f32>().unwrap();
+        let values = r.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
         // smallest → -0.5, largest → +0.5
         approx::assert_relative_eq!(values[0], -0.5, epsilon = 1e-6);
         approx::assert_relative_eq!(values[3], 0.5, epsilon = 1e-6);
@@ -153,7 +153,7 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([3.0f32, 1.0, 2.0], &device);
         let r = centered_rank(t, &device).unwrap();
-        let values = r.into_data().into_vec::<f32>().unwrap();
+        let values = r.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
         // original: 3, 1, 2 → ranks sorted ascending: [1, 2, 3] at indices [1, 2, 0]
         // rank-positions centered: index 1 → -0.5, index 2 → 0.0, index 0 → 0.5
         approx::assert_relative_eq!(values[1], -0.5, epsilon = 1e-6);

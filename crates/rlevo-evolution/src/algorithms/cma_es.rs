@@ -507,12 +507,12 @@ where
         let lambda = params.pop_size;
         let mu = params.mu;
 
-        let fitness_host: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let pop_host: Vec<f32> = population
             .clone()
             .into_data()
             .into_vec::<f32>()
-            .unwrap_or_default();
+            .expect("population tensor must be readable as f32");
 
         // Rank offspring descending (canonical maximise): ranked[0] is the
         // best (highest fitness). The recombination weights `params.weights`

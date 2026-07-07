@@ -618,7 +618,8 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` or `weight_mutation_std` is negative.
+    /// Panics if `weight_init_std` or `weight_mutation_std` is negative, or if
+    /// the resident weight tensor cannot be read back to the host as `f32`.
     #[must_use]
     pub fn ask(
         &self,
@@ -657,7 +658,7 @@ impl<B: Backend> ArchNasStrategy<B> {
             .clone()
             .into_data()
             .into_vec::<f32>()
-            .unwrap_or_default();
+            .expect("weights tensor must be readable as f32");
         let resident_arch = &state.population.arch_ids;
 
         // Elitism: indices sorted by descending (better, canonical maximise)
@@ -751,6 +752,10 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// **before** [`update_best`] and before it is stored as `state.fitness`, so
     /// a non-finite fitness can never become an immortal champion nor win the
     /// next [`ask`](Self::ask)'s elite carry or tournament.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `fitness` tensor cannot be read back to the host as `f32`.
     #[must_use]
     pub fn tell(
         &self,
@@ -760,7 +765,7 @@ impl<B: Backend> ArchNasStrategy<B> {
         mut state: NasState<B>,
         _rng: &mut dyn Rng,
     ) -> NasState<B> {
-        let raw = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let raw = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         // Driver chokepoint (ADR 0034): sanitize before update_best/store so a
         // NaN/±∞ can neither become the champion nor pollute the next ask.
         let fitness_host: Vec<f32> = raw
@@ -988,7 +993,7 @@ mod tests {
             arch_ids: vec![0],
             weights,
         };
-        let fit = fitness.evaluate(&genome, &device).into_data().into_vec::<f32>().unwrap();
+        let fit = fitness.evaluate(&genome, &device).into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         approx::assert_relative_eq!(fit[0], 17.0, epsilon = 1e-6);
     }
 
@@ -1018,7 +1023,7 @@ mod tests {
             .clone()
             .into_data()
             .into_vec::<f32>()
-            .unwrap();
+            .expect("population host-read of a tensor this test just built");
         let max = params.max_param_count;
         let shallow_row = state.population.arch_ids.iter().position(|&a| a == 0).unwrap();
         for &v in &rows[shallow_row * max + 17..shallow_row * max + max] {
@@ -1036,12 +1041,12 @@ mod tests {
         let sq = |m: &ShallowMlp<TestBackend>| {
             let r = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()));
             let flat = r.flatten(m, &Default::default());
-            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().unwrap()[0]
+            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built")[0]
         };
         let sq_deep = |m: &DeepMlp<TestBackend>| {
             let r = ModuleReshaper::new(DeepMlp::<TestBackend>::new(&Default::default()));
             let flat = r.flatten(m, &Default::default());
-            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().unwrap()[0]
+            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built")[0]
         };
         builder
             .add_variant(ShallowMlp::<TestBackend>::new(4, &device), sq)

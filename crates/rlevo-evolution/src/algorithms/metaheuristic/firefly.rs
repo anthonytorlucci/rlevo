@@ -383,7 +383,7 @@ where
         mut state: FireflyState<B>,
         _rng: &mut dyn Rng,
     ) -> (FireflyState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = population.device();
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);

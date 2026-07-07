@@ -610,7 +610,7 @@ mod tests {
             ),
             &device,
         );
-        let out = pheno.forward(input).into_data().into_vec::<f32>().unwrap();
+        let out = pheno.forward(input).into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built");
         let expected = [0.5f32, 2.5, 2.5, 4.5];
         for (got, want) in out.iter().zip(expected.iter()) {
             approx::assert_relative_eq!(*got, *want, epsilon = 1e-5);
@@ -639,7 +639,7 @@ mod tests {
             burn::tensor::TensorData::new(vec![5.0f32, 7.0], [2, 1]),
             &device,
         );
-        let out = pheno.forward(input).into_data().into_vec::<f32>().unwrap();
+        let out = pheno.forward(input).into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built");
         approx::assert_relative_eq!(out[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[1], 1.0, epsilon = 1e-6);
     }

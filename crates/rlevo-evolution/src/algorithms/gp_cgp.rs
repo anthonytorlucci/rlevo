@@ -205,7 +205,7 @@ impl<B: Backend> CartesianGeneticProgramming<B> {
             .clone()
             .into_data()
             .into_vec::<i32>()
-            .unwrap_or_default()
+            .expect("genome tensor must be readable as i32")
             .into_iter()
             .map(i64::from)
             .collect()
@@ -442,7 +442,7 @@ where
         mut state: CgpState<B>,
         _rng: &mut dyn Rng,
     ) -> (CgpState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         if state.parent_fitness.is_none() {
             // First tell: initial parent fitness. Sanitize so a NaN seed cannot
@@ -659,7 +659,7 @@ mod tests {
                 .clone()
                 .into_data()
                 .into_vec::<i32>()
-                .unwrap()
+                .expect("genome host-read of a tensor this test just built")
                 .into_iter()
                 .map(i64::from)
                 .collect();

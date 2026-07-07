@@ -272,7 +272,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         mut state: Self::State,
         _rng: &mut dyn Rng,
     ) -> (Self::State, StrategyMetrics) {
-        let raw = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let raw = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let sanitized: Vec<f32> = raw
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -451,7 +451,7 @@ mod tests {
         let fitness = make_fitness(&[1.0, 5.0, 1.0, 5.0]);
         let (state, _m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, _f) = strategy.best(&state).unwrap();
-        let v = genome.into_data().into_vec::<f32>().unwrap();
+        let v = genome.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 10.0, epsilon = 1e-6);
     }
 
@@ -468,7 +468,7 @@ mod tests {
         let fitness = make_fitness(&[f32::NAN, 9.0, 2.0, 7.0]);
         let (state, m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, f) = strategy.best(&state).unwrap();
-        let v = genome.into_data().into_vec::<f32>().unwrap();
+        let v = genome.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
         assert!(m.best_fitness().is_finite());
@@ -506,7 +506,7 @@ mod tests {
         }
         // Sampling the next generation must yield an all-finite population.
         let (next_pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
-        for x in next_pop.into_data().into_vec::<f32>().unwrap() {
+        for x in next_pop.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built") {
             assert!(x.is_finite(), "sampled genome must be finite, got {x}");
         }
     }
@@ -530,7 +530,7 @@ mod tests {
         };
         let state = strategy.init(&p, &mut rng, &device);
         let (pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
-        let values = pop.into_data().into_vec::<f32>().unwrap();
+        let values = pop.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
         for v in values {
             assert!((-0.5..=0.5).contains(&v), "value {v} escaped the clamp");
         }

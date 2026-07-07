@@ -186,8 +186,8 @@ mod tests {
             &device,
         );
         let out = gaussian_mutation(input.clone(), NonNegativeRate::new(0.0), &mut rng, &device);
-        let before = input.into_data().into_vec::<f32>().unwrap();
-        let after = out.into_data().into_vec::<f32>().unwrap();
+        let before = input.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let after = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);
         }
@@ -218,7 +218,7 @@ mod tests {
             &device,
         );
         let out = gaussian_mutation_per_row(input, sigmas, &mut rng, &device);
-        let values = out.into_data().into_vec::<f32>().unwrap();
+        let values = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 0.0, epsilon = 1e-6);
         }
@@ -233,8 +233,8 @@ mod tests {
             &device,
         );
         let out = uniform_reset(input.clone(), -10.0, 10.0, Probability::new(0.0), &mut rng, &device);
-        let before = input.into_data().into_vec::<f32>().unwrap();
-        let after = out.into_data().into_vec::<f32>().unwrap();
+        let before = input.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let after = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);
         }
