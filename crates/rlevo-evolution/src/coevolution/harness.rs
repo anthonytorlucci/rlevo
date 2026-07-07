@@ -188,6 +188,14 @@ where
         // Canonical maximise: the weaker population (lower canonical fitness)
         // is the binding constraint, and a higher binding value is better — so
         // the reward is the binding value directly, with no negation.
+        //
+        // Fitness hygiene (ADR 0034): `best_fitness_{a,b}` are sourced from the
+        // per-population `tell` metrics over the fitness the coupled-fitness
+        // chokepoint already sanitized (competitive/cooperative `step`), so each
+        // is finite-or-`−∞`, never `NaN`. `f32::min` therefore yields a
+        // finite-or-`−∞` binding value — the reward is never `NaN`. (Even a
+        // stray `NaN` operand would be dropped by IEEE `f32::min`, which returns
+        // the non-`NaN` argument; the chokepoint makes that path unreachable.)
         let binding = metrics.best_fitness_a.min(metrics.best_fitness_b);
         let reward = f64::from(binding);
 
@@ -227,5 +235,92 @@ where
 
     fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError> {
         Ok(CoEvolutionaryHarness::<B, C>::step(self, action))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::backend::Flex;
+    use burn::tensor::{Tensor, TensorData};
+
+    use rlevo_core::bounds::Bounds;
+    use rlevo_core::probability::Probability;
+    use rlevo_core::rate::NonNegativeRate;
+
+    use crate::algorithms::ga::{
+        GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+    };
+    use crate::coevolution::{CompetitiveCoEA, CompetitiveCoEAParams, CoupledFitness};
+
+    type TB = Flex;
+
+    const POP: usize = 4;
+    const DIM: usize = 2;
+
+    fn ga_config() -> GaConfig {
+        GaConfig {
+            pop_size: POP,
+            genome_dim: DIM,
+            bounds: Bounds::new(0.0, 1.0),
+            mutation_sigma: NonNegativeRate::new(0.1),
+            selection: GaSelection::Tournament { size: 2 },
+            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            replacement: GaReplacement::Elitist { elitism_k: 1 },
+        }
+    }
+
+    /// Row 0 is `NaN`, the rest a finite ramp — for both populations.
+    struct PoisonRow0Nan;
+
+    impl CoupledFitness<TB> for PoisonRow0Nan {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n)
+                        .map(|i| if i == 0 { f32::NAN } else { i as f32 })
+                        .collect();
+                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+    }
+
+    /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness
+    /// reward `NaN`: the coupled-fitness chokepoint sanitizes before `best_a`/
+    /// `best_b` are computed, so `min(best_a, best_b)` is finite-or-`−∞`.
+    /// Regression for issue #134 (harness §1.1) / ADR 0034.
+    #[test]
+    fn harness_reward_is_never_nan_with_nan_fitness() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            PoisonRow0Nan,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut harness =
+            CoEvolutionaryHarness::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+        harness.reset();
+        let step = harness.step(());
+
+        assert!(!step.reward.is_nan(), "harness reward must never be NaN");
+        // The finite ramp maximum (POP - 1) binds both populations, so the
+        // reward is that finite value — the NaN row was sanitized, not crowned.
+        assert!(
+            step.reward.is_finite(),
+            "reward should be the finite binding value, got {}",
+            step.reward
+        );
+        #[allow(clippy::cast_precision_loss)]
+        let expected = f64::from((POP - 1) as f32);
+        approx::assert_relative_eq!(step.reward, expected, epsilon = 1e-6);
     }
 }

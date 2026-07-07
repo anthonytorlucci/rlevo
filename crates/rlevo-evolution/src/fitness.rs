@@ -51,6 +51,13 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// `device`. Row order is preserved: `fitness[i]` corresponds to the
     /// individual at row `i` of `population`. Cost objectives return their
     /// natural cost; the harness reconciles direction via [`sense`](Self::sense).
+    ///
+    /// The returned tensor **may contain `NaN` or `±∞`** — implementors are not
+    /// required to sanitize. The
+    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) canonicalizes
+    /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
+    /// so a non-finite fitness cannot poison selection or best-so-far tracking on
+    /// harness-driven runs.
     fn evaluate_batch(&mut self, population: &G, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1>;
 
     /// The optimisation direction of this objective.
@@ -250,28 +257,63 @@ where
     }
 }
 
-/// Maps a `NaN` fitness to [`f32::NEG_INFINITY`], passing finite values through.
+/// Sanitizes one **canonical (maximise-space)** fitness value: `NaN →`
+/// [`f32::NEG_INFINITY`], `+∞ →` [`f32::MAX`], everything else (including `−∞`)
+/// passes through.
 ///
-/// `−inf` is the worst value under the maximise convention, so a sanitized
-/// `NaN` can never seed or displace a finite best-so-far and thus never
-/// propagates to a returned fitness. This is the crate-wide fitness-hygiene
-/// primitive: it is applied by
-/// [`BudgetedEval::eval`](crate::local_search::BudgetedEval) (every probe,
-/// including the seeding eval), the searchers'
+/// This is the crate-wide fitness-hygiene primitive and the single rule of the
+/// canonical convention (ADR 0023 / ADR 0034):
+///
+/// - `NaN → −∞`: `−∞` is the worst value under the maximise convention, so a
+///   sanitized `NaN` can never seed or displace a finite best-so-far. Rust's
+///   `f32::NAN` is a *positive* NaN, so `total_cmp` would otherwise rank it as
+///   the **maximum** (`rules.md` §3) — the exact inversion this prevents.
+/// - `+∞ → f32::MAX`: a genuinely optimal individual (a landscape hitting its
+///   optimum, an unbounded reward) still ranks top, but as a **finite** value —
+///   so it cannot blow a population `mean`/`variance`/reward to `+∞`.
+/// - `−∞` passes through: it is the worst-value sentinel *and* the
+///   uninitialized `best_fitness_ever` seed, and it must stay non-finite so the
+///   mean-over-finite statistic in
+///   [`StrategyMetrics::from_host_fitness`](crate::strategy::StrategyMetrics::from_host_fitness)
+///   can see and count it as a broken member.
+///
+/// Applied by [`BudgetedEval::eval`](crate::local_search::BudgetedEval) (every
+/// probe, including the seeding eval), the searchers'
 /// [`refine_with_known_fitness`](crate::local_search::LocalSearch::refine_with_known_fitness)
-/// overrides (applied to the `known_fitness` hint, which does not flow through
-/// `BudgetedEval`), the EDA `tell` chokepoint
+/// overrides, the EDA `tell` chokepoint
 /// ([`crate::algorithms::eda::EdaStrategy`]), and every NaN-safe fitness sort
-/// across the crate (selection, replacement, the ES/NEAT/ACO rankers) so a `NaN`
-/// can neither become the best-so-far nor corrupt an ordering. For the finite
-/// benchmark landscapes the searchers ship against this branch is never taken,
-/// so it costs only one `is_nan` check.
+/// across the crate (selection, replacement, the ES/NEAT/ACO rankers). For the
+/// finite benchmark landscapes the searchers ship against no branch is taken, so
+/// it costs only one `is_nan` / `is_infinite` check.
 pub(crate) fn sanitize_fitness(f: f32) -> f32 {
     if f.is_nan() {
         f32::NEG_INFINITY
+    } else if f.is_infinite() && f.is_sign_positive() {
+        // `f == f32::INFINITY` would trip the float-equality lint (rules §5/§8).
+        f32::MAX
     } else {
         f
     }
+}
+
+/// Tensor-level [`sanitize_fitness`] for the driver chokepoints — a single
+/// device op over a `(pop_size,)` **canonical-space** fitness vector.
+///
+/// Applies the same rule (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` pass-through) to a
+/// whole fitness tensor without a device→host→device round-trip, so the
+/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) and the
+/// coevolution coupled-fitness path can sanitize on the hot path (ADR 0034).
+///
+/// Order matters: the `NaN → −∞` `mask_fill` runs first (so no `NaN` reaches the
+/// clamp, which would propagate it), then `clamp_max(f32::MAX)` caps `+∞` while
+/// leaving `−∞` and every finite value untouched. Mirrors the `is_nan` +
+/// `mask_fill` + clamp idiom already used by `EdaStrategy::tell`'s gene backstop.
+#[must_use]
+pub(crate) fn sanitize_fitness_tensor<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
+    let nan_mask = fitness.clone().is_nan();
+    fitness
+        .mask_fill(nan_mask, f32::NEG_INFINITY)
+        .clamp_max(f32::MAX)
 }
 
 #[cfg(test)]
@@ -335,6 +377,40 @@ mod tests {
         fn evaluate(&self, x: &[f64]) -> f64 {
             x.iter().map(|v| v * v).sum()
         }
+    }
+
+    /// The scalar hygiene rule (ADR 0034): `NaN → −∞`, `+∞ → f32::MAX`, `−∞` and
+    /// finite values pass through unchanged.
+    #[test]
+    fn sanitize_fitness_scalar_applies_canonical_rule() {
+        // `−∞` sentinel: assert via `is_infinite`/sign, not float `==` (rules §5/§8).
+        let nan_out: f32 = sanitize_fitness(f32::NAN);
+        assert!(nan_out.is_infinite() && nan_out.is_sign_negative(), "NaN → −∞");
+        approx::assert_relative_eq!(sanitize_fitness(f32::INFINITY), f32::MAX);
+        let neg_out: f32 = sanitize_fitness(f32::NEG_INFINITY);
+        assert!(neg_out.is_infinite() && neg_out.is_sign_negative(), "−∞ passes through");
+        approx::assert_relative_eq!(sanitize_fitness(2.5), 2.5, epsilon = 1e-6);
+        approx::assert_relative_eq!(sanitize_fitness(-7.0), -7.0, epsilon = 1e-6);
+    }
+
+    /// The tensor sibling applies the identical rule element-wise, and — crucially
+    /// — leaves `−∞` non-finite (it is not clamped to `−f32::MAX`) so downstream
+    /// mean-over-finite logic can still detect and count it.
+    #[test]
+    fn sanitize_fitness_tensor_matches_scalar_rule() {
+        let device = Default::default();
+        let data = TensorData::new(
+            vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 3.0_f32, -4.0],
+            [5],
+        );
+        let t = Tensor::<TestBackend, 1>::from_data(data, &device);
+        let out = sanitize_fitness_tensor(t).into_data().into_vec::<f32>().unwrap();
+
+        assert!(out[0].is_infinite() && out[0].is_sign_negative(), "NaN → −∞");
+        approx::assert_relative_eq!(out[1], f32::MAX); // +∞ → f32::MAX
+        assert!(out[2].is_infinite() && out[2].is_sign_negative(), "−∞ passes through, stays non-finite");
+        approx::assert_relative_eq!(out[3], 3.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(out[4], -4.0, epsilon = 1e-6);
     }
 
     /// Regression test for the load-bearing `BatchFitnessFn` invariant

@@ -138,7 +138,14 @@ pub struct CgpState<B: Backend> {
     /// Parent genotype, shape `(1, genome_len)`.
     pub parent: Tensor<B, 2, Int>,
     /// Parent fitness (host-side scalar cache).
-    pub parent_fitness: f32,
+    ///
+    /// `None` until the first `tell` bootstraps it. Using `Option` — rather
+    /// than a `f32::NEG_INFINITY` "unset" sentinel — keeps "uninitialised"
+    /// distinct from a legitimately sanitized `−∞` fitness. A `Minimize`
+    /// landscape whose natural cost is `+∞` canonicalizes to `−∞` (ADR 0034);
+    /// with the old sentinel that value re-triggered the bootstrap branch on
+    /// the next `ask`, collapsing the `(1+λ)` loop to a single parent forever.
+    pub parent_fitness: Option<f32>,
     /// Best-so-far genotype.
     pub best_genome: Option<Tensor<B, 2, Int>>,
     /// Best-so-far fitness.
@@ -369,7 +376,7 @@ where
         );
         CgpState {
             parent,
-            parent_fitness: f32::NEG_INFINITY,
+            parent_fitness: None,
             best_genome: None,
             best_fitness: f32::NEG_INFINITY,
             generation: 0,
@@ -391,7 +398,7 @@ where
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Tensor<B, 2, Int>, CgpState<B>) {
         // First call: evaluate the parent as "offspring" of size 1.
-        if !state.parent_fitness.is_finite() {
+        if state.parent_fitness.is_none() {
             return (state.parent.clone(), state.clone());
         }
 
@@ -437,9 +444,10 @@ where
     ) -> (CgpState<B>, StrategyMetrics) {
         let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
 
-        if !state.parent_fitness.is_finite() {
-            // First tell: initial parent fitness.
-            state.parent_fitness = fitness_host[0];
+        if state.parent_fitness.is_none() {
+            // First tell: initial parent fitness. Sanitize so a NaN seed cannot
+            // masquerade as a finite parent in the later `>=` comparison.
+            state.parent_fitness = Some(crate::fitness::sanitize_fitness(fitness_host[0]));
             state.generation += 1;
             update_best(&mut state, &offspring, &fitness_host);
             let m = StrategyMetrics::from_host_fitness(
@@ -462,8 +470,13 @@ where
             .enumerate()
             .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .map_or(0, |(i, _)| i);
-        let best_off_fit = fitness_host[best_off_idx];
-        if best_off_fit >= state.parent_fitness {
+        let best_off_fit = crate::fitness::sanitize_fitness(fitness_host[best_off_idx]);
+        let parent_fit = state
+            .parent_fitness
+            .expect("parent_fitness is Some after the bootstrap tell");
+        // `total_cmp` (not `>=`) so the comparison is well-defined even at the
+        // `−∞` worst-sentinel; ties still favour the offspring (neutral drift).
+        if best_off_fit.total_cmp(&parent_fit) != std::cmp::Ordering::Less {
             let device = offspring.device();
             #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
             let idx = Tensor::<B, 1, Int>::from_data(
@@ -471,7 +484,7 @@ where
                 &device,
             );
             state.parent = offspring.clone().select(0, idx);
-            state.parent_fitness = best_off_fit;
+            state.parent_fitness = Some(best_off_fit);
         }
 
         state.generation += 1;
@@ -496,15 +509,22 @@ fn update_best<B: Backend>(state: &mut CgpState<B>, pop: &Tensor<B, 2, Int>, fit
     if fitness.is_empty() {
         return;
     }
+    // Sanitize (NaN → −∞) then order with `total_cmp`: the §3 correctness floor
+    // for a direct (non-harness) caller. `best_fitness` seeds at `−∞`, so a
+    // legitimately sanitized `−∞` fitness is treated as the worst, not skipped.
+    let sane: Vec<f32> = fitness
+        .iter()
+        .map(|&f| crate::fitness::sanitize_fitness(f))
+        .collect();
     let mut best_idx = 0usize;
-    let mut best_f = fitness[0];
-    for (i, &f) in fitness.iter().enumerate().skip(1) {
-        if f > best_f {
+    let mut best_f = sane[0];
+    for (i, &f) in sane.iter().enumerate().skip(1) {
+        if f.total_cmp(&best_f) == std::cmp::Ordering::Greater {
             best_f = f;
             best_idx = i;
         }
     }
-    if best_f > state.best_fitness {
+    if best_f.total_cmp(&state.best_fitness) == std::cmp::Ordering::Greater {
         let device = pop.device();
         #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
         let idx =
@@ -532,6 +552,83 @@ mod tests {
         let mut cfg = CgpConfig::default_for(1);
         cfg.rows = 0;
         assert_eq!(cfg.validate().unwrap_err().field, "rows");
+    }
+
+    /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`−∞`
+    /// convention (issue #132, `gp_cgp` §1.1 / ADR 0034). A canonical `−∞` parent
+    /// fitness (a `Minimize` `+∞` cost canonicalizes to `−∞`) must not re-trigger
+    /// the bootstrap branch: the `(1+λ)` loop has to keep emitting λ offspring.
+    #[test]
+    fn neg_inf_parent_fitness_does_not_collapse_lambda_loop() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+        let params = CgpConfig::default_for(1);
+        let mut rng = StdRng::seed_from_u64(3);
+        let state = strategy.init(&params, &mut rng, &device);
+
+        // Bootstrap ask returns the single parent for initial evaluation.
+        let (boot, next) = strategy.ask(&params, &state, &mut rng, &device);
+        assert_eq!(boot.dims()[0], 1, "bootstrap ask returns the single parent");
+
+        // Bootstrap tell with a canonical −∞ fitness. Under the old
+        // `is_finite()` sentinel this left `parent_fitness` non-finite and the
+        // next `ask` collapsed back to a single genome.
+        let neg_inf = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::NEG_INFINITY], [1]),
+            &device,
+        );
+        let (state1, _) = strategy.tell(&params, boot, neg_inf, next, &mut rng);
+        assert_eq!(
+            state1.parent_fitness,
+            Some(f32::NEG_INFINITY),
+            "bootstrap must store the sanitized −∞ parent fitness, not re-arm the sentinel"
+        );
+
+        // Next ask must produce a full λ offspring population.
+        let (offspring, _) = strategy.ask(&params, &state1, &mut rng, &device);
+        assert_eq!(
+            offspring.dims()[0],
+            params.lambda,
+            "post-bootstrap ask must emit λ offspring even with a −∞ parent fitness"
+        );
+    }
+
+    /// `update_best` treats a sanitized `−∞` fitness as the worst value (never a
+    /// champion) yet still promotes a finite winner in the same generation
+    /// (issue #132, `gp_cgp` §1.1).
+    #[test]
+    fn update_best_treats_neg_inf_as_worst() {
+        let device = Default::default();
+        let parent = Tensor::<TestBackend, 2, Int>::zeros([3, 4], &device);
+        let mut state: CgpState<TestBackend> = CgpState {
+            parent: parent.clone(),
+            parent_fitness: None,
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 0,
+        };
+
+        // An all-`−∞` generation must not promote any champion.
+        update_best(&mut state, &parent, &[f32::NEG_INFINITY; 3]);
+        assert!(
+            state.best_genome.is_none(),
+            "an all −∞ generation must not promote a champion"
+        );
+
+        // A finite winner (index 1) is recorded despite the `−∞` neighbours.
+        update_best(
+            &mut state,
+            &parent,
+            &[f32::NEG_INFINITY, 2.5, f32::NEG_INFINITY],
+        );
+        approx::assert_relative_eq!(state.best_fitness, 2.5, epsilon = 1e-6);
+        assert!(
+            state.best_genome.is_some(),
+            "a finite winner must be recorded even beside −∞ members"
+        );
     }
 
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].

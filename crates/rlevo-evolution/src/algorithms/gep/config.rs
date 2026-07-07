@@ -1,6 +1,7 @@
 //! Runtime configuration for a Gene Expression Programming run.
 
 use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::probability::Probability;
 
 /// Static parameters for a [`GepStrategy`](super::GepStrategy) run.
 ///
@@ -27,16 +28,20 @@ pub struct GepConfig {
     pub pop_size: usize,
     /// Number of input variables the program sees.
     pub n_vars: usize,
-    /// Per-gene point-mutation probability.
-    pub mutation_rate: f32,
-    /// Per-individual probability of applying one IS transposition.
-    pub is_transpose_rate: f32,
-    /// Per-individual probability of applying one RIS transposition.
-    pub ris_transpose_rate: f32,
-    /// Per-pair probability of one-point crossover.
-    pub crossover_1p_rate: f32,
-    /// Per-pair probability of two-point crossover.
-    pub crossover_2p_rate: f32,
+    /// Per-gene point-mutation probability. Valid by construction (`[0, 1]`).
+    pub mutation_rate: Probability,
+    /// Per-individual probability of applying one IS transposition. Valid by
+    /// construction (`[0, 1]`).
+    pub is_transpose_rate: Probability,
+    /// Per-individual probability of applying one RIS transposition. Valid by
+    /// construction (`[0, 1]`).
+    pub ris_transpose_rate: Probability,
+    /// Per-pair probability of one-point crossover. Valid by construction
+    /// (`[0, 1]`).
+    pub crossover_1p_rate: Probability,
+    /// Per-pair probability of two-point crossover. Valid by construction
+    /// (`[0, 1]`).
+    pub crossover_2p_rate: Probability,
 }
 
 impl GepConfig {
@@ -47,9 +52,12 @@ impl GepConfig {
     /// complete tree. `max_arity` is the function set's largest
     /// arity ([`FunctionSet::max_arity`](crate::function_set::FunctionSet::max_arity)).
     ///
-    /// Operator rates default to canonical Ferreira (2001) values; mutate the
-    /// public fields afterwards to override. The point-mutation rate defaults
-    /// to `2 / genome_len` (≈ two genes per chromosome).
+    /// Operator rates default to canonical Ferreira (2001) values; assign a
+    /// validated [`Probability`] to the public fields afterwards to override.
+    /// The point-mutation rate defaults to `2 / genome_len` (≈ two genes per
+    /// chromosome). Because the rates are [`Probability`], a `NaN`/`Inf`/
+    /// out-of-`[0, 1]` rate is unrepresentable — the silent operator
+    /// degeneracy of a bare `f32` rate cannot occur.
     ///
     /// # Errors
     ///
@@ -67,14 +75,21 @@ impl GepConfig {
         // `max_arity` is not a stored field (it is consumed below to derive
         // `tail_len`), so it cannot be re-checked by `validate`; guard it here.
         config::at_least("GepConfig", "max_arity", max_arity, 1)?;
+        // Guard `head_len` before deriving `mutation_rate`: `head_len == 0`
+        // yields `genome_len == 1` and `2 / genome_len == 2.0`, which would
+        // panic `Probability::new` below (an invalid config that `validate`
+        // should reject, not crash on). Re-checked in `validate` too.
+        config::at_least("GepConfig", "head_len", head_len, 1)?;
 
         // Tail sized to the worst case: a head of all-max-arity functions
         // demands exactly `head_len * (max_arity - 1) + 1` terminals, so this is
         // the minimum tail that guarantees a repair-free decode.
         let tail_len = head_len * (max_arity - 1) + 1;
         let genome_len = head_len + tail_len;
+        // `genome_len >= 2` (head_len >= 1, tail_len >= 1), so `2 / genome_len`
+        // lies in `(0, 1]` — provably a valid `Probability`, hence `new`.
         #[allow(clippy::cast_precision_loss)]
-        let mutation_rate = 2.0 / genome_len as f32;
+        let mutation_rate = Probability::new(2.0 / genome_len as f32);
 
         let config = Self {
             head_len,
@@ -82,10 +97,10 @@ impl GepConfig {
             pop_size,
             n_vars,
             mutation_rate,
-            is_transpose_rate: 0.1,
-            ris_transpose_rate: 0.1,
-            crossover_1p_rate: 0.3,
-            crossover_2p_rate: 0.3,
+            is_transpose_rate: Probability::new(0.1),
+            ris_transpose_rate: Probability::new(0.1),
+            crossover_1p_rate: Probability::new(0.3),
+            crossover_2p_rate: Probability::new(0.3),
         };
         config.validate()?;
         Ok(config)
@@ -105,11 +120,8 @@ impl Validate for GepConfig {
         config::at_least(C, "tail_len", self.tail_len, 1)?;
         config::at_least(C, "n_vars", self.n_vars, 1)?;
         config::at_least(C, "pop_size", self.pop_size, 1)?;
-        config::in_range(C, "mutation_rate", 0.0, 1.0, f64::from(self.mutation_rate))?;
-        config::in_range(C, "is_transpose_rate", 0.0, 1.0, f64::from(self.is_transpose_rate))?;
-        config::in_range(C, "ris_transpose_rate", 0.0, 1.0, f64::from(self.ris_transpose_rate))?;
-        config::in_range(C, "crossover_1p_rate", 0.0, 1.0, f64::from(self.crossover_1p_rate))?;
-        config::in_range(C, "crossover_2p_rate", 0.0, 1.0, f64::from(self.crossover_2p_rate))?;
+        // The five operator rates are `Probability`: valid by construction, so
+        // no `in_range` checks here — see ADR 0031.
         Ok(())
     }
 }

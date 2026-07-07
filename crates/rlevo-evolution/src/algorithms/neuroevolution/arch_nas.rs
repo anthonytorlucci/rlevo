@@ -739,6 +739,18 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// Records the told population as the new residents, updates the best-ever
     /// `(arch_id, weights, fitness)` triple, and increments the generation.
     /// `fitness` follows the canonical maximise convention (higher is better).
+    ///
+    /// # Fitness hygiene
+    ///
+    /// This is the `ArchNasStrategy` **driver chokepoint** (ADR 0034): the
+    /// strategy is its own driver and does **not** run through
+    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
+    /// no harness above it. `tell` applies
+    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) to the host fitness
+    /// vector (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
+    /// **before** [`update_best`] and before it is stored as `state.fitness`, so
+    /// a non-finite fitness can never become an immortal champion nor win the
+    /// next [`ask`](Self::ask)'s elite carry or tournament.
     #[must_use]
     pub fn tell(
         &self,
@@ -748,7 +760,13 @@ impl<B: Backend> ArchNasStrategy<B> {
         mut state: NasState<B>,
         _rng: &mut dyn Rng,
     ) -> NasState<B> {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let raw = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        // Driver chokepoint (ADR 0034): sanitize before update_best/store so a
+        // NaN/±∞ can neither become the champion nor pollute the next ask.
+        let fitness_host: Vec<f32> = raw
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         update_best(&mut state, &population, &fitness_host, params.max_param_count);
         state.population = population;
         state.fitness = fitness_host;
@@ -772,6 +790,12 @@ impl<B: Backend> ArchNasStrategy<B> {
 }
 
 /// Update best-ever tracking from a freshly-evaluated population.
+///
+/// Both the argmax ([`argmax_host`], seeded at `f32::NEG_INFINITY`) and the
+/// running champion (`state.best_fitness`, initialised to `f32::NEG_INFINITY`
+/// in [`init`](ArchNasStrategy::init)) start from the maximise-space worst
+/// sentinel, so a leading broken member cannot suppress a later valid best.
+/// `fitness` is expected pre-sanitized by [`tell`](ArchNasStrategy::tell).
 fn update_best<B: Backend>(
     state: &mut NasState<B>,
     pop: &NasGenome<B>,
@@ -1054,5 +1078,54 @@ mod tests {
             "best-ever must be monotone (maximise): final {final_best} < gen0 {gen0_best}"
         );
         assert_eq!(state.generation(), 7);
+    }
+
+    /// Regression (ADR 0034, issue #133): `tell` is the `ArchNasStrategy` chokepoint
+    /// and must sanitize non-finite fitness before `update_best`/store. A `NaN`
+    /// member must never become the champion nor survive into the next ask's
+    /// selection; a `+∞` member must rank top but as a **finite** value
+    /// (`f32::MAX`).
+    #[test]
+    fn tell_sanitizes_nan_and_inf_so_nan_never_champions() {
+        let device = Default::default();
+        let (params, _fitness) = two_variant_builder(&device).build(NasBuilderConfig {
+            pop_size: 4,
+            arch_mutation_rate: 0.0,
+            weight_mutation_std: 0.0,
+            weight_init_std: 0.5,
+            tournament_size: 2,
+            elite_count: 1,
+        });
+        let strat = ArchNasStrategy::<TestBackend>::new();
+        let mut rng = StdRng::seed_from_u64(9);
+        let state = strat.init(&params, &mut rng, &device);
+
+        // One ask, then hand-craft the fitness: NaN (must never champion), +∞
+        // (ranks top but finite), two plain values. Row 1 (+∞) is the champion.
+        let (genome, next) = strat.ask(&params, &state, &mut rng, &device);
+        let champion_arch = genome.arch_ids[1];
+        let fitness = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![f32::NAN, f32::INFINITY, 1.0_f32, 2.0], [4]),
+            &device,
+        );
+        let state = strat.tell(&params, genome, fitness, next, &mut rng);
+
+        // Stored fitness is sanitized: no NaN; NaN → −∞, +∞ → f32::MAX.
+        assert!(
+            state.fitness.iter().all(|f| !f.is_nan()),
+            "no stored fitness is NaN after the tell chokepoint"
+        );
+        assert!(
+            state.fitness[0].is_infinite() && state.fitness[0].is_sign_negative(),
+            "the NaN member is sanitized to the maximise-space worst sentinel (−∞)"
+        );
+        approx::assert_relative_eq!(state.fitness[1], f32::MAX);
+
+        // The champion is the sanitized +∞ = f32::MAX (finite), at row 1 — not
+        // the NaN row.
+        let (best_arch, _weights, best_f) = strat.best(&state).expect("best exists after tell");
+        assert!(best_f.is_finite(), "champion fitness is finite (never NaN/±∞); got {best_f}");
+        approx::assert_relative_eq!(best_f, f32::MAX);
+        assert_eq!(best_arch, champion_arch, "champion is the +∞ row, never the NaN row");
     }
 }

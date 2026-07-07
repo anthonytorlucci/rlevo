@@ -25,6 +25,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
 
+use crate::fitness::sanitize_fitness_tensor;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::Strategy;
 
@@ -221,6 +222,13 @@ where
         }
     }
 
+    /// Project the joint state into public [`CoEAMetrics`].
+    ///
+    /// The `best`/`mean` fields are copied from `state.base`, which `step`
+    /// sources from the per-population `tell` metrics computed over the
+    /// **sanitized** assembled-candidate fitness (see the chokepoint in
+    /// [`step`](Self::step) and ADR 0034). Means are averaged over the finite
+    /// members only, so a broken individual cannot emit a `NaN` mean.
     fn snapshot(&self, state: &CooperativeState<SA::State, SB::State, B>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         CoEAMetrics {
@@ -312,8 +320,16 @@ where
 
         let fits = self.fitness.evaluate_coupled(&[full_a, full_b]);
         debug_assert_eq!(fits.len(), 2, "cooperative co-evolution is bi-population");
-        let fit_a = fits[0].clone();
-        let fit_b = fits[1].clone();
+
+        // Fitness-hygiene chokepoint for the coupled-fitness path (ADR 0034):
+        // the assembled-candidate fitness may be non-finite, and nothing above
+        // this point sanitizes (coevolution does not use the single-population
+        // `EvolutionaryHarness`). Clean each vector *once* here (`NaN → −∞`,
+        // `+∞ → f32::MAX`), so the per-population `tell`, the `snapshot`
+        // best/mean written into `CoEAState`, and any hall-of-fame all see
+        // finite-or-`−∞` fitness.
+        let fit_a = sanitize_fitness_tensor(fits[0].clone());
+        let fit_b = sanitize_fitness_tensor(fits[1].clone());
 
         // Each strategy consumes its own sub-population with the assembled fitness.
         let (next_a, metrics_a) = self
@@ -547,5 +563,91 @@ mod tests {
         let p = CooperativeCoEAParams::new((), (), vec![0, 1], 4, RepresentativePolicy::Best, 16)
             .unwrap();
         assert_eq!(complement(&p.dims_a, p.total_dims), vec![2, 3]);
+    }
+
+    // --- Fitness-hygiene chokepoint regression (issue #134 / ADR 0034) ---
+
+    use rand::SeedableRng;
+
+    use rlevo_core::bounds::Bounds;
+    use rlevo_core::probability::Probability;
+    use rlevo_core::rate::NonNegativeRate;
+
+    use crate::algorithms::ga::{
+        GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+    };
+
+    const COOP_POP: usize = 4;
+
+    fn ga_config_dim(dim: usize) -> GaConfig {
+        GaConfig {
+            pop_size: COOP_POP,
+            genome_dim: dim,
+            bounds: Bounds::new(0.0, 1.0),
+            mutation_sigma: NonNegativeRate::new(0.1),
+            selection: GaSelection::Tournament { size: 2 },
+            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            replacement: GaReplacement::Elitist { elitism_k: 1 },
+        }
+    }
+
+    /// Coupled fitness over assembled full-dimensional candidates: row 0 is
+    /// `NaN`, the rest a finite ramp `1, 2, …`. The chokepoint must sanitize
+    /// `NaN → −∞` so the finite maximum (`COOP_POP - 1`) is the champion.
+    struct PoisonRow0Nan;
+
+    impl CoupledFitness<B> for PoisonRow0Nan {
+        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n)
+                        .map(|i| if i == 0 { f32::NAN } else { i as f32 })
+                        .collect();
+                    Tensor::<B, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+    }
+
+    /// A `NaN` from a cooperative [`CoupledFitness`] is sanitized at the
+    /// assembled-candidate chokepoint, so it never becomes the champion nor
+    /// blanks a mean: `best` is the finite ramp maximum and the mean is finite.
+    /// Regression for issue #134 (cooperative §1.1).
+    #[test]
+    fn cooperative_nan_is_sanitized_in_metrics() {
+        let device = Default::default();
+        // total_dims = 2, dims_a = [0] → each sub-genome is width 1.
+        let algo = CooperativeCoEA::new(
+            GeneticAlgorithm::<B>::new(),
+            GeneticAlgorithm::<B>::new(),
+            PoisonRow0Nan,
+        );
+        let params = CooperativeCoEAParams::new(
+            ga_config_dim(1),
+            ga_config_dim(1),
+            vec![0],
+            2,
+            RepresentativePolicy::Best,
+            0,
+        )
+        .unwrap();
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = algo.init(&params, &mut rng, &device);
+        let (_next, m) = algo.step(&params, state, &mut rng, &device);
+
+        #[allow(clippy::cast_precision_loss)]
+        let expected_best = (COOP_POP - 1) as f32;
+        approx::assert_relative_eq!(m.best_fitness_a, expected_best, epsilon = 1e-6);
+        assert!(
+            m.mean_fitness_a.is_finite(),
+            "cooperative mean must stay finite when a NaN individual is present, got {}",
+            m.mean_fitness_a
+        );
+        assert!(!m.best_fitness_b.is_nan(), "best_fitness_b must never be NaN");
+        assert!(!m.mean_fitness_b.is_nan(), "mean_fitness_b must never be NaN");
     }
 }

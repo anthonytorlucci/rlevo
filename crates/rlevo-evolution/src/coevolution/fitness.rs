@@ -60,6 +60,17 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
     /// `populations[i]` is a `(pop_size_i, genome_dim_i)` tensor. Returns one
     /// fitness vector per input population, each of length `pop_size_i`, on
     /// the same device as its population.
+    ///
+    /// # Sanitization boundary
+    ///
+    /// The returned fitness vectors **may contain `NaN` or `±∞`** —
+    /// implementors are not required to sanitize. Co-evolution is its own
+    /// driver (there is no [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness)
+    /// above it), so the co-evolutionary algorithms sanitize at their
+    /// state-write chokepoint (`NaN → −∞`, `+∞ → f32::MAX`) immediately after
+    /// this call, before any per-population `tell`, metric, or hall-of-fame
+    /// sees the fitness (ADR 0034). A direct caller that bypasses those
+    /// algorithms must apply the same hygiene itself.
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>>;
 
     /// Per-population archive sizes, used to populate co-evolution metrics.

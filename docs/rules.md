@@ -127,8 +127,9 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 - Every `Strategy`, operator, shaping rule, local searcher, and metric
   aggregation in `rlevo-evolution` works purely in **canonical (maximise)**
   space and is **sense-unaware** — it never sees an `ObjectiveSense`. Best is the
-  largest value; the worst-value sentinel is `f32::NEG_INFINITY`; `NaN` sanitises
-  to `−inf`.
+  largest value; the worst-value sentinel is `f32::NEG_INFINITY`. Fitness hygiene
+  is one rule (ADR 0034): `NaN → −inf` (worst), `+∞ → f32::MAX` (ranks top but
+  finite, so it cannot blow a `mean`/reward up), `−inf` passes through.
 - An objective declares its natural direction with
   `rlevo_core::objective::ObjectiveSense { Minimize, Maximize }`. Fitness
   functions and landscape adapters return **natural** values — **never
@@ -160,7 +161,12 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
   order.sort_by(|&a, &b| sane[b].total_cmp(&sane[a])); // best first; NaN last
   ```
   Non-fitness float comparisons (geometry, eigenvalues, argmax over logits) use
-  plain `total_cmp` — only *fitness* needs the sanitise step.
+  plain `total_cmp` — only *fitness* needs the sanitise step. This per-site rule is
+  the **correctness floor** and stays even where a driver chokepoint pre-sanitizes
+  (ADR 0034): direct (non-harness) callers — unit tests, custom drivers — bypass
+  the chokepoint, so every ordering/argmax/champion-write site sanitizes locally.
+  For a whole `Tensor<B, 1>` on the hot path use `sanitize_fitness_tensor`
+  (one device op) instead of a host round-trip.
 
 ---
 

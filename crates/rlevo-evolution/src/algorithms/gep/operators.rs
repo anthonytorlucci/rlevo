@@ -38,14 +38,16 @@ pub fn point_mutation<F: FunctionSet>(
     rng: &mut dyn Rng,
 ) {
     for (i, locus) in chromosome.iter_mut().enumerate() {
-        if rng.random::<f32>() >= rate {
-            continue;
+        // `< rate` reads as "mutate with probability `rate`" and is robust to a
+        // stray non-finite `rate` (`x < NaN` is `false` ⇒ no mutation). Callers
+        // pass a validated `Probability::get()`, so this is defense-in-depth.
+        if rng.random::<f32>() < rate {
+            *locus = if i < head_len {
+                alphabet.sample_head_symbol(rng)
+            } else {
+                alphabet.sample_tail_symbol(rng)
+            };
         }
-        *locus = if i < head_len {
-            alphabet.sample_head_symbol(rng)
-        } else {
-            alphabet.sample_tail_symbol(rng)
-        };
     }
 }
 
@@ -193,6 +195,33 @@ mod tests {
             );
             assert!(decodes_complete(&g, &a));
         }
+    }
+
+    /// `rate == 0.0` never mutates; `rate == 1.0` mutates every locus. Pins the
+    /// `< rate` gate semantics (finding operators.rs §1.1).
+    #[test]
+    fn test_point_mutation_rate_bounds_are_none_and_all() {
+        let a = alphabet();
+        let cfg = GepConfig::new(7, 2, 1, 100).unwrap();
+        let mut rng = seed_stream(9, 0, SeedPurpose::Mutation);
+
+        // rate 0 -> identity on every locus.
+        let original = sample_valid(&a, &cfg, &mut rng);
+        let mut g = original.clone();
+        point_mutation(&mut g, cfg.head_len, &a, 0.0, &mut rng);
+        assert_eq!(g, original, "rate 0.0 must leave the chromosome unchanged");
+
+        // rate 1 -> every locus is resampled (still a valid symbol for its class).
+        let mut g = sample_valid(&a, &cfg, &mut rng);
+        point_mutation(&mut g, cfg.head_len, &a, 1.0, &mut rng);
+        assert!(
+            tail_all_terminals(&g, cfg.head_len, &a),
+            "rate 1.0 must preserve the tail invariant: {g:?}"
+        );
+        assert!(
+            decodes_complete(&g, &a),
+            "rate 1.0 offspring must still decode completely"
+        );
     }
 
     /// 500 trials of each operator yield offspring that decode completely.

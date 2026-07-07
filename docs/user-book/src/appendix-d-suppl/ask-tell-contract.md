@@ -93,6 +93,10 @@ setting changes the contract rather than just the syntax:
   end-to-end (higher is better) and lets a cost objective declare
   `ObjectiveSense::Minimize`, reconciled at one chokepoint; see the
   [fitness chapter](../part-1-foundations/evolutionary-computation/23-fitness.md#the-engine-maximises--and-you-declare-your-objectives-sense).
+  On a harness-driven run that same chokepoint also **sanitises** the tensor
+  (ADR 0034), so the fitness `tell` receives is always finite or `−∞` — never a
+  `NaN` or `+∞` (drive a strategy directly and you sanitise at your own comparison
+  sites; see [fitness hygiene](../part-1-foundations/evolutionary-computation/23-fitness.md#fitness-hygiene-nan-and-inf)).
 - **Randomness is a host stream, not a threaded key.** evosax splits and threads
   explicit JAX `PRNGKey`s. `rlevo` passes `&mut dyn Rng` and derives every draw
   from a single host `seed_stream` (below) — different plumbing for the same

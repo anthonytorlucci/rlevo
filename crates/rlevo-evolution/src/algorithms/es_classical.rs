@@ -62,6 +62,13 @@ impl EsKind {
     }
 }
 
+/// Default σ floor for the self-adaptive step size (see
+/// [`EsConfig::sigma_min`]).
+const DEFAULT_SIGMA_MIN: f32 = 1e-8;
+/// Default σ ceiling for the self-adaptive step size (see
+/// [`EsConfig::sigma_max`]).
+const DEFAULT_SIGMA_MAX: f32 = 1e6;
+
 /// Static configuration for an [`EvolutionStrategy`] run.
 #[derive(Debug, Clone)]
 pub struct EsConfig {
@@ -73,6 +80,21 @@ pub struct EsConfig {
     pub bounds: Bounds,
     /// Initial σ (log-normal self-adaptation modifies it in state).
     pub initial_sigma: f32,
+    /// Lower clamp for the self-adaptive σ.
+    ///
+    /// Both the log-normal update `σ' = σ · exp(τ · N(0,1))` (multi-parent
+    /// variants) and the Rechenberg 1/5-rule (`(1+1)`) are unbounded
+    /// multiplicative processes; without a floor σ can underflow toward `0`,
+    /// collapsing the mutation amplitude so the search freezes. Must be
+    /// strictly positive and `< sigma_max`. Default [`DEFAULT_SIGMA_MIN`].
+    pub sigma_min: f32,
+    /// Upper clamp for the self-adaptive σ.
+    ///
+    /// Without a ceiling σ can overflow toward `+∞` (genes then saturate to a
+    /// bound with no error). Default [`DEFAULT_SIGMA_MAX`] — far outside any
+    /// practical step scale on the `[-5.12, 5.12]` benchmark domain, so it
+    /// never binds in normal operation and only catches a runaway process.
+    pub sigma_max: f32,
     /// Learning-rate scale for log-normal σ update. Standard default is
     /// `1.0 / sqrt(2 * sqrt(D))`.
     pub tau: f32,
@@ -94,6 +116,8 @@ impl EsConfig {
             genome_dim,
             bounds: Bounds::new(-5.12, 5.12),
             initial_sigma: 1.0,
+            sigma_min: DEFAULT_SIGMA_MIN,
+            sigma_max: DEFAULT_SIGMA_MAX,
             tau,
         }
     }
@@ -104,6 +128,13 @@ impl Validate for EsConfig {
         const C: &str = "EsConfig";
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::positive(C, "initial_sigma", f64::from(self.initial_sigma))?;
+        config::positive(C, "sigma_min", f64::from(self.sigma_min))?;
+        config::ordered(
+            C,
+            "sigma_max",
+            f64::from(self.sigma_min),
+            f64::from(self.sigma_max),
+        )?;
         config::positive(C, "tau", f64::from(self.tau))?;
         match self.kind {
             EsKind::OnePlusOne => {}
@@ -404,7 +435,11 @@ where
                 noise_rows.push(normal.sample(&mut sigma_rng));
             }
             let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [lambda]), device);
-            duplicated_sigmas * noise.mul_scalar(params.tau).exp()
+            // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so σ
+            // can neither underflow to 0 (search freezes) nor overflow to +∞
+            // (genes saturate). Both bounds are construction-validated.
+            (duplicated_sigmas * noise.mul_scalar(params.tau).exp())
+                .clamp(params.sigma_min, params.sigma_max)
         };
 
         // Mutate parents by the per-offspring σ, drawing from the host
@@ -513,13 +548,17 @@ where
                     let rate = state.successes_in_window as f32 / state.window_len as f32;
                     let current_sigma =
                         state.sigmas.clone().into_data().into_vec::<f32>().unwrap()[0];
+                    // The 1/5-rule is also an unbounded multiplicative process;
+                    // clamp to the same construction-validated window so σ can
+                    // neither underflow to 0 nor overflow to +∞ over a long run.
                     let new_sigma = if rate > 0.2 {
                         current_sigma * 1.22
                     } else if rate < 0.2 {
                         current_sigma / 1.22
                     } else {
                         current_sigma
-                    };
+                    }
+                    .clamp(params.sigma_min, params.sigma_max);
                     state.sigmas =
                         Tensor::<B, 1>::from_data(TensorData::new(vec![new_sigma], [1]), &device);
                     state.successes_in_window = 0;
@@ -672,6 +711,79 @@ mod tests {
     fn rejects_comma_lambda_below_mu() {
         let cfg = EsConfig::default_for(EsKind::MuCommaLambda { mu: 10, lambda: 5 }, 10);
         assert_eq!(cfg.validate().unwrap_err().field, "lambda");
+    }
+
+    /// `genome_dim == 0` makes `tau = 1/sqrt(2·sqrt(0)) = +∞`; the config guard
+    /// must reject it at construction (ADR 0026) so the non-finite τ never
+    /// reaches the first `ask` (issue #132, `es_classical` §1.1 / `ep` §1.2).
+    #[test]
+    fn rejects_zero_genome_dim() {
+        let cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 0);
+        assert!(
+            !cfg.tau.is_finite(),
+            "precondition: derived tau is non-finite for genome_dim == 0, got {}",
+            cfg.tau
+        );
+        assert_eq!(
+            cfg.validate().unwrap_err().field,
+            "genome_dim",
+            "genome_dim == 0 must be rejected before the non-finite tau can be used"
+        );
+    }
+
+    /// An inverted σ window (`sigma_min >= sigma_max`) is rejected so the clamp
+    /// bounds are always a valid interval (`es_classical` §1.1).
+    #[test]
+    fn rejects_inverted_sigma_window() {
+        let mut cfg = EsConfig::default_for(EsKind::MuPlusLambda { mu: 5, lambda: 20 }, 10);
+        cfg.sigma_min = 10.0;
+        cfg.sigma_max = 1.0;
+        assert_eq!(
+            cfg.validate().unwrap_err().field,
+            "sigma_max",
+            "sigma_min >= sigma_max must be rejected"
+        );
+    }
+
+    /// The log-normal σ of a multi-parent variant stays inside
+    /// `[sigma_min, sigma_max]` across many generations even under an aggressive
+    /// `tau` that would otherwise drive the walk to `0` or `+∞`
+    /// (`es_classical` §1.1). Drives the strategy directly so the transient
+    /// `(μ + λ,)` σ vector produced by `ask` is inspected.
+    #[test]
+    fn sigma_stays_within_bounds_across_updates() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = EvolutionStrategy::<TestBackend>::new();
+        let mut params = EsConfig::default_for(EsKind::MuPlusLambda { mu: 4, lambda: 12 }, 3);
+        params.tau = 5.0;
+        params.sigma_min = 1e-4;
+        params.sigma_max = 10.0;
+        assert!(params.validate().is_ok(), "test config must be valid");
+
+        let mut rng = StdRng::seed_from_u64(9);
+        let mut state = strategy.init(&params, &mut rng, &device);
+        for generation in 0..60 {
+            let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let sigmas: Vec<f32> = next.sigmas().clone().into_data().into_vec::<f32>().unwrap();
+            for &s in &sigmas {
+                assert!(
+                    s.is_finite() && s >= params.sigma_min && s <= params.sigma_max,
+                    "σ left [{}, {}] at gen {generation}: {s}",
+                    params.sigma_min,
+                    params.sigma_max
+                );
+            }
+            let n = offspring.dims()[0];
+            let fitness = Tensor::<TestBackend, 1>::from_data(
+                TensorData::new(vec![1.0_f32; n], [n]),
+                &device,
+            );
+            let (advanced, _) = strategy.tell(&params, offspring, fitness, next, &mut rng);
+            state = advanced;
+        }
     }
 
     struct Sphere;

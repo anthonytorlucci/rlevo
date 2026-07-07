@@ -214,8 +214,10 @@ least two contenders).
 ### Truncation selection
 
 Deterministic: sort by fitness descending and take the `top_k` highest, returned
-best-first. Ties break by `f32::partial_cmp` with `NaN` sorted last (so a stray
-`NaN` fitness can never masquerade as a good solution).
+best-first. Each fitness is first mapped through `sanitize_fitness` (`NaN → −∞`),
+then ordered with `f32::total_cmp` — a deterministic total order in which a stray
+`NaN` sorts last and can never masquerade as a good solution (`rules.md` §3;
+`partial_cmp` is never used on fitness).
 
 ```rust
 pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32>;

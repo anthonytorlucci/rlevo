@@ -4,6 +4,32 @@ use crate::function_set::{FunctionSet, Symbol};
 
 use super::alphabet::{Alphabet, SymbolKind};
 
+/// Magnitude cap applied to a diverged node value in [`ExpressionTree::eval`].
+///
+/// Sized so its square stays finite (`1e15² = 1e30 < f32::MAX ≈ 3.4e38`), even
+/// summed over a large dataset, so a clamped prediction still produces a finite
+/// — but very large — MSE. A diverged (`±Inf`) subtree therefore ranks worst
+/// rather than collapsing to a deceptively small error.
+const EVAL_CLAMP: f32 = 1e15;
+
+/// Node-value sanitizer for the GEP evaluator: `NaN → 0.0`, `±Inf → ±`
+/// [`EVAL_CLAMP`], finite values unchanged.
+///
+/// `f32::clamp` *propagates* `NaN`, so `NaN` must be handled before the clamp
+/// (mirrors the EDA `bayesian_network` finiteness convention). Unlike the
+/// shared [`finite_or_zero`](crate::function_set::finite_or_zero) rule used by
+/// CGP, this preserves the sign and magnitude of an overflowed value so a
+/// bloated subtree is penalized, not hidden (finding tree.rs §1.2).
+#[must_use]
+#[inline]
+fn finite_or_clamp(v: f32) -> f32 {
+    if v.is_nan() {
+        0.0
+    } else {
+        v.clamp(-EVAL_CLAMP, EVAL_CLAMP)
+    }
+}
+
 /// A decoded expression tree stored in level-order (breadth-first) layout.
 ///
 /// The coding prefix of a chromosome decodes to this structure (see
@@ -86,8 +112,14 @@ impl ExpressionTree {
     /// Variable nodes resolve to `inputs[input_index]` (missing indices read as
     /// `0.0`); constant nodes resolve to their stored value; function nodes call
     /// [`FunctionSet::apply`](crate::function_set::FunctionSet::apply) with their
-    /// children's already-computed results. Non-finite function results collapse
-    /// to `0.0`, matching the CGP evaluator's robustness rule.
+    /// children's already-computed results, then sanitize the result via
+    /// [`finite_or_clamp`]: a `NaN` collapses to `0.0` (it has no meaningful
+    /// sign or magnitude), while `±Inf` clamps to `±`[`EVAL_CLAMP`] (sign
+    /// preserved). Clamping — rather than zeroing — a diverged (`±Inf`) subtree
+    /// keeps its magnitude large, so it yields a large MSE and ranks *worst*
+    /// instead of masquerading as a perfect `0.0` predictor near zero-valued
+    /// targets (GEP finding tree.rs §1.2). This differs from the CGP evaluator's
+    /// `finite_or_zero` rule, which zeros both.
     ///
     /// `alphabet` must be the same one the tree was decoded with.
     #[must_use]
@@ -112,7 +144,7 @@ impl ExpressionTree {
                     let start = self.child_start[i];
                     arg_buf[..arity].copy_from_slice(&results[start..start + arity]);
                     let v = alphabet.functions.apply(symbol, &arg_buf[..arity]);
-                    crate::function_set::finite_or_zero(v)
+                    finite_or_clamp(v)
                 }
             };
         }
@@ -164,5 +196,37 @@ mod tests {
         assert_eq!(tree.node_count(), 1);
         assert_eq!(tree.depth(), 0);
         approx::assert_relative_eq!(tree.eval(&a, &[7.0]), 7.0, epsilon = 1e-6);
+    }
+
+    /// `finite_or_clamp`: `NaN → 0.0`, `±Inf → ±EVAL_CLAMP`, finite passes.
+    #[test]
+    fn test_finite_or_clamp_zeroes_nan_and_clamps_inf() {
+        approx::assert_relative_eq!(finite_or_clamp(f32::NAN), 0.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(finite_or_clamp(f32::INFINITY), EVAL_CLAMP);
+        approx::assert_relative_eq!(finite_or_clamp(f32::NEG_INFINITY), -EVAL_CLAMP);
+        approx::assert_relative_eq!(finite_or_clamp(3.5), 3.5, epsilon = 1e-6);
+    }
+
+    /// An overflowing `x * x` clamps to `EVAL_CLAMP` (not `0.0`), so a diverged
+    /// tree carries a large magnitude and is penalized (finding tree.rs §1.2).
+    #[test]
+    fn test_eval_clamps_overflow_instead_of_zeroing() {
+        let a = alphabet(1);
+        // `[*, x, x]` = x * x; x = 1e30 overflows f32 to +Inf.
+        let genome = vec![
+            Symbol::from_raw(2),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+        ];
+        let tree = GepDecoder.decode(&a, &genome);
+        let pred = tree.eval(&a, &[1e30]);
+        approx::assert_relative_eq!(pred, EVAL_CLAMP);
+        // The squared error against a near-zero target is huge, not near-zero:
+        // the old `finite_or_zero` rule would have made `pred == 0.0` here.
+        assert!(
+            (pred - 0.1).powi(2) > 1e20,
+            "diverged prediction must yield a large error, got pred = {pred}"
+        );
     }
 }

@@ -205,6 +205,15 @@ pub fn compatibility_distance(
 /// `fitness`, and the prior species' cloned representatives all coexist
 /// consistently.
 ///
+/// # Fitness hygiene
+///
+/// Each `fitness[i]` is passed through
+/// [`sanitize_fitness`](crate::fitness::sanitize_fitness) before it feeds a
+/// per-species best or `adjusted_fitness_sum` reduction (ADR 0034 correctness
+/// floor). This guards direct (non-harness) callers — `NeatStrategy::tell`
+/// sanitizes too, so the guard is idempotent on that path — and stops a single
+/// `NaN` member from poisoning offspring apportionment for the whole run.
+///
 /// # Panics
 ///
 /// Panics if `fitness.len()` differs from `population.len()`.
@@ -264,18 +273,34 @@ pub fn speciate(
     species.retain(|s| !s.members.is_empty());
 
     // 4. Update best/stagnation and size-adjusted fitness (maximization).
+    //
+    // Sanitize NaN → −inf / +∞ → f32::MAX (ADR 0034) before *every* reduction: a
+    // raw NaN member would otherwise poison `adjusted_fitness_sum` (a NaN sum),
+    // corrupting offspring apportionment for *all* species for the rest of the
+    // run. `speciate` is `pub` and directly callable/tested, so it guards here
+    // itself (correctness floor, rules.md §3) rather than trusting the caller;
+    // `NeatStrategy::tell` also sanitizes, which makes this idempotent on the
+    // harness-analogue path. `remove_stagnant` already sanitizes — this keeps
+    // the module consistent.
     for s in species.iter_mut() {
         let species_best = s
             .members
             .iter()
-            .map(|&i| fitness[i])
+            .map(|&i| crate::fitness::sanitize_fitness(fitness[i]))
             .fold(f32::NEG_INFINITY, f32::max);
         if species_best > s.best_fitness {
             s.best_fitness = species_best;
             s.last_improved_generation = generation;
         }
-        let sum: f32 = s.members.iter().map(|&i| fitness[i]).sum();
-        // `adjusted_fitness_sum = Σ raw/|species| = mean raw fitness`.
+        let sum: f32 = s
+            .members
+            .iter()
+            .map(|&i| crate::fitness::sanitize_fitness(fitness[i]))
+            .sum();
+        // `adjusted_fitness_sum = Σ raw/|species| = mean raw fitness`. A broken
+        // (sanitized-to-−inf) member drives this species' mean to −inf; the
+        // downstream `.max(0.0)` in `allocate_offspring` floors its share to 0,
+        // preserving the non-negative fitness-sharing precondition.
         #[allow(clippy::cast_precision_loss)]
         let mean = sum / s.members.len() as f32;
         s.adjusted_fitness_sum = mean;
@@ -547,5 +572,48 @@ mod tests {
         assert_eq!(species.len(), 2, "distinct genome forms its own species");
         let sizes: Vec<usize> = species.iter().map(|s| s.members.len()).collect();
         assert!(sizes.contains(&2) && sizes.contains(&1), "g0 and its clone share a species");
+    }
+
+    /// Regression (ADR 0034, issue #133): `speciate` sanitizes each member's
+    /// fitness before the per-species best / `adjusted_fitness_sum` reductions.
+    /// A raw `NaN` must not become a species best nor poison the size-adjusted
+    /// mean (which would corrupt offspring apportionment for the whole run); a
+    /// `+∞` member ranks top but as a **finite** value (`f32::MAX`).
+    #[test]
+    fn test_speciate_sanitizes_nan_and_inf_fitness() {
+        let mut rng = StdRng::seed_from_u64(0);
+        // Three near-clones → a single species, so all three feed one reduction.
+        let population = vec![
+            genome_with(vec![conn(0, 0.0)]),
+            genome_with(vec![conn(0, 0.01)]),
+            genome_with(vec![conn(0, 0.02)]),
+        ];
+        // Member 0 NaN (must NOT become best / poison the sum), member 1 +∞
+        // (ranks top but finite), member 2 a plain 2.0.
+        let fitness = vec![f32::NAN, f32::INFINITY, 2.0];
+        let mut species: Vec<Species> = Vec::new();
+        let mut next_id = SpeciesId::new(0);
+        speciate(&population, &fitness, &mut species, 1.0, 1.0, 1.0, 1.0, &mut next_id, 0, &mut rng);
+        assert_eq!(species.len(), 1, "near-clones form a single species");
+
+        let s = &species[0];
+        // best_fitness is the sanitized +∞ = f32::MAX — finite, never NaN.
+        assert!(!s.best_fitness.is_nan(), "a NaN member never becomes a species best");
+        approx::assert_relative_eq!(s.best_fitness, f32::MAX);
+        // The size-adjusted mean is not NaN: sanitizing the NaN to −∞ makes the
+        // mean −∞ (not NaN), which the downstream `.max(0.0)` floors — the key
+        // regression is that it can no longer poison apportionment to NaN.
+        assert!(
+            !s.adjusted_fitness_sum.is_nan(),
+            "a NaN member never poisons adjusted_fitness_sum"
+        );
+
+        // Apportionment stays well-defined (sums exactly) despite the broken member.
+        let counts = allocate_offspring(&species, 8);
+        assert_eq!(
+            counts.iter().sum::<usize>(),
+            8,
+            "offspring apportionment sums exactly, uncorrupted by a NaN member"
+        );
     }
 }

@@ -355,11 +355,24 @@ where
     }
 }
 
-/// Indices of the three largest values in `xs`. Panics if `xs.len() < 3`.
+/// Indices of the three largest values in `xs` — the α, β, δ leaders.
+///
+/// Values are sanitised per the maximise convention (`rules.md` §3,
+/// ADR 0034) before comparison: `NaN → −∞` (worst), `+∞ → f32::MAX`. The
+/// harness chokepoint already pre-sanitises the fitness a [`Strategy`]
+/// receives, but a direct (non-harness) caller — a unit test or a custom
+/// driver — can seed `state.fitness` with a raw `NaN`; sanitising here keeps a
+/// non-finite value from becoming a permanent leader (a `NaN` in `xs[2]` would
+/// otherwise never lose the `v > vals[2]` comparison and be pinned as δ).
+///
+/// # Panics
+///
+/// Panics if `xs.len() < 3`.
 fn argtop3_max(xs: &[f32]) -> [usize; 3] {
     assert!(xs.len() >= 3, "argtop3_max requires at least 3 elements");
+    let sane = |i: usize| crate::fitness::sanitize_fitness(xs[i]);
     let mut idx = [0usize, 1, 2];
-    let mut vals = [xs[0], xs[1], xs[2]];
+    let mut vals = [sane(0), sane(1), sane(2)];
     // Sort the initial three descending.
     if vals[0] < vals[1] {
         vals.swap(0, 1);
@@ -373,7 +386,8 @@ fn argtop3_max(xs: &[f32]) -> [usize; 3] {
         vals.swap(0, 1);
         idx.swap(0, 1);
     }
-    for (i, &v) in xs.iter().enumerate().skip(3) {
+    for i in 3..xs.len() {
+        let v = sane(i);
         if v > vals[2] {
             vals[2] = v;
             idx[2] = i;
@@ -439,6 +453,39 @@ mod tests {
         let top = argtop3_max(&xs);
         // Values at indices: 5 (9.0), 2 (8.0), 0 (5.0).
         assert_eq!(top, [5, 2, 0]);
+    }
+
+    // Regression for the direct-caller (non-harness) bypass path: a raw NaN in
+    // `state.fitness` must sanitise to −∞ (worst) and never be pinned as a
+    // leader. Before the sanitise fix a NaN in `xs[2]` was never displaced by
+    // `v > vals[2]` (NaN loses every comparison), silently freezing it as δ.
+    #[test]
+    fn argtop3_max_nan_never_becomes_a_leader() {
+        // NaN sits at index 2 — exactly the slot that survived unsanitised.
+        let xs = [5.0_f32, 2.0, f32::NAN, 8.0, 3.0, 9.0];
+        let top = argtop3_max(&xs);
+        // The three finite maxima are at indices 5 (9.0), 3 (8.0), 0 (5.0);
+        // the NaN row (index 2) must be excluded from the leader set.
+        assert!(
+            !top.contains(&2),
+            "NaN-fitness row must not be selected as an α/β/δ leader, got {top:?}"
+        );
+        assert_eq!(
+            top, [5, 3, 0],
+            "leaders must be the three strictly-largest finite rows"
+        );
+    }
+
+    // The strictly-highest-fitness row must be picked as α (index 0 of the
+    // returned triple), proving the comparison direction matches maximise.
+    #[test]
+    fn argtop3_max_alpha_is_the_strict_maximum() {
+        let xs = [1.0_f32, 7.0, 3.0, 42.0, 2.0, 5.0];
+        let top = argtop3_max(&xs);
+        assert_eq!(
+            top[0], 3,
+            "the strictly-highest-fitness row (index 3) must be the α leader, got {top:?}"
+        );
     }
 
     #[test]
