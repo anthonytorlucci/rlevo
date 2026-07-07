@@ -44,7 +44,7 @@ use rand_distr::{Distribution as _, Normal};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate, Violations};
 
-use crate::ops::linalg::{jacobi_eigen, matvec};
+use crate::ops::linalg::{SymEigen, jacobi_eigen, matvec};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -301,6 +301,33 @@ pub struct CmaEsState<B: Backend> {
     best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness (canonical maximise convention).
     best_fitness: f32,
+    /// Cached symmetric eigendecomposition of the **current** `cov`.
+    ///
+    /// The eigendecomposition is the most expensive host op per generation and
+    /// is needed twice on an unchanged `C`: [`Strategy::ask`] builds the
+    /// sampling transform `B·diag(√Λ)` from it, and the following
+    /// [`Strategy::tell`] builds the conditioning matrix `C^{-1/2}` from the
+    /// same decomposition. This field memoizes the raw
+    /// [`SymEigen`](crate::ops::linalg::SymEigen) so `tell` reuses `ask`'s work.
+    ///
+    /// # Invariant
+    ///
+    /// This is a **pure memo** of the decomposition of the `cov` field as it
+    /// stands *right now* — never an independent source of truth. Two rules keep
+    /// it coherent:
+    ///
+    /// - **Any code path that writes `cov` must first clear or take this memo**
+    ///   (set it to `None`, or `take()` it), so a stale decomposition of a
+    ///   superseded `C` can never be read back.
+    /// - **`ask` produces, never trusts.** It unconditionally recomputes the
+    ///   decomposition of the current `cov` and *overwrites* this field with the
+    ///   fresh result; it never reads the prior memo. `tell` is the sole
+    ///   consumer — it `take()`s the memo (falling back to a fresh
+    ///   `jacobi_eigen` if a state skipped `ask`).
+    ///
+    /// Because `jacobi_eigen` is deterministic, reusing the memo is bit-identical
+    /// to recomputing it, so the cache is transparent to same-seed determinism.
+    eig: Option<SymEigen>,
 }
 
 impl<B: Backend> CmaEsState<B> {
@@ -315,7 +342,7 @@ impl<B: Backend> CmaEsState<B> {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         mean: Vec<f32>,
-        cov: Vec<f32>,
+        mut cov: Vec<f32>,
         p_sigma: Vec<f32>,
         p_c: Vec<f32>,
         sigma: f32,
@@ -347,6 +374,15 @@ impl<B: Backend> CmaEsState<B> {
             });
         }
         config::positive("CmaEsState", "sigma", f64::from(sigma))?;
+        // Normalize a caller-supplied `cov` to exact symmetry: the
+        // eigendecomposition the strategy runs on `C` assumes symmetry, and the
+        // in-loop rank-1 / rank-μ updates preserve bit-exact symmetry on their
+        // own (see `ops::linalg::symmetrize`), so construction is the *only*
+        // entry point through which an asymmetric `C` can reach the solver.
+        // Averaging the triangles here (pycma-style) beats a tolerance-based
+        // rejection — it mirrors the sanitize-at-the-chokepoint convention of
+        // ADR 0034 rather than pushing the problem back onto the caller.
+        crate::ops::linalg::symmetrize(&mut cov, d);
         Ok(Self {
             mean,
             cov,
@@ -356,6 +392,10 @@ impl<B: Backend> CmaEsState<B> {
             generation,
             best_genome,
             best_fitness,
+            // Internal cache state, not caller-suppliable: a freshly
+            // constructed state has no decomposition memoized yet; the first
+            // `ask` produces one.
+            eig: None,
         })
     }
 
@@ -474,6 +514,8 @@ where
             generation: 0,
             best_genome: None,
             best_fitness: f32::NEG_INFINITY,
+            // No decomposition memoized yet; the first `ask` produces one.
+            eig: None,
         }
     }
 
@@ -482,8 +524,15 @@ where
     /// The covariance is eigendecomposed into `C = B diag(Λ) Bᵀ`; each
     /// offspring is `xᵢ = m + σ · B diag(√Λ) zᵢ` for `zᵢ ~ N(0, I)`, drawn
     /// host-side from a deterministic [`SeedPurpose::CmaSampling`] stream. The
-    /// state is returned unchanged (the mean/covariance update happens in
-    /// [`tell`](Self::tell), which recomputes the steps from the population).
+    /// distribution parameters are returned unchanged (the mean/covariance
+    /// update happens in [`tell`](Self::tell), which recomputes the steps from
+    /// the population).
+    ///
+    /// The one thing `ask` *does* mutate on the returned state is the
+    /// eigendecomposition memo ([`CmaEsState::eig`]): it stores the fresh
+    /// decomposition of the current `C` so the paired `tell` reuses it to build
+    /// `C^{-1/2}` instead of decomposing the same unchanged matrix a second
+    /// time. `ask` produces the memo and never trusts a prior one.
     fn ask(
         &self,
         params: &CmaEsConfig,
@@ -494,13 +543,17 @@ where
         let d = params.genome_dim;
         let lambda = params.pop_size;
 
-        // Sampling transform B·diag(√Λ) from the eigendecomposition of C.
-        let (eigvals, eigvecs) = jacobi_eigen(&state.cov, d);
-        let floor: f32 = eigenvalue_floor(&eigvals);
+        // Sampling transform B·diag(√Λ) from the eigendecomposition of C. The
+        // raw decomposition is kept whole (not destructured) so it can be
+        // memoized on the returned state for `tell` to reuse. The eigenvalue
+        // floor is applied *here* per-use — `ask` needs `√Λ`, `tell` needs
+        // `1/√Λ`, so only the raw values are cached and each site floors them.
+        let eig: SymEigen = jacobi_eigen(&state.cov, d);
+        let floor: f32 = eigenvalue_floor(&eig.values);
         let mut bd: Vec<f32> = vec![0.0; d * d];
         for i in 0..d {
             for k in 0..d {
-                bd[i * d + k] = eigvecs[i * d + k] * eigvals[k].max(floor).sqrt();
+                bd[i * d + k] = eig.vectors[i * d + k] * eig.values[k].max(floor).sqrt();
             }
         }
 
@@ -519,11 +572,38 @@ where
             }
         }
         let population = Tensor::<B, 2>::from_data(TensorData::new(rows, [lambda, d]), device);
-        (population, state.clone())
+        // Clone first, then overwrite the memo on the clone: the decomposition
+        // just built is exactly the decomposition of this state's (unchanged)
+        // `cov`, so it is a valid memo for the paired `tell` to consume.
+        let mut next = state.clone();
+        next.eig = Some(eig);
+        (population, next)
     }
 
     /// Ranks the offspring, recombines the mean, and runs CSA + the rank-1 /
     /// rank-μ covariance updates.
+    ///
+    /// # Lost generations
+    ///
+    /// The rank-μ update needs `μ` *usable* selection steps. Ranking already
+    /// sanitizes (`NaN → −∞`) and sorts with `total_cmp`, so a non-finite
+    /// fitness can never rank among the best — but if **fewer than `μ`**
+    /// sanitized values are finite, non-usable individuals would still fill out
+    /// the selected `μ` and feed meaningless steps `yᵢ = (xᵢ − m)/σ` into the
+    /// mean and covariance updates. When that happens `tell` takes a deliberate
+    /// **lost generation**: the entire adaptive update (mean, `C`, `p_σ`, `p_c`,
+    /// `σ`, and the eigendecomposition memo) is skipped and the search
+    /// distribution is left exactly unchanged. A legitimate `−∞` counts as
+    /// non-usable here — it marks a member evaluation that broke, so it cannot
+    /// contribute a meaningful recombination step.
+    ///
+    /// A lost generation still **advances the generation counter and updates
+    /// best-so-far tracking**. Advancing the counter matters for determinism:
+    /// the per-generation sampling stream is keyed on
+    /// `seed_stream(_, generation, _)`, so bumping it ensures the next `ask`
+    /// draws a *fresh* offspring batch rather than replaying the identical draw
+    /// that just failed. The retained eigendecomposition memo stays coherent
+    /// because `cov` is untouched.
     #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
     fn tell(
         &self,
@@ -537,6 +617,11 @@ where
         let lambda = params.pop_size;
         let mu = params.mu;
 
+        // Best-tracking (`update_best`, below) reads this raw fitness directly
+        // and relies on the harness-side sanitize chokepoint (ADR 0034) to have
+        // already mapped `+∞ → f32::MAX` before `tell`; that `+∞` hygiene is
+        // pre-existing and out of scope here. The adaptive update below reads
+        // only the locally-sanitized `sane` copy.
         let fitness_host: Vec<f32> = fitness
             .into_data()
             .into_vec::<f32>()
@@ -561,6 +646,30 @@ where
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
             .collect();
+
+        // Lost-generation guard: the rank-μ update needs μ *usable* (finite)
+        // steps. If fewer than μ sanitized values are finite, the selected μ
+        // would include non-usable members (`−∞`, a sanitized `NaN`, or a
+        // broken `−∞` evaluation) whose steps corrupt the mean/covariance
+        // update. Freeze the whole search distribution — mean, `C`, `p_σ`,
+        // `p_c`, `σ`, and the eig memo all stay untouched (the retained memo
+        // remains coherent because `cov` is unchanged) — but still advance the
+        // generation counter (so the next `ask` draws a fresh stream, not a
+        // replay) and best-so-far tracking. See the `# Lost generations` doc
+        // section above.
+        let n_finite: usize = sane.iter().filter(|f| f.is_finite()).count();
+        if n_finite < mu {
+            update_best(&mut state, &population, &fitness_host);
+            state.generation += 1;
+            let metrics = StrategyMetrics::from_host_fitness(
+                state.generation,
+                &fitness_host,
+                state.best_fitness,
+            );
+            state.best_fitness = metrics.best_fitness_ever();
+            return (state, metrics);
+        }
+
         ranked.sort_by(|&a, &b| sane[b].total_cmp(&sane[a]));
 
         let m_old: Vec<f32> = state.mean.clone();
@@ -586,7 +695,18 @@ where
         }
 
         // C^{-1/2} = B diag(1/√Λ) Bᵀ from the eigendecomposition of the old C.
-        let (eigvals, eigvecs) = jacobi_eigen(&state.cov, d);
+        // Reuse the memo `ask` stored for this exact (unchanged) `C`; `take()`
+        // it so the stale decomposition cannot outlive the `cov` overwrite at
+        // the end of this method. The fallback keeps `tell` correct for a state
+        // that reached here without a paired `ask`. The floor is applied here
+        // as `1/√Λ` (vs `ask`'s `√Λ`), so only the raw eigenvalues are cached.
+        let SymEigen {
+            values: eigvals,
+            vectors: eigvecs,
+        } = state
+            .eig
+            .take()
+            .unwrap_or_else(|| jacobi_eigen(&state.cov, d));
         let floor: f32 = eigenvalue_floor(&eigvals);
         let inv_sqrt: Vec<f32> = eigvals.iter().map(|&l| 1.0 / l.max(floor).sqrt()).collect();
         let mut c_inv_sqrt: Vec<f32> = vec![0.0; d * d];
@@ -661,6 +781,9 @@ where
         state.best_fitness = metrics.best_fitness_ever();
 
         state.mean = mean_new;
+        // Overwrites `cov`; the eig memo was already `take()`n above, so there
+        // is no stale-decomposition hazard — `state.eig` is `None` on return
+        // and the next `ask` will produce a fresh memo for this new `C`.
         state.cov = cov_new;
         state.p_sigma = p_sigma;
         state.p_c = p_c;
@@ -709,6 +832,8 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
 mod tests {
     use super::*;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     #[test]
     fn try_new_checks_dimensions() {
@@ -850,5 +975,186 @@ mod tests {
         assert_eq!(cfg.mu, 25);
         let sum: f32 = cfg.weights.iter().sum();
         approx::assert_relative_eq!(sum, 1.0, epsilon = 1e-5);
+    }
+
+    /// Lost generation: with fewer than μ finite fitness values, `tell` must
+    /// freeze the entire search distribution (mean, `C`, `σ`, both paths) yet
+    /// still advance the generation counter and best-so-far tracking.
+    #[test]
+    fn tell_freezes_distribution_on_too_few_finite() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2); // μ = 3.
+        assert_eq!(params.mu, 3);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0xF10E);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+
+        // Snapshot the pre-`tell` distribution (all bit-exact).
+        let mean0: Vec<f32> = asked.mean().to_vec();
+        let cov0: Vec<f32> = asked.cov().to_vec();
+        let p_sigma0: Vec<f32> = asked.p_sigma().to_vec();
+        let p_c0: Vec<f32> = asked.p_c().to_vec();
+        let sigma0: f32 = asked.sigma();
+        let gen0: usize = asked.generation();
+
+        // Only one finite value; μ = 3 → lost generation.
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(
+                vec![1.0f32, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN],
+                [6],
+            ),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        // Distribution frozen, bit-for-bit.
+        assert_eq!(told.mean(), mean0.as_slice());
+        assert_eq!(told.cov(), cov0.as_slice());
+        assert_eq!(told.p_sigma(), p_sigma0.as_slice());
+        assert_eq!(told.p_c(), p_c0.as_slice());
+        assert_eq!(told.sigma().to_bits(), sigma0.to_bits());
+        // Counter advanced; best tracked from the single finite value.
+        assert_eq!(told.generation(), gen0 + 1);
+        assert_eq!(told.best_fitness().to_bits(), 1.0f32.to_bits());
+    }
+
+    /// Cache coherence: `tell` reusing the eigendecomposition memo `ask` stored
+    /// produces a state bit-identical to `tell` on an equivalent state whose
+    /// memo is absent (rebuilt via `try_new`, which recomputes the
+    /// decomposition). `jacobi_eigen` is deterministic, so the two must agree.
+    #[test]
+    fn tell_cache_reuse_matches_recompute() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x00CA_C4E5);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+
+        // Rebuild an equivalent state from the asked-state accessors. `try_new`
+        // never populates the memo, so its `tell` recomputes the decomposition.
+        let rebuilt = CmaEsState::<Flex>::try_new(
+            asked.mean().to_vec(),
+            asked.cov().to_vec(),
+            asked.p_sigma().to_vec(),
+            asked.p_c().to_vec(),
+            asked.sigma(),
+            asked.generation(),
+            asked.best_genome().cloned(),
+            asked.best_fitness(),
+        )
+        .expect("valid state");
+
+        // Identical fitness (≥ μ finite → full adaptive update runs).
+        let fitness_vals: Vec<f32> = vec![6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+        let f_cached =
+            Tensor::<Flex, 1>::from_data(TensorData::new(fitness_vals.clone(), [6]), &device);
+        let f_recomp = Tensor::<Flex, 1>::from_data(TensorData::new(fitness_vals, [6]), &device);
+
+        // `tell` ignores its `_rng`; fresh RNGs are only for the signature.
+        let mut rng_a = StdRng::seed_from_u64(1);
+        let mut rng_b = StdRng::seed_from_u64(2);
+        let (told_cached, _) =
+            strategy.tell(&params, population.clone(), f_cached, asked, &mut rng_a);
+        let (told_recomp, _) = strategy.tell(&params, population, f_recomp, rebuilt, &mut rng_b);
+
+        assert_eq!(told_cached.mean(), told_recomp.mean());
+        assert_eq!(told_cached.cov(), told_recomp.cov());
+        assert_eq!(told_cached.p_sigma(), told_recomp.p_sigma());
+        assert_eq!(told_cached.p_c(), told_recomp.p_c());
+        assert_eq!(told_cached.sigma().to_bits(), told_recomp.sigma().to_bits());
+    }
+
+    /// `try_new` normalizes a caller-supplied asymmetric covariance to exact
+    /// symmetry by averaging the triangles (pycma-style construction boundary).
+    #[test]
+    fn try_new_symmetrizes_covariance() {
+        // Off-diagonals (0,1) = 0.4 and (1,0) = 0.2 → both become 0.3.
+        let state = CmaEsState::<Flex>::try_new(
+            vec![0.0, 0.0],
+            vec![1.0, 0.4, 0.2, 1.0],
+            vec![0.0, 0.0],
+            vec![0.0, 0.0],
+            0.5,
+            0,
+            None,
+            f32::NEG_INFINITY,
+        )
+        .expect("valid state");
+        let cov: &[f32] = state.cov();
+        approx::assert_relative_eq!(cov[1], 0.3, epsilon = 1e-6);
+        approx::assert_relative_eq!(cov[2], 0.3, epsilon = 1e-6);
+    }
+
+    /// Memo-hygiene: a full adaptive `tell` overwrites `cov`, so it must leave
+    /// the eigendecomposition memo empty. Locks the "any `cov` write clears the
+    /// memo" invariant against a future refactor that adds a second
+    /// cov-mutation path but forgets to `take()`/clear `eig`.
+    #[test]
+    fn tell_clears_eig_memo_after_cov_update() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x00EE_6011);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        // `ask` produced a memo for this state.
+        assert!(asked.eig.is_some(), "ask must populate the eig memo");
+
+        // ≥ μ finite → full adaptive update runs and overwrites `cov`.
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        assert!(
+            told.eig.is_none(),
+            "a cov-mutating tell must leave the eig memo empty"
+        );
+    }
+
+    /// Two-generation sequential drive: init → ask → tell → ask → tell. The
+    /// second `ask` must produce a *fresh* memo (of the first `tell`'s new `C`),
+    /// and the second `tell` must consume it and leave the search distribution
+    /// finite.
+    #[test]
+    fn two_generation_sequence_refreshes_memo() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x00A2_9E11);
+
+        let fitness = |dev: &_| {
+            Tensor::<Flex, 1>::from_data(
+                TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
+                dev,
+            )
+        };
+
+        // Generation 1.
+        let s0 = strategy.init(&params, &mut rng, &device);
+        let (pop0, asked0) = strategy.ask(&params, &s0, &mut rng, &device);
+        assert!(asked0.eig.is_some(), "first ask must populate the memo");
+        let (told0, _m0) = strategy.tell(&params, pop0, fitness(&device), asked0, &mut rng);
+        assert!(told0.eig.is_none(), "first tell must clear the memo");
+
+        // Generation 2: a fresh memo of the updated `C`.
+        let (pop1, asked1) = strategy.ask(&params, &told0, &mut rng, &device);
+        assert!(
+            asked1.eig.is_some(),
+            "second ask must build a fresh memo off the updated cov"
+        );
+        let (told1, _m1) = strategy.tell(&params, pop1, fitness(&device), asked1, &mut rng);
+        assert!(told1.eig.is_none(), "second tell must clear the memo");
+
+        // The distribution stayed finite across both generations.
+        assert!(told1.mean().iter().all(|v| v.is_finite()), "mean finite");
+        assert!(told1.cov().iter().all(|v| v.is_finite()), "cov finite");
+        assert!(told1.sigma().is_finite(), "sigma finite");
     }
 }

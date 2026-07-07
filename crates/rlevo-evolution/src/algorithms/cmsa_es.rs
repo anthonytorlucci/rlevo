@@ -49,7 +49,7 @@ use rand_distr::{Distribution as _, Normal};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
-use crate::ops::linalg::{cholesky, matvec};
+use crate::ops::linalg::{cholesky, matvec, symmetrize};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -168,24 +168,125 @@ impl Validate for CmsaEsConfig {
 }
 
 /// Generation state for [`CmsaEs`].
+///
+/// All adaptive quantities live here (not in [`CmsaEsConfig`]) so instances stay
+/// lock-free across parallel runs. Linear-algebra state — the mean and
+/// covariance — is held host-side as `Vec<f32>`; only the offspring population
+/// crosses to the device.
 #[derive(Debug, Clone)]
 pub struct CmsaEsState<B: Backend> {
     /// Distribution mean `m`, length `D`.
-    pub mean: Vec<f32>,
+    mean: Vec<f32>,
     /// Covariance matrix `C`, row-major `D × D`.
-    pub cov: Vec<f32>,
+    cov: Vec<f32>,
     /// Global step size `σ̄`.
-    pub sigma: f32,
+    sigma: f32,
     /// Per-offspring step sizes `σᵢ`, carried `ask → tell` (length `λ`, empty
     /// before the first `ask`). Mirrors the σ-scratchpad pattern in
     /// [`EsState`](crate::algorithms::es_classical::EsState).
-    pub offspring_sigmas: Vec<f32>,
+    offspring_sigmas: Vec<f32>,
     /// Completed-generation counter.
-    pub generation: usize,
+    generation: usize,
     /// Best-so-far genome, shape `(1, D)`.
-    pub best_genome: Option<Tensor<B, 2>>,
+    best_genome: Option<Tensor<B, 2>>,
     /// Best-so-far fitness (canonical maximise convention).
-    pub best_fitness: f32,
+    best_fitness: f32,
+}
+
+impl<B: Backend> CmsaEsState<B> {
+    /// Assembles a CMSA-ES state, checking the distribution parameters are
+    /// dimensionally consistent and normalizing `cov` to exact symmetry.
+    ///
+    /// The supplied `cov` is symmetrized in place via
+    /// [`crate::ops::linalg::symmetrize`] before construction. The in-loop
+    /// covariance blend in [`tell`](CmsaEs::tell) already preserves bit-exact
+    /// symmetry — IEEE-754 multiplication is commutative and the two triangle
+    /// entries `C[i,j]` / `C[j,i]` accumulate the identical rank-μ terms in the
+    /// identical order — so caller-supplied construction is the *only* asymmetry
+    /// entry point. Normalizing it here mirrors `pycma` practice and the
+    /// ADR 0034 sanitize-at-chokepoint convention.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if `mean` is empty, if `cov` is not `D × D`
+    /// row-major (`D = mean.len()`), or if `sigma` is not strictly positive and
+    /// finite. No length constraint is imposed on `offspring_sigmas`: it may be
+    /// empty (the pre-`ask` state) or any length — [`tell`](CmsaEs::tell) falls
+    /// back to `sigma` for any missing entry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        mean: Vec<f32>,
+        mut cov: Vec<f32>,
+        sigma: f32,
+        offspring_sigmas: Vec<f32>,
+        generation: usize,
+        best_genome: Option<Tensor<B, 2>>,
+        best_fitness: f32,
+    ) -> Result<Self, ConfigError> {
+        let d = mean.len();
+        config::nonzero("CmsaEsState", "mean", d)?;
+        if cov.len() != d * d {
+            return Err(ConfigError {
+                config: "CmsaEsState",
+                field: "cov",
+                kind: ConstraintKind::Custom("covariance must be a row-major D × D matrix"),
+            });
+        }
+        config::positive("CmsaEsState", "sigma", f64::from(sigma))?;
+        symmetrize(&mut cov, d);
+        Ok(Self {
+            mean,
+            cov,
+            sigma,
+            offspring_sigmas,
+            generation,
+            best_genome,
+            best_fitness,
+        })
+    }
+
+    /// Distribution mean `m`, length `D`.
+    #[must_use]
+    pub fn mean(&self) -> &[f32] {
+        &self.mean
+    }
+
+    /// Covariance matrix `C`, row-major `D × D`.
+    #[must_use]
+    pub fn cov(&self) -> &[f32] {
+        &self.cov
+    }
+
+    /// Global step size `σ̄`.
+    #[must_use]
+    pub fn sigma(&self) -> f32 {
+        self.sigma
+    }
+
+    /// Per-offspring step sizes `σᵢ`, carried `ask → tell` (empty before the
+    /// first `ask`).
+    #[must_use]
+    pub fn offspring_sigmas(&self) -> &[f32] {
+        &self.offspring_sigmas
+    }
+
+    /// Completed-generation counter.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Best-so-far genome (shape `(1, D)`), or `None` before the first `tell`.
+    #[must_use]
+    pub fn best_genome(&self) -> Option<&Tensor<B, 2>> {
+        self.best_genome.as_ref()
+    }
+
+    /// Best-so-far (canonical, maximise) fitness.
+    #[must_use]
+    pub fn best_fitness(&self) -> f32 {
+        self.best_fitness
+    }
 }
 
 /// Covariance Matrix Self-Adaptation Evolution Strategy.
@@ -286,7 +387,15 @@ where
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
         let mut sigmas: Vec<f32> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
-            let sigma_i: f32 = state.sigma * (params.tau * normal.sample(&mut stream)).exp();
+            // Floor σᵢ at the smallest positive f32. `exp` of a large negative
+            // draw underflows to exactly `0.0` in f32; `tell` would then compute
+            // sᵢ = (xᵢ − m)/σᵢ = 0/0 = NaN, which permanently poisons the
+            // covariance blend. This floor matches the CSA σ floor in
+            // cma_es.rs. A floored σᵢ yields a *benign zero step* — the
+            // offspring collapses to ≈m and contributes ~0 to the rank-μ blend —
+            // not a corrected tiny step.
+            let sigma_i: f32 = (state.sigma * (params.tau * normal.sample(&mut stream)).exp())
+                .max(f32::MIN_POSITIVE);
             let z: Vec<f32> = (0..d).map(|_| normal.sample(&mut stream)).collect();
             let s: Vec<f32> = matvec(&factor, &z, d);
             for (mean_i, s_i) in state.mean.iter().zip(s.iter()) {
@@ -431,6 +540,164 @@ fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitne
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    #[test]
+    fn sigma_i_underflow_does_not_poison_covariance() {
+        // Regression for the σᵢ underflow. With a minuscule σ̄, a negative
+        // log-normal draw makes the raw σᵢ = σ̄·exp(τ·N) underflow to exactly
+        // 0.0. Without the `.max(f32::MIN_POSITIVE)` floor in `ask`, `tell` then
+        // forms sᵢ = (xᵢ − m)/σᵢ = 0/0 = NaN and poisons the rank-μ covariance
+        // blend — reverting the floor turns this test red (NaN in `cov()`,
+        // confirmed manually). The floor clamps those raw zeros up to
+        // `f32::MIN_POSITIVE`, a benign zero step (the offspring collapses to
+        // ≈m and contributes ~0 to the blend), so cov/mean/σ̄ all stay finite.
+        //
+        // We seed σ̄ at the smallest positive **subnormal** f32 rather than
+        // `f32::MIN_POSITIVE` (the smallest *normal*): from the smallest normal,
+        // an exact-0.0 underflow needs N < −33 (a ~33σ event that never fires),
+        // whereas from the smallest subnormal any N < ≈−1.4 flushes to exactly
+        // 0.0 — the realistic hazard. Because σ̄ is subnormal, *every* raw σᵢ
+        // sits below `f32::MIN_POSITIVE`, so with the floor active every entry
+        // reads back as exactly `f32::MIN_POSITIVE`; the precondition asserts the
+        // floor engaged on at least one offspring (it is the observable proxy for
+        // "an underflow would have occurred").
+        let strategy = CmsaEs::<Flex>::new();
+        let params = CmsaEsConfig::with_pop_size(8, 2);
+        let device = Default::default();
+        // Seed 1's `SeedPurpose::CmaSampling` stream draws at least one N < ≈−1.4
+        // across the 8 offspring, the draw whose raw σᵢ underflows to 0.0.
+        let mut rng = StdRng::seed_from_u64(1);
+
+        let state: CmsaEsState<Flex> = CmsaEsState::try_new(
+            vec![0.0, 0.0],
+            vec![1.0, 0.0, 0.0, 1.0],
+            f32::from_bits(1),
+            Vec::new(),
+            0,
+            None,
+            f32::NEG_INFINITY,
+        )
+        .expect("valid state");
+
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        assert!(
+            asked.offspring_sigmas().contains(&f32::MIN_POSITIVE),
+            "test precondition: the σᵢ floor must engage on at least one offspring"
+        );
+        // Any finite fitness — the ranking is irrelevant to the NaN hazard.
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], [8]),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        assert!(
+            told.cov().iter().all(|c| c.is_finite()),
+            "covariance has non-finite entries: {:?}",
+            told.cov()
+        );
+        assert!(
+            told.mean().iter().all(|m| m.is_finite()),
+            "mean has non-finite entries: {:?}",
+            told.mean()
+        );
+        assert!(
+            told.sigma().is_finite() && told.sigma() > 0.0,
+            "sigma is not finite and positive: {}",
+            told.sigma()
+        );
+    }
+
+    #[test]
+    fn try_new_rejects_empty_mean() {
+        let err = CmsaEsState::<Flex>::try_new(
+            Vec::new(),
+            Vec::new(),
+            0.5,
+            Vec::new(),
+            0,
+            None,
+            f32::MIN,
+        )
+        .unwrap_err();
+        assert_eq!(err.field, "mean");
+    }
+
+    #[test]
+    fn try_new_rejects_wrong_cov_length() {
+        // D = 2 wants a 4-entry cov; supply 3.
+        let err = CmsaEsState::<Flex>::try_new(
+            vec![0.0, 0.0],
+            vec![1.0, 0.0, 0.0],
+            0.5,
+            Vec::new(),
+            0,
+            None,
+            f32::MIN,
+        )
+        .unwrap_err();
+        assert_eq!(err.field, "cov");
+    }
+
+    #[test]
+    fn try_new_rejects_non_positive_sigma() {
+        let err = CmsaEsState::<Flex>::try_new(
+            vec![0.0, 0.0],
+            vec![1.0, 0.0, 0.0, 1.0],
+            0.0,
+            Vec::new(),
+            0,
+            None,
+            f32::MIN,
+        )
+        .unwrap_err();
+        assert_eq!(err.field, "sigma");
+    }
+
+    #[test]
+    fn try_new_symmetrizes_covariance() {
+        // Asymmetric off-diagonals 0.4 / 0.2 average to 0.3 on both sides.
+        let state = CmsaEsState::<Flex>::try_new(
+            vec![0.0, 0.0],
+            vec![1.0, 0.4, 0.2, 1.0],
+            0.5,
+            Vec::new(),
+            0,
+            None,
+            f32::MIN,
+        )
+        .expect("valid state");
+        approx::assert_relative_eq!(state.cov()[1], 0.3, epsilon = 1e-6);
+        approx::assert_relative_eq!(state.cov()[2], 0.3, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn accessors_round_trip_constructor_values() {
+        let genome = Tensor::<Flex, 2>::from_data(
+            TensorData::new(vec![1.0f32, 2.0], [1, 2]),
+            &Default::default(),
+        );
+        let state = CmsaEsState::<Flex>::try_new(
+            vec![1.0, -2.0],
+            vec![2.0, 0.0, 0.0, 3.0],
+            0.75,
+            vec![0.1, 0.2, 0.3],
+            7,
+            Some(genome),
+            42.0,
+        )
+        .expect("valid state");
+        assert_eq!(state.mean(), &[1.0, -2.0]);
+        assert_eq!(state.cov(), &[2.0, 0.0, 0.0, 3.0]);
+        approx::assert_relative_eq!(state.sigma(), 0.75, epsilon = 1e-6);
+        assert_eq!(state.offspring_sigmas(), &[0.1, 0.2, 0.3]);
+        assert_eq!(state.generation(), 7);
+        assert!(state.best_genome().is_some());
+        approx::assert_relative_eq!(state.best_fitness(), 42.0, epsilon = 1e-6);
+    }
 
     #[test]
     fn default_config_validates() {
