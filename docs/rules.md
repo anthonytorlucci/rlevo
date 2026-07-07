@@ -429,7 +429,7 @@ generation-to-generation) diversity the caller relies on.
   1. The lint is a false positive in that specific context, **and**
   2. A comment directly above the attribute explains why.
 - Global `#![allow(...)]` in any crate is forbidden.
-- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue.
+- `#[allow(dead_code)]` is only permitted on stubs explicitly planned for future implementation; add a `// TODO:` comment with the tracking issue (see §12 — the issue must exist *before* the stub lands).
 - `unsafe` blocks require a `// SAFETY:` comment explaining the invariant maintained.
 
 ---
@@ -471,7 +471,36 @@ If an example imports from `rlevo-benchmarks` for any reason — harness invocat
 
 ---
 
-## 12. Vault and Session Protocol
+## 12. Deferred Work Gets a GitHub Issue
+
+Every deferral is filed as a GitHub issue **at the moment it is decided**, before
+the change that defers it lands. This applies equally to human contributors and
+coding agents. A deferral is any of: an implementation postponed, a known gap or
+bug left unfixed, a follow-up split off a PR, a TODO/FIXME/stub, a QA-flagged
+non-blocking finding, or an option consciously not taken.
+
+- **File first, then defer.** Open the issue with `gh issue create` (or the web
+  UI) *before* merging the code that leaves the gap. "I'll file it later" is how
+  follow-ups vanish.
+- **Point the code at the issue.** Any `// TODO:` / `// FIXME:` / `#[allow(dead_code)]`
+  stub must name the issue number (`// TODO(#231): …`) so the deferral is
+  discoverable from the source, not only from the tracker. This is the same rule
+  §9 states for `dead_code` stubs.
+- **A vault note, session log, or code comment is not a substitute for an issue.**
+  Working notes in `docs/.private/` and session logs live only on one maintainer's
+  machine (the vault is gitignored) — a follow-up recorded solely there is lost to
+  every other contributor and to CI. The issue tracker is the single shared,
+  durable backlog. Record context in the vault *in addition to*, never *instead
+  of*, the issue.
+- **Prefer fixing over filing when the fix is in scope and cheap.** An issue is
+  for work genuinely deferred, not an excuse to punt a one-line fix that belongs
+  in the current change. If it can be resolved now, resolve it now; file an issue
+  only for what actually carries over.
+- **Give the issue enough to act on later:** what is deferred, why it was deferred
+  now, the affected files/sites, and the acceptance check that closes it. Label
+  it (`enhancement`, `bug`, `chore`, …) and link the originating PR or ADR.
+
+## 13. Vault and Session Protocol
 
 - Read `rules.md` (this file) before making any implementation decision.
 - Read `roadmap.md` when planning new work to ensure alignment with current milestones.
