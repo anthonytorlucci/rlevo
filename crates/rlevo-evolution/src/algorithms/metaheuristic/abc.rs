@@ -399,7 +399,7 @@ where
         mut state: AbcState<B>,
         rng: &mut dyn Rng,
     ) -> (AbcState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;

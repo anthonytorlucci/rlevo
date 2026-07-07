@@ -276,8 +276,8 @@ mod tests {
     }
 
     fn approx_eq(a: &Tensor<TestBackend, 1>, b: &Tensor<TestBackend, 1>) {
-        let av = a.to_data().into_vec::<f32>().unwrap();
-        let bv = b.to_data().into_vec::<f32>().unwrap();
+        let av = a.to_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let bv = b.to_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         assert_eq!(av.len(), bv.len(), "length mismatch");
         for (x, y) in av.iter().zip(bv.iter()) {
             approx::assert_relative_eq!(x, y, epsilon = 1e-6);

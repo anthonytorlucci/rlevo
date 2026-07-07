@@ -187,7 +187,7 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                 link_corr: vec![0.0; d],
             };
         }
-        let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
+        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
         // k is a selected-population count, far below f32's 2^24 exact-integer
         // limit; the cast is lossless in practice.
         #[allow(clippy::cast_precision_loss)]
@@ -532,7 +532,7 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().unwrap();
+        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
         // Pearson correlation of sampled columns 0 and 1.
         let mut s0 = 0.0_f64;
         let mut s1 = 0.0_f64;
@@ -606,7 +606,7 @@ mod tests {
             &mut rng,
             &device,
         );
-        for v in samples.into_data().into_vec::<f32>().unwrap() {
+        for v in samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built") {
             assert!(v.is_finite(), "degenerate link must yield finite samples, got {v}");
         }
     }

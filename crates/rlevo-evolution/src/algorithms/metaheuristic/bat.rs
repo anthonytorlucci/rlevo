@@ -437,7 +437,7 @@ where
         mut state: BatState<B>,
         _rng: &mut dyn Rng,
     ) -> (BatState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;

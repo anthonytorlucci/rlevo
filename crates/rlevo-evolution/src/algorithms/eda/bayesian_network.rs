@@ -376,7 +376,7 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             params.max_parents < usize::BITS as usize,
             "max_parents must be below usize::BITS"
         );
-        let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
+        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
         if n == 0 {
             // Degenerate input: nothing to learn, return the prior-shaped
             // state (params-shaped, since a 0×0 tensor carries no width).
@@ -661,7 +661,7 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().unwrap();
+        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
         for v in data {
             assert!(v.is_finite(), "sampled gene must be finite, got {v}");
             // Exact float compare is correct: sample() writes literal 0.0/1.0.
@@ -834,7 +834,7 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().unwrap();
+        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
         let mut agree = 0usize;
         for i in 0..n {
             if (data[i * 2] - data[i * 2 + 1]).abs() < 0.5 {

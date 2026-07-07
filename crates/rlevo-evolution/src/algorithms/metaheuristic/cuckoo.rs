@@ -346,7 +346,7 @@ where
         mut state: CuckooState<B>,
         rng: &mut dyn Rng,
     ) -> (CuckooState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = population.device();
         let pop = params.pop_size;
         let d = params.genome_dim;

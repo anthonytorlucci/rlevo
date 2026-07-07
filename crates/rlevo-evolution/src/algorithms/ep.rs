@@ -338,7 +338,7 @@ where
         mut state: EpState<B>,
         rng: &mut dyn Rng,
     ) -> (EpState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
         // First `tell`: evaluated the initial parents.
@@ -539,7 +539,7 @@ mod tests {
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..60 {
             let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let sigmas: Vec<f32> = next.sigmas.clone().into_data().into_vec::<f32>().unwrap();
+            let sigmas: Vec<f32> = next.sigmas.clone().into_data().into_vec::<f32>().expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
                     s.is_finite() && s >= params.sigma_min && s <= params.sigma_max,

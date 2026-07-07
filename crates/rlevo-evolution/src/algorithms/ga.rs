@@ -364,7 +364,7 @@ where
         mut state: GaState<B>,
         _rng: &mut dyn Rng,
     ) -> (GaState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: cache fitness for the seed population.
         if state.fitness.is_empty() {

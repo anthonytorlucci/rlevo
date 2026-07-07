@@ -445,8 +445,10 @@ fn assemble<B: Backend>(
     let n = dims[0];
     let sub_w = dims[1];
     debug_assert_eq!(sub_w, my_dims.len(), "sub-population width must match my_dims");
-    let sub_flat = sub_pop.clone().into_data().into_vec::<f32>().unwrap_or_default();
-    let rep_flat = rep_other.clone().into_data().into_vec::<f32>().unwrap_or_default();
+    // Host-side scatter; a device→host transfer failure is a genuine fault, so
+    // surface it honestly rather than silently assembling from empty vecs.
+    let sub_flat = sub_pop.clone().into_data().into_vec::<f32>().expect("sub-population genome tensor must be readable as f32");
+    let rep_flat = rep_other.clone().into_data().into_vec::<f32>().expect("representative genome tensor must be readable as f32");
     debug_assert_eq!(rep_flat.len(), other_dims.len(), "representative width must match other_dims");
 
     let mut full = vec![0.0_f32; n * total_dims];
@@ -488,7 +490,7 @@ mod tests {
         let pop_a = make(&[10.0, 20.0, 11.0, 21.0], 2, 2); // rows: (10,20),(11,21)
         let rep_b = make(&[5.0, 7.0], 1, 2); // global dims 1,3 -> 5,7
         let full = assemble(&pop_a, &[0, 2], &rep_b, &[1, 3], 4, &device);
-        let v = full.into_data().into_vec::<f32>().unwrap();
+        let v = full.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
         // row0: dim0=10, dim1=5, dim2=20, dim3=7
         assert_eq!(&v[0..4], &[10.0, 5.0, 20.0, 7.0]);
         // row1: dim0=11, dim1=5, dim2=21, dim3=7
@@ -503,11 +505,11 @@ mod tests {
         let mut archive = None;
         // No prev best -> row 0.
         let r0 = select_representative(&pop, None, &mut archive, RepresentativePolicy::Best, &mut rng, 0, &device);
-        assert_eq!(r0.into_data().into_vec::<f32>().unwrap(), vec![1.0, 2.0]);
+        assert_eq!(r0.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built"), vec![1.0, 2.0]);
         // With prev best -> that genome.
         let best = make(&[9.0, 9.0], 1, 2);
         let r1 = select_representative(&pop, Some(&best), &mut archive, RepresentativePolicy::Best, &mut rng, 1, &device);
-        assert_eq!(r1.into_data().into_vec::<f32>().unwrap(), vec![9.0, 9.0]);
+        assert_eq!(r1.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built"), vec![9.0, 9.0]);
     }
 
     #[test]

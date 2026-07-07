@@ -324,7 +324,7 @@ where
         mut state: GwoState<B>,
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         state.fitness.clone_from(&fitness_host);
         state.pack.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);

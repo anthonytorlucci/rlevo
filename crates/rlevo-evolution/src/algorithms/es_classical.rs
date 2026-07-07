@@ -493,7 +493,7 @@ where
         mut state: EsState<B>,
         _rng: &mut dyn Rng,
     ) -> (EsState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: offspring here is actually the
         // initial parent population evaluated.
@@ -547,7 +547,7 @@ where
                     #[allow(clippy::cast_precision_loss)]
                     let rate = state.successes_in_window as f32 / state.window_len as f32;
                     let current_sigma =
-                        state.sigmas.clone().into_data().into_vec::<f32>().unwrap()[0];
+                        state.sigmas.clone().into_data().into_vec::<f32>().expect("sigma tensor must be readable as f32")[0];
                     // The 1/5-rule is also an unbounded multiplicative process;
                     // clamp to the same construction-validated window so σ can
                     // neither underflow to 0 nor overflow to +∞ over a long run.
@@ -767,7 +767,7 @@ mod tests {
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..60 {
             let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let sigmas: Vec<f32> = next.sigmas().clone().into_data().into_vec::<f32>().unwrap();
+            let sigmas: Vec<f32> = next.sigmas().clone().into_data().into_vec::<f32>().expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
                     s.is_finite() && s >= params.sigma_min && s <= params.sigma_max,

@@ -83,6 +83,12 @@ impl<B: Backend> HallOfFame<B> {
     /// appended to `archives[p]` (canonical maximise: higher is better). If that
     /// pushes the archive past `capacity`, the single lowest-fitness (worst)
     /// archived member is removed. Empty populations are skipped.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a population's fitness tensor cannot be read back to host as
+    /// `f32` (a device→host transfer failure). A legitimately empty population
+    /// is a valid non-error host-read and is skipped, not a panic.
     pub fn update(&mut self, populations: &[Tensor<B, 2>], fitnesses: &[Tensor<B, 1>]) {
         let n = self.archives.len().min(populations.len()).min(fitnesses.len());
         for p in 0..n {
@@ -90,7 +96,7 @@ impl<B: Backend> HallOfFame<B> {
                 .clone()
                 .into_data()
                 .into_vec::<f32>()
-                .unwrap_or_default();
+                .expect("fitness tensor must be readable as f32");
             if fit_host.is_empty() {
                 continue;
             }
@@ -379,7 +385,7 @@ mod tests {
         // First eval seeds the archive; second would blend if w > 0.
         let _ = wrapper.evaluate_coupled(&[a.clone(), b.clone()]);
         let out = wrapper.evaluate_coupled(&[a, b]);
-        let va = out[0].clone().into_data().into_vec::<f32>().unwrap();
+        let va = out[0].clone().into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
         // Pure row sums regardless of the (non-empty) archive.
         assert_eq!(va, vec![2.0, 4.0]);
     }

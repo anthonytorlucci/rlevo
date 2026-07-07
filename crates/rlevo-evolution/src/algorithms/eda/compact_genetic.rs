@@ -138,8 +138,8 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         };
 
         let [k, d] = population.dims();
-        let rows = population.into_data().into_vec::<f32>().unwrap_or_default();
-        let fit_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
+        let fit_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         // Winner = argmax (best fitness), loser = argmin (worst); ties →
         // lowest index. Canonical maximise: higher is better.
@@ -370,7 +370,7 @@ mod tests {
             &mut rng,
             &device,
         );
-        for v in samples.into_data().into_vec::<f32>().unwrap() {
+        for v in samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built") {
             // Exact float compare is correct: sample() writes literal 0.0/1.0.
             #[allow(clippy::float_cmp)]
             let is_binary = v == 0.0 || v == 1.0;

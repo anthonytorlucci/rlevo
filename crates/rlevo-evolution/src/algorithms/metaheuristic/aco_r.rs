@@ -251,8 +251,8 @@ where
         let mut sigma_rows = vec![0f32; m * d];
 
         // Gather host-side slices for indexing.
-        let archive_host = state.archive.clone().into_data().into_vec::<f32>().unwrap();
-        let sigma_host = sigma.into_data().into_vec::<f32>().unwrap();
+        let archive_host = state.archive.clone().into_data().into_vec::<f32>().expect("archive tensor must be readable as f32");
+        let sigma_host = sigma.into_data().into_vec::<f32>().expect("sigma tensor must be readable as f32");
         let cdf: Vec<f32> = {
             let mut acc = 0.0;
             let mut v = Vec::with_capacity(k);
@@ -316,7 +316,7 @@ where
         mut state: AcoRState<B>,
         _rng: &mut dyn Rng,
     ) -> (AcoRState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
         let device = population.device();
         let k = params.archive_size;
 

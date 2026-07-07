@@ -405,7 +405,7 @@ impl<B: Backend> NeatStrategy<B> {
 ///         pop.iter().map(|g| {
 ///             let net = builder.build(g, device);
 ///             let out = net.forward(self.inputs.clone());
-///             out.into_data().into_vec::<f32>().unwrap().iter().sum() // higher = better
+///             out.into_data().into_vec::<f32>().expect("output tensor must be readable as f32").iter().sum() // higher = better
 ///         }).collect()
 ///     }
 /// }
@@ -485,7 +485,7 @@ impl<B: Backend, E: BatchPhenotypeEvaluator<B>> GraphFitnessFn<B> for BatchGraph
             .evaluator
             .evaluate_population(population, self.obs.clone(), device);
         let [pop, batch, action] = out.dims();
-        let flat = out.into_data().into_vec::<f32>().unwrap();
+        let flat = out.into_data().into_vec::<f32>().expect("output tensor must be readable as f32");
         let slab = batch * action;
         (0..pop)
             .map(|p| (self.reducer)(&flat[p * slab..(p + 1) * slab]))

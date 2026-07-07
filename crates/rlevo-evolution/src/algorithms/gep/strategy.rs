@@ -164,7 +164,8 @@ fn tensor_to_rows<B: Backend>(pop: &Tensor<B, 2, Int>, genome_len: usize) -> Vec
         .clone()
         .into_data()
         .into_vec::<i32>()
-        .unwrap_or_default();
+        // Panics if the population tensor cannot be read as `i32` on the host.
+        .expect("genome tensor must be readable as i32");
     flat.chunks(genome_len)
         .map(|row| row.iter().map(|&v| Symbol::from_raw(v)).collect())
         .collect()
@@ -387,7 +388,7 @@ where
         mut state: GepState<B>,
         _rng: &mut dyn Rng,
     ) -> (GepState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().unwrap_or_default();
+        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
 
         update_best(&mut state, &population, &fitness_host);
         state.population = population;
@@ -611,7 +612,7 @@ mod tests {
             .evaluate_batch(&pop, &device)
             .into_data()
             .into_vec()
-            .unwrap();
+            .expect("fitness host-read of a tensor this test just built");
         assert!(
             scores.iter().all(|s| s.is_finite()),
             "all fitness values must be finite, got {scores:?}"

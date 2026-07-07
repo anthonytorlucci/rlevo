@@ -604,7 +604,9 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if [`reset`](Self::reset) has not been called first.
+    /// Panics if [`reset`](Self::reset) has not been called first. Also panics
+    /// if an observer is attached and the natural-fitness tensor cannot be read
+    /// back to host as `f32` (a device→host transfer failure).
     pub fn step(&mut self, _action: ()) -> BenchStep<()> {
         let state = self
             .state
@@ -626,7 +628,7 @@ where
                 .clone()
                 .into_data()
                 .into_vec::<f32>()
-                .unwrap_or_default()
+                .expect("fitness tensor must be readable as f32")
         });
         // Canonicalise into the engine's maximise-native space: a `Minimize`
         // objective is negated (one device op), a `Maximize` one passes through.
@@ -822,7 +824,7 @@ mod tests {
             mut state: State,
             _: &mut dyn Rng,
         ) -> (State, StrategyMetrics) {
-            let values = fitness.into_data().into_vec::<f32>().unwrap();
+            let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
             state.generation += 1;
             let metrics = StrategyMetrics::from_host_fitness(state.generation, &values, state.best);
             state.best = metrics.best_fitness_ever();
@@ -1020,7 +1022,7 @@ mod tests {
             _: &mut dyn Rng,
         ) -> (TrustingState, StrategyMetrics) {
             // Deliberately NOT sanitized here — the harness must have done it.
-            let values: Vec<f32> = fitness.into_data().into_vec::<f32>().unwrap();
+            let values: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
             state.received = values.clone();
             state.generation += 1;
             let metrics: StrategyMetrics =
