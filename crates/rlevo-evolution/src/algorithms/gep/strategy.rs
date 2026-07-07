@@ -339,23 +339,29 @@ where
                 break;
             }
             let (left, right) = pair.split_at_mut(1);
-            if xover_rng.random::<f32>() < params.crossover_1p_rate {
+            if xover_rng.random::<f32>() < params.crossover_1p_rate.get() {
                 one_point_crossover(&mut left[0], &mut right[0], &mut xover_rng);
             }
-            if xover_rng.random::<f32>() < params.crossover_2p_rate {
+            if xover_rng.random::<f32>() < params.crossover_2p_rate.get() {
                 two_point_crossover(&mut left[0], &mut right[0], &mut xover_rng);
             }
         }
 
         // Transposition + point mutation, per individual.
         for child in &mut offspring {
-            if trans_rng.random::<f32>() < params.is_transpose_rate {
+            if trans_rng.random::<f32>() < params.is_transpose_rate.get() {
                 is_transposition(child, head_len, &mut trans_rng);
             }
-            if trans_rng.random::<f32>() < params.ris_transpose_rate {
+            if trans_rng.random::<f32>() < params.ris_transpose_rate.get() {
                 ris_transposition(child, head_len, &self.alphabet, &mut trans_rng);
             }
-            point_mutation(child, head_len, &self.alphabet, params.mutation_rate, &mut mut_rng);
+            point_mutation(
+                child,
+                head_len,
+                &self.alphabet,
+                params.mutation_rate.get(),
+                &mut mut_rng,
+            );
         }
 
         // Elitism: copy the best-so-far genome into row 0 unchanged.
@@ -425,7 +431,15 @@ impl<F: FunctionSet> GepSymRegression<F> {
     ///
     /// # Panics
     ///
-    /// Panics if `inputs` and `targets` differ in length.
+    /// Panics if:
+    /// - `inputs` is empty — an empty dataset would make MSE `0.0 / 0.0 = NaN`
+    ///   fitness (`n_points == 0`), silently poisoning the population.
+    /// - `inputs` and `targets` differ in length.
+    /// - any input row does not have exactly `alphabet.n_vars` entries — a short
+    ///   row is otherwise silently zero-padded by
+    ///   [`ExpressionTree::eval`](super::ExpressionTree::eval)
+    ///   (`inputs.get(i).unwrap_or(0.0)`), so the regression would quietly fit
+    ///   the wrong target.
     #[must_use]
     pub fn new(
         alphabet: Alphabet<F>,
@@ -433,10 +447,19 @@ impl<F: FunctionSet> GepSymRegression<F> {
         inputs: Vec<Vec<f32>>,
         targets: Vec<f32>,
     ) -> Self {
+        assert!(
+            !inputs.is_empty(),
+            "GepSymRegression: dataset must be non-empty (empty inputs give NaN fitness)"
+        );
         assert_eq!(
             inputs.len(),
             targets.len(),
             "GepSymRegression: inputs and targets must have equal length"
+        );
+        let n_vars = alphabet.n_vars;
+        assert!(
+            inputs.iter().all(|row| row.len() == n_vars),
+            "GepSymRegression: every input row must have exactly n_vars = {n_vars} entries"
         );
         Self {
             alphabet,
@@ -548,6 +571,51 @@ mod tests {
         let targets: Vec<f32> = xs.iter().map(|&x| x.sin() * x).collect();
         let best = run_gep(1, inputs, targets, 7, 500);
         assert!(best <= 0.01, "expected MSE <= 0.01, got {best}");
+    }
+
+    /// An empty dataset is rejected at construction (would give NaN fitness).
+    #[test]
+    #[should_panic(expected = "dataset must be non-empty")]
+    fn test_gep_sym_regression_rejects_empty_dataset() {
+        let _ = GepSymRegression::new(alphabet(1), 15, Vec::new(), Vec::new());
+    }
+
+    /// A row whose width differs from `n_vars` is rejected (would be silently
+    /// zero-padded and fit the wrong target).
+    #[test]
+    #[should_panic(expected = "every input row must have exactly n_vars")]
+    fn test_gep_sym_regression_rejects_mismatched_row_width() {
+        // n_vars = 2 but the single row has only one entry.
+        let _ = GepSymRegression::new(alphabet(2), 15, vec![vec![1.0]], vec![0.0]);
+    }
+
+    /// A well-formed tiny dataset yields finite fitness for the zero genome.
+    #[test]
+    fn test_gep_sym_regression_valid_dataset_is_finite() {
+        let device = Default::default();
+        let cfg = GepConfig::new(7, 2, 1, 4).unwrap();
+        let genome_len = cfg.genome_len();
+        let mut fitness =
+            GepSymRegression::new(alphabet(1), genome_len, vec![vec![0.5], vec![-0.5]], vec![
+                0.25, 0.25,
+            ]);
+        // A valid chromosome: every locus is variable `x` (id 8), which decodes
+        // to the single-node tree `x`. An all-zeros genome would be all `add`
+        // with no terminal tail — a malformed chromosome that trips the separate
+        // decode out-of-bounds path (decode.rs §1.1), unrelated to this test.
+        let pop = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(vec![8i32; 4 * genome_len], [4, genome_len]),
+            &device,
+        );
+        let scores: Vec<f32> = fitness
+            .evaluate_batch(&pop, &device)
+            .into_data()
+            .into_vec()
+            .unwrap();
+        assert!(
+            scores.iter().all(|s| s.is_finite()),
+            "all fitness values must be finite, got {scores:?}"
+        );
     }
 
     /// Converges on `f(x, y) = x² + y²` over a 5×5 grid in [-2, 2]² (`n_vars` = 2).
