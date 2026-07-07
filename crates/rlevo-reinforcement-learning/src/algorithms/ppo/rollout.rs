@@ -167,7 +167,12 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     }
 
     /// Builds a 1-D float tensor indexed by `indices`, on `device`.
-    pub fn gather_f32(&self, data: &[f32], indices: &[usize], device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    pub fn gather_f32(
+        &self,
+        data: &[f32],
+        indices: &[usize],
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
         let n = gathered.len();
         Tensor::<B, 1>::from_data(TensorData::new(gathered, vec![n]), device)

@@ -377,7 +377,13 @@ impl Validate for NasBuilderConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "NasBuilderConfig";
         config::at_least(C, "pop_size", self.pop_size, 1)?;
-        config::in_range(C, "arch_mutation_rate", 0.0, 1.0, f64::from(self.arch_mutation_rate))?;
+        config::in_range(
+            C,
+            "arch_mutation_rate",
+            0.0,
+            1.0,
+            f64::from(self.arch_mutation_rate),
+        )?;
         config::in_range(
             C,
             "weight_mutation_std",
@@ -385,7 +391,13 @@ impl Validate for NasBuilderConfig {
             f64::INFINITY,
             f64::from(self.weight_mutation_std),
         )?;
-        config::in_range(C, "weight_init_std", 0.0, f64::INFINITY, f64::from(self.weight_init_std))?;
+        config::in_range(
+            C,
+            "weight_init_std",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.weight_init_std),
+        )?;
         config::at_least(C, "tournament_size", self.tournament_size, 1)?;
         if self.elite_count > self.pop_size {
             return Err(ConfigError {
@@ -435,7 +447,8 @@ impl<B: Backend> ArchNasBuilder<B> {
         M: Module<B> + Sync + 'static,
         F: Fn(&M) -> f32 + Send + Sync + 'static,
     {
-        self.evaluators.push(VariantEvaluator::new(template, scorer));
+        self.evaluators
+            .push(VariantEvaluator::new(template, scorer));
         self
     }
 
@@ -451,8 +464,11 @@ impl<B: Backend> ArchNasBuilder<B> {
             !self.evaluators.is_empty(),
             "ArchNasBuilder requires at least one registered variant"
         );
-        let per_variant_params: Vec<usize> =
-            self.evaluators.iter().map(VariantEvaluator::num_params).collect();
+        let per_variant_params: Vec<usize> = self
+            .evaluators
+            .iter()
+            .map(VariantEvaluator::num_params)
+            .collect();
         let max_param_count = per_variant_params
             .iter()
             .copied()
@@ -570,7 +586,10 @@ impl<B: Backend> ArchNasStrategy<B> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> NasState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid NasParams reached init: {params:?}");
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid NasParams reached init: {params:?}"
+        );
         let pop = params.pop_size;
         let max = params.max_param_count;
 
@@ -765,14 +784,22 @@ impl<B: Backend> ArchNasStrategy<B> {
         mut state: NasState<B>,
         _rng: &mut dyn Rng,
     ) -> NasState<B> {
-        let raw = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let raw = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         // Driver chokepoint (ADR 0034): sanitize before update_best/store so a
         // NaN/±∞ can neither become the champion nor pollute the next ask.
         let fitness_host: Vec<f32> = raw
             .into_iter()
             .map(crate::fitness::sanitize_fitness)
             .collect();
-        update_best(&mut state, &population, &fitness_host, params.max_param_count);
+        update_best(
+            &mut state,
+            &population,
+            &fitness_host,
+            params.max_param_count,
+        );
         state.population = population;
         state.fitness = fitness_host;
         state.generation += 1;
@@ -786,9 +813,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     #[must_use]
     pub fn best(&self, state: &NasState<B>) -> Option<(usize, Tensor<B, 1>, f32)> {
         match (state.best_arch_id, state.best_weights.as_ref()) {
-            (Some(arch_id), Some(weights)) => {
-                Some((arch_id, weights.clone(), state.best_fitness))
-            }
+            (Some(arch_id), Some(weights)) => Some((arch_id, weights.clone(), state.best_fitness)),
             _ => None,
         }
     }
@@ -968,14 +993,17 @@ mod tests {
         // Scorer reports the number of params it sees, proving the active
         // prefix (not the padded width) reaches the concrete module.
         let mut builder = ArchNasBuilder::<TestBackend>::new();
-        builder.add_variant(ShallowMlp::<TestBackend>::new(4, &device), |m: &ShallowMlp<TestBackend>| {
-            #[allow(clippy::cast_precision_loss)]
-            let n = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()))
-                .num_params() as f32;
-            // forward to make the module non-dead; result unused beyond shape.
-            let _ = &m.l1;
-            n
-        });
+        builder.add_variant(
+            ShallowMlp::<TestBackend>::new(4, &device),
+            |m: &ShallowMlp<TestBackend>| {
+                #[allow(clippy::cast_precision_loss)]
+                let n = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()))
+                    .num_params() as f32;
+                // forward to make the module non-dead; result unused beyond shape.
+                let _ = &m.l1;
+                n
+            },
+        );
         let (params, fitness) = builder.build(NasBuilderConfig {
             pop_size: 1,
             arch_mutation_rate: 0.0,
@@ -986,14 +1014,21 @@ mod tests {
         });
         // Build a one-row genome with arch 0 and 17 active params, padded to 17.
         let weights = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![0.0f32; params.max_param_count], [1, params.max_param_count]),
+            TensorData::new(
+                vec![0.0f32; params.max_param_count],
+                [1, params.max_param_count],
+            ),
             &device,
         );
         let genome = NasGenome {
             arch_ids: vec![0],
             weights,
         };
-        let fit = fitness.evaluate(&genome, &device).into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let fit = fitness
+            .evaluate(&genome, &device)
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         approx::assert_relative_eq!(fit[0], 17.0, epsilon = 1e-6);
     }
 
@@ -1025,7 +1060,12 @@ mod tests {
             .into_vec::<f32>()
             .expect("population host-read of a tensor this test just built");
         let max = params.max_param_count;
-        let shallow_row = state.population.arch_ids.iter().position(|&a| a == 0).unwrap();
+        let shallow_row = state
+            .population
+            .arch_ids
+            .iter()
+            .position(|&a| a == 0)
+            .unwrap();
         for &v in &rows[shallow_row * max + 17..shallow_row * max + max] {
             approx::assert_relative_eq!(v, 0.0, epsilon = 1e-6);
         }
@@ -1041,12 +1081,22 @@ mod tests {
         let sq = |m: &ShallowMlp<TestBackend>| {
             let r = ModuleReshaper::new(ShallowMlp::<TestBackend>::new(4, &Default::default()));
             let flat = r.flatten(m, &Default::default());
-            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built")[0]
+            flat.clone()
+                .mul(flat)
+                .sum()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("output host-read of a tensor this test just built")[0]
         };
         let sq_deep = |m: &DeepMlp<TestBackend>| {
             let r = ModuleReshaper::new(DeepMlp::<TestBackend>::new(&Default::default()));
             let flat = r.flatten(m, &Default::default());
-            flat.clone().mul(flat).sum().into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built")[0]
+            flat.clone()
+                .mul(flat)
+                .sum()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("output host-read of a tensor this test just built")[0]
         };
         builder
             .add_variant(ShallowMlp::<TestBackend>::new(4, &device), sq)
@@ -1129,8 +1179,14 @@ mod tests {
         // The champion is the sanitized +∞ = f32::MAX (finite), at row 1 — not
         // the NaN row.
         let (best_arch, _weights, best_f) = strat.best(&state).expect("best exists after tell");
-        assert!(best_f.is_finite(), "champion fitness is finite (never NaN/±∞); got {best_f}");
+        assert!(
+            best_f.is_finite(),
+            "champion fitness is finite (never NaN/±∞); got {best_f}"
+        );
         approx::assert_relative_eq!(best_f, f32::MAX);
-        assert_eq!(best_arch, champion_arch, "champion is the +∞ row, never the NaN row");
+        assert_eq!(
+            best_arch, champion_arch,
+            "champion is the +∞ row, never the NaN row"
+        );
     }
 }

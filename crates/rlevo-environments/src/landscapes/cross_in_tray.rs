@@ -85,7 +85,11 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        assert_relative_eq!(CrossInTray::new().evaluate(X_OPT, X_OPT), F_OPT, epsilon = 1e-4);
+        assert_relative_eq!(
+            CrossInTray::new().evaluate(X_OPT, X_OPT),
+            F_OPT,
+            epsilon = 1e-4
+        );
     }
 
     #[test]
@@ -120,7 +124,10 @@ mod tests {
     fn no_overflow_at_domain_corner() {
         // The inner exp reaches ≈ e^93 at the corner but stays finite after compression.
         let v = CrossInTray::new().evaluate(15.0, 15.0);
-        assert!(v.is_finite(), "value must be finite at the domain corner, got {v}");
+        assert!(
+            v.is_finite(),
+            "value must be finite at the domain corner, got {v}"
+        );
     }
 
     #[test]

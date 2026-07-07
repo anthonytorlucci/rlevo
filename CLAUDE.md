@@ -80,6 +80,17 @@ cargo test -- --nocapture
 cargo run -p rlevo-core --example grid_agent
 ```
 
+### Formatting
+```bash
+# Format the whole workspace (config: rustfmt.toml, stable-only)
+cargo fmt --all
+
+# Check formatting the way CI does — fails on any drift (fmt.yml gate)
+cargo fmt --all --check
+```
+Formatting is enforced in CI. The toolchain is pinned in `rust-toolchain.toml`
+so local and CI rustfmt agree; run `cargo fmt --all` before pushing.
+
 ### Linting
 ```bash
 # Check for clippy warnings (workspace has extensive lints configured)

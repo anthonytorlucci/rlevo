@@ -78,7 +78,13 @@ impl Validate for PpgConfig {
         self.ppo.validate()?;
         config::nonzero(C, "n_iteration", self.n_iteration)?;
         config::nonzero(C, "e_aux", self.e_aux)?;
-        config::in_range(C, "beta_clone", 0.0, f64::INFINITY, f64::from(self.beta_clone))?;
+        config::in_range(
+            C,
+            "beta_clone",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.beta_clone),
+        )?;
         config::nonzero(C, "aux_batch_size", self.aux_batch_size)?;
         Ok(())
     }

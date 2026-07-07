@@ -9,11 +9,11 @@
 //! buffer.
 
 use crate::experience::{ExperienceTuple, History};
-use rlevo_core::base::{stack_to_tensor, Action, Observation, Reward, TensorConvertible};
-use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
-use rand::prelude::IteratorRandom;
+use burn::tensor::backend::Backend;
 use rand::RngExt;
+use rand::prelude::IteratorRandom;
+use rlevo_core::base::{Action, Observation, Reward, TensorConvertible, stack_to_tensor};
 use std::collections::VecDeque;
 
 /// Errors that can occur during replay buffer operations.
@@ -228,13 +228,9 @@ where
         if self.buffer.len() >= self.capacity {
             self.priorities.pop_front();
         }
-        self.buffer.add(observation, action, reward, next_observation, is_done);
-        let p = priority.unwrap_or_else(|| {
-            self.priorities
-                .iter()
-                .copied()
-                .fold(1.0_f32, f32::max)
-        });
+        self.buffer
+            .add(observation, action, reward, next_observation, is_done);
+        let p = priority.unwrap_or_else(|| self.priorities.iter().copied().fold(1.0_f32, f32::max));
         self.priorities.push_back(p);
     }
 
@@ -390,8 +386,7 @@ where
         // `BAD = AD + 1`; it owns the `BR == R + 1` assertion. Rewards must stay
         // rank-1 `[batch]`, so they bypass the helper (which would produce
         // `[batch, 1]`) and are staged directly through `write_host_row`.
-        let observations: Tensor<B, BD> =
-            stack_to_tensor::<D, BD, _, B>(&observations_vec, device);
+        let observations: Tensor<B, BD> = stack_to_tensor::<D, BD, _, B>(&observations_vec, device);
         let actions: Tensor<B, BAD> = stack_to_tensor::<AD, BAD, _, B>(&actions_vec, device);
 
         let mut rewards_buf: Vec<f32> = Vec::with_capacity(batch_size);
@@ -801,9 +796,30 @@ mod prioritized_experience_replay_builder_tests {
         .with_capacity(2)
         .build();
 
-        per.add(TestObservation, TestAction, TestReward(1.0), TestObservation, false, Some(0.1));
-        per.add(TestObservation, TestAction, TestReward(2.0), TestObservation, false, Some(0.2));
-        per.add(TestObservation, TestAction, TestReward(3.0), TestObservation, false, Some(0.3));
+        per.add(
+            TestObservation,
+            TestAction,
+            TestReward(1.0),
+            TestObservation,
+            false,
+            Some(0.1),
+        );
+        per.add(
+            TestObservation,
+            TestAction,
+            TestReward(2.0),
+            TestObservation,
+            false,
+            Some(0.2),
+        );
+        per.add(
+            TestObservation,
+            TestAction,
+            TestReward(3.0),
+            TestObservation,
+            false,
+            Some(0.3),
+        );
 
         // The oldest transition (priority 0.1) should have been evicted and
         // the buffer/priority queue must stay length-aligned at capacity.
@@ -845,8 +861,8 @@ mod sample_batch_tests {
 
     use super::*;
     use burn::backend::Flex;
-    use rlevo_core::base::{Action, Observation, Reward, TensorConversionError, TensorConvertible};
     use burn::tensor::Tensor;
+    use rlevo_core::base::{Action, Observation, Reward, TensorConversionError, TensorConvertible};
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -974,7 +990,10 @@ mod sample_batch_tests {
             Err(e) => e,
         };
         match err {
-            ReplayBufferError::InsufficientData { requested, available } => {
+            ReplayBufferError::InsufficientData {
+                requested,
+                available,
+            } => {
                 assert_eq!(requested, 8);
                 assert_eq!(available, 4);
             }
@@ -1068,20 +1087,48 @@ mod sample_batch_tests {
 
         // Byte-identical data vs the pre-migration path.
         assert_eq!(
-            batch.observations.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
-            obs_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+            batch
+                .observations
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built"),
+            obs_old
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built")
         );
         assert_eq!(
-            batch.actions.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
-            act_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+            batch
+                .actions
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built"),
+            act_old
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built")
         );
         assert_eq!(
-            batch.rewards.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
-            rew_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+            batch
+                .rewards
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built"),
+            rew_old
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built")
         );
         assert_eq!(
-            batch.next_observations.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built"),
-            next_old.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built")
+            batch
+                .next_observations
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built"),
+            next_old
+                .into_data()
+                .into_vec::<f32>()
+                .expect("f32 host read of a tensor this test just built")
         );
     }
 

@@ -225,7 +225,11 @@ impl Validate for CartPoleConfig {
         config::positive(C, "length", f64::from(self.length))?;
         config::positive(C, "force_mag", f64::from(self.force_mag))?;
         config::positive(C, "tau", f64::from(self.tau))?;
-        config::positive(C, "theta_threshold_radians", f64::from(self.theta_threshold_radians))?;
+        config::positive(
+            C,
+            "theta_threshold_radians",
+            f64::from(self.theta_threshold_radians),
+        )?;
         config::positive(C, "x_threshold", f64::from(self.x_threshold))?;
         Ok(())
     }
@@ -719,7 +723,9 @@ impl CartPole {
                 .fg(HAZARD_FG)
                 .with_modifier(HAZARD_MODIFIER)
         } else {
-            SpanStyle::default().fg(GOAL_FG).with_modifier(GOAL_MODIFIER)
+            SpanStyle::default()
+                .fg(GOAL_FG)
+                .with_modifier(GOAL_MODIFIER)
         };
         // Positive theta is clockwise (top leans right) → '/'.
         let glyph = if tip_frac > 0.08 {
@@ -866,7 +872,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_length() {
-        let bad = CartPoleConfig { length: 0.0, ..Default::default() };
+        let bad = CartPoleConfig {
+            length: 0.0,
+            ..Default::default()
+        };
         assert!(CartPole::with_config(bad).is_err());
     }
 
@@ -890,8 +899,14 @@ mod tests {
         // Upright pole rises straight up from the hinge: same x, higher y.
         assert_eq!(pole.points.len(), 2);
         let (base, tip) = (pole.points[0], pole.points[1]);
-        assert!((tip.x - base.x).abs() < 1e-5, "upright pole must be vertical");
-        assert!(tip.y > base.y, "pole tip must be above the hinge when upright");
+        assert!(
+            (tip.x - base.x).abs() < 1e-5,
+            "upright pole must be vertical"
+        );
+        assert!(
+            tip.y > base.y,
+            "pole tip must be above the hinge when upright"
+        );
     }
 
     #[test]
@@ -1169,7 +1184,9 @@ mod tests {
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
         let x = self.state.x;
         let theta = self.state.theta; // 0 = upright, +clockwise
         let xt = self.config.x_threshold;
@@ -1192,7 +1209,11 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
                     role: Classic2DRole::Track,
                     closed: false,
                 },
-                Classic2DBody { points: cart, role: Classic2DRole::Cart, closed: true },
+                Classic2DBody {
+                    points: cart,
+                    role: Classic2DRole::Cart,
+                    closed: true,
+                },
                 Classic2DBody {
                     points: vec![Point2::new(x, hinge_y), tip],
                     role: Classic2DRole::Pole,

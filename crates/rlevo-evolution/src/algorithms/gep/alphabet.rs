@@ -176,8 +176,7 @@ impl<F: FunctionSet> Alphabet<F> {
     #[must_use]
     pub fn terminal_range(&self) -> Range<i32> {
         let n_func = self.n_func();
-        let first_terminal =
-            (0..n_func).find(|&i| self.functions.arity(function_symbol(i)) == 0);
+        let first_terminal = (0..n_func).find(|&i| self.functions.arity(function_symbol(i)) == 0);
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let start = first_terminal.unwrap_or(n_func) as i32;
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -231,12 +230,24 @@ mod tests {
         assert_eq!(a.n_func(), 8);
         assert_eq!(a.len(), 11);
         // function id 0
-        assert_eq!(a.classify(Symbol::from_raw(0)), SymbolKind::Function { arity: 2 });
+        assert_eq!(
+            a.classify(Symbol::from_raw(0)),
+            SymbolKind::Function { arity: 2 }
+        );
         // arity-0 function (const 1.0) id 7
-        assert_eq!(a.classify(Symbol::from_raw(7)), SymbolKind::Function { arity: 0 });
+        assert_eq!(
+            a.classify(Symbol::from_raw(7)),
+            SymbolKind::Function { arity: 0 }
+        );
         // variables ids 8, 9
-        assert_eq!(a.classify(Symbol::from_raw(8)), SymbolKind::Variable { input_index: 0 });
-        assert_eq!(a.classify(Symbol::from_raw(9)), SymbolKind::Variable { input_index: 1 });
+        assert_eq!(
+            a.classify(Symbol::from_raw(8)),
+            SymbolKind::Variable { input_index: 0 }
+        );
+        assert_eq!(
+            a.classify(Symbol::from_raw(9)),
+            SymbolKind::Variable { input_index: 1 }
+        );
         // constant id 10
         assert_eq!(
             a.classify(Symbol::from_raw(10)),
@@ -270,7 +281,13 @@ mod tests {
     #[test]
     fn out_of_range_classifies_inert() {
         let a = alphabet(1, vec![]);
-        assert_eq!(a.classify(Symbol::from_raw(-1)), SymbolKind::Function { arity: 0 });
-        assert_eq!(a.classify(Symbol::from_raw(999)), SymbolKind::Function { arity: 0 });
+        assert_eq!(
+            a.classify(Symbol::from_raw(-1)),
+            SymbolKind::Function { arity: 0 }
+        );
+        assert_eq!(
+            a.classify(Symbol::from_raw(999)),
+            SymbolKind::Function { arity: 0 }
+        );
     }
 }

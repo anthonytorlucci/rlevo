@@ -19,6 +19,9 @@
 
 use burn::backend::Flex;
 
+use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_environments::landscapes::ackley::Ackley;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_environments::landscapes::sphere::Sphere;
@@ -27,9 +30,6 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use rlevo_core::bounds::Bounds;
-use rlevo_core::objective::ObjectiveSense;
-use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -57,7 +57,8 @@ where
         SEED,
         device,
         MAX_GENS,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     while !harness.step(()).done {}
     harness
@@ -73,7 +74,9 @@ fn ga_config() -> GaConfig {
         bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     }
 }
@@ -96,7 +99,11 @@ fn sphere_strategies_reach_near_optimum() {
     // should drive best_fitness_ever well below 1.0 in user space.
     let ga = run_to_best(GeneticAlgorithm::<B>::new(), ga_config(), Sphere::new(DIM));
     let es = run_to_best(EvolutionStrategy::<B>::new(), es_config(), Sphere::new(DIM));
-    let de = run_to_best(DifferentialEvolution::<B>::new(), de_config(), Sphere::new(DIM));
+    let de = run_to_best(
+        DifferentialEvolution::<B>::new(),
+        de_config(),
+        Sphere::new(DIM),
+    );
 
     for (name, best) in [("GA", ga), ("ES", es), ("DE", de)] {
         assert!(
@@ -115,9 +122,21 @@ fn rastrigin_strategies_improve_on_random_search() {
     // Rastrigin-D10 random search averages ~80-120; a working optimizer
     // finishes well below. Loose ceiling stays stable across RNG versions
     // while catching a strategy that fails to optimize.
-    let ga = run_to_best(GeneticAlgorithm::<B>::new(), ga_config(), Rastrigin::new(DIM));
-    let es = run_to_best(EvolutionStrategy::<B>::new(), es_config(), Rastrigin::new(DIM));
-    let de = run_to_best(DifferentialEvolution::<B>::new(), de_config(), Rastrigin::new(DIM));
+    let ga = run_to_best(
+        GeneticAlgorithm::<B>::new(),
+        ga_config(),
+        Rastrigin::new(DIM),
+    );
+    let es = run_to_best(
+        EvolutionStrategy::<B>::new(),
+        es_config(),
+        Rastrigin::new(DIM),
+    );
+    let de = run_to_best(
+        DifferentialEvolution::<B>::new(),
+        de_config(),
+        Rastrigin::new(DIM),
+    );
 
     for (name, best) in [("GA", ga), ("ES", es), ("DE", de)] {
         assert!(
@@ -134,7 +153,11 @@ fn rastrigin_strategies_improve_on_random_search() {
 #[test]
 fn ackley_de_reaches_near_optimum() {
     // Ackley optimum is 0; DE is a reliable converger on it.
-    let de = run_to_best(DifferentialEvolution::<B>::new(), de_config(), Ackley::new(DIM));
+    let de = run_to_best(
+        DifferentialEvolution::<B>::new(),
+        de_config(),
+        Ackley::new(DIM),
+    );
     assert!(
         de.is_finite() && de >= 0.0,
         "DE Ackley best_fitness_ever should be a non-negative cost, got {de}",

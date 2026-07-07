@@ -300,8 +300,16 @@ where
     type State = AbcState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &AbcConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AbcState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid AbcConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &AbcConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> AbcState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid AbcConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial colony from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -399,7 +407,10 @@ where
         mut state: AbcState<B>,
         rng: &mut dyn Rng,
     ) -> (AbcState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
@@ -482,8 +493,11 @@ where
             // Host-sample scout replacements from a deterministic
             // `seed_stream` so the refill is reproducible across thread
             // schedules rather than racing the global Flex RNG.
-            let mut scout_stream =
-                seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Replacement);
+            let mut scout_stream = seed_stream(
+                rng.next_u64(),
+                state.generation as u64,
+                SeedPurpose::Replacement,
+            );
             let mut fresh_rows = Vec::with_capacity(scouts.len() * genome_dim);
             for _ in 0..scouts.len() * genome_dim {
                 fresh_rows.push(lo + (hi - lo) * scout_stream.random::<f32>());
@@ -556,20 +570,43 @@ mod tests {
         let colony = Tensor::<TestBackend, 2>::zeros([3, 2], &device);
         // Bootstrap (empty caches) and fully-populated caches both accept.
         assert!(
-            AbcState::try_new(colony.clone(), vec![], vec![0; 3], vec![], None, f32::MIN, 0).is_ok()
+            AbcState::try_new(
+                colony.clone(),
+                vec![],
+                vec![0; 3],
+                vec![],
+                None,
+                f32::MIN,
+                0
+            )
+            .is_ok()
         );
         assert!(
-            AbcState::try_new(colony.clone(), vec![1.0; 3], vec![0; 3], vec![7; 6], None, 1.0, 1)
-                .is_ok()
+            AbcState::try_new(
+                colony.clone(),
+                vec![1.0; 3],
+                vec![0; 3],
+                vec![7; 6],
+                None,
+                1.0,
+                1
+            )
+            .is_ok()
         );
         // fitness length 2 ≠ pop 3, and target_of_candidate 5 ≠ 2·pop.
         assert!(
-            AbcState::try_new(colony.clone(), vec![1.0; 2], vec![0; 3], vec![], None, 1.0, 1)
-                .is_err()
+            AbcState::try_new(
+                colony.clone(),
+                vec![1.0; 2],
+                vec![0; 3],
+                vec![],
+                None,
+                1.0,
+                1
+            )
+            .is_err()
         );
-        assert!(
-            AbcState::try_new(colony, vec![], vec![], vec![0; 5], None, 1.0, 1).is_err()
-        );
+        assert!(AbcState::try_new(colony, vec![], vec![], vec![0; 5], None, 1.0, 1).is_err());
         // Zero-row colony is rejected.
         let empty = Tensor::<TestBackend, 2>::zeros([0, 2], &device);
         assert!(AbcState::try_new(empty, vec![], vec![], vec![], None, 1.0, 0).is_err());
@@ -633,7 +670,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 13, device, 400,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

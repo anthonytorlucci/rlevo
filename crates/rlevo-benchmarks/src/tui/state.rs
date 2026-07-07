@@ -153,11 +153,7 @@ impl AppState {
     /// chooses between the stacked [`MetricsLayout::Combined`] column and
     /// the per-metric [`MetricsLayout::Separate`] panels.
     #[must_use]
-    pub fn with_layout(
-        mut self,
-        metrics: &'static [&'static str],
-        layout: MetricsLayout,
-    ) -> Self {
+    pub fn with_layout(mut self, metrics: &'static [&'static str], layout: MetricsLayout) -> Self {
         self.metrics = metrics;
         self.metrics_layout = layout;
         self
@@ -390,7 +386,10 @@ mod tests {
         state.record_episode_end(3, 1.0);
         let (idx, total) = state.status.episode.unwrap();
         assert_eq!(idx, 3);
-        assert_eq!(total, 50, "suite total must not be overwritten by per-episode updates");
+        assert_eq!(
+            total, 50,
+            "suite total must not be overwritten by per-episode updates"
+        );
     }
 
     #[test]
@@ -408,7 +407,10 @@ mod tests {
             state.record_metric("policy_loss", v);
         }
         let ring = &state.metric_rings["policy_loss"];
-        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![0.5, 0.4, 0.3]);
+        assert_eq!(
+            ring.iter().copied().collect::<Vec<_>>(),
+            vec![0.5, 0.4, 0.3]
+        );
     }
 
     /// Each metric name gets its own ring, all bounded by the same
@@ -436,7 +438,10 @@ mod tests {
         }
         let ring = &state.metric_rings["loss"];
         assert_eq!(ring.len(), 3);
-        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), vec![3.0, 4.0, 5.0]);
+        assert_eq!(
+            ring.iter().copied().collect::<Vec<_>>(),
+            vec![3.0, 4.0, 5.0]
+        );
     }
 
     fn log_line(level: tracing::Level, msg: &str) -> CapturedLogLine {
@@ -452,11 +457,7 @@ mod tests {
         let mut state = AppState::with_history(8, 4);
         state.record_log(log_line(tracing::Level::INFO, "first"));
         state.record_log(log_line(tracing::Level::WARN, "second"));
-        let collected: Vec<_> = state
-            .log_ring
-            .iter()
-            .map(|l| l.message.clone())
-            .collect();
+        let collected: Vec<_> = state.log_ring.iter().map(|l| l.message.clone()).collect();
         assert_eq!(collected, vec!["first", "second"]);
     }
 
@@ -468,11 +469,7 @@ mod tests {
             state.record_log(log_line(tracing::Level::INFO, &format!("line {i}")));
         }
         assert_eq!(state.log_ring.len(), 3);
-        let collected: Vec<_> = state
-            .log_ring
-            .iter()
-            .map(|l| l.message.clone())
-            .collect();
+        let collected: Vec<_> = state.log_ring.iter().map(|l| l.message.clone()).collect();
         assert_eq!(collected, vec!["line 3", "line 4", "line 5"]);
     }
 

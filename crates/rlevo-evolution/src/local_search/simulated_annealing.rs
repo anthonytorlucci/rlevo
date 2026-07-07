@@ -25,7 +25,7 @@ use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
 use rlevo_core::bounds::Bounds;
 
 /// Temperature-cooling schedule for [`SimulatedAnnealing`].
@@ -315,8 +315,7 @@ impl SimulatedAnnealing {
         // Unit Gaussian sampled through the passed rng (same path as the crate's
         // `gaussian_mutation`); scaled by `step_size` per coordinate to realise
         // an `N(0, step_size)` proposal step.
-        let normal: Normal<f32> =
-            Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
+        let normal: Normal<f32> = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
 
         let mut temp: f32 = params.initial_temp;
 
@@ -345,8 +344,7 @@ impl SimulatedAnnealing {
             // comparison and the downhill draw flow through the passed rng so all
             // stochasticity is reproducible.
             let delta: f32 = cand_fit - current_fit;
-            let accept: bool =
-                delta >= 0.0 || rng.random::<f32>() < (delta / temp).exp();
+            let accept: bool = delta >= 0.0 || rng.random::<f32>() < (delta / temp).exp();
             if accept {
                 current = candidate;
                 current_fit = cand_fit;
@@ -404,8 +402,8 @@ impl<B: Backend> LocalSearch<B> for SimulatedAnnealing {
 mod tests {
     use super::*;
     use burn::backend::Flex;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     type TestBackend = Flex;
 
@@ -682,13 +680,8 @@ mod tests {
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(7);
         let start = vec![1.0_f32, -1.0];
-        let _ = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut counting,
-            &mut rng,
-        );
+        let _ =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
         assert!(
             counting.calls < params.max_iters,
             "min_temp early stop: evals {} should be < budget {}",
@@ -707,13 +700,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.hi(); 4];
-        let (g, _f) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness,
-            &mut rng,
-        );
+        let (g, _f) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         for &x in &g {
             assert!(
                 x >= BOUNDS.lo() && x <= BOUNDS.hi(),
@@ -743,13 +731,8 @@ mod tests {
         let mut recording = Recording::new(&mut base);
         let mut rng = StdRng::seed_from_u64(11);
         let start = vec![0.05_f32, -0.05];
-        let _ = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut recording,
-            &mut rng,
-        );
+        let _ =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut recording, &mut rng);
 
         // Count evaluations that were strictly worse than the best-so-far at the
         // time they were seen. A pure greedy ascent (no worsening acceptance) can

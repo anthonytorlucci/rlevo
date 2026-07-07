@@ -98,7 +98,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let env = EmptyEnv::with_config(
                 EmptyConfig::new(GRID_SIZE, MAX_STEPS_PER_EPISODE, seed),
                 false,
-            ).expect("valid config");
+            )
+            .expect("valid config");
             let recorded: RecordingTap<EmptyEnv, 3, 3, 1> = RecordingTap::new(env, sink.clone());
             BenchAdapter::new(recorded)
         })

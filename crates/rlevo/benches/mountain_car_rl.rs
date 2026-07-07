@@ -114,7 +114,8 @@ fn make_env() -> Env {
         MountainCar::with_config(MountainCarConfig {
             seed: SEED,
             ..MountainCarConfig::default()
-        }).expect("valid config"),
+        })
+        .expect("valid config"),
         TIME_LIMIT,
     )
 }
@@ -144,7 +145,8 @@ fn train_dqn_agent() -> DqnMountainCarAgent {
         .build()
         .expect("valid config");
     let model: VecMlpDqn<Backend_> = VecMlpDqn::new(OBS_FEATURES, HIDDEN, ACTIONS, &device);
-    let mut agent: DqnMountainCarAgent = DqnAgent::new(model, config, device).expect("valid config");
+    let mut agent: DqnMountainCarAgent =
+        DqnAgent::new(model, config, device).expect("valid config");
     train_dqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("dqn training");
     agent
 }
@@ -172,7 +174,8 @@ fn train_c51_agent() -> C51MountainCarAgent {
         .build()
         .expect("valid config");
     let model: C51Mlp<Backend_> = C51Mlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_ATOMS, &device);
-    let mut agent: C51MountainCarAgent = C51Agent::new(model, config, device).expect("valid config");
+    let mut agent: C51MountainCarAgent =
+        C51Agent::new(model, config, device).expect("valid config");
     train_c51(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("c51 training");
     agent
 }
@@ -198,8 +201,10 @@ fn train_qrdqn_agent() -> QrDqnMountainCarAgent {
         .kappa(1.0)
         .build()
         .expect("valid config");
-    let model: QrDqnMlp<Backend_> = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
-    let mut agent: QrDqnMountainCarAgent = QrDqnAgent::new(model, config, device).expect("valid config");
+    let model: QrDqnMlp<Backend_> =
+        QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
+    let mut agent: QrDqnMountainCarAgent =
+        QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
     agent
 }
@@ -230,7 +235,8 @@ fn train_ppg_agent() -> PpgMountainCarAgent {
                 .gamma(0.99)
                 .gae_lambda(0.95)
                 .anneal_lr(p.anneal_lr)
-                .build().expect("valid config")
+                .build()
+                .expect("valid config")
         })
         .n_iteration(32)
         .e_aux(6)
@@ -419,7 +425,9 @@ fn bench_policies(
 
     group.bench_with_input(BenchmarkId::new("qrdqn", steps), &steps, |b, &steps| {
         b.iter(|| {
-            rollout_steps(black_box(steps), |obs| qrdqn.act_greedy_with(&qrdqn_infer, obs));
+            rollout_steps(black_box(steps), |obs| {
+                qrdqn.act_greedy_with(&qrdqn_infer, obs)
+            });
         });
     });
 

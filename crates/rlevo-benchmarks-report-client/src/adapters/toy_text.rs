@@ -19,7 +19,8 @@
 use leptos::prelude::*;
 
 use crate::wire::{
-    CardTable, FamilyPayload, FrameRecord, TabularCell, TabularGrid, TabularLayout, TabularMarkerKind,
+    CardTable, FamilyPayload, FrameRecord, TabularCell, TabularGrid, TabularLayout,
+    TabularMarkerKind,
 };
 
 /// Side length of one grid cell in SVG user units.

@@ -106,7 +106,11 @@ mod tests {
     #[test]
     fn point_symmetry() {
         let c = SixHumpCamel::new();
-        assert_relative_eq!(c.evaluate(1.3, -0.7), c.evaluate(-1.3, 0.7), epsilon = 1e-12);
+        assert_relative_eq!(
+            c.evaluate(1.3, -0.7),
+            c.evaluate(-1.3, 0.7),
+            epsilon = 1e-12
+        );
     }
 
     #[test]

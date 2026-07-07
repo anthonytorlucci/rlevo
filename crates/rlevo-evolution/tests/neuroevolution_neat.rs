@@ -141,7 +141,10 @@ fn test_neat_solves_xor_with_speciation() {
     let (best_genome, best_fitness) = strat.best(&state).expect("a best genome exists");
     let recomputed = fitness_fn.evaluate(std::slice::from_ref(best_genome), &builder, &device);
     approx::assert_relative_eq!(recomputed[0], best_fitness, epsilon = 1e-4);
-    assert!(recomputed[0] >= SOLVE_THRESHOLD, "champion re-evaluates as a solver");
+    assert!(
+        recomputed[0] >= SOLVE_THRESHOLD,
+        "champion re-evaluates as a solver"
+    );
 }
 
 #[test]
@@ -194,11 +197,28 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.2 },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.2,
+            },
         ],
         vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 0.7, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: -0.4, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 0.7,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(1),
+                target: NodeId::new(2),
+                weight: -0.4,
+                enabled: true,
+            },
         ],
     );
 
@@ -207,14 +227,48 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Tanh, bias: 0.1 },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(3),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Tanh,
+                bias: 0.1,
+            },
         ],
         vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 5.0, enabled: false },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(0), target: NodeId::new(3), weight: 0.9, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(1), target: NodeId::new(3), weight: -1.2, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(3), source: NodeId::new(3), target: NodeId::new(2), weight: 1.5, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 5.0,
+                enabled: false,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(0),
+                target: NodeId::new(3),
+                weight: 0.9,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(2),
+                source: NodeId::new(1),
+                target: NodeId::new(3),
+                weight: -1.2,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(3),
+                source: NodeId::new(3),
+                target: NodeId::new(2),
+                weight: 1.5,
+                enabled: true,
+            },
         ],
     );
 
@@ -224,15 +278,54 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: -0.3 },
-            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: NodeId::new(4), kind: NodeKind::Hidden, activation: ActivationFn::Sigmoid, bias: 0.05 },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Linear,
+                bias: -0.3,
+            },
+            NodeGene {
+                id: NodeId::new(3),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(4),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.05,
+            },
         ],
         vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(3), weight: 1.1, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(3), weight: 0.6, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(3), target: NodeId::new(4), weight: -0.8, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(3), source: NodeId::new(4), target: NodeId::new(2), weight: 2.0, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(3),
+                weight: 1.1,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(1),
+                target: NodeId::new(3),
+                weight: 0.6,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(2),
+                source: NodeId::new(3),
+                target: NodeId::new(4),
+                weight: -0.8,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(3),
+                source: NodeId::new(4),
+                target: NodeId::new(2),
+                weight: 2.0,
+                enabled: true,
+            },
         ],
     );
 
@@ -241,11 +334,28 @@ fn parity_population() -> Vec<TopologyGenome> {
         vec![
             input(0),
             input(1),
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Linear,
+                bias: 0.5,
+            },
         ],
         vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: 1.0, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 1.0,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(1),
+                target: NodeId::new(2),
+                weight: 1.0,
+                enabled: true,
+            },
         ],
     );
 
@@ -270,7 +380,11 @@ fn interpreted_stacked(genomes: &[TopologyGenome], obs: &Tensor<B, 2>) -> Vec<f3
     let mut out: Vec<f32> = Vec::new();
     for genome in genomes {
         let pheno = InterpretedPhenotype::<B>::new(genome);
-        let row = pheno.forward(obs.clone()).into_data().into_vec::<f32>().unwrap();
+        let row = pheno
+            .forward(obs.clone())
+            .into_data()
+            .into_vec::<f32>()
+            .unwrap();
         out.extend(row);
     }
     out
@@ -292,7 +406,11 @@ fn test_dense_padded_matches_interpreted_population() {
         .into_vec::<f32>()
         .unwrap();
 
-    assert_eq!(got.len(), expected.len(), "one scalar per (genome, row, output)");
+    assert_eq!(
+        got.len(),
+        expected.len(),
+        "one scalar per (genome, row, output)"
+    );
     for (g, e) in got.iter().zip(expected.iter()) {
         approx::assert_relative_eq!(*g, *e, epsilon = 1e-4);
     }

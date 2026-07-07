@@ -58,7 +58,10 @@ impl SquashedGaussianPolicyHeadConfig {
     /// initialized with Burn's default weight initializer. Call this after
     /// seeding the backend's RNG if reproducible weight initialization is
     /// required.
-    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SquashedGaussianPolicyHead<B> {
+    pub fn init<B: Backend>(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> SquashedGaussianPolicyHead<B> {
         SquashedGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -79,7 +82,12 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
-        config::ordered(C, "log_std_max", f64::from(self.log_std_min), f64::from(self.log_std_max))?;
+        config::ordered(
+            C,
+            "log_std_max",
+            f64::from(self.log_std_min),
+            f64::from(self.log_std_max),
+        )?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
     }

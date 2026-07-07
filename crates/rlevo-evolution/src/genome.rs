@@ -10,7 +10,7 @@
 
 use std::fmt::Debug;
 
-use burn::tensor::{backend::Backend, Int, Tensor};
+use burn::tensor::{Int, Tensor, backend::Backend};
 
 /// Shape-erased genome kind.
 ///
@@ -169,9 +169,7 @@ mod tests {
 
     #[test]
     fn markers_are_debug() {
-        let _ = format!(
-            "{Real:?} {Binary:?} {Integer:?} {Tree:?} {Permutation:?}"
-        );
+        let _ = format!("{Real:?} {Binary:?} {Integer:?} {Tree:?} {Permutation:?}");
     }
 
     #[test]
@@ -180,7 +178,9 @@ mod tests {
 
         // Compiles iff `Permutation: TensorGenome` with its tensor flavour
         // unifying with `Tensor<Flex, 2, Int>`.
-        fn takes_perm_tensor(t: <Permutation as TensorGenome>::Tensor<Flex>) -> Tensor<Flex, 2, Int> {
+        fn takes_perm_tensor(
+            t: <Permutation as TensorGenome>::Tensor<Flex>,
+        ) -> Tensor<Flex, 2, Int> {
             t
         }
         let _ = takes_perm_tensor;

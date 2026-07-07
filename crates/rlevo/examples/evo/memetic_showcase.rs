@@ -101,7 +101,10 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
         let mut out: Vec<f32> = Vec::with_capacity(pop);
         for r in 0..pop {
             let start: usize = r * dim;
-            let row: Vec<f64> = flat[start..start + dim].iter().map(|&v| f64::from(v)).collect();
+            let row: Vec<f64> = flat[start..start + dim]
+                .iter()
+                .map(|&v| f64::from(v))
+                .collect();
             #[allow(clippy::cast_possible_truncation)]
             out.push(self.landscape.evaluate(&row) as f32);
         }
@@ -131,7 +134,8 @@ where
     };
     let mut harness = EvolutionaryHarness::<B, S, CountingRastrigin>::new(
         strategy, params, fitness, SEED, device, MAX_GENS,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut crossings: [Option<usize>; TARGETS.len()] = [None; TARGETS.len()];
     loop {

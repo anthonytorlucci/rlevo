@@ -24,9 +24,9 @@
 use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::relu;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::utils::polyak_update;
@@ -152,7 +152,8 @@ fn main() {
     let mut env = CartPole::with_config(CartPoleConfig {
         seed: SEED,
         ..CartPoleConfig::default()
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut rng = StdRng::seed_from_u64(SEED);
     let mut agent = build_agent(SEED);
 
@@ -166,10 +167,7 @@ fn main() {
     println!("\n=== CartPole DQN — training complete ===");
     println!("episodes     : {}", stats.total_episodes);
     println!("env steps    : {}", stats.total_steps);
-    println!(
-        "best episode : {:.1}",
-        stats.best_score.unwrap_or(f32::NAN)
-    );
+    println!("best episode : {:.1}", stats.best_score.unwrap_or(f32::NAN));
     println!(
         "avg (last {:>3}): {:.1}",
         stats.recent_history.len(),
@@ -191,13 +189,17 @@ mod tests {
         let mut env = CartPole::with_config(CartPoleConfig {
             seed,
             ..CartPoleConfig::default()
-        }).expect("valid config");
+        })
+        .expect("valid config");
         let mut rng = StdRng::seed_from_u64(seed);
         let mut agent = build_agent(seed);
 
         train(&mut agent, &mut env, &mut rng, 1_200, 0).expect("training");
 
-        assert!(agent.buffer_len() > 0, "replay buffer should have transitions");
+        assert!(
+            agent.buffer_len() > 0,
+            "replay buffer should have transitions"
+        );
         for (i, m) in agent.stats().recent_history.iter().enumerate() {
             assert!(m.reward.is_finite(), "non-finite reward at episode {i}");
         }

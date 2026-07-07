@@ -263,7 +263,6 @@ impl<'a> BudgetedEval<'a> {
     }
 }
 
-
 /// Clamps every coordinate of `genome` into the inclusive range `bounds`.
 ///
 /// `bounds` is `(lo, hi)`; coordinates below `lo` are raised to `lo` and those

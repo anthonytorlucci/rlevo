@@ -262,8 +262,7 @@ pub fn emit_static_html(
     out_path: &Path,
     config: &EmitConfig,
 ) -> Result<EmitOutcome, EmitError> {
-    let manifest_json =
-        serde_json::to_string(run.manifest()).map_err(EmitError::ManifestJson)?;
+    let manifest_json = serde_json::to_string(run.manifest()).map_err(EmitError::ManifestJson)?;
     let warnings_json = warnings_to_json(run.warnings());
 
     let mut body = String::with_capacity(64 * 1024);
@@ -402,9 +401,7 @@ fn write_html_head(out: &mut String, run: &RecordedRun, config: &EmitConfig) {
     let escaped_title = escape_html(&title);
     out.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str("<meta charset=\"utf-8\">\n");
-    out.push_str(
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
-    );
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     out.push_str("<meta name=\"generator\" content=\"rlevo-benchmarks/report\">\n");
     let _ = writeln!(out, "<title>rlevo report — {escaped_title}</title>");
     out.push_str("<style>\n");
@@ -415,18 +412,11 @@ fn write_html_head(out: &mut String, run: &RecordedRun, config: &EmitConfig) {
 
 fn write_placeholder_body(out: &mut String, run: &RecordedRun, config: &EmitConfig) {
     let m = run.manifest();
-    let title = config
-        .title
-        .clone()
-        .unwrap_or_else(|| m.run_id.0.clone());
+    let title = config.title.clone().unwrap_or_else(|| m.run_id.0.clone());
     out.push_str("<header class=\"rlevo-header\">\n");
     let _ = writeln!(out, "<h1>rlevo report &mdash; {}</h1>", escape_html(&title));
     out.push_str("<dl class=\"rlevo-meta\">\n");
-    let _ = writeln!(
-        out,
-        "<dt>run id</dt><dd>{}</dd>",
-        escape_html(&m.run_id.0)
-    );
+    let _ = writeln!(out, "<dt>run id</dt><dd>{}</dd>", escape_html(&m.run_id.0));
     let _ = writeln!(out, "<dt>env family</dt><dd>{:?}</dd>", m.env_family);
     let _ = writeln!(out, "<dt>seed</dt><dd>{}</dd>", m.seed);
     let _ = writeln!(out, "<dt>format version</dt><dd>{}</dd>", m.format_version);
@@ -434,7 +424,9 @@ fn write_placeholder_body(out: &mut String, run: &RecordedRun, config: &EmitConf
     let _ = writeln!(out, "<dt>episodes</dt><dd>{}</dd>", run.episodes().len());
     out.push_str("</dl>\n");
     if !run.warnings().is_empty() {
-        out.push_str("<section class=\"rlevo-warnings\" role=\"status\">\n<h2>Warnings</h2>\n<ul>\n");
+        out.push_str(
+            "<section class=\"rlevo-warnings\" role=\"status\">\n<h2>Warnings</h2>\n<ul>\n",
+        );
         for w in run.warnings() {
             let _ = writeln!(out, "<li>{}</li>", escape_html(&format!("{w:?}")));
         }
@@ -472,7 +464,10 @@ fn push_script_json(out: &mut String, id: &str, body: &str) {
 }
 
 fn push_script_base64(out: &mut String, id: &str, body: &str) {
-    let _ = writeln!(out, "<script type=\"application/octet-stream\" id=\"{id}\">");
+    let _ = writeln!(
+        out,
+        "<script type=\"application/octet-stream\" id=\"{id}\">"
+    );
     out.push_str(body);
     out.push_str("\n</script>\n");
 }
@@ -725,10 +720,7 @@ mod tests {
             body.contains("id=\"rlevo-client-shim\""),
             "shim payload script missing"
         );
-        assert!(
-            body.contains("rebeccapurple"),
-            "bundled CSS not inlined"
-        );
+        assert!(body.contains("rebeccapurple"), "bundled CSS not inlined");
         // Placeholder body (episode table) should be GONE when client
         // assets are supplied.
         assert!(

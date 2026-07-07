@@ -104,7 +104,11 @@ mod tests {
     fn global_minimum_at_known_location() {
         // Certified n=2 optimum f* ≈ −1.8013 near (2.20, π/2).
         let m = Michalewicz::new(2);
-        assert_relative_eq!(m.evaluate(&[2.20290552, FRAC_PI_2]), -1.8013, epsilon = 1e-3);
+        assert_relative_eq!(
+            m.evaluate(&[2.20290552, FRAC_PI_2]),
+            -1.8013,
+            epsilon = 1e-3
+        );
     }
 
     #[test]
@@ -133,7 +137,11 @@ mod tests {
     #[test]
     fn known_value_n2() {
         let m = Michalewicz::new(2);
-        assert_relative_eq!(m.evaluate(&[2.20290552, FRAC_PI_2]), -1.8013, epsilon = 1e-3);
+        assert_relative_eq!(
+            m.evaluate(&[2.20290552, FRAC_PI_2]),
+            -1.8013,
+            epsilon = 1e-3
+        );
     }
 
     #[test]

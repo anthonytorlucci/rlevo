@@ -107,7 +107,8 @@ pub fn base_env() -> TimeLimit<CartPole> {
     let base = CartPole::with_config(CartPoleConfig {
         seed: SEED,
         ..CartPoleConfig::default()
-    }).expect("valid config");
+    })
+    .expect("valid config");
     TimeLimit::new(base, EPISODE_TIME_LIMIT)
 }
 

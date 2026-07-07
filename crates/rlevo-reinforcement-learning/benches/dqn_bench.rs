@@ -9,14 +9,14 @@ use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::{activation, Tensor};
+use burn::tensor::{Tensor, activation};
 
 use rlevo_reinforcement_learning::utils::polyak_update;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::classic::cartpole::{

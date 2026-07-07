@@ -78,7 +78,10 @@ impl NonNegativeRate {
     /// Panics when `r` is negative, `NaN`, or infinite.
     #[must_use]
     pub const fn new(r: f32) -> Self {
-        assert!(r.is_finite() && r >= 0.0, "NonNegativeRate::new: value must be finite and >= 0 (NaN/Inf/negative rejected)");
+        assert!(
+            r.is_finite() && r >= 0.0,
+            "NonNegativeRate::new: value must be finite and >= 0 (NaN/Inf/negative rejected)"
+        );
         Self(r)
     }
 
@@ -170,7 +173,10 @@ mod tests {
 
     #[test]
     fn try_new_rejects_negative_nan_and_inf() {
-        assert_eq!(NonNegativeRate::try_new(-1.0), Err(NonNegativeRateError { got: -1.0 }));
+        assert_eq!(
+            NonNegativeRate::try_new(-1.0),
+            Err(NonNegativeRateError { got: -1.0 })
+        );
         assert!(NonNegativeRate::try_new(f32::NAN).is_err());
         assert!(NonNegativeRate::try_new(f32::INFINITY).is_err());
         assert!(NonNegativeRate::try_new(f32::NEG_INFINITY).is_err());

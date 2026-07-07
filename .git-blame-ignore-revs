@@ -1,0 +1,5 @@
+# Revisions to ignore in `git blame` (git blame --ignore-revs-file .git-blame-ignore-revs).
+# Enable locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# style: Normalize workspace formatting (rustfmt.toml adoption, #216)
+bbd9a8259bba1256122229f470fb86c4aadd4d6e

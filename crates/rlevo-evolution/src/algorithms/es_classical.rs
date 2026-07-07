@@ -152,9 +152,7 @@ impl Validate for EsConfig {
                     return Err(ConfigError {
                         config: C,
                         field: "lambda",
-                        kind: ConstraintKind::Custom(
-                            "(mu, lambda) requires lambda >= mu",
-                        ),
+                        kind: ConstraintKind::Custom("(mu, lambda) requires lambda >= mu"),
                     });
                 }
             }
@@ -353,8 +351,16 @@ where
     /// Samples the initial parent population uniformly from `params.bounds`
     /// via a deterministic `seed_stream` (host-RNG convention) and
     /// initializes all σ values to `params.initial_sigma`.
-    fn init(&self, params: &EsConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EsState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid EsConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &EsConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> EsState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid EsConfig reached init: {params:?}"
+        );
         let (parents, sigmas) = Self::sample_initial_parents(params, rng, device);
         EsState {
             parents,
@@ -493,7 +499,10 @@ where
         mut state: EsState<B>,
         _rng: &mut dyn Rng,
     ) -> (EsState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: offspring here is actually the
         // initial parent population evaluated.
@@ -546,8 +555,12 @@ where
                 if state.window_len >= window {
                     #[allow(clippy::cast_precision_loss)]
                     let rate = state.successes_in_window as f32 / state.window_len as f32;
-                    let current_sigma =
-                        state.sigmas.clone().into_data().into_vec::<f32>().expect("sigma tensor must be readable as f32")[0];
+                    let current_sigma = state
+                        .sigmas
+                        .clone()
+                        .into_data()
+                        .into_vec::<f32>()
+                        .expect("sigma tensor must be readable as f32")[0];
                     // The 1/5-rule is also an unbounded multiplicative process;
                     // clamp to the same construction-validated window so σ can
                     // neither underflow to 0 nor overflow to +∞ over a long run.
@@ -679,8 +692,17 @@ mod tests {
         let sigmas = Tensor::<TestBackend, 1>::ones([4], &device);
         // Bootstrap (empty) and fully-populated caches both accept.
         assert!(
-            EsState::try_new(parents.clone(), sigmas.clone(), vec![], None, f32::MIN, 0, 0, 0)
-                .is_ok()
+            EsState::try_new(
+                parents.clone(),
+                sigmas.clone(),
+                vec![],
+                None,
+                f32::MIN,
+                0,
+                0,
+                0
+            )
+            .is_ok()
         );
         assert!(
             EsState::try_new(
@@ -696,9 +718,7 @@ mod tests {
             .is_ok()
         );
         // parent_fitness length 3 ≠ μ = 4.
-        assert!(
-            EsState::try_new(parents, sigmas, vec![1.0; 3], None, 1.0, 1, 0, 0).is_err()
-        );
+        assert!(EsState::try_new(parents, sigmas, vec![1.0; 3], None, 1.0, 1, 0, 0).is_err());
     }
 
     #[test]
@@ -767,7 +787,12 @@ mod tests {
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..60 {
             let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let sigmas: Vec<f32> = next.sigmas().clone().into_data().into_vec::<f32>().expect("sigma host-read of a tensor this test just built");
+            let sigmas: Vec<f32> = next
+                .sigmas()
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
                     s.is_finite() && s >= params.sigma_min && s <= params.sigma_max,
@@ -808,7 +833,8 @@ mod tests {
             seed,
             device,
             generations,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

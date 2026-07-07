@@ -19,7 +19,7 @@
 //! entries with the largest fitnesses; [`argmax_host`] reduces a fitness
 //! slice to the index of its single largest entry.
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 
 /// Returns the index of the largest fitness value.

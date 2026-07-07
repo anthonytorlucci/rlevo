@@ -8,7 +8,9 @@ use rand_distr::{Distribution, Normal};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{LocomotionBackend, Pose, Rapier3DBackend, Rapier3DWorld};
@@ -474,7 +476,8 @@ mod tests {
 
     #[test]
     fn reset_returns_running_with_expected_obs_layout() {
-        let mut env = InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         let snap = env.reset().unwrap();
         assert!(!snap.is_done());
         let obs = snap.observation();
@@ -517,7 +520,8 @@ mod tests {
 
     #[test]
     fn alive_bonus_paid_only_while_healthy() {
-        let mut env = InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(InvertedDoublePendulumAction::new(0.0)).unwrap();
         let alive = snap.metadata().unwrap().components[METADATA_KEY_ALIVE];
@@ -573,7 +577,8 @@ mod tests {
 
     #[test]
     fn constraint_force_is_finite() {
-        let mut env = InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         for _ in 0..5 {
             let snap = env.step(InvertedDoublePendulumAction::new(0.5)).unwrap();
@@ -612,7 +617,8 @@ mod tests {
             ..Default::default()
         };
         let rollout = |actions: &[f32]| {
-            let mut env = InvertedDoublePendulumRapier::with_config(cfg.clone()).expect("valid config");
+            let mut env =
+                InvertedDoublePendulumRapier::with_config(cfg.clone()).expect("valid config");
             env.reset().unwrap();
             let mut last = InvertedDoublePendulumObservation::default();
             for &a in actions {
@@ -631,7 +637,8 @@ mod tests {
 
     #[test]
     fn invalid_action_is_error() {
-        let mut env = InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
         assert!(
             env.step(InvertedDoublePendulumAction::new(f32::NAN))

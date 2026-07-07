@@ -142,7 +142,10 @@ mod tests {
 
         let text = buffer_text(&buf);
         assert!(text.contains("policy_loss"), "label missing: {text:?}");
-        assert!(text.contains("no data yet"), "placeholder missing: {text:?}");
+        assert!(
+            text.contains("no data yet"),
+            "placeholder missing: {text:?}"
+        );
     }
 
     /// Empty ring even if the key exists → still "no data yet".

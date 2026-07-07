@@ -294,9 +294,7 @@ impl State<1> for SantaFeAntState {
     }
 
     fn is_valid(&self) -> bool {
-        self.row < GRID_SIZE
-            && self.col < GRID_SIZE
-            && self.pellets_remaining == self.count_food()
+        self.row < GRID_SIZE && self.col < GRID_SIZE && self.pellets_remaining == self.count_food()
     }
 }
 
@@ -608,7 +606,10 @@ fn parse_trail(ascii: &str) -> ([[bool; GRID_SIZE]; GRID_SIZE], (usize, usize)) 
             match ch {
                 '#' => food[row][col] = true,
                 'S' => {
-                    assert!(start.is_none(), "trail must contain exactly one start marker");
+                    assert!(
+                        start.is_none(),
+                        "trail must contain exactly one start marker"
+                    );
                     start = Some((row, col));
                 }
                 '.' => {}
@@ -666,9 +667,7 @@ const fn heading_to_grid_dir(dir: Direction) -> rlevo_core::render::payload::Gri
 impl rlevo_core::render::payload::GridPayloadSource for SantaFeAnt {
     #[allow(clippy::cast_possible_truncation)] // GRID_SIZE = 32 and all indices < 32 fit u16
     fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        use rlevo_core::render::payload::{
-            GridAgentMarker, GridColor, GridSnapshot, GridTile,
-        };
+        use rlevo_core::render::payload::{GridAgentMarker, GridColor, GridSnapshot, GridTile};
 
         let (original, _): ([[bool; GRID_SIZE]; GRID_SIZE], _) = parse_trail(SANTA_FE_TRAIL);
         let mut tiles: Vec<GridTile> = Vec::with_capacity(GRID_SIZE * GRID_SIZE);
@@ -744,12 +743,16 @@ impl crate::render::AsciiRenderable for SantaFeAnt {
                 let (ch, style) = if row == arow && col == acol {
                     (
                         heading_glyph(self.state.heading),
-                        SpanStyle::default().fg(AGENT_FG).with_modifier(AGENT_MODIFIER),
+                        SpanStyle::default()
+                            .fg(AGENT_FG)
+                            .with_modifier(AGENT_MODIFIER),
                     )
                 } else if *live {
                     (
                         '#',
-                        SpanStyle::default().fg(GOAL_FG).with_modifier(GOAL_MODIFIER),
+                        SpanStyle::default()
+                            .fg(GOAL_FG)
+                            .with_modifier(GOAL_MODIFIER),
                     )
                 } else if *orig {
                     ('·', SpanStyle::default().dim())
@@ -757,14 +760,20 @@ impl crate::render::AsciiRenderable for SantaFeAnt {
                     ('.', SpanStyle::default())
                 };
                 if style != current_style && !current_text.is_empty() {
-                    spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+                    spans.push(StyledSpan::new(
+                        std::mem::take(&mut current_text),
+                        current_style,
+                    ));
                 }
                 current_style = style;
                 current_text.push(ch);
                 current_text.push(' ');
             }
             if !current_text.is_empty() {
-                spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+                spans.push(StyledSpan::new(
+                    std::mem::take(&mut current_text),
+                    current_style,
+                ));
             }
             lines.push(StyledLine::from_spans(std::mem::take(&mut spans)));
             current_style = SpanStyle::default();
@@ -785,7 +794,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = SantaFeAntConfig { max_steps: 0, render: false };
+        let bad = SantaFeAntConfig {
+            max_steps: 0,
+            render: false,
+        };
         assert!(SantaFeAnt::with_config(bad).is_err());
     }
 
@@ -925,10 +937,12 @@ mod tests {
         // From (0,0): east → (0,1) food; south → (1,0) empty;
         // west → (0,31) empty (wrap); north → (31,0) empty (wrap).
         let mut e = env();
-        assert!(<SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e)
-            .expect("reset")
-            .observation()
-            .food_ahead); // east, (0,1) is food
+        assert!(
+            <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e)
+                .expect("reset")
+                .observation()
+                .food_ahead
+        ); // east, (0,1) is food
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
@@ -1101,7 +1115,10 @@ mod tests {
     }
 
     fn floor_count(snap: &rlevo_core::render::payload::GridSnapshot) -> usize {
-        snap.tiles.iter().filter(|t| matches!(t, GridTile::Floor)).count()
+        snap.tiles
+            .iter()
+            .filter(|t| matches!(t, GridTile::Floor))
+            .count()
     }
 
     #[test]
@@ -1119,7 +1136,12 @@ mod tests {
         // Ant at the origin facing East, carrying nothing.
         assert_eq!(
             snap.agent,
-            GridAgentMarker { x: 0, y: 0, dir: GridDir::East, carrying: None }
+            GridAgentMarker {
+                x: 0,
+                y: 0,
+                dir: GridDir::East,
+                carrying: None
+            }
         );
     }
 
@@ -1138,7 +1160,12 @@ mod tests {
         assert_eq!(floor_count(&snap), 2);
         assert_eq!(
             snap.agent,
-            GridAgentMarker { x: 2, y: 0, dir: GridDir::East, carrying: None }
+            GridAgentMarker {
+                x: 2,
+                y: 0,
+                dir: GridDir::East,
+                carrying: None
+            }
         );
     }
 

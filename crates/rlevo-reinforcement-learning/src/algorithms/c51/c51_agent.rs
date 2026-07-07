@@ -18,11 +18,11 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
+use crate::memory::ReplayBufferError;
+use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
-use crate::memory::ReplayBufferError;
-use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::c51::c51_config::C51TrainingConfig;
 use crate::algorithms::c51::c51_model::C51Model;
@@ -295,8 +295,7 @@ where
         let logits: Tensor<B::InnerBackend, 3> = M::forward_inner(net, batched); // (1, A, N)
         let probs: Tensor<B::InnerBackend, 3> = activation::softmax(logits, 2);
         let support_3d: Tensor<B::InnerBackend, 3> = support.clone().unsqueeze::<3>(); // (1, 1, N)
-        let q: Tensor<B::InnerBackend, 2> =
-            (probs * support_3d).sum_dim(2).squeeze_dim::<2>(2); // (1, A)
+        let q: Tensor<B::InnerBackend, 2> = (probs * support_3d).sum_dim(2).squeeze_dim::<2>(2); // (1, A)
         let idx = q.argmax(1).into_scalar();
         A::from_index(idx.elem::<i64>() as usize)
     }

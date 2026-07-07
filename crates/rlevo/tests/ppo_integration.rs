@@ -171,11 +171,19 @@ rl_reproducibility_test! {
 fn ppo_agent_new_rejects_multiple_envs() {
     let _guard = flex_guard();
     let device = seeded_device::<Be>(1);
-    let policy = CategoricalPolicyHeadConfig { obs_dim: 4, hidden: 64, num_actions: 2 }
-        .init::<Be>(&device);
+    let policy = CategoricalPolicyHeadConfig {
+        obs_dim: 4,
+        hidden: 64,
+        num_actions: 2,
+    }
+    .init::<Be>(&device);
     let value = ValueMlp::new(4, 64, &device);
-    let config = PpoTrainingConfig { num_envs: 2, ..PpoTrainingConfig::default() };
-    let result = PpoAgent::<Be, _, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
+    let config = PpoTrainingConfig {
+        num_envs: 2,
+        ..PpoTrainingConfig::default()
+    };
+    let result =
+        PpoAgent::<Be, _, _, CartPoleObservation, 1, 2>::new(policy, value, config, device, 1);
     let err = result.unwrap_err();
     assert_eq!(err.field, "num_envs");
 }
@@ -195,7 +203,10 @@ fn ppo_cartpole_produces_finite_rewards() {
     )
     .expect("training");
     let history = &agent.stats().recent_history;
-    assert_all_finite("reward", &history.iter().map(|m| m.reward).collect::<Vec<_>>());
+    assert_all_finite(
+        "reward",
+        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+    );
     assert_all_finite(
         "policy_loss",
         &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
@@ -264,7 +275,8 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
         Pendulum::with_config(PendulumConfig {
             seed,
             ..PendulumConfig::default()
-        }).expect("valid config"),
+        })
+        .expect("valid config"),
         200,
     );
     let mut rng = StdRng::seed_from_u64(seed);
@@ -290,11 +302,18 @@ fn random_pendulum(seed: u64) -> f32 {
         Pendulum::with_config(PendulumConfig {
             seed,
             ..PendulumConfig::default()
-        }).expect("valid config"),
+        })
+        .expect("valid config"),
         200,
     );
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
+    random_return(
+        &mut env,
+        100,
+        200,
+        &mut rng,
+        uniform_bounded::<1, PendulumAction>,
+    )
 }
 
 // Well-trained PPO clears -200; a uniform-random torque policy scores

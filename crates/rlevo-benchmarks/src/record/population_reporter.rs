@@ -85,8 +85,7 @@ mod tests {
 
     #[test]
     fn reporter_forwards_snapshot_to_sink() {
-        let probe: Arc<Mutex<InMemoryRecordSink>> =
-            Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
         let sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
         sink.lock().on_episode_start(0);
         let mut reporter = PopulationReporter::new(sink);

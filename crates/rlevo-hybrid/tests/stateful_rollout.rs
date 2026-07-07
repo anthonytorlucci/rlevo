@@ -79,7 +79,10 @@ struct AlternatingEnv {
 
 impl AlternatingEnv {
     fn new(max_steps: usize) -> Self {
-        Self { steps: 0, max_steps }
+        Self {
+            steps: 0,
+            max_steps,
+        }
     }
 }
 
@@ -269,7 +272,12 @@ impl<B: Backend> GruPolicy<B> {
 
     /// Forward one step, mutating the hidden state, and return the 3 action
     /// logits. Shared by `act` and the recurrence test.
-    fn forward_logits(&self, food_ahead: bool, h: &mut Tensor<B, 2>, device: &B::Device) -> [f32; 3] {
+    fn forward_logits(
+        &self,
+        food_ahead: bool,
+        h: &mut Tensor<B, 2>,
+        device: &B::Device,
+    ) -> [f32; 3] {
         let v: f32 = if food_ahead { 1.0 } else { 0.0 };
         let x = Tensor::<B, 3>::from_floats([[[v]]], device);
         let out = self.gru.forward(x, Some(h.clone())); // [1, 1, H]

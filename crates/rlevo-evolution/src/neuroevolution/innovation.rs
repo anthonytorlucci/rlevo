@@ -152,7 +152,11 @@ mod tests {
     #[test]
     fn test_registry_starts_after_seed() {
         let registry = InnovationRegistry::new(3, 2);
-        assert_eq!(registry.next_node_id().get(), 3, "node ids start after I+O seed nodes");
+        assert_eq!(
+            registry.next_node_id().get(),
+            3,
+            "node ids start after I+O seed nodes"
+        );
         assert_eq!(
             registry.next_innovation().get(),
             2,
@@ -169,7 +173,10 @@ mod tests {
         assert_eq!(a.get(), 2);
         assert_eq!(b.get(), 3);
         // The same pair re-uses the cached id (crossover alignment).
-        assert_eq!(registry.register_connection(NodeId::new(0), NodeId::new(2)), a);
+        assert_eq!(
+            registry.register_connection(NodeId::new(0), NodeId::new(2)),
+            a
+        );
         assert_eq!(registry.next_innovation().get(), 4);
     }
 
@@ -177,7 +184,11 @@ mod tests {
     fn test_register_node_split_caches_and_allocates_one_node_two_innovs() {
         let registry = InnovationRegistry::new(3, 2);
         let s = registry.register_node_split(InnovationId::new(0));
-        assert_eq!(s.new_node.get(), 3, "first hidden node id is after the seed nodes");
+        assert_eq!(
+            s.new_node.get(),
+            3,
+            "first hidden node id is after the seed nodes"
+        );
         assert_eq!(s.in_innov.get(), 2);
         assert_eq!(s.out_innov.get(), 3);
         assert_eq!(registry.next_node_id().get(), 4);

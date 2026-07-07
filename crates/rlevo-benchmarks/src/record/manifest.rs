@@ -244,7 +244,12 @@ mod tests {
                 metric: Some(200.0),
                 digest: Some([2u8; 16]),
             }],
-            ..RunManifest::new(RunId("20260527-120000-abc123".into()), 42, EnvFamily::Classic, 1)
+            ..RunManifest::new(
+                RunId("20260527-120000-abc123".into()),
+                42,
+                EnvFamily::Classic,
+                1,
+            )
         }
     }
 

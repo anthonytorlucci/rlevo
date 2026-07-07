@@ -485,7 +485,10 @@ impl<B: Backend, E: BatchPhenotypeEvaluator<B>> GraphFitnessFn<B> for BatchGraph
             .evaluator
             .evaluate_population(population, self.obs.clone(), device);
         let [pop, batch, action] = out.dims();
-        let flat = out.into_data().into_vec::<f32>().expect("output tensor must be readable as f32");
+        let flat = out
+            .into_data()
+            .into_vec::<f32>()
+            .expect("output tensor must be readable as f32");
         let slab = batch * action;
         (0..pop)
             .map(|p| (self.reducer)(&flat[p * slab..(p + 1) * slab]))
@@ -555,7 +558,11 @@ fn produce_offspring(
 /// Number of top-fitness members eligible to reproduce (at least one).
 fn eligible_count(size: usize, survival_threshold: f32) -> usize {
     // Casts: species sizes are small positive integers.
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     let raw = (size as f32 * survival_threshold).ceil() as usize;
     raw.max(1).min(size)
 }
@@ -871,10 +878,17 @@ fn crossover(
     let child_conns = probe.connections;
 
     // Node genes: prefer the fitter parent; always include all input/output nodes.
-    let (primary, secondary) = if p1_fitter || equal { (p1, p2) } else { (p2, p1) };
+    let (primary, secondary) = if p1_fitter || equal {
+        (p1, p2)
+    } else {
+        (p2, p1)
+    };
     let mut node_map: HashMap<NodeId, NodeGene> = HashMap::new();
     for node in &primary.nodes {
-        if matches!(node.kind, NodeKind::Input | NodeKind::Output | NodeKind::Bias) {
+        if matches!(
+            node.kind,
+            NodeKind::Input | NodeKind::Output | NodeKind::Bias
+        ) {
             node_map.insert(node.id, node.clone());
         }
     }
@@ -979,15 +993,28 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(3);
         let child = crossover(&p1, 2.0, &p2, 1.0, &params, &mut rng);
 
-        let innovs: Vec<u64> = child.connections.iter().map(|c| c.innovation.get()).collect();
+        let innovs: Vec<u64> = child
+            .connections
+            .iter()
+            .map(|c| c.innovation.get())
+            .collect();
         assert_eq!(
             innovs,
             vec![0, 1, 2, 3],
             "matching (0,1) + fitter disjoint/excess (2,3); less-fit excess (4) dropped"
         );
-        assert!(child.is_innovation_sorted(), "child stays innovation-sorted");
-        assert!(child.node(NodeId::new(4)).is_none(), "node only reachable via dropped gene is excluded");
-        assert!(child.node(NodeId::new(3)).is_some(), "hidden node from inherited gene is kept");
+        assert!(
+            child.is_innovation_sorted(),
+            "child stays innovation-sorted"
+        );
+        assert!(
+            child.node(NodeId::new(4)).is_none(),
+            "node only reachable via dropped gene is excluded"
+        );
+        assert!(
+            child.node(NodeId::new(3)).is_some(),
+            "hidden node from inherited gene is kept"
+        );
     }
 
     /// Equal fitness inherits disjoint/excess from both parents.
@@ -1003,8 +1030,16 @@ mod tests {
         let params = NeatParams::default_for(10, 2, 1);
         let mut rng = StdRng::seed_from_u64(5);
         let child = crossover(&p1, 1.0, &p2, 1.0, &params, &mut rng);
-        let innovs: Vec<u64> = child.connections.iter().map(|c| c.innovation.get()).collect();
-        assert_eq!(innovs, vec![0, 2, 3], "equal fitness keeps disjoint/excess from both");
+        let innovs: Vec<u64> = child
+            .connections
+            .iter()
+            .map(|c| c.innovation.get())
+            .collect();
+        assert_eq!(
+            innovs,
+            vec![0, 2, 3],
+            "equal fitness keeps disjoint/excess from both"
+        );
     }
 
     /// Add-connection never closes a cycle: in a fully-connected feedforward
@@ -1037,7 +1072,10 @@ mod tests {
             mutate_add_connection(&mut g, &params, &registry, &mut rng);
         }
         assert_eq!(g.connections.len(), before, "no cyclic edge is ever added");
-        assert!(!g.is_connected(NodeId::new(3), NodeId::new(2)), "the back-edge 3->2 is rejected");
+        assert!(
+            !g.is_connected(NodeId::new(3), NodeId::new(2)),
+            "the back-edge 3->2 is rejected"
+        );
     }
 
     /// Add-node splits an enabled connection: disables it, inserts one hidden
@@ -1054,7 +1092,11 @@ mod tests {
         mutate_add_node(&mut g, &registry, &mut rng);
 
         assert_eq!(g.nodes.len(), nodes_before + 1, "one hidden node inserted");
-        assert_eq!(g.connections.len(), conns_before + 2, "split adds two connections");
+        assert_eq!(
+            g.connections.len(),
+            conns_before + 2,
+            "split adds two connections"
+        );
         assert_eq!(
             g.connections.iter().filter(|c| !c.enabled).count(),
             1,
@@ -1066,8 +1108,15 @@ mod tests {
             .filter(|n| matches!(n.kind, NodeKind::Hidden))
             .collect();
         assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].id.get(), 3, "new hidden node id follows the seed nodes");
-        assert!(g.is_innovation_sorted(), "connections stay innovation-sorted");
+        assert_eq!(
+            hidden[0].id.get(),
+            3,
+            "new hidden node id follows the seed nodes"
+        );
+        assert!(
+            g.is_innovation_sorted(),
+            "connections stay innovation-sorted"
+        );
         assert!(
             g.connections
                 .iter()
@@ -1105,7 +1154,13 @@ mod tests {
             node(3, NodeKind::Hidden),
         ];
         let conns = vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 0.5, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 0.5,
+                enabled: true,
+            },
             ConnectionGene {
                 innovation: split.in_innov,
                 source: NodeId::new(0),
@@ -1128,8 +1183,16 @@ mod tests {
 
         mutate_add_node(&mut g, &registry, &mut rng);
 
-        assert_eq!(g.nodes.len(), nodes_before, "guard prevents a duplicate split node");
-        assert_eq!(g.connections.len(), conns_before, "no duplicate split edges added");
+        assert_eq!(
+            g.nodes.len(),
+            nodes_before,
+            "guard prevents a duplicate split node"
+        );
+        assert_eq!(
+            g.connections.len(),
+            conns_before,
+            "no duplicate split edges added"
+        );
     }
 
     /// `ask`/`tell` run a few generations, preserving `pop_size` and tracking the
@@ -1169,10 +1232,17 @@ mod tests {
 
         for _ in 0..8 {
             let (population, next) = strat.ask(&params, &state, &mut rng);
-            assert_eq!(population.len(), params.pop_size, "ask returns pop_size genomes");
+            assert_eq!(
+                population.len(),
+                params.pop_size,
+                "ask returns pop_size genomes"
+            );
             let fitness = fitness_fn.evaluate(&population, &builder, &device);
             state = strat.tell(&params, population, fitness, next, &mut rng);
-            assert!(!state.species.is_empty(), "speciation always yields >= 1 species");
+            assert!(
+                !state.species.is_empty(),
+                "speciation always yields >= 1 species"
+            );
         }
         assert_eq!(state.generation, 8);
         let (_, best) = strat.best(&state).expect("best exists after tell");
@@ -1217,7 +1287,10 @@ mod tests {
         // The champion is the sanitized +∞ = f32::MAX: ranks top but is finite,
         // and is never the NaN member.
         let (_, best) = strat.best(&state).expect("best exists after tell");
-        assert!(best.is_finite(), "champion fitness is finite (never NaN/±∞); got {best}");
+        assert!(
+            best.is_finite(),
+            "champion fitness is finite (never NaN/±∞); got {best}"
+        );
         approx::assert_relative_eq!(best, f32::MAX);
 
         // No species' best or size-adjusted mean is NaN-poisoned.

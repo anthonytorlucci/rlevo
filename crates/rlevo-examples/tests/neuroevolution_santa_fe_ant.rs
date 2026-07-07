@@ -28,7 +28,8 @@ fn random_baseline(seed: u64, episodes: usize) -> f32 {
     let mut env = SantaFeAnt::with_config(SantaFeAntConfig {
         max_steps: MAX_STEPS,
         render: false,
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut rng = StdRng::seed_from_u64(seed);
     random_return(
         &mut env,
@@ -45,7 +46,8 @@ fn reflex_plateau() -> f32 {
     let mut env = SantaFeAnt::with_config(SantaFeAntConfig {
         max_steps: MAX_STEPS,
         render: false,
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut snap = env.reset().expect("reset");
     let mut eaten = 0.0_f32;
     loop {

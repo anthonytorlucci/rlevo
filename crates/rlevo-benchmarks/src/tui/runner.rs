@@ -302,12 +302,7 @@ pub fn apply_event(state: &mut AppState, event: TuiEvent) {
 /// Editing this constant rearranges the live dashboard without touching
 /// layout math or widget construction — the loop in [`draw_dashboard`]
 /// reads it verbatim.
-pub const DASHBOARD_METRICS: &[&str] = &[
-    "policy_loss",
-    "entropy",
-    "approx_kl",
-    "best_fitness",
-];
+pub const DASHBOARD_METRICS: &[&str] = &["policy_loss", "entropy", "approx_kl", "best_fitness"];
 
 /// Total height (in cells) of the log block, including its border.
 const LOG_BLOCK_HEIGHT: u16 = 10;
@@ -404,8 +399,7 @@ fn render_log_block(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 /// Wrap [`format_status`] in a dimmed [`Paragraph`] widget for the bottom
 /// status row.
 fn status_paragraph(status: &StatusLine) -> Paragraph<'static> {
-    Paragraph::new(format_status(status))
-        .style(Style::default().add_modifier(RatModifier::DIM))
+    Paragraph::new(format_status(status)).style(Style::default().add_modifier(RatModifier::DIM))
 }
 
 /// Format the bottom status line. Pure — split out so the formatting is
@@ -573,7 +567,10 @@ mod tests {
         assert!(out.contains("suite: smoke"));
         assert!(out.contains("env: cartpole"));
         // episode field is 1-based for display ((idx + 1) = 5)
-        assert!(out.contains("episode 5/10"), "missing episode counter in {out:?}");
+        assert!(
+            out.contains("episode 5/10"),
+            "missing episode counter in {out:?}"
+        );
         assert!(out.contains("last return: 195.50"));
         assert!(!out.contains("finished"));
     }
@@ -742,7 +739,8 @@ mod tests {
         let mut state = AppState::default();
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        let join = thread::spawn(move || render_loop(&mut terminal, &mut state, &rx, &shutdown, 20));
+        let join =
+            thread::spawn(move || render_loop(&mut terminal, &mut state, &rx, &shutdown, 20));
 
         drop(tx);
         join.join().unwrap().expect("render_loop io");

@@ -22,21 +22,21 @@
 
 use burn::backend::Flex;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_environments::landscapes::concatenated_trap::ConcatenatedTrap;
 use rlevo_environments::landscapes::rosenbrock::Rosenbrock;
 use rlevo_environments::landscapes::sphere::Sphere;
 use rlevo_evolution::algorithms::eda::{
-    BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
-    UnivariateBernoulliParams, UnivariateGaussianParams,
+    BayesianNetworkParams, CompactGeneticParams, DependencyChainParams, UnivariateBernoulliParams,
+    UnivariateGaussianParams,
 };
-use rlevo_core::bounds::Bounds;
-use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 use rlevo_evolution::{
-    BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy,
-    ProbabilityModel, UnivariateBernoulli, UnivariateGaussian,
+    BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy, ProbabilityModel,
+    UnivariateBernoulli, UnivariateGaussian,
 };
 
 type B = Flex;
@@ -103,7 +103,8 @@ where
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {

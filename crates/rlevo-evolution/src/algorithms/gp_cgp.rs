@@ -367,8 +367,16 @@ where
     /// Samples the initial parent genome by drawing random node functions and
     /// feed-forward input connections via `rng`, then uploads the genotype as
     /// a `(1, genome_len)` integer tensor.
-    fn init(&self, params: &CgpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CgpState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid CgpConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &CgpConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> CgpState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid CgpConfig reached init: {params:?}"
+        );
         let genome_vec = Self::sample_initial_genome(params, rng);
         let parent = Tensor::<B, 2, Int>::from_data(
             TensorData::new(genome_vec, [1, params.genome_len()]),
@@ -442,7 +450,10 @@ where
         mut state: CgpState<B>,
         _rng: &mut dyn Rng,
     ) -> (CgpState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         if state.parent_fitness.is_none() {
             // First tell: initial parent fitness. Sanitize so a NaN seed cannot
@@ -715,7 +726,8 @@ mod tests {
             21,
             device,
             2000,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

@@ -161,21 +161,53 @@ fn neat_xor_generation(c: &mut Criterion) {
 /// sigmoid hidden nodes → `1` linear output, fully connected, random weights.
 fn wide_genome(num_hidden: usize, rng: &mut StdRng) -> TopologyGenome {
     let mut nodes = vec![
-        NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-        NodeGene { id: NodeId::new(1), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-        NodeGene { id: NodeId::new(2), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.0 },
+        NodeGene {
+            id: NodeId::new(0),
+            kind: NodeKind::Input,
+            activation: ActivationFn::Linear,
+            bias: 0.0,
+        },
+        NodeGene {
+            id: NodeId::new(1),
+            kind: NodeKind::Input,
+            activation: ActivationFn::Linear,
+            bias: 0.0,
+        },
+        NodeGene {
+            id: NodeId::new(2),
+            kind: NodeKind::Output,
+            activation: ActivationFn::Linear,
+            bias: 0.0,
+        },
     ];
     let mut conns = Vec::new();
     let mut innovation = InnovationId::new(0);
     let weight = |rng: &mut StdRng| rng.random::<f32>() - 0.5;
     for h in 0..num_hidden {
         let id = NodeId::new(3 + h as u64);
-        nodes.push(NodeGene { id, kind: NodeKind::Hidden, activation: ActivationFn::Sigmoid, bias: 0.0 });
+        nodes.push(NodeGene {
+            id,
+            kind: NodeKind::Hidden,
+            activation: ActivationFn::Sigmoid,
+            bias: 0.0,
+        });
         for source in [NodeId::new(0), NodeId::new(1)] {
-            conns.push(ConnectionGene { innovation, source, target: id, weight: weight(rng), enabled: true });
+            conns.push(ConnectionGene {
+                innovation,
+                source,
+                target: id,
+                weight: weight(rng),
+                enabled: true,
+            });
             innovation = InnovationId::new(innovation.get() + 1);
         }
-        conns.push(ConnectionGene { innovation, source: id, target: NodeId::new(2), weight: weight(rng), enabled: true });
+        conns.push(ConnectionGene {
+            innovation,
+            source: id,
+            target: NodeId::new(2),
+            weight: weight(rng),
+            enabled: true,
+        });
         innovation = InnovationId::new(innovation.get() + 1);
     }
     TopologyGenome::new(nodes, conns)
@@ -188,14 +220,21 @@ fn neat_eval_scale(c: &mut Criterion) {
     let builder = InterpretedBuilder;
     let evaluator = DensePaddedEvaluator::default();
     // A 16-row observation batch gives the device a non-trivial amount of work.
-    let obs_rows: Vec<f32> = [0.0f32, 0.5, 0.25].iter().cycle().take(32).copied().collect();
+    let obs_rows: Vec<f32> = [0.0f32, 0.5, 0.25]
+        .iter()
+        .cycle()
+        .take(32)
+        .copied()
+        .collect();
     let obs = Tensor::<B, 2>::from_data(TensorData::new(obs_rows, [16, 2]), &device);
 
     let mut group = c.benchmark_group("neat_eval_scale");
     group.sample_size(10);
     for &num_hidden in &[10usize, 50, 100] {
         let mut rng = StdRng::seed_from_u64(7);
-        let pop: Vec<TopologyGenome> = (0..256).map(|_| wide_genome(num_hidden, &mut rng)).collect();
+        let pop: Vec<TopologyGenome> = (0..256)
+            .map(|_| wide_genome(num_hidden, &mut rng))
+            .collect();
 
         group.bench_function(format!("interpreted_p256_h{num_hidden}"), |b| {
             b.iter(|| {
@@ -203,7 +242,12 @@ fn neat_eval_scale(c: &mut Criterion) {
                 for genome in &pop {
                     let net = PhenotypeBuilder::<B>::build(&builder, genome, &device);
                     let out = net.forward(obs.clone());
-                    acc += out.into_data().into_vec::<f32>().unwrap().iter().sum::<f32>();
+                    acc += out
+                        .into_data()
+                        .into_vec::<f32>()
+                        .unwrap()
+                        .iter()
+                        .sum::<f32>();
                 }
                 black_box(acc)
             });
@@ -211,7 +255,13 @@ fn neat_eval_scale(c: &mut Criterion) {
         group.bench_function(format!("batched_p256_h{num_hidden}"), |b| {
             b.iter(|| {
                 let out = evaluator.evaluate_population(&pop, obs.clone(), &device);
-                black_box(out.into_data().into_vec::<f32>().unwrap().iter().sum::<f32>())
+                black_box(
+                    out.into_data()
+                        .into_vec::<f32>()
+                        .unwrap()
+                        .iter()
+                        .sum::<f32>(),
+                )
             });
         });
     }

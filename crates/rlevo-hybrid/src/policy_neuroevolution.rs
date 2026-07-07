@@ -11,8 +11,8 @@ use burn::tensor::{Tensor, backend::Backend};
 
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::Environment;
-use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
 use rlevo_evolution::WeightOnly;
+use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};
 
 use crate::policy::StatefulPolicy;
 use crate::rollout_fitness::RolloutFitness;

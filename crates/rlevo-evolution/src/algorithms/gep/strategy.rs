@@ -388,7 +388,10 @@ where
         mut state: GepState<B>,
         _rng: &mut dyn Rng,
     ) -> (GepState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         update_best(&mut state, &population, &fitness_host);
         state.population = population;
@@ -542,7 +545,8 @@ mod tests {
         let fitness = GepSymRegression::new(alphabet(n_vars), genome_len, inputs, targets);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, cfg, fitness, seed, device, max_gens,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {
@@ -596,10 +600,12 @@ mod tests {
         let device = Default::default();
         let cfg = GepConfig::new(7, 2, 1, 4).unwrap();
         let genome_len = cfg.genome_len();
-        let mut fitness =
-            GepSymRegression::new(alphabet(1), genome_len, vec![vec![0.5], vec![-0.5]], vec![
-                0.25, 0.25,
-            ]);
+        let mut fitness = GepSymRegression::new(
+            alphabet(1),
+            genome_len,
+            vec![vec![0.5], vec![-0.5]],
+            vec![0.25, 0.25],
+        );
         // A valid chromosome: every locus is variable `x` (id 8), which decodes
         // to the single-node tree `x`. An all-zeros genome would be all `add`
         // with no terminal tail — a malformed chromosome that trips the separate

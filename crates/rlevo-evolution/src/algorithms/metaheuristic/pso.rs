@@ -204,7 +204,11 @@ impl<B: Backend> ParticleSwarm<B> {
         }
     }
 
-    fn sample_positions(params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
+    fn sample_positions(
+        params: &PsoConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
@@ -229,8 +233,16 @@ where
     type State = PsoState<B>;
     type Genome = Tensor<B, 2>;
 
-    fn init(&self, params: &PsoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> PsoState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid PsoConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &PsoConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> PsoState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid PsoConfig reached init: {params:?}"
+        );
         let positions = Self::sample_positions(params, rng, device);
         let velocities = Tensor::<B, 2>::zeros([params.pop_size, params.genome_dim], device);
         let personal_best = positions.clone();
@@ -274,8 +286,11 @@ where
             Tensor::<B, 2>::from_data(TensorData::new(rows, [pop, genome_dim]), device)
         };
         let r2 = {
-            let mut s =
-                seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Mutation);
+            let mut s = seed_stream(
+                rng.next_u64(),
+                state.generation as u64,
+                SeedPurpose::Mutation,
+            );
             let mut rows = Vec::with_capacity(pop * genome_dim);
             for _ in 0..pop * genome_dim {
                 rows.push(s.random::<f32>());
@@ -324,7 +339,10 @@ where
         mut state: PsoState<B>,
         _rng: &mut dyn Rng,
     ) -> (PsoState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = population.device();
 
         // First tell: seed personal-bests.
@@ -457,7 +475,8 @@ mod tests {
             seed,
             device,
             generations,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

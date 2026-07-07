@@ -15,13 +15,14 @@
 use rlevo_benchmarks::record::{
     Box2dPayload as NativeBox2dPayload, CheckpointFormat as NativeCheckpointFormat,
     CheckpointKind as NativeCheckpointKind, CheckpointRef as NativeCheckpointRef,
-    EnvFamily as NativeFamily, EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
-    EpisodeRecordHeader as NativeHeader, Classic2DPayload as NativeClassic2DPayload,
-    FORMAT_VERSION as NATIVE_VERSION, FamilyPayload as NativePayload, FrameRecord as NativeFrame,
-    GridPayload as NativeGridPayload, Landscape2DPayload as NativeLandscapePayload,
-    Locomotion2DPayload as NativeLocomotionPayload, MetricSample as NativeMetric,
-    PopulationSample as NativePopulationSample, RunId as NativeRunId, RunManifest as NativeManifest,
-    TabularPayload as NativeTabularPayload, TrialRef as NativeTrialRef, bincode_config,
+    Classic2DPayload as NativeClassic2DPayload, EnvFamily as NativeFamily,
+    EpisodeKind as NativeEpisodeKind, EpisodeRecord as NativeRecord,
+    EpisodeRecordHeader as NativeHeader, FORMAT_VERSION as NATIVE_VERSION,
+    FamilyPayload as NativePayload, FrameRecord as NativeFrame, GridPayload as NativeGridPayload,
+    Landscape2DPayload as NativeLandscapePayload, Locomotion2DPayload as NativeLocomotionPayload,
+    MetricSample as NativeMetric, PopulationSample as NativePopulationSample, RunId as NativeRunId,
+    RunManifest as NativeManifest, TabularPayload as NativeTabularPayload,
+    TrialRef as NativeTrialRef, bincode_config,
 };
 use rlevo_benchmarks_report_client::wire as client;
 use rlevo_core::objective::ObjectiveSense as NativeObjectiveSense;
@@ -251,8 +252,7 @@ const _: () = assert!(
     "FORMAT_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
 );
 const _: () = assert!(
-    rlevo_benchmarks::record::MIN_SUPPORTED_VERSION
-        == client::MIN_SUPPORTED_VERSION,
+    rlevo_benchmarks::record::MIN_SUPPORTED_VERSION == client::MIN_SUPPORTED_VERSION,
     "MIN_SUPPORTED_VERSION mismatch: bump wire.rs to match schema.rs (or vice-versa)",
 );
 
@@ -326,9 +326,9 @@ fn native_encode_decodes_via_client_wire_types() {
                     assert_eq!(mb.closed, nb.closed);
                 }
             }
-            (other_m, other_n) => panic!(
-                "family_payload variant mismatch: client={other_m:?} native={other_n:?}"
-            ),
+            (other_m, other_n) => {
+                panic!("family_payload variant mismatch: client={other_m:?} native={other_n:?}")
+            }
         }
     }
     assert_eq!(mirrored.metrics.len(), native.metrics.len());
@@ -337,7 +337,10 @@ fn native_encode_decodes_via_client_wire_types() {
         assert_eq!(m.name, n.name);
         assert!((m.value - n.value).abs() < 1e-9);
     }
-    assert_eq!(mirrored.population_samples.len(), native.population_samples.len());
+    assert_eq!(
+        mirrored.population_samples.len(),
+        native.population_samples.len()
+    );
     for (m, n) in mirrored
         .population_samples
         .iter()
@@ -402,8 +405,7 @@ fn client_decode_episode_record_walks_full_wire_stream() {
     bytes.extend_from_slice(&NATIVE_VERSION.to_le_bytes());
     bytes.extend_from_slice(&[0u8; 14]);
 
-    let header_bytes =
-        bincode::serde::encode_to_vec(&native.header, bincode_config()).unwrap();
+    let header_bytes = bincode::serde::encode_to_vec(&native.header, bincode_config()).unwrap();
     bytes.extend_from_slice(&u32::try_from(header_bytes.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&header_bytes);
 
@@ -414,8 +416,7 @@ fn client_decode_episode_record_walks_full_wire_stream() {
         // Bincode-encode the native frame directly — the wire layout
         // is byte-identical across the host/client mirror by
         // construction, so we don't manually rebuild the variant.
-        let native_chunk_bytes =
-            bincode::serde::encode_to_vec(frame, bincode_config()).unwrap();
+        let native_chunk_bytes = bincode::serde::encode_to_vec(frame, bincode_config()).unwrap();
         // Wrap into a client-side RecordChunk::Frame by prefixing the
         // enum tag (0 = Frame).
         let mut chunk_bytes: Vec<u8> = Vec::with_capacity(native_chunk_bytes.len() + 1);
@@ -450,16 +451,19 @@ fn client_decode_episode_record_walks_full_wire_stream() {
             parents_of_best: sample.parents_of_best.clone(),
             inner_rl_returns: sample.inner_rl_returns.clone(),
         });
-        let payload =
-            bincode::serde::encode_to_vec(&chunk, client::bincode_config()).unwrap();
+        let payload = bincode::serde::encode_to_vec(&chunk, client::bincode_config()).unwrap();
         bytes.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_le_bytes());
         bytes.extend_from_slice(&payload);
     }
 
-    let decoded = client::decode_episode_record(&bytes).expect("client decoder accepts native bytes");
+    let decoded =
+        client::decode_episode_record(&bytes).expect("client decoder accepts native bytes");
     assert_eq!(decoded.frames.len(), native.frames.len());
     assert_eq!(decoded.metrics.len(), 2);
-    assert_eq!(decoded.population_samples.len(), native.population_samples.len());
+    assert_eq!(
+        decoded.population_samples.len(),
+        native.population_samples.len()
+    );
     assert_eq!(decoded.population_samples[0].generation, 0);
     assert_eq!(decoded.population_samples[1].generation, 1);
     assert_eq!(decoded.header.seed, 11);
@@ -480,6 +484,12 @@ fn client_decode_episode_record_walks_full_wire_stream() {
     // Suppress the otherwise-unused imports for the styled types: we
     // exercise them via SpanStyle::default() above but want a hard ref
     // to surface "field renamed" failures here too.
-    let _ = (Color::Red, Modifier::default(), SpanStyle::default(),
-             StyledSpan::raw("x"), StyledLine::default(), StyledFrame::default());
+    let _ = (
+        Color::Red,
+        Modifier::default(),
+        SpanStyle::default(),
+        StyledSpan::raw("x"),
+        StyledLine::default(),
+        StyledFrame::default(),
+    );
 }

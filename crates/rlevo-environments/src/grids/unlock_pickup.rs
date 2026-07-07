@@ -377,7 +377,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = UnlockPickupConfig { size: 0, ..Default::default() };
+        let bad = UnlockPickupConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(UnlockPickupEnv::with_config(bad, false).is_err());
     }
 

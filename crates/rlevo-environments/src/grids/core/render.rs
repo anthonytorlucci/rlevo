@@ -6,16 +6,16 @@
 
 use super::agent::AgentState;
 use super::color::Color as GridEntityColor;
-use crate::direction::Direction;
 use super::entity::{DoorState, Entity};
 use super::grid::Grid;
-use rlevo_core::render::payload::{
-    GridAgentMarker, GridColor, GridDir, GridDoorState, GridSnapshot, GridTile,
-};
+use crate::direction::Direction;
 use crate::render::palette::{
     AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, HAZARD_FG, HAZARD_MODIFIER, WALL_FG,
 };
 use crate::render::{SpanStyle, StyledFrame, StyledLine, StyledSpan};
+use rlevo_core::render::payload::{
+    GridAgentMarker, GridColor, GridDir, GridDoorState, GridSnapshot, GridTile,
+};
 
 /// Project a `(Grid, AgentState)` pair into a structured [`GridSnapshot`]
 /// for the report tier (ADR-0013). Pure data — the env-side `Entity` /
@@ -167,7 +167,10 @@ pub fn render_styled(grid: &Grid, agent: &AgentState) -> StyledFrame {
                 glyph_for_entity(grid.get(x, y))
             };
             if style != current_style && !current_text.is_empty() {
-                spans.push(StyledSpan::new(std::mem::take(&mut current_text), current_style));
+                spans.push(StyledSpan::new(
+                    std::mem::take(&mut current_text),
+                    current_style,
+                ));
             }
             current_style = style;
             current_text.push(ch);

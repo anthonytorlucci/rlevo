@@ -210,7 +210,11 @@ impl FunctionSet for ArithmeticFunctionSet {
             1 => a - b,
             2 => a * b,
             3 => {
-                if b.abs() < 1e-6 { a } else { a / b }
+                if b.abs() < 1e-6 {
+                    a
+                } else {
+                    a / b
+                }
             }
             4 => a.sin(),
             5 => a.cos(),
@@ -237,7 +241,11 @@ mod tests {
                 1 => a - b,
                 2 => a * b,
                 3 => {
-                    if b.abs() < 1e-6 { a } else { a / b }
+                    if b.abs() < 1e-6 {
+                        a
+                    } else {
+                        a / b
+                    }
                 }
                 4 => a.sin(),
                 5 => a.cos(),
@@ -276,7 +284,10 @@ mod tests {
     fn apply_propagates_non_finite_arguments() {
         let fs = ArithmeticFunctionSet;
         assert!(fs.apply(Symbol::from_raw(0), &[f32::NAN, 1.0]).is_nan());
-        assert!(fs.apply(Symbol::from_raw(2), &[f32::INFINITY, 2.0]).is_infinite());
+        assert!(
+            fs.apply(Symbol::from_raw(2), &[f32::INFINITY, 2.0])
+                .is_infinite()
+        );
     }
 
     /// Protected division returns the numerator when the denominator is near

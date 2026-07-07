@@ -286,7 +286,10 @@ fn rosenbrock_demo() {
                     || "(all filtered out)".to_string(),
                     |(parent, child)| format!("dim {parent} → dim {child}"),
                 );
-                println!("  {:>4} {mean_abs_mu:>12.5} {mean_sigma:>10.5} {corr:>10.4}  {label}", g + 1);
+                println!(
+                    "  {:>4} {mean_abs_mu:>12.5} {mean_sigma:>10.5} {corr:>10.4}  {label}",
+                    g + 1
+                );
             }
         },
     );
@@ -386,7 +389,10 @@ fn onemax_demo() {
     );
 
     println!("PBIL (seed {ONEMAX_SEED}):");
-    println!("  {:>4} {:>9}  probability vector (0–9, '#'≈1)", "gen", "mean p");
+    println!(
+        "  {:>4} {:>9}  probability vector (0–9, '#'≈1)",
+        "gen", "mean p"
+    );
     let pbil_best = run_eda(
         UnivariateBernoulli,
         &EdaParams {
@@ -399,13 +405,21 @@ fn onemax_demo() {
         ONEMAX_GENS,
         onemax_zeros,
         |g, st: &UnivariateBernoulliState| {
-            println!("  {:>4} {:>9.4}  {}", g + 1, mean(st.prob()), prob_bar(st.prob()));
+            println!(
+                "  {:>4} {:>9.4}  {}",
+                g + 1,
+                mean(st.prob()),
+                prob_bar(st.prob())
+            );
         },
     );
     println!("  → best fitness (0 = all-ones found): {pbil_best:.1}\n");
 
     println!("cGA (seed {ONEMAX_SEED}):");
-    println!("  {:>4} {:>9}  probability vector (0–9, '#'≈1)", "gen", "mean p");
+    println!(
+        "  {:>4} {:>9}  probability vector (0–9, '#'≈1)",
+        "gen", "mean p"
+    );
     let cga_best = run_eda(
         CompactGenetic,
         &EdaParams {
@@ -418,7 +432,12 @@ fn onemax_demo() {
         ONEMAX_GENS,
         onemax_zeros,
         |g, st: &CompactGeneticState| {
-            println!("  {:>4} {:>9.4}  {}", g + 1, mean(st.prob()), prob_bar(st.prob()));
+            println!(
+                "  {:>4} {:>9.4}  {}",
+                g + 1,
+                mean(st.prob()),
+                prob_bar(st.prob())
+            );
         },
     );
     println!("  → best fitness (0 = all-ones found): {cga_best:.1}\n");
@@ -585,11 +604,7 @@ fn trap_demo() {
         |row| trap_fitness(trap, row),
         |g, st: &DependencyChainState| {
             if logged(g) {
-                let max_corr = st
-                    .link_corr
-                    .iter()
-                    .map(|c| c.abs())
-                    .fold(0.0_f32, f32::max);
+                let max_corr = st.link_corr.iter().map(|c| c.abs()).fold(0.0_f32, f32::max);
                 println!("  {:>4} {:>10.5} {max_corr:>10.4}", g + 1, mean(&st.mean));
             }
         },
@@ -601,7 +616,9 @@ fn trap_demo() {
     // generation, not just logged ones) — the structure is transient, so the
     // logged snapshots alone understate the linkage BOA exploited.
     println!("BOA (seed {TRAP_TRACE_SEED}) — bounded-in-degree Bayesian network:");
-    println!("  per-gen edge structure (an edge u→v is intra-block when u/{TRAP_K} == v/{TRAP_K}):");
+    println!(
+        "  per-gen edge structure (an edge u→v is intra-block when u/{TRAP_K} == v/{TRAP_K}):"
+    );
     let mut peak_intra = 0usize;
     let boa_best = run_eda(
         BayesianNetwork,

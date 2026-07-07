@@ -148,8 +148,16 @@ where
     ///
     /// The `pop_size >= 2` invariant is enforced by [`Validate::validate`] at
     /// the harness chokepoint.
-    fn init(&self, params: &SalpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> SalpState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid SalpConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &SalpConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> SalpState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid SalpConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial swarm from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -277,7 +285,10 @@ where
         mut state: SalpState<B>,
         _rng: &mut dyn Rng,
     ) -> (SalpState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);
@@ -352,7 +363,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 3, device, 600,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

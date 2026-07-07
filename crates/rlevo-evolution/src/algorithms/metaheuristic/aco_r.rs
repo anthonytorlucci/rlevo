@@ -169,8 +169,16 @@ where
     /// than `B::seed` + `Tensor::random`; this keeps draws reproducible across
     /// thread schedules when multiple tests or harnesses share the same
     /// process-wide Burn RNG state.
-    fn init(&self, params: &AcoRConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> AcoRState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid AcoRConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &AcoRConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> AcoRState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid AcoRConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial archive from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -251,8 +259,16 @@ where
         let mut sigma_rows = vec![0f32; m * d];
 
         // Gather host-side slices for indexing.
-        let archive_host = state.archive.clone().into_data().into_vec::<f32>().expect("archive tensor must be readable as f32");
-        let sigma_host = sigma.into_data().into_vec::<f32>().expect("sigma tensor must be readable as f32");
+        let archive_host = state
+            .archive
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("archive tensor must be readable as f32");
+        let sigma_host = sigma
+            .into_data()
+            .into_vec::<f32>()
+            .expect("sigma tensor must be readable as f32");
         let cdf: Vec<f32> = {
             let mut acc = 0.0;
             let mut v = Vec::with_capacity(k);
@@ -316,7 +332,10 @@ where
         mut state: AcoRState<B>,
         _rng: &mut dyn Rng,
     ) -> (AcoRState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = population.device();
         let k = params.archive_size;
 
@@ -444,7 +463,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 17, device, 400,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

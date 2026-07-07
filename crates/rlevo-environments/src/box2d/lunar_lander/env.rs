@@ -590,7 +590,7 @@ impl crate::render::AsciiRenderable for LunarLanderDiscrete {
 
 impl LunarLanderCore {
     fn box2d_snapshot(&self) -> rlevo_core::render::Box2dSnapshot {
-        use rlevo_core::render::{Box2dSnapshot, BodyKind, Point2, RigidBody2D};
+        use rlevo_core::render::{BodyKind, Box2dSnapshot, Point2, RigidBody2D};
 
         let view = lander_viewport();
         let world = &self.world;
@@ -726,14 +726,16 @@ mod tests {
 
     #[test]
     fn test_reset_returns_running() {
-        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         let snap = env.reset().unwrap();
         assert!(!snap.is_done());
     }
 
     #[test]
     fn test_shaping_metadata_present() {
-        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
         let meta = snap.metadata().expect("metadata must be Some");
@@ -745,7 +747,8 @@ mod tests {
 
     #[test]
     fn test_d5_continuous_out_of_range() {
-        let mut env = LunarLanderContinuous::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderContinuous::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let bad = LunarLanderContinuousAction([2.0, 0.0]);
         assert!(env.step(bad).is_err(), "D5: out-of-range action must error");
@@ -753,11 +756,15 @@ mod tests {
 
     #[test]
     fn test_wind_constant_affects_obs() {
-        let no_wind_cfg = LunarLanderConfig::builder().seed(1).build().expect("valid config");
+        let no_wind_cfg = LunarLanderConfig::builder()
+            .seed(1)
+            .build()
+            .expect("valid config");
         let wind_cfg = LunarLanderConfig::builder()
             .seed(1)
             .wind_mode(WindMode::Constant { force: 5.0 })
-            .build().expect("valid config");
+            .build()
+            .expect("valid config");
 
         let mut env_no_wind = LunarLanderDiscrete::with_config(no_wind_cfg).expect("valid config");
         let mut env_wind = LunarLanderDiscrete::with_config(wind_cfg).expect("valid config");
@@ -778,7 +785,10 @@ mod tests {
 
     #[test]
     fn test_determinism_no_wind() {
-        let cfg = LunarLanderConfig::builder().seed(99).build().expect("valid config");
+        let cfg = LunarLanderConfig::builder()
+            .seed(99)
+            .build()
+            .expect("valid config");
         let actions = vec![
             LunarLanderDiscreteAction::MainEngine,
             LunarLanderDiscreteAction::DoNothing,
@@ -805,7 +815,8 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
@@ -816,7 +827,8 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
         let label = styled.lines[0]
@@ -832,7 +844,8 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        let mut env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

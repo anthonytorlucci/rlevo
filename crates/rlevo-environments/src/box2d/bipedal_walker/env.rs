@@ -24,7 +24,9 @@ use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -642,7 +644,10 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = BipedalWalkerConfig::builder().seed(42).build().expect("valid config");
+        let cfg = BipedalWalkerConfig::builder()
+            .seed(42)
+            .build()
+            .expect("valid config");
         let actions: Vec<BipedalWalkerAction> = (0..20)
             .map(|i| BipedalWalkerAction([(i as f32 * 0.1).sin(); 4]))
             .collect();
@@ -671,7 +676,8 @@ mod tests {
     fn test_terrain_generator_pluggable() {
         use crate::box2d::bipedal_walker::terrain::FlatTerrain;
         let cfg = BipedalWalkerConfig::default();
-        let mut env = BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain)).expect("valid config");
+        let mut env =
+            BipedalWalker::with_terrain(cfg, Box::new(FlatTerrain)).expect("valid config");
         let snap = env.reset().unwrap();
         assert!(snap.observation().is_finite());
     }
@@ -680,7 +686,8 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
+        let mut env =
+            BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain_no_trailing: String = env.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(env.render_styled().plain_text(), plain_no_trailing);
@@ -691,7 +698,8 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, AGENT_MODIFIER};
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
+        let mut env =
+            BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
         let label = styled.lines[0]
@@ -707,7 +715,8 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
+        let mut env =
+            BipedalWalker::with_config(BipedalWalkerConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

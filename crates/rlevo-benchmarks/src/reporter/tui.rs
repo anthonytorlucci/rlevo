@@ -129,12 +129,7 @@ impl TuiHandle {
     ///
     /// [`TuiCaptureLayer`]: crate::tui::log_layer::TuiCaptureLayer
     #[must_use = "the return value indicates whether the render thread is still listening"]
-    pub fn try_push_log(
-        &self,
-        level: tracing::Level,
-        target: String,
-        message: String,
-    ) -> bool {
+    pub fn try_push_log(&self, level: tracing::Level, target: String, message: String) -> bool {
         self.tx
             .send(TuiEvent::LogLine {
                 level,

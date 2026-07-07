@@ -66,7 +66,10 @@ impl RapierWorld {
     ///
     /// Typical gravity for a 2D side-view: `Vector::new(0.0, -9.8)`.
     pub fn new(gravity: Vector, dt: f32) -> Self {
-        let params = IntegrationParameters { dt, ..IntegrationParameters::default() };
+        let params = IntegrationParameters {
+            dt,
+            ..IntegrationParameters::default()
+        };
         Self {
             bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
@@ -278,7 +281,10 @@ mod tests {
         };
         let a = run(50);
         let b = run(50);
-        assert_eq!(a, b, "same initial conditions must produce identical results");
+        assert_eq!(
+            a, b,
+            "same initial conditions must produce identical results"
+        );
     }
 
     #[test]

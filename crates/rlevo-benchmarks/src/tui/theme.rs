@@ -97,9 +97,7 @@ pub fn log_level_style(level: tracing::Level) -> RatStyle {
             .fg(RatColor::Yellow)
             .add_modifier(RatModifier::BOLD),
         tracing::Level::INFO => RatStyle::default(),
-        tracing::Level::DEBUG | tracing::Level::TRACE => {
-            RatStyle::default().fg(RatColor::DarkGray)
-        }
+        tracing::Level::DEBUG | tracing::Level::TRACE => RatStyle::default().fg(RatColor::DarkGray),
     }
 }
 

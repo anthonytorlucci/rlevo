@@ -142,8 +142,7 @@ mod tests {
 
     #[test]
     fn factory_receives_the_seed() {
-        let suite: Suite<u64> = Suite::new("s", minimal_config())
-            .with_env("seeded", |seed| seed);
+        let suite: Suite<u64> = Suite::new("s", minimal_config()).with_env("seeded", |seed| seed);
 
         let (_, factory) = &suite.envs[0];
         assert_eq!(factory(42), 42);
@@ -152,8 +151,7 @@ mod tests {
 
     #[test]
     fn debug_impl_lists_env_names() {
-        let suite: Suite<u32> = Suite::new("s", minimal_config())
-            .with_env("env-a", |_| 0_u32);
+        let suite: Suite<u32> = Suite::new("s", minimal_config()).with_env("env-a", |_| 0_u32);
         let debug = format!("{suite:?}");
         assert!(debug.contains("Suite"));
         assert!(debug.contains("env-a"));
@@ -175,9 +173,18 @@ mod tests {
     fn trial_key_equality_and_hash() {
         use std::collections::HashSet;
 
-        let k1 = TrialKey { env_idx: 0, trial_idx: 1 };
-        let k2 = TrialKey { env_idx: 0, trial_idx: 1 };
-        let k3 = TrialKey { env_idx: 1, trial_idx: 0 };
+        let k1 = TrialKey {
+            env_idx: 0,
+            trial_idx: 1,
+        };
+        let k2 = TrialKey {
+            env_idx: 0,
+            trial_idx: 1,
+        };
+        let k3 = TrialKey {
+            env_idx: 1,
+            trial_idx: 0,
+        };
 
         assert_eq!(k1, k2);
         assert_ne!(k1, k3);

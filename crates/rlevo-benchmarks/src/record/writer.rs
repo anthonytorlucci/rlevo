@@ -29,8 +29,8 @@ use super::error::RecordError;
 use super::manifest::RunManifest;
 use super::schema::{
     CheckpointRef, EnvFamily, EpisodeKind, EpisodeRecord, EpisodeRecordHeader, FORMAT_VERSION,
-    FrameRecord, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef, bincode_config,
-    default_frame_stride,
+    FrameRecord, MetricSample, PopulationSample, RecordedEnvFamily, RunId, TrialRef,
+    bincode_config, default_frame_stride,
 };
 
 /// Per-run configuration: the writer materialises this once at the
@@ -305,8 +305,8 @@ impl RecordWriter {
     /// (including the abandoned-episode `reset` path, which re-enters from
     /// the same thread) never trips this.
     fn reject_concurrent_use(&mut self) -> bool {
-        let foreign = self.current.is_some()
-            && self.owner.is_some_and(|o| o != thread::current().id());
+        let foreign =
+            self.current.is_some() && self.owner.is_some_and(|o| o != thread::current().id());
         if foreign {
             self.record_error(RecordError::ConcurrentUse);
         }
@@ -826,7 +826,10 @@ mod tests {
             PathBuf::from("/tmp/rlevo-runs")
         );
         // Empty override falls back to the default.
-        assert_eq!(resolve_runs_dir(Some(OsString::new())), PathBuf::from("runs"));
+        assert_eq!(
+            resolve_runs_dir(Some(OsString::new())),
+            PathBuf::from("runs")
+        );
         assert_eq!(resolve_runs_dir(None), PathBuf::from("runs"));
     }
 
@@ -1042,8 +1045,7 @@ mod tests {
         w.on_episode_end(0.0, 1);
         w.on_run_end(w.manifest_template());
 
-        let decoded =
-            read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
+        let decoded = read_episode_record(&w.run_dir().join("episode_000000.rec")).unwrap();
         assert_eq!(decoded.population_samples.len(), 2);
         assert_eq!(decoded.population_samples[0].generation, 0);
         assert_eq!(decoded.population_samples[1].generation, 1);
@@ -1264,7 +1266,11 @@ mod tests {
         assert_eq!(step_for("episode_000001.rec", "episode_return"), 6);
 
         // The whole triple shares one step coordinate per episode.
-        for name in ["episode_return", "episode_length", "episode_wall_clock_secs"] {
+        for name in [
+            "episode_return",
+            "episode_length",
+            "episode_wall_clock_secs",
+        ] {
             assert_eq!(step_for("episode_000000.rec", name), 4, "ep0 {name}");
             assert_eq!(step_for("episode_000001.rec", name), 6, "ep1 {name}");
         }

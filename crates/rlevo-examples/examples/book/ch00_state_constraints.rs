@@ -276,9 +276,7 @@ fn main() {
     // Normalized reward
     let max_distance = 1414.21; // sqrt(1000^2 + 1000^2)
     let normalized_reward = 1.0 - (distance / max_distance).min(1.0);
-    println!(
-        "Normalized reward (closer to goal = higher): {normalized_reward:.3}"
-    );
+    println!("Normalized reward (closer to goal = higher): {normalized_reward:.3}");
 
     println!();
 
@@ -387,9 +385,7 @@ fn main() {
                 println!("  ✓ {description}: reward = {reward:.1}");
             }
             None => {
-                println!(
-                    "  ✗ {description}: BLOCKED (agent learns to avoid this action)"
-                );
+                println!("  ✗ {description}: BLOCKED (agent learns to avoid this action)");
             }
         }
     }

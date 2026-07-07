@@ -507,7 +507,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = DynamicObstaclesConfig { size: 0, ..Default::default() };
+        let bad = DynamicObstaclesConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(DynamicObstaclesEnv::with_config(bad, false).is_err());
     }
 
@@ -533,7 +536,8 @@ mod tests {
     #[test]
     fn build_places_correct_number_of_obstacles() {
         let env =
-            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 200, 0), false).expect("valid config");
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(8, 4, 200, 0), false)
+                .expect("valid config");
         assert_eq!(env.obstacles().len(), 4);
         for &(x, y) in env.obstacles() {
             assert_eq!(env.state().grid.get(x, y), Entity::Ball(OBSTACLE_COLOR));
@@ -642,7 +646,8 @@ mod tests {
     #[test]
     fn display_contains_obstacle_count() {
         let env =
-            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(6, 3, 100, 0), false).expect("valid config");
+            DynamicObstaclesEnv::with_config(DynamicObstaclesConfig::new(6, 3, 100, 0), false)
+                .expect("valid config");
         let s = env.to_string();
         assert!(s.contains("num_obstacles=3"));
     }

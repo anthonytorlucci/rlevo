@@ -288,7 +288,10 @@ mod tests {
         let returns = [10.0, 11.0, 12.0];
         let values = [9.0, 10.0, 11.0];
         let ev = explained_variance(&returns, &values);
-        assert!((ev - (-0.5)).abs() < 1e-6, "expected -0.5 (CleanRL), got {ev}");
+        assert!(
+            (ev - (-0.5)).abs() < 1e-6,
+            "expected -0.5 (CleanRL), got {ev}"
+        );
     }
 
     #[test]

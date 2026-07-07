@@ -100,7 +100,12 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
     // rastrigin). Monochrome ramp: basins (low value) bright, ridges dark, so
     // the topography reads in B/W and the candidate markers stay visible on
     // top. Unknown surfaces produce no field and the deferred note shows.
-    let field = landscape_field(&payload.label, payload.bounds_x, payload.bounds_y, HEATMAP_N);
+    let field = landscape_field(
+        &payload.label,
+        payload.bounds_x,
+        payload.bounds_y,
+        HEATMAP_N,
+    );
     let has_heatmap = field.is_some();
     let heatmap_cells: Vec<AnyView> = field
         .map(|f| {

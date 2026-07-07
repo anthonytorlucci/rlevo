@@ -55,7 +55,9 @@ pub mod harness;
 pub mod hof;
 
 pub use competitive::{CompetitiveCoEA, CompetitiveCoEAParams};
-pub use cooperative::{CooperativeCoEA, CooperativeCoEAParams, CooperativeState, RepresentativePolicy};
+pub use cooperative::{
+    CooperativeCoEA, CooperativeCoEAParams, CooperativeState, RepresentativePolicy,
+};
 pub use fitness::CoupledFitness;
 pub use harness::{CoEAMetrics, CoEvolutionaryHarness};
 pub use hof::{HallOfFame, HallOfFameFitness};

@@ -438,7 +438,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = ContextualBanditConfig { max_steps: 0, seed: 0 };
+        let bad = ContextualBanditConfig {
+            max_steps: 0,
+            seed: 0,
+        };
         assert!(ContextualBandit::<4, 10>::with_config(bad).is_err());
     }
 
@@ -480,7 +483,8 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
+        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default())
+            .expect("valid config");
         let snap =
             <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
@@ -490,7 +494,8 @@ mod tests {
 
     #[test]
     fn step_observation_matches_revealed_context_after_step() {
-        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
+        let mut env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default())
+            .expect("valid config");
         <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let action = KArmedBanditAction::<K>::from_index(0);
         let snap =
@@ -591,7 +596,8 @@ mod tests {
 
     #[test]
     fn arm_means_dimensions_match_const_generics() {
-        let env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default()).expect("valid config");
+        let env = ContextualBandit::<C, K>::with_config(ContextualBanditConfig::default())
+            .expect("valid config");
         assert_eq!(env.arm_means().len(), C);
         for row in env.arm_means() {
             assert_eq!(row.len(), K);

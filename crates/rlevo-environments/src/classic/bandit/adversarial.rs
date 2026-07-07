@@ -354,13 +354,17 @@ mod tests {
 
     #[test]
     fn rejects_zero_period() {
-        let bad = AdversarialBanditConfig { period: 0, ..Default::default() };
+        let bad = AdversarialBanditConfig {
+            period: 0,
+            ..Default::default()
+        };
         assert!(AdversarialBandit::<10>::with_config(bad).is_err());
     }
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default()).expect("valid config");
+        let mut env = AdversarialBandit::<K>::with_config(AdversarialBanditConfig::default())
+            .expect("valid config");
         let snap = <AdversarialBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);

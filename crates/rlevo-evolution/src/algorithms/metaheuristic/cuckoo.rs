@@ -252,8 +252,16 @@ where
     ///
     /// [`ask`]: Strategy::ask
     /// [`tell`]: Strategy::tell
-    fn init(&self, params: &CuckooConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CuckooState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid CuckooConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &CuckooConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> CuckooState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid CuckooConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial nests from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -346,7 +354,10 @@ where
         mut state: CuckooState<B>,
         rng: &mut dyn Rng,
     ) -> (CuckooState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = population.device();
         let pop = params.pop_size;
         let d = params.genome_dim;
@@ -393,7 +404,11 @@ where
         // Abandon worst `p_a · pop` nests — reinit with uniform sample;
         // mark fitness −∞ (worst under maximise) so next ask's Lévy
         // proposal always lands.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let n_abandon = (params.p_a * pop as f32) as usize;
         if n_abandon > 0 {
             let mut rank: Vec<usize> = (0..pop).collect();
@@ -410,8 +425,11 @@ where
             // Host-sample abandoned-nest replacements from a deterministic
             // `seed_stream` so the refill is reproducible across thread
             // schedules rather than racing the global Flex RNG.
-            let mut abandon_stream =
-                seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::Replacement);
+            let mut abandon_stream = seed_stream(
+                rng.next_u64(),
+                state.generation as u64,
+                SeedPurpose::Replacement,
+            );
             let mut fresh_rows = Vec::with_capacity(n_abandon * d);
             for _ in 0..n_abandon * d {
                 fresh_rows.push(lo + (hi - lo) * abandon_stream.random::<f32>());
@@ -536,7 +554,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 19, device, 800,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

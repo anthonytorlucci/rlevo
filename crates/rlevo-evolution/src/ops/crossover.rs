@@ -22,7 +22,7 @@
 //! ([`binary_uniform_crossover`]) operates on `Tensor<B, 2, Int>` with
 //! values in `{0, 1}`.
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
@@ -81,7 +81,10 @@ pub fn blx_alpha<B: Backend>(
     let lo = min - diff.clone().mul_scalar(alpha);
     let hi = max + diff.mul_scalar(alpha);
 
-    let u = Tensor::<B, 2>::from_data(TensorData::new(unit_uniform_rows(n, d, rng), [n, d]), device);
+    let u = Tensor::<B, 2>::from_data(
+        TensorData::new(unit_uniform_rows(n, d, rng), [n, d]),
+        device,
+    );
     lo.clone() + u * (hi - lo)
 }
 
@@ -122,7 +125,10 @@ pub fn uniform_crossover<B: Backend>(
         "uniform crossover: parents must have identical shapes"
     );
     let [n, d] = parent_a.dims();
-    let u = Tensor::<B, 2>::from_data(TensorData::new(unit_uniform_rows(n, d, rng), [n, d]), device);
+    let u = Tensor::<B, 2>::from_data(
+        TensorData::new(unit_uniform_rows(n, d, rng), [n, d]),
+        device,
+    );
     let keep_a = u.lower_elem(p.get());
     parent_a.mask_where(keep_a.bool_not(), parent_b)
 }
@@ -156,7 +162,10 @@ pub fn binary_uniform_crossover<B: Backend>(
         "binary uniform crossover: parents must have identical shapes"
     );
     let [n, d] = parent_a.dims();
-    let u = Tensor::<B, 2>::from_data(TensorData::new(unit_uniform_rows(n, d, rng), [n, d]), device);
+    let u = Tensor::<B, 2>::from_data(
+        TensorData::new(unit_uniform_rows(n, d, rng), [n, d]),
+        device,
+    );
     let keep_a = u.lower_elem(p.get());
     parent_a.mask_where(keep_a.bool_not(), parent_b)
 }
@@ -164,7 +173,7 @@ pub fn binary_uniform_crossover<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burn::backend::{flex::FlexDevice, Flex};
+    use burn::backend::{Flex, flex::FlexDevice};
     #[allow(unused_imports)]
     use burn::tensor::backend::Backend as _;
     use rand::SeedableRng;
@@ -184,7 +193,10 @@ mod tests {
             &device,
         );
         let c = blx_alpha(a, b, NonNegativeRate::new(0.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let values = c
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         // α = 0: children lie strictly in [0, 1].
         for v in values {
             assert!((0.0..=1.0).contains(&v), "value out of bounds: {v}");
@@ -204,7 +216,10 @@ mod tests {
             &device,
         );
         let c = uniform_crossover(a, b, Probability::new(1.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let values = c
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 7.0, epsilon = 1e-6);
         }
@@ -223,7 +238,10 @@ mod tests {
             &device,
         );
         let c = uniform_crossover(a, b, Probability::new(0.0), &mut rng, &device);
-        let values = c.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let values = c
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, -7.0, epsilon = 1e-6);
         }

@@ -131,18 +131,26 @@ impl Track {
         let dy = centreline[1][1] - centreline[0][1];
         let start_angle = dy.atan2(dx);
 
-        Self { tiles, start_pos, start_angle }
+        Self {
+            tiles,
+            start_pos,
+            start_angle,
+        }
     }
 
     /// Return the index of the tile closest to `pos`.
     pub fn nearest_tile(&self, pos: [f32; 2]) -> Option<usize> {
-        self.tiles.iter().enumerate().min_by(|(_, a), (_, b)| {
-            let ca = tile_centre(a);
-            let cb = tile_centre(b);
-            let da = dist2(pos, ca);
-            let db = dist2(pos, cb);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        }).map(|(i, _)| i)
+        self.tiles
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let ca = tile_centre(a);
+                let cb = tile_centre(b);
+                let da = dist2(pos, ca);
+                let db = dist2(pos, cb);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
     }
 }
 

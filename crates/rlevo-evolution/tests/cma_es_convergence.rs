@@ -56,7 +56,8 @@ where
 {
     let device = Default::default();
     let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens).expect("valid params");
+        EvolutionaryHarness::<B, _, _>::new(strategy, params, fitness_fn, seed, device, gens)
+            .expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {

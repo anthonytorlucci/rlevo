@@ -7,7 +7,7 @@
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use rlevo_reinforcement_learning::algorithms::c51::projection::project_distribution;
 

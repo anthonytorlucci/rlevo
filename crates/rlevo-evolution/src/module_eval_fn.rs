@@ -169,9 +169,14 @@ mod tests {
         // return the scalar output — deterministic given the genome.
         let dev = device;
         let mut eval = ModuleEvalFn::new(reshaper, move |m: &TestTiny<TestBackend>| {
-            let x = Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![1.0f32, 1.0], [1, 2]), &dev);
+            let x = Tensor::<TestBackend, 2>::from_data(
+                TensorData::new(vec![1.0f32, 1.0], [1, 2]),
+                &dev,
+            );
             let y = m.forward(x);
-            y.into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built")[0]
+            y.into_data()
+                .into_vec::<f32>()
+                .expect("output host-read of a tensor this test just built")[0]
         });
 
         // Row 0: weights [1, 0], bias [0] -> output = 1*1 + 0*1 + 0 = 1.
@@ -181,7 +186,10 @@ mod tests {
             &device,
         );
         let fitness = eval.evaluate_batch(&pop, &device);
-        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let values = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 2);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 5.0, epsilon = 1e-6);

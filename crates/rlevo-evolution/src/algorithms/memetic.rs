@@ -373,7 +373,10 @@ where
         let data: TensorData = TensorData::new(member.clone(), [1, dim]);
         let row: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, self.device);
         let fitness: Tensor<B, 1> = self.inner.evaluate_batch(&row, self.device);
-        let values: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let values: Vec<f32> = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let natural = values.first().copied().unwrap_or(f32::NEG_INFINITY);
         self.sense.to_canonical(natural)
     }
@@ -473,7 +476,10 @@ where
         let generation: u64 = state.generation;
 
         // (1) Host-pull fitness and one flat read-only host copy of the population.
-        let mut refined_fit: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let mut refined_fit: Vec<f32> = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let dims: [usize; 2] = population.dims();
         let pop_size: usize = dims[0];
         let dim: usize = dims[1];
@@ -526,7 +532,11 @@ where
                     &mut row_fitness,
                     &mut ls_rng,
                 );
-                debug_assert_eq!(refined.len(), dim, "local search must preserve genome length");
+                debug_assert_eq!(
+                    refined.len(),
+                    dim,
+                    "local search must preserve genome length"
+                );
                 // Baldwinian keeps the original genome but pays refined fitness;
                 // Lamarckian writes the genome too. Either way the fitness is
                 // the refined value.
@@ -613,11 +623,11 @@ mod tests {
         HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
     };
     use crate::strategy::EvolutionaryHarness;
-    use rlevo_core::bounds::Bounds;
     use burn::backend::Flex;
     use burn::tensor::backend::BackendTypes;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rlevo_core::bounds::Bounds;
 
     type TestBackend = Flex;
 
@@ -700,8 +710,14 @@ mod tests {
             mut state: RecState,
             _rng: &mut dyn Rng,
         ) -> (RecState, StrategyMetrics) {
-            let pop_host = population.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
-            let fit_host = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+            let pop_host = population
+                .into_data()
+                .into_vec::<f32>()
+                .expect("population host-read of a tensor this test just built");
+            let fit_host = fitness
+                .into_data()
+                .into_vec::<f32>()
+                .expect("fitness host-read of a tensor this test just built");
             state.received_pop = Some(pop_host);
             state.received_fit = Some(fit_host.clone());
             state.generation += 1;
@@ -733,7 +749,11 @@ mod tests {
         ) -> Tensor<B, 1> {
             let dims = population.dims();
             self.rows += dims[0];
-            let flat = population.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+            let flat = population
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out = Vec::with_capacity(pop);
             for r in 0..pop {
@@ -778,7 +798,10 @@ mod tests {
 
     #[test]
     fn writeback_policy_default_is_partial_half() {
-        assert_eq!(WritebackPolicy::default(), WritebackPolicy::Partial(Probability::new(0.5)));
+        assert_eq!(
+            WritebackPolicy::default(),
+            WritebackPolicy::Partial(Probability::new(0.5))
+        );
     }
 
     #[test]
@@ -827,19 +850,23 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         let state = strategy.init(&params, &mut rng, &device);
         let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
-        // Original fitness for the asked population.
-        let mut orig_fit = CountingBatchFitness::default();
-        let orig =
-            <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
-                &mut orig_fit,
-                &ask_pop,
-                &device,
-            )
+        let ask_bytes = ask_pop
+            .clone()
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness host-read of a tensor this test just built");
-        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig.clone(), [pop]), &device);
+            .expect("population host-read of a tensor this test just built");
+        // Original fitness for the asked population.
+        let mut orig_fit = CountingBatchFitness::default();
+        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            &mut orig_fit,
+            &ask_pop,
+            &device,
+        )
+        .into_data()
+        .into_vec::<f32>()
+        .expect("fitness host-read of a tensor this test just built");
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(orig.clone(), [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
 
@@ -896,15 +923,18 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(11);
         let state = strategy.init(&params, &mut rng, &device);
         let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-        let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
-        let mut fitfn = CountingBatchFitness::default();
-        let orig =
-            <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
-                &mut fitfn, &ask_pop, &device,
-            )
+        let ask_bytes = ask_pop
+            .clone()
             .into_data()
             .into_vec::<f32>()
-            .expect("fitness host-read of a tensor this test just built");
+            .expect("population host-read of a tensor this test just built");
+        let mut fitfn = CountingBatchFitness::default();
+        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            &mut fitfn, &ask_pop, &device,
+        )
+        .into_data()
+        .into_vec::<f32>()
+        .expect("fitness host-read of a tensor this test just built");
         let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
 
         let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
@@ -962,10 +992,9 @@ mod tests {
         for _ in 0..gens {
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
             let mut fitfn = CountingBatchFitness::default();
-            let orig =
-                <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
-                    &mut fitfn, &ask_pop, &device,
-                );
+            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+                &mut fitfn, &ask_pop, &device,
+            );
             let (next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);
             trajectory.push((
                 next.inner.received_pop.clone().unwrap(),
@@ -1028,12 +1057,15 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(3);
             let state = strategy.init(&params, &mut rng, &device);
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
-            let ask_bytes = ask_pop.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+            let ask_bytes = ask_pop
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("population host-read of a tensor this test just built");
             let mut fitfn = CountingBatchFitness::default();
-            let orig =
-                <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
-                    &mut fitfn, &ask_pop, &device,
-                );
+            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+                &mut fitfn, &ask_pop, &device,
+            );
             let (next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);
             let recv = next.inner.received_pop.clone().unwrap();
             // A row "changed" iff its bytes differ from ask.
@@ -1054,7 +1086,10 @@ mod tests {
 
         let changed_full = run(CoveragePolicy::Full);
         let changed_big_k = run(CoveragePolicy::TopK { k: pop + 4 });
-        assert_eq!(changed_full, changed_big_k, "TopK{{k>=pop}} must equal Full");
+        assert_eq!(
+            changed_full, changed_big_k,
+            "TopK{{k>=pop}} must equal Full"
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1072,7 +1107,11 @@ mod tests {
             device: &<B as BackendTypes>::Device,
         ) -> Tensor<B, 1> {
             let dims = population.dims();
-            let flat = population.clone().into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+            let flat = population
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("population host-read of a tensor this test just built");
             let (pop, dim) = (dims[0], dims[1]);
             let mut out: Vec<f32> = Vec::with_capacity(pop);
             for r in 0..pop {
@@ -1103,8 +1142,14 @@ mod tests {
             coverage: CoveragePolicy::TopK { k: 3 },
         };
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, SphereBatch, 17, device, 20,
-        ).expect("valid params");
+            strategy,
+            params,
+            SphereBatch,
+            17,
+            device,
+            20,
+        )
+        .expect("valid params");
         harness.reset();
         let _ = harness.step(());
         let first: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
@@ -1116,7 +1161,10 @@ mod tests {
         let last: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(last.is_finite(), "best must stay finite");
         // Maximise objective: best_fitness_ever climbs toward the optimum 0.
-        assert!(last >= first, "best_fitness_ever must improve: {last} >= {first}");
+        assert!(
+            last >= first,
+            "best_fitness_ever must improve: {last} >= {first}"
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1139,13 +1187,25 @@ mod tests {
             coverage: CoveragePolicy::default(),
         };
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
-            strategy, params, SphereBatch, 5, device, 5,
-        ).expect("valid params");
+            strategy,
+            params,
+            SphereBatch,
+            5,
+            device,
+            5,
+        )
+        .expect("valid params");
         harness.reset();
         for _ in 0..5 {
             let _ = harness.step(());
         }
-        assert!(harness.latest_metrics().unwrap().best_fitness_ever().is_finite());
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1178,10 +1238,9 @@ mod tests {
             let state = strategy.init(&params, &mut rng, &device);
             let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
             let mut fitfn = CountingBatchFitness::default();
-            let orig =
-                <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
-                    &mut fitfn, &ask_pop, &device,
-                );
+            let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+                &mut fitfn, &ask_pop, &device,
+            );
             let (_next, _m) = strategy.tell(&params, ask_pop, orig, asked, &mut rng);
             rng.next_u64()
         };
@@ -1193,7 +1252,10 @@ mod tests {
         );
         assert_eq!(
             baseline,
-            next_after(WritebackPolicy::Partial(Probability::new(0.5)), CoveragePolicy::Full),
+            next_after(
+                WritebackPolicy::Partial(Probability::new(0.5)),
+                CoveragePolicy::Full
+            ),
         );
         assert_eq!(
             baseline,

@@ -49,9 +49,9 @@ impl State<3> for GridState {
 
 #[cfg(test)]
 mod tests {
-    use crate::direction::Direction;
     use super::super::entity::Entity;
     use super::*;
+    use crate::direction::Direction;
 
     #[test]
     fn shape_matches_observation_shape() {

@@ -441,7 +441,12 @@ mod tests {
     impl SpyReporter {
         fn new() -> (Self, Arc<Mutex<Vec<Event>>>) {
             let log = Arc::new(Mutex::new(Vec::new()));
-            (Self { log: Arc::clone(&log) }, log)
+            (
+                Self {
+                    log: Arc::clone(&log),
+                },
+                log,
+            )
         }
     }
 
@@ -631,11 +636,13 @@ mod tests {
         let report = Evaluator::new(cfg).run_suite(&suite, |_| StubAgent, &mut reporter);
 
         assert!(report.trials[0].errored);
-        assert!(report.trials[0]
-            .error_message
-            .as_deref()
-            .unwrap_or("")
-            .contains("deliberate evaluator test panic"));
+        assert!(
+            report.trials[0]
+                .error_message
+                .as_deref()
+                .unwrap_or("")
+                .contains("deliberate evaluator test panic")
+        );
     }
 
     #[test]

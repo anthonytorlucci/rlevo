@@ -20,7 +20,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::record::{EnvFamily, EpisodeKind, MetricSample, RunId, RunManifest, read_episode_record};
+use crate::record::{
+    EnvFamily, EpisodeKind, MetricSample, RunId, RunManifest, read_episode_record,
+};
 
 /// Per-episode summary held in memory after a successful
 /// [`RecordedRun::open`].
@@ -320,9 +322,7 @@ fn load_or_synthesise_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::{
-        FamilyPayload, FrameRecord, RecordSink, RecordWriter, RecordingConfig,
-    };
+    use crate::record::{FamilyPayload, FrameRecord, RecordSink, RecordWriter, RecordingConfig};
     use tempfile::tempdir;
 
     fn frame(step: u32, reward: f32) -> FrameRecord {
@@ -408,8 +408,7 @@ mod tests {
         assert_eq!(run.manifest().episode_count, 2);
         assert_eq!(run.manifest().seed, 11);
         assert!(
-            run.warnings()
-                .contains(&OpenWarning::ManifestSynthesised),
+            run.warnings().contains(&OpenWarning::ManifestSynthesised),
             "expected ManifestSynthesised warning"
         );
     }
@@ -490,7 +489,9 @@ mod tests {
         assert_eq!(run.episodes()[0].frame_count, 5);
 
         // Frame content is fetched lazily from the file.
-        let f = run.frame_at_or_before(0, 2).expect("frame re-read from disk");
+        let f = run
+            .frame_at_or_before(0, 2)
+            .expect("frame re-read from disk");
         assert_eq!(f.step, 2);
         assert_eq!(f.ascii.as_deref(), Some("step 2"));
     }

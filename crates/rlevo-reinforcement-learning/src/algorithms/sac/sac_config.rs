@@ -97,9 +97,19 @@ impl Validate for SacTrainingConfig {
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
         config::positive(C, "initial_alpha", f64::from(self.initial_alpha))?;
-        config::ordered(C, "log_std_max", f64::from(self.log_std_min), f64::from(self.log_std_max))?;
+        config::ordered(
+            C,
+            "log_std_max",
+            f64::from(self.log_std_min),
+            f64::from(self.log_std_max),
+        )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
-        config::at_least(C, "target_update_frequency", self.target_update_frequency, 1)?;
+        config::at_least(
+            C,
+            "target_update_frequency",
+            self.target_update_frequency,
+            1,
+        )?;
         Ok(())
     }
 }

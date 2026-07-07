@@ -33,9 +33,7 @@ use parking_lot::Mutex;
 
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-use rlevo_benchmarks::record::{
-    RecordSink, RecordWriter, RecordingConfig, RecordingTap,
-};
+use rlevo_benchmarks::record::{RecordSink, RecordWriter, RecordingConfig, RecordingTap};
 use rlevo_benchmarks::report::{ClientAssets, EmitConfig, RecordedRun, emit_static_html};
 use rlevo_core::environment::{Environment, Snapshot};
 
@@ -64,7 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = InvertedPendulumRapier::with_config(InvertedPendulumConfig {
         seed: SEED,
         ..InvertedPendulumConfig::default()
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut tap: RecordingTap<_, 1, 1, 1> =
         RecordingTap::with_locomotion_payload(env, sink.clone());
 

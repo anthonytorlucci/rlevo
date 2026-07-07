@@ -16,6 +16,7 @@ use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
 
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_environments::landscapes::ackley::Ackley;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
@@ -27,7 +28,6 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
-use rlevo_core::objective::ObjectiveSense;
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -140,11 +140,16 @@ where
     EvolutionaryHarness::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn gwo_ra(
@@ -153,11 +158,16 @@ fn gwo_ra(
     EvolutionaryHarness::new(
         GreyWolfOptimizer::<B>::new(),
         GwoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn woa_ra(
@@ -166,11 +176,16 @@ fn woa_ra(
     EvolutionaryHarness::new(
         WhaleOptimization::<B>::new(),
         WoaConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn salp_ra(
@@ -179,11 +194,16 @@ fn salp_ra(
     EvolutionaryHarness::new(
         SalpSwarm::<B>::new(),
         SalpConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn abc_ra(
@@ -192,11 +212,16 @@ fn abc_ra(
     EvolutionaryHarness::new(
         ArtificialBeeColony::<B>::new(),
         AbcConfig::default_for(30, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn bat_ra(
@@ -205,11 +230,16 @@ fn bat_ra(
     EvolutionaryHarness::new(
         BatAlgorithm::<B>::new(),
         BatConfig::default_for(30, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn aco_r_ra(
@@ -218,11 +248,16 @@ fn aco_r_ra(
     EvolutionaryHarness::new(
         AntColonyReal::<B>::new(),
         AcoRConfig::default_for(30, 15, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn cuckoo_ra(
@@ -233,11 +268,16 @@ fn cuckoo_ra(
     EvolutionaryHarness::new(
         CuckooSearch::<B>::new(),
         cfg,
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn firefly_ra(
@@ -246,11 +286,16 @@ fn firefly_ra(
     EvolutionaryHarness::new(
         FireflyAlgorithm::<B>::new(),
         FireflyConfig::default_for(24, DIM),
-        FromFitnessEvaluable::with_sense(RastriginFit, Rastrigin::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            RastriginFit,
+            Rastrigin::new(DIM),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 // ---------------------------------------------------------------------
@@ -267,7 +312,8 @@ fn pso_ak(
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 fn de_rand1_ak(
@@ -287,7 +333,8 @@ fn de_rand1_ak(
         seed,
         Default::default(),
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 #[test]

@@ -142,7 +142,13 @@ impl Default for MountainCarConfig {
 impl Validate for MountainCarConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "MountainCarConfig";
-        config::in_range(C, "goal_position", f64::from(self.pos_bounds.lo()), f64::from(self.pos_bounds.hi()), f64::from(self.goal_position))?;
+        config::in_range(
+            C,
+            "goal_position",
+            f64::from(self.pos_bounds.lo()),
+            f64::from(self.pos_bounds.hi()),
+            f64::from(self.goal_position),
+        )?;
         config::positive(C, "max_speed", f64::from(self.max_speed))?;
         config::positive(C, "force", f64::from(self.force))?;
         Ok(())
@@ -574,7 +580,10 @@ mod tests {
 
     #[test]
     fn rejects_goal_outside_pos_bounds() {
-        let bad = MountainCarConfig { goal_position: 5.0, ..Default::default() };
+        let bad = MountainCarConfig {
+            goal_position: 5.0,
+            ..Default::default()
+        };
         let err = bad.validate().unwrap_err();
         assert_eq!(err.field, "goal_position");
         assert!(MountainCar::with_config(bad).is_err());
@@ -761,7 +770,9 @@ mod tests {
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
         let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
@@ -783,8 +794,16 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
         ];
         Classic2DSnapshot {
             bodies: vec![
-                Classic2DBody { points: terrain, role: Classic2DRole::Track, closed: false },
-                Classic2DBody { points: car, role: Classic2DRole::Car, closed: true },
+                Classic2DBody {
+                    points: terrain,
+                    role: Classic2DRole::Track,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: car,
+                    role: Classic2DRole::Car,
+                    closed: true,
+                },
             ],
             bounds: (Point2::new(lo - 0.1, -1.1), Point2::new(hi + 0.1, 1.1)),
         }

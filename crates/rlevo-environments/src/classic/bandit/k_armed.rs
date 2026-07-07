@@ -637,7 +637,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = KArmedBanditConfig { max_steps: 0, seed: 0 };
+        let bad = KArmedBanditConfig {
+            max_steps: 0,
+            seed: 0,
+        };
         assert!(KArmedBandit::<3>::with_config(bad).is_err());
     }
 
@@ -730,7 +733,8 @@ mod tests {
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = KArmedBandit::<K>::with_config(KArmedBanditConfig::default()).expect("valid config");
+        let mut env =
+            KArmedBandit::<K>::with_config(KArmedBanditConfig::default()).expect("valid config");
         let snap = <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
@@ -816,7 +820,8 @@ mod tests {
         // Confirms the `pub type TenArmedBandit = KArmedBandit<10>` alias in
         // `super::mod` produces an equivalent environment.
         use crate::classic::{TenArmedBandit, TenArmedBanditAction};
-        let mut env = TenArmedBandit::with_config(KArmedBanditConfig::default()).expect("valid config");
+        let mut env =
+            TenArmedBandit::with_config(KArmedBanditConfig::default()).expect("valid config");
         <TenArmedBandit as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         let action = TenArmedBanditAction::from_index(0);
         let snap = <TenArmedBandit as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
@@ -827,7 +832,8 @@ mod tests {
     #[test]
     fn k_other_than_10_constructs_and_steps() {
         // Smoke-test the genericity: a 4-armed bandit walks through reset/step.
-        let mut env = KArmedBandit::<4>::with_config(KArmedBanditConfig::default()).expect("valid config");
+        let mut env =
+            KArmedBandit::<4>::with_config(KArmedBanditConfig::default()).expect("valid config");
         <KArmedBandit<4> as Environment<1, 1, 1>>::reset(&mut env).unwrap();
         assert_eq!(env.arm_means().len(), 4);
         let action = KArmedBanditAction::<4>::from_index(3);

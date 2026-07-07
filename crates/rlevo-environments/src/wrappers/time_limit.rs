@@ -230,7 +230,6 @@ mod tests {
         type RewardType = ScalarReward;
         type SnapshotType = SnapshotBase<1, StubObs, ScalarReward>;
 
-
         fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
             self.pos = 0;
             Ok(SnapshotBase::running(StubObs { pos: 0 }, ScalarReward(0.0)))

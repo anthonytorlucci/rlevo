@@ -197,7 +197,13 @@ pub fn playback_panel(family: EnvFamily, record: EpisodeRecord) -> AnyView {
         .collect();
 
     let frame_idx_attr = move || frame_idx.get().to_string();
-    let play_label = move || if playing.get() { "⏸ Pause" } else { "▶ Play" };
+    let play_label = move || {
+        if playing.get() {
+            "⏸ Pause"
+        } else {
+            "▶ Play"
+        }
+    };
 
     view! {
         <div class="rlevo-playback">

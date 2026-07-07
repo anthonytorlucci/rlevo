@@ -231,11 +231,16 @@ where
         rng: &mut dyn Rng,
         _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> CmsaEsState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid CmsaEsConfig reached init: {params:?}");
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid CmsaEsConfig reached init: {params:?}"
+        );
         let d = params.genome_dim;
         let (lo, hi): (f32, f32) = params.bounds.into();
         let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
-        let mean: Vec<f32> = (0..d).map(|_| lo + (hi - lo) * stream.random::<f32>()).collect();
+        let mean: Vec<f32> = (0..d)
+            .map(|_| lo + (hi - lo) * stream.random::<f32>())
+            .collect();
         let mut cov: Vec<f32> = vec![0.0; d * d];
         for i in 0..d {
             cov[i * d + i] = 1.0;
@@ -271,7 +276,11 @@ where
         // failure (see `cholesky_with_jitter`).
         let factor: Vec<f32> = cholesky_with_jitter(&state.cov, d);
 
-        let mut stream = seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::CmaSampling);
+        let mut stream = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::CmaSampling,
+        );
         let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
 
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
@@ -306,7 +315,10 @@ where
         let lambda = params.pop_size;
         let mu = params.mu;
 
-        let fitness_host: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host: Vec<f32> = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let pop_host: Vec<f32> = population
             .clone()
             .into_data()
@@ -333,7 +345,11 @@ where
         let mut sigma_sum: f32 = 0.0;
         let mut s_sel: Vec<Vec<f32>> = Vec::with_capacity(mu);
         for &idx in ranked.iter().take(mu) {
-            let sigma_i = state.offspring_sigmas.get(idx).copied().unwrap_or(state.sigma);
+            let sigma_i = state
+                .offspring_sigmas
+                .get(idx)
+                .copied()
+                .unwrap_or(state.sigma);
             sigma_sum += sigma_i;
             let mut si: Vec<f32> = vec![0.0; d];
             for i in 0..d {
@@ -364,11 +380,8 @@ where
         update_best(&mut state, &population, &fitness_host);
 
         state.generation += 1;
-        let metrics = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let metrics =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = metrics.best_fitness_ever();
 
         state.mean = mean_new;

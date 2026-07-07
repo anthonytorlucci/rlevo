@@ -74,8 +74,20 @@ impl Default for BipedalWalkerConfig {
 impl Validate for BipedalWalkerConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "BipedalWalkerConfig";
-        config::in_range(C, "hull_friction", 0.0, f64::INFINITY, f64::from(self.hull_friction))?;
-        config::in_range(C, "leg_friction", 0.0, f64::INFINITY, f64::from(self.leg_friction))?;
+        config::in_range(
+            C,
+            "hull_friction",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.hull_friction),
+        )?;
+        config::in_range(
+            C,
+            "leg_friction",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.leg_friction),
+        )?;
         config::positive(C, "motors_torque", f64::from(self.motors_torque))?;
         config::positive(C, "speed_hip", f64::from(self.speed_hip))?;
         config::positive(C, "speed_knee", f64::from(self.speed_knee))?;
@@ -176,7 +188,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_motors_torque() {
-        let bad = BipedalWalkerConfig { motors_torque: 0.0, ..Default::default() };
+        let bad = BipedalWalkerConfig {
+            motors_torque: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "motors_torque");
     }
 }

@@ -10,9 +10,9 @@ use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_fo
 
 use crate::series::{
     AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
-    downsample_minmax, episode_axis, episode_length_series, episode_reward_series,
-    ensure_svg_header, fitness_range_series, low_diversity_threshold, metric_band, metric_series,
-    nearest_by_x, population_box_data, remap_episode_series, rolling_mean,
+    downsample_minmax, ensure_svg_header, episode_axis, episode_length_series,
+    episode_reward_series, fitness_range_series, low_diversity_threshold, metric_band,
+    metric_series, nearest_by_x, population_box_data, remap_episode_series, rolling_mean,
     selection_pressure_series,
 };
 use crate::wire::{EnvFamily, EpisodeRecord, ObjectiveSense, PopulationSample};
@@ -62,7 +62,11 @@ pub fn interactive_line_view(
 
     let x_min = decimated.first().map_or(0.0, |p| p.0);
     let x_max_raw = decimated.last().map_or(1.0, |p| p.0);
-    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON { x_min + 1.0 } else { x_max_raw };
+    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON {
+        x_min + 1.0
+    } else {
+        x_max_raw
+    };
     let mut y_min = f64::INFINITY;
     let mut y_max = f64::NEG_INFINITY;
     for &(_, y) in decimated.iter().chain(smoothed.iter().flatten()) {
@@ -76,7 +80,11 @@ pub fn interactive_line_view(
         y_max = 1.0;
     }
     let span = (y_max - y_min).abs();
-    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    let pad = if span < f64::EPSILON {
+        0.5
+    } else {
+        span * 0.05
+    };
     y_min -= pad;
     y_max += pad;
     if (y_max - y_min).abs() < f64::EPSILON {
@@ -112,8 +120,12 @@ pub fn interactive_line_view(
     let raw_for_move = raw_full;
     let on_move = move |ev: leptos::ev::MouseEvent| {
         use wasm_bindgen::JsCast as _;
-        let Some(target) = ev.current_target() else { return };
-        let Ok(elem) = target.dyn_into::<web_sys::Element>() else { return };
+        let Some(target) = ev.current_target() else {
+            return;
+        };
+        let Ok(elem) = target.dyn_into::<web_sys::Element>() else {
+            return;
+        };
         let width = elem.get_bounding_client_rect().width();
         if width <= 0.0 {
             return;
@@ -220,19 +232,21 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
         // keeps peaks. The full series feeds the hover crosshair so the raw
         // value under the cursor is exact even when the path is decimated.
         let decimated = downsample_minmax(&full);
-        let mut raw_full: Vec<(f64, f64)> =
-            full.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+        let mut raw_full: Vec<(f64, f64)> = full.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         // `interactive_line_view`'s hover lookup (nearest_by_x) requires x-sorted
         // input. Step counters are monotone in practice, but sort here so the
         // contract holds regardless of emission order.
         raw_full.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let dec_xy: Vec<(f64, f64)> =
-            decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
+        let dec_xy: Vec<(f64, f64)> = decimated.iter().map(|&(x, y)| (f64::from(x), y)).collect();
         let title = title_for(&name).to_string();
         let y_title = unit_for(&name);
         // Per-generation EA metrics run over the generation axis; per-update RL
         // metrics over the training-step axis. Both are discrete integers.
-        let x_title = if is_per_generation(&name) { "generation" } else { "step" };
+        let x_title = if is_per_generation(&name) {
+            "generation"
+        } else {
+            "step"
+        };
         let panel = if is_per_generation(&name) {
             interactive_line_view(title, x_title, &y_title, true, raw_full, dec_xy, None)
         } else {
@@ -240,7 +254,15 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
                 .iter()
                 .map(|&(x, y)| (f64::from(x), y))
                 .collect();
-            interactive_line_view(title, x_title, &y_title, true, raw_full, dec_xy, Some(smoothed))
+            interactive_line_view(
+                title,
+                x_title,
+                &y_title,
+                true,
+                raw_full,
+                dec_xy,
+                Some(smoothed),
+            )
         };
         match descriptor(&name).map(|d| d.kind) {
             Some(MetricKind::Eo) => eo_panels.push(panel),
@@ -416,7 +438,11 @@ pub fn band_chart_view(title: String, y_title: &str, band: &[BandPoint]) -> AnyV
         y_max = y_max.max(p.mean + p.std);
     }
     let span = (y_max - y_min).abs();
-    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    let pad = if span < f64::EPSILON {
+        0.5
+    } else {
+        span * 0.05
+    };
     y_min -= pad;
     y_max += pad;
     if (y_max - y_min).abs() < f64::EPSILON {
@@ -610,8 +636,16 @@ fn axis_layer(
 ) -> AnyView {
     let plot_w = PLOT_RIGHT - BOX_M_L;
     let plot_h = PLOT_BOTTOM - BOX_M_T;
-    let x_span = if (x_max - x_min).abs() < f64::EPSILON { 1.0 } else { x_max - x_min };
-    let y_span = if (y_max - y_min).abs() < f64::EPSILON { 1.0 } else { y_max - y_min };
+    let x_span = if (x_max - x_min).abs() < f64::EPSILON {
+        1.0
+    } else {
+        x_max - x_min
+    };
+    let y_span = if (y_max - y_min).abs() < f64::EPSILON {
+        1.0
+    } else {
+        y_max - y_min
+    };
     let sx = move |x: f64| BOX_M_L + (x - x_min) / x_span * plot_w;
     let sy = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / y_span) * plot_h;
 
@@ -697,16 +731,30 @@ fn export_button(filename: &'static str) -> AnyView {
 /// no-ops if any DOM step is unavailable (e.g. headless contexts).
 fn export_panel_svg(ev: &leptos::ev::MouseEvent, filename: &str) {
     use wasm_bindgen::JsCast as _;
-    let Some(target) = ev.current_target() else { return };
-    let Ok(btn) = target.dyn_into::<web_sys::Element>() else { return };
-    let Ok(Some(card)) = btn.closest(".rlevo-chart-card") else { return };
-    let Ok(Some(svg)) = card.query_selector("svg") else { return };
+    let Some(target) = ev.current_target() else {
+        return;
+    };
+    let Ok(btn) = target.dyn_into::<web_sys::Element>() else {
+        return;
+    };
+    let Ok(Some(card)) = btn.closest(".rlevo-chart-card") else {
+        return;
+    };
+    let Ok(Some(svg)) = card.query_selector("svg") else {
+        return;
+    };
     let markup = ensure_svg_header(&svg.outer_html());
     let encoded: String = js_sys::encode_uri_component(&markup).into();
     let href = format!("data:image/svg+xml;charset=utf-8,{encoded}");
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
-    let Ok(anchor) = doc.create_element("a") else { return };
-    let Ok(anchor) = anchor.dyn_into::<web_sys::HtmlAnchorElement>() else { return };
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Ok(anchor) = doc.create_element("a") else {
+        return;
+    };
+    let Ok(anchor) = anchor.dyn_into::<web_sys::HtmlAnchorElement>() else {
+        return;
+    };
     anchor.set_href(&href);
     anchor.set_download(filename);
     anchor.click();
@@ -803,12 +851,8 @@ pub fn population_box_view(
 
     let plot_w = BOX_VB_W - BOX_M_L - BOX_M_R;
     let plot_h = BOX_VB_H - BOX_M_T - BOX_M_B;
-    let scale_x = move |g: f64| -> f64 {
-        BOX_M_L + (g - x_min) / (x_max - x_min) * plot_w
-    };
-    let scale_y = move |v: f64| -> f64 {
-        BOX_M_T + (1.0 - (v - y_min) / (y_max - y_min)) * plot_h
-    };
+    let scale_x = move |g: f64| -> f64 { BOX_M_L + (g - x_min) / (x_max - x_min) * plot_w };
+    let scale_y = move |v: f64| -> f64 { BOX_M_T + (1.0 - (v - y_min) / (y_max - y_min)) * plot_h };
 
     // Per-generation box width: a fraction of the per-generation slice,
     // capped so dense runs do not produce hairlines and sparse runs do
@@ -878,7 +922,9 @@ pub fn population_box_view(
         }
         let dots: Vec<AnyView> = strip_pts
             .iter()
-            .map(|&(cx, cy)| view! { <circle class="rlevo-strip-dot" cx={cx} cy={cy} r=1.5 /> }.into_any())
+            .map(|&(cx, cy)| {
+                view! { <circle class="rlevo-strip-dot" cx={cx} cy={cy} r=1.5 /> }.into_any()
+            })
             .collect();
         view! { <g class="rlevo-strip">{dots}</g> }.into_any()
     };
@@ -950,7 +996,11 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
 
     let x_min = f64::from(diversity.first().map_or(0, |p| p.0));
     let x_max_raw = f64::from(diversity.last().map_or(1, |p| p.0));
-    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON { x_min + 1.0 } else { x_max_raw };
+    let x_max = if (x_max_raw - x_min).abs() < f64::EPSILON {
+        x_min + 1.0
+    } else {
+        x_max_raw
+    };
     let mut y_min = f64::INFINITY;
     let mut y_max = f64::NEG_INFINITY;
     for &(_, y) in diversity {
@@ -964,7 +1014,11 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
         y_max = 1.0;
     }
     let span = (y_max - y_min).abs();
-    let pad = if span < f64::EPSILON { 0.5 } else { span * 0.05 };
+    let pad = if span < f64::EPSILON {
+        0.5
+    } else {
+        span * 0.05
+    };
     y_min -= pad;
     y_max += pad;
     if (y_max - y_min).abs() < f64::EPSILON {
@@ -997,7 +1051,13 @@ pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
     let view_box = format!("0 0 {BOX_VB_W} {BOX_VB_H}");
     let right_x = PLOT_RIGHT;
     let axes = axis_layer(x_min, x_max, y_min, y_max, "generation", "diversity", true);
-    let title = move || if breached.get() { "⚠ Diversity" } else { "Diversity" };
+    let title = move || {
+        if breached.get() {
+            "⚠ Diversity"
+        } else {
+            "Diversity"
+        }
+    };
     let on_threshold = move |ev: leptos::ev::Event| {
         if let Ok(v) = leptos::prelude::event_target_value(&ev).parse::<f64>() {
             set_threshold.set(v);

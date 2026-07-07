@@ -611,7 +611,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_dt() {
-        let bad = PendulumConfig { dt: 0.0, ..Default::default() };
+        let bad = PendulumConfig {
+            dt: 0.0,
+            ..Default::default()
+        };
         assert!(Pendulum::with_config(bad).is_err());
     }
 
@@ -785,7 +788,9 @@ mod tests {
 
 impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
         let l = self.config.l;
         let theta = self.state.theta; // 0 = upright, measured from up vertical
         // Tip: upright (+y) at theta=0; +theta rotates clockwise.

@@ -71,12 +71,24 @@ impl Validate for LunarLanderConfig {
         const C: &str = "LunarLanderConfig";
         config::positive(C, "main_engine_power", f64::from(self.main_engine_power))?;
         config::positive(C, "side_engine_power", f64::from(self.side_engine_power))?;
-        config::in_range(C, "initial_random", 0.0, f64::INFINITY, f64::from(self.initial_random))?;
+        config::in_range(
+            C,
+            "initial_random",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.initial_random),
+        )?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         config::positive(C, "dt", f64::from(self.dt))?;
         config::positive(C, "lander_density", f64::from(self.lander_density))?;
         if let WindMode::Stochastic { max_force, .. } = self.wind_mode {
-            config::in_range(C, "wind_mode.max_force", 0.0, f64::INFINITY, f64::from(max_force))?;
+            config::in_range(
+                C,
+                "wind_mode.max_force",
+                0.0,
+                f64::INFINITY,
+                f64::from(max_force),
+            )?;
         }
         Ok(())
     }
@@ -171,7 +183,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_main_engine_power() {
-        let bad = LunarLanderConfig { main_engine_power: 0.0, ..Default::default() };
+        let bad = LunarLanderConfig {
+            main_engine_power: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "main_engine_power");
     }
 }

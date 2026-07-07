@@ -5,11 +5,11 @@
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use rlevo_reinforcement_learning::algorithms::ppo::losses::{
     clipped_surrogate, normalize_advantages,
 };
 use rlevo_reinforcement_learning::algorithms::ppo::rollout::compute_gae;
+use std::hint::black_box;
 
 type B = Flex;
 

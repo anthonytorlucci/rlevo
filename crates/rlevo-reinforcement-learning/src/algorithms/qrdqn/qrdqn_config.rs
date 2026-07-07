@@ -87,7 +87,10 @@ pub struct QrDqnTrainingConfig {
 impl QrDqnTrainingConfig {
     /// Builds the quantile-midpoint tensor `[(i + 0.5) / N]_{i=0..N-1}` on
     /// the requested backend and device. Shape: `(num_quantiles,)`.
-    pub fn quantile_taus<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    pub fn quantile_taus<B: Backend>(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let n = self.num_quantiles;
         let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();
         Tensor::from_data(TensorData::new(data, vec![n]), device)
@@ -327,7 +330,11 @@ mod tests {
             .build()
             .expect("valid config");
         let taus: Tensor<B, 1> = cfg.quantile_taus::<B>(&device);
-        let v: Vec<f32> = taus.into_data().convert::<f32>().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
+        let v: Vec<f32> = taus
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
         let expected = [0.125_f32, 0.375, 0.625, 0.875];
         for (got, want) in v.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-6, "got {got}, want {want}");

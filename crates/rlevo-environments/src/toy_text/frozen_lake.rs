@@ -792,7 +792,10 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_success_rate() {
-        let bad = FrozenLakeConfig { success_rate: 1.5, ..Default::default() };
+        let bad = FrozenLakeConfig {
+            success_rate: 1.5,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "success_rate");
     }
 
@@ -1054,10 +1057,7 @@ mod tests {
         let styled = env.render_styled();
         // Each map row produces one styled line; the plain output has a
         // trailing newline per row, so compare against the un-trailing form.
-        let plain_no_trailing: String = plain
-            .lines()
-            .collect::<Vec<_>>()
-            .join("\n");
+        let plain_no_trailing: String = plain.lines().collect::<Vec<_>>().join("\n");
         assert_eq!(styled.plain_text(), plain_no_trailing);
     }
 

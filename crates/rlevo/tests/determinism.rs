@@ -11,18 +11,18 @@
 
 use burn::backend::Flex;
 
-use rlevo_environments::landscapes::sphere::Sphere;
-use rlevo_evolution::algorithms::eda::{
-    BayesianNetworkParams, CompactGeneticParams, DependencyChainParams,
-    UnivariateBernoulliParams, UnivariateGaussianParams,
-};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
+use rlevo_environments::landscapes::sphere::Sphere;
+use rlevo_evolution::algorithms::eda::{
+    BayesianNetworkParams, CompactGeneticParams, DependencyChainParams, UnivariateBernoulliParams,
+    UnivariateGaussianParams,
+};
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 use rlevo_evolution::{
-    BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy,
-    ProbabilityModel, UnivariateBernoulli, UnivariateGaussian,
+    BayesianNetwork, CompactGenetic, DependencyChain, EdaParams, EdaStrategy, ProbabilityModel,
+    UnivariateBernoulli, UnivariateGaussian,
 };
 
 type B = Flex;
@@ -52,7 +52,8 @@ where
         SEED,
         device,
         GENS,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut trajectory = Vec::with_capacity(GENS);
     loop {
@@ -105,16 +106,8 @@ fn eda_same_seed_same_trajectories() {
     );
 
     // cGA — compact genetic algorithm; raw {0,1} genes, bounds unused.
-    let a = run(
-        CompactGenetic,
-        CompactGeneticParams::default_for(DIM),
-        None,
-    );
-    let b = run(
-        CompactGenetic,
-        CompactGeneticParams::default_for(DIM),
-        None,
-    );
+    let a = run(CompactGenetic, CompactGeneticParams::default_for(DIM), None);
+    let b = run(CompactGenetic, CompactGeneticParams::default_for(DIM), None);
     assert!(a.iter().all(|f| f.is_finite()));
     assert_eq!(
         a, b,

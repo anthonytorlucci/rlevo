@@ -24,7 +24,7 @@ use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
 use rlevo_core::bounds::Bounds;
 
 /// Acceptance strategy for [`HillClimbing`].
@@ -390,8 +390,8 @@ impl<B: Backend> LocalSearch<B> for HillClimbing {
 mod tests {
     use super::*;
     use burn::backend::Flex;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     type TestBackend = Flex;
 
@@ -463,7 +463,9 @@ mod tests {
 
     fn random_start(rng: &mut StdRng, dim: usize, bounds: Bounds) -> Vec<f32> {
         let (lo, hi): (f32, f32) = bounds.into();
-        (0..dim).map(|_| lo + (hi - lo) * rng.random::<f32>()).collect()
+        (0..dim)
+            .map(|_| lo + (hi - lo) * rng.random::<f32>())
+            .collect()
     }
 
     #[test]
@@ -518,13 +520,8 @@ mod tests {
         let mut fitness = NegSphere;
         let mut rng = StdRng::seed_from_u64(4);
         let start = random_start(&mut rng, 4, BOUNDS);
-        let (g, fit) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness,
-            &mut rng,
-        );
+        let (g, fit) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         let fresh = fitness.evaluate_one(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
@@ -589,13 +586,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(8);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.hi(); 4];
-        let (g, _f) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness,
-            &mut rng,
-        );
+        let (g, _f) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         for &x in &g {
             assert!(
                 x >= BOUNDS.lo() && x <= BOUNDS.hi(),

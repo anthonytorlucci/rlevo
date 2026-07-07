@@ -265,7 +265,9 @@ mod tests {
             bounds: Bounds::new(0.0, 1.0),
             mutation_sigma: NonNegativeRate::new(0.1),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            crossover: GaCrossover::Uniform {
+                p: Probability::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
     }

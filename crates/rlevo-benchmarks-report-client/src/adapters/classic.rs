@@ -16,7 +16,9 @@
 
 use leptos::prelude::*;
 
-use crate::wire::{Classic2DBody, Classic2DPayload, Classic2DRole, FamilyPayload, FrameRecord, Point2};
+use crate::wire::{
+    Classic2DBody, Classic2DPayload, Classic2DRole, FamilyPayload, FrameRecord, Point2,
+};
 
 /// Square SVG viewport size in user units.  The viewBox is always `0 0 VB VB`.
 const VB: f32 = 320.0;
@@ -90,7 +92,11 @@ fn view_with_payload(payload: &Classic2DPayload) -> AnyView {
         (px, py)
     };
 
-    let bodies: Vec<AnyView> = payload.bodies.iter().map(|b| body_view(b, &xform)).collect();
+    let bodies: Vec<AnyView> = payload
+        .bodies
+        .iter()
+        .map(|b| body_view(b, &xform))
+        .collect();
     let view_box = format!("0 0 {VB} {VB}");
 
     view! {

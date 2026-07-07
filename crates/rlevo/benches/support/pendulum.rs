@@ -16,13 +16,17 @@
 
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
-use burn::tensor::Tensor;
 
 // TD3 and SAC re-export these from ddpg_model, so one impl per type covers all three algorithms.
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
-use rlevo_reinforcement_learning::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
+    ContinuousQ, DeterministicPolicy,
+};
+use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
+    SampleOutput, SquashedGaussianPolicy,
+};
 
 use rlevo_reinforcement_learning::utils::polyak_update;
 
@@ -272,9 +276,7 @@ impl<B: Backend> StochasticActor<B> {
         let sp = burn::tensor::activation::softplus(neg_two_z, 1.0);
         let per_dim_jac: Tensor<B, 2> = (z.clone().neg() - sp + ln_2).mul_scalar(2.0);
 
-        let log_prob_z = (per_dim_gauss - per_dim_jac)
-            .sum_dim(1)
-            .squeeze_dim::<1>(1);
+        let log_prob_z = (per_dim_gauss - per_dim_jac).sum_dim(1).squeeze_dim::<1>(1);
         let log_scale_abs = self.action_scale.abs().ln();
         let log_prob = log_prob_z.sub_scalar(log_scale_abs * action_dim as f32);
 
@@ -311,4 +313,3 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for StochasticActor<B> 
             .add_scalar(self.action_bias)
     }
 }
-

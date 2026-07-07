@@ -363,7 +363,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = UnlockConfig { size: 0, ..Default::default() };
+        let bad = UnlockConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(UnlockEnv::with_config(bad, false).is_err());
     }
 

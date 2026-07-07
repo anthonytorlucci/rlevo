@@ -163,8 +163,20 @@ impl Validate for PpoTrainingConfig {
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "gae_lambda", 0.0, 1.0, f64::from(self.gae_lambda))?;
         config::positive(C, "clip_coef", f64::from(self.clip_coef))?;
-        config::in_range(C, "entropy_coef", 0.0, f64::INFINITY, f64::from(self.entropy_coef))?;
-        config::in_range(C, "value_coef", 0.0, f64::INFINITY, f64::from(self.value_coef))?;
+        config::in_range(
+            C,
+            "entropy_coef",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.entropy_coef),
+        )?;
+        config::in_range(
+            C,
+            "value_coef",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.value_coef),
+        )?;
         if let Some(kl) = self.target_kl {
             config::positive(C, "target_kl", f64::from(kl))?;
         }
@@ -404,7 +416,10 @@ mod tests {
 
     #[test]
     fn rejects_multiple_envs() {
-        let err = PpoTrainingConfigBuilder::new().num_envs(2).build().unwrap_err();
+        let err = PpoTrainingConfigBuilder::new()
+            .num_envs(2)
+            .build()
+            .unwrap_err();
         assert_eq!(err.field, "num_envs");
     }
 }

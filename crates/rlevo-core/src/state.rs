@@ -48,10 +48,7 @@ pub enum StateError {
     InvalidData(String),
     /// Total element count does not match expectations.
     #[error("Invalid size: expected {expected}, got {got}")]
-    InvalidSize {
-        expected: usize,
-        got: usize,
-    },
+    InvalidSize { expected: usize, got: usize },
 }
 
 /// Verifies that a state representation satisfies the Markov property.
@@ -81,7 +78,9 @@ pub trait MarkovState {
 /// - `AR`: Rank of the action space tensor (number of axes).
 /// - `S`: The underlying environment [`State`] type.
 /// - `A`: The [`Action`] type taken by the agent.
-pub trait BeliefState<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>>: Clone {
+pub trait BeliefState<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>>:
+    Clone
+{
     /// Updates the belief distribution given the last action taken and the
     /// newly received observation.
     fn update(&self, action: &A, observation: &S::Observation) -> Self;
@@ -348,7 +347,11 @@ mod tests {
         let state = MockRamState { byte: 0b1011 };
 
         let full: MockRamByte = state.observe();
-        assert_eq!(full, MockRamByte { byte: 0b1011 }, "observe is identity here");
+        assert_eq!(
+            full,
+            MockRamByte { byte: 0b1011 },
+            "observe is identity here"
+        );
 
         let pixels = state.project();
         assert_eq!(

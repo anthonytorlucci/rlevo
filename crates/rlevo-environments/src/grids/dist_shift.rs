@@ -397,7 +397,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = DistShiftConfig { max_steps: 0, ..Default::default() };
+        let bad = DistShiftConfig {
+            max_steps: 0,
+            ..Default::default()
+        };
         assert!(DistShiftEnv::with_config(bad, false).is_err());
     }
 
@@ -445,7 +448,8 @@ mod tests {
 
     #[test]
     fn build_variant_one_places_lava_in_row_three() {
-        let env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        let env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         for x in 2..=6 {
             assert_eq!(env.state().grid.get(x, 3), Entity::Lava);
         }
@@ -457,7 +461,8 @@ mod tests {
     #[test]
     fn build_variant_two_places_lava_in_row_five() {
         let env =
-            DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false).expect("valid config");
+            DistShiftEnv::with_config(DistShiftConfig::new(DistShiftVariant::Two, 100, 0), false)
+                .expect("valid config");
         for x in 2..=6 {
             assert_eq!(env.state().grid.get(x, 5), Entity::Lava);
             // Row 3 should be clear in this variant.
@@ -467,7 +472,8 @@ mod tests {
 
     #[test]
     fn optimal_rollout_along_top_row_reaches_goal() {
-        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         env.reset().unwrap();
         let mut last = None;
         for _ in 0..6 {
@@ -481,7 +487,8 @@ mod tests {
 
     #[test]
     fn walking_into_lava_terminates_zero_reward() {
-        let mut env = DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
         env.reset().unwrap();
         // Two Forwards to (3, 1), then turn south and step onto lava at (3, 3).
         env.step(GridAction::Forward).unwrap(); // (2,1)

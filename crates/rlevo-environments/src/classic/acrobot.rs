@@ -351,12 +351,30 @@ impl Validate for AcrobotConfig {
         config::positive(C, "link_length_2", f64::from(self.link_length_2))?;
         config::positive(C, "link_mass_1", f64::from(self.link_mass_1))?;
         config::positive(C, "link_mass_2", f64::from(self.link_mass_2))?;
-        config::in_range(C, "link_com_pos_1", 0.0, 1.0, f64::from(self.link_com_pos_1))?;
-        config::in_range(C, "link_com_pos_2", 0.0, 1.0, f64::from(self.link_com_pos_2))?;
+        config::in_range(
+            C,
+            "link_com_pos_1",
+            0.0,
+            1.0,
+            f64::from(self.link_com_pos_1),
+        )?;
+        config::in_range(
+            C,
+            "link_com_pos_2",
+            0.0,
+            1.0,
+            f64::from(self.link_com_pos_2),
+        )?;
         config::positive(C, "link_moi", f64::from(self.link_moi))?;
         config::positive(C, "max_vel_1", f64::from(self.max_vel_1))?;
         config::positive(C, "max_vel_2", f64::from(self.max_vel_2))?;
-        config::in_range(C, "torque_noise_max", 0.0, f64::INFINITY, f64::from(self.torque_noise_max))?;
+        config::in_range(
+            C,
+            "torque_noise_max",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.torque_noise_max),
+        )?;
         Ok(())
     }
 }
@@ -663,7 +681,10 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
     ///
     /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
     /// non-positive `dt`, link geometry, or a COM position outside `[0, 1]`).
-    pub fn with_config_and_dynamics(config: AcrobotConfig, dynamics: D) -> Result<Self, ConfigError> {
+    pub fn with_config_and_dynamics(
+        config: AcrobotConfig,
+        dynamics: D,
+    ) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
         Ok(Self {
@@ -932,7 +953,10 @@ mod tests {
 
     #[test]
     fn rejects_com_pos_out_of_range() {
-        let bad = AcrobotConfig { link_com_pos_1: 1.5, ..Default::default() };
+        let bad = AcrobotConfig {
+            link_com_pos_1: 1.5,
+            ..Default::default()
+        };
         assert!(DefaultAcrobot::with_config(bad).is_err());
     }
 
@@ -1167,7 +1191,9 @@ impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPaylo
     for Acrobot<D>
 {
     fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2};
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
         let l1 = self.config.link_length_1;
         let l2 = self.config.link_length_2;
         let t1 = self.state.theta1; // from downward vertical (0 = hanging down)
@@ -1180,10 +1206,26 @@ impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPaylo
         let m = l1 + l2 + 0.2;
         Classic2DSnapshot {
             bodies: vec![
-                Classic2DBody { points: vec![pivot, j1], role: Classic2DRole::Link, closed: false },
-                Classic2DBody { points: vec![j1, j2], role: Classic2DRole::Link, closed: false },
-                Classic2DBody { points: vec![pivot], role: Classic2DRole::Hinge, closed: false },
-                Classic2DBody { points: vec![j1], role: Classic2DRole::Hinge, closed: false },
+                Classic2DBody {
+                    points: vec![pivot, j1],
+                    role: Classic2DRole::Link,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![j1, j2],
+                    role: Classic2DRole::Link,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![pivot],
+                    role: Classic2DRole::Hinge,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![j1],
+                    role: Classic2DRole::Hinge,
+                    closed: false,
+                },
             ],
             bounds: (Point2::new(-m, -m), Point2::new(m, m)),
         }

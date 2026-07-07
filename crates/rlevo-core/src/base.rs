@@ -233,7 +233,10 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
     /// [`row_shape`]: TensorConvertible::row_shape
     /// [`write_host_row`]: TensorConvertible::write_host_row
     /// [`stack_to_tensor`]: crate::base::stack_to_tensor
-    fn to_tensor(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, R> {
+    fn to_tensor(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, R> {
         let row: [usize; R] = Self::row_shape();
         let mut buf: Vec<f32> = Vec::with_capacity(row.iter().product());
         self.write_host_row(&mut buf);
@@ -1042,7 +1045,11 @@ mod tests {
     #[test]
     fn test_stack_to_tensor_matches_manual_stack() {
         let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
-        let items: Vec<Vec3> = vec![Vec3(1.0, 2.0, 3.0), Vec3(4.0, 5.0, 6.0), Vec3(7.0, 8.0, 9.0)];
+        let items: Vec<Vec3> = vec![
+            Vec3(1.0, 2.0, 3.0),
+            Vec3(4.0, 5.0, 6.0),
+            Vec3(7.0, 8.0, 9.0),
+        ];
 
         let batched: Tensor<TcB, 2> = stack_to_tensor::<1, 2, Vec3, TcB>(&items, &device);
 
@@ -1053,8 +1060,14 @@ mod tests {
         let manual: Tensor<TcB, 2> = Tensor::stack(per_item, 0);
 
         assert_eq!(batched.dims(), manual.dims());
-        let batched_v: Vec<f32> = batched.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
-        let manual_v: Vec<f32> = manual.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
+        let batched_v: Vec<f32> = batched
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let manual_v: Vec<f32> = manual
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
         assert_eq!(batched_v, manual_v);
     }
 
@@ -1080,8 +1093,14 @@ mod tests {
         let manual: Tensor<TcB, 1> = Tensor::from_floats([1.5_f32, -2.5, 3.5], &device);
 
         assert_eq!(derived.dims(), manual.dims());
-        let derived_v: Vec<f32> = derived.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
-        let manual_v: Vec<f32> = manual.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
+        let derived_v: Vec<f32> = derived
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let manual_v: Vec<f32> = manual
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
         assert_eq!(derived_v, manual_v);
     }
 
@@ -1092,14 +1111,21 @@ mod tests {
         let device: <TcB as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let item: Img = Img([0.1, 0.2, 0.3, 0.4]);
 
-        let derived: Tensor<TcB, 3> =
-            <Img as TensorConvertible<3, TcB>>::to_tensor(&item, &device);
-        let manual: Tensor<TcB, 3> =
-            Tensor::from_data(TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]), &device);
+        let derived: Tensor<TcB, 3> = <Img as TensorConvertible<3, TcB>>::to_tensor(&item, &device);
+        let manual: Tensor<TcB, 3> = Tensor::from_data(
+            TensorData::new(vec![0.1_f32, 0.2, 0.3, 0.4], [2, 2, 1]),
+            &device,
+        );
 
         assert_eq!(derived.dims(), manual.dims());
-        let derived_v: Vec<f32> = derived.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
-        let manual_v: Vec<f32> = manual.into_data().into_vec::<f32>().expect("f32 host read of a tensor this test just built");
+        let derived_v: Vec<f32> = derived
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        let manual_v: Vec<f32> = manual
+            .into_data()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
         assert_eq!(derived_v, manual_v);
     }
 }

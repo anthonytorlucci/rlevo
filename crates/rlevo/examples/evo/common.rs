@@ -38,14 +38,14 @@
 use burn::backend::Flex;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::Landscape;
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use rlevo_core::objective::ObjectiveSense;
-use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::fitness::{BatchFitnessFn, FromLandscape};
 use rlevo_evolution::strategy::{EvolutionaryHarness, Strategy};
 
@@ -67,7 +67,8 @@ where
 {
     let device = Default::default();
     let mut harness =
-        EvolutionaryHarness::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS).expect("valid params");
+        EvolutionaryHarness::<B, S, F>::new(strategy, params, fitness_fn, SEED, device, GENS)
+            .expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {
@@ -82,7 +83,9 @@ where
     // "Reading the output" section for how to interpret the two together.
     println!(
         "{label:>30} | gens={:>4} | best={:>.6e} | mean={:>.6e}",
-        m.generation(), m.best_fitness_ever(), m.mean_fitness(),
+        m.generation(),
+        m.best_fitness_ever(),
+        m.mean_fitness(),
     );
 }
 
@@ -113,7 +116,9 @@ where
             bounds,
             mutation_sigma: NonNegativeRate::new(mutation_sigma),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+            crossover: GaCrossover::BlxAlpha {
+                alpha: NonNegativeRate::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 2 },
         },
         FromLandscape::with_sense(landscape, ObjectiveSense::Minimize),

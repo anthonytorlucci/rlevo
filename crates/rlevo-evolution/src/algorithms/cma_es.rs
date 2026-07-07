@@ -151,9 +151,8 @@ impl CmaEsConfig {
             1.0 + 2.0 * (((mu_eff - 1.0) / (d + 1.0)).sqrt() - 1.0).max(0.0) + c_sigma;
         let c_c: f32 = (4.0 + mu_eff / d) / (d + 4.0 + 2.0 * mu_eff / d);
         let c_1: f32 = 2.0 / ((d + 1.3) * (d + 1.3) + mu_eff);
-        let c_mu: f32 = (1.0 - c_1).min(
-            2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((d + 2.0) * (d + 2.0) + mu_eff),
-        );
+        let c_mu: f32 =
+            (1.0 - c_1).min(2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((d + 2.0) * (d + 2.0) + mu_eff));
         let chi_n: f32 = d.sqrt() * (1.0 - 1.0 / (4.0 * d) + 1.0 / (21.0 * d * d));
 
         Self {
@@ -201,7 +200,11 @@ impl Validate for CmaEsConfig {
         // Primary inputs.
         v.check(config::at_least(C, "pop_size", self.pop_size, 2));
         v.check(config::nonzero(C, "genome_dim", self.genome_dim));
-        v.check(config::positive(C, "initial_sigma", f64::from(self.initial_sigma)));
+        v.check(config::positive(
+            C,
+            "initial_sigma",
+            f64::from(self.initial_sigma),
+        ));
         v.check(config::at_least(C, "mu", self.mu, 1));
         if self.mu > self.pop_size {
             v.check(Err(ConfigError {
@@ -227,12 +230,24 @@ impl Validate for CmaEsConfig {
             }));
         }
         let weight_sum = f64::from(self.weights.iter().sum::<f32>());
-        v.check(config::in_range(C, "weights", 1.0 - 1e-3, 1.0 + 1e-3, weight_sum));
+        v.check(config::in_range(
+            C,
+            "weights",
+            1.0 - 1e-3,
+            1.0 + 1e-3,
+            weight_sum,
+        ));
 
         // Derived scalars. mu_eff = 1/Σwᵢ² ≥ 1; d_sigma and chi_n are positive
         // denominators/scales — a non-positive value diverges the step-size
         // control or the covariance update.
-        v.check(config::in_range(C, "mu_eff", 1.0, f64::INFINITY, f64::from(self.mu_eff)));
+        v.check(config::in_range(
+            C,
+            "mu_eff",
+            1.0,
+            f64::INFINITY,
+            f64::from(self.mu_eff),
+        ));
         v.check(config::positive(C, "d_sigma", f64::from(self.d_sigma)));
         v.check(config::positive(C, "chi_n", f64::from(self.chi_n)));
 
@@ -240,7 +255,13 @@ impl Validate for CmaEsConfig {
         // (c_1, c_mu) must not sum past 1: the rank-update retention factor is
         // `1 − c_1 − c_mu`, so c_1 + c_mu > 1 turns it negative and the
         // covariance matrix loses positive-definiteness.
-        v.check(config::in_range(C, "c_sigma", 0.0, 1.0, f64::from(self.c_sigma)));
+        v.check(config::in_range(
+            C,
+            "c_sigma",
+            0.0,
+            1.0,
+            f64::from(self.c_sigma),
+        ));
         v.check(config::in_range(C, "c_c", 0.0, 1.0, f64::from(self.c_c)));
         v.check(config::in_range(C, "c_1", 0.0, 1.0, f64::from(self.c_1)));
         v.check(config::in_range(C, "c_mu", 0.0, 1.0, f64::from(self.c_mu)));
@@ -430,11 +451,16 @@ where
         rng: &mut dyn Rng,
         _device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> CmaEsState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid CmaEsConfig reached init: {params:?}");
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid CmaEsConfig reached init: {params:?}"
+        );
         let d = params.genome_dim;
         let (lo, hi): (f32, f32) = params.bounds.into();
         let mut stream = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
-        let mean: Vec<f32> = (0..d).map(|_| lo + (hi - lo) * stream.random::<f32>()).collect();
+        let mean: Vec<f32> = (0..d)
+            .map(|_| lo + (hi - lo) * stream.random::<f32>())
+            .collect();
         let mut cov: Vec<f32> = vec![0.0; d * d];
         for i in 0..d {
             cov[i * d + i] = 1.0;
@@ -478,7 +504,11 @@ where
             }
         }
 
-        let mut stream = seed_stream(rng.next_u64(), state.generation as u64, SeedPurpose::CmaSampling);
+        let mut stream = seed_stream(
+            rng.next_u64(),
+            state.generation as u64,
+            SeedPurpose::CmaSampling,
+        );
         let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
         for _ in 0..lambda {
@@ -507,7 +537,10 @@ where
         let lambda = params.pop_size;
         let mu = params.mu;
 
-        let fitness_host: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host: Vec<f32> = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let pop_host: Vec<f32> = population
             .clone()
             .into_data()
@@ -555,10 +588,7 @@ where
         // C^{-1/2} = B diag(1/√Λ) Bᵀ from the eigendecomposition of the old C.
         let (eigvals, eigvecs) = jacobi_eigen(&state.cov, d);
         let floor: f32 = eigenvalue_floor(&eigvals);
-        let inv_sqrt: Vec<f32> = eigvals
-            .iter()
-            .map(|&l| 1.0 / l.max(floor).sqrt())
-            .collect();
+        let inv_sqrt: Vec<f32> = eigvals.iter().map(|&l| 1.0 / l.max(floor).sqrt()).collect();
         let mut c_inv_sqrt: Vec<f32> = vec![0.0; d * d];
         for i in 0..d {
             for j in 0..d {
@@ -589,7 +619,8 @@ where
         // Heaviside stall guard hσ on the anisotropic path.
         let gen_count: f32 = state.generation as f32 + 1.0;
         let denom: f32 = (1.0 - (1.0 - params.c_sigma).powf(2.0 * gen_count)).sqrt();
-        let h_sigma: f32 = if p_sigma_norm / denom < (1.4 + 2.0 / (params.genome_dim as f32 + 1.0)) * params.chi_n
+        let h_sigma: f32 = if p_sigma_norm / denom
+            < (1.4 + 2.0 / (params.genome_dim as f32 + 1.0)) * params.chi_n
         {
             1.0
         } else {
@@ -625,11 +656,8 @@ where
         update_best(&mut state, &population, &fitness_host);
 
         state.generation += 1;
-        let metrics = StrategyMetrics::from_host_fitness(
-            state.generation,
-            &fitness_host,
-            state.best_fitness,
-        );
+        let metrics =
+            StrategyMetrics::from_host_fitness(state.generation, &fitness_host, state.best_fitness);
         state.best_fitness = metrics.best_fitness_ever();
 
         state.mean = mean_new;
@@ -799,7 +827,11 @@ mod tests {
             assert!(pair[0] >= pair[1], "weights must be descending");
         }
         // μ_eff lies in (1, μ].
-        assert!(cfg.mu_eff > 1.0 && cfg.mu_eff <= 5.0, "mu_eff = {}", cfg.mu_eff);
+        assert!(
+            cfg.mu_eff > 1.0 && cfg.mu_eff <= 5.0,
+            "mu_eff = {}",
+            cfg.mu_eff
+        );
         // Learning rates are in their valid ranges.
         assert!(cfg.c_sigma > 0.0 && cfg.c_sigma < 1.0);
         assert!(cfg.d_sigma >= 1.0);

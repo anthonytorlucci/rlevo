@@ -157,12 +157,18 @@ fn c51_cartpole_produces_finite_rewards() {
     train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
     let history = &agent.stats().recent_history;
-    assert_all_finite("reward", &history.iter().map(|m| m.reward).collect::<Vec<_>>());
+    assert_all_finite(
+        "reward",
+        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+    );
     assert_all_finite(
         "policy_loss",
         &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
     );
-    assert_all_finite("q_mean", &history.iter().map(|m| m.q_mean).collect::<Vec<_>>());
+    assert_all_finite(
+        "q_mean",
+        &history.iter().map(|m| m.q_mean).collect::<Vec<_>>(),
+    );
 }
 
 /// `C51Agent::new` rejects a degenerate support (`v_min == v_max`) at
@@ -178,9 +184,8 @@ fn c51_agent_new_rejects_degenerate_support() {
         ..C51TrainingConfig::default()
     };
     let model: C51Mlp<Be> = C51Mlp::new(config.num_atoms, &device);
-    let result = C51Agent::<Be, _, CartPoleObservation, CartPoleAction, 1, 2>::new(
-        model, config, device,
-    );
+    let result =
+        C51Agent::<Be, _, CartPoleObservation, CartPoleAction, 1, 2>::new(model, config, device);
     let err = result.unwrap_err();
     assert_eq!(err.field, "v_max");
 }

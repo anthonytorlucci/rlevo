@@ -144,8 +144,12 @@ where
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Self::State, CoEAMetrics) {
         // Both populations propose simultaneously.
-        let (pop_a, asked_a) = self.strategy_a.ask(&params.params_a, &state.state_a, rng, device);
-        let (pop_b, asked_b) = self.strategy_b.ask(&params.params_b, &state.state_b, rng, device);
+        let (pop_a, asked_a) = self
+            .strategy_a
+            .ask(&params.params_a, &state.state_a, rng, device);
+        let (pop_b, asked_b) = self
+            .strategy_b
+            .ask(&params.params_b, &state.state_b, rng, device);
 
         // Single coupled evaluation scores each against the other.
         let fits = self
@@ -165,12 +169,12 @@ where
         let fit_b = sanitize_fitness_tensor(fits[1].clone());
 
         // Both populations consume their relative fitness.
-        let (next_a, metrics_a) = self
-            .strategy_a
-            .tell(&params.params_a, pop_a, fit_a, asked_a, rng);
-        let (next_b, metrics_b) = self
-            .strategy_b
-            .tell(&params.params_b, pop_b, fit_b, asked_b, rng);
+        let (next_a, metrics_a) =
+            self.strategy_a
+                .tell(&params.params_a, pop_a, fit_a, asked_a, rng);
+        let (next_b, metrics_b) =
+            self.strategy_b
+                .tell(&params.params_b, pop_b, fit_b, asked_b, rng);
 
         state.state_a = next_a;
         state.state_b = next_b;
@@ -217,7 +221,9 @@ mod tests {
             bounds: Bounds::new(0.0, 1.0),
             mutation_sigma: NonNegativeRate::new(0.1),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            crossover: GaCrossover::Uniform {
+                p: Probability::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
     }
@@ -309,7 +315,9 @@ mod tests {
     /// ADR 0034 `+∞` rule on the coevolution path.
     #[test]
     fn pos_inf_fitness_is_clamped_finite_in_metrics() {
-        let m = run_one_step(PoisonRow0 { poison: f32::INFINITY });
+        let m = run_one_step(PoisonRow0 {
+            poison: f32::INFINITY,
+        });
         approx::assert_relative_eq!(m.best_fitness_a, f32::MAX);
         assert!(
             m.mean_fitness_a.is_finite(),

@@ -18,11 +18,11 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
+use crate::memory::ReplayBufferError;
+use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
-use crate::memory::ReplayBufferError;
-use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;

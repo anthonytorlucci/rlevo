@@ -436,7 +436,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = GoToDoorConfig { size: 0, ..Default::default() };
+        let bad = GoToDoorConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(GoToDoorEnv::with_config(bad, false).is_err());
     }
 

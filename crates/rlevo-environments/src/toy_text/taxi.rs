@@ -501,7 +501,11 @@ impl crate::render::AsciiRenderable for Taxi {
             for col in 0..5u8 {
                 out.push(taxi_cell_char(row, col, taxi, pass_loc, dest));
                 if col + 1 < 5 {
-                    out.push(if has_wall(row, col, col + 1) { '|' } else { ' ' });
+                    out.push(if has_wall(row, col, col + 1) {
+                        '|'
+                    } else {
+                        ' '
+                    });
                 }
             }
             out.push('\n');
@@ -510,9 +514,7 @@ impl crate::render::AsciiRenderable for Taxi {
     }
 
     fn render_styled(&self) -> crate::render::StyledFrame {
-        use crate::render::palette::{
-            AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, WALL_FG,
-        };
+        use crate::render::palette::{AGENT_FG, AGENT_MODIFIER, GOAL_FG, GOAL_MODIFIER, WALL_FG};
         use crate::render::{Color, Modifier, SpanStyle, StyledFrame, StyledLine, StyledSpan};
 
         let pass_loc = self.state.passenger_loc;
@@ -565,7 +567,11 @@ impl crate::render::AsciiRenderable for Taxi {
                 push_styled(&mut spans, &mut current_style, &mut current_text, ch, style);
 
                 if col + 1 < 5 {
-                    let sep_ch = if has_wall(row, col, col + 1) { '|' } else { ' ' };
+                    let sep_ch = if has_wall(row, col, col + 1) {
+                        '|'
+                    } else {
+                        ' '
+                    };
                     let sep_style = if sep_ch == '|' {
                         wall_style
                     } else {
@@ -606,13 +612,7 @@ fn push_styled(
     current_text.push(ch);
 }
 
-fn taxi_cell_char(
-    row: u8,
-    col: u8,
-    taxi: (u8, u8),
-    pass_loc: u8,
-    dest: usize,
-) -> char {
+fn taxi_cell_char(row: u8, col: u8, taxi: (u8, u8), pass_loc: u8, dest: usize) -> char {
     if (row, col) == taxi {
         return 'T';
     }
