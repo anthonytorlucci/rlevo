@@ -300,8 +300,10 @@ where
     /// `pop_size − elitism_k` slots are filled with the best offspring.
     /// Both selections use [`crate::ops::selection::truncation_indices_host`].
     ///
-    /// `fitness` must have shape `(pop_size,)` with values in the
-    /// minimization (cost) convention — lower is better.
+    /// `fitness` must have shape `(pop_size,)` in the canonical maximise
+    /// convention — higher is better. The harness canonicalises a `Minimize`
+    /// objective (negation) before this call, so the strategy stays
+    /// sense-unaware per ADR 0023.
     fn tell(
         &self,
         params: &BinaryGaConfig,
