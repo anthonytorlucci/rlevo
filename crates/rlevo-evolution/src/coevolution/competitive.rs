@@ -16,6 +16,7 @@ use rand::Rng;
 
 use rlevo_core::config::{ConfigError, Validate};
 
+use crate::fitness::sanitize_fitness_tensor;
 use crate::strategy::Strategy;
 
 use super::fitness::CoupledFitness;
@@ -92,6 +93,14 @@ where
         }
     }
 
+    /// Project the joint state into public [`CoEAMetrics`].
+    ///
+    /// The `best`/`mean` fields are copied from `state`, which `step` sources
+    /// from the per-population `tell` metrics computed over the **sanitized**
+    /// fitness (see the chokepoint in [`step`](Self::step) and ADR 0034). No
+    /// non-finite value can reach here as a `NaN`: means are averaged over the
+    /// finite members only (`StrategyMetrics::from_host_fitness`), so a broken
+    /// individual cannot blank a mean.
     fn snapshot(&self, state: &CoEAState<SA::State, SB::State>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
         CoEAMetrics {
@@ -143,8 +152,17 @@ where
             .fitness
             .evaluate_coupled(&[pop_a.clone(), pop_b.clone()]);
         debug_assert_eq!(fits.len(), 2, "competitive co-evolution is bi-population");
-        let fit_a = fits[0].clone();
-        let fit_b = fits[1].clone();
+
+        // Fitness-hygiene chokepoint for the coupled-fitness path (ADR 0034):
+        // `evaluate_coupled` may return non-finite fitness, and — unlike the
+        // single-population `EvolutionaryHarness` — nothing above this point
+        // sanitizes. Clean each vector *once* here (`NaN → −∞` worst,
+        // `+∞ → f32::MAX`), so the per-population `tell`, the `snapshot`
+        // best/mean written into `CoEAState`, and any `HallOfFameFitness`
+        // downstream all see finite-or-`−∞` fitness. A raw positive `NaN` would
+        // otherwise `total_cmp` as the maximum and be crowned champion.
+        let fit_a = sanitize_fitness_tensor(fits[0].clone());
+        let fit_b = sanitize_fitness_tensor(fits[1].clone());
 
         // Both populations consume their relative fitness.
         let (next_a, metrics_a) = self
@@ -168,5 +186,149 @@ where
 
     fn metrics(&self, state: &Self::State) -> CoEAMetrics {
         self.snapshot(state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::backend::Flex;
+    use burn::tensor::TensorData;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    use rlevo_core::bounds::Bounds;
+    use rlevo_core::probability::Probability;
+    use rlevo_core::rate::NonNegativeRate;
+
+    use crate::algorithms::ga::{
+        GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+    };
+
+    type TB = Flex;
+
+    const POP: usize = 4;
+    const DIM: usize = 2;
+
+    fn ga_config() -> GaConfig {
+        GaConfig {
+            pop_size: POP,
+            genome_dim: DIM,
+            bounds: Bounds::new(0.0, 1.0),
+            mutation_sigma: NonNegativeRate::new(0.1),
+            selection: GaSelection::Tournament { size: 2 },
+            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            replacement: GaReplacement::Elitist { elitism_k: 1 },
+        }
+    }
+
+    /// Coupled fitness that poisons row 0 of every population with a
+    /// non-finite value and fills the rest with a finite ramp `1, 2, …`.
+    /// `poison` selects `NaN` or `+∞`; either must be sanitized at the
+    /// chokepoint so the finite ramp maximum (`POP - 1`) is the champion.
+    struct PoisonRow0 {
+        poison: f32,
+    }
+
+    impl CoupledFitness<TB> for PoisonRow0 {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n)
+                        .map(|i| if i == 0 { self.poison } else { i as f32 })
+                        .collect();
+                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+    }
+
+    /// A single all-`NaN` coupled fitness — the degenerate whole-population
+    /// break — must sanitize to `−∞`, never `NaN`.
+    struct AllNan;
+
+    impl CoupledFitness<TB> for AllNan {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    Tensor::<TB, 1>::from_data(TensorData::new(vec![f32::NAN; n], [n]), &device)
+                })
+                .collect()
+        }
+    }
+
+    fn run_one_step<F: CoupledFitness<TB>>(fitness: F) -> CoEAMetrics {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            fitness,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = algo.init(&params, &mut rng, &device);
+        let (_next, metrics) = algo.step(&params, state, &mut rng, &device);
+        metrics
+    }
+
+    /// A `NaN` fitness from a [`CoupledFitness`] impl is sanitized to `−∞` at
+    /// the chokepoint, so it can neither become the champion nor blank a mean:
+    /// the finite ramp maximum (`POP - 1`) is `best`, and the mean is finite
+    /// (averaged over the finite members only). Regression for issue #134.
+    #[test]
+    fn nan_row_is_not_crowned_and_mean_stays_finite() {
+        let m = run_one_step(PoisonRow0 { poison: f32::NAN });
+        #[allow(clippy::cast_precision_loss)]
+        let expected_best = (POP - 1) as f32;
+        approx::assert_relative_eq!(m.best_fitness_a, expected_best, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness_b, expected_best, epsilon = 1e-6);
+        assert!(
+            m.mean_fitness_a.is_finite(),
+            "mean_fitness_a must stay finite when a NaN individual is present, got {}",
+            m.mean_fitness_a
+        );
+        assert!(
+            m.mean_fitness_b.is_finite(),
+            "mean_fitness_b must stay finite when a NaN individual is present, got {}",
+            m.mean_fitness_b
+        );
+    }
+
+    /// A `+∞` fitness is clamped to `f32::MAX` (still the top rank, but finite),
+    /// so it cannot blow the population mean up to `+∞`. Regression for the
+    /// ADR 0034 `+∞` rule on the coevolution path.
+    #[test]
+    fn pos_inf_fitness_is_clamped_finite_in_metrics() {
+        let m = run_one_step(PoisonRow0 { poison: f32::INFINITY });
+        approx::assert_relative_eq!(m.best_fitness_a, f32::MAX);
+        assert!(
+            m.mean_fitness_a.is_finite(),
+            "a +∞ individual must not push the mean to +∞, got {}",
+            m.mean_fitness_a
+        );
+    }
+
+    /// An all-`NaN` population sanitizes to `−∞` everywhere: `best`/`mean` are
+    /// the well-defined `−∞` sentinel (degenerate but flagged), never `NaN`.
+    #[test]
+    fn all_nan_population_yields_neg_inf_never_nan() {
+        let m = run_one_step(AllNan);
+        assert!(!m.best_fitness_a.is_nan(), "best must never be NaN");
+        assert!(!m.mean_fitness_a.is_nan(), "mean must never be NaN");
+        assert!(
+            m.best_fitness_a.is_infinite() && m.best_fitness_a.is_sign_negative(),
+            "all-broken population best is the −∞ sentinel, got {}",
+            m.best_fitness_a
+        );
     }
 }
