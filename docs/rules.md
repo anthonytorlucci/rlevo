@@ -417,8 +417,12 @@ generation-to-generation) diversity the caller relies on.
 
 ---
 
-## 9. Linting
+## 9. Linting and Formatting
 
+- **Formatting is enforced.** The workspace is `rustfmt`-clean and CI runs `cargo fmt --all --check` (`.github/workflows/fmt.yml`); a PR that leaves the tree unformatted fails. Run `cargo fmt --all` before pushing. Because the tree is clean, a scoped `cargo fmt` no longer reflows unrelated files.
+- Formatting config is stable-only: `rustfmt.toml` at the workspace root (`edition = "2024"`, `max_width = 100`, `newline_style = "Unix"`). Do not add nightly-only keys (`imports_granularity`, `group_imports`, `wrap_comments`, …) unless CI is switched to nightly rustfmt.
+- The toolchain is pinned in `rust-toolchain.toml` (`channel = "1.94.1"`, components `rustfmt`, `clippy`) so local and CI rustfmt cannot diverge. Bumping Rust is a deliberate edit to that file.
+- The one-time normalization commit is recorded in `.git-blame-ignore-revs`; enable blame-skip locally with `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 - Workspace clippy lint groups (`cargo`, `complexity`, `correctness`, `pedantic`, `perf`, `style`, `suspicious`) are all set to `warn` at priority `-1`. This is the baseline and must not be lowered.
 - Workspace Rust lints (`ambiguous_negative_literals`, `missing_debug_implementations`, `redundant_imports`, `redundant_lifetimes`, `trivial_numeric_casts`, `unsafe_op_in_unsafe_fn`, `unused_lifetimes`) are set to `warn`.
 - Item-level `#[allow(...)]` attributes are permitted only when:
