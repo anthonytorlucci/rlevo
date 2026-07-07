@@ -29,3 +29,6 @@ runs/
 # example source dir crates/rlevo-examples/examples/book/)
 docs/user-book/book/
 docs/contributor-book/book/
+
+# private specs, sessions, etc.
+docs/.private/
