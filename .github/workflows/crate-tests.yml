@@ -53,9 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
         with:

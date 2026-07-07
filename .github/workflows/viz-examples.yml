@@ -34,12 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Edition 2024 / MSRV 1.85 — use a recent stable toolchain.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
+      # The toolchain (channel + rustfmt/clippy components) is governed by
+      # rust-toolchain.toml at the repo root; rustup auto-installs the pin on
+      # the first cargo invocation.
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
