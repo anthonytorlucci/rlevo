@@ -41,7 +41,7 @@ use rand::Rng;
 use rand_distr::{Distribution as _, Normal};
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, LocalSearch};
+use crate::local_search::{LocalSearch, clamp_vec};
 use rlevo_core::bounds::Bounds;
 
 /// Static configuration for a [`RandomRestart`] run.
@@ -368,13 +368,8 @@ mod tests {
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(1);
         let start = vec![1.0_f32, 2.0, 3.0];
-        let _ = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut counting,
-            &mut rng,
-        );
+        let _ =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
 
         let upper = (restarts + 1) * inner.max_iters();
         assert!(
@@ -526,13 +521,8 @@ mod tests {
         let mut fitness = NegRastrigin;
         let mut rng = StdRng::seed_from_u64(4);
         let start = vec![1.3_f32, -2.7];
-        let (g, fit) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness,
-            &mut rng,
-        );
+        let (g, fit) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         let fresh = fitness.evaluate_one(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
     }
@@ -552,13 +542,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(5);
         // Start at the upper boundary in every coordinate.
         let start = vec![BOUNDS.hi(); 4];
-        let (g, _f) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut fitness,
-            &mut rng,
-        );
+        let (g, _f) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         for &x in &g {
             assert!(
                 x >= BOUNDS.lo() && x <= BOUNDS.hi(),

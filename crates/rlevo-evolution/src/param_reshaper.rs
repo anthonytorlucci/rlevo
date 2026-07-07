@@ -276,8 +276,14 @@ mod tests {
     }
 
     fn approx_eq(a: &Tensor<TestBackend, 1>, b: &Tensor<TestBackend, 1>) {
-        let av = a.to_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
-        let bv = b.to_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let av = a
+            .to_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
+        let bv = b
+            .to_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         assert_eq!(av.len(), bv.len(), "length mismatch");
         for (x, y) in av.iter().zip(bv.iter()) {
             approx::assert_relative_eq!(x, y, epsilon = 1e-6);
@@ -310,10 +316,8 @@ mod tests {
     fn test_module_reshaper_unflatten_panics_on_length_mismatch() {
         let device = Default::default();
         let reshaper = ModuleReshaper::new(TestMlp::<TestBackend>::new(&device));
-        let wrong = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0f32; 10], [10]),
-            &device,
-        );
+        let wrong =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0f32; 10], [10]), &device);
         let _ = reshaper.unflatten(wrong);
     }
 
@@ -344,8 +348,7 @@ mod tests {
 
         #[allow(clippy::cast_precision_loss)]
         let values: Vec<f32> = (0..26).map(|i| i as f32 * 0.1 - 1.3).collect();
-        let flat =
-            Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [26]), &device);
+        let flat = Tensor::<TestBackend, 1>::from_data(TensorData::new(values, [26]), &device);
 
         let module = reshaper.unflatten(flat.clone());
         let flat2 = reshaper.flatten(&module, &device);

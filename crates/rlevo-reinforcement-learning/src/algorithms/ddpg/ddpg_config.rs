@@ -67,7 +67,13 @@ impl Validate for DdpgTrainingConfig {
         config::positive(C, "critic_lr", self.critic_lr)?;
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
-        config::in_range(C, "exploration_noise", 0.0, f64::INFINITY, f64::from(self.exploration_noise))?;
+        config::in_range(
+            C,
+            "exploration_noise",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.exploration_noise),
+        )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
         Ok(())
     }
@@ -228,7 +234,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_batch_size() {
-        let err = DdpgTrainingConfigBuilder::new().batch_size(0).build().unwrap_err();
+        let err = DdpgTrainingConfigBuilder::new()
+            .batch_size(0)
+            .build()
+            .unwrap_err();
         assert_eq!(err.field, "batch_size");
     }
 }

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
-use burn::tensor::{Tensor, TensorData};
 use burn::tensor::backend::Backend;
+use burn::tensor::{Tensor, TensorData};
 
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///

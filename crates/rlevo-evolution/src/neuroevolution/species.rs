@@ -367,7 +367,10 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
     }
-    let total: f32 = species.iter().map(|s| s.adjusted_fitness_sum.max(0.0)).sum();
+    let total: f32 = species
+        .iter()
+        .map(|s| s.adjusted_fitness_sum.max(0.0))
+        .sum();
 
     if total <= 0.0 {
         let base = pop_size / n;
@@ -442,7 +445,9 @@ pub fn allocate_offspring(species: &[Species], pop_size: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neuroevolution::topology::{ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind};
+    use crate::neuroevolution::topology::{
+        ActivationFn, ConnectionGene, NodeGene, NodeId, NodeKind,
+    };
     use rand::SeedableRng;
 
     fn conn(innovation: u64, weight: f32) -> ConnectionGene {
@@ -457,8 +462,18 @@ mod tests {
 
     fn genome_with(conns: Vec<ConnectionGene>) -> TopologyGenome {
         let nodes = vec![
-            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(1), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
+            NodeGene {
+                id: NodeId::new(0),
+                kind: NodeKind::Input,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(1),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.0,
+            },
         ];
         TopologyGenome::new(nodes, conns)
     }
@@ -520,7 +535,11 @@ mod tests {
             species_with(2, 3.0, 1.0, 0),
         ];
         let counts = allocate_offspring(&species, 64);
-        assert_eq!(counts.iter().sum::<usize>(), 64, "apportionment must sum exactly");
+        assert_eq!(
+            counts.iter().sum::<usize>(),
+            64,
+            "apportionment must sum exactly"
+        );
         // Roughly proportional: species 2 (share 3) gets the most.
         assert!(counts[2] >= counts[1] && counts[1] >= counts[0]);
     }
@@ -550,7 +569,10 @@ mod tests {
         ];
         remove_stagnant(&mut species, 30, 15);
         let ids: Vec<u64> = species.iter().map(|s| s.id().get()).collect();
-        assert!(ids.contains(&0), "top-fitness stagnant species is protected");
+        assert!(
+            ids.contains(&0),
+            "top-fitness stagnant species is protected"
+        );
         assert!(ids.contains(&1), "recently-improved species survives");
         assert!(!ids.contains(&2), "low-fitness stagnant species is removed");
     }
@@ -568,10 +590,24 @@ mod tests {
         let mut species: Vec<Species> = Vec::new();
         let mut next_id = SpeciesId::new(0);
         // c3=1.0, threshold 1.0: |0-10|=10 > 1 (split); |0-0.05|=0.05 < 1 (join).
-        speciate(&population, &fitness, &mut species, 1.0, 1.0, 1.0, 1.0, &mut next_id, 0, &mut rng);
+        speciate(
+            &population,
+            &fitness,
+            &mut species,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            &mut next_id,
+            0,
+            &mut rng,
+        );
         assert_eq!(species.len(), 2, "distinct genome forms its own species");
         let sizes: Vec<usize> = species.iter().map(|s| s.members.len()).collect();
-        assert!(sizes.contains(&2) && sizes.contains(&1), "g0 and its clone share a species");
+        assert!(
+            sizes.contains(&2) && sizes.contains(&1),
+            "g0 and its clone share a species"
+        );
     }
 
     /// Regression (ADR 0034, issue #133): `speciate` sanitizes each member's
@@ -593,12 +629,26 @@ mod tests {
         let fitness = vec![f32::NAN, f32::INFINITY, 2.0];
         let mut species: Vec<Species> = Vec::new();
         let mut next_id = SpeciesId::new(0);
-        speciate(&population, &fitness, &mut species, 1.0, 1.0, 1.0, 1.0, &mut next_id, 0, &mut rng);
+        speciate(
+            &population,
+            &fitness,
+            &mut species,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            &mut next_id,
+            0,
+            &mut rng,
+        );
         assert_eq!(species.len(), 1, "near-clones form a single species");
 
         let s = &species[0];
         // best_fitness is the sanitized +∞ = f32::MAX — finite, never NaN.
-        assert!(!s.best_fitness.is_nan(), "a NaN member never becomes a species best");
+        assert!(
+            !s.best_fitness.is_nan(),
+            "a NaN member never becomes a species best"
+        );
         approx::assert_relative_eq!(s.best_fitness, f32::MAX);
         // The size-adjusted mean is not NaN: sanitizing the NaN to −∞ makes the
         // mean −∞ (not NaN), which the downstream `.max(0.0)` floors — the key

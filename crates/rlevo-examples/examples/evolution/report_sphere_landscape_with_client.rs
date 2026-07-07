@@ -63,10 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for ep in 0..NUM_EPISODES {
         let mut rng = StdRng::seed_from_u64(SEED.wrapping_add(ep as u64));
-        let mut current = [
-            rng.random_range(lo..hi),
-            rng.random_range(lo..hi),
-        ];
+        let mut current = [rng.random_range(lo..hi), rng.random_range(lo..hi)];
         let mut current_f = sphere.evaluate(&current);
         let mut best = current;
         let mut best_f = current_f;
@@ -96,7 +93,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if trail.len() > TRAIL_CAP {
                 trail.remove(0);
             }
-            let reward = if improved { (current_f - cand_f) as f32 } else { 0.0 };
+            let reward = if improved {
+                (current_f - cand_f) as f32
+            } else {
+                0.0
+            };
             episode_return += f64::from(reward);
 
             let snapshot = Landscape2DSnapshot {

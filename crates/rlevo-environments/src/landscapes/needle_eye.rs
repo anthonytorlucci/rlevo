@@ -136,7 +136,11 @@ mod tests {
         // A point exactly on the boundary |x_i| = EYE is inside the eye, so
         // f = 1 — never below the global minimum.
         let n = Needle::new(2);
-        assert_relative_eq!(n.evaluate(&[Needle::EYE, -Needle::EYE]), 1.0, epsilon = 1e-12);
+        assert_relative_eq!(
+            n.evaluate(&[Needle::EYE, -Needle::EYE]),
+            1.0,
+            epsilon = 1e-12
+        );
     }
 
     #[test]

@@ -55,7 +55,9 @@ pub use dependency_chain::{DependencyChain, DependencyChainParams, DependencyCha
 pub use univariate_bernoulli::{
     UnivariateBernoulli, UnivariateBernoulliParams, UnivariateBernoulliState,
 };
-pub use univariate_gaussian::{UnivariateGaussian, UnivariateGaussianParams, UnivariateGaussianState};
+pub use univariate_gaussian::{
+    UnivariateGaussian, UnivariateGaussianParams, UnivariateGaussianState,
+};
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -202,7 +204,10 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Self::State {
-        debug_assert!(params.validate().is_ok(), "invalid EdaParams reached init: {params:?}");
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid EdaParams reached init: {params:?}"
+        );
         let _ = rng;
         let model_state = self.model.fit(
             &params.model,
@@ -272,7 +277,10 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         mut state: Self::State,
         _rng: &mut dyn Rng,
     ) -> (Self::State, StrategyMetrics) {
-        let raw = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let raw = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let sanitized: Vec<f32> = raw
             .iter()
             .map(|&f| crate::fitness::sanitize_fitness(f))
@@ -310,11 +318,7 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let k = (target as usize).max(2).min(n.max(1));
         let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by(|&a, &b| {
-            sanitized[b]
-                .total_cmp(&sanitized[a])
-                .then(a.cmp(&b))
-        });
+        order.sort_by(|&a, &b| sanitized[b].total_cmp(&sanitized[a]).then(a.cmp(&b)));
         order.truncate(k);
 
         // usize → i64 index tensor (see best-so-far note above).
@@ -345,8 +349,11 @@ impl<B: Backend, M: ProbabilityModel<B>> Strategy<B> for EdaStrategy<B, M> {
         );
         state.model_state = model_state;
         state.generation += 1;
-        let metrics =
-            StrategyMetrics::from_host_fitness(state.generation, &sanitized, state.best_fitness_ever);
+        let metrics = StrategyMetrics::from_host_fitness(
+            state.generation,
+            &sanitized,
+            state.best_fitness_ever,
+        );
         state.best_fitness_ever = metrics.best_fitness_ever();
         (state, metrics)
     }
@@ -451,7 +458,10 @@ mod tests {
         let fitness = make_fitness(&[1.0, 5.0, 1.0, 5.0]);
         let (state, _m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, _f) = strategy.best(&state).unwrap();
-        let v = genome.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let v = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 10.0, epsilon = 1e-6);
     }
 
@@ -468,7 +478,10 @@ mod tests {
         let fitness = make_fitness(&[f32::NAN, 9.0, 2.0, 7.0]);
         let (state, m) = strategy.tell(&p, pop, fitness, state, &mut rng);
         let (genome, f) = strategy.best(&state).unwrap();
-        let v = genome.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let v = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         approx::assert_relative_eq!(v[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(f, 9.0, epsilon = 1e-6);
         assert!(m.best_fitness().is_finite());
@@ -487,10 +500,14 @@ mod tests {
         let state = strategy.init(&p, &mut rng, &device);
         let pop = make_pop(
             &[
-                f32::NAN, 0.0, //
-                f32::INFINITY, 1.0, //
-                f32::NEG_INFINITY, 2.0, //
-                0.5, 3.0,
+                f32::NAN,
+                0.0, //
+                f32::INFINITY,
+                1.0, //
+                f32::NEG_INFINITY,
+                2.0, //
+                0.5,
+                3.0,
             ],
             4,
             2,
@@ -502,11 +519,18 @@ mod tests {
             assert!(m.is_finite(), "fitted mean must be finite, got {m}");
         }
         for &v in state.model_state.variance() {
-            assert!(v.is_finite() && v > 0.0, "fitted variance must be finite/positive, got {v}");
+            assert!(
+                v.is_finite() && v > 0.0,
+                "fitted variance must be finite/positive, got {v}"
+            );
         }
         // Sampling the next generation must yield an all-finite population.
         let (next_pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
-        for x in next_pop.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built") {
+        for x in next_pop
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built")
+        {
             assert!(x.is_finite(), "sampled genome must be finite, got {x}");
         }
     }
@@ -530,7 +554,10 @@ mod tests {
         };
         let state = strategy.init(&p, &mut rng, &device);
         let (pop, _s) = strategy.ask(&p, &state, &mut rng, &device);
-        let values = pop.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+        let values = pop
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
         for v in values {
             assert!((-0.5..=0.5).contains(&v), "value {v} escaped the clamp");
         }

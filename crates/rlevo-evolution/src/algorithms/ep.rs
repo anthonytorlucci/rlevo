@@ -207,8 +207,16 @@ where
     /// Initial sampling goes through [`seed_stream`] rather than
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
-    fn init(&self, params: &EpConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> EpState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid EpConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &EpConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> EpState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid EpConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial parents from a deterministic `seed_stream`
         // rather than the process-wide Flex RNG (`B::seed` + `Tensor::random`),
@@ -338,7 +346,10 @@ where
         mut state: EpState<B>,
         rng: &mut dyn Rng,
     ) -> (EpState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
         // First `tell`: evaluated the initial parents.
@@ -539,7 +550,12 @@ mod tests {
         let mut state = strategy.init(&params, &mut rng, &device);
         for generation in 0..60 {
             let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
-            let sigmas: Vec<f32> = next.sigmas.clone().into_data().into_vec::<f32>().expect("sigma host-read of a tensor this test just built");
+            let sigmas: Vec<f32> = next
+                .sigmas
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("sigma host-read of a tensor this test just built");
             for &s in &sigmas {
                 assert!(
                     s.is_finite() && s >= params.sigma_min && s <= params.sigma_max,
@@ -580,7 +596,8 @@ mod tests {
             3,
             device,
             300,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {
@@ -603,7 +620,8 @@ mod tests {
             5,
             device,
             2000,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

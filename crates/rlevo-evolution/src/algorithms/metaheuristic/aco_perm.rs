@@ -14,7 +14,7 @@
 
 use std::marker::PhantomData;
 
-use burn::tensor::{backend::Backend, Int, Tensor};
+use burn::tensor::{Int, Tensor, backend::Backend};
 use rand::Rng;
 
 use crate::strategy::{Strategy, StrategyMetrics};

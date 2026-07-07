@@ -290,7 +290,9 @@ impl TopologyGenome {
     /// The caller must guarantee `gene.innovation` is not already present.
     pub fn insert_connection_sorted(&mut self, gene: ConnectionGene) {
         debug_assert!(
-            self.connections.iter().all(|c| c.innovation != gene.innovation),
+            self.connections
+                .iter()
+                .all(|c| c.innovation != gene.innovation),
             "insert_connection_sorted requires a fresh innovation id"
         );
         let pos = self
@@ -347,7 +349,9 @@ impl TopologyGenome {
     /// sorted with no duplicate innovation ids, the full structural invariant.
     #[must_use]
     pub fn is_innovation_sorted(&self) -> bool {
-        self.connections.windows(2).all(|w| w[0].innovation < w[1].innovation)
+        self.connections
+            .windows(2)
+            .all(|w| w[0].innovation < w[1].innovation)
     }
 }
 
@@ -426,7 +430,10 @@ mod tests {
             weight: 0.2,
             enabled: true,
         });
-        assert!(g.is_innovation_sorted(), "sorted invariant preserved on insert");
+        assert!(
+            g.is_innovation_sorted(),
+            "sorted invariant preserved on insert"
+        );
         let innovs: Vec<u64> = g.connections.iter().map(|c| c.innovation.get()).collect();
         assert_eq!(innovs, vec![0, 1, 3, 5]);
     }
@@ -435,27 +442,76 @@ mod tests {
     fn test_would_create_cycle_rejects_back_edge() {
         // Build 0 -> 2 -> 3 (feedforward). Adding 3 -> 0 would close a cycle.
         let nodes = vec![
-            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: NodeId::new(3), kind: NodeKind::Output, activation: ActivationFn::Sigmoid, bias: 0.0 },
+            NodeGene {
+                id: NodeId::new(0),
+                kind: NodeKind::Input,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(3),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Sigmoid,
+                bias: 0.0,
+            },
         ];
         let conns = vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(2), target: NodeId::new(3), weight: 1.0, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 1.0,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(2),
+                target: NodeId::new(3),
+                weight: 1.0,
+                enabled: true,
+            },
         ];
         let g = TopologyGenome::new(nodes, conns);
-        assert!(g.would_create_cycle(NodeId::new(3), NodeId::new(0)), "3 -> 0 closes a cycle through 0 -> 2 -> 3");
-        assert!(g.would_create_cycle(NodeId::new(3), NodeId::new(2)), "3 -> 2 closes a cycle through 2 -> 3");
-        assert!(!g.would_create_cycle(NodeId::new(0), NodeId::new(3)), "0 -> 3 is a forward edge");
-        assert!(g.would_create_cycle(NodeId::new(0), NodeId::new(0)), "self-loop is a cycle");
+        assert!(
+            g.would_create_cycle(NodeId::new(3), NodeId::new(0)),
+            "3 -> 0 closes a cycle through 0 -> 2 -> 3"
+        );
+        assert!(
+            g.would_create_cycle(NodeId::new(3), NodeId::new(2)),
+            "3 -> 2 closes a cycle through 2 -> 3"
+        );
+        assert!(
+            !g.would_create_cycle(NodeId::new(0), NodeId::new(3)),
+            "0 -> 3 is a forward edge"
+        );
+        assert!(
+            g.would_create_cycle(NodeId::new(0), NodeId::new(0)),
+            "self-loop is a cycle"
+        );
     }
 
     #[test]
     fn test_would_create_cycle_counts_disabled_edges() {
         // Disabled 2 -> 3 still constrains acyclicity (H2).
         let nodes = vec![
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: NodeId::new(3), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(3),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            },
         ];
         let conns = vec![ConnectionGene {
             innovation: InnovationId::new(0),

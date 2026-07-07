@@ -188,10 +188,8 @@ mod tests {
 
     #[test]
     fn styled_matches_ascii_glyphs() {
-        let plain =
-            render_landscape_ascii(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
-        let styled =
-            render_landscape_styled(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
+        let plain = render_landscape_ascii(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
+        let styled = render_landscape_styled(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
         let plain_no_trailing: String = plain.lines().collect::<Vec<_>>().join("\n");
         assert_eq!(styled.plain_text(), plain_no_trailing);
     }
@@ -208,8 +206,7 @@ mod tests {
     fn label_styled_with_best_palette() {
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let styled =
-            render_landscape_styled(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
+        let styled = render_landscape_styled(|x, y| x * x + y * y, (-5.0, 5.0), "Sphere");
         let header = &styled.lines[0];
         let label = header
             .spans

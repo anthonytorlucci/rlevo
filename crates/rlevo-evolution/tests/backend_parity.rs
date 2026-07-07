@@ -71,7 +71,9 @@ where
         bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 2 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
     let mut harness = EvolutionaryHarness::<B, _, _>::new(
@@ -81,7 +83,8 @@ where
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {
@@ -110,7 +113,8 @@ where
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     loop {
         if harness.step(()).done {

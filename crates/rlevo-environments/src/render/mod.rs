@@ -8,6 +8,6 @@
 //! working without change.
 
 pub use rlevo_core::render::{
-    ascii, palette, styled, AsciiRenderable, AsciiRenderer, Color, Modifier, SpanStyle,
-    StyledFrame, StyledLine, StyledSpan,
+    AsciiRenderable, AsciiRenderer, Color, Modifier, SpanStyle, StyledFrame, StyledLine,
+    StyledSpan, ascii, palette, styled,
 };

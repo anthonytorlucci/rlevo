@@ -7,8 +7,8 @@
 //! and is **not** encoded into the tensor representation (see
 //! [`TensorConvertible::from_tensor`] for the implication).
 
-use crate::direction::Direction;
 use super::entity::Entity;
+use crate::direction::Direction;
 use burn::tensor::{Tensor, backend::Backend};
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};

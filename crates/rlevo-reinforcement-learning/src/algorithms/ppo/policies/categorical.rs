@@ -30,7 +30,10 @@ impl CategoricalPolicyHeadConfig {
     /// Constructs the module on `device` using Burn's default initializer.
     /// CleanRL's orthogonal-init detail is a deferred follow-up; users who
     /// want it can post-process the module via a `ModuleMapper`.
-    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> CategoricalPolicyHead<B> {
+    pub fn init<B: Backend>(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> CategoricalPolicyHead<B> {
         CategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -240,7 +243,11 @@ mod tests {
 
     #[test]
     fn representative_head_config_is_valid() {
-        let cfg = CategoricalPolicyHeadConfig { obs_dim: 4, hidden: 64, num_actions: 2 };
+        let cfg = CategoricalPolicyHeadConfig {
+            obs_dim: 4,
+            hidden: 64,
+            num_actions: 2,
+        };
         assert!(cfg.validate().is_ok());
     }
 

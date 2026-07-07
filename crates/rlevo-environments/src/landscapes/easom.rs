@@ -51,11 +51,7 @@ impl Default for Easom {
 
 impl crate::render::AsciiRenderable for Easom {
     fn render_ascii(&self) -> String {
-        super::render::render_landscape_ascii(
-            |x, y| self.evaluate_2d(x, y),
-            self.bounds(),
-            "Easom",
-        )
+        super::render::render_landscape_ascii(|x, y| self.evaluate_2d(x, y), self.bounds(), "Easom")
     }
 
     fn render_styled(&self) -> crate::render::StyledFrame {

@@ -82,12 +82,10 @@ impl RecordingReporter {
 
     /// Sets a single hyperparameter key/value pair.
     #[must_use]
-    pub fn with_hyperparameter(
-        mut self,
-        key: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
-        self.manifest.hyperparameters.insert(key.into(), value.into());
+    pub fn with_hyperparameter(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.manifest
+            .hyperparameters
+            .insert(key.into(), value.into());
         self
     }
 
@@ -182,9 +180,7 @@ impl Reporter for RecordingReporter {
         // Open the next episode file straight away. The writer
         // tolerates a stray on_episode_start when the trial ends,
         // since the next call rotates the file cleanly.
-        sink.on_episode_start(
-            u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX),
-        );
+        sink.on_episode_start(u32::try_from(ep.episode_idx.saturating_add(1)).unwrap_or(u32::MAX));
     }
 
     fn on_trial_end(&mut self, _trial: &TrialInfo, _report: &TrialReport) {
@@ -445,8 +441,7 @@ mod tests {
 
     #[test]
     fn on_trial_start_sets_trial_context() {
-        let probe: Arc<Mutex<InMemoryRecordSink>> =
-            Arc::new(Mutex::new(InMemoryRecordSink::new()));
+        let probe: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
         let dyn_sink: Arc<Mutex<dyn RecordSink>> = probe.clone();
         // `without_lifecycle` so the only effect is the trial-context stamp.
         let mut r = RecordingReporter::without_lifecycle(dyn_sink, sample_manifest());

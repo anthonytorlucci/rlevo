@@ -74,7 +74,10 @@ impl LunacekBiRastrigin {
         let funnel1: f64 = x.iter().map(|xi| (xi - MU1).powi(2)).sum();
         let funnel2: f64 = D * n + s * x.iter().map(|xi| (xi - mu2).powi(2)).sum::<f64>();
         // non-differentiable where funnel1 == funnel2
-        let rastrigin: f64 = x.iter().map(|xi| 1.0 - (2.0 * PI * (xi - MU1)).cos()).sum::<f64>();
+        let rastrigin: f64 = x
+            .iter()
+            .map(|xi| 1.0 - (2.0 * PI * (xi - MU1)).cos())
+            .sum::<f64>();
 
         funnel1.min(funnel2) + 10.0 * rastrigin
     }

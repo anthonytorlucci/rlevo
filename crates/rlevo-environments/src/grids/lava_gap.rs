@@ -373,7 +373,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = LavaGapConfig { size: 0, ..Default::default() };
+        let bad = LavaGapConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(LavaGapEnv::with_config(bad, false).is_err());
     }
 

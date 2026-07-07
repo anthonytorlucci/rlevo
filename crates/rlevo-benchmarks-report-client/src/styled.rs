@@ -123,7 +123,11 @@ pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
         (Color::LightCyan, "rlevo-bg-lightcyan"),
         (Color::White, "rlevo-bg-white"),
     ];
-    let table = if foreground { &table_fg[..] } else { &table_bg[..] };
+    let table = if foreground {
+        &table_fg[..]
+    } else {
+        &table_bg[..]
+    };
     table.iter().find(|(c, _)| *c == color).map(|(_, cls)| *cls)
 }
 

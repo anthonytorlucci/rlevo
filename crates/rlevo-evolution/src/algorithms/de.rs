@@ -144,7 +144,11 @@ impl DeConfig {
 impl Validate for DeConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "DeConfig";
-        let min_pop = if self.variant == DeVariant::Rand2Bin { 5 } else { 4 };
+        let min_pop = if self.variant == DeVariant::Rand2Bin {
+            5
+        } else {
+            4
+        };
         config::at_least(C, "pop_size", self.pop_size, min_pop)?;
         config::nonzero(C, "genome_dim", self.genome_dim)?;
         config::in_range(C, "f", 0.0, 2.0, f64::from(self.f))?;
@@ -278,8 +282,16 @@ where
     /// Initial sampling goes through [`seed_stream`] rather than
     /// `B::seed + Tensor::random` to keep results reproducible across
     /// parallel test threads.
-    fn init(&self, params: &DeConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> DeState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid DeConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &DeConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> DeState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid DeConfig reached init: {params:?}"
+        );
         let population = Self::sample_initial_population(params, rng, device);
         DeState {
             population,
@@ -469,7 +481,10 @@ where
         mut state: DeState<B>,
         _rng: &mut dyn Rng,
     ) -> (DeState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         // First `tell`: stash fitness for the initial population.
         if state.fitness.is_empty() {
@@ -593,7 +608,8 @@ mod tests {
             11,
             device,
             gens,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

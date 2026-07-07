@@ -220,7 +220,10 @@ fn ppg_cartpole_produces_finite_rewards() {
     )
     .expect("training");
     let history = &agent.stats().recent_history;
-    assert_all_finite("reward", &history.iter().map(|m| m.reward).collect::<Vec<_>>());
+    assert_all_finite(
+        "reward",
+        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+    );
     assert_all_finite(
         "policy_loss",
         &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
@@ -237,7 +240,13 @@ fn ppg_cartpole_produces_finite_rewards() {
 fn random_cartpole(seed: u64) -> f32 {
     let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(&mut env, 100, 500, &mut rng, uniform_discrete::<1, CartPoleAction>)
+    random_return(
+        &mut env,
+        100,
+        500,
+        &mut rng,
+        uniform_discrete::<1, CartPoleAction>,
+    )
 }
 
 // Seeded reproducibility: two same-seed CartPole runs must produce identical

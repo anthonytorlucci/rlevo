@@ -391,8 +391,7 @@ impl Display for MultiRoomEnv {
 
 impl ConstructableEnv for MultiRoomEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(MultiRoomConfig::default(), render)
-            .expect("default config must validate")
+        Self::with_config(MultiRoomConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -441,7 +440,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_num_rooms() {
-        let bad = MultiRoomConfig { num_rooms: 0, ..Default::default() };
+        let bad = MultiRoomConfig {
+            num_rooms: 0,
+            ..Default::default()
+        };
         assert!(MultiRoomEnv::with_config(bad, false).is_err());
     }
 

@@ -11,9 +11,9 @@
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use rlevo_reinforcement_learning::algorithms::ppg::losses::policy_kl_categorical;
 use rlevo_reinforcement_learning::algorithms::ppo::losses::unclipped_value_loss;
+use std::hint::black_box;
 
 type B = Flex;
 

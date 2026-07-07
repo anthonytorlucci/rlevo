@@ -184,12 +184,8 @@ where
             let episodes = episodes_per_eval as f32;
             let mut total = 0.0_f32;
             for _ in 0..episodes_per_eval {
-                total += rollout_once::<B, M, E>(
-                    module,
-                    &env_factory,
-                    max_steps_per_episode,
-                    &device,
-                );
+                total +=
+                    rollout_once::<B, M, E>(module, &env_factory, max_steps_per_episode, &device);
             }
             // Natural mean episode return — the engine is maximise-native and
             // policy return is a maximisation, so there is no hand-negation.

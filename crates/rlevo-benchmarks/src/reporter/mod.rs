@@ -150,10 +150,10 @@ mod tests {
                 .push(Tag::TrialEnd(format!("{}:{}", self.name, trial.env_name)));
         }
         fn on_suite_end(&mut self, report: &BenchmarkReport) {
-            self.log
-                .lock()
-                .unwrap()
-                .push(Tag::SuiteEnd(format!("{}:{}", self.name, report.suite_name)));
+            self.log.lock().unwrap().push(Tag::SuiteEnd(format!(
+                "{}:{}",
+                self.name, report.suite_name
+            )));
         }
     }
 

@@ -291,7 +291,10 @@ where
         rng: &mut dyn Rng,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> FireflyState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid FireflyConfig reached init: {params:?}");
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid FireflyConfig reached init: {params:?}"
+        );
         // Even with the kernel feature active, the fused pairwise-attract
         // kernel is currently a design placeholder and the pure-tensor
         // path is still in use. A debug assert surfaces the limitation in
@@ -383,7 +386,10 @@ where
         mut state: FireflyState<B>,
         _rng: &mut dyn Rng,
     ) -> (FireflyState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = population.device();
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
@@ -469,7 +475,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 29, device, 500,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

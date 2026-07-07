@@ -76,11 +76,9 @@ where
         }
 
         let meta = event.metadata();
-        let _ = self.handle.try_push_log(
-            *meta.level(),
-            meta.target().to_string(),
-            visitor.message,
-        );
+        let _ = self
+            .handle
+            .try_push_log(*meta.level(), meta.target().to_string(), visitor.message);
     }
 }
 
@@ -168,8 +166,7 @@ mod tests {
     /// other.
     fn with_layer<F: FnOnce()>(f: F) -> Receiver<TuiEvent> {
         let (handle, rx) = TuiHandle::channel();
-        let subscriber =
-            tracing_subscriber::registry().with(TuiCaptureLayer::new(handle));
+        let subscriber = tracing_subscriber::registry().with(TuiCaptureLayer::new(handle));
         let _guard = subscriber.set_default();
         f();
         // Give the runtime a beat to flush — usually unnecessary since
@@ -253,9 +250,7 @@ mod tests {
             "batch_size should not produce a MetricUpdate"
         );
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, TuiEvent::LogLine { .. })),
+            events.iter().any(|e| matches!(e, TuiEvent::LogLine { .. })),
             "log line should still land"
         );
     }
@@ -299,7 +294,11 @@ mod tests {
         assert_eq!(line.0, tracing::Level::WARN);
         // tracing module path lands in `target` — sufficient to assert
         // it's non-empty and contains the crate name.
-        assert!(line.1.contains("rlevo_benchmarks"), "target was {:?}", line.1);
+        assert!(
+            line.1.contains("rlevo_benchmarks"),
+            "target was {:?}",
+            line.1
+        );
         assert!(
             line.2.contains("careful now"),
             "message body was {:?}",
@@ -328,8 +327,7 @@ mod tests {
     fn lossy_when_receiver_dropped() {
         let (handle, rx) = TuiHandle::channel();
         drop(rx);
-        let subscriber =
-            tracing_subscriber::registry().with(TuiCaptureLayer::new(handle));
+        let subscriber = tracing_subscriber::registry().with(TuiCaptureLayer::new(handle));
         let _guard = subscriber.set_default();
 
         // Must not panic.

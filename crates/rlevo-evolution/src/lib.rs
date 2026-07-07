@@ -72,24 +72,22 @@ pub use algorithms::neuroevolution::{
     NasBuilderConfig, NasGenome, NasParams, NasState, NeatParams, NeatState, NeatStrategy,
     VariantEvaluator, WeightOnly,
 };
+pub use coevolution::{
+    CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
+    CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState,
+    CoupledFitness, HallOfFame, HallOfFameFitness, RepresentativePolicy,
+};
+pub use function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
+pub use local_search::{HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing};
+pub use module_eval_fn::ModuleEvalFn;
 pub use neuroevolution::{
     ActivationFn, BatchPhenotypeEvaluator, ConnectionGene, DensePaddedEvaluator, InnovationId,
     InnovationRegistry, InterpretedBuilder, InterpretedPhenotype, NodeGene, NodeId, NodeKind,
     NodeSplit, Phenotype, PhenotypeBuilder, Species, SpeciesId, TopologyGenome,
     compatibility_distance,
 };
-pub use coevolution::{
-    CoEAMetrics, CoEAState, CoEvolutionaryAlgorithm, CoEvolutionaryHarness, CompetitiveCoEA,
-    CompetitiveCoEAParams, CooperativeCoEA, CooperativeCoEAParams, CooperativeState, CoupledFitness,
-    HallOfFame, HallOfFameFitness, RepresentativePolicy,
-};
-pub use function_set::{ArithmeticFunctionSet, FunctionSet, Symbol};
-pub use module_eval_fn::ModuleEvalFn;
+pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use param_reshaper::{ModuleReshaper, ParamReshaper};
 pub use probability_model::ProbabilityModel;
-pub use local_search::{
-    HillClimbing, LocalSearch, NelderMead, RandomRestart, SimulatedAnnealing,
-};
-pub use observer::{PopulationObserver, PopulationSnapshot, SharedPopulationObserver};
 pub use shaping::ShapingError;
 pub use strategy::{EvolutionaryHarness, Strategy, StrategyMetrics};

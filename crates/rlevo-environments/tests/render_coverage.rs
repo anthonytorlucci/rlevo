@@ -221,7 +221,8 @@ fn landscapes_ackley() {
 #[test]
 fn box2d_lunar_lander_discrete() {
     use rlevo_environments::box2d::lunar_lander::{LunarLanderConfig, LunarLanderDiscrete};
-    let mut env = LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+    let mut env =
+        LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "LunarLanderDiscrete");
 }
@@ -230,7 +231,8 @@ fn box2d_lunar_lander_discrete() {
 #[test]
 fn box2d_lunar_lander_continuous() {
     use rlevo_environments::box2d::lunar_lander::{LunarLanderConfig, LunarLanderContinuous};
-    let mut env = LunarLanderContinuous::with_config(LunarLanderConfig::default()).expect("valid config");
+    let mut env =
+        LunarLanderContinuous::with_config(LunarLanderConfig::default()).expect("valid config");
     env.reset().unwrap();
     assert_render_invariants(&env, "LunarLanderContinuous");
 }

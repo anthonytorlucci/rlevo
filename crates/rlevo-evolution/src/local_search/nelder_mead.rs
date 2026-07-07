@@ -34,7 +34,7 @@ use burn::tensor::backend::Backend;
 use rand::Rng;
 
 use crate::fitness::FitnessFn;
-use crate::local_search::{clamp_vec, sanitize_fitness, BudgetedEval, LocalSearch};
+use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
 use rlevo_core::bounds::Bounds;
 
 /// Static configuration for a [`NelderMead`] run.
@@ -271,10 +271,14 @@ impl NelderMead {
             let worst_point: &[f32] = &simplex[n - 1].point;
 
             // Reflection: x_r = centroid + alpha * (centroid - worst).
-            let reflected: Vec<f32> =
-                affine(&centroid, &centroid, worst_point, params.alpha, params.bounds);
-            let Some(f_reflected) =
-                eval_clamped(&mut budget, &reflected, &mut best, &mut best_fit)
+            let reflected: Vec<f32> = affine(
+                &centroid,
+                &centroid,
+                worst_point,
+                params.alpha,
+                params.bounds,
+            );
+            let Some(f_reflected) = eval_clamped(&mut budget, &reflected, &mut best, &mut best_fit)
             else {
                 break;
             };
@@ -631,7 +635,10 @@ mod tests {
         let (g, fit) =
             LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut fitness, &mut rng);
         assert_eq!(g.len(), 5, "dimensionality preserved");
-        assert!(fit >= start_fit, "no worse than input: {fit} >= {start_fit}");
+        assert!(
+            fit >= start_fit,
+            "no worse than input: {fit} >= {start_fit}"
+        );
     }
 
     #[test]
@@ -645,13 +652,8 @@ mod tests {
         let mut counting = Counting::new(&mut base);
         let mut rng = StdRng::seed_from_u64(8);
         let start = vec![1.0_f32, -0.5];
-        let (_g, _f) = LocalSearch::<TestBackend>::refine(
-            &searcher,
-            &params,
-            start,
-            &mut counting,
-            &mut rng,
-        );
+        let (_g, _f) =
+            LocalSearch::<TestBackend>::refine(&searcher, &params, start, &mut counting, &mut rng);
         assert!(
             counting.calls < params.max_iters,
             "tolerance should early-stop: evals {} < budget {}",
@@ -798,7 +800,10 @@ mod tests {
         let mut fresh_fn = NegSphere;
         let fresh = fresh_fn.evaluate_one(&g);
         approx::assert_relative_eq!(fit, fresh, epsilon = 1e-6);
-        assert!(fit <= 0.0, "neg-sphere fitness is non-positive; bogus hint leaked: {fit}");
+        assert!(
+            fit <= 0.0,
+            "neg-sphere fitness is non-positive; bogus hint leaked: {fit}"
+        );
     }
 
     #[test]

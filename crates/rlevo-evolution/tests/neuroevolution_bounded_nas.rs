@@ -145,7 +145,11 @@ fn arch_nas_selects_architecture_and_improves_on_xor() {
         elite_count: 2,
     });
 
-    assert_eq!(params.num_variants(), 3, "exactly three architecture variants");
+    assert_eq!(
+        params.num_variants(),
+        3,
+        "exactly three architecture variants"
+    );
     assert_eq!(
         params.per_variant_params(),
         vec![33, 193, 769],

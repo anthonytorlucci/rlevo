@@ -80,7 +80,13 @@ impl Validate for NonStationaryBanditConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "NonStationaryBanditConfig";
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::in_range(C, "sigma_walk", 0.0, f64::INFINITY, f64::from(self.sigma_walk))?;
+        config::in_range(
+            C,
+            "sigma_walk",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.sigma_walk),
+        )?;
         Ok(())
     }
 }
@@ -335,13 +341,17 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = NonStationaryBanditConfig { max_steps: 0, ..Default::default() };
+        let bad = NonStationaryBanditConfig {
+            max_steps: 0,
+            ..Default::default()
+        };
         assert!(NonStationaryBandit::<10>::with_config(bad).is_err());
     }
 
     #[test]
     fn environment_reset_yields_running_snapshot_with_zero_reward() {
-        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default()).expect("valid config");
+        let mut env = NonStationaryBandit::<K>::with_config(NonStationaryBanditConfig::default())
+            .expect("valid config");
         let snap =
             <NonStationaryBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());

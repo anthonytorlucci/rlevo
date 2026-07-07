@@ -86,7 +86,9 @@ fn ga_config() -> GaConfig {
         bounds: Bounds::new(-5.0, 5.0),
         mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     }
 }

@@ -50,8 +50,8 @@ pub mod state;
 pub mod theme;
 
 #[doc(inline)]
-pub use log_layer::{TuiCaptureLayer, CANONICAL_METRICS};
+pub use log_layer::{CANONICAL_METRICS, TuiCaptureLayer};
 #[doc(inline)]
-pub use runner::{TuiConfig, TuiError, TuiRunner, DEFAULT_TICK_MS};
+pub use runner::{DEFAULT_TICK_MS, TuiConfig, TuiError, TuiRunner};
 #[doc(inline)]
 pub use state::MetricsLayout;

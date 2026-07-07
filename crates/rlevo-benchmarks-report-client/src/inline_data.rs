@@ -26,7 +26,9 @@ use serde::Deserialize;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 
-use crate::wire::{DecodeError, EpisodeRecord, PopulationSample, RunManifest, decode_episode_record};
+use crate::wire::{
+    DecodeError, EpisodeRecord, PopulationSample, RunManifest, decode_episode_record,
+};
 
 /// Summary metadata produced by the emitter alongside the raw `.rec` payloads.
 ///
@@ -176,10 +178,7 @@ pub fn read_episode_index() -> Result<Vec<EpisodeMeta>, InlineError> {
 /// [`InlineError::Wire`] for bincode failures.
 pub fn read_episode_record(script_id: &str) -> Result<EpisodeRecord, InlineError> {
     let text = script_text(script_id)?;
-    let trimmed: String = text
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
+    let trimmed: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     let bytes = B64
         .decode(&trimmed)
         .map_err(|e| InlineError::Base64(format!("{script_id}: {e}")))?;

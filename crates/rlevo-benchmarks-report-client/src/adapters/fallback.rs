@@ -21,7 +21,9 @@ use crate::wire::{EnvFamily, FrameRecord};
 /// identify which env variant triggered the fallback path.
 #[must_use]
 pub fn render(family: EnvFamily, frame: &FrameRecord) -> AnyView {
-    let banner = format!("family {family:?} renders via the generic adapter — no bespoke adapter is available");
+    let banner = format!(
+        "family {family:?} renders via the generic adapter — no bespoke adapter is available"
+    );
     view! {
         <figure class="rlevo-family-fallback">
             {frame_body(frame)}

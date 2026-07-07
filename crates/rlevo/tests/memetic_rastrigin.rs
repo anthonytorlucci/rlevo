@@ -26,8 +26,8 @@
 //! across both fitness instances it owns (harness + wrapper); the bare-DE run
 //! uses a separate counter.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use burn::backend::Flex;
 use burn::tensor::{Tensor, TensorData, backend::Backend, backend::BackendTypes};
@@ -79,7 +79,10 @@ impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2>> for CountingRastrigin {
         let mut out: Vec<f32> = Vec::with_capacity(pop);
         for r in 0..pop {
             let start: usize = r * dim;
-            let row: Vec<f64> = flat[start..start + dim].iter().map(|&v| f64::from(v)).collect();
+            let row: Vec<f64> = flat[start..start + dim]
+                .iter()
+                .map(|&v| f64::from(v))
+                .collect();
             #[allow(clippy::cast_possible_truncation)]
             out.push(self.landscape.evaluate(&row) as f32);
         }
@@ -107,17 +110,11 @@ struct RunResult {
 fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) -> RunResult {
     let device: <B as BackendTypes>::Device = Default::default();
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let fitness: CountingRastrigin =
-        CountingRastrigin::new(Rastrigin::new(DIM), evals.clone());
+    let fitness: CountingRastrigin = CountingRastrigin::new(Rastrigin::new(DIM), evals.clone());
     let strategy: DifferentialEvolution<B> = DifferentialEvolution::<B>::new();
-    let mut harness = EvolutionaryHarness::<B, _, _>::new(
-        strategy,
-        de.clone(),
-        fitness,
-        seed,
-        device,
-        max_gens,
-    ).expect("valid params");
+    let mut harness =
+        EvolutionaryHarness::<B, _, _>::new(strategy, de.clone(), fitness, seed, device, max_gens)
+            .expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
@@ -176,7 +173,8 @@ fn memetic_evals_to_target(
         seed,
         device,
         max_gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(max_gens);
     let mut evals_at_target: Option<usize> = None;
@@ -285,7 +283,11 @@ fn calibration_explorer() {
             .iter()
             .map(|&seed| {
                 let r: RunResult = de_evals_to_target(seed, &de, target, max_gens);
-                (seed, r.evals_at_target, r.trajectory.last().copied().unwrap_or(f32::NAN))
+                (
+                    seed,
+                    r.evals_at_target,
+                    r.trajectory.last().copied().unwrap_or(f32::NAN),
+                )
             })
             .collect();
         for &(seed, bare_e, bare_f) in &bare {
@@ -296,8 +298,10 @@ fn calibration_explorer() {
             for &seed in &seeds {
                 let mem: RunResult =
                     memetic_evals_to_target(seed, &de, hc, *wb, *cov, target, max_gens);
-                let bare_e: Option<usize> =
-                    bare.iter().find(|(s, _, _)| *s == seed).and_then(|(_, e, _)| *e);
+                let bare_e: Option<usize> = bare
+                    .iter()
+                    .find(|(s, _, _)| *s == seed)
+                    .and_then(|(_, e, _)| *e);
                 let verdict: &str = match (bare_e, mem.evals_at_target) {
                     (Some(b), Some(m)) if m < b => "WIN",
                     (Some(_), Some(_)) => "lose",
@@ -376,9 +380,8 @@ fn memetic_beats_bare_de_on_rastrigin_evals_to_target() {
 
     // Bare DE and memetic share IDENTICAL DeConfig and IDENTICAL seed.
     let bare: RunResult = de_evals_to_target(PINNED_SEED, &de, TARGET, MAX_GENS);
-    let mem: RunResult = memetic_evals_to_target(
-        PINNED_SEED, &de, &hc, writeback, coverage, TARGET, MAX_GENS,
-    );
+    let mem: RunResult =
+        memetic_evals_to_target(PINNED_SEED, &de, &hc, writeback, coverage, TARGET, MAX_GENS);
 
     // (a) both configs reach the target.
     let bare_evals: usize = bare
@@ -414,9 +417,8 @@ fn memetic_beats_bare_de_on_rastrigin_evals_to_target() {
     );
 
     // (d) determinism: same seed → identical trajectory AND identical eval count.
-    let mem2: RunResult = memetic_evals_to_target(
-        PINNED_SEED, &de, &hc, writeback, coverage, TARGET, MAX_GENS,
-    );
+    let mem2: RunResult =
+        memetic_evals_to_target(PINNED_SEED, &de, &hc, writeback, coverage, TARGET, MAX_GENS);
     assert_eq!(
         mem.trajectory, mem2.trajectory,
         "memetic best-fitness trajectory must be reproducible under the same seed"

@@ -19,9 +19,13 @@ use rlevo_core::fitness::FitnessEvaluable;
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 
+use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
 use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrategy};
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+};
+use rlevo_evolution::algorithms::memetic::{
+    CoveragePolicy, MemeticParams, MemeticWrapper, WritebackPolicy,
 };
 use rlevo_evolution::algorithms::metaheuristic::abc::{AbcConfig, ArtificialBeeColony};
 use rlevo_evolution::algorithms::metaheuristic::aco_r::{AcoRConfig, AntColonyReal};
@@ -32,10 +36,6 @@ use rlevo_evolution::algorithms::metaheuristic::gwo::{GreyWolfOptimizer, GwoConf
 use rlevo_evolution::algorithms::metaheuristic::pso::{ParticleSwarm, PsoConfig};
 use rlevo_evolution::algorithms::metaheuristic::salp::{SalpConfig, SalpSwarm};
 use rlevo_evolution::algorithms::metaheuristic::woa::{WhaleOptimization, WoaConfig};
-use rlevo_evolution::algorithms::de::{DeConfig, DifferentialEvolution};
-use rlevo_evolution::algorithms::memetic::{
-    CoveragePolicy, MemeticParams, MemeticWrapper, WritebackPolicy,
-};
 use rlevo_evolution::fitness::{BatchFitnessFn, FromFitnessEvaluable};
 use rlevo_evolution::local_search::{
     HillClimbing, HillClimbingParams, SimulatedAnnealing, SimulatedAnnealingParams,
@@ -71,7 +71,8 @@ where
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut trajectory = Vec::with_capacity(gens);
     loop {
@@ -91,7 +92,9 @@ fn run_ga(seed: u64, gens: usize) -> Vec<f32> {
         bounds: Bounds::new(-5.0, 5.0),
         mutation_sigma: NonNegativeRate::new(0.2),
         selection: GaSelection::Tournament { size: 2 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     };
     run(GeneticAlgorithm::<B>::new(), params, seed, gens)
@@ -177,7 +180,8 @@ fn run_memetic_de(seed: u64, gens: usize) -> Vec<f32> {
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {
@@ -219,7 +223,8 @@ fn run_memetic_sa(seed: u64, gens: usize) -> Vec<f32> {
         seed,
         device,
         gens,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     let mut trajectory: Vec<f32> = Vec::with_capacity(gens);
     loop {

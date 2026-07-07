@@ -169,7 +169,9 @@ fn ga_config() -> GaConfig {
         bounds: Bounds::new(0.0, 1.0),
         mutation_sigma: NonNegativeRate::new(0.1),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+        crossover: GaCrossover::Uniform {
+            p: Probability::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 1 },
     }
 }
@@ -241,7 +243,10 @@ fn observe_dynamics() {
             avg,
             min,
             max,
-            tails.iter().map(|x| (x * 100.0).round() / 100.0).collect::<Vec<_>>()
+            tails
+                .iter()
+                .map(|x| (x * 100.0).round() / 100.0)
+                .collect::<Vec<_>>()
         );
     }
 }
@@ -253,7 +258,10 @@ fn forgetting_sweep(seeds: &[u64], blend: f32) -> (Vec<f32>, Vec<f32>) {
     let mut no_hof = Vec::new();
     let mut with_hof = Vec::new();
     for &seed in seeds {
-        no_hof.push(tail_coverage(&run_coverage(CoverageForgettingFitness::new(), seed), 50));
+        no_hof.push(tail_coverage(
+            &run_coverage(CoverageForgettingFitness::new(), seed),
+            50,
+        ));
         with_hof.push(tail_coverage(
             &run_coverage(
                 HallOfFameFitness::new(CoverageForgettingFitness::new(), 2, POP, K, &device)

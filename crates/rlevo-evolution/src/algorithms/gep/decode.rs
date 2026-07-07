@@ -116,7 +116,11 @@ mod tests {
     #[test]
     fn all_terminal_head_is_one_node() {
         let a = alphabet(1);
-        let genome = vec![Symbol::from_raw(8), Symbol::from_raw(8), Symbol::from_raw(8)];
+        let genome = vec![
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+        ];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
     }

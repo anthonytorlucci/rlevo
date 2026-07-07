@@ -196,10 +196,7 @@ fn main() {
 
     println!("=== {} ===", report.suite_name);
     for trial in &report.trials {
-        let last_return = trial
-            .episodes
-            .last()
-            .map_or(f64::NAN, |e| -e.return_value);
+        let last_return = trial.episodes.last().map_or(f64::NAN, |e| -e.return_value);
         let ea_metrics = ea::ea_metrics(Some(last_return), None, None);
         println!(
             "trial={} seed={:>20} best_fitness≈{:.4}  ea_metrics={}",

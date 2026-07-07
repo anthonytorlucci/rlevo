@@ -27,7 +27,9 @@ use rlevo_environments::classic::pendulum::{
 use rlevo_environments::wrappers::TimeLimit;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
-use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
+use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
+    ContinuousQ, DeterministicPolicy,
+};
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
 use rlevo_reinforcement_learning::utils::polyak_update;
 
@@ -137,7 +139,8 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
 }
 
 // Concrete DDPG agent over the shared 1-D continuous fixture.
-type LinearAgent = DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2>;
+type LinearAgent =
+    DdpgAgent<Be, Actor<Be>, Critic<Be>, LinearObservation, LinearAction, 1, 2, 1, 2>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -165,7 +168,8 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .policy_frequency(2)
         .build()
         .expect("valid config");
-    let mut agent: LinearAgent = DdpgAgent::new(actor, critic, config, device).expect("valid config");
+    let mut agent: LinearAgent =
+        DdpgAgent::new(actor, critic, config, device).expect("valid config");
 
     train::<Be, _, _, _, _, LinearAction, _, 1, 1, 2, 1, 2>(
         &mut agent, &mut env, &mut rng, total, 0,
@@ -185,7 +189,13 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
 fn random_linear(seed: u64) -> f32 {
     let mut env = LinearEnv::with_seed(seed, 20);
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(&mut env, 200, 20, &mut rng, uniform_bounded::<1, LinearAction>)
+    random_return(
+        &mut env,
+        200,
+        20,
+        &mut rng,
+        uniform_bounded::<1, LinearAction>,
+    )
 }
 
 /// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed
@@ -195,10 +205,17 @@ fn random_pendulum(seed: u64) -> f32 {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
-    random_return(&mut env, 100, 200, &mut rng, uniform_bounded::<1, PendulumAction>)
+    random_return(
+        &mut env,
+        100,
+        200,
+        &mut rng,
+        uniform_bounded::<1, PendulumAction>,
+    )
 }
 
 // Default-run convergence check: DDPG should clear the random baseline within
@@ -274,7 +291,8 @@ fn ddpg_pendulum_improves_over_random() {
     let base = Pendulum::with_config(PendulumConfig {
         seed,
         ..PendulumConfig::default()
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut env = TimeLimit::new(base, 200);
     let mut rng = StdRng::seed_from_u64(seed);
 

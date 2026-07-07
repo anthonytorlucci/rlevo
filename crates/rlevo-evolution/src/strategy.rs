@@ -644,9 +644,13 @@ where
         // the natural tensor before `neg()` would flip a `NaN` cost to `+∞`
         // (canonical *best*) under `Minimize`.
         let fitness_canon = crate::fitness::sanitize_fitness_tensor(fitness_canon);
-        let (new_state, metrics_canon) =
-            self.strategy
-                .tell(&self.params, population, fitness_canon, state, &mut self.rng);
+        let (new_state, metrics_canon) = self.strategy.tell(
+            &self.params,
+            population,
+            fitness_canon,
+            state,
+            &mut self.rng,
+        );
         self.state = Some(new_state);
         self.generation += 1;
         // The reward is the canonical `best_fitness_ever` directly — canonical
@@ -824,7 +828,10 @@ mod tests {
             mut state: State,
             _: &mut dyn Rng,
         ) -> (State, StrategyMetrics) {
-            let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+            let values = fitness
+                .into_data()
+                .into_vec::<f32>()
+                .expect("fitness host-read of a tensor this test just built");
             state.generation += 1;
             let metrics = StrategyMetrics::from_host_fitness(state.generation, &values, state.best);
             state.best = metrics.best_fitness_ever();
@@ -866,7 +873,8 @@ mod tests {
             dim: 3,
         };
         let mut harness =
-            EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5).expect("valid params");
+            EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, FortyTwo, 1, device, 5)
+                .expect("valid params");
         harness.reset();
         let step = harness.step(());
         assert_eq!(step.reward, -42.0);
@@ -891,7 +899,8 @@ mod tests {
             1,
             device,
             2,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         assert!(!harness.step(()).done);
         assert!(harness.step(()).done);
@@ -1010,7 +1019,10 @@ mod tests {
                 vec![0.0f32; params.pop_size * params.dim],
                 [params.pop_size, params.dim],
             );
-            (Tensor::<TestBackend, 2>::from_data(data, device), state.clone())
+            (
+                Tensor::<TestBackend, 2>::from_data(data, device),
+                state.clone(),
+            )
         }
 
         fn tell(
@@ -1022,7 +1034,10 @@ mod tests {
             _: &mut dyn Rng,
         ) -> (TrustingState, StrategyMetrics) {
             // Deliberately NOT sanitized here — the harness must have done it.
-            let values: Vec<f32> = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+            let values: Vec<f32> = fitness
+                .into_data()
+                .into_vec::<f32>()
+                .expect("fitness host-read of a tensor this test just built");
             state.received = values.clone();
             state.generation += 1;
             let metrics: StrategyMetrics =
@@ -1048,7 +1063,10 @@ mod tests {
         let device = Default::default();
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             TrustingStrategy,
-            Params { pop_size: 4, dim: 2 },
+            Params {
+                pop_size: 4,
+                dim: 2,
+            },
             NonFiniteFitness,
             7,
             device,
@@ -1066,7 +1084,9 @@ mod tests {
             "harness must strip NaN before tell; got {received:?}"
         );
         assert!(
-            received.iter().all(|f| !(f.is_infinite() && f.is_sign_positive())),
+            received
+                .iter()
+                .all(|f| !(f.is_infinite() && f.is_sign_positive())),
             "harness must clamp +∞ before tell; got {received:?}"
         );
         // Row 0 was NaN → −∞ (worst); row 1 was +∞ → f32::MAX (finite best).
@@ -1078,9 +1098,16 @@ mod tests {
 
         // Metrics stay honest: best is finite (the f32::MAX row), one broken member.
         let m = harness.latest_metrics().expect("metrics after step");
-        assert!(m.best_fitness().is_finite(), "best must be finite, got {}", m.best_fitness());
+        assert!(
+            m.best_fitness().is_finite(),
+            "best must be finite, got {}",
+            m.best_fitness()
+        );
         assert_eq!(m.broken_count(), 1, "the NaN row is the one broken member");
-        assert!(m.mean_fitness().is_finite(), "mean over finite members stays finite");
+        assert!(
+            m.mean_fitness().is_finite(),
+            "mean over finite members stays finite"
+        );
     }
 
     #[test]
@@ -1153,7 +1180,8 @@ mod tests {
             1,
             device,
             3,
-        ).expect("valid params")
+        )
+        .expect("valid params")
         .with_observer(observer.clone() as SharedPopulationObserver);
         harness.reset();
         for _ in 0..3 {
@@ -1227,7 +1255,8 @@ mod tests {
             1,
             device,
             1,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         let step = harness.step(());
         assert!(step.done);

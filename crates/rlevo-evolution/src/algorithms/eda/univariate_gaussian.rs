@@ -176,7 +176,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
         // `prev`'s contents are unused on this path — UMDA is a full refit.
 
         let [k, d] = population.dims();
-        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
+        let rows = population
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population tensor must be readable as f32");
         // k is a selected-population count, far below f32's 2^24 exact-integer
         // limit; the cast is lossless in practice.
         #[allow(clippy::cast_precision_loss)]
@@ -417,7 +420,10 @@ mod tests {
         );
         let dims = samples.dims();
         assert_eq!(dims, [10_000, 2]);
-        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
         let mut sum0 = 0.0_f32;
         let mut sum1 = 0.0_f32;
         for i in 0..10_000 {
@@ -436,7 +442,12 @@ mod tests {
         let device = Default::default();
         let p = UnivariateGaussianParams::default_for(1);
         let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
-            &UnivariateGaussian, &p, None, pop(vec![], 0, 0), fitness(vec![]), &device,
+            &UnivariateGaussian,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
         );
         let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
             &UnivariateGaussian,
@@ -459,7 +470,12 @@ mod tests {
         let mut p = UnivariateGaussianParams::default_for(1);
         p.init_mean = 3.0;
         let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
-            &UnivariateGaussian, &p, None, pop(vec![], 0, 0), fitness(vec![]), &device,
+            &UnivariateGaussian,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
         );
         let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
             &UnivariateGaussian,

@@ -108,7 +108,13 @@ impl Validate for InvertedDoublePendulumConfig {
         const C: &str = "InvertedDoublePendulumConfig";
         config::positive(C, "dt", f64::from(self.dt))?;
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
-        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::in_range(
+            C,
+            "reset_noise_scale",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.reset_noise_scale),
+        )?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         config::positive(C, "cart_mass", f64::from(self.cart_mass))?;
         config::positive(C, "pole_mass", f64::from(self.pole_mass))?;
@@ -117,10 +123,34 @@ impl Validate for InvertedDoublePendulumConfig {
         for extent in self.cart_half_extents {
             config::positive(C, "cart_half_extents", f64::from(extent))?;
         }
-        config::in_range(C, "alive_reward", 0.0, f64::INFINITY, f64::from(self.alive_reward))?;
-        config::in_range(C, "x_tip_weight", 0.0, f64::INFINITY, f64::from(self.x_tip_weight))?;
-        config::in_range(C, "omega1_weight", 0.0, f64::INFINITY, f64::from(self.omega1_weight))?;
-        config::in_range(C, "omega2_weight", 0.0, f64::INFINITY, f64::from(self.omega2_weight))?;
+        config::in_range(
+            C,
+            "alive_reward",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.alive_reward),
+        )?;
+        config::in_range(
+            C,
+            "x_tip_weight",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.x_tip_weight),
+        )?;
+        config::in_range(
+            C,
+            "omega1_weight",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.omega1_weight),
+        )?;
+        config::in_range(
+            C,
+            "omega2_weight",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.omega2_weight),
+        )?;
         Ok(())
     }
 }
@@ -136,7 +166,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_pole_length() {
-        let bad = InvertedDoublePendulumConfig { pole_length: 0.0, ..Default::default() };
+        let bad = InvertedDoublePendulumConfig {
+            pole_length: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "pole_length");
     }
 }

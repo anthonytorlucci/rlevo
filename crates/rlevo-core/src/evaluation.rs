@@ -87,8 +87,5 @@ pub trait BenchEnv {
     ///
     /// Returns [`BenchError::Step`] if the underlying environment's step
     /// operation fails.
-    fn step(
-        &mut self,
-        action: Self::Action,
-    ) -> Result<BenchStep<Self::Observation>, BenchError>;
+    fn step(&mut self, action: Self::Action) -> Result<BenchStep<Self::Observation>, BenchError>;
 }

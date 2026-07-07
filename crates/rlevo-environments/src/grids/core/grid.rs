@@ -1,9 +1,9 @@
 //! Rectangular grid of [`Entity`] cells plus an egocentric view extractor.
 
 use super::agent::AgentState;
-use crate::direction::Direction;
 use super::entity::Entity;
 use super::observation::VIEW_SIZE;
+use crate::direction::Direction;
 
 /// Rectangular grid of [`Entity`] cells, row-major in `y` then `x`.
 #[derive(Debug, Clone)]

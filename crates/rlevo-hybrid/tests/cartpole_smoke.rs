@@ -70,7 +70,7 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
     let fitness = RolloutFitness::new(
         ModuleReshaper::new(template.clone()),
         || <CartPole as ConstructableEnv>::new(false),
-        1,            // episodes_per_eval
+        1,      // episodes_per_eval
         50,     // max_steps_per_episode (CartPole has no intrinsic cap)
         device, // captured into the rollout scorer (FlexDevice is Copy)
     );
@@ -89,7 +89,13 @@ fn policy_neuroevolution_runs_two_generations_on_cartpole() {
 
     pn.reset();
     assert!(!pn.step(), "first generation should not exhaust the budget");
-    assert!(pn.step(), "second generation should exhaust the 2-generation budget");
+    assert!(
+        pn.step(),
+        "second generation should exhaust the 2-generation budget"
+    );
     assert_eq!(pn.generation(), 2);
-    assert!(pn.best().is_some(), "a best individual should exist after evaluation");
+    assert!(
+        pn.best().is_some(),
+        "a best individual should exist after evaluation"
+    );
 }

@@ -24,7 +24,9 @@ impl std::fmt::Debug for Rasterizer {
 impl Rasterizer {
     /// Create a new rasterizer (buffer initialised to black).
     pub fn new() -> Self {
-        Self { buffer: Box::new([0u8; PIXEL_BYTES]) }
+        Self {
+            buffer: Box::new([0u8; PIXEL_BYTES]),
+        }
     }
 
     /// Clear the buffer to `color` (RGB).
@@ -48,8 +50,12 @@ impl Rasterizer {
         let (mut min_y, mut max_y) = (FRAME_SIZE as i32, 0i32);
         for v in vertices {
             let y = v[1] as i32;
-            if y < min_y { min_y = y; }
-            if y > max_y { max_y = y; }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
         }
         min_y = min_y.clamp(0, FRAME_SIZE as i32 - 1);
         max_y = max_y.clamp(0, FRAME_SIZE as i32 - 1);
@@ -126,10 +132,7 @@ mod tests {
     #[test]
     fn test_fill_polygon_no_panic() {
         let mut r = Rasterizer::new();
-        r.fill_polygon(
-            &[[10.0, 10.0], [50.0, 10.0], [30.0, 50.0]],
-            [0, 255, 0],
-        );
+        r.fill_polygon(&[[10.0, 10.0], [50.0, 10.0], [30.0, 50.0]], [0, 255, 0]);
         // Triangle was rasterised — at least one pixel should be green
         let has_green = (0..FRAME_SIZE * FRAME_SIZE).any(|i| r.buffer[i * 3 + 1] == 255);
         assert!(has_green);

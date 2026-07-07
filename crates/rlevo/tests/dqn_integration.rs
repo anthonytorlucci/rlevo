@@ -170,6 +170,11 @@ fn dqn_cartpole_produces_finite_rewards() {
     let mut agent = fresh_agent(seed);
     train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
-    let rewards: Vec<f32> = agent.stats().recent_history.iter().map(|m| m.reward).collect();
+    let rewards: Vec<f32> = agent
+        .stats()
+        .recent_history
+        .iter()
+        .map(|m| m.reward)
+        .collect();
     assert_all_finite("reward", &rewards);
 }

@@ -10,8 +10,8 @@
 //! The fixture intentionally avoids any physics simulator so `cargo test` stays
 //! tractable: tiny networks and modest step budgets converge in seconds.
 
-use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
@@ -38,8 +38,11 @@ use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 /// default field values.
 #[must_use]
 pub fn cartpole_seeded(seed: u64) -> CartPole {
-    CartPole::with_config(CartPoleConfig { seed, ..CartPoleConfig::default() })
-        .expect("valid config")
+    CartPole::with_config(CartPoleConfig {
+        seed,
+        ..CartPoleConfig::default()
+    })
+    .expect("valid config")
 }
 
 /// Full state of [`LinearEnv`]: the current target `x` and the step counter.

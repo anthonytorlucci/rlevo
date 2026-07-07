@@ -187,7 +187,10 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                 link_corr: vec![0.0; d],
             };
         }
-        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
+        let rows = population
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population tensor must be readable as f32");
         // k is a selected-population count, far below f32's 2^24 exact-integer
         // limit; the cast is lossless in practice.
         #[allow(clippy::cast_precision_loss)]
@@ -377,16 +380,16 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
                 // generation. If either parameter is non-finite, fall back to the
                 // marginal Gaussian of `cur` — the distribution the link
                 // degenerates to at `r = 0`.
-                rows[base + cur] = if cond_mean.is_finite() && cond_std.is_finite() && cond_std > 0.0
-                {
-                    Normal::new(cond_mean, cond_std)
-                        .expect("guarded: conditional std positive and finite")
-                        .sample(rng)
-                } else {
-                    Normal::new(mu_c, sigma_c)
-                        .expect("floored marginal std is positive and finite")
-                        .sample(rng)
-                };
+                rows[base + cur] =
+                    if cond_mean.is_finite() && cond_std.is_finite() && cond_std > 0.0 {
+                        Normal::new(cond_mean, cond_std)
+                            .expect("guarded: conditional std positive and finite")
+                            .sample(rng)
+                    } else {
+                        Normal::new(mu_c, sigma_c)
+                            .expect("floored marginal std is positive and finite")
+                            .sample(rng)
+                    };
             }
         }
         Tensor::<B, 2>::from_data(TensorData::new(rows, [n, d]), device)
@@ -425,7 +428,12 @@ mod tests {
         )
     }
 
-    fn refit(p: &DependencyChainParams, rows: Vec<f32>, n: usize, d: usize) -> DependencyChainState {
+    fn refit(
+        p: &DependencyChainParams,
+        rows: Vec<f32>,
+        n: usize,
+        d: usize,
+    ) -> DependencyChainState {
         let device = Default::default();
         let prior = fit_prior(p);
         // Test row counts are tiny; the cast is lossless.
@@ -532,7 +540,10 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
         // Pearson correlation of sampled columns 0 and 1.
         let mut s0 = 0.0_f64;
         let mut s1 = 0.0_f64;
@@ -606,8 +617,15 @@ mod tests {
             &mut rng,
             &device,
         );
-        for v in samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built") {
-            assert!(v.is_finite(), "degenerate link must yield finite samples, got {v}");
+        for v in samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built")
+        {
+            assert!(
+                v.is_finite(),
+                "degenerate link must yield finite samples, got {v}"
+            );
         }
     }
 }

@@ -311,11 +311,7 @@ pub struct ValueMlp<B: Backend> {
 impl<B: Backend> ValueMlp<B> {
     /// Builds a `hidden`-wide two-layer `tanh` MLP over `obs_features` inputs
     /// with a scalar head.
-    pub fn new(
-        obs_features: usize,
-        hidden: usize,
-        device: &<B as BackendTypes>::Device,
-    ) -> Self {
+    pub fn new(obs_features: usize, hidden: usize, device: &<B as BackendTypes>::Device) -> Self {
         Self {
             fc1: LinearConfig::new(obs_features, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),
@@ -335,4 +331,3 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
         self.forward_impl(obs)
     }
 }
-

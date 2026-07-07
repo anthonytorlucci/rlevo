@@ -401,7 +401,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = MemoryConfig { max_steps: 0, ..Default::default() };
+        let bad = MemoryConfig {
+            max_steps: 0,
+            ..Default::default()
+        };
         assert!(MemoryEnv::with_config(bad, false).is_err());
     }
 
@@ -435,7 +438,8 @@ mod tests {
 
     #[test]
     fn build_with_swap_fork_moves_match_to_bottom() {
-        let env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
+        let env =
+            MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
         assert_eq!(env.match_pos(), (5, 3));
         assert_eq!(env.state().grid.get(5, 1), Entity::Ball(DISTRACTOR_COLOR));
         assert_eq!(env.state().grid.get(5, 3), Entity::Key(CUE_COLOR));
@@ -443,7 +447,8 @@ mod tests {
 
     #[test]
     fn optimal_rollout_default_picks_top_fork() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
+        let mut env =
+            MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight, // W → N
@@ -466,7 +471,8 @@ mod tests {
 
     #[test]
     fn optimal_rollout_swapped_picks_bottom_fork() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
+        let mut env =
+            MemoryEnv::with_config(MemoryConfig::new(140, 0, true), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight,
@@ -489,7 +495,8 @@ mod tests {
 
     #[test]
     fn done_at_distractor_terminates_with_zero() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
+        let mut env =
+            MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let script = [
             GridAction::TurnRight,
@@ -512,7 +519,8 @@ mod tests {
 
     #[test]
     fn done_in_empty_corridor_terminates_with_zero() {
-        let mut env = MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
+        let mut env =
+            MemoryEnv::with_config(MemoryConfig::new(140, 0, false), false).expect("valid config");
         env.reset().unwrap();
         let snap = env.step(GridAction::Done).unwrap();
         assert!(snap.is_done());

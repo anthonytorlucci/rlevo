@@ -79,9 +79,21 @@ impl Validate for ReacherConfig {
         const C: &str = "ReacherConfig";
         config::positive(C, "dt", f64::from(self.dt))?;
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
-        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::in_range(
+            C,
+            "reset_noise_scale",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.reset_noise_scale),
+        )?;
         config::nonzero(C, "max_steps", self.max_steps)?;
-        config::in_range(C, "ctrl_cost_weight", 0.0, f64::INFINITY, f64::from(self.ctrl_cost_weight))?;
+        config::in_range(
+            C,
+            "ctrl_cost_weight",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.ctrl_cost_weight),
+        )?;
         config::positive(C, "link1_length", f64::from(self.link1_length))?;
         config::positive(C, "link2_length", f64::from(self.link2_length))?;
         config::positive(C, "link_radius", f64::from(self.link_radius))?;
@@ -102,7 +114,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_link1_length() {
-        let bad = ReacherConfig { link1_length: 0.0, ..Default::default() };
+        let bad = ReacherConfig {
+            link1_length: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "link1_length");
     }
 }

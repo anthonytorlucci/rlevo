@@ -24,7 +24,7 @@
 //! | [`mu_plus_lambda`] | best of μ+λ pool | ES / DE with strong elitism |
 //! | [`mu_comma_lambda`] | none (offspring only) | ES with deliberate age-based forgetting |
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 
 use crate::ops::selection::truncation_indices_host;
 
@@ -74,8 +74,10 @@ pub fn elitist<B: Backend>(
     let pop_size = current_fitness.len();
     assert!(k <= pop_size, "elite count must be <= population size");
     let elite_idx = truncation_indices_host(current_fitness, k);
-    let elites = current_pop
-        .select(0, Tensor::<B, 1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), device));
+    let elites = current_pop.select(
+        0,
+        Tensor::<B, 1, Int>::from_data(TensorData::new(elite_idx.clone(), [k]), device),
+    );
 
     let n_offspring_to_keep = pop_size - k;
     let offspring_keep_idx = truncation_indices_host(offspring_fitness, n_offspring_to_keep);
@@ -192,21 +194,16 @@ mod tests {
     #[test]
     fn generational_discards_current() {
         let device = Default::default();
-        let current = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32; 4], [2, 2]),
-            &device,
-        );
-        let offspring = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![1.0_f32; 4], [2, 2]),
-            &device,
-        );
-        let (next, f) = generational::<TestBackend>(
-            current,
-            &[0.0, 0.0],
-            offspring,
-            vec![1.0, 1.0],
-        );
-        let values = next.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+        let current =
+            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
+        let offspring =
+            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![1.0_f32; 4], [2, 2]), &device);
+        let (next, f) =
+            generational::<TestBackend>(current, &[0.0, 0.0], offspring, vec![1.0, 1.0]);
+        let values = next
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 1.0, epsilon = 1e-6);
         }
@@ -232,7 +229,10 @@ mod tests {
             2,
             &device,
         );
-        let rows = next.into_data().into_vec::<f32>().expect("population host-read of a tensor this test just built");
+        let rows = next
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
         // best two (highest fitness): parent row 1 (100.0) and offspring row 1 (50.0)
         assert_eq!(rows.len(), 4);
         // fitness should be {50.0, 100.0}
@@ -249,12 +249,7 @@ mod tests {
             TensorData::new(vec![1.0_f32, 1.0, 2.0, 2.0, 3.0, 3.0], [3, 2]),
             &device,
         );
-        let (next, f) = mu_comma_lambda::<TestBackend>(
-            offspring,
-            &[5.0, 1.0, 3.0],
-            2,
-            &device,
-        );
+        let (next, f) = mu_comma_lambda::<TestBackend>(offspring, &[5.0, 1.0, 3.0], 2, &device);
         assert_eq!(next.dims(), [2, 2]);
         // best two of offspring (highest fitness): 5.0 and 3.0
         let mut fs = f;

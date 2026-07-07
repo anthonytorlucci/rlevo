@@ -122,7 +122,11 @@ impl<PA, PB> Validate for CooperativeCoEAParams<PA, PB> {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "CooperativeCoEAParams";
         if self.total_dims == 0 {
-            return Err(ConfigError { config: C, field: "total_dims", kind: ConstraintKind::Zero });
+            return Err(ConfigError {
+                config: C,
+                field: "total_dims",
+                kind: ConstraintKind::Zero,
+            });
         }
         if self.dims_a.is_empty() {
             return Err(ConfigError {
@@ -285,8 +289,12 @@ where
         let generation = state.base.generation;
 
         // Both populations propose sub-genomes simultaneously.
-        let (pop_a, asked_a) = self.strategy_a.ask(&params.params_a, &state.base.state_a, rng, device);
-        let (pop_b, asked_b) = self.strategy_b.ask(&params.params_b, &state.base.state_b, rng, device);
+        let (pop_a, asked_a) =
+            self.strategy_a
+                .ask(&params.params_a, &state.base.state_a, rng, device);
+        let (pop_b, asked_b) =
+            self.strategy_b
+                .ask(&params.params_b, &state.base.state_b, rng, device);
 
         // Previous-generation bests (the canonical CCGA representatives).
         let prev_best_a = self.strategy_a.best(&state.base.state_a).map(|(g, _)| g);
@@ -332,12 +340,12 @@ where
         let fit_b = sanitize_fitness_tensor(fits[1].clone());
 
         // Each strategy consumes its own sub-population with the assembled fitness.
-        let (next_a, metrics_a) = self
-            .strategy_a
-            .tell(&params.params_a, pop_a, fit_a, asked_a, rng);
-        let (next_b, metrics_b) = self
-            .strategy_b
-            .tell(&params.params_b, pop_b, fit_b, asked_b, rng);
+        let (next_a, metrics_a) =
+            self.strategy_a
+                .tell(&params.params_a, pop_a, fit_a, asked_a, rng);
+        let (next_b, metrics_b) =
+            self.strategy_b
+                .tell(&params.params_b, pop_b, fit_b, asked_b, rng);
 
         state.base.state_a = next_a;
         state.base.state_b = next_b;
@@ -444,12 +452,28 @@ fn assemble<B: Backend>(
     let dims = sub_pop.dims();
     let n = dims[0];
     let sub_w = dims[1];
-    debug_assert_eq!(sub_w, my_dims.len(), "sub-population width must match my_dims");
+    debug_assert_eq!(
+        sub_w,
+        my_dims.len(),
+        "sub-population width must match my_dims"
+    );
     // Host-side scatter; a device→host transfer failure is a genuine fault, so
     // surface it honestly rather than silently assembling from empty vecs.
-    let sub_flat = sub_pop.clone().into_data().into_vec::<f32>().expect("sub-population genome tensor must be readable as f32");
-    let rep_flat = rep_other.clone().into_data().into_vec::<f32>().expect("representative genome tensor must be readable as f32");
-    debug_assert_eq!(rep_flat.len(), other_dims.len(), "representative width must match other_dims");
+    let sub_flat = sub_pop
+        .clone()
+        .into_data()
+        .into_vec::<f32>()
+        .expect("sub-population genome tensor must be readable as f32");
+    let rep_flat = rep_other
+        .clone()
+        .into_data()
+        .into_vec::<f32>()
+        .expect("representative genome tensor must be readable as f32");
+    debug_assert_eq!(
+        rep_flat.len(),
+        other_dims.len(),
+        "representative width must match other_dims"
+    );
 
     let mut full = vec![0.0_f32; n * total_dims];
     for i in 0..n {
@@ -490,7 +514,10 @@ mod tests {
         let pop_a = make(&[10.0, 20.0, 11.0, 21.0], 2, 2); // rows: (10,20),(11,21)
         let rep_b = make(&[5.0, 7.0], 1, 2); // global dims 1,3 -> 5,7
         let full = assemble(&pop_a, &[0, 2], &rep_b, &[1, 3], 4, &device);
-        let v = full.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let v = full
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         // row0: dim0=10, dim1=5, dim2=20, dim3=7
         assert_eq!(&v[0..4], &[10.0, 5.0, 20.0, 7.0]);
         // row1: dim0=11, dim1=5, dim2=21, dim3=7
@@ -504,12 +531,38 @@ mod tests {
         let mut rng = seed_stream(0, 0, SeedPurpose::Representative);
         let mut archive = None;
         // No prev best -> row 0.
-        let r0 = select_representative(&pop, None, &mut archive, RepresentativePolicy::Best, &mut rng, 0, &device);
-        assert_eq!(r0.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built"), vec![1.0, 2.0]);
+        let r0 = select_representative(
+            &pop,
+            None,
+            &mut archive,
+            RepresentativePolicy::Best,
+            &mut rng,
+            0,
+            &device,
+        );
+        assert_eq!(
+            r0.into_data()
+                .into_vec::<f32>()
+                .expect("genome host-read of a tensor this test just built"),
+            vec![1.0, 2.0]
+        );
         // With prev best -> that genome.
         let best = make(&[9.0, 9.0], 1, 2);
-        let r1 = select_representative(&pop, Some(&best), &mut archive, RepresentativePolicy::Best, &mut rng, 1, &device);
-        assert_eq!(r1.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built"), vec![9.0, 9.0]);
+        let r1 = select_representative(
+            &pop,
+            Some(&best),
+            &mut archive,
+            RepresentativePolicy::Best,
+            &mut rng,
+            1,
+            &device,
+        );
+        assert_eq!(
+            r1.into_data()
+                .into_vec::<f32>()
+                .expect("genome host-read of a tensor this test just built"),
+            vec![9.0, 9.0]
+        );
     }
 
     #[test]
@@ -539,8 +592,9 @@ mod tests {
 
     #[test]
     fn params_new_rejects_out_of_range_dim() {
-        let err = CooperativeCoEAParams::new((), (), vec![0, 1, 4], 4, RepresentativePolicy::Best, 0)
-            .unwrap_err();
+        let err =
+            CooperativeCoEAParams::new((), (), vec![0, 1, 4], 4, RepresentativePolicy::Best, 0)
+                .unwrap_err();
         assert_eq!(err.field, "dims_a");
         assert!(err.to_string().contains("out of range"));
     }
@@ -555,8 +609,9 @@ mod tests {
 
     #[test]
     fn params_new_rejects_duplicate_dims() {
-        let err = CooperativeCoEAParams::new((), (), vec![0, 0, 1], 4, RepresentativePolicy::Best, 0)
-            .unwrap_err();
+        let err =
+            CooperativeCoEAParams::new((), (), vec![0, 0, 1], 4, RepresentativePolicy::Best, 0)
+                .unwrap_err();
         assert!(err.to_string().contains("duplicate"));
     }
 
@@ -588,7 +643,9 @@ mod tests {
             bounds: Bounds::new(0.0, 1.0),
             mutation_sigma: NonNegativeRate::new(0.1),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::Uniform { p: Probability::new(0.5) },
+            crossover: GaCrossover::Uniform {
+                p: Probability::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
     }
@@ -649,7 +706,13 @@ mod tests {
             "cooperative mean must stay finite when a NaN individual is present, got {}",
             m.mean_fitness_a
         );
-        assert!(!m.best_fitness_b.is_nan(), "best_fitness_b must never be NaN");
-        assert!(!m.mean_fitness_b.is_nan(), "mean_fitness_b must never be NaN");
+        assert!(
+            !m.best_fitness_b.is_nan(),
+            "best_fitness_b must never be NaN"
+        );
+        assert!(
+            !m.mean_fitness_b.is_nan(),
+            "mean_fitness_b must never be NaN"
+        );
     }
 }

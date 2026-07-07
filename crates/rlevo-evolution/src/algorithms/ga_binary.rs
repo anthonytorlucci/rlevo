@@ -284,7 +284,8 @@ where
             device,
         );
 
-        let offspring = bit_flip_mutation(offspring, params.mutation_rate, &mut mutation_rng, device);
+        let offspring =
+            bit_flip_mutation(offspring, params.mutation_rate, &mut mutation_rng, device);
 
         (offspring, state.clone())
     }
@@ -312,7 +313,10 @@ where
         mut state: BinaryGaState<B>,
         _rng: &mut dyn Rng,
     ) -> (BinaryGaState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = offspring.device();
 
         // First `tell`: initial population just evaluated.
@@ -472,7 +476,8 @@ mod tests {
             7,
             device,
             200,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             if harness.step(()).done {

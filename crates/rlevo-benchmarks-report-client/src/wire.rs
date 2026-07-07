@@ -731,7 +731,8 @@ pub fn decode_episode_record(bytes: &[u8]) -> Result<EpisodeRecord, DecodeError>
         });
     }
     let mut cursor = 16;
-    let header: EpisodeRecordHeader = read_chunk(bytes, &mut cursor)?.ok_or(DecodeError::Truncated("header"))?;
+    let header: EpisodeRecordHeader =
+        read_chunk(bytes, &mut cursor)?.ok_or(DecodeError::Truncated("header"))?;
 
     let mut frames = Vec::new();
     let mut metrics = Vec::new();

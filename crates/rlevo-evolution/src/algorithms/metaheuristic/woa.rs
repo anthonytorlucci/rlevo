@@ -204,8 +204,16 @@ where
     /// Samples the initial whale positions uniformly within
     /// [`WoaConfig::bounds`] using the host-RNG convention and sets the
     /// generation counter to zero.
-    fn init(&self, params: &WoaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> WoaState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid WoaConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &WoaConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> WoaState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid WoaConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample the initial population from a deterministic
         // `seed_stream` rather than the process-wide Flex RNG (`B::seed` +
@@ -369,7 +377,10 @@ where
         mut state: WoaState<B>,
         _rng: &mut dyn Rng,
     ) -> (WoaState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         state.fitness.clone_from(&fitness_host);
         state.positions.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);
@@ -455,7 +466,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 5, device, 600,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

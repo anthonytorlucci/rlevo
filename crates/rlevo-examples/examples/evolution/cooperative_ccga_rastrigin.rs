@@ -67,8 +67,9 @@ impl CoupledFitness<B> for RastriginCoupled {
                 let dims = pop.dims();
                 let (n, d) = (dims[0], dims[1]);
                 let flat = pop.clone().into_data().into_vec::<f32>().unwrap();
-                let values: Vec<f32> =
-                    (0..n).map(|i| -rastrigin(&flat[i * d..i * d + d])).collect();
+                let values: Vec<f32> = (0..n)
+                    .map(|i| -rastrigin(&flat[i * d..i * d + d]))
+                    .collect();
                 Tensor::<B, 1>::from_data(TensorData::new(values, [n]), &pop.device())
             })
             .collect()
@@ -82,7 +83,9 @@ fn ga_config() -> GaConfig {
         bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     }
 }

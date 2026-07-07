@@ -76,12 +76,7 @@ where
 
     fn reset(&self, _device: &Dev<B>) {}
 
-    fn act(
-        &self,
-        _hidden: &mut (),
-        obs: &E::ObservationType,
-        device: &Dev<B>,
-    ) -> E::ActionType {
+    fn act(&self, _hidden: &mut (), obs: &E::ObservationType, device: &Dev<B>) -> E::ActionType {
         ReactivePolicy::act(self, obs, device)
     }
 }

@@ -81,9 +81,27 @@ impl Validate for Td3TrainingConfig {
         config::positive(C, "critic_lr", self.critic_lr)?;
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
-        config::in_range(C, "exploration_noise", 0.0, f64::INFINITY, f64::from(self.exploration_noise))?;
-        config::in_range(C, "policy_noise", 0.0, f64::INFINITY, f64::from(self.policy_noise))?;
-        config::in_range(C, "noise_clip", 0.0, f64::INFINITY, f64::from(self.noise_clip))?;
+        config::in_range(
+            C,
+            "exploration_noise",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.exploration_noise),
+        )?;
+        config::in_range(
+            C,
+            "policy_noise",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.policy_noise),
+        )?;
+        config::in_range(
+            C,
+            "noise_clip",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.noise_clip),
+        )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
         Ok(())
     }

@@ -35,7 +35,7 @@ pub mod styled;
 
 pub use ascii::{AsciiRenderable, AsciiRenderer};
 pub use payload::{
-    Box2dPayloadSource, Box2dSnapshot, BodyKind, CardTable, Classic2DBody, Classic2DPayloadSource,
+    BodyKind, Box2dPayloadSource, Box2dSnapshot, CardTable, Classic2DBody, Classic2DPayloadSource,
     Classic2DRole, Classic2DSnapshot, GridAgentMarker, GridColor, GridDir, GridDoorState,
     GridPayloadSource, GridSnapshot, GridTile, Landscape2DPayloadSource, Landscape2DSnapshot,
     Locomotion2DPayloadSource, Locomotion2DSnapshot, Point2, RigidBody2D, TabularCell, TabularGrid,

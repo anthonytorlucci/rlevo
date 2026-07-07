@@ -400,7 +400,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = DoorKeyConfig { size: 0, ..Default::default() };
+        let bad = DoorKeyConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(DoorKeyEnv::with_config(bad, false).is_err());
     }
 

@@ -38,7 +38,10 @@ pub struct PpgCategoricalPolicyHeadConfig {
 
 impl PpgCategoricalPolicyHeadConfig {
     /// Constructs the module on `device` using Burn's default initializer.
-    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> PpgCategoricalPolicyHead<B> {
+    pub fn init<B: Backend>(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> PpgCategoricalPolicyHead<B> {
         PpgCategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
@@ -255,7 +258,11 @@ mod tests {
 
     #[test]
     fn representative_head_config_is_valid() {
-        let cfg = PpgCategoricalPolicyHeadConfig { obs_dim: 4, hidden: 64, num_actions: 2 };
+        let cfg = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 4,
+            hidden: 64,
+            num_actions: 2,
+        };
         assert!(cfg.validate().is_ok());
     }
 

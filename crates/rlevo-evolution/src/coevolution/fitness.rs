@@ -118,12 +118,26 @@ mod tests {
     #[test]
     fn trivial_implementor_evaluates_and_preserves_row_order() {
         let device = Default::default();
-        let a = Tensor::<Flex, 2>::from_data(TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]), &device);
-        let b = Tensor::<Flex, 2>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0, 1.0], [2, 2]), &device);
+        let a = Tensor::<Flex, 2>::from_data(
+            TensorData::new(vec![1.0_f32, 2.0, 3.0, 4.0], [2, 2]),
+            &device,
+        );
+        let b = Tensor::<Flex, 2>::from_data(
+            TensorData::new(vec![0.0_f32, 0.0, 1.0, 1.0], [2, 2]),
+            &device,
+        );
         let out = RowSum.evaluate_coupled(&[a, b]);
         assert_eq!(out.len(), 2);
-        let va = out[0].clone().into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
-        let vb = out[1].clone().into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let va = out[0]
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
+        let vb = out[1]
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         assert_eq!(va, vec![3.0, 7.0]);
         assert_eq!(vb, vec![0.0, 2.0]);
     }

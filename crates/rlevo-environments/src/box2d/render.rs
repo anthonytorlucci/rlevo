@@ -91,16 +91,8 @@ pub fn arrow_glyph(angle_rad: f32) -> char {
     }
 }
 
-fn header_line(
-    label: &str,
-    agent_x: f32,
-    agent_y: f32,
-    angle_deg: f32,
-    step: usize,
-) -> String {
-    format!(
-        "{label}  pos=({agent_x:.1}, {agent_y:.1})  angle={angle_deg:>4.0}°  step={step}",
-    )
+fn header_line(label: &str, agent_x: f32, agent_y: f32, angle_deg: f32, step: usize) -> String {
+    format!("{label}  pos=({agent_x:.1}, {agent_y:.1})  angle={angle_deg:>4.0}°  step={step}",)
 }
 
 fn rasterise(
@@ -108,8 +100,7 @@ fn rasterise(
     viewport: Viewport,
     ground_y: Option<f32>,
 ) -> Vec<Vec<(char, Glyph)>> {
-    let mut grid: Vec<Vec<(char, Glyph)>> =
-        vec![vec![(' ', Glyph::Empty); CELL_COLS]; CELL_ROWS];
+    let mut grid: Vec<Vec<(char, Glyph)>> = vec![vec![(' ', Glyph::Empty); CELL_COLS]; CELL_ROWS];
 
     // Ground line (drawn first so bodies overwrite it where they overlap).
     if let Some(gy) = ground_y {
@@ -118,8 +109,7 @@ fn rasterise(
             let ty = (gy - viewport.y_min) / world_h;
             if (0.0..=1.0).contains(&ty) {
                 #[allow(clippy::cast_precision_loss)]
-                let ground_row =
-                    CELL_ROWS - 1 - (ty * (CELL_ROWS as f32 - 1.0)).round() as usize;
+                let ground_row = CELL_ROWS - 1 - (ty * (CELL_ROWS as f32 - 1.0)).round() as usize;
                 let row = ground_row.min(CELL_ROWS - 1);
                 for cell in &mut grid[row] {
                     *cell = ('─', Glyph::Static);
@@ -129,7 +119,10 @@ fn rasterise(
     }
 
     // Bodies (agent last so it wins overlaps).
-    for body in bodies.iter().filter(|b| matches!(b, Bodyish::Dynamic { .. })) {
+    for body in bodies
+        .iter()
+        .filter(|b| matches!(b, Bodyish::Dynamic { .. }))
+    {
         if let Bodyish::Dynamic { x, y } = *body
             && let Some((col, row)) = project(x, y, viewport)
         {

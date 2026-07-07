@@ -70,7 +70,11 @@ pub const DOWNSAMPLE_BUCKETS: usize = 2_048;
 #[must_use]
 pub fn downsample_minmax(points: &[(u32, f64)]) -> Vec<(u32, f64)> {
     if points.len() <= DOWNSAMPLE_THRESHOLD {
-        return points.iter().copied().filter(|(_, y)| y.is_finite()).collect();
+        return points
+            .iter()
+            .copied()
+            .filter(|(_, y)| y.is_finite())
+            .collect();
     }
     let n = points.len();
     let buckets = DOWNSAMPLE_BUCKETS;
@@ -264,7 +268,11 @@ pub fn landscape_field(
     let cells: Vec<f32> = raw
         .iter()
         .map(|&v| {
-            let t = if range.abs() < f64::EPSILON { 0.0 } else { (v - lo) / range };
+            let t = if range.abs() < f64::EPSILON {
+                0.0
+            } else {
+                (v - lo) / range
+            };
             t.clamp(0.0, 1.0) as f32
         })
         .collect();
@@ -397,7 +405,11 @@ pub fn metric_band(records: &[EpisodeRecord], name: &str) -> Vec<BandPoint> {
             if !m.value.is_finite() {
                 continue;
             }
-            let entry = by_step.entry(m.step).or_default().entry(seed).or_insert((0.0, 0));
+            let entry = by_step
+                .entry(m.step)
+                .or_default()
+                .entry(seed)
+                .or_insert((0.0, 0));
             entry.0 += m.value;
             entry.1 += 1;
         }
@@ -700,8 +712,8 @@ pub fn fitness_range_series(
 mod tests {
     use super::*;
     use crate::wire::{
-        EnvFamily, EpisodeKind, EpisodeRecordHeader, FamilyPayload, FrameRecord, MetricSample,
-        RunId, FORMAT_VERSION,
+        EnvFamily, EpisodeKind, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload, FrameRecord,
+        MetricSample, RunId,
     };
 
     #[test]
@@ -725,8 +737,14 @@ mod tests {
         pts[12_345].1 = 9_999.0; // global max
         pts[37_000].1 = -9_999.0; // global min
         let out = downsample_minmax(&pts);
-        assert!(out.len() <= DOWNSAMPLE_BUCKETS * 2 + 2, "bounded point count");
-        let max = out.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            out.len() <= DOWNSAMPLE_BUCKETS * 2 + 2,
+            "bounded point count"
+        );
+        let max = out
+            .iter()
+            .map(|(_, y)| *y)
+            .fold(f64::NEG_INFINITY, f64::max);
         let min = out.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
         assert!((max - 9_999.0).abs() < 1e-9, "global max survived: {max}");
         assert!((min + 9_999.0).abs() < 1e-9, "global min survived: {min}");
@@ -862,7 +880,11 @@ mod tests {
 
     #[test]
     fn episode_axis_step_mode_is_exclusive_prefix_sum() {
-        let recs = vec![timed_record(3, None), timed_record(5, None), timed_record(2, None)];
+        let recs = vec![
+            timed_record(3, None),
+            timed_record(5, None),
+            timed_record(2, None),
+        ];
         assert_eq!(episode_axis(&recs, AxisMode::Step), vec![0.0, 3.0, 8.0]);
     }
 
@@ -873,7 +895,10 @@ mod tests {
             timed_record(1, Some(2.5)),
             timed_record(1, Some(4.0)),
         ];
-        assert_eq!(episode_axis(&recs, AxisMode::Wallclock), vec![0.0, 1.5, 4.0]);
+        assert_eq!(
+            episode_axis(&recs, AxisMode::Wallclock),
+            vec![0.0, 1.5, 4.0]
+        );
     }
 
     #[test]
@@ -960,7 +985,10 @@ mod tests {
         // Sphere: centre cells (near origin) are lower than corners.
         let centre = f.cells[4 * 8 + 4];
         let corner = f.cells[0];
-        assert!(centre < corner, "basin brighter than corner: {centre} < {corner}");
+        assert!(
+            centre < corner,
+            "basin brighter than corner: {centre} < {corner}"
+        );
     }
 
     #[test]
@@ -1124,10 +1152,7 @@ mod tests {
             ),
             record(
                 vec![],
-                vec![
-                    metric(2, "policy_loss", 0.3),
-                    metric(2, "value_loss", 0.7),
-                ],
+                vec![metric(2, "policy_loss", 0.3), metric(2, "value_loss", 0.7)],
             ),
         ];
         let pl = metric_series(&recs, "policy_loss");
@@ -1255,7 +1280,11 @@ mod tests {
         // bulk [1..7] gives IQR=3, hi_fence = 5.5 + 1.5*3 = 10.0. The
         // 50.0 outlier overshoots; the whisker clamps to the in-fence
         // maximum.
-        let samples = vec![pop_sample(0, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 50.0], None)];
+        let samples = vec![pop_sample(
+            0,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 50.0],
+            None,
+        )];
         let boxes = population_box_data(&samples);
         let b = &boxes[0];
         assert_eq!(b.outliers.len(), 1);
@@ -1323,15 +1352,13 @@ mod tests {
             pop_sample(1, vec![0.5, 1.5, 2.5, 3.5, 4.5], None),
         ];
         // Maximize: best = largest, worst = smallest; median unchanged.
-        let (best, median, worst) =
-            fitness_range_series(&samples, ObjectiveSense::Maximize);
+        let (best, median, worst) = fitness_range_series(&samples, ObjectiveSense::Maximize);
         assert_eq!(best, vec![(0, 5.0), (1, 4.5)]);
         assert_eq!(median, vec![(0, 3.0), (1, 2.5)]);
         assert_eq!(worst, vec![(0, 1.0), (1, 0.5)]);
 
         // Minimize: best = smallest, worst = largest.
-        let (best, median, worst) =
-            fitness_range_series(&samples, ObjectiveSense::Minimize);
+        let (best, median, worst) = fitness_range_series(&samples, ObjectiveSense::Minimize);
         assert_eq!(best, vec![(0, 1.0), (1, 0.5)]);
         assert_eq!(median, vec![(0, 3.0), (1, 2.5)]);
         assert_eq!(worst, vec![(0, 5.0), (1, 4.5)]);

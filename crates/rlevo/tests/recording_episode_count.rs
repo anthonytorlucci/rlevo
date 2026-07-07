@@ -34,12 +34,12 @@ use parking_lot::Mutex;
 use burn::backend::{Autodiff, Flex};
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 use rlevo_core::environment::{Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -52,7 +52,9 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
 
 use rlevo_benchmarks::record::schema::FamilyPayload;
-use rlevo_benchmarks::record::{EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap};
+use rlevo_benchmarks::record::{
+    EnvFamily, RecordSink, RecordWriter, RecordingConfig, RecordingTap,
+};
 use rlevo_benchmarks::report::RecordedRun;
 
 // ---------------------------------------------------------------------------

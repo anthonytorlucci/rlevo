@@ -6,16 +6,16 @@
 use burn::backend::{Autodiff, Flex};
 use burn::module::{AutodiffModule, Module};
 use burn::nn::{Linear, LinearConfig};
+use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use rlevo_reinforcement_learning::utils::polyak_update;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::classic::pendulum::{
@@ -84,7 +84,12 @@ struct CriticMlp<B: Backend> {
 }
 
 impl<B: Backend> CriticMlp<B> {
-    fn new(obs_dim: usize, action_dim: usize, hidden: usize, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+    fn new(
+        obs_dim: usize,
+        action_dim: usize,
+        hidden: usize,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
         Self {
             fc1: LinearConfig::new(obs_dim + action_dim, hidden).init(device),
             fc2: LinearConfig::new(hidden, hidden).init(device),

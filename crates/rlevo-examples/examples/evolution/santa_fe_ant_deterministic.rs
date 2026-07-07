@@ -25,7 +25,9 @@ type B = Flex;
 fn main() {
     // Pin rayon to one thread: Burn seeds tensor RNG through process-global state,
     // so parallel evaluation would make the run non-reproducible.
-    let _ = rayon::ThreadPoolBuilder::new().num_threads(1).build_global();
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global();
 
     let device = Default::default();
     let seed = 0x5A_u64;
@@ -34,10 +36,26 @@ fn main() {
     let mut rows: Vec<RunSummary> = Vec::new();
 
     let gru = GruAntPolicy::<B>::new(&device);
-    rows.extend(evolve_all::<B, _>("GRU", &gru, mode, seed, POP, DET_GENERATIONS, &device));
+    rows.extend(evolve_all::<B, _>(
+        "GRU",
+        &gru,
+        mode,
+        seed,
+        POP,
+        DET_GENERATIONS,
+        &device,
+    ));
 
     let elman = ElmanAntPolicy::<B>::new(&device);
-    rows.extend(evolve_all::<B, _>("Elman", &elman, mode, seed, POP, DET_GENERATIONS, &device));
+    rows.extend(evolve_all::<B, _>(
+        "Elman",
+        &elman,
+        mode,
+        seed,
+        POP,
+        DET_GENERATIONS,
+        &device,
+    ));
 
     print_results_table(&rows);
 }

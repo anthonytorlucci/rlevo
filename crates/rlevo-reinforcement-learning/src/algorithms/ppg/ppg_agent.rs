@@ -26,10 +26,10 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
+use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 use rlevo_core::environment::EpisodeStatus;
-use crate::metrics::{AgentStats, PerformanceRecord};
 
 use crate::algorithms::ppg::aux_buffer::AuxRolloutBuffer;
 use crate::algorithms::ppg::losses::policy_kl_categorical;

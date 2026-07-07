@@ -119,7 +119,9 @@ impl<B: Backend> GruAntPolicy<B> {
     pub fn new(device: &B::Device) -> Self {
         Self {
             gru: GruConfig::new(1, GRU_HIDDEN, true).init(device),
-            head: LinearConfig::new(GRU_HIDDEN, 3).with_bias(true).init(device),
+            head: LinearConfig::new(GRU_HIDDEN, 3)
+                .with_bias(true)
+                .init(device),
         }
     }
 }
@@ -162,11 +164,15 @@ impl<B: Backend> ElmanAntPolicy<B> {
     #[must_use]
     pub fn new(device: &B::Device) -> Self {
         Self {
-            input: LinearConfig::new(1, ELMAN_HIDDEN).with_bias(true).init(device),
+            input: LinearConfig::new(1, ELMAN_HIDDEN)
+                .with_bias(true)
+                .init(device),
             recurrent: LinearConfig::new(ELMAN_HIDDEN, ELMAN_HIDDEN)
                 .with_bias(false)
                 .init(device),
-            output: LinearConfig::new(ELMAN_HIDDEN, 3).with_bias(true).init(device),
+            output: LinearConfig::new(ELMAN_HIDDEN, 3)
+                .with_bias(true)
+                .init(device),
         }
     }
 }
@@ -212,7 +218,9 @@ fn encode_percept<B: Backend>(food_ahead: bool, device: &B::Device) -> Tensor<B,
 /// Extract three logits from a `[1, 3]` tensor.
 fn to_logits3<B: Backend>(logits: Tensor<B, 2>) -> [f32; 3] {
     let data = logits.into_data();
-    let v = data.to_vec::<f32>().expect("policy head must yield 3 f32 logits");
+    let v = data
+        .to_vec::<f32>()
+        .expect("policy head must yield 3 f32 logits");
     [v[0], v[1], v[2]]
 }
 
@@ -275,7 +283,8 @@ where
     let mut env = SantaFeAnt::with_config(SantaFeAntConfig {
         max_steps,
         render: false,
-    }).expect("valid config");
+    })
+    .expect("valid config");
     let mut snap = env.reset().expect("reset");
     let mut h = policy.init_hidden(device);
     let mut eaten = 0.0_f32;
@@ -325,8 +334,13 @@ where
                 let mut total = 0.0_f32;
                 for s in 0..seeds {
                     let mut rng = seed_stream(base_seed, s as u64, SeedPurpose::Trial);
-                    total +=
-                        rollout_pellets::<B, P>(policy, softmax_sample, &mut rng, max_steps, &device);
+                    total += rollout_pellets::<B, P>(
+                        policy,
+                        softmax_sample,
+                        &mut rng,
+                        max_steps,
+                        &device,
+                    );
                 }
                 total / seeds as f32
             }
@@ -370,7 +384,8 @@ where
     M: Module<B> + Sync,
     F: Fn(&M) -> f32 + Send,
 {
-    let mut harness = EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_gens).expect("valid params");
+    let mut harness = EvolutionaryHarness::new(strategy, params, fitness, seed, device, max_gens)
+        .expect("valid params");
     harness.reset();
     let mut evals_to_solved = None;
     let mut generations = 0;
@@ -416,7 +431,8 @@ where
 {
     let dim = ModuleReshaper::new(template.clone()).num_params();
     let scorer = |seed: u64| make_scorer::<B, M>(mode, seed, MAX_STEPS, device.clone());
-    let fitness = |seed: u64| ModuleEvalFn::new(ModuleReshaper::new(template.clone()), scorer(seed));
+    let fitness =
+        |seed: u64| ModuleEvalFn::new(ModuleReshaper::new(template.clone()), scorer(seed));
     let mut out = Vec::new();
 
     // --- Genetic algorithm -------------------------------------------------
@@ -439,7 +455,10 @@ where
 
     // --- Estimation of Distribution (UMDA) --------------------------------
     {
-        let wo = WeightOnly::new(EdaStrategy::<B, _>::new(UnivariateGaussian), template.clone());
+        let wo = WeightOnly::new(
+            EdaStrategy::<B, _>::new(UnivariateGaussian),
+            template.clone(),
+        );
         let params = EdaParams {
             pop_size: pop,
             selection_ratio: 0.5,
@@ -478,7 +497,8 @@ where
     // --- Memetic (GA + hill-climbing local search) ------------------------
     {
         let inner_fitness = fitness(base_seed + 3);
-        let memetic = MemeticWrapper::new(GeneticAlgorithm::<B>::new(), HillClimbing, inner_fitness);
+        let memetic =
+            MemeticWrapper::new(GeneticAlgorithm::<B>::new(), HillClimbing, inner_fitness);
         let wo = WeightOnly::new(memetic, template.clone());
         let mut ga = GaConfig::default_for(pop, dim);
         ga.bounds = GENOME_BOUNDS;
@@ -530,7 +550,10 @@ where
 /// Print a per-strategy results table with the GP baseline as reference.
 pub fn print_results_table(rows: &[RunSummary]) {
     println!();
-    println!("{:<20} {:>14} {:>14} {:>8}", "strategy/arch", "best pellets", "evals→89", "gens");
+    println!(
+        "{:<20} {:>14} {:>14} {:>8}",
+        "strategy/arch", "best pellets", "evals→89", "gens"
+    );
     println!("{}", "-".repeat(58));
     for r in rows {
         let evals = r
@@ -580,7 +603,10 @@ mod tests {
         let b = reflat.into_data().to_vec::<f32>().unwrap();
         assert_eq!(a.len(), b.len());
         for (x, y) in a.iter().zip(b.iter()) {
-            assert!((x - y).abs() < 1e-6, "weight drift on round-trip: {x} vs {y}");
+            assert!(
+                (x - y).abs() < 1e-6,
+                "weight drift on round-trip: {x} vs {y}"
+            );
         }
     }
 
@@ -605,8 +631,12 @@ mod tests {
         let dev = device();
         let policy = GruAntPolicy::<B>::new(&dev);
         let mut rng = seed_stream(7, 0, SeedPurpose::Trial);
-        let pellets = rollout_pellets::<B, _>(&policy, |l, _r| argmax3(l), &mut rng, MAX_STEPS, &dev);
-        assert!((0.0..=SOLVED).contains(&pellets), "pellets out of range: {pellets}");
+        let pellets =
+            rollout_pellets::<B, _>(&policy, |l, _r| argmax3(l), &mut rng, MAX_STEPS, &dev);
+        assert!(
+            (0.0..=SOLVED).contains(&pellets),
+            "pellets out of range: {pellets}"
+        );
     }
 
     /// Recurrence is load-bearing: identical percepts with different prior hidden

@@ -164,7 +164,8 @@ fn make_env() -> Env {
         Pendulum::with_config(PendulumConfig {
             seed: SEED,
             ..PendulumConfig::default()
-        }).expect("valid config"),
+        })
+        .expect("valid config"),
         TIME_LIMIT,
     )
 }
@@ -203,7 +204,8 @@ fn train_ppo_agent() -> PpoAgent_ {
         .build()
         .expect("valid config");
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);
-    let mut agent: PpoAgent_ = PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
+    let mut agent: PpoAgent_ =
+        PpoAgent::new(policy, value, config, device, total_iterations).expect("valid config");
     train_ppo::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 1, 2>(
         &mut agent,
         &mut env,
@@ -234,7 +236,8 @@ fn train_ddpg_agent() -> DdpgAgent_ {
         .policy_frequency(2)
         .build()
         .expect("valid config");
-    let mut agent: DdpgAgent_ = DdpgAgent::new(actor, critic, config, device).expect("valid config");
+    let mut agent: DdpgAgent_ =
+        DdpgAgent::new(actor, critic, config, device).expect("valid config");
     train_ddpg::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
@@ -268,7 +271,8 @@ fn train_td3_agent() -> Td3Agent_ {
         .policy_frequency(2)
         .build()
         .expect("valid config");
-    let mut agent: Td3Agent_ = Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
+    let mut agent: Td3Agent_ =
+        Td3Agent::new(actor, critic_1, critic_2, config, device).expect("valid config");
     train_td3::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent,
         &mut env,
@@ -303,7 +307,8 @@ fn train_sac_agent() -> SacAgent_ {
         .policy_frequency(2)
         .build()
         .expect("valid config");
-    let mut agent: SacAgent_ = SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
+    let mut agent: SacAgent_ =
+        SacAgent::new(actor, critic_1, critic_2, config, device).expect("valid config");
     train_sac::<Backend_, _, _, _, _, PendulumAction, _, 1, 1, 2, 1, 2>(
         &mut agent,
         &mut env,

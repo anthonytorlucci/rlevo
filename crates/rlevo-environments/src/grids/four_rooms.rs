@@ -390,7 +390,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = FourRoomsConfig { size: 0, ..Default::default() };
+        let bad = FourRoomsConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(FourRoomsEnv::with_config(bad, false).is_err());
     }
 

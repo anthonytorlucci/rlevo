@@ -9,7 +9,7 @@
 //! global Flex RNG mutex would otherwise interleave draws with sibling
 //! tests under the parallel runner.
 
-use burn::tensor::{backend::Backend, Int, Tensor, TensorData};
+use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
 use rand_distr::{Distribution as _, Normal};
 use rlevo_core::probability::Probability;
@@ -49,8 +49,10 @@ pub fn gaussian_mutation<B: Backend>(
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let [n, d] = population.dims();
-    let noise =
-        Tensor::<B, 2>::from_data(TensorData::new(standard_normal_rows(n, d, rng), [n, d]), device);
+    let noise = Tensor::<B, 2>::from_data(
+        TensorData::new(standard_normal_rows(n, d, rng), [n, d]),
+        device,
+    );
     population + noise.mul_scalar(sigma.get())
 }
 
@@ -81,8 +83,10 @@ pub fn gaussian_mutation_per_row<B: Backend>(
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
     let [n, d] = population.dims();
-    let noise =
-        Tensor::<B, 2>::from_data(TensorData::new(standard_normal_rows(n, d, rng), [n, d]), device);
+    let noise = Tensor::<B, 2>::from_data(
+        TensorData::new(standard_normal_rows(n, d, rng), [n, d]),
+        device,
+    );
     let sigmas_2d = sigmas.reshape([n, 1]).expand([n, d]);
     population + noise * sigmas_2d
 }
@@ -186,8 +190,14 @@ mod tests {
             &device,
         );
         let out = gaussian_mutation(input.clone(), NonNegativeRate::new(0.0), &mut rng, &device);
-        let before = input.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
-        let after = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let before = input
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
+        let after = out
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);
         }
@@ -209,16 +219,15 @@ mod tests {
     fn per_row_applies_distinct_sigmas() {
         let device: FlexDevice = Default::default();
         let mut rng = StdRng::seed_from_u64(4);
-        let input = Tensor::<TestBackend, 2>::from_data(
-            TensorData::new(vec![0.0_f32; 4], [2, 2]),
-            &device,
-        );
-        let sigmas = Tensor::<TestBackend, 1>::from_data(
-            TensorData::new(vec![0.0_f32, 0.0], [2]),
-            &device,
-        );
+        let input =
+            Tensor::<TestBackend, 2>::from_data(TensorData::new(vec![0.0_f32; 4], [2, 2]), &device);
+        let sigmas =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0], [2]), &device);
         let out = gaussian_mutation_per_row(input, sigmas, &mut rng, &device);
-        let values = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let values = out
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         for v in values {
             approx::assert_relative_eq!(v, 0.0, epsilon = 1e-6);
         }
@@ -232,9 +241,22 @@ mod tests {
             TensorData::new(vec![3.0_f32, 4.0, 5.0, 6.0], [2, 2]),
             &device,
         );
-        let out = uniform_reset(input.clone(), -10.0, 10.0, Probability::new(0.0), &mut rng, &device);
-        let before = input.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
-        let after = out.into_data().into_vec::<f32>().expect("genome host-read of a tensor this test just built");
+        let out = uniform_reset(
+            input.clone(),
+            -10.0,
+            10.0,
+            Probability::new(0.0),
+            &mut rng,
+            &device,
+        );
+        let before = input
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
+        let after = out
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome host-read of a tensor this test just built");
         for (a, b) in before.iter().zip(after.iter()) {
             approx::assert_relative_eq!(a, b, epsilon = 1e-6);
         }

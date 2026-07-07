@@ -158,8 +158,14 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateBernoulli {
                 prob: prev.prob.clone(),
             };
         }
-        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
-        let fit_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let rows = population
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population tensor must be readable as f32");
+        let fit_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         // Argmax (best) and argmin (worst), ties → lowest index.
         // Canonical maximise: higher is better.
@@ -345,7 +351,11 @@ mod tests {
                 &device,
             );
         }
-        assert!(state.prob[0] < 0.1, "p did not converge toward 0, got {}", state.prob[0]);
+        assert!(
+            state.prob[0] < 0.1,
+            "p did not converge toward 0, got {}",
+            state.prob[0]
+        );
     }
 
     #[test]
@@ -362,7 +372,10 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
         for v in data {
             // Exact float compare is correct here: sample() writes literal 0.0
             // or 1.0, never a computed value.
@@ -387,7 +400,10 @@ mod tests {
             fitness(vec![]),
             &device,
         );
-        assert_eq!(state.prob, prior.prob, "empty population must return prior unchanged");
+        assert_eq!(
+            state.prob, prior.prob,
+            "empty population must return prior unchanged"
+        );
     }
 
     #[test]
@@ -406,7 +422,10 @@ mod tests {
             &device,
         );
         for &pj in &state.prob {
-            assert!(pj < 0.5, "best should be the finite-fitness zero row, got {pj}");
+            assert!(
+                pj < 0.5,
+                "best should be the finite-fitness zero row, got {pj}"
+            );
         }
     }
 }

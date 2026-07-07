@@ -17,11 +17,11 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::{Tensor, TensorData, activation, backend::Backend};
 
 use rlevo_core::rate::NonNegativeRate;
+use rlevo_evolution::WeightOnly;
 use rlevo_evolution::algorithms::ga::{GaConfig, GeneticAlgorithm};
 use rlevo_evolution::module_eval_fn::ModuleEvalFn;
 use rlevo_evolution::param_reshaper::ModuleReshaper;
 use rlevo_evolution::strategy::EvolutionaryHarness;
-use rlevo_evolution::WeightOnly;
 
 type TestBackend = Flex;
 
@@ -106,7 +106,8 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template);
 
     let mut harness =
-        EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50).expect("valid params");
+        EvolutionaryHarness::<TestBackend, _, _>::new(strategy, params, eval, 42, device, 50)
+            .expect("valid params");
     harness.reset();
 
     // Generation 0.

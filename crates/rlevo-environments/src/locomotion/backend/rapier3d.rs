@@ -53,7 +53,10 @@ impl Rapier3DWorld {
     /// Create a world with the given gravity vector, physics substep `dt`, and
     /// `frame_skip` substeps per environment step.
     pub fn new(gravity: Vector, dt: Real, frame_skip: u32) -> Self {
-        let integration_parameters = IntegrationParameters { dt, ..IntegrationParameters::default() };
+        let integration_parameters = IntegrationParameters {
+            dt,
+            ..IntegrationParameters::default()
+        };
         Self {
             bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
@@ -108,7 +111,8 @@ impl Rapier3DWorld {
         desc: ColliderBuilder,
         parent: RigidBodyHandle,
     ) -> ColliderHandle {
-        self.colliders.insert_with_parent(desc, parent, &mut self.bodies)
+        self.colliders
+            .insert_with_parent(desc, parent, &mut self.bodies)
     }
 
     /// Insert a free-standing collider (e.g. the ground plane) with no rigid-body parent.
@@ -198,7 +202,10 @@ impl LocomotionBackend for Rapier3DBackend {
 
     fn get_pose(world: &Self::World, body: Self::BodyHandle) -> Pose {
         world.bodies.get(body).map_or(
-            Pose { position: [0.0; 3], orientation: [1.0, 0.0, 0.0, 0.0] },
+            Pose {
+                position: [0.0; 3],
+                orientation: [1.0, 0.0, 0.0, 0.0],
+            },
             |b| {
                 let t = b.translation();
                 let q = b.rotation();
@@ -213,7 +220,10 @@ impl LocomotionBackend for Rapier3DBackend {
 
     fn get_vel(world: &Self::World, body: Self::BodyHandle) -> Twist {
         world.bodies.get(body).map_or(
-            Twist { linear: [0.0; 3], angular: [0.0; 3] },
+            Twist {
+                linear: [0.0; 3],
+                angular: [0.0; 3],
+            },
             |b| {
                 let v = b.linvel();
                 let w = b.angvel();
@@ -237,11 +247,7 @@ impl LocomotionBackend for Rapier3DBackend {
     /// # Panics
     ///
     /// Always panics with an explanatory message.
-    fn apply_joint_torque(
-        _world: &mut Self::World,
-        _joint: Self::JointHandle,
-        _torque: f32,
-    ) {
+    fn apply_joint_torque(_world: &mut Self::World, _joint: Self::JointHandle, _torque: f32) {
         // Rapier 3D doesn't expose a clean "joint torque" primitive — for
         // revolute joints the future implementation will either (a) apply
         // equal-and-opposite angular impulses to the two bodies about the
@@ -262,7 +268,9 @@ impl LocomotionBackend for Rapier3DBackend {
         // attached to `body`. Impulse is in N·s; dividing by dt yields an
         // average force over the substep. Torque is r × F, with r taken from
         // the manifold contact point relative to the body centre of mass.
-        let Some(rb) = world.bodies.get(body) else { return [0.0; 6] };
+        let Some(rb) = world.bodies.get(body) else {
+            return [0.0; 6];
+        };
         let com = rb.center_of_mass();
         let dt = world.integration_parameters.dt.max(f32::EPSILON);
 
@@ -272,7 +280,11 @@ impl LocomotionBackend for Rapier3DBackend {
                 let flipped = pair.collider2 == collider_handle;
                 for manifold in &pair.manifolds {
                     // Normal points from body1 to body2; flip for incident body.
-                    let n = if flipped { -manifold.data.normal } else { manifold.data.normal };
+                    let n = if flipped {
+                        -manifold.data.normal
+                    } else {
+                        manifold.data.normal
+                    };
                     for contact in &manifold.points {
                         let impulse = contact.data.impulse;
                         if impulse.abs() < f32::EPSILON {
@@ -280,8 +292,16 @@ impl LocomotionBackend for Rapier3DBackend {
                         }
                         let force_mag = impulse / dt;
                         let force = n * force_mag;
-                        let local_p = if flipped { contact.local_p2 } else { contact.local_p1 };
-                        let collider = if flipped { pair.collider2 } else { pair.collider1 };
+                        let local_p = if flipped {
+                            contact.local_p2
+                        } else {
+                            contact.local_p1
+                        };
+                        let collider = if flipped {
+                            pair.collider2
+                        } else {
+                            pair.collider1
+                        };
                         let contact_world = world
                             .colliders
                             .get(collider)
@@ -329,9 +349,8 @@ mod tests {
     #[test]
     fn get_pose_reads_translation_and_rotation() {
         let mut world = make_world();
-        let handle = world.add_body(
-            RigidBodyBuilder::fixed().translation(Vector::new(1.0, 2.0, 3.0)),
-        );
+        let handle =
+            world.add_body(RigidBodyBuilder::fixed().translation(Vector::new(1.0, 2.0, 3.0)));
         let pose = Rapier3DBackend::get_pose(&world, handle);
         assert_eq!(pose.position, [1.0, 2.0, 3.0]);
         // Identity orientation: w=1, x=y=z=0.
@@ -366,13 +385,18 @@ mod tests {
         world.step_with_frame_skip();
         let z1 = world.bodies.get(handle).unwrap().translation().z;
         // 5 substeps at dt=1/60 under 9.81 gravity: Δz ≈ -0.5·g·(5·dt)² ≈ -0.034m.
-        assert!(z1 < z0 - 0.03, "frame_skip=5 should drop body noticeably (Δ={})", z0 - z1);
+        assert!(
+            z1 < z0 - 0.03,
+            "frame_skip=5 should drop body noticeably (Δ={})",
+            z0 - z1
+        );
     }
 
     #[test]
     fn contact_force_is_zero_for_non_contacting_body() {
         let mut world = make_world();
-        let handle = world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 10.0)));
+        let handle =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 10.0)));
         world.add_collider(ColliderBuilder::ball(0.5), handle);
         let f = Rapier3DBackend::contact_force(&world, handle);
         assert_eq!(f, [0.0; 6]);

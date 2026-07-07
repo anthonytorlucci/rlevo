@@ -95,20 +95,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let suite = {
         let sink = sink.clone();
-        Suite::new("frozen-lake-report-client", cfg.clone()).with_env(
-            "frozen_lake",
-            move |seed| {
-                let env = FrozenLake::with_config(FrozenLakeConfig {
-                    map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
-                    is_slippery: false,
-                    seed,
-                    ..FrozenLakeConfig::default()
-                }).expect("FrozenLake construction with preset map cannot fail");
-                let recorded: RecordingTap<FrozenLake, 1, 1, 1> =
-                    RecordingTap::new(env, sink.clone());
-                BenchAdapter::new(recorded)
-            },
-        )
+        Suite::new("frozen-lake-report-client", cfg.clone()).with_env("frozen_lake", move |seed| {
+            let env = FrozenLake::with_config(FrozenLakeConfig {
+                map: FrozenMapSpec::Preset(FrozenPreset::Four4x4),
+                is_slippery: false,
+                seed,
+                ..FrozenLakeConfig::default()
+            })
+            .expect("FrozenLake construction with preset map cannot fail");
+            let recorded: RecordingTap<FrozenLake, 1, 1, 1> = RecordingTap::new(env, sink.clone());
+            BenchAdapter::new(recorded)
+        })
     };
 
     // v6 manifest provenance: a random FrozenLake agent, plus build/platform

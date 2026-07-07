@@ -361,7 +361,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = EmptyConfig { size: 0, ..Default::default() };
+        let bad = EmptyConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(EmptyEnv::with_config(bad, false).is_err());
     }
 

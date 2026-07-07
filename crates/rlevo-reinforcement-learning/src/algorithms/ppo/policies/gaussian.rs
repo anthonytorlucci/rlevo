@@ -48,7 +48,10 @@ pub struct TanhGaussianPolicyHeadConfig {
 
 impl TanhGaussianPolicyHeadConfig {
     /// Constructs the module on `device`.
-    pub fn init<B: Backend>(&self, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> TanhGaussianPolicyHead<B> {
+    pub fn init<B: Backend>(
+        &self,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> TanhGaussianPolicyHead<B> {
         let log_std_vec: Vec<f32> = vec![self.log_std_init; self.action_dim];
         let log_std: Tensor<B, 1> =
             Tensor::from_data(TensorData::new(log_std_vec, vec![self.action_dim]), device);

@@ -306,7 +306,6 @@ impl From<Classic2DSnapshot> for Classic2DPayload {
     }
 }
 
-
 /// Identifies the harness trial that produced an episode.
 ///
 /// Mirrors `suite::TrialKey` but is wire-owned (`u32` fields, serde) so the

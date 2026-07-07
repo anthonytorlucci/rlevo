@@ -131,11 +131,7 @@ mod tests {
     #[test]
     fn error_lines_carry_hazard_modifier() {
         let mut state = AppState::default();
-        state.record_log(line(
-            tracing::Level::ERROR,
-            "rlevo_rl::ppo",
-            "exploded",
-        ));
+        state.record_log(line(tracing::Level::ERROR, "rlevo_rl::ppo", "exploded"));
         let area = Rect::new(0, 0, 60, 1);
         let mut buf = Buffer::empty(area);
         LogPanel::new(&state).render(area, &mut buf);
@@ -183,11 +179,7 @@ mod tests {
     fn format_log_line_has_expected_shape() {
         let l = line(tracing::Level::INFO, "rlevo_rl", "hello world");
         let formatted = format_log_line(&l);
-        let joined: String = formatted
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
+        let joined: String = formatted.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(joined, " INFO rlevo_rl: hello world");
     }
 

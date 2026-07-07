@@ -22,9 +22,9 @@
 pub mod checkpoint;
 #[cfg(feature = "tui")]
 pub mod env_wrappers;
-pub mod metrics_registry;
 pub mod evaluator;
 pub mod metrics;
+pub mod metrics_registry;
 #[cfg(feature = "record")]
 pub mod record;
 pub mod report;

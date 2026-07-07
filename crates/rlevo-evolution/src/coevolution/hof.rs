@@ -90,7 +90,11 @@ impl<B: Backend> HallOfFame<B> {
     /// `f32` (a device→host transfer failure). A legitimately empty population
     /// is a valid non-error host-read and is skipped, not a panic.
     pub fn update(&mut self, populations: &[Tensor<B, 2>], fitnesses: &[Tensor<B, 1>]) {
-        let n = self.archives.len().min(populations.len()).min(fitnesses.len());
+        let n = self
+            .archives
+            .len()
+            .min(populations.len())
+            .min(fitnesses.len());
         for p in 0..n {
             let fit_host = fitnesses[p]
                 .clone()
@@ -118,7 +122,10 @@ impl<B: Backend> HallOfFame<B> {
             let device = populations[p].device();
             // usize → i64 index tensor; population indices never approach i64::MAX.
             #[allow(clippy::cast_possible_wrap)]
-            let idx = Tensor::<B, 1, Int>::from_data(TensorData::new(vec![best_idx as i64], [1]), &device);
+            let idx = Tensor::<B, 1, Int>::from_data(
+                TensorData::new(vec![best_idx as i64], [1]),
+                &device,
+            );
             let champion = populations[p].clone().select(0, idx);
 
             self.archives[p] = if self.archives[p].dims()[0] == 0 {
@@ -148,7 +155,8 @@ impl<B: Backend> HallOfFame<B> {
                     .map(|i| i as i64)
                     .collect();
                 let keep_len = keep.len();
-                let keep_idx = Tensor::<B, 1, Int>::from_data(TensorData::new(keep, [keep_len]), &device);
+                let keep_idx =
+                    Tensor::<B, 1, Int>::from_data(TensorData::new(keep, [keep_len]), &device);
                 self.archives[p] = self.archives[p].clone().select(0, keep_idx);
                 self.archive_fitness[p].remove(worst_idx);
             }
@@ -252,7 +260,9 @@ impl<B: Backend, F: CoupledFitness<B>> HallOfFameFitness<B, F> {
 
 /// `cur * (1 - w) + hof * w`, element-wise.
 fn blend<B: Backend>(cur: &Tensor<B, 1>, hof: &Tensor<B, 1>, w: f32) -> Tensor<B, 1> {
-    cur.clone().mul_scalar(1.0 - w).add(hof.clone().mul_scalar(w))
+    cur.clone()
+        .mul_scalar(1.0 - w)
+        .add(hof.clone().mul_scalar(w))
 }
 
 impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B, F> {
@@ -270,14 +280,18 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
 
             // Population A scored against the archived B champions.
             let blended_a = if archive_b.dims()[0] > 0 {
-                let res = self.inner.evaluate_coupled(&[populations[0].clone(), archive_b]);
+                let res = self
+                    .inner
+                    .evaluate_coupled(&[populations[0].clone(), archive_b]);
                 blend(&current[0], &res[0], w)
             } else {
                 current[0].clone()
             };
             // Population B scored against the archived A champions (index 1).
             let blended_b = if archive_a.dims()[0] > 0 {
-                let res = self.inner.evaluate_coupled(&[archive_a, populations[1].clone()]);
+                let res = self
+                    .inner
+                    .evaluate_coupled(&[archive_a, populations[1].clone()]);
                 blend(&current[1], &res[1], w)
             } else {
                 current[1].clone()
@@ -385,7 +399,11 @@ mod tests {
         // First eval seeds the archive; second would blend if w > 0.
         let _ = wrapper.evaluate_coupled(&[a.clone(), b.clone()]);
         let out = wrapper.evaluate_coupled(&[a, b]);
-        let va = out[0].clone().into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let va = out[0]
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         // Pure row sums regardless of the (non-empty) archive.
         assert_eq!(va, vec![2.0, 4.0]);
     }

@@ -82,7 +82,10 @@ impl Bounds {
     /// Panics when `lo > hi` or either endpoint is `NaN`.
     #[must_use]
     pub const fn new(lo: f32, hi: f32) -> Self {
-        assert!(lo <= hi, "Bounds::new: invalid range (lo > hi or NaN endpoint)");
+        assert!(
+            lo <= hi,
+            "Bounds::new: invalid range (lo > hi or NaN endpoint)"
+        );
         Self { lo, hi }
     }
 
@@ -198,7 +201,10 @@ mod tests {
 
     #[test]
     fn try_new_rejects_inverted_and_nan() {
-        assert_eq!(Bounds::try_new(1.0, -1.0), Err(BoundsError { lo: 1.0, hi: -1.0 }));
+        assert_eq!(
+            Bounds::try_new(1.0, -1.0),
+            Err(BoundsError { lo: 1.0, hi: -1.0 })
+        );
         assert!(Bounds::try_new(f32::NAN, 1.0).is_err());
         assert!(Bounds::try_new(0.0, f32::NAN).is_err());
         assert!(Bounds::try_new(f32::NAN, f32::NAN).is_err());

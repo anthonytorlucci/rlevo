@@ -15,7 +15,11 @@ pub mod taxi;
 pub enum MapError {
     /// A row has a different number of tiles than the first row.
     #[error("row {row} has length {got}, expected {expected}")]
-    RowLengthMismatch { row: usize, got: usize, expected: usize },
+    RowLengthMismatch {
+        row: usize,
+        got: usize,
+        expected: usize,
+    },
     /// The map does not contain exactly one `'S'` start tile.
     #[error("map must contain exactly one 'S' tile, found {0}")]
     WrongStartCount(usize),

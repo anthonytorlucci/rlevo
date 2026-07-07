@@ -58,7 +58,11 @@ pub trait BatchFitnessFn<B: Backend, G>: Send {
     /// and then sanitizes (ADR 0034) before any [`Strategy::tell`](crate::strategy::Strategy::tell),
     /// so a non-finite fitness cannot poison selection or best-so-far tracking on
     /// harness-driven runs.
-    fn evaluate_batch(&mut self, population: &G, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1>;
+    fn evaluate_batch(
+        &mut self,
+        population: &G,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1>;
 
     /// The optimisation direction of this objective.
     ///
@@ -138,7 +142,11 @@ where
     FE: FitnessEvaluable<Individual = Vec<f64>, Landscape = L> + Send,
     L: Send + Sync,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn evaluate_batch(
+        &mut self,
+        population: &Tensor<B, 2>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let dims = population.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         let pop_size = dims[0];
@@ -220,7 +228,11 @@ where
     B: Backend,
     L: Landscape,
 {
-    fn evaluate_batch(&mut self, population: &Tensor<B, 2>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 1> {
+    fn evaluate_batch(
+        &mut self,
+        population: &Tensor<B, 2>,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 1> {
         let dims = population.dims();
         assert_eq!(dims.len(), 2, "population tensor must be rank 2");
         let pop_size = dims[0];
@@ -346,7 +358,10 @@ mod tests {
         let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
-        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let values = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 3);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
@@ -365,7 +380,10 @@ mod tests {
         let mut adapter = FromLandscape::new(SphereLandscape);
         let fitness = adapter.evaluate_batch(&pop, &device);
 
-        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let values = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         assert_eq!(values.len(), 3);
         approx::assert_relative_eq!(values[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(values[1], 4.0, epsilon = 1e-6);
@@ -385,10 +403,16 @@ mod tests {
     fn sanitize_fitness_scalar_applies_canonical_rule() {
         // `−∞` sentinel: assert via `is_infinite`/sign, not float `==` (rules §5/§8).
         let nan_out: f32 = sanitize_fitness(f32::NAN);
-        assert!(nan_out.is_infinite() && nan_out.is_sign_negative(), "NaN → −∞");
+        assert!(
+            nan_out.is_infinite() && nan_out.is_sign_negative(),
+            "NaN → −∞"
+        );
         approx::assert_relative_eq!(sanitize_fitness(f32::INFINITY), f32::MAX);
         let neg_out: f32 = sanitize_fitness(f32::NEG_INFINITY);
-        assert!(neg_out.is_infinite() && neg_out.is_sign_negative(), "−∞ passes through");
+        assert!(
+            neg_out.is_infinite() && neg_out.is_sign_negative(),
+            "−∞ passes through"
+        );
         approx::assert_relative_eq!(sanitize_fitness(2.5), 2.5, epsilon = 1e-6);
         approx::assert_relative_eq!(sanitize_fitness(-7.0), -7.0, epsilon = 1e-6);
     }
@@ -404,11 +428,20 @@ mod tests {
             [5],
         );
         let t = Tensor::<TestBackend, 1>::from_data(data, &device);
-        let out = sanitize_fitness_tensor(t).into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let out = sanitize_fitness_tensor(t)
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
 
-        assert!(out[0].is_infinite() && out[0].is_sign_negative(), "NaN → −∞");
+        assert!(
+            out[0].is_infinite() && out[0].is_sign_negative(),
+            "NaN → −∞"
+        );
         approx::assert_relative_eq!(out[1], f32::MAX); // +∞ → f32::MAX
-        assert!(out[2].is_infinite() && out[2].is_sign_negative(), "−∞ passes through, stays non-finite");
+        assert!(
+            out[2].is_infinite() && out[2].is_sign_negative(),
+            "−∞ passes through, stays non-finite"
+        );
         approx::assert_relative_eq!(out[3], 3.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[4], -4.0, epsilon = 1e-6);
     }
@@ -428,10 +461,7 @@ mod tests {
     fn from_fitness_evaluable_output_is_pop_size_shaped_and_row_aligned() {
         let device = Default::default();
         // 4 individuals, 2 genes each.
-        let data = TensorData::new(
-            vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0],
-            [4, 2],
-        );
+        let data = TensorData::new(vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0], [4, 2]);
         let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
 
         let mut adapter = FromFitnessEvaluable::new(SphereFit, Sphere);
@@ -441,7 +471,10 @@ mod tests {
         // not `genome_dim` (2).
         assert_eq!(fitness.dims(), [4]);
 
-        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let values = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         for (i, &v) in values.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let expected = ((i + 1) * (i + 1)) as f32;
@@ -456,10 +489,7 @@ mod tests {
     fn from_landscape_output_is_pop_size_shaped_and_row_aligned() {
         let device = Default::default();
         // 4 individuals, 2 genes each — deliberately non-square.
-        let data = TensorData::new(
-            vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0],
-            [4, 2],
-        );
+        let data = TensorData::new(vec![1.0_f32, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0], [4, 2]);
         let pop = Tensor::<TestBackend, 2>::from_data(data, &device);
 
         let mut adapter = FromLandscape::new(SphereLandscape);
@@ -467,7 +497,10 @@ mod tests {
 
         assert_eq!(fitness.dims(), [4]);
 
-        let values = fitness.into_data().into_vec::<f32>().expect("fitness host-read of a tensor this test just built");
+        let values = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness host-read of a tensor this test just built");
         for (i, &v) in values.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let expected = ((i + 1) * (i + 1)) as f32;

@@ -16,7 +16,9 @@ use rand::{RngExt, SeedableRng};
 use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};

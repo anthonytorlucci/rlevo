@@ -134,7 +134,9 @@ impl HealthyCheck {
             return false;
         }
         if let Some(b) = self.state_range
-            && !state.iter().all(|v| v.is_finite() && *v >= b.lo() && *v <= b.hi())
+            && !state
+                .iter()
+                .all(|v| v.is_finite() && *v >= b.lo() && *v <= b.hi())
         {
             return false;
         }

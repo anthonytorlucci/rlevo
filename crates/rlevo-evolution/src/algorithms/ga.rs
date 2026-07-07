@@ -98,7 +98,9 @@ impl GaConfig {
             bounds: Bounds::new(-5.12, 5.12),
             mutation_sigma: NonNegativeRate::new(0.3),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+            crossover: GaCrossover::BlxAlpha {
+                alpha: NonNegativeRate::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         }
     }
@@ -120,9 +122,7 @@ impl Validate for GaConfig {
                     return Err(ConfigError {
                         config: C,
                         field: "selection.size",
-                        kind: ConstraintKind::Custom(
-                            "tournament size must not exceed pop_size",
-                        ),
+                        kind: ConstraintKind::Custom("tournament size must not exceed pop_size"),
                     });
                 }
             }
@@ -233,8 +233,16 @@ where
     /// `fitness` to empty and `best_fitness` to `f32::NEG_INFINITY` (the
     /// worst value under the maximise convention); the first
     /// [`tell`](Self::tell) call populates both.
-    fn init(&self, params: &GaConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GaState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid GaConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &GaConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> GaState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid GaConfig reached init: {params:?}"
+        );
         let population = Self::sample_initial_population(params, rng, device);
         GaState {
             population,
@@ -364,7 +372,10 @@ where
         mut state: GaState<B>,
         _rng: &mut dyn Rng,
     ) -> (GaState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         // First `tell` after `init`: cache fitness for the seed population.
         if state.fitness.is_empty() {
@@ -486,14 +497,17 @@ mod tests {
             bounds: Bounds::new(-5.0, 5.0),
             mutation_sigma: NonNegativeRate::new(0.2),
             selection: GaSelection::Tournament { size: 2 },
-            crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+            crossover: GaCrossover::BlxAlpha {
+                alpha: NonNegativeRate::new(0.5),
+            },
             replacement: GaReplacement::Elitist { elitism_k: 1 },
         };
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
 
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 42, device, 200,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         loop {
             let step = harness.step(());

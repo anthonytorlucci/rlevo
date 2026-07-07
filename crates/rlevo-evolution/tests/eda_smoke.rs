@@ -52,7 +52,8 @@ where
         7,
         device,
         10,
-    ).expect("valid params");
+    )
+    .expect("valid params");
     harness.reset();
     loop {
         let step = harness.step(());
@@ -68,7 +69,10 @@ where
     );
     let best = harness.best();
     assert!(best.is_some(), "best() must be Some after the first tell");
-    assert!(best.unwrap().1.is_finite(), "best genome fitness must be finite");
+    assert!(
+        best.unwrap().1.is_finite(),
+        "best genome fitness must be finite"
+    );
 }
 
 #[test]

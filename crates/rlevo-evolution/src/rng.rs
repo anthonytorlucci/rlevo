@@ -19,8 +19,8 @@
 //! intermittent test failures. [`seed_stream`] returns a fully-isolated
 //! [`rand::rngs::StdRng`] whose state is private to the call site.
 
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rlevo_core::util::seed::splitmix64;
 
 /// Tag identifying which evolutionary operation a sub-stream is for.

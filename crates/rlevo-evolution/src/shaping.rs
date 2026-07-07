@@ -7,7 +7,7 @@
 //! directly on device tensors and are pure functions (RNG-free).
 
 use burn::prelude::ElementConversion;
-use burn::tensor::{backend::Backend, Tensor};
+use burn::tensor::{Tensor, backend::Backend};
 
 /// Error returned by fallible fitness-shaping transforms.
 #[derive(Debug, thiserror::Error)]
@@ -49,7 +49,13 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
     #[allow(clippy::cast_precision_loss)]
     let n_f = n.max(1) as f32;
     let centered = fitness - mean;
-    let var = centered.clone().powf_scalar(2.0).sum().into_scalar().elem::<f32>() / n_f;
+    let var = centered
+        .clone()
+        .powf_scalar(2.0)
+        .sum()
+        .into_scalar()
+        .elem::<f32>()
+        / n_f;
     let std = var.sqrt().max(1e-8);
     centered / std
 }
@@ -91,7 +97,10 @@ pub fn z_score<B: Backend>(fitness: Tensor<B, 1>) -> Tensor<B, 1> {
 /// Returns [`ShapingError::NonFloatData`] if the tensor's element data cannot be
 /// read as `f32` — for example, when using a backend that stores integer-typed
 /// tensors and `into_vec::<f32>()` fails.
-pub fn centered_rank<B: Backend>(fitness: Tensor<B, 1>, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Result<Tensor<B, 1>, ShapingError> {
+pub fn centered_rank<B: Backend>(
+    fitness: Tensor<B, 1>,
+    device: &<B as burn::tensor::backend::BackendTypes>::Device,
+) -> Result<Tensor<B, 1>, ShapingError> {
     let raw = fitness
         .into_data()
         .into_vec::<f32>()
@@ -132,7 +141,10 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([1.0f32, 2.0, 3.0, 4.0, 5.0], &device);
         let z = z_score(t);
-        let values = z.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
+        let values = z
+            .into_data()
+            .into_vec::<f32>()
+            .expect("shaped tensor host-read of a tensor this test just built");
         let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
         approx::assert_relative_eq!(mean, 0.0, epsilon = 1e-5);
     }
@@ -142,7 +154,10 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([10.0f32, 20.0, 30.0, 40.0], &device);
         let r = centered_rank(t, &device).unwrap();
-        let values = r.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
+        let values = r
+            .into_data()
+            .into_vec::<f32>()
+            .expect("shaped tensor host-read of a tensor this test just built");
         // smallest → -0.5, largest → +0.5
         approx::assert_relative_eq!(values[0], -0.5, epsilon = 1e-6);
         approx::assert_relative_eq!(values[3], 0.5, epsilon = 1e-6);
@@ -153,7 +168,10 @@ mod tests {
         let device = Default::default();
         let t = Tensor::<TestBackend, 1>::from_floats([3.0f32, 1.0, 2.0], &device);
         let r = centered_rank(t, &device).unwrap();
-        let values = r.into_data().into_vec::<f32>().expect("shaped tensor host-read of a tensor this test just built");
+        let values = r
+            .into_data()
+            .into_vec::<f32>()
+            .expect("shaped tensor host-read of a tensor this test just built");
         // original: 3, 1, 2 → ranks sorted ascending: [1, 2, 3] at indices [1, 2, 0]
         // rank-positions centered: index 1 → -0.5, index 2 → 0.0, index 0 → 0.5
         approx::assert_relative_eq!(values[1], -0.5, epsilon = 1e-6);

@@ -83,7 +83,13 @@ impl Validate for InvertedPendulumConfig {
         const C: &str = "InvertedPendulumConfig";
         config::positive(C, "dt", f64::from(self.dt))?;
         config::nonzero(C, "frame_skip", self.frame_skip as usize)?;
-        config::in_range(C, "reset_noise_scale", 0.0, f64::INFINITY, f64::from(self.reset_noise_scale))?;
+        config::in_range(
+            C,
+            "reset_noise_scale",
+            0.0,
+            f64::INFINITY,
+            f64::from(self.reset_noise_scale),
+        )?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         config::positive(C, "cart_mass", f64::from(self.cart_mass))?;
         config::positive(C, "pole_mass", f64::from(self.pole_mass))?;
@@ -107,7 +113,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_dt() {
-        let bad = InvertedPendulumConfig { dt: 0.0, ..Default::default() };
+        let bad = InvertedPendulumConfig {
+            dt: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "dt");
     }
 }

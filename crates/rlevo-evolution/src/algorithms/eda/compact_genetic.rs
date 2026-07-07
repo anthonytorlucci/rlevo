@@ -138,8 +138,14 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
         };
 
         let [k, d] = population.dims();
-        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
-        let fit_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let rows = population
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population tensor must be readable as f32");
+        let fit_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
 
         // Winner = argmax (best fitness), loser = argmin (worst); ties →
         // lowest index. Canonical maximise: higher is better.
@@ -370,7 +376,11 @@ mod tests {
             &mut rng,
             &device,
         );
-        for v in samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built") {
+        for v in samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built")
+        {
             // Exact float compare is correct: sample() writes literal 0.0/1.0.
             #[allow(clippy::float_cmp)]
             let is_binary = v == 0.0 || v == 1.0;
@@ -396,8 +406,14 @@ mod tests {
             &device,
         );
         for &pj in &state.prob {
-            assert!(pj.is_finite() && (0.0..=1.0).contains(&pj), "prob out of range: {pj}");
-            assert!(pj < 0.5, "winner should be the finite-fitness zero row, got {pj}");
+            assert!(
+                pj.is_finite() && (0.0..=1.0).contains(&pj),
+                "prob out of range: {pj}"
+            );
+            assert!(
+                pj < 0.5,
+                "winner should be the finite-fitness zero row, got {pj}"
+            );
         }
     }
 }

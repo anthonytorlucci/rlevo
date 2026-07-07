@@ -60,8 +60,18 @@ impl Validate for CarRacingConfig {
         const C: &str = "CarRacingConfig";
         config::nonzero(C, "track_n_checkpoints", self.track_n_checkpoints)?;
         config::positive(C, "track_width", f64::from(self.track_width))?;
-        config::positive(C, "lap_complete_percent", f64::from(self.lap_complete_percent))?;
-        config::in_range(C, "lap_complete_percent", 0.0, 1.0, f64::from(self.lap_complete_percent))?;
+        config::positive(
+            C,
+            "lap_complete_percent",
+            f64::from(self.lap_complete_percent),
+        )?;
+        config::in_range(
+            C,
+            "lap_complete_percent",
+            0.0,
+            1.0,
+            f64::from(self.lap_complete_percent),
+        )?;
         config::positive(C, "tile_reward", f64::from(self.tile_reward))?;
         config::ordered(C, "frame_penalty", f64::from(self.frame_penalty), 0.0)?;
         config::positive(C, "car_density", f64::from(self.car_density))?;
@@ -75,7 +85,9 @@ impl Validate for CarRacingConfig {
 impl CarRacingConfig {
     /// Returns a builder for configuring a `CarRacingConfig`.
     pub fn builder() -> CarRacingConfigBuilder {
-        CarRacingConfigBuilder { inner: CarRacingConfig::default() }
+        CarRacingConfigBuilder {
+            inner: CarRacingConfig::default(),
+        }
     }
 }
 
@@ -136,7 +148,10 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_track_width() {
-        let bad = CarRacingConfig { track_width: 0.0, ..Default::default() };
+        let bad = CarRacingConfig {
+            track_width: 0.0,
+            ..Default::default()
+        };
         assert_eq!(bad.validate().unwrap_err().field, "track_width");
     }
 }

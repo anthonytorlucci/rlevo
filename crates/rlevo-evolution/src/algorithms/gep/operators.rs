@@ -140,8 +140,8 @@ pub fn two_point_crossover(a: &mut [Symbol], b: &mut [Symbol], rng: &mut dyn Rng
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::gep::{GepConfig, GepDecoder};
     use crate::algorithms::gep::decode::GenotypePhenotypeMap;
+    use crate::algorithms::gep::{GepConfig, GepDecoder};
     use crate::function_set::ArithmeticFunctionSet;
     use crate::rng::{SeedPurpose, seed_stream};
 

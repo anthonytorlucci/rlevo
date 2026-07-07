@@ -149,8 +149,9 @@ mod tests {
         let device = Default::default();
 
         let tensor = burn::tensor::Tensor::<TestBackend, 1>::from_floats([0.0, 1.0, 2.0], &device);
-        let err = <LunarLanderObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
-            .unwrap_err();
+        let err =
+            <LunarLanderObservation as TensorConvertible<1, TestBackend>>::from_tensor(tensor)
+                .unwrap_err();
         assert!(err.message.contains("expected shape [8]"));
     }
 }

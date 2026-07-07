@@ -79,12 +79,32 @@ pub struct MetricDescriptor {
 /// diagnostics first, then per-episode/shared, then EO.
 pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
     // ---- RL training stats (per update) ----
-    d("policy_loss", MetricKind::Rl, Cadence::PerUpdate, "Policy loss"),
-    d("value_loss", MetricKind::Rl, Cadence::PerUpdate, "Value loss"),
+    d(
+        "policy_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Policy loss",
+    ),
+    d(
+        "value_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Value loss",
+    ),
     d("loss", MetricKind::Rl, Cadence::PerUpdate, "Loss"),
-    d("entropy", MetricKind::Rl, Cadence::PerUpdate, "Policy entropy"),
+    d(
+        "entropy",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Policy entropy",
+    ),
     d("approx_kl", MetricKind::Rl, Cadence::PerUpdate, "Approx KL"),
-    d("clip_frac", MetricKind::Rl, Cadence::PerUpdate, "Clip fraction"),
+    d(
+        "clip_frac",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Clip fraction",
+    ),
     // ---- RL value/policy diagnostics (v6) ----
     d(
         "explained_variance",
@@ -172,22 +192,63 @@ pub const CANONICAL_METRICS: &[MetricDescriptor] = &[
     ),
     // ---- DQN family (v6) ----
     d("td_loss", MetricKind::Rl, Cadence::PerUpdate, "TD loss"),
-    d("q_values", MetricKind::Rl, Cadence::PerUpdate, "Q-values (mean)"),
+    d(
+        "q_values",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Q-values (mean)",
+    ),
     // ---- SAC family (v6) ----
-    d("qf1_loss", MetricKind::Rl, Cadence::PerUpdate, "Critic 1 loss"),
-    d("qf2_loss", MetricKind::Rl, Cadence::PerUpdate, "Critic 2 loss"),
-    d("actor_loss", MetricKind::Rl, Cadence::PerUpdate, "Actor loss"),
-    d("alpha", MetricKind::Rl, Cadence::PerUpdate, "Entropy temperature α"),
+    d(
+        "qf1_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Critic 1 loss",
+    ),
+    d(
+        "qf2_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Critic 2 loss",
+    ),
+    d(
+        "actor_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Actor loss",
+    ),
+    d(
+        "alpha",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Entropy temperature α",
+    ),
     // Reserved: the SAC α update is a closed-form scalar Adam step with no
     // exposed loss scalar, so no producer emits `alpha_loss` yet. The panel
     // simply does not appear until one does (absent metrics are skipped, not
     // rendered empty). Kept here so the v6 metric set stays complete.
-    d("alpha_loss", MetricKind::Rl, Cadence::PerUpdate, "Alpha loss"),
+    d(
+        "alpha_loss",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Alpha loss",
+    ),
     // ---- Schedules (v6) ----
     // Reserved: emitted only once a scheduled clip range is wired (PPO uses a
     // fixed `clip_coef` today). See the note on `alpha_loss`.
-    d("clip_range", MetricKind::Rl, Cadence::PerUpdate, "Clip range"),
-    du("n_updates", MetricKind::Rl, Cadence::PerUpdate, "Update count", "updates"),
+    d(
+        "clip_range",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Clip range",
+    ),
+    du(
+        "n_updates",
+        MetricKind::Rl,
+        Cadence::PerUpdate,
+        "Update count",
+        "updates",
+    ),
     // ---- Evolution training stats (per generation) ----
     d(
         "best_fitness",
@@ -337,7 +398,12 @@ mod tests {
 
     #[test]
     fn fitness_metrics_are_eo_per_generation() {
-        for name in ["best_fitness", "mean_fitness", "worst_fitness", "best_fitness_ever"] {
+        for name in [
+            "best_fitness",
+            "mean_fitness",
+            "worst_fitness",
+            "best_fitness_ever",
+        ] {
             let desc = descriptor(name).expect("present");
             assert_eq!(desc.kind, MetricKind::Eo);
             assert_eq!(desc.cadence, Cadence::PerGeneration);
@@ -347,7 +413,13 @@ mod tests {
 
     #[test]
     fn rl_diagnostics_are_rl_kind() {
-        for name in ["policy_loss", "explained_variance", "td_loss", "qf1_loss", "alpha"] {
+        for name in [
+            "policy_loss",
+            "explained_variance",
+            "td_loss",
+            "qf1_loss",
+            "alpha",
+        ] {
             assert_eq!(descriptor(name).unwrap().kind, MetricKind::Rl, "{name}");
             assert!(!is_per_generation(name));
         }
@@ -355,7 +427,11 @@ mod tests {
 
     #[test]
     fn terminal_triple_is_shared_per_episode() {
-        for name in ["episode_return", "episode_length", "episode_wall_clock_secs"] {
+        for name in [
+            "episode_return",
+            "episode_length",
+            "episode_wall_clock_secs",
+        ] {
             let desc = descriptor(name).unwrap();
             assert_eq!(desc.kind, MetricKind::Shared, "{name}");
             assert_eq!(desc.cadence, Cadence::PerEpisode, "{name}");

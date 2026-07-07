@@ -432,10 +432,11 @@ impl<B: Backend> PaddedPopulation<B> {
 
         let weights = Tensor::<B, 3>::from_data(TensorData::new(weights, [pop, n, n]), device);
         let bias = Tensor::<B, 2>::from_data(TensorData::new(bias, [pop, n]), device);
-        let act_masks = masks
-            .map(|m| Tensor::<B, 2>::from_data(TensorData::new(m, [pop, n]), device).greater_elem(0.5));
-        let input_slots =
-            Tensor::<B, 2>::from_data(TensorData::new(input_slots, [pop, n]), device).greater_elem(0.5);
+        let act_masks = masks.map(|m| {
+            Tensor::<B, 2>::from_data(TensorData::new(m, [pop, n]), device).greater_elem(0.5)
+        });
+        let input_slots = Tensor::<B, 2>::from_data(TensorData::new(input_slots, [pop, n]), device)
+            .greater_elem(0.5);
 
         Self {
             weights,
@@ -588,15 +589,53 @@ mod tests {
     fn test_interpreted_phenotype_reproduces_truth_table() {
         let device = Default::default();
         let nodes = vec![
-            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(1), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(2), kind: NodeKind::Hidden, activation: ActivationFn::Relu, bias: 0.0 },
-            NodeGene { id: NodeId::new(3), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 0.5 },
+            NodeGene {
+                id: NodeId::new(0),
+                kind: NodeKind::Input,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(1),
+                kind: NodeKind::Input,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(2),
+                kind: NodeKind::Hidden,
+                activation: ActivationFn::Relu,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(3),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Linear,
+                bias: 0.5,
+            },
         ];
         let conns = vec![
-            ConnectionGene { innovation: InnovationId::new(0), source: NodeId::new(0), target: NodeId::new(2), weight: 1.0, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(1), source: NodeId::new(1), target: NodeId::new(2), weight: 1.0, enabled: true },
-            ConnectionGene { innovation: InnovationId::new(2), source: NodeId::new(2), target: NodeId::new(3), weight: 2.0, enabled: true },
+            ConnectionGene {
+                innovation: InnovationId::new(0),
+                source: NodeId::new(0),
+                target: NodeId::new(2),
+                weight: 1.0,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(1),
+                source: NodeId::new(1),
+                target: NodeId::new(2),
+                weight: 1.0,
+                enabled: true,
+            },
+            ConnectionGene {
+                innovation: InnovationId::new(2),
+                source: NodeId::new(2),
+                target: NodeId::new(3),
+                weight: 2.0,
+                enabled: true,
+            },
         ];
         let genome = TopologyGenome::new(nodes, conns);
 
@@ -604,13 +643,14 @@ mod tests {
         let pheno = PhenotypeBuilder::<TestBackend>::build(&builder, &genome, &device);
 
         let input = Tensor::<TestBackend, 2>::from_data(
-            burn::tensor::TensorData::new(
-                vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0],
-                [4, 2],
-            ),
+            burn::tensor::TensorData::new(vec![0.0f32, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0], [4, 2]),
             &device,
         );
-        let out = pheno.forward(input).into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built");
+        let out = pheno
+            .forward(input)
+            .into_data()
+            .into_vec::<f32>()
+            .expect("output host-read of a tensor this test just built");
         let expected = [0.5f32, 2.5, 2.5, 4.5];
         for (got, want) in out.iter().zip(expected.iter()) {
             approx::assert_relative_eq!(*got, *want, epsilon = 1e-5);
@@ -622,8 +662,18 @@ mod tests {
     fn test_interpreted_phenotype_skips_disabled_edges() {
         let device = Default::default();
         let nodes = vec![
-            NodeGene { id: NodeId::new(0), kind: NodeKind::Input, activation: ActivationFn::Linear, bias: 0.0 },
-            NodeGene { id: NodeId::new(1), kind: NodeKind::Output, activation: ActivationFn::Linear, bias: 1.0 },
+            NodeGene {
+                id: NodeId::new(0),
+                kind: NodeKind::Input,
+                activation: ActivationFn::Linear,
+                bias: 0.0,
+            },
+            NodeGene {
+                id: NodeId::new(1),
+                kind: NodeKind::Output,
+                activation: ActivationFn::Linear,
+                bias: 1.0,
+            },
         ];
         // Single edge 0 -> 1 is DISABLED, so output = bias = 1.0 regardless.
         let conns = vec![ConnectionGene {
@@ -639,7 +689,11 @@ mod tests {
             burn::tensor::TensorData::new(vec![5.0f32, 7.0], [2, 1]),
             &device,
         );
-        let out = pheno.forward(input).into_data().into_vec::<f32>().expect("output host-read of a tensor this test just built");
+        let out = pheno
+            .forward(input)
+            .into_data()
+            .into_vec::<f32>()
+            .expect("output host-read of a tensor this test just built");
         approx::assert_relative_eq!(out[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[1], 1.0, epsilon = 1e-6);
     }

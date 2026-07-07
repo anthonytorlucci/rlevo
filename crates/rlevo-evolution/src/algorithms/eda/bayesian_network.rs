@@ -376,7 +376,10 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
             params.max_parents < usize::BITS as usize,
             "max_parents must be below usize::BITS"
         );
-        let rows = population.into_data().into_vec::<f32>().expect("population tensor must be readable as f32");
+        let rows = population
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population tensor must be readable as f32");
         if n == 0 {
             // Degenerate input: nothing to learn, return the prior-shaped
             // state (params-shaped, since a 0×0 tensor carries no width).
@@ -566,7 +569,12 @@ mod tests {
         )
     }
 
-    fn refit(p: &BayesianNetworkParams, rows: Vec<f32>, n: usize, d: usize) -> BayesianNetworkState {
+    fn refit(
+        p: &BayesianNetworkParams,
+        rows: Vec<f32>,
+        n: usize,
+        d: usize,
+    ) -> BayesianNetworkState {
         let device = Default::default();
         let prior = fit_prior(p);
         // Test row counts are tiny; the cast is lossless.
@@ -661,7 +669,10 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
         for v in data {
             assert!(v.is_finite(), "sampled gene must be finite, got {v}");
             // Exact float compare is correct: sample() writes literal 0.0/1.0.
@@ -751,7 +762,10 @@ mod tests {
         ];
         let state = refit(&p, rows, 4, 2);
         for ps in &state.parents {
-            assert!(ps.is_empty(), "independent data must yield no edges: {ps:?}");
+            assert!(
+                ps.is_empty(),
+                "independent data must yield no edges: {ps:?}"
+            );
         }
     }
 
@@ -834,7 +848,10 @@ mod tests {
             &mut rng,
             &device,
         );
-        let data = samples.into_data().into_vec::<f32>().expect("samples host-read of a tensor this test just built");
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
         let mut agree = 0usize;
         for i in 0..n {
             if (data[i * 2] - data[i * 2 + 1]).abs() < 0.5 {
@@ -860,7 +877,10 @@ mod tests {
         for table in &state.cpt {
             let v = table[0];
             assert!(v.is_finite(), "clamped init_prob must be finite, got {v}");
-            assert!(v > 0.0 && v < 1.0, "clamped init_prob must be interior, got {v}");
+            assert!(
+                v > 0.0 && v < 1.0,
+                "clamped init_prob must be interior, got {v}"
+            );
         }
     }
 
@@ -872,7 +892,10 @@ mod tests {
             let state = fit_prior(&p);
             for table in &state.cpt {
                 let v = table[0];
-                assert!(v > 0.0 && v < 1.0, "init_prob {bad} must clamp interior, got {v}");
+                assert!(
+                    v > 0.0 && v < 1.0,
+                    "init_prob {bad} must clamp interior, got {v}"
+                );
             }
         }
     }
@@ -886,6 +909,9 @@ mod tests {
         p.smoothing_count = 0;
         let state = refit(&p, vec![1.0, 1.0, 1.0, 1.0], 4, 1);
         let v = state.cpt[0][0];
-        assert!(v > 0.0 && v < 1.0, "s=0 must be floored to keep CPT interior, got {v}");
+        assert!(
+            v > 0.0 && v < 1.0,
+            "s=0 must be floored to keep CPT interior, got {v}"
+        );
     }
 }

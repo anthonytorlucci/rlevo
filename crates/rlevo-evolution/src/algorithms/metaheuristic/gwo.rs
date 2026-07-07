@@ -186,7 +186,11 @@ impl<B: Backend> GreyWolfOptimizer<B> {
         }
     }
 
-    fn sample_initial(params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Tensor<B, 2> {
+    fn sample_initial(
+        params: &GwoConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<B, 2> {
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Host-sample from a deterministic `seed_stream` rather than the
         // process-wide Flex RNG (`B::seed` + `Tensor::random`), whose draws
@@ -216,8 +220,16 @@ where
     ///
     /// The `pop_size >= 3` invariant is enforced by [`Validate::validate`] at
     /// the harness chokepoint.
-    fn init(&self, params: &GwoConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> GwoState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid GwoConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &GwoConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> GwoState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid GwoConfig reached init: {params:?}"
+        );
         let pack = Self::sample_initial(params, rng, device);
         GwoState {
             pack,
@@ -324,7 +336,10 @@ where
         mut state: GwoState<B>,
         _rng: &mut dyn Rng,
     ) -> (GwoState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         state.fitness.clone_from(&fitness_host);
         state.pack.clone_from(&population);
         let best_idx = argmax_host(&fitness_host);
@@ -471,7 +486,8 @@ mod tests {
             "NaN-fitness row must not be selected as an α/β/δ leader, got {top:?}"
         );
         assert_eq!(
-            top, [5, 3, 0],
+            top,
+            [5, 3, 0],
             "leaders must be the three strictly-largest finite rows"
         );
     }
@@ -501,7 +517,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 11, device, 600,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

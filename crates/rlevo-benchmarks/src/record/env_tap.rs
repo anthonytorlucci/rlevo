@@ -98,7 +98,11 @@ where
     /// once per captured frame and is responsible for projecting the
     /// env's state into a [`FamilyPayload`] variant. ASCII / styled
     /// extraction defaults to the env's [`AsciiRenderable`] impl.
-    pub fn with_payload_extractor<F>(inner: E, sink: Arc<Mutex<dyn RecordSink>>, extractor: F) -> Self
+    pub fn with_payload_extractor<F>(
+        inner: E,
+        sink: Arc<Mutex<dyn RecordSink>>,
+        extractor: F,
+    ) -> Self
     where
         F: Fn(&E) -> FamilyPayload + Send + Sync + 'static,
     {
@@ -375,12 +379,12 @@ where
             match bincode::serde::encode_to_vec(&action, super::schema::bincode_config()) {
                 Ok(bytes) => bytes,
                 Err(e) => {
-                    self.sink
-                        .lock()
-                        .record_external_error(super::error::RecordError::ActionEncode {
+                    self.sink.lock().record_external_error(
+                        super::error::RecordError::ActionEncode {
                             step: self.step.saturating_add(1),
                             message: e.to_string(),
-                        });
+                        },
+                    );
                     Vec::new()
                 }
             };
@@ -522,7 +526,10 @@ mod tests {
         }
     }
 
-    fn sink_handle() -> (Arc<Mutex<InMemoryRecordSink>>, Arc<Mutex<dyn super::RecordSink>>) {
+    fn sink_handle() -> (
+        Arc<Mutex<InMemoryRecordSink>>,
+        Arc<Mutex<dyn super::RecordSink>>,
+    ) {
         let s: Arc<Mutex<InMemoryRecordSink>> = Arc::new(Mutex::new(InMemoryRecordSink::new()));
         let dyn_sink: Arc<Mutex<dyn super::RecordSink>> = s.clone();
         (s, dyn_sink)
@@ -721,8 +728,8 @@ mod tests {
 
     #[test]
     fn step_encode_failure_surfaces_via_take_error_and_still_emits_frame() {
-        use crate::record::{FamilyPayload, RecordError};
         use crate::record::writer::RecordSink;
+        use crate::record::{FamilyPayload, RecordError};
 
         let (probe, sink) = sink_handle();
         let env = FailEnv { pos: 0 };

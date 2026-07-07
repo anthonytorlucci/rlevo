@@ -640,7 +640,8 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
+        let mut env =
+            CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let plain = env.render_ascii();
         let styled = env.render_styled();
@@ -653,7 +654,8 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{AGENT_FG, GOAL_FG, HAZARD_FG};
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
+        let mut env =
+            CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         let styled = env.render_styled();
 
@@ -685,7 +687,8 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let mut env = CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
+        let mut env =
+            CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config");
         env.reset().unwrap();
         for line in env.render_ascii().lines() {
             assert!(

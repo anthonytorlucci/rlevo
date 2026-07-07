@@ -77,7 +77,10 @@ impl Probability {
     /// Panics when `p` is outside `[0, 1]` (including `NaN` or infinite).
     #[must_use]
     pub const fn new(p: f32) -> Self {
-        assert!(p >= 0.0 && p <= 1.0, "Probability::new: value outside [0, 1] (or NaN)");
+        assert!(
+            p >= 0.0 && p <= 1.0,
+            "Probability::new: value outside [0, 1] (or NaN)"
+        );
         Self(p)
     }
 
@@ -126,7 +129,9 @@ impl From<Probability> for f32 {
 /// config/field name to report — a config that builds a `Probability` from its
 /// own scalar field wraps this as needed (ADR 0027 §5).
 #[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
-#[error("invalid probability: {got} is outside the closed unit interval [0, 1] (and must not be NaN)")]
+#[error(
+    "invalid probability: {got} is outside the closed unit interval [0, 1] (and must not be NaN)"
+)]
 pub struct ProbabilityError {
     /// The value that was supplied.
     pub got: f32,
@@ -170,7 +175,10 @@ mod tests {
 
     #[test]
     fn try_new_rejects_out_of_range_nan_and_inf() {
-        assert_eq!(Probability::try_new(1.5), Err(ProbabilityError { got: 1.5 }));
+        assert_eq!(
+            Probability::try_new(1.5),
+            Err(ProbabilityError { got: 1.5 })
+        );
         assert!(Probability::try_new(-0.1).is_err());
         assert!(Probability::try_new(f32::NAN).is_err());
         assert!(Probability::try_new(f32::INFINITY).is_err());

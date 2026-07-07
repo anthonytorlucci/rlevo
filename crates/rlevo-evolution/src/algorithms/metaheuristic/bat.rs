@@ -266,8 +266,16 @@ where
     /// those fields before any acceptance logic runs.  Positions are drawn
     /// from a deterministic [`seed_stream`]; the process-wide Flex RNG is
     /// never touched.
-    fn init(&self, params: &BatConfig, rng: &mut dyn Rng, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> BatState<B> {
-        debug_assert!(params.validate().is_ok(), "invalid BatConfig reached init: {params:?}");
+    fn init(
+        &self,
+        params: &BatConfig,
+        rng: &mut dyn Rng,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> BatState<B> {
+        debug_assert!(
+            params.validate().is_ok(),
+            "invalid BatConfig reached init: {params:?}"
+        );
         let (lo, hi): (f32, f32) = params.bounds.into();
         // Sample initial positions on the host from a deterministic
         // `seed_stream`, mirroring `ask`/`tell`. The Flex backend's
@@ -437,7 +445,10 @@ where
         mut state: BatState<B>,
         _rng: &mut dyn Rng,
     ) -> (BatState<B>, StrategyMetrics) {
-        let fitness_host = fitness.into_data().into_vec::<f32>().expect("fitness tensor must be readable as f32");
+        let fitness_host = fitness
+            .into_data()
+            .into_vec::<f32>()
+            .expect("fitness tensor must be readable as f32");
         let device = candidates.device();
         let pop = params.pop_size;
         let genome_dim = params.genome_dim;
@@ -601,7 +612,8 @@ mod tests {
         let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
         let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
             strategy, params, fitness_fn, 23, device, 800,
-        ).expect("valid params");
+        )
+        .expect("valid params");
         harness.reset();
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();

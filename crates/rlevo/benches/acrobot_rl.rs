@@ -111,7 +111,8 @@ fn make_env() -> Env {
         Acrobot::<BookDynamics>::with_config(AcrobotConfig {
             seed: SEED,
             ..AcrobotConfig::default()
-        }).expect("valid config"),
+        })
+        .expect("valid config"),
         TIME_LIMIT,
     )
 }
@@ -195,8 +196,10 @@ fn train_qrdqn_agent() -> QrDqnAcrobotAgent {
         .kappa(1.0)
         .build()
         .expect("valid config");
-    let model: QrDqnMlp<Backend_> = QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
-    let mut agent: QrDqnAcrobotAgent = QrDqnAgent::new(model, config, device).expect("valid config");
+    let model: QrDqnMlp<Backend_> =
+        QrDqnMlp::new(OBS_FEATURES, HIDDEN, ACTIONS, NUM_QUANTILES, &device);
+    let mut agent: QrDqnAcrobotAgent =
+        QrDqnAgent::new(model, config, device).expect("valid config");
     train_qrdqn(&mut agent, &mut env, &mut rng, TRAIN_TIMESTEPS, 0).expect("qrdqn training");
     agent
 }
@@ -227,7 +230,8 @@ fn train_ppg_agent() -> PpgAcrobotAgent {
                 .gamma(0.99)
                 .gae_lambda(0.95)
                 .anneal_lr(p.anneal_lr)
-                .build().expect("valid config")
+                .build()
+                .expect("valid config")
         })
         .n_iteration(32)
         .e_aux(6)
@@ -417,7 +421,9 @@ fn bench_policies(
 
     group.bench_with_input(BenchmarkId::new("qrdqn", steps), &steps, |b, &steps| {
         b.iter(|| {
-            rollout_steps(black_box(steps), |obs| qrdqn.act_greedy_with(&qrdqn_infer, obs));
+            rollout_steps(black_box(steps), |obs| {
+                qrdqn.act_greedy_with(&qrdqn_infer, obs)
+            });
         });
     });
 

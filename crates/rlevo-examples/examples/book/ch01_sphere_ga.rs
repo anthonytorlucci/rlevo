@@ -12,13 +12,13 @@
 
 // ANCHOR: harness
 use burn::backend::Flex;
-use rlevo_environments::landscapes::sphere::Sphere;
-use rlevo_evolution::algorithms::ga::{
-    GaCrossover, GaReplacement, GaSelection, GaConfig, GeneticAlgorithm,
-};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
+use rlevo_environments::landscapes::sphere::Sphere;
+use rlevo_evolution::algorithms::ga::{
+    GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
+};
 use rlevo_evolution::fitness::FromLandscape;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
@@ -40,13 +40,16 @@ fn main() {
         bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
     let fitness_fn = FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize);
 
     let mut harness =
-        EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS).expect("valid params");
+        EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS)
+            .expect("valid params");
 
     harness.reset();
 
@@ -55,7 +58,11 @@ fn main() {
         if let Some(m) = harness.latest_metrics()
             && (m.generation() % PRINT_EVERY == 0 || step.done)
         {
-            println!("gen {:>3}   best = {:.2e}", m.generation(), m.best_fitness_ever());
+            println!(
+                "gen {:>3}   best = {:.2e}",
+                m.generation(),
+                m.best_fitness_ever()
+            );
         }
         if step.done {
             break;
@@ -80,14 +87,17 @@ mod tests {
                 bounds: Bounds::new(-5.12, 5.12),
                 mutation_sigma: NonNegativeRate::new(0.3),
                 selection: GaSelection::Tournament { size: 3 },
-                crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+                crossover: GaCrossover::BlxAlpha {
+                    alpha: NonNegativeRate::new(0.5),
+                },
                 replacement: GaReplacement::Elitist { elitism_k: 2 },
             },
             FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize),
             SEED,
             device,
             GENS,
-        ).expect("valid params");
+        )
+        .expect("valid params");
 
         harness.reset();
         loop {

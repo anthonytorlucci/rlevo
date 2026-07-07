@@ -294,7 +294,10 @@ mod tests {
 
     #[test]
     fn rejects_gamma_out_of_range() {
-        let err = DqnTrainingConfigBuilder::new().gamma(1.5).build().unwrap_err();
+        let err = DqnTrainingConfigBuilder::new()
+            .gamma(1.5)
+            .build()
+            .unwrap_err();
         assert_eq!(err.field, "gamma");
     }
 }

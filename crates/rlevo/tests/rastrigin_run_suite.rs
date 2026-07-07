@@ -16,6 +16,9 @@ use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
 
+use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
+use rlevo_core::rate::NonNegativeRate;
 use rlevo_environments::landscapes::rastrigin::Rastrigin;
 use rlevo_evolution::algorithms::de::{DeConfig, DeVariant, DifferentialEvolution};
 use rlevo_evolution::algorithms::ep::{EpConfig, EvolutionaryProgramming};
@@ -23,9 +26,6 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
-use rlevo_core::bounds::Bounds;
-use rlevo_core::objective::ObjectiveSense;
-use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::fitness::FromFitnessEvaluable;
 use rlevo_evolution::strategy::EvolutionaryHarness;
 
@@ -59,7 +59,9 @@ fn ga_factory(
         bounds: Bounds::new(-5.12, 5.12),
         mutation_sigma: NonNegativeRate::new(0.3),
         selection: GaSelection::Tournament { size: 3 },
-        crossover: GaCrossover::BlxAlpha { alpha: NonNegativeRate::new(0.5) },
+        crossover: GaCrossover::BlxAlpha {
+            alpha: NonNegativeRate::new(0.5),
+        },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
     EvolutionaryHarness::new(
@@ -69,7 +71,8 @@ fn ga_factory(
         seed,
         device,
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 /// Creates a (5+30)-ES harness on Rastrigin-D10 with self-adaptive step sizes.
@@ -85,7 +88,8 @@ fn es_factory(
         seed,
         device,
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 /// Creates an EP harness on Rastrigin-D10 with population size 30.
@@ -102,7 +106,8 @@ fn ep_factory(
         seed,
         device,
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 /// Creates a DE/Rand/1/bin harness on Rastrigin-D10 with F=0.5 and CR=0.9.
@@ -121,7 +126,8 @@ fn de_factory(
         seed,
         device,
         MAX_GENS,
-    ).expect("valid params")
+    )
+    .expect("valid params")
 }
 
 /// Returns a minimal [`EvaluatorConfig`] for the Rastrigin run-suite tests.

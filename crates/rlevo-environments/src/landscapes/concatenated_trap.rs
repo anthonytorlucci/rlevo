@@ -110,11 +110,7 @@ impl ConcatenatedTrap {
     /// `u + 1`. This is the deceptive trap: cost rises with unitation right up
     /// until the final, rewarding all-ones configuration.
     const fn block_cost(block_size: usize, u: usize) -> usize {
-        if u == block_size {
-            0
-        } else {
-            u + 1
-        }
+        if u == block_size { 0 } else { u + 1 }
     }
 
     /// 2D projection of [`evaluate`](Self::evaluate) for visualisation.

@@ -1,7 +1,7 @@
 //! Mutable per-episode agent state: position, facing, and carried item.
 
-use crate::direction::Direction;
 use super::entity::Entity;
+use crate::direction::Direction;
 
 /// The agent's mutable state within a single episode.
 #[derive(Debug, Clone, Copy, PartialEq)]

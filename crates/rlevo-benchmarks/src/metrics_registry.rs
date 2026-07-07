@@ -14,7 +14,7 @@
 //! [`RecordingLayer`]: crate::record::tracing_layer::RecordingLayer
 
 pub use rlevo_metrics_registry::{
-    Cadence, CANONICAL_METRICS, MetricDescriptor, MetricKind, descriptor, is_canonical_metric,
+    CANONICAL_METRICS, Cadence, MetricDescriptor, MetricKind, descriptor, is_canonical_metric,
     is_per_generation, title_for,
 };
 

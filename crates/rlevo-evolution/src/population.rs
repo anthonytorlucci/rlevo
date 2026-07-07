@@ -33,7 +33,7 @@
 //! assert_eq!(pop.genome_dim(), 3);
 //! ```
 
-use burn::tensor::{backend::Backend, Int, Tensor};
+use burn::tensor::{Int, Tensor, backend::Backend};
 
 use rlevo_core::config::{self, ConfigError};
 
@@ -307,8 +307,7 @@ mod tests {
         let device = Default::default();
         let data = TensorData::new(vec![0i64, 1, 2, 3, 2, 0, 3, 1], [2, 4]);
         let tensor = Tensor::<TestBackend, 2, Int>::from_data(data, &device);
-        let pop =
-            Population::<TestBackend, Permutation>::new_permutation(tensor).unwrap();
+        let pop = Population::<TestBackend, Permutation>::new_permutation(tensor).unwrap();
         assert_eq!(pop.pop_size(), 2);
         assert_eq!(pop.genome_dim(), 4);
     }

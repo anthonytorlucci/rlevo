@@ -359,7 +359,9 @@ impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
         let dims = tensor.dims();
         if dims.as_slice() != [IMG_SIDE, IMG_SIDE, CHANNELS] {
             return Err(TensorConversionError {
-                message: format!("expected shape [{IMG_SIDE}, {IMG_SIDE}, {CHANNELS}], got {dims:?}"),
+                message: format!(
+                    "expected shape [{IMG_SIDE}, {IMG_SIDE}, {CHANNELS}], got {dims:?}"
+                ),
             });
         }
         let flat = tensor
@@ -638,13 +640,20 @@ impl PixelGridEnv {
                 u32::try_from(goal).expect("cell index fits in u32"),
             )
         } else {
-            PixelGridState::new(0, u32::try_from(CELL_COUNT - 1).expect("cell index fits in u32"))
+            PixelGridState::new(
+                0,
+                u32::try_from(CELL_COUNT - 1).expect("cell index fits in u32"),
+            )
         }
     }
 
     /// Build a snapshot from the rank-3 projection, emitting an optional ASCII
     /// debug frame when `render` is set.
-    fn snapshot(&self, reward: f32, status: SnapshotStatus) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+    fn snapshot(
+        &self,
+        reward: f32,
+        status: SnapshotStatus,
+    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
         if self.render {
             // Render is a debug side effect; drop the string when internal.
             let _ = self.state.render_ascii();
@@ -679,8 +688,7 @@ impl Display for PixelGridEnv {
 
 impl ConstructableEnv for PixelGridEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(PixelGridConfig::default(), render)
-            .expect("default config must validate")
+        Self::with_config(PixelGridConfig::default(), render).expect("default config must validate")
     }
 }
 
@@ -702,7 +710,10 @@ impl Environment<3, 1, 1> for PixelGridEnv {
         self.state.apply_move(action);
 
         let snap = if self.state.at_goal() {
-            self.snapshot(success_reward(self.steps, self.config.max_steps), SnapshotStatus::Terminated)
+            self.snapshot(
+                success_reward(self.steps, self.config.max_steps),
+                SnapshotStatus::Terminated,
+            )
         } else if self.steps >= self.config.max_steps {
             self.snapshot(0.0, SnapshotStatus::Truncated)
         } else {
@@ -725,7 +736,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_max_steps() {
-        let bad = PixelGridConfig { max_steps: 0, ..Default::default() };
+        let bad = PixelGridConfig {
+            max_steps: 0,
+            ..Default::default()
+        };
         assert!(PixelGridEnv::with_config(bad, false).is_err());
     }
 
@@ -760,7 +774,11 @@ mod tests {
 
         let pixel = |h: usize, w: usize| {
             let base = (h * IMG_SIDE + w) * CHANNELS;
-            [obs.pixels()[base], obs.pixels()[base + 1], obs.pixels()[base + 2]]
+            [
+                obs.pixels()[base],
+                obs.pixels()[base + 1],
+                obs.pixels()[base + 2],
+            ]
         };
         // Agent block spans rows/cols 0..4.
         assert_eq!(pixel(0, 0), AGENT_RGB);
@@ -778,7 +796,11 @@ mod tests {
         // Cell 12 = row 2, col 2 → pixel block rows/cols 8..12.
         let base = (8 * IMG_SIDE + 8) * CHANNELS;
         assert_eq!(
-            [obs.pixels()[base], obs.pixels()[base + 1], obs.pixels()[base + 2]],
+            [
+                obs.pixels()[base],
+                obs.pixels()[base + 1],
+                obs.pixels()[base + 2]
+            ],
             AGENT_RGB
         );
     }
@@ -803,7 +825,8 @@ mod tests {
         let device = Default::default();
 
         let obs = PixelGridState::new(3, 21).project();
-        let tensor = <PixelObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let tensor =
+            <PixelObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
         let round_tripped =
             <PixelObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor).unwrap();
         assert_eq!(round_tripped, obs);
@@ -816,9 +839,13 @@ mod tests {
         type TestBackend = Flex;
         let device = Default::default();
 
-        let data = TensorData::new(vec![0.0f32; IMG_SIDE * IMG_SIDE * 2], [IMG_SIDE, IMG_SIDE, 2]);
+        let data = TensorData::new(
+            vec![0.0f32; IMG_SIDE * IMG_SIDE * 2],
+            [IMG_SIDE, IMG_SIDE, 2],
+        );
         let tensor = Tensor::<TestBackend, 3>::from_data(data, &device);
-        let err = <PixelObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor).unwrap_err();
+        let err = <PixelObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+            .unwrap_err();
         assert!(err.message.contains("expected shape"));
     }
 
@@ -913,7 +940,8 @@ mod tests {
 
     #[test]
     fn display_contains_step_budget() {
-        let env = PixelGridEnv::with_config(PixelGridConfig::new(50, 0, false), false).expect("valid config");
+        let env = PixelGridEnv::with_config(PixelGridConfig::new(50, 0, false), false)
+            .expect("valid config");
         let s = env.to_string();
         assert!(s.contains("PixelGridEnv"));
         assert!(s.contains("50"));
@@ -925,8 +953,8 @@ mod tests {
         // successive episodes must place the agent/goal on varying cells.
         // The grid is discrete, so a single pair could coincide by chance;
         // assert that many resets yield more than one distinct placement.
-        let mut env =
-            PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false).expect("valid config");
+        let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false)
+            .expect("valid config");
         let mut placements = std::collections::HashSet::new();
         for _ in 0..20 {
             env.reset().unwrap();
@@ -940,8 +968,8 @@ mod tests {
 
     #[test]
     fn reset_with_seed_is_reproducible() {
-        let mut env =
-            PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false).expect("valid config");
+        let mut env = PixelGridEnv::with_config(PixelGridConfig::new(100, 7, true), false)
+            .expect("valid config");
         env.reset_with_seed(999).unwrap();
         let a = (env.state().agent(), env.state().goal());
         // Advance the stream with an ordinary reset, then re-seed identically.

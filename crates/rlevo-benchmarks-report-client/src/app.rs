@@ -9,9 +9,8 @@ use leptos::prelude::*;
 
 use crate::charts::{convergence_panel_view, population_panel_view};
 use crate::inline_data::{
-    EpisodeMeta, InlineError, WarningEntry, read_all_episode_records,
-    read_all_population_samples, read_episode_index, read_episode_record, read_manifest,
-    read_warnings,
+    EpisodeMeta, InlineError, WarningEntry, read_all_episode_records, read_all_population_samples,
+    read_episode_index, read_episode_record, read_manifest, read_warnings,
 };
 use crate::playback::playback_panel;
 use crate::wire::{EnvFamily, EpisodeRecord, ObjectiveSense, RunManifest};
@@ -151,7 +150,11 @@ fn manifest_view(m: &RunManifest) -> impl IntoView {
         rows.push(meta_row("platform", p.clone()));
     }
     if let Some(commit) = &m.git_commit {
-        let dirty = if m.git_dirty == Some(true) { " (dirty)" } else { "" };
+        let dirty = if m.git_dirty == Some(true) {
+            " (dirty)"
+        } else {
+            ""
+        };
         rows.push(meta_row("git", format!("{commit}{dirty}")));
     }
 

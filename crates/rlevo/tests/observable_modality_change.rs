@@ -127,7 +127,10 @@ impl Environment<2, 1, 1> for ModalityEnv {
         self.state = MockRamState { byte: 0b0000 };
         self.steps = 0;
         // Build the snapshot from the rank-2 projection, NOT `observe()`.
-        Ok(SnapshotBase::running(self.state.project(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.state.project(),
+            ScalarReward(0.0),
+        ))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -188,7 +191,11 @@ fn test_modality_env_step_loop_terminates() {
     let snap = last.expect("at least one step ran");
 
     assert!(snap.is_done(), "episode terminates after 4 steps");
-    assert_eq!(snap.status(), EpisodeStatus::Terminated, "intrinsic termination");
+    assert_eq!(
+        snap.status(),
+        EpisodeStatus::Terminated,
+        "intrinsic termination"
+    );
     assert_eq!(
         snap.observation().pixels,
         // byte == 4 == 0b0100 -> bit2 set

@@ -246,7 +246,11 @@ pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(
     if got > 0.0 {
         Ok(())
     } else {
-        Err(ConfigError { config, field, kind: ConstraintKind::NotPositive { got } })
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotPositive { got },
+        })
     }
 }
 
@@ -266,7 +270,11 @@ pub fn in_range(
     if got >= lo && got <= hi {
         Ok(())
     } else {
-        Err(ConfigError { config, field, kind: ConstraintKind::OutOfRange { lo, hi, got } })
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::OutOfRange { lo, hi, got },
+        })
     }
 }
 
@@ -285,7 +293,11 @@ pub fn ordered(
     if low < high {
         Ok(())
     } else {
-        Err(ConfigError { config, field, kind: ConstraintKind::NotOrdered { low, high } })
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotOrdered { low, high },
+        })
     }
 }
 
@@ -303,7 +315,11 @@ pub fn distinct(
     if (a - b).abs() > 0.0 {
         Ok(())
     } else {
-        Err(ConfigError { config, field, kind: ConstraintKind::DegenerateInterval { value: a } })
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::DegenerateInterval { value: a },
+        })
     }
 }
 
@@ -314,7 +330,11 @@ pub fn distinct(
 /// Returns [`ConstraintKind::Zero`] when `n == 0`.
 pub fn nonzero(config: &'static str, field: &'static str, n: usize) -> Result<(), ConfigError> {
     if n == 0 {
-        Err(ConfigError { config, field, kind: ConstraintKind::Zero })
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::Zero,
+        })
     } else {
         Ok(())
     }
@@ -337,7 +357,10 @@ pub fn at_least(
         Err(ConfigError {
             config,
             field,
-            kind: ConstraintKind::TooSmall { min: min as u64, got: got as u64 },
+            kind: ConstraintKind::TooSmall {
+                min: min as u64,
+                got: got as u64,
+            },
         })
     }
 }
@@ -345,8 +368,8 @@ pub fn at_least(
 #[cfg(test)]
 mod tests {
     use super::{
-        at_least, distinct, in_range, nonzero, ordered, positive, ConfigError, ConstraintKind,
-        Validate, Violations,
+        ConfigError, ConstraintKind, Validate, Violations, at_least, distinct, in_range, nonzero,
+        ordered, positive,
     };
 
     const C: &str = "TestConfig";
@@ -371,7 +394,14 @@ mod tests {
         assert!(in_range(C, "gamma", 0.0, 1.0, 1.0).is_ok());
         assert!(in_range(C, "gamma", 0.0, 1.0, 0.5).is_ok());
         let err = in_range(C, "gamma", 0.0, 1.0, 1.5).unwrap_err();
-        assert_eq!(err.kind, ConstraintKind::OutOfRange { lo: 0.0, hi: 1.0, got: 1.5 });
+        assert_eq!(
+            err.kind,
+            ConstraintKind::OutOfRange {
+                lo: 0.0,
+                hi: 1.0,
+                got: 1.5
+            }
+        );
         assert!(in_range(C, "gamma", 0.0, 1.0, f64::NAN).is_err());
     }
 
@@ -380,7 +410,13 @@ mod tests {
         assert!(ordered(C, "clip", -1.0, 1.0).is_ok());
         assert!(ordered(C, "clip", 1.0, 1.0).is_err());
         let err = ordered(C, "clip", 2.0, 1.0).unwrap_err();
-        assert_eq!(err.kind, ConstraintKind::NotOrdered { low: 2.0, high: 1.0 });
+        assert_eq!(
+            err.kind,
+            ConstraintKind::NotOrdered {
+                low: 2.0,
+                high: 1.0
+            }
+        );
     }
 
     #[test]
@@ -393,7 +429,10 @@ mod tests {
     #[test]
     fn nonzero_and_at_least() {
         assert!(nonzero(C, "max_steps", 1).is_ok());
-        assert_eq!(nonzero(C, "max_steps", 0).unwrap_err().kind, ConstraintKind::Zero);
+        assert_eq!(
+            nonzero(C, "max_steps", 0).unwrap_err().kind,
+            ConstraintKind::Zero
+        );
         assert!(at_least(C, "pop_size", 2, 2).is_ok());
         assert_eq!(
             at_least(C, "pop_size", 1, 2).unwrap_err().kind,

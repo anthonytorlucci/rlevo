@@ -443,7 +443,10 @@ mod tests {
 
     #[test]
     fn rejects_zero_size() {
-        let bad = CrossingConfig { size: 0, ..Default::default() };
+        let bad = CrossingConfig {
+            size: 0,
+            ..Default::default()
+        };
         assert!(CrossingEnv::with_config(bad, false).is_err());
     }
 

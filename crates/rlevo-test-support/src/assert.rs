@@ -20,7 +20,10 @@
 /// Panics if either score is non-finite, or if `trained` does not exceed
 /// `random + margin`.
 pub fn assert_improves_over_random(trained: f32, random: f32, margin: f32) {
-    assert!(trained.is_finite(), "trained avg must be finite, got {trained}");
+    assert!(
+        trained.is_finite(),
+        "trained avg must be finite, got {trained}"
+    );
     assert!(
         random.is_finite(),
         "random baseline must be finite, got {random}"

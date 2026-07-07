@@ -159,15 +159,24 @@ fn qrdqn_cartpole_produces_finite_rewards() {
     train(&mut agent, &mut env, &mut rng, 2_500, 0).expect("training");
     assert!(agent.buffer_len() > 0, "buffer should have transitions");
     let history = &agent.stats().recent_history;
-    assert_all_finite("reward", &history.iter().map(|m| m.reward).collect::<Vec<_>>());
+    assert_all_finite(
+        "reward",
+        &history.iter().map(|m| m.reward).collect::<Vec<_>>(),
+    );
     assert_all_finite(
         "policy_loss",
         &history.iter().map(|m| m.policy_loss).collect::<Vec<_>>(),
     );
-    assert_all_finite("q_mean", &history.iter().map(|m| m.q_mean).collect::<Vec<_>>());
+    assert_all_finite(
+        "q_mean",
+        &history.iter().map(|m| m.q_mean).collect::<Vec<_>>(),
+    );
     assert_all_finite(
         "quantile_spread",
-        &history.iter().map(|m| m.quantile_spread).collect::<Vec<_>>(),
+        &history
+            .iter()
+            .map(|m| m.quantile_spread)
+            .collect::<Vec<_>>(),
     );
 }
 

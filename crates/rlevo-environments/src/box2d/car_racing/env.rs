@@ -28,7 +28,9 @@ use rand::rngs::StdRng;
 use rapier2d::prelude::*;
 use rlevo_core::base::Action;
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -349,25 +351,13 @@ impl crate::render::AsciiRenderable for CarRacing {
     fn render_ascii(&self) -> String {
         let bodies = self.collect_bodies();
         let viewport = self.viewport();
-        super::super::render::render_box2d_ascii(
-            "Car",
-            &bodies,
-            viewport,
-            None,
-            self.steps,
-        )
+        super::super::render::render_box2d_ascii("Car", &bodies, viewport, None, self.steps)
     }
 
     fn render_styled(&self) -> crate::render::StyledFrame {
         let bodies = self.collect_bodies();
         let viewport = self.viewport();
-        super::super::render::render_box2d_styled(
-            "Car",
-            &bodies,
-            viewport,
-            None,
-            self.steps,
-        )
+        super::super::render::render_box2d_styled("Car", &bodies, viewport, None, self.steps)
     }
 }
 
@@ -481,7 +471,10 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let cfg = CarRacingConfig::builder().seed(5).build().expect("valid config");
+        let cfg = CarRacingConfig::builder()
+            .seed(5)
+            .build()
+            .expect("valid config");
         let action = CarRacingAction {
             steer: 0.1,
             gas: 0.5,
