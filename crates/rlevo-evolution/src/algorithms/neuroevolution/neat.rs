@@ -312,6 +312,18 @@ impl<B: Backend> NeatStrategy<B> {
     /// representatives all coexist consistently (so member indices stay valid and
     /// each species' next representative is cloned from a live member).
     ///
+    /// # Fitness hygiene
+    ///
+    /// This is NEAT's **driver chokepoint** (ADR 0034): NEAT is its own driver
+    /// and does **not** run through
+    /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
+    /// no harness above it to sanitize fitness. `tell` therefore applies
+    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) to the incoming
+    /// `fitness` (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
+    /// **before** it is stored or handed to [`species::speciate`], so a
+    /// non-finite fitness can never poison speciation, offspring apportionment,
+    /// or best-so-far tracking.
+    ///
     /// # Panics
     ///
     /// Panics if `population.len()` differs from `fitness.len()`.
@@ -333,7 +345,12 @@ impl<B: Backend> NeatStrategy<B> {
         let mut rep_rng = seed_stream(rng.next_u64(), generation, SeedPurpose::Representative);
 
         state.population = population;
-        state.fitness = fitness;
+        // Driver chokepoint (ADR 0034): sanitize before store/speciate. NEAT has
+        // no harness above it, so this is the boundary that neutralizes NaN/±∞.
+        state.fitness = fitness
+            .into_iter()
+            .map(crate::fitness::sanitize_fitness)
+            .collect();
         species::speciate(
             &state.population,
             &state.fitness,
@@ -1160,5 +1177,56 @@ mod tests {
         assert_eq!(state.generation, 8);
         let (_, best) = strat.best(&state).expect("best exists after tell");
         assert!(best >= 2.0, "best rewards enabled connections; got {best}");
+    }
+
+    /// Regression (ADR 0034, issue #133): `tell` is NEAT's driver chokepoint and
+    /// must sanitize non-finite fitness before storing/speciating. A `NaN` member
+    /// must never become the champion nor poison per-species bookkeeping, and a
+    /// `+∞` member must rank top but as a **finite** value (`f32::MAX`).
+    #[test]
+    fn test_tell_sanitizes_nan_and_inf_fitness() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+
+        let device = Default::default();
+        let params = NeatParams::default_for(4, 2, 1);
+        let strat = NeatStrategy::<TestBackend>::new();
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = strat.init(&params, &mut rng, &device);
+
+        let (population, next) = strat.ask(&params, &state, &mut rng);
+        let n = population.len();
+        // Member 0 is NaN (must NOT champion), member 1 is +∞ (top but finite),
+        // the rest are a plain finite value.
+        let mut fitness: Vec<f32> = vec![1.0_f32; n];
+        fitness[0] = f32::NAN;
+        fitness[1] = f32::INFINITY;
+        let state = strat.tell(&params, population, fitness, next, &mut rng);
+
+        // Stored fitness is sanitized: none is NaN; NaN → −∞, +∞ → f32::MAX.
+        assert!(
+            state.fitness.iter().all(|f| !f.is_nan()),
+            "no stored fitness is NaN after the tell chokepoint"
+        );
+        assert!(
+            state.fitness[0].is_infinite() && state.fitness[0].is_sign_negative(),
+            "the NaN member is sanitized to the maximise-space worst sentinel (−∞)"
+        );
+        approx::assert_relative_eq!(state.fitness[1], f32::MAX);
+
+        // The champion is the sanitized +∞ = f32::MAX: ranks top but is finite,
+        // and is never the NaN member.
+        let (_, best) = strat.best(&state).expect("best exists after tell");
+        assert!(best.is_finite(), "champion fitness is finite (never NaN/±∞); got {best}");
+        approx::assert_relative_eq!(best, f32::MAX);
+
+        // No species' best or size-adjusted mean is NaN-poisoned.
+        for s in &state.species {
+            assert!(!s.best_fitness.is_nan(), "species best_fitness is not NaN");
+            assert!(
+                !s.adjusted_fitness_sum.is_nan(),
+                "a NaN member never poisons adjusted_fitness_sum"
+            );
+        }
     }
 }
