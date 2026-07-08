@@ -234,6 +234,27 @@ fn gamma(z: f32) -> f32 {
     (2.0 * PI).sqrt() * t.powf(z + 0.5) * (-t).exp() * x
 }
 
+/// One Mantegna Lévy step component `u / |w|^(1/β)`.
+///
+/// Guards the measure-zero pathological draw: a Normal draw `w == 0` (or
+/// any `w` whose `|w|^(1/β)` rounds to `0` or a non-finite value) makes the
+/// denominator degenerate. Un-guarded, `0/0` is `NaN` and `x/0` is `±inf` —
+/// both survive the downstream bounds clamp and would poison a nest slot
+/// forever. A non-finite or zero denominator folds the step to `0.0`
+/// (a no-op) so the next draw can move the nest.
+///
+/// This is the pure host-side core the `ask` Lévy loop is built on; keeping
+/// it out of the tensor pipeline makes the guard directly unit-testable with
+/// injected pathological `(u, w)` inputs.
+fn levy_step(u: f32, w: f32, beta: f32) -> f32 {
+    let denom: f32 = w.abs().powf(1.0 / beta);
+    if denom.is_finite() && denom > 0.0 {
+        u / denom
+    } else {
+        0.0
+    }
+}
+
 impl<B: Backend> Strategy<B> for CuckooSearch<B>
 where
     B::Device: Clone,
@@ -320,7 +341,9 @@ where
         for v in &mut step {
             let u: f32 = normal_u.sample(&mut stream);
             let w: f32 = normal_v.sample(&mut stream);
-            *v = u / w.abs().powf(1.0 / params.beta);
+            // `levy_step` guards the degenerate `w == 0` denominator (±∞/NaN
+            // survive the bounds clamp and would poison the slot forever).
+            *v = levy_step(u, w, params.beta);
         }
         let step_tensor = Tensor::<B, 2>::from_data(TensorData::new(step, [pop, d]), device);
 
@@ -560,5 +583,42 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 20.0, "Cuckoo D10 best={best}");
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // exact by design: 0.0 fold + byte-identical pass-through
+    fn levy_step_folds_pathological_denominator_to_zero() {
+        // Deterministic reproducer for #156 (Cuckoo): the Lévy step
+        // component `u / |w|^(1/β)`. A zero Normal draw `w` makes the
+        // denominator zero; un-guarded, `0/0` is `NaN` and `x/0` is `±inf`.
+        // Both survive the bounds clamp and permanently poison a nest slot,
+        // so `levy_step` folds any non-finite/zero-denominator case to `0.0`.
+        //
+        // Each pathological assertion below FAILS against the pre-fix loop
+        // body (which computed `u / denom` unconditionally), shown by the
+        // `unguarded` reference expressions being non-finite.
+        let beta: f32 = 1.5;
+
+        // w == 0, u == 0 → un-guarded `0/0 = NaN`.
+        let unguarded_nan: f32 = 0.0_f32 / 0.0_f32.abs().powf(1.0 / beta);
+        assert!(unguarded_nan.is_nan());
+        assert_eq!(levy_step(0.0, 0.0, beta), 0.0);
+
+        // w == 0, u != 0 → un-guarded `x/0 = ±inf`.
+        let unguarded_inf: f32 = 1.0_f32 / 0.0_f32.abs().powf(1.0 / beta);
+        assert!(!unguarded_inf.is_finite());
+        assert_eq!(levy_step(1.0, 0.0, beta), 0.0);
+
+        // A NaN Normal draw `w` makes the denominator non-finite → folded to 0.
+        assert_eq!(levy_step(1.0, f32::NAN, beta), 0.0);
+
+        // Normal case: finite and byte-identical to the un-guarded value
+        // (the guard is a pass-through whenever the denominator is sound).
+        let expected: f32 = 0.5_f32 / 1.2_f32.abs().powf(1.0 / beta);
+        let got: f32 = levy_step(0.5, 1.2, beta);
+        assert!(got.is_finite());
+        approx::assert_relative_eq!(got, expected, epsilon = 1e-6);
+        // Byte-identical: same operations, no reorder.
+        assert_eq!(got, expected);
     }
 }

@@ -393,8 +393,12 @@ where
             .unsqueeze_dim::<2>(1)
             .expand([pop, genome_dim]);
 
-        let new_velocities =
-            state.velocities.clone() + (state.positions.clone() - best.clone()).mul(f_mat);
+        // Clamp velocity to the search extent to prevent unbounded ±∞/NaN
+        // drift when a bat is pinned against a bound (parity with PSO's v_max).
+        let span = (hi - lo).abs();
+        let new_velocities = (state.velocities.clone()
+            + (state.positions.clone() - best.clone()).mul(f_mat))
+        .clamp(-span, span);
         let global_move = state.positions.clone() + new_velocities.clone();
         // Local walk: x_best + ε · mean(A).
         let eps =
@@ -618,5 +622,46 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 0.1, "Bat D10 best={best}");
+    }
+
+    #[test]
+    fn velocities_stay_finite_and_bounded_under_pinning() {
+        // Regression for #156 (Bat §1.1). The velocity update
+        // `v ← v + (x − x_best)·f` is repulsive for a bat sitting away
+        // from `x_best`, and `ask` rewrites `state.velocities` every
+        // generation regardless of `tell`'s acceptance gate. A bat whose
+        // position stays fixed while `x_best` sits elsewhere therefore
+        // accrues a near-constant increment each generation, so unclamped
+        // velocities drift linearly to ±∞ and then to NaN (via `inf − inf`).
+        // The ±span clamp (parity with PSO's `v_max`) must keep every
+        // velocity finite and within the search extent no matter how long
+        // the swarm runs.
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let params = BatConfig::default_for(20, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        let span = (hi - lo).abs();
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 7, device, 100,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let velocities: Vec<f32> = harness
+            .state()
+            .expect("state populated after stepping")
+            .velocities()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("velocities readable as f32");
+        for v in velocities {
+            assert!(v.is_finite(), "velocity not finite: {v}");
+            assert!(
+                v.abs() <= span + 1e-3,
+                "velocity {v} exceeds search span {span}"
+            );
+        }
     }
 }

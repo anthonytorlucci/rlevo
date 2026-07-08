@@ -55,17 +55,21 @@ of FA over a single-attractor swarm, and the reason the update is canonically
 \\(O(N^2 D)\\).
 
 The base attractiveness \\(\beta_0\\) (default \\(1.0\\)) sets the pull strength at
-zero distance; the absorption coefficient \\(\gamma\\) (default \\(0.01\\)) sets the
+zero distance; the absorption coefficient \\(\gamma\\) (default
+\\(1/L^2\\), \\(\approx 0.0095\\) on the default box) sets the
 range over which fireflies see each other; the noise scale \\(\alpha\\) (default
 \\(0.2\\)) sets the exploration floor.
 
-> **\\(\gamma\\) is scaled to the search box, not Yang's canonical \\(1.0\\).**
+> **\\(\gamma\\) is derived from the search box, not Yang's canonical \\(1.0\\).**
 > The original paper assumes positions normalised to \\([0,1]\\), where
-> \\(\gamma = 1\\) is appropriate. `rlevo`'s default domain is \\([-5.12, 5.12]\\)
-> (width \\(L \approx 10.24\\)), so distances — and hence \\(r^2\\) — are far
-> larger; the default \\(\gamma = 0.01 \approx 1/L^2\\) keeps \\(e^{-\gamma r^2}\\)
-> from collapsing to zero across typical pairs. Retune \\(\gamma\\) if you change
-> `bounds`.
+> \\(\gamma = 1\\) is appropriate. `rlevo`'s `FireflyConfig::default_for` instead
+> computes \\(\gamma = 1/L^2\\), where \\(L\\) is the search-box width, so the
+> default automatically rescales with `bounds` instead of assuming a fixed
+> extent. On `rlevo`'s default domain \\([-5.12, 5.12]\\) (\\(L \approx 10.24\\)),
+> that works out to \\(\gamma \approx 0.0095\\), which keeps \\(e^{-\gamma r^2}\\)
+> from collapsing to zero across typical pairs. Because \\(\gamma\\) now tracks
+> `bounds` automatically, you only need to override it by hand if you want a
+> sight range other than \\(1/L^2\\).
 
 ## The `O(N²D)` cost and the population cap
 
@@ -94,11 +98,13 @@ let config = FireflyConfig {
     genome_dim: 10,
     bounds:     Bounds::new(-5.12, 5.12),
     beta0:      1.0,    // attractiveness at zero distance
-    gamma:      0.01,   // absorption; scale ≈ 1/L² to your box width
+    gamma:      1.0 / (10.24 * 10.24), // absorption = 1/L²; ≈ 0.0095 here
     alpha:      0.2,    // random-walk noise scale
 };
 
-// Or use the defaults (bounds = (-5.12, 5.12), β₀ = 1.0, γ = 0.01, α = 0.2):
+// Or use the defaults (bounds = (-5.12, 5.12), β₀ = 1.0, γ = 1/L² ≈ 0.0095, α = 0.2):
+// `FireflyConfig::default_for` derives γ = 1/L² from `bounds`, so it
+// rescales automatically if you construct with a different search box.
 let config = FireflyConfig::default_for(32, 10);
 ```
 
