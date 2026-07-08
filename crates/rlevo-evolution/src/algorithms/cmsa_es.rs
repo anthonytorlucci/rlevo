@@ -544,6 +544,140 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
+    /// Reconstruct `L · Lᵀ` for a row-major `n × n` lower-triangular factor.
+    fn recon_llt(l: &[f32], n: usize) -> Vec<f32> {
+        let mut out: Vec<f32> = vec![0.0; n * n];
+        for i in 0..n {
+            for j in 0..n {
+                let mut acc: f32 = 0.0;
+                for k in 0..n {
+                    acc += l[i * n + k] * l[j * n + k];
+                }
+                out[i * n + j] = acc;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn cholesky_with_jitter_recovers_from_non_pd_covariance() {
+        // Issue #147 §7.2 jitter-recovery coverage. Fixture: a diagonal (hence
+        // symmetric) NON-positive-definite covariance with eigenvalues
+        // {−1e-5, 1} — for a diagonal matrix the eigenvalues *are* the diagonal
+        // entries. The −1e-5 pivot makes the un-jittered `cholesky` return
+        // `None`, forcing the trace-proportional jitter path.
+        //
+        // mean_diag = (−1e-5 + 1)/2 ≈ 0.5, so jitter starts at ≈5e-9 and grows
+        // ×10 per retry. A `+jitter·I` shift moves every eigenvalue by exactly
+        // +jitter, so the smallest eigenvalue (−1e-5 + jitter) first turns
+        // positive at jitter = 5e-5 — retry index 4 of 6, two retries to spare.
+        // Empirically the JITTER-RECOVERY branch fires here (factor
+        // ≈ [6.32e-3, 0, 0, 1.000025]); the identity fallback does NOT.
+        let cov: Vec<f32> = vec![-1e-5, 0.0, 0.0, 1.0];
+        let factor: Vec<f32> = cholesky_with_jitter(&cov, 2);
+
+        assert!(
+            factor.iter().all(|x| x.is_finite()),
+            "factor has non-finite entries: {factor:?}"
+        );
+        // Lower-triangular: the strict-upper entry is exactly zero.
+        approx::assert_relative_eq!(factor[1], 0.0, epsilon = 1e-9);
+        // Genuine Cholesky factor: strictly positive pivots.
+        assert!(
+            factor[0] > 0.0 && factor[3] > 0.0,
+            "non-positive pivots: {factor:?}"
+        );
+
+        // L·Lᵀ ≈ the jittered covariance. The (0,0) entry is the recovered
+        // ≈4e-5, NOT 1.0 — the proof the identity fallback did NOT fire (that
+        // branch would return L = I, giving L·Lᵀ (0,0) = 1.0).
+        let recon: Vec<f32> = recon_llt(&factor, 2);
+        assert!(
+            recon[0] < 0.5,
+            "identity fallback fired instead of jitter recovery: recon = {recon:?}"
+        );
+        // The (1,1) entry stays ≈1 (jitter is only O(1e-5)).
+        approx::assert_relative_eq!(recon[3], 1.0, epsilon = 1e-3);
+    }
+
+    #[test]
+    fn cholesky_with_jitter_falls_back_to_identity_when_degenerate() {
+        // Issue #147 §7.2 fallback-branch coverage. Fixture: a symmetric,
+        // strongly indefinite covariance [[1, 2], [2, 1]] with eigenvalues
+        // {3, −1} (the same indefinite matrix `linalg::cholesky_rejects_non_
+        // positive_definite` uses). The jitter shifts every eigenvalue by
+        // +jitter, but jitter tops out at mean_diag·1e-8·10⁵ = 1·1e-3 after the
+        // 6 retries — far too small to lift the −1 eigenvalue positive, so
+        // every retry's (1,1) pivot stays negative. Empirically all 6 retries
+        // fail and the function returns the IDENTITY factor.
+        let cov: Vec<f32> = vec![1.0, 2.0, 2.0, 1.0];
+        let factor: Vec<f32> = cholesky_with_jitter(&cov, 2);
+
+        assert!(
+            factor.iter().all(|x| x.is_finite()),
+            "factor has non-finite entries: {factor:?}"
+        );
+        // Exactly the identity factor: diagonal ones, zero off-diagonal.
+        approx::assert_relative_eq!(factor[0], 1.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(factor[1], 0.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(factor[2], 0.0, epsilon = 1e-9);
+        approx::assert_relative_eq!(factor[3], 1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn ask_tell_round_trip_survives_non_pd_covariance() {
+        // Issue #153 ask/tell round-trip guard on the ill-conditioned-covariance
+        // hazard. `try_new` symmetrizes `cov`, so a caller cannot inject
+        // asymmetry — but it CAN inject a SYMMETRIC non-PD covariance, which is
+        // the reachable path into `cholesky_with_jitter`. We reuse the
+        // recovery-branch fixture (diagonal, eigenvalues {−1e-5, 1}); `ask` must
+        // route it through the jitter recovery, sample valid offspring, and the
+        // `ask → tell` round-trip must leave cov/mean/σ̄ finite (no NaN/inf
+        // leaking from the ill-conditioned factor). Mirrors the structure of
+        // `sigma_i_underflow_does_not_poison_covariance`.
+        let strategy = CmsaEs::<Flex>::new();
+        let params = CmsaEsConfig::with_pop_size(8, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(1);
+
+        // Symmetric but non-PD: eigenvalue −1e-5 survives `symmetrize` (the
+        // matrix is already symmetric) and reaches `ask`'s Cholesky.
+        let state: CmsaEsState<Flex> = CmsaEsState::try_new(
+            vec![0.0, 0.0],
+            vec![-1e-5, 0.0, 0.0, 1.0],
+            1.0,
+            Vec::new(),
+            0,
+            None,
+            f32::NEG_INFINITY,
+        )
+        .expect("valid state");
+
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        // Any finite fitness — ranking is irrelevant to the non-finite hazard.
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], [8]),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        assert!(
+            told.cov().iter().all(|c| c.is_finite()),
+            "covariance has non-finite entries: {:?}",
+            told.cov()
+        );
+        assert!(
+            told.mean().iter().all(|m| m.is_finite()),
+            "mean has non-finite entries: {:?}",
+            told.mean()
+        );
+        assert!(
+            told.sigma().is_finite() && told.sigma() > 0.0,
+            "sigma is not finite and positive: {}",
+            told.sigma()
+        );
+    }
+
     #[test]
     fn sigma_i_underflow_does_not_poison_covariance() {
         // Regression for the σᵢ underflow. With a minuscule σ̄, a negative
