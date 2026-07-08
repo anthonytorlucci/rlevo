@@ -254,7 +254,7 @@ where
         let diffs = (archive_l.expand([k, k, d]) - archive_e.expand([k, k, d])).abs();
         #[allow(clippy::cast_precision_loss)]
         let inv = params.xi / ((k - 1).max(1) as f32);
-        let sigma = diffs.sum_dim(0).squeeze::<2>().mul_scalar(inv); // (k, d)
+        let sigma = diffs.sum_dim(0).squeeze_dim::<2>(0).mul_scalar(inv); // (k, d)
 
         // Weighted index sampling (host-side) — `m · d` independent draws.
         let mut stream = seed_stream(
@@ -706,11 +706,7 @@ mod tests {
     }
 
     // Gap (d): the smallest archive (`archive_size = 2`, so the σ pairwise
-    // distance has exactly one term) drives a full run without panicking. The
-    // `genome_dim = 1` half of this gap is SKIPPED: the on-device σ reduction
-    // `diffs.sum_dim(0).squeeze::<2>()` collapses *two* singleton axes when
-    // `d == 1` and panics inside burn's `Squeeze` — a latent limitation of the
-    // production kernel, out of scope for a test-only change.
+    // distance has exactly one term) drives a full run without panicking.
     #[test]
     fn boundary_archive_size_two_runs() {
         let device: FlexDevice = Default::default();
@@ -730,6 +726,33 @@ mod tests {
                 .best_fitness_ever()
                 .is_finite(),
             "non-finite best for archive_size = 2"
+        );
+    }
+
+    // Gap (d'): the `genome_dim = 1` case (issue #233). The σ reduction
+    // `diffs.sum_dim(0).squeeze_dim::<2>(0)` now removes only the reduced axis,
+    // so the `(1, k, 1)` intermediate correctly collapses to `(k, 1)` instead of
+    // panicking inside burn's `Squeeze` rank-check. Runs a full harness to
+    // completion and asserts a finite best.
+    #[test]
+    fn boundary_genome_dim_one_runs() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(8, 4, 1);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 6, device, 6,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite(),
+            "non-finite best for genome_dim = 1"
         );
     }
 
