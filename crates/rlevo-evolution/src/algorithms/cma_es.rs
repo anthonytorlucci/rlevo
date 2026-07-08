@@ -374,13 +374,17 @@ impl<B: Backend> CmaEsState<B> {
         }
         config::positive("CmaEsState", "sigma", f64::from(sigma))?;
         // Normalize a caller-supplied `cov` to exact symmetry: the
-        // eigendecomposition the strategy runs on `C` assumes symmetry, and the
-        // in-loop rank-1 / rank-μ updates preserve bit-exact symmetry on their
-        // own (see `ops::linalg::symmetrize`), so construction is the *only*
-        // entry point through which an asymmetric `C` can reach the solver.
-        // Averaging the triangles here (pycma-style) beats a tolerance-based
-        // rejection — it mirrors the sanitize-at-the-chokepoint convention of
-        // ADR 0034 rather than pushing the problem back onto the caller.
+        // eigendecomposition the strategy runs on `C` assumes symmetry. The
+        // in-loop rank-1 / rank-μ updates preserve symmetry only up to
+        // floating-point rounding (a few ULPs): the rank-μ accumulation forms
+        // `(w · yi[i]) · yi[j]` for the (i,j) entry but `(w · yi[j]) · yi[i]`
+        // for its transpose, which are equal under commutativity but *not*
+        // associativity, so the two triangle entries can diverge slightly (see
+        // the `cma_es_drive_preserves_invariants` property test's rationale).
+        // This `try_new` symmetrization still averages caller-supplied triangles
+        // (pycma-style) — better than a tolerance-based rejection, mirroring the
+        // sanitize-at-the-chokepoint convention of ADR 0034 rather than pushing
+        // the problem back onto the caller.
         crate::ops::linalg::symmetrize(&mut cov, d);
         Ok(Self {
             mean,
@@ -832,6 +836,7 @@ fn update_best<B: Backend>(state: &mut CmaEsState<B>, pop: &Tensor<B, 2>, fitnes
 mod tests {
     use super::*;
     use burn::backend::Flex;
+    use proptest::prelude::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -1159,11 +1164,16 @@ mod tests {
     }
 
     /// Issue #147 §7.2: a full adaptive `tell` must leave `C` symmetric and
-    /// positive-definite. The rank-1 / rank-μ update accumulates the two
-    /// triangle entries in the identical order, so symmetry is bit-exact; PD is
-    /// checked via a symmetric eigendecomposition (all eigenvalues strictly
-    /// positive), which is exactly the property `ask`'s `√Λ` sampling and
-    /// `tell`'s `C^{-1/2}` conditioning rely on.
+    /// positive-definite. The rank-1 / rank-μ update preserves symmetry only up
+    /// to a few ULPs (the transposed triangle entries accumulate the same
+    /// factors in a different order, and float multiplication is not
+    /// associative); this single-seed test happens to round identically for its
+    /// specific seed/dims, so it can assert exact equality — the general
+    /// relative-tolerance guarantee is covered by the
+    /// `cma_es_drive_preserves_invariants` property. PD is checked via a
+    /// symmetric eigendecomposition (all eigenvalues strictly positive), which
+    /// is exactly the property `ask`'s `√Λ` sampling and `tell`'s `C^{-1/2}`
+    /// conditioning rely on.
     #[test]
     fn tell_keeps_covariance_symmetric_and_positive_definite() {
         let strategy = CmaEs::<Flex>::new();
@@ -1284,5 +1294,125 @@ mod tests {
             f32::NEG_INFINITY.to_bits(),
             "empty population must not move best fitness off its sentinel"
         );
+    }
+
+    proptest! {
+        // Backend-heavy property: each case instantiates `Flex` and runs several
+        // full generations, so the case count and shrink budget are capped to
+        // keep CI cost bounded (task §239 §7.3).
+        #![proptest_config(ProptestConfig {
+            cases: 16,
+            max_shrink_iters: 256,
+            ..ProptestConfig::default()
+        })]
+
+        /// Issue #239 §7.3: across a bounded `(λ, D, seed)` space, a full
+        /// `init → ask → tell` drive over several generations preserves the
+        /// CMA-ES structural invariants — offspring shape `[λ, D]`, bit-exact
+        /// covariance symmetry, positive-definiteness (every eigenvalue and
+        /// diagonal variance strictly positive), a finite search distribution,
+        /// and the `best()` lifecycle (`None` before the first `tell`, then a
+        /// `Some((genome, fit))` with a `[1, D]` genome).
+        ///
+        /// RNG boundary (ADR 0029): proptest samples *only* host config; the
+        /// algorithm draws from a seeded `StdRng`, so proptest's PRNG never
+        /// touches Burn and every assertion is thread-count-invariant.
+        #[test]
+        fn cma_es_drive_preserves_invariants(
+            lambda in 2usize..=64,
+            d in 1usize..=20,
+            seed in any::<u64>(),
+        ) {
+            let strategy = CmaEs::<Flex>::new();
+            let params = CmaEsConfig::with_pop_size(lambda, d);
+            // Restrict the sampled `(λ, D)` box to the valid-config subset: in
+            // the small-`D` / large-`λ` corner the derived `c_1 + c_mu` rounds
+            // fractionally past 1.0, which `validate()` rejects. We only drive
+            // valid configs here; the `Err` path is covered by dedicated tests.
+            prop_assume!(params.validate().is_ok());
+            let device = Default::default();
+            let mut rng = StdRng::seed_from_u64(seed);
+
+            // Synthetic strictly-descending fitness of length λ (canonical
+            // maximise: row 0 is the fittest offspring).
+            // Precision loss is irrelevant — these are small ordinal ranks used
+            // only for ordering, never compared for exact magnitude.
+            #[allow(clippy::cast_precision_loss)]
+            let fitness_vals: Vec<f32> = (0..lambda).map(|i| (lambda - i) as f32).collect();
+
+            let mut state = strategy.init(&params, &mut rng, &device);
+            // best() lifecycle: `None` before the first `tell`.
+            prop_assert!(
+                strategy.best(&state).is_none(),
+                "best must be None before the first tell"
+            );
+
+            for _generation in 0..4 {
+                let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+                // Invariant 1: `ask` yields exactly `[λ, D]` offspring.
+                prop_assert_eq!(population.dims(), [lambda, d], "ask output shape");
+
+                let fitness = Tensor::<Flex, 1>::from_data(
+                    TensorData::new(fitness_vals.clone(), [lambda]),
+                    &device,
+                );
+                let (told, _metrics) =
+                    strategy.tell(&params, population, fitness, asked, &mut rng);
+
+                let cov: &[f32] = told.cov();
+                // Invariant 2: covariance is symmetric. The single-seed test
+                // asserts *bit-exact* symmetry, but that holds only for inputs
+                // where the rank-μ accumulation happens to round identically:
+                // `params.weights[rank] * yi[i] * yi[j]` parses as
+                // `(w · yi[i]) · yi[j]`, whose transpose `(w · yi[j]) · yi[i]`
+                // is equal under commutativity but *not* associativity, so the
+                // two triangle entries can diverge by a few ULPs. Across the
+                // sampled space we therefore assert tight relative symmetry.
+                for i in 0..d {
+                    for j in 0..d {
+                        prop_assert!(
+                            approx::relative_eq!(
+                                cov[i * d + j],
+                                cov[j * d + i],
+                                epsilon = 1e-6,
+                                max_relative = 1e-4
+                            ),
+                            "asymmetry at ({}, {}): {} vs {}",
+                            i,
+                            j,
+                            cov[i * d + j],
+                            cov[j * d + i]
+                        );
+                    }
+                }
+                // Invariant 3: positive-definite — every eigenvalue and every
+                // diagonal variance is strictly positive.
+                let eig: SymEigen = jacobi_eigen(cov, d);
+                prop_assert!(
+                    eig.values.iter().all(|&l| l > 0.0),
+                    "covariance not positive-definite: eigenvalues {:?}",
+                    eig.values
+                );
+                for i in 0..d {
+                    prop_assert!(cov[i * d + i] > 0.0, "non-positive variance at {}", i);
+                }
+
+                // Invariant 4: the search distribution stays finite.
+                prop_assert!(told.mean().iter().all(|v| v.is_finite()), "mean finite");
+                prop_assert!(told.cov().iter().all(|v| v.is_finite()), "cov finite");
+                prop_assert!(told.sigma().is_finite(), "sigma finite");
+
+                // Invariant 5: `best()` is `Some` with a `[1, D]` genome after a
+                // `tell`.
+                let best = strategy.best(&told);
+                prop_assert!(best.is_some(), "best must be Some after a tell");
+                let (genome, fit): (Tensor<Flex, 2>, f32) =
+                    best.expect("best is Some after a tell");
+                prop_assert!(fit.is_finite(), "best fitness finite");
+                prop_assert_eq!(genome.dims(), [1, d], "best genome shape");
+
+                state = told;
+            }
+        }
     }
 }

@@ -591,4 +591,135 @@ mod tests {
             "refit must overwrite, not blend with prev mean"
         );
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        // §7.2: `fit` output-shape and variance-floor contract over arbitrary
+        // populations. Host-side tensor ops only (no backend train) → 64 cases.
+        #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+        /// For ANY selected population, the fitted state has both vectors of
+        /// length `genome_dim`, every mean entry finite, and every variance
+        /// entry finite and floored at `min_variance` (never below, never
+        /// non-finite — the §7.1 floor / #129 guards hold universally).
+        ///
+        /// RNG boundary (ADR 0029): proptest generates host config only
+        /// (`data`, `d`); `fit` is a deterministic MLE update and takes no rng.
+        /// The MLE path is only reached with `Some(&prior)` — `None` returns the
+        /// prior and ignores the population, so a prior is fitted first and then
+        /// the generated data is fitted against it.
+        #[test]
+        fn fit_produces_finite_floored_state(
+            data in prop::collection::vec(-1e6f32..1e6f32, 2usize..200),
+            d in 2usize..=8,
+        ) {
+            let device = Default::default();
+            let model = UnivariateGaussian;
+            let params = UnivariateGaussianParams::default_for(d);
+
+            // Take `k = data.len() / d` full rows; reject the rare case where the
+            // generated data is shorter than one row.
+            let k = data.len() / d;
+            prop_assume!(k >= 1);
+            let rows: Vec<f32> = data[..k * d].to_vec();
+            let population = pop(rows, k, d);
+
+            let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+                &model,
+                &params,
+                None,
+                pop(vec![], 0, 0),
+                fitness(vec![]),
+                &device,
+            );
+            let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+                &model,
+                &params,
+                Some(&prior),
+                population,
+                fitness(vec![0.0_f32; k]),
+                &device,
+            );
+
+            prop_assert_eq!(state.mean().len(), d);
+            prop_assert_eq!(state.variance().len(), d);
+            for &m in state.mean() {
+                prop_assert!(m.is_finite(), "mean entry not finite: {}", m);
+            }
+            for &v in state.variance() {
+                prop_assert!(v.is_finite(), "variance entry not finite: {}", v);
+                prop_assert!(
+                    v >= params.min_variance,
+                    "variance {} below floor {}",
+                    v,
+                    params.min_variance
+                );
+            }
+        }
+    }
+
+    proptest! {
+        // §7.2: `sample` unbiasedness. Backend-heavy (up to 20k draws per case) →
+        // keep case count low and shrinking bounded.
+        #![proptest_config(ProptestConfig {
+            cases: 16,
+            max_shrink_iters: 64,
+            ..ProptestConfig::default()
+        })]
+
+        /// A large seeded sample from a one-dimensional fitted Gaussian has a
+        /// sample mean close to the state's mean `mu`.
+        ///
+        /// RNG boundary (ADR 0029): proptest generates host config only
+        /// (`mu`, `sigma2`, `n`, `seed`); the sampler is seeded via
+        /// `StdRng::seed_from_u64(seed)` (module idiom), never `B::seed` /
+        /// `Tensor::random`.
+        ///
+        /// Flakiness margin: the standard error of the mean is `sigma / sqrt(n)`.
+        /// With `n >= 5000`, `SE <= sigma / sqrt(5000) ≈ 0.01414 * sigma`, so the
+        /// `0.1 * sigma` bound is ≈ `7.07 * SE` at the worst case (and looser for
+        /// larger `n`). At ~7 sigma the per-case failure probability is ≈ 1e-12,
+        /// so 16 cases across arbitrary seeds do not flake.
+        #[test]
+        fn sample_mean_is_unbiased(
+            mu in -10f32..10f32,
+            sigma2 in 1e-3f32..10f32,
+            n in 5_000usize..=20_000,
+            seed in any::<u64>(),
+        ) {
+            let device = Default::default();
+            let model = UnivariateGaussian;
+            let state = UnivariateGaussianState {
+                mean: vec![mu],
+                variance: vec![sigma2],
+            };
+            let mut rng = StdRng::seed_from_u64(seed);
+            let samples = <UnivariateGaussian as ProbabilityModel<TestBackend>>::sample(
+                &model, &state, n, &mut rng, &device,
+            );
+            prop_assert_eq!(samples.dims(), [n, 1]);
+
+            let data = samples
+                .into_data()
+                .into_vec::<f32>()
+                .expect("samples host-read of a tensor this test just built");
+            let sum: f64 = data.iter().map(|&x| f64::from(x)).sum();
+            // `n <= 20_000` is exactly representable in f64; the cast is lossless.
+            #[allow(clippy::cast_precision_loss)]
+            let sample_mean = sum / n as f64;
+
+            let sigma = f64::from(sigma2).sqrt();
+            let bound = 0.1 * sigma;
+            let diff = (sample_mean - f64::from(mu)).abs();
+            prop_assert!(
+                diff < bound,
+                "sample mean {} strayed from mu {} by {} (bound {})",
+                sample_mean,
+                mu,
+                diff,
+                bound
+            );
+        }
+    }
 }

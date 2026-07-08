@@ -71,6 +71,7 @@ parking_lot = "0.12"
 
 # Testing
 approx = "0.5"
+proptest = { version = "1", default-features = false, features = ["std", "bit-set"] }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
