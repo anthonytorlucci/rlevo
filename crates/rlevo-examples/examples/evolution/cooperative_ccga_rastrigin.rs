@@ -22,6 +22,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
@@ -53,9 +54,10 @@ fn rastrigin(x: &[f32]) -> f32 {
 /// already-assembled full-dimensional candidates, so this never sees the
 /// dimension split or representatives — it just scores each row.
 ///
-/// The co-evolution engine is maximise-native and has no `ObjectiveSense`
-/// chokepoint, so this returns the **canonical** fitness `−rastrigin` (higher
-/// is better) directly; the driver negates back to the natural cost for display.
+/// This returns the pre-negated fitness `−rastrigin` (higher is better) and
+/// declares [`ObjectiveSense::Maximize`], so the co-evolution algorithm's
+/// canonicalisation chokepoint passes it through unchanged; the driver negates
+/// back to the natural cost for display.
 struct RastriginCoupled;
 
 impl CoupledFitness<B> for RastriginCoupled {
@@ -73,6 +75,10 @@ impl CoupledFitness<B> for RastriginCoupled {
                 Tensor::<B, 1>::from_data(TensorData::new(values, [n]), &pop.device())
             })
             .collect()
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
     }
 }
 

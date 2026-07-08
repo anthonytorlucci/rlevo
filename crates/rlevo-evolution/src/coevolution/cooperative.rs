@@ -24,6 +24,7 @@ use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
+use rlevo_core::objective::ObjectiveSense;
 
 use crate::fitness::sanitize_fitness_tensor;
 use crate::rng::{SeedPurpose, seed_stream};
@@ -172,6 +173,11 @@ impl<PA, PB> Validate for CooperativeCoEAParams<PA, PB> {
 pub struct CooperativeState<StA, StB, B: Backend> {
     /// Shared best/mean/generation trackers and inner strategy states.
     pub base: CoEAState<StA, StB>,
+    /// Complement of `params.dims_a` within `0..total_dims`, ascending; frozen
+    /// at [`init`](CooperativeCoEA::init). Cached here so `step` never
+    /// re-derives (and re-allocates) the split each generation. `Vec<usize>`
+    /// keeps the `Clone + Debug + Send` derives valid.
+    dims_b: Vec<usize>,
     /// Bounded archive of population A's past champions (`Archive` policy only).
     rep_archive_a: Option<Tensor<B, 2>>,
     /// Bounded archive of population B's past champions (`Archive` policy only).
@@ -228,19 +234,28 @@ where
 
     /// Project the joint state into public [`CoEAMetrics`].
     ///
-    /// The `best`/`mean` fields are copied from `state.base`, which `step`
-    /// sources from the per-population `tell` metrics computed over the
-    /// **sanitized** assembled-candidate fitness (see the chokepoint in
-    /// [`step`](Self::step) and ADR 0034). Means are averaged over the finite
-    /// members only, so a broken individual cannot emit a `NaN` mean.
+    /// The `best`/`mean` trackers on `state.base` are **canonical**
+    /// (maximise-native): `step` sources them from the per-population `tell`
+    /// metrics computed over the canonicalised, **sanitized** assembled-candidate
+    /// fitness (see the chokepoint in [`step`](Self::step) and ADR 0023 / 0034).
+    /// This projection maps the four display fields back into the objective's
+    /// **natural** sense via [`from_canonical`](ObjectiveSense::from_canonical),
+    /// while `binding_fitness` — the harness reward — is kept in canonical space.
+    /// Means are averaged over the finite members only, so a broken individual
+    /// cannot emit a `NaN` mean.
     fn snapshot(&self, state: &CooperativeState<SA::State, SB::State, B>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
+        let sense = self.fitness.sense();
+        // `binding_fitness` (harness reward) stays in canonical space — compute
+        // it before mapping the display fields to natural sense.
+        let binding = state.base.best_a.min(state.base.best_b);
         CoEAMetrics {
             generation: state.base.generation,
-            best_fitness_a: state.base.best_a,
-            best_fitness_b: state.base.best_b,
-            mean_fitness_a: state.base.mean_a,
-            mean_fitness_b: state.base.mean_b,
+            best_fitness_a: sense.from_canonical(state.base.best_a),
+            best_fitness_b: sense.from_canonical(state.base.best_b),
+            mean_fitness_a: sense.from_canonical(state.base.mean_a),
+            mean_fitness_b: sense.from_canonical(state.base.mean_b),
+            binding_fitness: binding,
             hof_size_a: sizes.first().copied().unwrap_or(0),
             hof_size_b: sizes.get(1).copied().unwrap_or(0),
         }
@@ -272,6 +287,7 @@ where
         let state_b = self.strategy_b.init(&params.params_b, rng, device);
         CooperativeState {
             base: CoEAState::new(state_a, state_b),
+            dims_b: complement(&params.dims_a, params.total_dims),
             rep_archive_a: None,
             rep_archive_b: None,
         }
@@ -285,7 +301,8 @@ where
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
     ) -> (Self::State, CoEAMetrics) {
         let dims_a = &params.dims_a;
-        let dims_b = complement(dims_a, params.total_dims);
+        // Complement cached on the state at `init` — no per-generation alloc.
+        let dims_b = &state.dims_b;
         let generation = state.base.generation;
 
         // Both populations propose sub-genomes simultaneously.
@@ -323,21 +340,33 @@ where
 
         // Assemble full-dimensional candidates: each varying sub-population is
         // completed by the opposing fixed representative.
-        let full_a = assemble(&pop_a, dims_a, &rep_b, &dims_b, params.total_dims, device);
-        let full_b = assemble(&pop_b, &dims_b, &rep_a, dims_a, params.total_dims, device);
+        let full_a = assemble(&pop_a, dims_a, &rep_b, dims_b, params.total_dims, device);
+        let full_b = assemble(&pop_b, dims_b, &rep_a, dims_a, params.total_dims, device);
 
+        // `sense` is the single source of truth (ADR 0023); `evaluate_coupled`
+        // returns NATURAL fitness over the assembled candidates.
+        let sense = self.fitness.sense();
         let fits = self.fitness.evaluate_coupled(&[full_a, full_b]);
         debug_assert_eq!(fits.len(), 2, "cooperative co-evolution is bi-population");
 
-        // Fitness-hygiene chokepoint for the coupled-fitness path (ADR 0034):
-        // the assembled-candidate fitness may be non-finite, and nothing above
-        // this point sanitizes (coevolution does not use the single-population
-        // `EvolutionaryHarness`). Clean each vector *once* here (`NaN → −∞`,
-        // `+∞ → f32::MAX`), so the per-population `tell`, the `snapshot`
-        // best/mean written into `CoEAState`, and any hall-of-fame all see
-        // finite-or-`−∞` fitness.
-        let fit_a = sanitize_fitness_tensor(fits[0].clone());
-        let fit_b = sanitize_fitness_tensor(fits[1].clone());
+        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path
+        // (ADR 0023 / 0034), mirroring `EvolutionaryHarness::step`. First map
+        // NATURAL → canonical (maximise-native: negate iff `Minimize`), THEN
+        // sanitize (`NaN → −∞` worst, `+∞ → f32::MAX`). The ordering is
+        // load-bearing: "NaN = worst" is only well-defined in maximise space, so
+        // sanitizing before `neg()` would flip a `NaN` cost to `+∞` = canonical
+        // *best* under `Minimize`. After this the per-population `tell`, the
+        // `snapshot` best/mean written into `CoEAState`, and any hall-of-fame all
+        // see canonical, finite-or-`−∞` fitness.
+        let canon = |t: Tensor<B, 1>| {
+            let c = match sense {
+                ObjectiveSense::Maximize => t,
+                ObjectiveSense::Minimize => t.neg(),
+            };
+            sanitize_fitness_tensor(c)
+        };
+        let fit_a = canon(fits[0].clone());
+        let fit_b = canon(fits[1].clone());
 
         // Each strategy consumes its own sub-population with the assembled fitness.
         let (next_a, metrics_a) =
@@ -670,6 +699,9 @@ mod tests {
                 })
                 .collect()
         }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
     }
 
     /// A `NaN` from a cooperative [`CoupledFitness`] is sanitized at the
@@ -713,6 +745,69 @@ mod tests {
         assert!(
             !m.mean_fitness_b.is_nan(),
             "mean_fitness_b must never be NaN"
+        );
+    }
+
+    /// Row-wise cost landscape over assembled candidates declaring
+    /// [`ObjectiveSense::Minimize`]: natural cost = row index, so row 0 is the
+    /// best (cost `0.0`). Regression proving the cooperative canonicalisation
+    /// chokepoint (ADR 0023) maximises a `Minimize` objective and reports the
+    /// natural cost.
+    struct RowCost;
+
+    impl CoupledFitness<B> for RowCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                    Tensor::<B, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Minimize
+        }
+    }
+
+    #[test]
+    fn cooperative_minimize_is_maximized_and_reported_natural() {
+        let device = Default::default();
+        let algo = CooperativeCoEA::new(
+            GeneticAlgorithm::<B>::new(),
+            GeneticAlgorithm::<B>::new(),
+            RowCost,
+        );
+        let params = CooperativeCoEAParams::new(
+            ga_config_dim(1),
+            ga_config_dim(1),
+            vec![0],
+            2,
+            RepresentativePolicy::Best,
+            0,
+        )
+        .unwrap();
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = algo.init(&params, &mut rng, &device);
+        let (_next, m) = algo.step(&params, state, &mut rng, &device);
+
+        // The engine optimises `−cost`; the best natural cost is 0.0 (row 0),
+        // reported back in natural sense.
+        approx::assert_relative_eq!(m.best_fitness_a, 0.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness_b, 0.0, epsilon = 1e-6);
+        // Mean is a natural cost, finite and positive (rows 0..COOP_POP).
+        assert!(
+            m.mean_fitness_a.is_finite() && m.mean_fitness_a > 0.0,
+            "mean natural cost should be finite positive, got {}",
+            m.mean_fitness_a
+        );
+        assert!(
+            m.binding_fitness.is_finite(),
+            "binding_fitness must be finite, got {}",
+            m.binding_fitness
         );
     }
 }

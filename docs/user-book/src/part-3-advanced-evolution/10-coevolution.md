@@ -52,15 +52,22 @@ populations propose, are evaluated together, and consume their results inside on
 call. The shared `CoEAState<StA, StB>` holds each inner strategy's state plus
 dual best/mean trackers, and `CoEAMetrics` is the two-population analogue of
 `StrategyMetrics` — `best_fitness_a`/`best_fitness_b`, the means, and the
-hall-of-fame sizes introduced below.
+hall-of-fame sizes introduced below. Like `StrategyMetrics`, its per-population
+`best_fitness_*`/`mean_fitness_*` are reported in the objective's **natural**
+declared sense (a `Minimize` cost reads as its natural cost); a separate
+`binding_fitness` field carries the canonical (engine-space, maximise) reward.
 
 The coupling itself is isolated behind one trait, `CoupledFitness<B>`:
 
 ```rust
 pub trait CoupledFitness<B: Backend>: Send + Sync {
     /// `populations[i]` is `(pop_size_i, genome_dim_i)`; returns one fitness
-    /// vector per population, each of length `pop_size_i`, lower = better.
+    /// vector per population, each of length `pop_size_i`, in the objective's
+    /// natural value space (a cost as its natural cost, a score as its value).
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>>;
+
+    /// Declares the objective direction; the algorithm canonicalises — see below.
+    fn sense(&self) -> ObjectiveSense;
 }
 ```
 
@@ -68,18 +75,27 @@ This is where "how population A scores against population B" lives, and nowhere
 else. The trait is deliberately **stateless** — it owns no RNG and no generation
 counter; the algorithm and harness own all context. It is written for any number
 of populations (the argument is a slice), though both shipped algorithms always
-pass exactly two. Like the rest of the engine it **maximises** a canonical
-fitness — higher is better. The coevolution path runs its own
-`CoEvolutionaryHarness`, which has no `ObjectiveSense` chokepoint, so wire a cost
-objective as `−cost` directly in your `CoupledFitness`.
+pass exactly two. `evaluate_coupled` returns fitness in the objective's
+**natural** value space, and the trait declares its direction through a required
+`sense() -> ObjectiveSense` (`Maximize` or `Minimize`) — exactly as the
+single-population `BatchFitnessFn` does. The coevolutionary algorithm's `step`
+is the canonicalisation chokepoint (mirroring `EvolutionaryHarness`, ADR 0023):
+it reads `sense()` once per generation and maps natural → maximise-native space
+internally, so you must **not** hand-negate a cost into a reward — ADR 0023
+forbids reintroducing that hand-negation on the coupled path. The declared
+`sense()` applies to *all* populations in common; a genuinely asymmetric
+zero-sum objective — where one population maximises a score the other minimises
+— has no single-`sense()` form and must be pre-expressed by the impl (e.g.
+return one side's negated score, both declared `Maximize`).
 
 Driving a run is the job of `CoEvolutionaryHarness<B, C>`, the coevolutionary
 sibling of the `EvolutionaryHarness`. It takes the algorithm, its params, a seed,
 a device, and a generation budget; `reset` materialises the joint state and
-`step(())` runs one coupled generation. The reward it reports back is
-`-min(best_a, best_b)` — the *weaker* population is the binding constraint, so
-progress is only credited when the lagging side improves — and it implements the
-same benchmark-environment interface as the single-population harness, so the
+`step(())` runs one coupled generation. The reward it reports back is the
+canonical `binding_fitness = min(best_a, best_b)` in engine (maximise) space —
+no negation — the *weaker* population is the binding constraint, so progress is
+only credited when the lagging side improves. It implements the same
+benchmark-environment interface as the single-population harness, so the
 benchmarking tooling drives the two identically.
 
 ## Cooperative coevolution

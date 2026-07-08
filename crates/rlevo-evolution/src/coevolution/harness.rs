@@ -24,19 +24,31 @@ use super::CoEvolutionaryAlgorithm;
 /// The [`CoEAMetrics`] analogue of
 /// [`StrategyMetrics`](crate::strategy::StrategyMetrics), but tracking both
 /// populations separately so a benchmark report can plot per-population
-/// dynamics. Fitness follows the canonical maximise convention (higher is better).
+/// dynamics. The four `best_fitness_*` / `mean_fitness_*` display fields are
+/// reported in the objective's **natural** declared sense (parity with
+/// single-population `StrategyMetrics`); the separate `binding_fitness` field
+/// carries the canonical (engine-space) harness reward (ADR 0023).
 #[derive(Debug, Clone)]
 pub struct CoEAMetrics {
     /// Number of completed simultaneous-update generations.
     pub generation: u64,
-    /// Best (highest) fitness population A has seen so far.
+    /// Best fitness population A has seen so far, in the objective's **natural**
+    /// declared sense (a `Minimize` cost reads as its natural cost).
     pub best_fitness_a: f32,
-    /// Best (highest) fitness population B has seen so far.
+    /// Best fitness population B has seen so far, in the objective's **natural**
+    /// declared sense (a `Minimize` cost reads as its natural cost).
     pub best_fitness_b: f32,
-    /// Mean fitness of population A in this generation.
+    /// Mean fitness of population A this generation, in the objective's
+    /// **natural** declared sense.
     pub mean_fitness_a: f32,
-    /// Mean fitness of population B in this generation.
+    /// Mean fitness of population B this generation, in the objective's
+    /// **natural** declared sense.
     pub mean_fitness_b: f32,
+    /// Canonical (engine-space, maximise) binding fitness `min(best_a, best_b)`
+    /// — the weaker population binds. Engine-space, NOT mapped to the
+    /// objective's natural sense; used as the harness reward. All other fitness
+    /// fields are in the objective's natural sense.
+    pub binding_fitness: f32,
     /// Hall-of-fame archive size for population A (`0` if no archive).
     pub hof_size_a: usize,
     /// Hall-of-fame archive size for population B (`0` if no archive).
@@ -49,9 +61,12 @@ pub struct CoEAMetrics {
 /// harness is lazily initialized: [`reset`](BenchEnv::reset) materializes the
 /// joint state on the configured device, and each
 /// [`step`](BenchEnv::step) runs one generation. The reward exposed to the
-/// benchmark harness is `min(best_a, best_b)` (canonical maximise, no
-/// negation): the weaker population — the lower canonical fitness — is the
-/// binding constraint, and a higher binding value is better.
+/// benchmark harness is the **canonical** `binding_fitness = min(best_a, best_b)`
+/// (canonical maximise, no negation): the weaker population — the lower canonical
+/// fitness — is the binding constraint, and a higher binding value is better.
+/// The per-population `best_fitness_{a,b}` / `mean_fitness_{a,b}` in
+/// [`CoEAMetrics`] are reported in the objective's **natural** sense (ADR 0023);
+/// only `binding_fitness` stays canonical.
 ///
 /// Per-generation metrics are emitted through `tracing` with structured
 /// per-population fields. (A dual-population [`PopulationObserver`] channel —
@@ -185,19 +200,20 @@ where
         self.state = Some(new_state);
         self.generation += 1;
 
-        // Canonical maximise: the weaker population (lower canonical fitness)
-        // is the binding constraint, and a higher binding value is better — so
-        // the reward is the binding value directly, with no negation.
+        // The reward is the CANONICAL `binding_fitness` (`min(best_a, best_b)`
+        // in engine/maximise space): the weaker population (lower canonical
+        // fitness) is the binding constraint, and a higher binding value is
+        // better — no negation. It is read from the dedicated canonical field,
+        // NOT re-derived off `best_fitness_{a,b}`, which are now mapped to the
+        // objective's natural sense (ADR 0023) and would give the wrong `min`
+        // for a `Minimize` objective.
         //
-        // Fitness hygiene (ADR 0034): `best_fitness_{a,b}` are sourced from the
-        // per-population `tell` metrics over the fitness the coupled-fitness
-        // chokepoint already sanitized (competitive/cooperative `step`), so each
-        // is finite-or-`−∞`, never `NaN`. `f32::min` therefore yields a
-        // finite-or-`−∞` binding value — the reward is never `NaN`. (Even a
-        // stray `NaN` operand would be dropped by IEEE `f32::min`, which returns
-        // the non-`NaN` argument; the chokepoint makes that path unreachable.)
-        let binding = metrics.best_fitness_a.min(metrics.best_fitness_b);
-        let reward = f64::from(binding);
+        // Fitness hygiene (ADR 0034): `binding_fitness` is a `min` of the
+        // per-population canonical bests, each sourced from the `tell` metrics
+        // over fitness the coupled-fitness chokepoint canonicalised *and*
+        // sanitized (competitive/cooperative `step`), so it is finite-or-`−∞`,
+        // never `NaN`.
+        let reward = f64::from(metrics.binding_fitness);
 
         tracing::info!(
             generation = metrics.generation,
@@ -245,6 +261,7 @@ mod tests {
     use burn::tensor::{Tensor, TensorData};
 
     use rlevo_core::bounds::Bounds;
+    use rlevo_core::objective::ObjectiveSense;
     use rlevo_core::probability::Probability;
     use rlevo_core::rate::NonNegativeRate;
 
@@ -290,6 +307,9 @@ mod tests {
                 })
                 .collect()
         }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
     }
 
     /// A `NaN` fitness from a [`CoupledFitness`] impl cannot make the harness
@@ -324,5 +344,58 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let expected = f64::from((POP - 1) as f32);
         approx::assert_relative_eq!(step.reward, expected, epsilon = 1e-6);
+    }
+
+    /// Row-wise cost `i + 1` declaring [`ObjectiveSense::Minimize`]: row 0 is
+    /// best (cost `1.0`), canonicalising to `−1.0` (the maximum).
+    struct RowCostMin;
+
+    impl CoupledFitness<TB> for RowCostMin {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n).map(|i| i as f32 + 1.0).collect();
+                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Minimize
+        }
+    }
+
+    /// For a `Minimize` objective the harness reward is the CANONICAL
+    /// `binding_fitness` (`min` of the canonical bests), not the natural cost.
+    /// Row 0's natural cost `1.0` canonicalises to `−1.0`, so the binding value
+    /// — and the reward — is `−1.0`, while the natural `best_fitness_a` reads
+    /// `1.0`.
+    #[test]
+    fn minimize_harness_reward_is_canonical_binding() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            RowCostMin,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut harness =
+            CoEvolutionaryHarness::<TB, _>::new(algo, params, 7, device, 3).expect("valid params");
+        harness.reset();
+        let step = harness.step(());
+
+        assert!(step.reward.is_finite(), "reward must be finite");
+        // Canonical binding = min(−1, −1) = −1.
+        approx::assert_relative_eq!(step.reward, -1.0, epsilon = 1e-6);
+        let m = harness.latest_metrics().expect("metrics after a step");
+        approx::assert_relative_eq!(m.binding_fitness, -1.0, epsilon = 1e-6);
+        // Natural best reads back as the low cost 1.0.
+        approx::assert_relative_eq!(m.best_fitness_a, 1.0, epsilon = 1e-6);
     }
 }

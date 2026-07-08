@@ -15,6 +15,7 @@ use burn::tensor::{Tensor, backend::Backend};
 use rand::Rng;
 
 use rlevo_core::config::{ConfigError, Validate};
+use rlevo_core::objective::ObjectiveSense;
 
 use crate::fitness::sanitize_fitness_tensor;
 use crate::strategy::Strategy;
@@ -95,20 +96,32 @@ where
 
     /// Project the joint state into public [`CoEAMetrics`].
     ///
-    /// The `best`/`mean` fields are copied from `state`, which `step` sources
-    /// from the per-population `tell` metrics computed over the **sanitized**
-    /// fitness (see the chokepoint in [`step`](Self::step) and ADR 0034). No
-    /// non-finite value can reach here as a `NaN`: means are averaged over the
-    /// finite members only (`StrategyMetrics::from_host_fitness`), so a broken
-    /// individual cannot blank a mean.
+    /// The `best`/`mean` trackers on `state` are **canonical** (maximise-native):
+    /// `step` sources them from the per-population `tell` metrics computed over
+    /// the canonicalised, **sanitized** fitness (see the chokepoint in
+    /// [`step`](Self::step) and ADR 0023 / 0034). This projection maps the four
+    /// display fields back into the objective's **natural** sense via
+    /// [`from_canonical`](ObjectiveSense::from_canonical) (mirroring
+    /// single-population `StrategyMetrics`), while `binding_fitness` — the
+    /// harness reward — is kept in canonical space. No non-finite value can reach
+    /// here as a `NaN`: means are averaged over the finite members only
+    /// (`StrategyMetrics::from_host_fitness`), so a broken individual cannot blank
+    /// a mean.
     fn snapshot(&self, state: &CoEAState<SA::State, SB::State>) -> CoEAMetrics {
         let sizes = self.fitness.archive_sizes();
+        let sense = self.fitness.sense();
+        // `binding_fitness` is the harness reward and stays in CANONICAL
+        // (engine, maximise) space — the weaker population (lower canonical
+        // fitness) binds — so compute it *before* mapping the display fields
+        // back to the objective's natural sense.
+        let binding = state.best_a.min(state.best_b);
         CoEAMetrics {
             generation: state.generation,
-            best_fitness_a: state.best_a,
-            best_fitness_b: state.best_b,
-            mean_fitness_a: state.mean_a,
-            mean_fitness_b: state.mean_b,
+            best_fitness_a: sense.from_canonical(state.best_a),
+            best_fitness_b: sense.from_canonical(state.best_b),
+            mean_fitness_a: sense.from_canonical(state.mean_a),
+            mean_fitness_b: sense.from_canonical(state.mean_b),
+            binding_fitness: binding,
             hof_size_a: sizes.first().copied().unwrap_or(0),
             hof_size_b: sizes.get(1).copied().unwrap_or(0),
         }
@@ -151,22 +164,35 @@ where
             .strategy_b
             .ask(&params.params_b, &state.state_b, rng, device);
 
-        // Single coupled evaluation scores each against the other.
+        // `sense` is the single source of truth (ADR 0023), read off the
+        // coupled fitness so the algorithm and the objective can never disagree.
+        let sense = self.fitness.sense();
+        // Single coupled evaluation scores each against the other; `evaluate_coupled`
+        // returns NATURAL fitness.
         let fits = self
             .fitness
             .evaluate_coupled(&[pop_a.clone(), pop_b.clone()]);
         debug_assert_eq!(fits.len(), 2, "competitive co-evolution is bi-population");
 
-        // Fitness-hygiene chokepoint for the coupled-fitness path (ADR 0034):
-        // `evaluate_coupled` may return non-finite fitness, and — unlike the
-        // single-population `EvolutionaryHarness` — nothing above this point
-        // sanitizes. Clean each vector *once* here (`NaN → −∞` worst,
-        // `+∞ → f32::MAX`), so the per-population `tell`, the `snapshot`
-        // best/mean written into `CoEAState`, and any `HallOfFameFitness`
-        // downstream all see finite-or-`−∞` fitness. A raw positive `NaN` would
-        // otherwise `total_cmp` as the maximum and be crowned champion.
-        let fit_a = sanitize_fitness_tensor(fits[0].clone());
-        let fit_b = sanitize_fitness_tensor(fits[1].clone());
+        // Canonicalise-then-sanitize chokepoint for the coupled-fitness path
+        // (ADR 0023 / 0034), mirroring `EvolutionaryHarness::step`. First map
+        // NATURAL → canonical (maximise-native: negate iff `Minimize`) so the
+        // maximise-native engine optimises `−cost`, THEN sanitize (`NaN → −∞`
+        // worst, `+∞ → f32::MAX`). The ordering is load-bearing: "NaN = worst"
+        // is only well-defined in maximise space, so sanitizing before `neg()`
+        // would flip a `NaN` cost to `+∞` = canonical *best* under `Minimize`.
+        // After this, the per-population `tell`, the `snapshot` best/mean written
+        // into `CoEAState`, and any `HallOfFameFitness` downstream all see
+        // canonical, finite-or-`−∞` fitness.
+        let canon = |t: Tensor<B, 1>| {
+            let c = match sense {
+                ObjectiveSense::Maximize => t,
+                ObjectiveSense::Minimize => t.neg(),
+            };
+            sanitize_fitness_tensor(c)
+        };
+        let fit_a = canon(fits[0].clone());
+        let fit_b = canon(fits[1].clone());
 
         // Both populations consume their relative fitness.
         let (next_a, metrics_a) =
@@ -251,6 +277,9 @@ mod tests {
                 })
                 .collect()
         }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
     }
 
     /// A single all-`NaN` coupled fitness — the degenerate whole-population
@@ -267,6 +296,9 @@ mod tests {
                     Tensor::<TB, 1>::from_data(TensorData::new(vec![f32::NAN; n], [n]), &device)
                 })
                 .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
         }
     }
 
@@ -337,6 +369,58 @@ mod tests {
             m.best_fitness_a.is_infinite() && m.best_fitness_a.is_sign_negative(),
             "all-broken population best is the −∞ sentinel, got {}",
             m.best_fitness_a
+        );
+    }
+
+    /// A coupled objective declaring [`ObjectiveSense::Minimize`] whose natural
+    /// cost is `row_index` (so row 0 is the best at cost `0.0`). Both populations
+    /// share the cost. Regression proving the coupled canonicalisation chokepoint
+    /// (ADR 0023) actually MAXIMIZES a `Minimize` objective: the engine must
+    /// select the low-cost individual, `best_fitness_a` must read back as the
+    /// natural low cost, and `binding_fitness` must be the canonical (negated)
+    /// value.
+    struct NegCost;
+
+    impl CoupledFitness<TB> for NegCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    // Natural cost = row index: row 0 is best (cost 0.0).
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Minimize
+        }
+    }
+
+    #[test]
+    fn minimize_objective_is_maximized_and_reported_natural() {
+        let m = run_one_step(NegCost);
+        // The engine optimises `−cost`; the best natural cost is 0.0 (row 0).
+        // `best_fitness_a` is reported in natural sense, so it reads back as the
+        // low cost `0.0` — NOT the high-cost row.
+        approx::assert_relative_eq!(m.best_fitness_a, 0.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(m.best_fitness_b, 0.0, epsilon = 1e-6);
+        // The canonical best is `from_canonical` of the natural best under
+        // Minimize, i.e. `−0.0 == 0.0`; binding = min of the two canonical bests.
+        assert!(
+            m.binding_fitness.is_finite(),
+            "binding_fitness must be finite, got {}",
+            m.binding_fitness
+        );
+        approx::assert_relative_eq!(m.binding_fitness, 0.0, epsilon = 1e-6);
+        // Mean is a natural cost > 0 (averaged over rows 0..POP), and finite.
+        assert!(
+            m.mean_fitness_a.is_finite() && m.mean_fitness_a > 0.0,
+            "mean natural cost should be a finite positive, got {}",
+            m.mean_fitness_a
         );
     }
 }

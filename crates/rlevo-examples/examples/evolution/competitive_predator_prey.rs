@@ -21,6 +21,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
@@ -49,9 +50,10 @@ fn sqdist(a: &[f32], b: &[f32]) -> f32 {
 /// Predator (pop 0) minimizes mean squared distance to prey; prey (pop 1)
 /// minimizes mean closeness `exp(-dist^2)` to the predator.
 ///
-/// The co-evolution engine is maximise-native with no `ObjectiveSense`
-/// chokepoint, so both objectives are returned in **canonical** form (their
-/// natural costs negated, higher = better); the driver negates back for display.
+/// Both objectives are returned pre-negated (their natural costs negated,
+/// higher = better) and declare [`ObjectiveSense::Maximize`], so the
+/// co-evolution algorithm's canonicalisation chokepoint passes them through
+/// unchanged; the driver negates back for display.
 struct PredatorPrey;
 
 impl CoupledFitness<B> for PredatorPrey {
@@ -76,6 +78,10 @@ impl CoupledFitness<B> for PredatorPrey {
             Tensor::<B, 1>::from_data(TensorData::new(predator.clone(), [predator.len()]), &device),
             Tensor::<B, 1>::from_data(TensorData::new(prey.clone(), [prey.len()]), &device),
         ]
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
     }
 }
 
