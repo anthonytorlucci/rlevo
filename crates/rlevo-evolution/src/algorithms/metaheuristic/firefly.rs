@@ -236,7 +236,7 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let xi = positions.clone().unsqueeze_dim::<3>(1); // (N, 1, D)
         let xj = positions.clone().unsqueeze_dim::<3>(0); // (1, N, D)
         let diff = xj.expand([pop, pop, d]) - xi.expand([pop, pop, d]); // (N, N, D)
-        let r2 = diff.clone().powi_scalar(2).sum_dim(2).squeeze::<2>(); // (N, N)
+        let r2 = diff.clone().powi_scalar(2).sum_dim(2).squeeze_dim::<2>(2); // (N, N)
         let beta = r2.mul_scalar(-gamma).exp().mul_scalar(beta0); // (N, N)
 
         // Brightness mask: bright[i, j] = 1 iff fitness[j] > fitness[i].
@@ -256,7 +256,7 @@ impl<B: Backend> FireflyAlgorithm<B> {
         let beta_m = beta.mask_where(bright_mask.bool_not(), zero);
         let weight = beta_m.unsqueeze_dim::<3>(2).expand([pop, pop, d]); // (N, N, D)
         let weighted = diff.mul(weight); // (N, N, D)
-        let attr_sum = weighted.sum_dim(1).squeeze::<2>(); // (N, D)
+        let attr_sum = weighted.sum_dim(1).squeeze_dim::<2>(1); // (N, D)
 
         // Noise: α · (U[0,1] - 0.5). Host-sample from the supplied seed so
         // the draw is reproducible across thread schedules rather than
@@ -600,6 +600,38 @@ mod tests {
         approx::assert_relative_eq!(d[3], 0.0, epsilon = 1e-6);
     }
 
+    // Gap (b') / issue #233: the `genome_dim = 1` (D == 1) pure-tensor path. The
+    // reductions `sum_dim(2).squeeze_dim::<2>(2)` and `sum_dim(1).squeeze_dim::<2>(1)`
+    // now strip only the reduced axis, so the trailing size-1 genome axis survives
+    // and the kernel no longer panics in burn's `Squeeze` rank-check. Firefly 0 is
+    // dimmer, so it is pulled toward the brighter firefly 1 along the single axis.
+    #[test]
+    fn pure_tensor_attract_d1_pulls_toward_brighter() {
+        let device = Default::default();
+        // 1-D positions: firefly 0 at [0.0], firefly 1 at [1.0].
+        let positions = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(vec![0.0_f32, 1.0], [2, 1]),
+            &device,
+        );
+        // firefly 1 is brighter (higher canonical fitness).
+        let fitness = [0.0_f32, 1.0];
+        let delta = FireflyAlgorithm::<TestBackend>::pure_tensor_attract(
+            &positions, &fitness, 1.0, // beta0
+            0.0, // gamma → attractiveness == beta0
+            0.0, // alpha → no noise
+            &device, 0,
+        );
+        assert_eq!(delta.dims(), [2, 1], "displacement is (pop, d)");
+        let d = delta
+            .into_data()
+            .into_vec::<f32>()
+            .expect("delta readable as f32");
+        // Firefly 0 moves +1·(x_1 − x_0) = +1 toward the brighter one.
+        approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
+        // Brightest firefly has no brighter neighbour → no attraction.
+        approx::assert_relative_eq!(d[1], 0.0, epsilon = 1e-6);
+    }
+
     // Gap (c): `argmax_host` edge cases. Empty slice panics; an all-`NaN` slice
     // (nothing exceeds the `−∞` seed) falls back to index 0; a single element is
     // trivially the max.
@@ -708,5 +740,29 @@ mod tests {
             m.best_fitness_ever()
         );
         assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
+
+    // Gap (b') cont. / issue #233: a full `genome_dim = 1` run drives the harness
+    // to completion without panicking and records a finite best.
+    #[test]
+    fn boundary_genome_dim_one_runs() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(8, 1);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 6, device, 6,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite(),
+            "non-finite best for genome_dim = 1"
+        );
     }
 }
