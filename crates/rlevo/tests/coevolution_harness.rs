@@ -18,6 +18,7 @@ use rlevo_benchmarks::evaluator::{Evaluator, EvaluatorConfig};
 use rlevo_benchmarks::reporter::logging::LoggingReporter;
 use rlevo_benchmarks::suite::Suite;
 use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::CoEvolutionaryHarness;
 use rlevo_evolution::algorithms::ga::{
@@ -71,6 +72,12 @@ impl CoupledFitness<B> for PredatorPrey {
             Tensor::<B, 1>::from_data(TensorData::new(predator.clone(), [predator.len()]), &device),
             Tensor::<B, 1>::from_data(TensorData::new(prey.clone(), [prey.len()]), &device),
         ]
+    }
+
+    /// Both objectives are natural costs (see the struct doc), so the coupled
+    /// fitness is a `Minimize`; the co-evolution algorithm canonicalises it.
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Minimize
     }
 }
 

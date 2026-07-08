@@ -7,13 +7,30 @@
 //! [`CoupledFitness`] trait captures exactly that joint evaluation.
 
 use burn::tensor::{Tensor, backend::Backend};
+use rlevo_core::objective::ObjectiveSense;
 
 /// Joint fitness evaluation across two or more co-evolving populations.
 ///
 /// `evaluate_coupled` receives every population at once and returns one
-/// fitness vector per population, each ranked under the crate-wide canonical
-/// **maximise convention** (higher is better — see
-/// [`crate::strategy::Strategy`]).
+/// fitness vector per population, each in the objective's **natural** value
+/// space (in the direction declared by [`sense`](Self::sense) — a cost is
+/// returned as its natural cost, a reward/score as its natural value, with no
+/// hand-negation). The co-evolutionary **algorithm** is the sole
+/// canonicalisation chokepoint: it maps natural → canonical (maximise-native)
+/// space once per generation, exactly as the
+/// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness) does for the
+/// single-population path (ADR 0023).
+///
+/// # Uniform-direction constraint
+///
+/// [`sense`](Self::sense) applies **uniformly to every returned population
+/// vector** — all populations must be reported in one common direction. A
+/// truly asymmetric / zero-sum objective (population A *maximises* a score
+/// while population B *minimises* the same score) has **no** compliant
+/// single-`sense()` representation and must be pre-expressed by the
+/// implementor: e.g. return A's score and B's **negated** score, both declared
+/// [`Maximize`](ObjectiveSense::Maximize). Otherwise one population would be
+/// silently anti-optimised (canonicalised in the wrong direction).
 ///
 /// # Invariants
 ///
@@ -30,11 +47,13 @@ use burn::tensor::{Tensor, backend::Backend};
 ///
 /// # Examples
 ///
-/// A trivial separable implementor scoring each population by its row sums:
+/// A trivial separable implementor scoring each population by its row sums
+/// (a natural maximise):
 ///
 /// ```
 /// use burn::backend::Flex;
 /// use burn::tensor::{Tensor, TensorData, backend::Backend};
+/// use rlevo_core::objective::ObjectiveSense;
 /// use rlevo_evolution::coevolution::CoupledFitness;
 ///
 /// struct RowSum;
@@ -45,6 +64,9 @@ use burn::tensor::{Tensor, backend::Backend};
 ///             .iter()
 ///             .map(|p| p.clone().sum_dim(1).squeeze_dim::<1>(1))
 ///             .collect()
+///     }
+///     fn sense(&self) -> ObjectiveSense {
+///         ObjectiveSense::Maximize
 ///     }
 /// }
 ///
@@ -59,19 +81,36 @@ pub trait CoupledFitness<B: Backend>: Send + Sync {
     ///
     /// `populations[i]` is a `(pop_size_i, genome_dim_i)` tensor. Returns one
     /// fitness vector per input population, each of length `pop_size_i`, on
-    /// the same device as its population.
+    /// the same device as its population, in the objective's **natural** value
+    /// space (see [`sense`](Self::sense)). The co-evolutionary algorithm
+    /// canonicalises these before ordering, selection, or metrics — do not
+    /// hand-negate a cost here.
     ///
     /// # Sanitization boundary
     ///
     /// The returned fitness vectors **may contain `NaN` or `±∞`** —
     /// implementors are not required to sanitize. Co-evolution is its own
     /// driver (there is no [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness)
-    /// above it), so the co-evolutionary algorithms sanitize at their
-    /// state-write chokepoint (`NaN → −∞`, `+∞ → f32::MAX`) immediately after
-    /// this call, before any per-population `tell`, metric, or hall-of-fame
-    /// sees the fitness (ADR 0034). A direct caller that bypasses those
-    /// algorithms must apply the same hygiene itself.
+    /// above it), so the co-evolutionary algorithms canonicalise **and then**
+    /// sanitize (`NaN → −∞`, `+∞ → f32::MAX`) at their state-write chokepoint
+    /// immediately after this call — sanitisation runs *after* canonicalisation
+    /// because "`NaN` = worst" is only well-defined in maximise space — before
+    /// any per-population `tell`, metric, or hall-of-fame sees the fitness
+    /// (ADR 0034). A direct caller that bypasses those algorithms must apply the
+    /// same canonicalise-then-sanitize itself.
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>>;
+
+    /// Objective direction — the **single source of truth** (ADR 0023).
+    ///
+    /// Required, with no default, mirroring
+    /// [`BatchFitnessFn::sense`](crate::fitness::BatchFitnessFn::sense): a
+    /// reward/score objective cannot silently inherit the wrong direction by
+    /// omission. The co-evolutionary algorithm reads this once per generation
+    /// and canonicalises every returned population vector into the engine's
+    /// maximise-native space (negate iff [`Minimize`](ObjectiveSense::Minimize)).
+    /// Per the uniform-direction constraint above, the returned sense applies to
+    /// **all** populations.
+    fn sense(&self) -> ObjectiveSense;
 
     /// Per-population archive sizes, used to populate co-evolution metrics.
     ///
@@ -102,6 +141,9 @@ mod tests {
                 .iter()
                 .map(|p| p.clone().sum_dim(1).squeeze_dim::<1>(1))
                 .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
         }
     }
 

@@ -34,6 +34,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use rlevo_core::bounds::Bounds;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 use rlevo_evolution::algorithms::ga::{
@@ -159,6 +160,12 @@ impl CoupledFitness<B> for CoverageForgettingFitness {
             Tensor::<B, 1>::from_data(TensorData::new(solver.clone(), [solver.len()]), &device),
             Tensor::<B, 1>::from_data(TensorData::new(tester.clone(), [tester.len()]), &device),
         ]
+    }
+
+    /// Both fitness vectors are already pre-negated to maximise-native form
+    /// (see the per-vector comments), so declare [`ObjectiveSense::Maximize`].
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
     }
 }
 

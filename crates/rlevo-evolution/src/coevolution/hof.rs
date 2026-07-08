@@ -16,6 +16,7 @@
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use parking_lot::Mutex;
+use rlevo_core::objective::ObjectiveSense;
 
 use super::fitness::CoupledFitness;
 use crate::fitness::sanitize_fitness;
@@ -83,6 +84,12 @@ impl<B: Backend> HallOfFame<B> {
     /// appended to `archives[p]` (canonical maximise: higher is better). If that
     /// pushes the archive past `capacity`, the single lowest-fitness (worst)
     /// archived member is removed. Empty populations are skipped.
+    ///
+    /// This method is **sense-blind**: it argmaxes highest = best and evicts
+    /// lowest = worst, which is correct only in canonical (maximise) space. The
+    /// **caller is responsible for passing canonical fitness** — for a
+    /// `Minimize` objective the natural cost must be negated first, or the
+    /// highest-*cost* (worst) individual would be crowned champion.
     ///
     /// # Panics
     ///
@@ -266,18 +273,51 @@ fn blend<B: Backend>(cur: &Tensor<B, 1>, hof: &Tensor<B, 1>, w: f32) -> Tensor<B
 }
 
 impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B, F> {
+    /// Blend the inner fitness against the hall-of-fame archive, in NATURAL
+    /// space.
+    ///
+    /// The returned `blended` is left in the inner objective's **natural** sense
+    /// — the co-evolutionary algorithm canonicalises it, exactly as for the raw
+    /// inner fitness. This is correct because the blend is affine and
+    /// `to_canonical` is negation: `neg((1−w)·cur + w·res) == (1−w)·neg(cur) +
+    /// w·neg(res)`, so canonicalising the blend equals blending the
+    /// canonicalised terms. The internal archive champion-selection is a
+    /// *separate* concern and **is** canonicalised here (see `current_canon`),
+    /// because [`HallOfFame::update`] argmaxes highest = best in maximise space.
+    ///
+    /// This method is logically **serial per instance**: the archive snapshot
+    /// and the later `update` are two separate lock acquisitions, so a single
+    /// instance's generations must not be evaluated concurrently (each harness
+    /// owns its own wrapper instance, so this holds by construction).
     fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
         debug_assert_eq!(populations.len(), 2, "v1 hall-of-fame is bi-population");
-        let current = self.inner.evaluate_coupled(populations);
+        let sense = self.inner.sense();
+        let current = self.inner.evaluate_coupled(populations); // natural
         let w = self.hof_blend_weight;
-        let mut hall = self.hall.lock();
+
+        // Canonicalise the current-gen fitness for archive champion-selection
+        // and eviction (both run in maximise-native space in `HallOfFame::update`).
+        // Done UNCONDITIONALLY — even at w=0 the archive is still updated and its
+        // champion selection must be canonical.
+        let current_canon: Vec<Tensor<B, 1>> = current
+            .iter()
+            .map(|t| match sense {
+                ObjectiveSense::Maximize => t.clone(),
+                ObjectiveSense::Minimize => t.clone().neg(),
+            })
+            .collect();
+
+        // Snapshot the archives under the lock, then RELEASE it before the heavy
+        // inner `evaluate_coupled` calls. Burn tensors are Arc-backed, so these
+        // clones are cheap handle bumps.
+        let (archive_a, archive_b) = {
+            let hall = self.hall.lock();
+            (hall.archives()[0].clone(), hall.archives()[1].clone())
+        };
 
         let blended = if w <= 0.0 {
             current.clone()
         } else {
-            let archive_a = hall.archives()[0].clone();
-            let archive_b = hall.archives()[1].clone();
-
             // Population A scored against the archived B champions.
             let blended_a = if archive_b.dims()[0] > 0 {
                 let res = self
@@ -299,9 +339,15 @@ impl<B: Backend, F: CoupledFitness<B>> CoupledFitness<B> for HallOfFameFitness<B
             vec![blended_a, blended_b]
         };
 
-        // Archive this generation's champions by their current-gen fitness.
-        hall.update(populations, &current);
+        // Re-acquire only for the cheap archive mutation. Champions are selected
+        // from the CANONICAL current-gen fitness (`HallOfFame::update` is
+        // sense-blind and argmaxes highest = best in maximise space).
+        self.hall.lock().update(populations, &current_canon);
         blended
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        self.inner.sense()
     }
 
     fn archive_sizes(&self) -> Vec<usize> {
@@ -374,6 +420,9 @@ mod tests {
                 .map(|p| p.clone().sum_dim(1).squeeze_dim::<1>(1))
                 .collect()
         }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
     }
 
     #[test]
@@ -388,6 +437,86 @@ mod tests {
         assert_eq!(out[0].dims(), [2]);
         // One champion archived per population after one evaluation.
         assert_eq!(wrapper.archive_sizes(), vec![1, 1]);
+    }
+
+    /// Inner cost fitness: each individual's natural cost is its genome's first
+    /// column value (lower is better), declared [`ObjectiveSense::Minimize`].
+    struct MinCost;
+    impl CoupledFitness<B> for MinCost {
+        fn evaluate_coupled(&self, populations: &[Tensor<B, 2>]) -> Vec<Tensor<B, 1>> {
+            populations
+                .iter()
+                .map(|p| {
+                    // Cost = first-column value of each row.
+                    p.clone().narrow(1, 0, 1).squeeze_dim::<1>(1)
+                })
+                .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Minimize
+        }
+    }
+
+    /// Under [`ObjectiveSense::Minimize`], the archived champion must be the
+    /// LOWEST-cost (best) individual, not the highest — proving the
+    /// canonicalisation in `HallOfFameFitness::evaluate_coupled` reaches
+    /// `HallOfFame::update`'s champion selection. Row 1 (cost `1.0`) is the
+    /// unique minimum; the archive must hold its genome, not row 2 (cost `5.0`).
+    #[test]
+    fn minimize_archives_lowest_cost_champion() {
+        let device = Default::default();
+        let wrapper = HallOfFameFitness::new(MinCost, 2, 50, 1, &device);
+        // Rows: costs 3.0, 1.0, 5.0 -> min is row 1.
+        let a = pop(&[3.0, 1.0, 5.0], 3, 1);
+        let b = pop(&[3.0, 1.0, 5.0], 3, 1);
+        let _ = wrapper.evaluate_coupled(&[a, b]);
+
+        let champ = {
+            let hall = wrapper.hall.lock();
+            hall.archives()[0]
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("archived champion host-read")
+        };
+        assert_eq!(
+            champ,
+            vec![1.0],
+            "Minimize champion must be the min-cost genome (1.0), not the max-cost one"
+        );
+    }
+
+    /// The highest-risk invariant of the ADR 0035 change: the `current_canon`
+    /// canonicalisation must sit OUTSIDE the `if w <= 0.0` branch of
+    /// `HallOfFameFitness::evaluate_coupled`. At blend weight `0` the blend is
+    /// skipped but the archive is STILL updated, so champion selection must
+    /// remain canonical — otherwise a `Minimize` objective would crown the
+    /// highest-cost (worst) individual. This pins that: if someone moves
+    /// `current_canon` inside the `w <= 0.0` branch, the archived champion flips
+    /// to the max-cost row and this test fails.
+    #[test]
+    fn minimize_archives_lowest_cost_champion_even_at_zero_blend() {
+        let device = Default::default();
+        let wrapper = HallOfFameFitness::new(MinCost, 2, 50, 1, &device).with_blend_weight(0.0);
+        // Rows: costs 3.0, 1.0, 5.0 -> min is row 1.
+        let a = pop(&[3.0, 1.0, 5.0], 3, 1);
+        let b = pop(&[3.0, 1.0, 5.0], 3, 1);
+        let _ = wrapper.evaluate_coupled(&[a, b]);
+
+        let champ = {
+            let hall = wrapper.hall.lock();
+            hall.archives()[0]
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("archived champion host-read")
+        };
+        assert_eq!(
+            champ,
+            vec![1.0],
+            "at w=0 the Minimize champion must still be the min-cost genome (1.0), \
+             proving canonicalisation reaches champion selection with blending disabled"
+        );
     }
 
     #[test]
