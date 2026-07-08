@@ -726,6 +726,129 @@ mod tests {
         );
     }
 
+    /// `mutate_genome` preserves genome length and, at `mutation_rate == 0.0`,
+    /// is a no-op (`rng.random() >= 0.0` always holds, so every gene is skipped).
+    #[test]
+    fn mutate_genome_zero_rate_is_length_preserving_noop() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut params = CgpConfig::default_for(2);
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut genome =
+            CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(&params, &mut rng);
+        let before = genome.clone();
+
+        params.mutation_rate = Probability::new(0.0);
+        mutate_genome(&mut genome, &params, &mut rng);
+        assert_eq!(genome.len(), before.len(), "length must be preserved");
+        assert_eq!(genome, before, "rate 0.0 must leave the genome untouched");
+    }
+
+    /// Feed-forward / `levels_back` invariant: for a fresh genome and for a
+    /// fully mutated one (`rate == 1.0`), every node input gene references only
+    /// an earlier node or a graph input, and node references stay within the
+    /// `levels_back` column window. Verified on a single-row grid so the node
+    /// global index is `n_inputs + col`.
+    #[test]
+    fn genome_respects_feedforward_and_levels_back() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let n_inputs = 2usize;
+        let cols = 8usize;
+        let levels_back = 3usize;
+        let mut params = CgpConfig::default_for(n_inputs);
+        params.rows = 1;
+        params.cols = cols;
+        params.levels_back = levels_back;
+
+        // Assert the invariant for an arbitrary host genome layout.
+        let check = |genome: &[i64]| {
+            for col in 0..cols {
+                let base = col * CgpConfig::GENES_PER_NODE;
+                let func = genome[base];
+                #[allow(clippy::cast_possible_wrap)]
+                let num_funcs = NUM_FUNCTIONS as i64;
+                assert!(
+                    (0..num_funcs).contains(&func),
+                    "function id {func} out of range at col {col}"
+                );
+                #[allow(clippy::cast_possible_wrap)]
+                let node_global = (n_inputs + col) as i64;
+                #[allow(clippy::cast_possible_wrap)]
+                let n_in = n_inputs as i64;
+                #[allow(clippy::cast_possible_wrap)]
+                let min_node_ref = (n_inputs + col.saturating_sub(levels_back)) as i64;
+                for &inp in &[genome[base + 1], genome[base + 2]] {
+                    assert!(
+                        inp < node_global,
+                        "col {col}: input {inp} must be strictly earlier than node {node_global}"
+                    );
+                    assert!(
+                        inp < n_in || inp >= min_node_ref,
+                        "col {col}: node input {inp} outside the levels_back window \
+                         [{min_node_ref}, {node_global})"
+                    );
+                }
+            }
+        };
+
+        let mut rng = StdRng::seed_from_u64(19);
+        let genome =
+            CartesianGeneticProgramming::<TestBackend>::sample_initial_genome(&params, &mut rng);
+        check(&genome);
+
+        // Fully mutate, then re-check: mutation must also honor the invariant.
+        let mut mutated = genome.clone();
+        params.mutation_rate = Probability::new(1.0);
+        mutate_genome(&mut mutated, &params, &mut rng);
+        assert_eq!(mutated.len(), genome.len(), "mutation preserves length");
+        check(&mutated);
+    }
+
+    /// Out-of-range input and output gene indices are clamped to the last
+    /// buffer slot rather than panicking, keeping evaluation robust to
+    /// mutated-but-unrepaired genotypes.
+    #[test]
+    fn evaluate_cgp_clamps_out_of_range_indices() {
+        let params = CgpConfig {
+            lambda: 1,
+            n_inputs: 1,
+            rows: 1,
+            cols: 1,
+            mutation_rate: Probability::new(0.1),
+            levels_back: usize::MAX,
+        };
+        // [func=add, in0, in1, output] with every index far out of range.
+        let genome: Vec<i64> = vec![0, 999, 999, 999];
+        let inputs: Vec<Vec<f32>> = vec![vec![2.0], vec![3.0]];
+        let out = evaluate_cgp(&genome, &params, &inputs);
+        assert_eq!(out.len(), inputs.len(), "one output per input row");
+        assert!(
+            out.iter().all(|v| v.is_finite()),
+            "clamped evaluation must stay finite, got {out:?}"
+        );
+    }
+
+    /// `best()` returns `None` before the first `tell` (no champion recorded
+    /// yet), matching the documented contract.
+    #[test]
+    fn best_is_none_before_first_tell() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+        let params = CgpConfig::default_for(1);
+        let mut rng = StdRng::seed_from_u64(0);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(
+            strategy.best(&state).is_none(),
+            "best must be None before the first tell"
+        );
+    }
+
     /// Symbolic regression on `x² + 1` over 20 evenly spaced x ∈ [−1, 1].
     struct SymRegression {
         params: CgpConfig,

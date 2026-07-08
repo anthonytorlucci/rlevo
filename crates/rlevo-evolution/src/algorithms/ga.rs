@@ -522,4 +522,54 @@ mod tests {
             m.best_fitness_ever()
         );
     }
+
+    /// §7.2 monotone-`best_fitness_ever` property: the rolling best fitness a
+    /// caller reads from [`StrategyMetrics::best_fitness_ever`] must never
+    /// decrease across generations. Driven on a *maximise* objective (so the
+    /// user-space value is the canonical value unflipped), the elitist GA can
+    /// only ever raise or hold the rolling best. (Determinism is covered in
+    /// `tests/determinism.rs` — not duplicated here.)
+    #[test]
+    fn best_fitness_ever_is_monotone_nondecreasing() {
+        use rlevo_core::objective::ObjectiveSense;
+
+        let device = Default::default();
+        let strategy = GeneticAlgorithm::<TestBackend>::new();
+        let params = GaConfig {
+            pop_size: 32,
+            genome_dim: 3,
+            bounds: Bounds::new(-5.0, 5.0),
+            mutation_sigma: NonNegativeRate::new(0.3),
+            selection: GaSelection::Tournament { size: 2 },
+            crossover: GaCrossover::BlxAlpha {
+                alpha: NonNegativeRate::new(0.5),
+            },
+            replacement: GaReplacement::Elitist { elitism_k: 1 },
+        };
+        // Maximise sum-of-squares: the objective sense is irrelevant to the
+        // property (monotonicity, not convergence), but a maximise sense makes
+        // the reported user-space value equal the canonical rolling best.
+        let fitness_fn =
+            FromFitnessEvaluable::with_sense(SphereFit, Sphere, ObjectiveSense::Maximize);
+
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 123, device, 40,
+        )
+        .expect("valid params");
+        harness.reset();
+
+        let mut prev: f32 = f32::NEG_INFINITY;
+        loop {
+            let step = harness.step(());
+            let cur: f32 = harness.latest_metrics().unwrap().best_fitness_ever();
+            assert!(
+                cur >= prev,
+                "best_fitness_ever must be non-decreasing: {cur} >= {prev}"
+            );
+            prev = cur;
+            if step.done {
+                break;
+            }
+        }
+    }
 }

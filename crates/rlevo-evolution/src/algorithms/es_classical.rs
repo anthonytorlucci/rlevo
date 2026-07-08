@@ -809,6 +809,104 @@ mod tests {
         }
     }
 
+    /// Both the plain argmax and the truncation selector used by ES survivor
+    /// selection must return valid, in-range, pairwise-distinct indices even
+    /// when the fitness slice carries `NaN` values (fitness-hygiene: a `NaN`
+    /// ranks as worst and never as a survivor). Guards against an
+    /// out-of-bounds gather in `tell` (`es_classical` §7.2, valid index).
+    #[test]
+    fn selection_returns_in_range_indices() {
+        let fitness = [1.0_f32, f32::NAN, 5.0, 2.0, -3.0, f32::NAN];
+        let n = fitness.len();
+
+        let amax = argmax_host(&fitness);
+        assert!(amax < n, "argmax index {amax} out of range for len {n}");
+
+        for mu in 1..=4 {
+            let idx = crate::ops::selection::truncation_indices_host(&fitness, mu);
+            assert_eq!(idx.len(), mu, "truncation must return exactly mu indices");
+            for (a, &x) in idx.iter().enumerate() {
+                assert!(
+                    usize::try_from(x).is_ok_and(|xi| xi < n),
+                    "truncation index {x} out of range for len {n}"
+                );
+                for &y in &idx[a + 1..] {
+                    assert_ne!(x, y, "truncation indices must be pairwise distinct");
+                }
+            }
+        }
+    }
+
+    /// Canonical (maximise) fitness `−Σ xᵢ²` read straight off a genome tensor,
+    /// so tests can drive a strategy directly without the harness.
+    fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
+        let device = pop.device();
+        let [n, d] = pop.dims();
+        let rows: Vec<f32> = pop
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
+        #[allow(clippy::needless_range_loop)]
+        let fit: Vec<f32> = (0..n)
+            .map(|i| -(0..d).map(|j| rows[i * d + j].powi(2)).sum::<f32>())
+            .collect();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(fit, [n]), &device)
+    }
+
+    /// Drives an ES variant directly for `gens` generations against the
+    /// canonical maximise `−sphere`, returning the `best_fitness_ever`
+    /// trajectory reported by each `tell`.
+    fn run_es_best_ever(kind: EsKind, dim: usize, gens: usize, seed: u64) -> Vec<f32> {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = EvolutionStrategy::<TestBackend>::new();
+        let params = EsConfig::default_for(kind, dim);
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut state = strategy.init(&params, &mut rng, &device);
+        let mut traj = Vec::with_capacity(gens);
+        for _ in 0..gens {
+            let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = neg_sphere(&offspring);
+            let (advanced, m) = strategy.tell(&params, offspring, fitness, next, &mut rng);
+            traj.push(m.best_fitness_ever());
+            state = advanced;
+        }
+        traj
+    }
+
+    /// `best_fitness_ever` is a rolling maximum in canonical space, so on a
+    /// maximise problem it must never decrease from one generation to the next
+    /// across every ES variant (`es_classical` §7.2, monotone best-ever). This
+    /// pins the invariant that the algorithm threads the rolling best through
+    /// `tell` and never resets it — including the `(μ,λ)` variant that discards
+    /// its parent pool each generation.
+    #[test]
+    fn best_fitness_ever_is_monotonic_on_maximize() {
+        for kind in [
+            EsKind::OnePlusOne,
+            EsKind::OnePlusLambda { lambda: 6 },
+            EsKind::MuPlusLambda { mu: 3, lambda: 8 },
+            EsKind::MuCommaLambda { mu: 3, lambda: 8 },
+        ] {
+            let traj = run_es_best_ever(kind, 3, 40, 17);
+            for w in traj.windows(2) {
+                assert!(
+                    w[1] >= w[0],
+                    "best_fitness_ever decreased for {kind:?}: {} -> {}",
+                    w[0],
+                    w[1]
+                );
+            }
+            assert!(
+                traj.last().copied().unwrap().is_finite(),
+                "rolling best must stay finite for {kind:?}"
+            );
+        }
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {

@@ -493,6 +493,183 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "tournament_q");
     }
 
+    /// `μ = 0` is the degenerate empty population; the config guard must reject
+    /// it (`config::at_least("mu", .., 1)`) so no zero-row parent tensor ever
+    /// reaches `init` (`ep` §7, edge case).
+    #[test]
+    fn rejects_zero_mu() {
+        let cfg = EpConfig::default_for(0, 10);
+        assert_eq!(cfg.validate().unwrap_err().field, "mu");
+    }
+
+    /// `μ = 1` is the smallest population the config accepts; it must validate
+    /// and drive without panicking through several generations (`ep` §7, edge
+    /// case — smallest degenerate μ is handled, not rejected).
+    #[test]
+    fn mu_one_is_handled() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let mut params = EpConfig::default_for(1, 3);
+        // q-tournament needs `q <= 2·μ`; with μ = 1 the ceiling is 2.
+        params.tournament_q = 2;
+        assert!(params.validate().is_ok(), "μ = 1 config must validate");
+
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut state = strategy.init(&params, &mut rng, &device);
+        for _ in 0..10 {
+            let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = neg_sphere(&offspring);
+            let (advanced, _) = strategy.tell(&params, offspring, fitness, next, &mut rng);
+            state = advanced;
+        }
+        assert_eq!(
+            state.parents.dims()[0],
+            1,
+            "μ = 1 must keep a single parent"
+        );
+    }
+
+    /// Canonical (maximise) fitness `−Σ xᵢ²` read straight off a genome tensor,
+    /// so tests can drive a strategy directly without the harness.
+    fn neg_sphere(pop: &Tensor<TestBackend, 2>) -> Tensor<TestBackend, 1> {
+        let device = pop.device();
+        let [n, d] = pop.dims();
+        let rows: Vec<f32> = pop
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
+        #[allow(clippy::needless_range_loop)]
+        let fit: Vec<f32> = (0..n)
+            .map(|i| -(0..d).map(|j| rows[i * d + j].powi(2)).sum::<f32>())
+            .collect();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(fit, [n]), &device)
+    }
+
+    /// Drives EP for `gens` generations from a fixed seed, returning the
+    /// per-generation `best_fitness_ever` trajectory.
+    fn run_ep_trajectory(seed: u64, gens: usize) -> Vec<f32> {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let params = EpConfig::default_for(8, 3);
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut state = strategy.init(&params, &mut rng, &device);
+        let mut traj = Vec::with_capacity(gens);
+        for _ in 0..gens {
+            let (offspring, next) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = neg_sphere(&offspring);
+            let (advanced, m) = strategy.tell(&params, offspring, fitness, next, &mut rng);
+            traj.push(m.best_fitness_ever());
+            state = advanced;
+        }
+        traj
+    }
+
+    /// Same seed → identical trajectory. Every stochastic draw is host-sampled
+    /// through `seed_stream`, so two runs keyed on the same outer seed must be
+    /// bit-identical (`ep` §7, reproducibility). Both runs execute sequentially
+    /// inside one test body so no sibling test can perturb them.
+    #[test]
+    fn same_seed_reproduces_trajectory() {
+        let a = run_ep_trajectory(2024, 30);
+        let b = run_ep_trajectory(2024, 30);
+        assert_eq!(a, b, "EP trajectory diverged under identical seed");
+    }
+
+    /// The genome reported by [`Strategy::best`] must be the population row that
+    /// actually achieved the reported best fitness (`ep` §7, `best_genome`
+    /// invariant). A strictly increasing fitness makes the argmax the unique
+    /// last row, so the expected genome is unambiguous.
+    #[test]
+    fn best_genome_matches_best_fitness() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = EvolutionaryProgramming::<TestBackend>::new();
+        let params = EpConfig::default_for(6, 3);
+        let mut rng = StdRng::seed_from_u64(5);
+        let state = strategy.init(&params, &mut rng, &device);
+        // First ask returns the initial parents; the first tell initializes
+        // best_genome/best_fitness from their evaluation.
+        let (parents0, s) = strategy.ask(&params, &state, &mut rng, &device);
+        let [n, d] = parents0.dims();
+        #[allow(clippy::cast_precision_loss)]
+        let fit_vec: Vec<f32> = (0..n).map(|i| i as f32).collect();
+        let expected_idx = n - 1;
+        let expected_fit = fit_vec[expected_idx];
+        let parent_rows: Vec<f32> = parents0
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("parent host-read of a tensor this test just built");
+        let expected_genome: Vec<f32> =
+            parent_rows[expected_idx * d..(expected_idx + 1) * d].to_vec();
+
+        let fitness = Tensor::<TestBackend, 1>::from_data(TensorData::new(fit_vec, [n]), &device);
+        let (s, _) = strategy.tell(&params, parents0, fitness, s, &mut rng);
+
+        let (genome, best_fit) = strategy.best(&s).expect("best after first tell");
+        approx::assert_relative_eq!(best_fit, expected_fit);
+        let got: Vec<f32> = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("best-genome host-read of a tensor this test just built");
+        for (g, e) in got.iter().zip(expected_genome.iter()) {
+            approx::assert_relative_eq!(*g, *e);
+        }
+    }
+
+    /// Sphere landscape returning `NaN` for half the domain (see the DE mirror).
+    struct NanSphere;
+    struct NanSphereFit;
+    impl FitnessEvaluable for NanSphereFit {
+        type Individual = Vec<f64>;
+        type Landscape = NanSphere;
+        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+            let s: f64 = x.iter().map(|v| v * v).sum();
+            if x[0] > 0.0 { f64::NAN } else { s }
+        }
+    }
+
+    /// A `NaN`-producing fitness must not crash EP nor become the reported best.
+    /// The harness sanitizes `NaN → −∞` before the pool ever reaches
+    /// q-tournament selection, so a poisoned member always loses its bouts and
+    /// the tiebreak `sanitize_fitness` keeps it out of the survivor set
+    /// (`ep` §7, NaN regression).
+    #[test]
+    fn nan_fitness_never_becomes_best() {
+        let device = Default::default();
+        let params = EpConfig::default_for(20, 4);
+        let fitness_fn = FromFitnessEvaluable::new(NanSphereFit, NanSphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            EvolutionaryProgramming::<TestBackend>::new(),
+            params,
+            fitness_fn,
+            77,
+            device,
+            40,
+        )
+        .expect("valid params");
+        harness.reset();
+        loop {
+            if harness.step(()).done {
+                break;
+            }
+        }
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        assert!(
+            best.is_finite(),
+            "NaN fitness poisoned best_fitness_ever: {best}"
+        );
+    }
+
     /// `genome_dim == 0` makes `tau = 1/sqrt(2·sqrt(0)) = +∞`; the config guard
     /// must reject it at construction (ADR 0026) so the non-finite τ never
     /// reaches the first `ask` (issue #132, `ep` §1.2).

@@ -485,6 +485,11 @@ where
                 cov_new[i * d + j] = (1.0 - blend) * c_old[i * d + j] + blend * rankmu;
             }
         }
+        // Defensive float-drift hygiene (pycma-style): the Beyer & Sendhoff
+        // (2008, PPSN X) rank-μ blend is symmetric by construction, so this
+        // re-symmetrization is a no-op today; it guards the solver's symmetry
+        // assumption against a future edit that reorders the accumulation.
+        symmetrize(&mut cov_new, d);
 
         update_best(&mut state, &population, &fitness_host);
 
@@ -867,5 +872,83 @@ mod tests {
             (cfg.tau - es_classical_tau).abs() > 0.1,
             "canonical CMSA τ must differ from es_classical τ"
         );
+    }
+
+    /// Issue #147 §7.2 determinism: two runs from the same seed produce
+    /// bit-identical trajectories. CMSA-ES host-samples off a `StdRng` threaded
+    /// through `init`/`ask` (which key their `seed_stream`s on `rng.next_u64()`
+    /// and the generation counter), so an identical seed and identical call
+    /// sequence must reproduce the mean, covariance, and σ̄ exactly.
+    #[test]
+    fn same_seed_yields_identical_trajectories() {
+        fn run() -> (Vec<f32>, Vec<f32>, f32) {
+            let strategy = CmsaEs::<Flex>::new();
+            let params = CmsaEsConfig::with_pop_size(8, 3);
+            let device = Default::default();
+            let mut rng = StdRng::seed_from_u64(0xD37E_2711);
+            let mut state = strategy.init(&params, &mut rng, &device);
+            for _ in 0..4 {
+                let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+                let fitness = Tensor::<Flex, 1>::from_data(
+                    TensorData::new(vec![8.0f32, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0], [8]),
+                    &device,
+                );
+                let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+                state = told;
+            }
+            (state.mean().to_vec(), state.cov().to_vec(), state.sigma())
+        }
+
+        let (mean_a, cov_a, sigma_a): (Vec<f32>, Vec<f32>, f32) = run();
+        let (mean_b, cov_b, sigma_b): (Vec<f32>, Vec<f32>, f32) = run();
+        assert_eq!(
+            mean_a, mean_b,
+            "mean trajectory diverged under a fixed seed"
+        );
+        assert_eq!(
+            cov_a, cov_b,
+            "covariance trajectory diverged under a fixed seed"
+        );
+        assert_eq!(
+            sigma_a.to_bits(),
+            sigma_b.to_bits(),
+            "σ̄ trajectory diverged under a fixed seed"
+        );
+    }
+
+    /// Issue #147 §7.2/§7.3 regression: the rank-μ covariance blend must keep `C`
+    /// bit-exactly symmetric across several generations. Guards the explicit
+    /// `symmetrize` at the blend chokepoint (defensive float-drift hygiene per
+    /// Beyer & Sendhoff 2008) against a future edit that reorders the outer-
+    /// product accumulation and breaks the commutativity assumption.
+    #[test]
+    fn covariance_stays_symmetric_across_generations() {
+        let strategy = CmsaEs::<Flex>::new();
+        let params = CmsaEsConfig::with_pop_size(8, 3);
+        let d: usize = params.genome_dim;
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x5A11_9E77);
+
+        let mut state = strategy.init(&params, &mut rng, &device);
+        for generation in 0..5 {
+            let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = Tensor::<Flex, 1>::from_data(
+                TensorData::new(vec![8.0f32, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0], [8]),
+                &device,
+            );
+            let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+            let cov: &[f32] = told.cov();
+            for i in 0..d {
+                for j in 0..d {
+                    assert_eq!(
+                        cov[i * d + j].to_bits(),
+                        cov[j * d + i].to_bits(),
+                        "asymmetry at ({i}, {j}) in generation {generation}"
+                    );
+                }
+            }
+            state = told;
+        }
     }
 }

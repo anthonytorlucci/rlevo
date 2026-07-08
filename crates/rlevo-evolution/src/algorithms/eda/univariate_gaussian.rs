@@ -488,4 +488,107 @@ mod tests {
         assert!(state.mean[0].is_finite(), "mean must be finite");
         approx::assert_relative_eq!(state.mean[0], p.init_mean, epsilon = 1e-12);
     }
+
+    #[test]
+    fn single_row_variance_floored() {
+        // §7.1: k == 1. Each column's only deviation is from its own value, so
+        // the MLE variance is exactly 0 and must floor to min_variance, while the
+        // mean equals the single row.
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(2);
+        let prior = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            None,
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prior),
+            pop(vec![5.0, -3.0], 1, 2),
+            fitness(vec![0.0]),
+            &device,
+        );
+        approx::assert_relative_eq!(state.mean[0], 5.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(state.mean[1], -3.0, epsilon = 1e-6);
+        for v in &state.variance {
+            approx::assert_relative_eq!(*v, p.min_variance, epsilon = 1e-9);
+        }
+    }
+
+    #[test]
+    fn seeded_sampling_variance_matches_state() {
+        // §7.1: the empirical variance of a large seeded sample must match the
+        // per-dimension variance stored in the state (the mean case is covered by
+        // `seeded_sampling_mean_matches_state`).
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let state = UnivariateGaussianState {
+            mean: vec![3.0, -1.0],
+            variance: vec![1.0, 0.25],
+        };
+        let mut rng = StdRng::seed_from_u64(321);
+        let n = 20_000_usize;
+        let samples = <UnivariateGaussian as ProbabilityModel<TestBackend>>::sample(
+            &model, &state, n, &mut rng, &device,
+        );
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        // n = 20_000 fits f64 exactly; the cast is lossless.
+        #[allow(clippy::cast_precision_loss)]
+        let nf = n as f64;
+        for j in 0..2 {
+            let mut sum = 0.0_f64;
+            for i in 0..n {
+                sum += f64::from(data[i * 2 + j]);
+            }
+            let mean = sum / nf;
+            let mut var = 0.0_f64;
+            for i in 0..n {
+                let diff = f64::from(data[i * 2 + j]) - mean;
+                var += diff * diff;
+            }
+            var /= nf;
+            // Empirical variance narrowed to f32 for comparison against the state.
+            #[allow(clippy::cast_possible_truncation)]
+            let var_f32 = var as f32;
+            approx::assert_abs_diff_eq!(var_f32, state.variance()[j], epsilon = 0.05);
+        }
+    }
+
+    #[test]
+    fn refit_overwrites_prev_state() {
+        // §7.1: UMDA is a full refit — `fit` recomputes the MLE from the current
+        // population and never blends with the prior state. A wildly different
+        // `prev` must not leak into the result.
+        let device = Default::default();
+        let model = UnivariateGaussian;
+        let p = UnivariateGaussianParams::default_for(1);
+        let prev = UnivariateGaussianState {
+            mean: vec![100.0],
+            variance: vec![50.0],
+        };
+        // Column [0, 2, 4] → mean 2, var (4+0+4)/3 = 8/3.
+        let state = <UnivariateGaussian as ProbabilityModel<TestBackend>>::fit(
+            &model,
+            &p,
+            Some(&prev),
+            pop(vec![0.0, 2.0, 4.0], 3, 1),
+            fitness(vec![0.0, 1.0, 2.0]),
+            &device,
+        );
+        approx::assert_relative_eq!(state.mean[0], 2.0, epsilon = 1e-5);
+        approx::assert_relative_eq!(state.variance[0], 8.0 / 3.0, epsilon = 1e-5);
+        // No blend with the prior's mean 100 / variance 50.
+        assert!(
+            (state.mean[0] - 100.0).abs() > 50.0,
+            "refit must overwrite, not blend with prev mean"
+        );
+    }
 }
