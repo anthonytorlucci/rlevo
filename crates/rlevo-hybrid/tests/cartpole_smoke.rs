@@ -63,12 +63,15 @@ impl ReactivePolicy<TestBackend, CartPole> for PolicyMlp<TestBackend> {
 fn policy_neuroevolution_runs_two_generations_on_cartpole() {
     let device = Default::default();
     let template = PolicyMlp::<TestBackend>::new(&device);
-    let num_params = ModuleReshaper::new(template.clone()).num_params();
+    // Single-source width: build ONE reshaper, read its width, then move it into
+    // the fitness so both agree on `num_params` by construction.
+    let reshaper = ModuleReshaper::new(template.clone());
+    let num_params = reshaper.num_params();
     // 4*8 + 8 + 8*2 + 2 = 58
     assert_eq!(num_params, 58);
 
     let fitness = RolloutFitness::new(
-        ModuleReshaper::new(template.clone()),
+        reshaper,
         || <CartPole as ConstructableEnv>::new(false),
         1,      // episodes_per_eval
         50,     // max_steps_per_episode (CartPole has no intrinsic cap)

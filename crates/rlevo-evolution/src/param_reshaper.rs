@@ -105,6 +105,19 @@ pub trait ParamReshaper<B: Backend>: Send + Sync {
 /// [`flatten`](ParamReshaper::flatten) call visits a module's leaves and
 /// concatenates them.
 ///
+/// # Single-source width convention
+///
+/// A reshaper *is* the genome-width source of truth. Build **one** reshaper for
+/// the width, then hand `reshaper.clone()` (this type is [`Clone`]) to the
+/// fitness adapter — the strategy and its evaluator then agree on
+/// [`num_params`](ParamReshaper::num_params) *by construction*. Prefer this over
+/// building two `ModuleReshaper::new(template.clone())` instances whose widths
+/// match only by convention: a silent divergence surfaces late as the
+/// documented width-mismatch panic in
+/// [`unflatten`](ParamReshaper::unflatten) / `evaluate_batch`. Where a
+/// [`WeightOnly`](crate::algorithms::neuroevolution::WeightOnly) wrapper already
+/// owns a reshaper, clone *its* via `strategy.reshaper().clone()`.
+///
 /// # Example
 ///
 /// See the [`module_eval_fn`](crate::module_eval_fn) tests for a runnable
@@ -122,6 +135,22 @@ impl<B: Backend, M: Module<B>> std::fmt::Debug for ModuleReshaper<B, M> {
         f.debug_struct("ModuleReshaper")
             .field("num_params", &self.num_params)
             .finish_non_exhaustive()
+    }
+}
+
+// Hand-written, not `#[derive(Clone)]`: the derive would emit a spurious
+// `where B: Clone` bound, but `B: Backend` does not imply `B: Clone` and the
+// only `B` this struct stores is `PhantomData<fn() -> B>` (which is `Clone` for
+// any `B`). Bound instead on what is actually cloned — `template`, via `M`'s
+// `Module: Clone` supertrait — and copy the `num_params` scalar. This is the
+// enabling half of the single-source pattern documented on `ModuleReshaper`.
+impl<B: Backend, M: Module<B>> Clone for ModuleReshaper<B, M> {
+    fn clone(&self) -> Self {
+        Self {
+            template: self.template.clone(),
+            num_params: self.num_params,
+            _backend: PhantomData,
+        }
     }
 }
 

@@ -429,10 +429,15 @@ where
     B: Backend,
     M: Module<B> + Clone + Sync + AntPolicy<B>,
 {
-    let dim = ModuleReshaper::new(template.clone()).num_params();
+    // Single-source width: one reshaper feeds `dim` and every per-seed fitness
+    // adapter (via `reshaper.clone()`), so the GaConfig genome width and the
+    // evaluator's `num_params` agree by construction. The `WeightOnly` wrappers
+    // below still build their own reshaper from `template` — that is the
+    // wrapper's own single source, and it matches `dim` by the same width.
+    let reshaper = ModuleReshaper::new(template.clone());
+    let dim = reshaper.num_params();
     let scorer = |seed: u64| make_scorer::<B, M>(mode, seed, MAX_STEPS, device.clone());
-    let fitness =
-        |seed: u64| ModuleEvalFn::new(ModuleReshaper::new(template.clone()), scorer(seed));
+    let fitness = |seed: u64| ModuleEvalFn::new(reshaper.clone(), scorer(seed));
     let mut out = Vec::new();
 
     // --- Genetic algorithm -------------------------------------------------
@@ -536,12 +541,16 @@ where
     B: Backend,
 {
     let template = GruAntPolicy::<B>::new(device);
-    let dim = ModuleReshaper::new(template.clone()).num_params();
-    let wo = WeightOnly::new(GeneticAlgorithm::<B>::new(), template.clone());
+    // Single-source width: one reshaper feeds both `dim` and the fitness adapter
+    // (moved in below), so the GaConfig width and the evaluator's `num_params`
+    // agree by construction.
+    let reshaper = ModuleReshaper::new(template.clone());
+    let dim = reshaper.num_params();
+    let wo = WeightOnly::new(GeneticAlgorithm::<B>::new(), template);
     let mut cfg = GaConfig::default_for(pop, dim);
     cfg.bounds = GENOME_BOUNDS;
     let fitness = ModuleEvalFn::new(
-        ModuleReshaper::new(template),
+        reshaper,
         make_scorer::<B, GruAntPolicy<B>>(mode, seed, MAX_STEPS, device.clone()),
     );
     run_strategy("GRU/GA", wo, cfg, fitness, seed, device.clone(), gens, pop)

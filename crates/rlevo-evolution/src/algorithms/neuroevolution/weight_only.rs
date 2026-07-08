@@ -168,7 +168,8 @@ mod tests {
     use super::*;
     use crate::algorithms::de::DifferentialEvolution;
     use crate::algorithms::es_classical::EvolutionStrategy;
-    use crate::algorithms::ga::GeneticAlgorithm;
+    use crate::algorithms::ga::{GaConfig, GeneticAlgorithm};
+    use crate::rng::{SeedPurpose, seed_stream};
     use burn::backend::Flex;
     use burn::module::Module;
     use burn::nn::{Linear, LinearConfig};
@@ -211,5 +212,52 @@ mod tests {
         assert_strategy(&ga);
         assert_strategy(&es);
         assert_strategy(&de);
+    }
+
+    /// §7.1: drives the full `Strategy` surface (`init → ask → tell → best`)
+    /// through the wrapper, proving every method delegates verbatim rather than
+    /// only that `num_params` is reported. The existing test above checks the
+    /// width; this one checks the *plumbing*.
+    #[test]
+    fn test_weight_only_delegates_init_ask_tell_roundtrip() {
+        let device = Default::default();
+        let template = Mlp::<TestBackend>::new(&device);
+        let strategy = WeightOnly::new(GeneticAlgorithm::<TestBackend>::new(), template.clone());
+        let num_params: usize = strategy.num_params();
+
+        let params: GaConfig = GaConfig::default_for(8, num_params);
+        let mut rng = seed_stream(0, 0, SeedPurpose::Init);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        assert_eq!(
+            pop.dims(),
+            [8, num_params],
+            "ask must return a (pop_size, num_params) population"
+        );
+
+        let fitness = Tensor::<TestBackend, 1>::full([8], 1.0, &device);
+        let (state, metrics) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert_eq!(
+            metrics.population_size(),
+            8,
+            "tell metrics must report the delegated population size"
+        );
+
+        // `best` is pure delegation; after one `tell` the inner GA has recorded
+        // an elite genome.
+        assert!(
+            strategy.best(&state).is_some(),
+            "best must exist after one tell"
+        );
+
+        // New capability (Change 1): the owned reshaper is `Clone`, and the
+        // clone agrees on the genome width by construction — the single-source
+        // guarantee the wrapper exists to provide.
+        assert_eq!(
+            strategy.reshaper().clone().num_params(),
+            strategy.num_params(),
+            "cloned reshaper must report the same genome width"
+        );
     }
 }

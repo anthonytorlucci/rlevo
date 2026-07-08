@@ -80,7 +80,11 @@ fn weight_only_ga_fits_noisy_sine_directional() {
     let (inputs, targets) = dataset(&device, n);
 
     let template = SineMlp::<TestBackend>::new(&device);
-    let num_params = ModuleReshaper::new(template.clone()).num_params();
+    // Single-source width: build ONE reshaper, read its width, then hand a
+    // clone to the fitness adapter so both agree on `num_params` by
+    // construction (rather than two independent `ModuleReshaper::new`).
+    let reshaper = ModuleReshaper::new(template.clone());
+    let num_params = reshaper.num_params();
     // 1*16 + 16 + 16*1 + 1 = 49
     assert_eq!(num_params, 49);
 
@@ -96,7 +100,7 @@ fn weight_only_ga_fits_noisy_sine_directional() {
 
     // MSE is a cost — declare Minimize so the harness reconciles direction.
     let eval = ModuleEvalFn::with_sense(
-        ModuleReshaper::new(template.clone()),
+        reshaper,
         scorer,
         rlevo_core::objective::ObjectiveSense::Minimize,
     );
