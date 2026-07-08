@@ -439,9 +439,23 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
+
+    /// Distinct finite fitness with the maximum at index 0, for direct
+    /// (non-harness) `tell` calls. Finite, so it respects ADR 0034.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
+    fn finite_fitness(
+        n: usize,
+        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<TestBackend, 1> {
+        #[allow(clippy::cast_precision_loss)]
+        let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+    }
 
     #[test]
     fn try_new_checks_fitness_length() {
@@ -539,5 +553,67 @@ mod tests {
             let got: f32 = spiral_factor(l, b);
             approx::assert_relative_eq!(got, expected, epsilon = 1e-6);
         }
+    }
+
+    #[test]
+    fn best_is_none_until_first_tell() {
+        let device = Default::default();
+        let strategy = WhaleOptimization::<TestBackend>::new();
+        let params = WoaConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(0);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(strategy.best(&state).is_none());
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = finite_fitness(4, &device);
+        let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert!(strategy.best(&state).is_some());
+    }
+
+    #[test]
+    fn ask_keeps_positions_in_bounds() {
+        // Every position proposed by the encircle/search/spiral composition is
+        // clamped to bounds; verify across seeds.
+        let device = Default::default();
+        let strategy = WhaleOptimization::<TestBackend>::new();
+        let params = WoaConfig::default_for(6, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let state = strategy.init(&params, &mut rng, &device);
+            let (pop1, state) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = finite_fitness(6, &device);
+            let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
+            let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
+            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            for v in values {
+                assert!(
+                    v >= lo - 1e-4 && v <= hi + 1e-4,
+                    "seed {seed}: position {v} out of bounds [{lo}, {hi}]"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pop_size_two_runs() {
+        // The smallest population where the "search toward a random *other*
+        // whale" branch has a distinct target to pick.
+        let device = Default::default();
+        let strategy = WhaleOptimization::<TestBackend>::new();
+        let params = WoaConfig::default_for(2, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 0, device, 5,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
     }
 }

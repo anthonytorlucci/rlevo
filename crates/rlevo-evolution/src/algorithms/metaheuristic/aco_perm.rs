@@ -181,4 +181,47 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
         let _ = strategy.init(&params, &mut rng, &Default::default());
     }
+
+    #[test]
+    #[should_panic(expected = "permutation ACO is not yet implemented")]
+    fn ask_panics_with_clear_message() {
+        use rand::SeedableRng;
+        let strategy = AntColonyPermutation::<TestBackend>::new();
+        let params = AcoPermConfig::default_for(4, 5);
+        let state = AcoPermState::<TestBackend> {
+            _backend: PhantomData,
+        };
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let _ = strategy.ask(&params, &state, &mut rng, &Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "permutation ACO is not yet implemented")]
+    fn tell_panics_with_clear_message() {
+        use burn::tensor::TensorData;
+        use rand::SeedableRng;
+        let strategy = AntColonyPermutation::<TestBackend>::new();
+        let params = AcoPermConfig::default_for(2, 3);
+        let state = AcoPermState::<TestBackend> {
+            _backend: PhantomData,
+        };
+        let device = Default::default();
+        let population = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(vec![0i64, 1, 2, 2, 1, 0], [2, 3]),
+            &device,
+        );
+        let fitness =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![1.0f32, 2.0], [2]), &device);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let _ = strategy.tell(&params, population, fitness, state, &mut rng);
+    }
+
+    #[test]
+    fn best_returns_none_on_stub_state() {
+        let strategy = AntColonyPermutation::<TestBackend>::new();
+        let state = AcoPermState::<TestBackend> {
+            _backend: PhantomData,
+        };
+        assert!(strategy.best(&state).is_none());
+    }
 }
