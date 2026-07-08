@@ -14,13 +14,13 @@
 //! the *whole* population in one device-resident forward pass; the dense-padded
 //! [`DensePaddedEvaluator`] is the stock-Burn implementation.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::marker::PhantomData;
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{Bool, Tensor, TensorData, activation};
 
-use super::topology::{ActivationFn, NodeId, NodeKind, SIGMOID_GAIN, TopologyGenome};
+use super::topology::{ActivationFn, NodeGene, NodeId, NodeKind, SIGMOID_GAIN, TopologyGenome};
 
 /// Builds a callable [`Phenotype`] from a [`TopologyGenome`].
 ///
@@ -94,39 +94,35 @@ impl<B: Backend> InterpretedPhenotype<B> {
     /// for the enabled subgraph the forward pass actually follows.
     #[must_use]
     pub fn new(genome: &TopologyGenome) -> Self {
-        let mut input_ids: Vec<NodeId> = genome
-            .nodes
-            .iter()
-            .filter(|n| matches!(n.kind, super::topology::NodeKind::Input))
-            .map(|n| n.id)
-            .collect();
+        let mut input_ids: Vec<NodeId> = filter_ids(genome, |k| matches!(k, NodeKind::Input));
         input_ids.sort_unstable();
 
-        let mut output_ids: Vec<NodeId> = genome
-            .nodes
-            .iter()
-            .filter(|n| matches!(n.kind, super::topology::NodeKind::Output))
-            .map(|n| n.id)
-            .collect();
+        let mut output_ids: Vec<NodeId> = filter_ids(genome, |k| matches!(k, NodeKind::Output));
         output_ids.sort_unstable();
 
-        let input_set: HashSet<NodeId> = input_ids.iter().copied().collect();
-        let order = topological_order(genome);
+        // One O(n) pass to index nodes by id, and one O(e) pass to group enabled
+        // incoming edges by target — replacing the former per-node O(n) lookup +
+        // O(e) rescan (O(n²)+O(n·e)) with an O(n+e) build.
+        let nodes_by_id: HashMap<NodeId, &NodeGene> =
+            genome.nodes.iter().map(|n| (n.id, n)).collect();
+        let mut incoming_by_target: HashMap<NodeId, Vec<(NodeId, f32)>> = HashMap::new();
+        for c in genome.connections.iter().filter(|c| c.enabled) {
+            incoming_by_target
+                .entry(c.target)
+                .or_default()
+                .push((c.source, c.weight));
+        }
 
+        let order = topological_order(genome);
         let mut eval_order: Vec<NodeEval> = Vec::with_capacity(order.len());
         for nid in order {
-            if input_set.contains(&nid) {
-                continue;
-            }
-            let Some(node) = genome.node(nid) else {
+            let Some(&node) = nodes_by_id.get(&nid) else {
                 continue;
             };
-            let incoming: Vec<(NodeId, f32)> = genome
-                .connections
-                .iter()
-                .filter(|c| c.target == nid && c.enabled)
-                .map(|c| (c.source, c.weight))
-                .collect();
+            if matches!(node.kind, NodeKind::Input) {
+                continue;
+            }
+            let incoming: Vec<(NodeId, f32)> = incoming_by_target.remove(&nid).unwrap_or_default();
             eval_order.push(NodeEval {
                 id: nid,
                 incoming,
@@ -149,11 +145,15 @@ impl<B: Backend> Phenotype<B> for InterpretedPhenotype<B> {
         let [batch, _num_inputs] = input.dims();
         let device = input.device();
 
-        let mut values: HashMap<NodeId, Tensor<B, 2>> = HashMap::new();
-        for (col, &iid) in self.input_ids.iter().enumerate() {
-            // Column `col` of the input → input node's value, shape [batch, 1].
-            let column = input.clone().slice([0..batch, col..col + 1]);
-            values.insert(iid, column);
+        let mut values: HashMap<NodeId, Tensor<B, 2>> =
+            HashMap::with_capacity(self.input_ids.len());
+        if !self.input_ids.is_empty() {
+            // One split of the whole input into `[batch, 1]` columns, versus the
+            // former per-column full-tensor clone (O(I²·B) → O(I·B)).
+            let columns: Vec<Tensor<B, 2>> = input.chunk(self.input_ids.len(), 1);
+            for (iid, column) in self.input_ids.iter().copied().zip(columns) {
+                values.insert(iid, column);
+            }
         }
 
         for node in &self.eval_order {
@@ -575,7 +575,7 @@ fn topological_order(genome: &TopologyGenome) -> Vec<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::neuroevolution::topology::{ConnectionGene, InnovationId, NodeGene};
+    use crate::neuroevolution::topology::{ConnectionGene, InnovationId};
     use burn::backend::Flex;
 
     type TestBackend = Flex;
@@ -696,5 +696,279 @@ mod tests {
             .expect("output host-read of a tensor this test just built");
         approx::assert_relative_eq!(out[0], 1.0, epsilon = 1e-6);
         approx::assert_relative_eq!(out[1], 1.0, epsilon = 1e-6);
+    }
+
+    /// A zero-input genome does not panic and emits `activation(bias)`.
+    ///
+    /// Guards the `if !self.input_ids.is_empty()` branch in
+    /// [`InterpretedPhenotype::forward`]: with no input nodes the input tensor
+    /// has 0 columns, so the eager `input.chunk(0, 1)` would be an invalid
+    /// zero-chunk split. The single Output node has no incoming edges, so its
+    /// value is `activation(bias)` — here `Linear`, so exactly `bias`.
+    #[test]
+    fn test_interpreted_phenotype_forward_handles_zero_inputs() {
+        let device = Default::default();
+        // A lone Output node: no inputs, no edges. output = linear(bias) = bias.
+        let nodes = vec![NodeGene {
+            id: NodeId::new(0),
+            kind: NodeKind::Output,
+            activation: ActivationFn::Linear,
+            bias: 0.75,
+        }];
+        let conns: Vec<ConnectionGene> = vec![];
+        let genome = TopologyGenome::new(nodes, conns);
+        let pheno = InterpretedPhenotype::<TestBackend>::new(&genome);
+
+        // Shape [batch, 0]: an empty input tensor drives the zero-input guard.
+        let batch: usize = 3;
+        let input = Tensor::<TestBackend, 2>::from_data(
+            burn::tensor::TensorData::new(Vec::<f32>::new(), [batch, 0]),
+            &device,
+        );
+        let out = pheno.forward(input);
+        assert_eq!(
+            out.dims(),
+            [batch, 1],
+            "zero-input forward must return [batch, num_outputs]"
+        );
+        let out_vec = out
+            .into_data()
+            .into_vec::<f32>()
+            .expect("output host-read of a tensor this test just built");
+        for got in &out_vec {
+            approx::assert_relative_eq!(*got, 0.75f32, epsilon = 1e-6);
+        }
+    }
+
+    /// The dense-padded batch evaluator agrees with the interpreted phenotype
+    /// oracle within float epsilon, pinning the parity the module docs claim.
+    ///
+    /// Uses a population of feedforward genomes that share the NEAT-invariant
+    /// input/output node set (2 inputs, 1 output) but vary in hidden structure,
+    /// depth, and activation — so both the padding path and the multi-step
+    /// synchronous update are exercised. Column/row order lines up because both
+    /// paths key inputs and outputs by ascending node id.
+    #[test]
+    #[allow(clippy::too_many_lines)] // hand-built genome literals, not real logic
+    fn test_dense_matches_interpreted_within_epsilon() {
+        let device = Default::default();
+
+        // Genome A: in0, in1 -> hidden2 (Relu) -> out3 (Linear, bias 0.5).
+        let genome_a: TopologyGenome = TopologyGenome::new(
+            vec![
+                NodeGene {
+                    id: NodeId::new(0),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(1),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(2),
+                    kind: NodeKind::Hidden,
+                    activation: ActivationFn::Relu,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(3),
+                    kind: NodeKind::Output,
+                    activation: ActivationFn::Linear,
+                    bias: 0.5,
+                },
+            ],
+            vec![
+                ConnectionGene {
+                    innovation: InnovationId::new(0),
+                    source: NodeId::new(0),
+                    target: NodeId::new(2),
+                    weight: 1.0,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(1),
+                    source: NodeId::new(1),
+                    target: NodeId::new(2),
+                    weight: 1.0,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(2),
+                    source: NodeId::new(2),
+                    target: NodeId::new(3),
+                    weight: 2.0,
+                    enabled: true,
+                },
+            ],
+        );
+
+        // Genome B: in0, in1 -> out2 (Sigmoid, bias 0.1), no hidden layer.
+        let genome_b: TopologyGenome = TopologyGenome::new(
+            vec![
+                NodeGene {
+                    id: NodeId::new(0),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(1),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(2),
+                    kind: NodeKind::Output,
+                    activation: ActivationFn::Sigmoid,
+                    bias: 0.1,
+                },
+            ],
+            vec![
+                ConnectionGene {
+                    innovation: InnovationId::new(0),
+                    source: NodeId::new(0),
+                    target: NodeId::new(2),
+                    weight: 0.5,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(1),
+                    source: NodeId::new(1),
+                    target: NodeId::new(2),
+                    weight: -0.3,
+                    enabled: true,
+                },
+            ],
+        );
+
+        // Genome C: two hidden nodes feeding a Tanh output (deeper, mixed acts).
+        // in0, in1 -> hidden2 (Tanh), hidden3 (Relu) -> out4 (Tanh).
+        let genome_c: TopologyGenome = TopologyGenome::new(
+            vec![
+                NodeGene {
+                    id: NodeId::new(0),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(1),
+                    kind: NodeKind::Input,
+                    activation: ActivationFn::Linear,
+                    bias: 0.0,
+                },
+                NodeGene {
+                    id: NodeId::new(2),
+                    kind: NodeKind::Hidden,
+                    activation: ActivationFn::Tanh,
+                    bias: 0.2,
+                },
+                NodeGene {
+                    id: NodeId::new(3),
+                    kind: NodeKind::Hidden,
+                    activation: ActivationFn::Relu,
+                    bias: -0.1,
+                },
+                NodeGene {
+                    id: NodeId::new(4),
+                    kind: NodeKind::Output,
+                    activation: ActivationFn::Tanh,
+                    bias: 0.0,
+                },
+            ],
+            vec![
+                ConnectionGene {
+                    innovation: InnovationId::new(0),
+                    source: NodeId::new(0),
+                    target: NodeId::new(2),
+                    weight: 0.7,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(1),
+                    source: NodeId::new(1),
+                    target: NodeId::new(2),
+                    weight: -0.5,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(2),
+                    source: NodeId::new(0),
+                    target: NodeId::new(3),
+                    weight: 0.4,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(3),
+                    source: NodeId::new(1),
+                    target: NodeId::new(3),
+                    weight: 0.9,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(4),
+                    source: NodeId::new(2),
+                    target: NodeId::new(4),
+                    weight: 1.2,
+                    enabled: true,
+                },
+                ConnectionGene {
+                    innovation: InnovationId::new(5),
+                    source: NodeId::new(3),
+                    target: NodeId::new(4),
+                    weight: -0.8,
+                    enabled: true,
+                },
+            ],
+        );
+
+        let genomes: Vec<TopologyGenome> = vec![genome_a, genome_b, genome_c];
+        let pop: usize = genomes.len();
+        let out_dim: usize = 1; // one output node per genome by construction
+
+        // Non-binary observations exercise the activations off their fixed points.
+        let batch: usize = 4;
+        let obs_data: Vec<f32> = vec![0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.5, -0.5];
+        let obs: Tensor<TestBackend, 2> = Tensor::<TestBackend, 2>::from_data(
+            burn::tensor::TensorData::new(obs_data, [batch, 2]),
+            &device,
+        );
+
+        let dense: Tensor<TestBackend, 3> =
+            DensePaddedEvaluator::default().evaluate_population(&genomes, obs.clone(), &device);
+        assert_eq!(
+            dense.dims(),
+            [pop, batch, out_dim],
+            "dense evaluator must return a [pop, batch, action_dim] tensor"
+        );
+        let dense_vec: Vec<f32> = dense
+            .into_data()
+            .into_vec::<f32>()
+            .expect("host-read of a tensor this test just built");
+
+        for (p, genome) in genomes.iter().enumerate() {
+            let interp: Vec<f32> = InterpretedPhenotype::<TestBackend>::new(genome)
+                .forward(obs.clone())
+                .into_data()
+                .into_vec::<f32>()
+                .expect("host-read of a tensor this test just built");
+            for b in 0..batch {
+                for o in 0..out_dim {
+                    let dense_val: f32 = dense_vec[p * batch * out_dim + b * out_dim + o];
+                    let interp_val: f32 = interp[b * out_dim + o];
+                    approx::assert_relative_eq!(
+                        dense_val,
+                        interp_val,
+                        epsilon = 1e-4,
+                        max_relative = 1e-3
+                    );
+                }
+            }
+        }
     }
 }

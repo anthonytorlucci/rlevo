@@ -43,6 +43,18 @@ network's leaf count is caught at the evaluation boundary rather than silently
 producing a misaligned network. The template is the authority; everything
 downstream reads from it.
 
+`ModuleReshaper` is `Clone`, and we lean on that to make the pairing a
+single-source one. Rather than building a second reshaper for the scorer — a
+sibling instance that only *happens* to count the same width — you clone the one
+the strategy already owns and hand it straight to the fitness adapter:
+`let eval = ModuleEvalFn::new(strategy.reshaper().clone(), scorer);`. Now the
+width the strategy initialises its population to and the width the scorer
+unflattens each row against come from one template instance, so they cannot drift
+apart. A mismatch is still caught at the evaluation boundary exactly as before —
+cloning does not move or relax that guard; it simply makes the mistake hard to
+*write* in the first place, because there is no longer a second width to keep in
+sync by hand.
+
 ## Reshaping is confined to the fitness boundary
 
 Here is the load-bearing design choice, and it is what makes the weight-only path
