@@ -615,4 +615,149 @@ mod tests {
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-3, "ACO_R D10 best={best}");
     }
+
+    /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
+    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    struct PartialNanFitness;
+    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
+        }
+    }
+
+    // Gap (a): the best-so-far accessor is `None` until a `tell` records one.
+    #[test]
+    fn best_is_none_before_first_tell() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(10, 5, 4);
+        let mut rng = StdRng::seed_from_u64(1);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(strategy.best(&state).is_none());
+    }
+
+    // Gap (b): the first `ask` (generation 0, empty `archive_fitness`) hits the
+    // early-return path and hands back the initial archive verbatim so the
+    // harness can score it before any Gaussian-kernel sampling occurs.
+    #[test]
+    #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.archive`
+    fn first_ask_returns_archive_verbatim() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(8, 4, 3);
+        let mut rng = StdRng::seed_from_u64(2);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (genome, _next) = strategy.ask(&params, &state, &mut rng, &device);
+        let before = state
+            .archive
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("archive readable as f32");
+        let after = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome readable as f32");
+        assert_eq!(before, after);
+    }
+
+    // Gap (c): a steady-state `ask` clamps every sampled offspring dimension
+    // into `bounds`. Swept across 32 seeds so the invariant holds independent of
+    // the draw.
+    #[test]
+    fn offspring_stay_within_bounds() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(10, 12, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut state = strategy.init(&params, &mut rng, &device);
+            // Prime a non-empty archive fitness (descending) so `ask` samples
+            // rather than taking the bootstrap early return.
+            #[allow(clippy::cast_precision_loss)]
+            {
+                state.archive_fitness = (0..params.archive_size).map(|i| -(i as f32)).collect();
+            }
+            state.generation = 1;
+            let (pop, _next) = strategy.ask(&params, &state, &mut rng, &device);
+            let vals = pop
+                .into_data()
+                .into_vec::<f32>()
+                .expect("offspring readable as f32");
+            for &v in &vals {
+                assert!(
+                    v >= lo && v <= hi,
+                    "offspring {v} out of bounds [{lo}, {hi}] (seed {seed})"
+                );
+            }
+        }
+    }
+
+    // Gap (d): the smallest archive (`archive_size = 2`, so the σ pairwise
+    // distance has exactly one term) drives a full run without panicking. The
+    // `genome_dim = 1` half of this gap is SKIPPED: the on-device σ reduction
+    // `diffs.sum_dim(0).squeeze::<2>()` collapses *two* singleton axes when
+    // `d == 1` and panics inside burn's `Squeeze` — a latent limitation of the
+    // production kernel, out of scope for a test-only change.
+    #[test]
+    fn boundary_archive_size_two_runs() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(2, 4, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 6, device, 6,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite(),
+            "non-finite best for archive_size = 2"
+        );
+    }
+
+    // Gap (e): a partly-`NaN` objective is neutralized by the harness sanitize
+    // chokepoint (ADR 0034) — `best_fitness_ever` stays finite and the broken
+    // member is counted.
+    #[test]
+    fn nan_fitness_survives_harness() {
+        let device: FlexDevice = Default::default();
+        let strategy = AntColonyReal::<TestBackend>::new();
+        let params = AcoRConfig::default_for(8, 6, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy,
+            params,
+            PartialNanFitness,
+            4,
+            device,
+            4,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever not finite: {}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
 }

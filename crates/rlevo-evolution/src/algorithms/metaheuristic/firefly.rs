@@ -431,6 +431,7 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
@@ -494,5 +495,218 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1.0, "Firefly D10 best={best}");
+    }
+
+    /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
+    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    struct PartialNanFitness;
+    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
+        }
+    }
+
+    // Gap (a): the validator rejects a zero swarm and negative kernel scalars.
+    // `gamma` is `positive` (0 and negatives rejected — 0 is the existing case);
+    // `beta0` and `alpha` are `[0, ∞)` (0 allowed, negatives rejected).
+    #[test]
+    fn rejects_invalid_configs() {
+        let mut cfg = FireflyConfig::default_for(0, 10);
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+
+        cfg = FireflyConfig::default_for(32, 10);
+        cfg.gamma = -1.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "gamma");
+
+        cfg = FireflyConfig::default_for(32, 10);
+        cfg.beta0 = -1.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "beta0");
+
+        cfg = FireflyConfig::default_for(32, 10);
+        cfg.alpha = -1.0;
+        assert_eq!(cfg.validate().unwrap_err().field, "alpha");
+    }
+
+    // Gap (a) cont.: an inverted range is unrepresentable — `Bounds::new` panics
+    // before a `FireflyConfig` can carry `(5, −5)`.
+    #[test]
+    #[should_panic(expected = "invalid range")]
+    fn inverted_bounds_are_unrepresentable() {
+        let _ = FireflyConfig {
+            bounds: Bounds::new(5.0, -5.0),
+            ..FireflyConfig::default_for(32, 10)
+        };
+    }
+
+    // Gap (g): `pop_size > 128` on the pure-tensor path panics in `init` in a
+    // debug (test) build — either via the `Validate` `debug_assert!` (feature
+    // off) or the explicit cap `debug_assert!` (feature on). Either way the
+    // oversized swarm never materializes its cubic pairwise tensor.
+    #[test]
+    // The panic message differs by feature (`Validate` debug_assert vs. the cap
+    // debug_assert), so no single `expected` substring covers both builds.
+    #[allow(clippy::should_panic_without_expect)]
+    #[should_panic]
+    fn pop_size_over_cap_panics_in_init() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(FIREFLY_PURE_TENSOR_CAP + 1, 4);
+        let mut rng = StdRng::seed_from_u64(0);
+        let _ = strategy.init(&params, &mut rng, &device);
+    }
+
+    // Gap (b): the pure-tensor attraction kernel. Firefly 0 is dimmer, so it is
+    // pulled toward the brighter firefly 1 (positive displacement); firefly 1 has
+    // no brighter neighbour, so its displacement is zero. With `gamma = 0` the
+    // attractiveness is exactly `beta0`, and `alpha = 0` removes noise, making
+    // the displacement exact. The output shape is `(pop, d)`.
+    #[test]
+    fn pure_tensor_attract_pulls_toward_brighter() {
+        let device = Default::default();
+        // 2-D positions (row-major): firefly 0 at (0, 0), firefly 1 at (1, 0).
+        let positions = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(vec![0.0_f32, 0.0, 1.0, 0.0], [2, 2]),
+            &device,
+        );
+        // firefly 1 is brighter (higher canonical fitness).
+        let fitness = [0.0_f32, 1.0];
+        let delta = FireflyAlgorithm::<TestBackend>::pure_tensor_attract(
+            &positions, &fitness, 1.0, // beta0
+            0.0, // gamma → attractiveness == beta0
+            0.0, // alpha → no noise
+            &device, 0,
+        );
+        assert_eq!(delta.dims(), [2, 2], "displacement is (pop, d)");
+        let d = delta
+            .into_data()
+            .into_vec::<f32>()
+            .expect("delta readable as f32");
+        // Firefly 0 moves +1·(x_1 − x_0) = (+1, 0) toward the brighter one.
+        approx::assert_relative_eq!(d[0], 1.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(d[1], 0.0, epsilon = 1e-6);
+        // Brightest firefly has no brighter neighbour → no attraction.
+        approx::assert_relative_eq!(d[2], 0.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(d[3], 0.0, epsilon = 1e-6);
+    }
+
+    // Gap (c): `argmax_host` edge cases. Empty slice panics; an all-`NaN` slice
+    // (nothing exceeds the `−∞` seed) falls back to index 0; a single element is
+    // trivially the max.
+    #[test]
+    #[should_panic(expected = "must be non-empty")]
+    fn argmax_host_empty_panics() {
+        let _ = argmax_host(&[]);
+    }
+
+    #[test]
+    fn argmax_host_all_nan_and_single() {
+        assert_eq!(argmax_host(&[f32::NAN, f32::NAN, f32::NAN]), 0);
+        assert_eq!(argmax_host(&[7.0]), 0);
+    }
+
+    // Gap (d): the bootstrap `ask` (empty `fitness`) returns positions verbatim.
+    #[test]
+    #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.positions`
+    fn first_ask_returns_positions_unchanged() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(8, 4);
+        let mut rng = StdRng::seed_from_u64(1);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (genome, next) = strategy.ask(&params, &state, &mut rng, &device);
+        let before = state
+            .positions()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("positions readable as f32");
+        let after = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome readable as f32");
+        assert_eq!(before, after);
+        assert!(next.fitness().is_empty());
+    }
+
+    // Gap (e): the best-so-far accessor is `None` until a `tell` records one.
+    #[test]
+    fn best_is_none_before_first_tell() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(8, 4);
+        let mut rng = StdRng::seed_from_u64(2);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(strategy.best(&state).is_none());
+    }
+
+    // Gap (f): every proposed position is clamped into `bounds` after `ask`,
+    // across 32 seeds.
+    #[test]
+    fn proposed_positions_within_bounds() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(10, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        // A steady-state swarm with a non-empty fitness cache so `ask` runs the
+        // attraction update rather than the bootstrap early return.
+        let mut rng = StdRng::seed_from_u64(0);
+        let base = strategy.init(&params, &mut rng, &device);
+        #[allow(clippy::cast_precision_loss)]
+        let fitness: Vec<f32> = (0..params.pop_size).map(|i| -(i as f32)).collect();
+        // Firefly's `ask` reads positions + fitness only, never `best_genome`.
+        let state = FireflyState::try_new(base.positions().clone(), fitness, None, 0.0, 1)
+            .expect("valid steady state");
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (pos, _next) = strategy.ask(&params, &state, &mut rng, &device);
+            let vals = pos
+                .into_data()
+                .into_vec::<f32>()
+                .expect("positions readable as f32");
+            for &v in &vals {
+                assert!(
+                    v >= lo && v <= hi,
+                    "position {v} out of bounds [{lo}, {hi}] (seed {seed})"
+                );
+            }
+        }
+    }
+
+    // Gap: a partly-`NaN` objective is neutralized by the harness sanitize
+    // chokepoint (ADR 0034).
+    #[test]
+    fn nan_fitness_survives_harness() {
+        let device = Default::default();
+        let strategy = FireflyAlgorithm::<TestBackend>::new();
+        let params = FireflyConfig::default_for(8, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy,
+            params,
+            PartialNanFitness,
+            4,
+            device,
+            4,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever not finite: {}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() > 0, "expected a broken (NaN) member");
     }
 }

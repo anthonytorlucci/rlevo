@@ -507,6 +507,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
@@ -619,5 +621,176 @@ mod tests {
         approx::assert_relative_eq!(got, expected, epsilon = 1e-6);
         // Byte-identical: same operations, no reorder.
         assert_eq!(got, expected);
+    }
+
+    /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
+    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    struct PartialNanFitness;
+    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
+        }
+    }
+
+    // Gap (a): the Lévy index β must lie in the open interval (0, 2). Rejection
+    // is broadened beyond the existing β = 2.0 case: β = 0.0 (fails `positive`),
+    // β = 3.0 (fails `ordered` against 2.0), and β = NaN (fails `positive`, since
+    // `NaN > 0` is false) all report the `beta` field.
+    #[test]
+    fn rejects_invalid_beta_values() {
+        for bad in [0.0_f32, 3.0, f32::NAN] {
+            let mut cfg = CuckooConfig::default_for(25, 10);
+            cfg.beta = bad;
+            assert_eq!(
+                cfg.validate().unwrap_err().field,
+                "beta",
+                "β = {bad} should be rejected on the beta field"
+            );
+        }
+    }
+
+    // Gap (b): an inverted range is unrepresentable — `Bounds::new` panics before
+    // a `CuckooConfig` can carry `(5, −5)`, so the config can never hold it.
+    #[test]
+    #[should_panic(expected = "invalid range")]
+    fn inverted_bounds_are_unrepresentable() {
+        let _ = CuckooConfig {
+            bounds: Bounds::new(5.0, -5.0),
+            ..CuckooConfig::default_for(25, 10)
+        };
+    }
+
+    // Gap (c): abandonment marks exactly `⌊p_a · pop⌋` nests as abandoned
+    // (sentinel `−∞`). With `pop = 8`, `p_a = 0.25` ⇒ 2 nests; the two worst
+    // (lowest canonical fitness, indices 6 and 7) are the ones abandoned.
+    #[test]
+    fn abandonment_marks_floor_pa_pop_nests() {
+        let device = Default::default();
+        let strategy = CuckooSearch::<TestBackend>::new();
+        let params = CuckooConfig::default_for(8, 2); // p_a = 0.25 → 2 abandoned
+        let nests = Tensor::<TestBackend, 2>::zeros([8, 2], &device);
+        let state = CuckooState::try_new(
+            nests,
+            vec![8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+            None,
+            f32::NEG_INFINITY,
+            1,
+        )
+        .expect("valid state");
+        // Every egg is worse than its slot → no greedy accept; only abandonment
+        // rewrites fitness.
+        let eggs = Tensor::<TestBackend, 2>::full([8, 2], 5.0, &device);
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; 8], [8]), &device);
+        let mut rng = StdRng::seed_from_u64(4);
+        let (next, _m) = strategy.tell(&params, eggs, fit, state, &mut rng);
+        let f = next.fitness();
+        let abandoned = f
+            .iter()
+            .filter(|v| v.is_infinite() && v.is_sign_negative())
+            .count();
+        assert_eq!(abandoned, 2, "expected floor(0.25 * 8) = 2 abandoned nests");
+        // The two lowest-fitness slots (6, 7) are the abandoned ones.
+        assert!(f[6].is_infinite() && f[6].is_sign_negative());
+        assert!(f[7].is_infinite() && f[7].is_sign_negative());
+    }
+
+    // Gap (d): greedy acceptance is per-slot and strictly non-worsening. With
+    // `p_a = 0` (abandonment disabled), a generation of all-worse eggs must leave
+    // every nest byte-identical.
+    #[test]
+    #[allow(clippy::float_cmp)] // exact: rejected eggs leave nests untouched
+    fn greedy_accept_keeps_nests_on_all_worse_eggs() {
+        let device = Default::default();
+        let strategy = CuckooSearch::<TestBackend>::new();
+        let mut params = CuckooConfig::default_for(4, 2);
+        params.p_a = 0.0; // disable abandonment to isolate greedy accept
+        let nest_vals = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        let nests = Tensor::<TestBackend, 2>::from_data(
+            TensorData::new(nest_vals.clone(), [4, 2]),
+            &device,
+        );
+        let state =
+            CuckooState::try_new(nests, vec![4.0, 3.0, 2.0, 1.0], None, f32::NEG_INFINITY, 1)
+                .expect("valid state");
+        let eggs = Tensor::<TestBackend, 2>::full([4, 2], 9.0, &device);
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; 4], [4]), &device);
+        let mut rng = StdRng::seed_from_u64(5);
+        let (next, _m) = strategy.tell(&params, eggs, fit, state, &mut rng);
+        let after = next
+            .nests()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("nests readable as f32");
+        assert_eq!(after, nest_vals);
+    }
+
+    // Gap (e): best-so-far is monotone. Across a harness run on Sphere
+    // (Minimize), the reported `best_fitness_ever` (natural cost) never worsens
+    // generation to generation.
+    #[test]
+    fn best_so_far_is_monotone() {
+        let device = Default::default();
+        let strategy = CuckooSearch::<TestBackend>::new();
+        let params = CuckooConfig::default_for(20, 6);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 11, device, 40,
+        )
+        .expect("valid params");
+        harness.reset();
+        let mut prev = f32::INFINITY;
+        loop {
+            let done = harness.step(()).done;
+            let cur = harness.latest_metrics().unwrap().best_fitness_ever();
+            assert!(
+                cur <= prev + 1e-6,
+                "best_fitness_ever worsened: {cur} > {prev}"
+            );
+            prev = cur;
+            if done {
+                break;
+            }
+        }
+    }
+
+    // Gap (f): a partly-`NaN` objective is neutralized by the harness sanitize
+    // chokepoint (ADR 0034).
+    #[test]
+    fn nan_fitness_survives_harness() {
+        let device = Default::default();
+        let strategy = CuckooSearch::<TestBackend>::new();
+        let params = CuckooConfig::default_for(8, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy,
+            params,
+            PartialNanFitness,
+            4,
+            device,
+            4,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever not finite: {}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() > 0, "expected a broken (NaN) member");
     }
 }

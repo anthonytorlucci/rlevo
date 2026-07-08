@@ -677,4 +677,177 @@ mod tests {
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "ABC D10 best={best}");
     }
+
+    /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
+    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()` in
+    /// between.
+    struct PartialNanFitness;
+    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
+        }
+    }
+
+    // Gap (b): the bootstrap `ask` (empty `fitness`) returns the colony verbatim
+    // — no perturbation, no candidate-to-bee map — so the harness scores
+    // generation zero before the employed/onlooker phases activate.
+    #[test]
+    #[allow(clippy::float_cmp)] // byte-identical: `ask` clones `state.colony`
+    fn ask_on_empty_fitness_returns_colony_unchanged() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(6, 4);
+        let mut rng = StdRng::seed_from_u64(3);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (genome, next) = strategy.ask(&params, &state, &mut rng, &device);
+        let before = state
+            .colony()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("colony readable as f32");
+        let after = genome
+            .into_data()
+            .into_vec::<f32>()
+            .expect("genome readable as f32");
+        assert_eq!(before, after);
+        assert!(next.target_of_candidate().is_empty());
+    }
+
+    // Gap (a): a two-bee colony is the smallest legal ABC. The employed-phase
+    // neighbour draw `k ≠ i` degenerates to the wrap `(k + 1) % pop`; this pins
+    // that the wrap runs several generations without panicking.
+    #[test]
+    fn pop_size_two_minimal_colony_runs() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(2, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 5, device, 8,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
+    }
+
+    // Gap (d): a single-dimension genome forces the per-candidate perturbation
+    // mask to select the only column. Verifies the degenerate `(n_cand, 1)` mask
+    // path runs end-to-end.
+    #[test]
+    fn genome_dim_one_degenerate_mask_runs() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(6, 1);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 8, device, 8,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
+    }
+
+    // Gap (c): scout reinitialization. A colony pinned at the canonical optimum
+    // (fitness 0) receives only worse candidates, so every bee's `trial` counter
+    // ticks past `limit` in a single `tell`, triggering a scout refill of the
+    // whole colony (trials reset, rows resampled).
+    #[test]
+    #[allow(clippy::float_cmp)] // exact: scouts overwrite the all-zero seed colony
+    fn scout_reinit_triggers_on_stagnation() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let mut params = AbcConfig::default_for(4, 2);
+        params.limit = 1;
+        // Colony at the (canonical) optimum: fitness 0, any perturbation worse.
+        let colony = Tensor::<TestBackend, 2>::zeros([4, 2], &device);
+        // Every bee already sits one step from the scout limit.
+        let state = AbcState::try_new(
+            colony,
+            vec![0.0; 4],                 // current fitness
+            vec![1; 4],                   // trial == limit
+            vec![0, 1, 2, 3, 0, 1, 2, 3], // 2·pop candidate → target map
+            None,
+            f32::NEG_INFINITY,
+            5,
+        )
+        .expect("valid state");
+        // 2·pop candidates far from origin → canonical fitness −18 < 0; none
+        // improves its target, so no acceptance and every trial increments.
+        let candidates = Tensor::<TestBackend, 2>::full([8, 2], 3.0, &device);
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![-18.0_f32; 8], [8]), &device);
+        let mut rng = StdRng::seed_from_u64(9);
+        let (next, _m) = strategy.tell(&params, candidates, fit, state, &mut rng);
+        // trial hit limit + 1 everywhere → all bees scouted, counters reset.
+        assert!(
+            next.trial().iter().all(|&t| t == 0),
+            "trials not reset: {:?}",
+            next.trial()
+        );
+        // Scouted rows are fresh uniform draws, so the colony is no longer all-zero.
+        let colony_vals = next
+            .colony()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("colony readable as f32");
+        assert!(
+            colony_vals.iter().any(|&v| v != 0.0),
+            "no scout reinit happened; colony still all-zero"
+        );
+    }
+
+    // Gap (e): a partly-`NaN` objective must not poison the run — the harness
+    // sanitize chokepoint (ADR 0034) keeps `best_fitness_ever` finite and flags
+    // the broken member via `broken_count`.
+    #[test]
+    fn nan_fitness_survives_harness() {
+        let device = Default::default();
+        let strategy = ArtificialBeeColony::<TestBackend>::new();
+        let params = AbcConfig::default_for(6, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy,
+            params,
+            PartialNanFitness,
+            4,
+            device,
+            4,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever not finite: {}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() > 0, "expected a broken (NaN) member");
+    }
 }

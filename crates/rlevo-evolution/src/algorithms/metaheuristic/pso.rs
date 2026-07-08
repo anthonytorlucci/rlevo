@@ -427,12 +427,49 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::{BatchFitnessFn, FromFitnessEvaluable};
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::objective::ObjectiveSense;
 
     type TestBackend = Flex;
+
+    /// Distinct finite fitness with the maximum at index 0, for direct
+    /// (non-harness) `tell` calls in lifecycle tests. Finite by construction,
+    /// so it never trips the ADR 0034 sanitize contract.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
+    fn finite_fitness(
+        n: usize,
+        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<TestBackend, 1> {
+        #[allow(clippy::cast_precision_loss)]
+        let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+    }
+
+    /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
+    /// so natural == canonical and the harness sanitize is the only thing that
+    /// can keep the run finite.
+    struct NanFitness;
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
 
     #[test]
     fn default_config_validates() {
@@ -510,5 +547,137 @@ mod tests {
         cfg.c1 = 2.05;
         cfg.c2 = 2.05;
         approx::assert_relative_eq!(cfg.constriction_chi(), 0.7298, epsilon = 1e-3);
+    }
+
+    #[test]
+    fn best_is_none_until_first_tell() {
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(0);
+        let state = strategy.init(&params, &mut rng, &device);
+        // Fresh init: global_best is unset, so `best` reports nothing.
+        assert!(strategy.best(&state).is_none());
+        // First ask returns the initial positions unchanged; the first tell
+        // seeds personal-/global-best from their fitness.
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = finite_fitness(4, &device);
+        let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert!(strategy.best(&state).is_some());
+    }
+
+    #[test]
+    fn degenerate_single_particle_single_dim_runs() {
+        // pop_size = 1, genome_dim = 1: the smallest swarm the validator
+        // accepts. It must run through the harness without a panic (gbest is
+        // the lone particle, so the social term is zero every step).
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(1, 1);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 0, device, 5,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
+    }
+
+    #[test]
+    fn rejects_pop_size_zero() {
+        let mut cfg = PsoConfig::default_for(1, 3);
+        cfg.pop_size = 0;
+        assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
+    }
+
+    #[test]
+    fn inverted_bounds_are_unrepresentable() {
+        // `PsoConfig::validate` never re-checks bound ordering because `Bounds`
+        // is self-validating (ADR 0027): an inverted range cannot be
+        // constructed. A single-point (zero-width) range is deliberately valid.
+        assert!(Bounds::try_new(5.12, -5.12).is_err());
+        assert!(Bounds::try_new(3.0, 3.0).is_ok());
+    }
+
+    #[test]
+    fn nan_fitness_through_harness_stays_finite() {
+        // Row 0 evaluates to NaN every generation. The harness sanitize
+        // chokepoint (ADR 0034) must keep the best-ever finite and flag the
+        // broken member rather than poisoning the run.
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(4, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, NanFitness, 1, device, 3,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best={}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() >= 1, "the NaN row must be counted broken");
+    }
+
+    #[test]
+    fn ask_keeps_positions_in_bounds() {
+        // Invariant: every position proposed by the velocity-update `ask`
+        // (i.e. the second `ask`, after a `tell` primes gbest) stays inside the
+        // configured bounds, across a spread of seeds.
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(6, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let state = strategy.init(&params, &mut rng, &device);
+            let (pop1, state) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = finite_fitness(6, &device);
+            let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
+            let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
+            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            for v in values {
+                assert!(
+                    v >= lo - 1e-4 && v <= hi + 1e-4,
+                    "seed {seed}: position {v} out of bounds [{lo}, {hi}]"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn second_ask_moves_particles() {
+        // First-call protocol: init → ask → tell → ask. The second `ask`
+        // applies the velocity update, so at least some particle position must
+        // change from the initial swarm (the social pull toward gbest is
+        // non-zero for every non-best particle).
+        let device = Default::default();
+        let strategy = ParticleSwarm::<TestBackend>::new();
+        let params = PsoConfig::default_for(6, 4);
+        let mut rng = StdRng::seed_from_u64(9);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (pop1, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let initial = pop1.clone().into_data().into_vec::<f32>().unwrap();
+        let fitness = finite_fitness(6, &device);
+        let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
+        let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
+        let moved = pop2.into_data().into_vec::<f32>().unwrap();
+        assert!(
+            initial
+                .iter()
+                .zip(moved.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-6),
+            "velocity update left every particle stationary"
+        );
     }
 }

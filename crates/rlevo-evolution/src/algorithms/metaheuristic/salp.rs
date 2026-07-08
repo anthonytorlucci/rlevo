@@ -325,7 +325,23 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
+
+    type TestBackend = Flex;
+
+    /// Distinct finite fitness with the maximum at index 0, for direct
+    /// (non-harness) `tell` calls. Finite, so it respects ADR 0034.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // mirror the by-ref device idiom
+    fn finite_fitness(
+        n: usize,
+        device: &<TestBackend as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Tensor<TestBackend, 1> {
+        #[allow(clippy::cast_precision_loss)]
+        let vals: Vec<f32> = (0..n).map(|i| -(i as f32) - 1.0).collect();
+        Tensor::<TestBackend, 1>::from_data(TensorData::new(vals, [n]), device)
+    }
 
     #[test]
     fn default_config_validates() {
@@ -338,8 +354,6 @@ mod tests {
         cfg.pop_size = 1;
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
     }
-
-    type TestBackend = Flex;
 
     struct Sphere;
     struct SphereFit;
@@ -369,5 +383,124 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-2, "SSA D10 best={best}");
+    }
+
+    #[test]
+    fn best_is_none_until_first_tell() {
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(0);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(strategy.best(&state).is_none());
+        let (pop, state) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = finite_fitness(4, &device);
+        let (state, _m) = strategy.tell(&params, pop, fitness, state, &mut rng);
+        assert!(strategy.best(&state).is_some());
+    }
+
+    #[test]
+    fn first_ask_returns_initial_positions_unchanged() {
+        // Before any `tell`, `state.fitness` is empty, so `ask` short-circuits
+        // and hands back the untouched initial swarm.
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(6, 4);
+        let mut rng = StdRng::seed_from_u64(3);
+        let state = strategy.init(&params, &mut rng, &device);
+        let expected = state
+            .positions
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .unwrap();
+        let (pop, _state) = strategy.ask(&params, &state, &mut rng, &device);
+        let got = pop.into_data().into_vec::<f32>().unwrap();
+        assert_eq!(expected, got);
+    }
+
+    #[test]
+    fn minimal_and_odd_pop_sizes_run() {
+        // pop_size = 2 is the leader/follower minimum; pop_size = 3 exercises
+        // the odd split (1 leader, 2 followers). Both must complete without a
+        // panic in the follower stencil.
+        for pop in [2usize, 3] {
+            let device = Default::default();
+            let strategy = SalpSwarm::<TestBackend>::new();
+            let params = SalpConfig::default_for(pop, 3);
+            let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+            let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+                strategy, params, fitness_fn, 0, device, 5,
+            )
+            .expect("valid params");
+            harness.reset();
+            while !harness.step(()).done {}
+            assert!(
+                harness
+                    .latest_metrics()
+                    .unwrap()
+                    .best_fitness_ever()
+                    .is_finite(),
+                "pop_size {pop} produced a non-finite best"
+            );
+        }
+    }
+
+    #[test]
+    fn ask_keeps_positions_in_bounds() {
+        // Every position proposed by the two-phase update (leader step +
+        // follower stencil) is clamped to bounds; verify across seeds.
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(6, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let state = strategy.init(&params, &mut rng, &device);
+            let (pop1, state) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = finite_fitness(6, &device);
+            let (state, _m) = strategy.tell(&params, pop1, fitness, state, &mut rng);
+            let (pop2, _state) = strategy.ask(&params, &state, &mut rng, &device);
+            let values = pop2.into_data().into_vec::<f32>().unwrap();
+            for v in values {
+                assert!(
+                    v >= lo - 1e-4 && v <= hi + 1e-4,
+                    "seed {seed}: position {v} out of bounds [{lo}, {hi}]"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn zero_budget_harness_produces_no_metrics() {
+        // The harness *budget* (distinct from SalpConfig::max_generations) is
+        // zero: a well-behaved driver takes no step, so `latest_metrics` stays
+        // None after `reset`.
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(4, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 0, device, 0,
+        )
+        .expect("valid params");
+        harness.reset();
+        assert!(harness.latest_metrics().is_none());
+    }
+
+    #[test]
+    fn unit_budget_harness_runs_exactly_one_generation() {
+        let device = Default::default();
+        let strategy = SalpSwarm::<TestBackend>::new();
+        let params = SalpConfig::default_for(4, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 0, device, 1,
+        )
+        .expect("valid params");
+        harness.reset();
+        assert!(harness.step(()).done);
+        assert_eq!(harness.generation(), 1);
+        assert!(harness.latest_metrics().is_some());
     }
 }

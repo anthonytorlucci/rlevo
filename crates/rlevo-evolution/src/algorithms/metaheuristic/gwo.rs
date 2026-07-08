@@ -422,12 +422,35 @@ fn argtop3_max(xs: &[f32]) -> [usize; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fitness::FromFitnessEvaluable;
+    use crate::fitness::{BatchFitnessFn, FromFitnessEvaluable};
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
+    use rlevo_core::objective::ObjectiveSense;
 
     type TestBackend = Flex;
+
+    /// Objective whose row 0 evaluates to `NaN` (the rest finite). `Maximize`
+    /// so natural == canonical; only the harness sanitize keeps the run finite.
+    struct NanFitness;
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for NanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
 
     #[test]
     fn try_new_checks_fitness_length() {
@@ -523,5 +546,125 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-3, "GWO D10 best={best}");
+    }
+
+    #[test]
+    fn argtop3_max_all_equal_returns_stable_prefix() {
+        // All values tie: the strict `<`/`>` comparisons never fire, so the
+        // initial index prefix [0, 1, 2] is returned unchanged.
+        let xs = [5.0_f32, 5.0, 5.0, 5.0];
+        assert_eq!(argtop3_max(&xs), [0, 1, 2]);
+    }
+
+    #[test]
+    fn argtop3_max_handles_duplicate_maxima() {
+        // Three rows share the maximum value; the leader set must be exactly
+        // those three, each a distinct index.
+        let xs = [3.0_f32, 9.0, 9.0, 1.0, 9.0];
+        let top = argtop3_max(&xs);
+        assert!(
+            top[0] != top[1] && top[1] != top[2] && top[0] != top[2],
+            "leaders must be distinct rows, got {top:?}"
+        );
+        for &i in &top {
+            approx::assert_relative_eq!(xs[i], 9.0);
+        }
+    }
+
+    #[test]
+    fn minimal_pack_of_three_runs() {
+        // pop_size = 3 is the α/β/δ minimum — every wolf is also a leader.
+        let device = Default::default();
+        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let params = GwoConfig::default_for(3, 3);
+        let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, fitness_fn, 0, device, 5,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        assert!(
+            harness
+                .latest_metrics()
+                .unwrap()
+                .best_fitness_ever()
+                .is_finite()
+        );
+    }
+
+    #[test]
+    fn rejects_max_generations_zero() {
+        // The validator rejects `max_generations = 0`; the `.max(1)` in `ask`
+        // is defensive-only and unreachable through the harness chokepoint.
+        let mut cfg = GwoConfig::default_for(3, 3);
+        cfg.max_generations = 0;
+        assert_eq!(cfg.validate().unwrap_err().field, "max_generations");
+    }
+
+    #[test]
+    fn ask_survives_zero_max_generations_via_guard() {
+        // Exercise the `.max(1)` division guard directly: an invalid
+        // `max_generations = 0` cannot reach `init` (its debug_assert would
+        // fire), so we build the post-bootstrap state through the public
+        // `try_new` constructor and drive one `ask`. The guard must prevent a
+        // divide-by-zero and yield a finite, in-bounds pack.
+        let device = Default::default();
+        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let mut cfg = GwoConfig::default_for(3, 3);
+        cfg.max_generations = 0;
+        let (lo, hi): (f32, f32) = cfg.bounds.into();
+        let pack = Tensor::<TestBackend, 2>::zeros([3, 3], &device);
+        let best = pack.clone().slice([0..1, 0..3]);
+        let state =
+            GwoState::try_new(pack, vec![1.0, 2.0, 3.0], Some(best), 3.0, 0).expect("valid state");
+        let mut rng = StdRng::seed_from_u64(0);
+        let (new_pack, _next) = strategy.ask(&cfg, &state, &mut rng, &device);
+        let values = new_pack.into_data().into_vec::<f32>().unwrap();
+        for v in values {
+            assert!(v.is_finite(), "guard failed: non-finite {v}");
+            assert!(v >= lo - 1e-4 && v <= hi + 1e-4, "out of bounds: {v}");
+        }
+    }
+
+    #[test]
+    fn inverted_bounds_are_unrepresentable() {
+        // As for the other metaheuristics, bound ordering is a type invariant
+        // (`Bounds`, ADR 0027) rather than a `GwoConfig::validate` check.
+        assert!(Bounds::try_new(5.12, -5.12).is_err());
+        assert!(Bounds::try_new(3.0, 3.0).is_ok());
+    }
+
+    #[test]
+    fn first_ask_returns_initial_pack_unchanged() {
+        let device = Default::default();
+        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let params = GwoConfig::default_for(4, 3);
+        let mut rng = StdRng::seed_from_u64(2);
+        let state = strategy.init(&params, &mut rng, &device);
+        let expected = state.pack().clone().into_data().into_vec::<f32>().unwrap();
+        let (pack, _state) = strategy.ask(&params, &state, &mut rng, &device);
+        let got = pack.into_data().into_vec::<f32>().unwrap();
+        assert_eq!(expected, got);
+    }
+
+    #[test]
+    fn nan_fitness_through_harness_stays_finite() {
+        let device = Default::default();
+        let strategy = GreyWolfOptimizer::<TestBackend>::new();
+        let params = GwoConfig::default_for(3, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy, params, NanFitness, 1, device, 3,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best={}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() >= 1, "the NaN row must be counted broken");
     }
 }

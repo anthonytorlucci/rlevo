@@ -539,6 +539,8 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     type TestBackend = Flex;
@@ -663,5 +665,191 @@ mod tests {
                 "velocity {v} exceeds search span {span}"
             );
         }
+    }
+
+    /// Fitness fn: row 0 → `NaN`, the rest finite. `Maximize` so natural ==
+    /// canonical, exercising the ADR-0034 harness sanitize with no `neg()`.
+    struct PartialNanFitness;
+    impl<B: Backend> crate::fitness::BatchFitnessFn<B, Tensor<B, 2>> for PartialNanFitness {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let n = population.dims()[0];
+            #[allow(clippy::cast_precision_loss)]
+            let mut vals: Vec<f32> = (0..n).map(|i| -(i as f32)).collect();
+            vals[0] = f32::NAN;
+            Tensor::<B, 1>::from_data(TensorData::new(vals, [n]), device)
+        }
+        fn sense(&self) -> rlevo_core::objective::ObjectiveSense {
+            rlevo_core::objective::ObjectiveSense::Maximize
+        }
+    }
+
+    /// Builds a steady-state (generation ≥ 1) bat swarm at the origin with a
+    /// non-empty fitness cache and a populated `best_genome`, so `ask` takes the
+    /// velocity-update path rather than the bootstrap early return.
+    fn steady_state(
+        pop: usize,
+        d: usize,
+        device: burn::backend::flex::FlexDevice,
+    ) -> BatState<TestBackend> {
+        let positions = Tensor::<TestBackend, 2>::zeros([pop, d], &device);
+        let velocities = Tensor::<TestBackend, 2>::zeros([pop, d], &device);
+        let best = Tensor::<TestBackend, 2>::zeros([1, d], &device);
+        BatState::try_new(
+            positions,
+            velocities,
+            vec![1.0; pop],
+            vec![0.5; pop],
+            vec![0.0; pop],
+            Some(best),
+            0.0,
+            1,
+            vec![false; pop],
+        )
+        .expect("valid steady state")
+    }
+
+    // Gap (e): the best-so-far accessor is `None` until a `tell` records one.
+    #[test]
+    fn best_is_none_before_first_tell() {
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let params = BatConfig::default_for(8, 4);
+        let mut rng = StdRng::seed_from_u64(1);
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(strategy.best(&state).is_none());
+    }
+
+    // Gap (a): a lone bat (`pop_size = 1`) and a single-dimension genome are the
+    // degenerate extremes. Both must run a full harness loop without panicking.
+    #[test]
+    fn degenerate_dims_run() {
+        for (pop, d) in [(1usize, 4usize), (6, 1)] {
+            let device = Default::default();
+            let strategy = BatAlgorithm::<TestBackend>::new();
+            let params = BatConfig::default_for(pop, d);
+            let fitness_fn = FromFitnessEvaluable::new(SphereFit, Sphere);
+            let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+                strategy, params, fitness_fn, 3, device, 8,
+            )
+            .expect("valid params");
+            harness.reset();
+            while !harness.step(()).done {}
+            assert!(
+                harness
+                    .latest_metrics()
+                    .unwrap()
+                    .best_fitness_ever()
+                    .is_finite(),
+                "non-finite best for (pop={pop}, d={d})"
+            );
+        }
+    }
+
+    // Gap (b): every proposed candidate is clamped into `bounds` after `ask`,
+    // across 32 seeds.
+    #[test]
+    fn proposed_positions_within_bounds() {
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let params = BatConfig::default_for(10, 4);
+        let (lo, hi): (f32, f32) = params.bounds.into();
+        let state = steady_state(10, 4, device);
+        for seed in 0..32 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let (cand, _next) = strategy.ask(&params, &state, &mut rng, &device);
+            let vals = cand
+                .into_data()
+                .into_vec::<f32>()
+                .expect("candidates readable as f32");
+            for &v in &vals {
+                assert!(
+                    v >= lo && v <= hi,
+                    "candidate {v} out of bounds [{lo}, {hi}] (seed {seed})"
+                );
+            }
+        }
+    }
+
+    // Gap (c): the BA-specific loudness/pulse update math and the acceptance
+    // gate. Bee 0 has `pending_accept = true` and an improving candidate, so it
+    // accepts: loudness decays by α and pulse rate jumps to
+    // `r₀·(1 − exp(−γ·t))`, and its position becomes the candidate. Bee 1 has
+    // `pending_accept = false`, so despite an improving candidate it is
+    // rejected: loudness, pulse rate, and position are all untouched.
+    #[test]
+    fn loudness_decay_pulse_growth_and_acceptance_gate() {
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let params = BatConfig::default_for(2, 1); // α = 0.9, γ = 0.9, r₀ = 0.5
+        let generation: usize = 3;
+        let state = BatState::try_new(
+            Tensor::<TestBackend, 2>::zeros([2, 1], &device),
+            Tensor::<TestBackend, 2>::zeros([2, 1], &device),
+            vec![1.0, 1.0], // loudness = a0
+            vec![0.5, 0.5], // pulse = r0
+            vec![0.0, 0.0], // current fitness
+            Some(Tensor::<TestBackend, 2>::zeros([1, 1], &device)),
+            0.0,
+            generation,
+            vec![true, false], // bee 0 accepts, bee 1 rejects
+        )
+        .expect("valid state");
+        let candidates = Tensor::<TestBackend, 2>::full([2, 1], 0.1, &device);
+        // Both candidates improve (1.0 ≥ 0.0), isolating the acceptance gate.
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![1.0_f32, 1.0], [2]), &device);
+        let mut rng = StdRng::seed_from_u64(0);
+        let (next, _m) = strategy.tell(&params, candidates, fit, state, &mut rng);
+
+        // Bee 0 accepted → loudness *= α; bee 1 rejected → unchanged.
+        approx::assert_relative_eq!(next.loudness()[0], 0.9, epsilon = 1e-6);
+        approx::assert_relative_eq!(next.loudness()[1], 1.0, epsilon = 1e-6);
+
+        // Bee 0 accepted → pulse = r0·(1 − exp(−γ·t)); bee 1 rejected → stays r0.
+        #[allow(clippy::cast_precision_loss)]
+        let expected_pulse = 0.5 * (1.0 - (-0.9_f32 * generation as f32).exp());
+        approx::assert_relative_eq!(next.pulse_rate()[0], expected_pulse, epsilon = 1e-6);
+        approx::assert_relative_eq!(next.pulse_rate()[1], 0.5, epsilon = 1e-6);
+
+        // Position: bee 0 takes the candidate (0.1), bee 1 keeps the origin.
+        let pos = next
+            .positions()
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("positions readable as f32");
+        approx::assert_relative_eq!(pos[0], 0.1, epsilon = 1e-6);
+        approx::assert_relative_eq!(pos[1], 0.0, epsilon = 1e-6);
+    }
+
+    // Gap (d): a partly-`NaN` objective is neutralized by the harness sanitize
+    // chokepoint (ADR 0034).
+    #[test]
+    fn nan_fitness_survives_harness() {
+        let device = Default::default();
+        let strategy = BatAlgorithm::<TestBackend>::new();
+        let params = BatConfig::default_for(8, 3);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            strategy,
+            params,
+            PartialNanFitness,
+            4,
+            device,
+            4,
+        )
+        .expect("valid params");
+        harness.reset();
+        while !harness.step(()).done {}
+        let m = harness.latest_metrics().unwrap();
+        assert!(
+            m.best_fitness_ever().is_finite(),
+            "best_fitness_ever not finite: {}",
+            m.best_fitness_ever()
+        );
+        assert!(m.broken_count() > 0, "expected a broken (NaN) member");
     }
 }
