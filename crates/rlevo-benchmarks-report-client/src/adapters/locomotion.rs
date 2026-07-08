@@ -98,6 +98,9 @@ fn bounds(values: &[f32]) -> Option<(f32, f32)> {
 /// user units with a y-flip (physics-up → SVG-down).  Renders in paint order:
 /// ground line, bones, joints, contacts, centre-of-mass cross-hair.  Returns
 /// an error paragraph if the computed bounds are degenerate on either axis.
+// Single paint-ordered SVG scene builder; splitting the passes would only thread
+// the shared affine map through helpers.
+#[allow(clippy::too_many_lines)]
 fn view_with_payload(payload: &Locomotion2DPayload) -> AnyView {
     let (x_lo, x_hi, y_lo, y_hi) = payload_bounds(payload);
     let span_x = x_hi - x_lo;

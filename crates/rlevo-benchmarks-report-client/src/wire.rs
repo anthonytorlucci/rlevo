@@ -109,7 +109,7 @@ impl Point2 {
     }
 }
 
-/// Semantic role of a [`RigidBody2D`] within a Box2D scene.
+/// Semantic role of a [`RigidBody2D`] within a `Box2D` scene.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum BodyKind {
@@ -129,7 +129,7 @@ pub enum BodyKind {
     Other,
 }
 
-/// Wire mirror of a single rigid body in a Box2D scene.
+/// Wire mirror of a single rigid body in a `Box2D` scene.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RigidBody2D {
     /// Local-frame polygon vertices, ordered for rendering.
@@ -159,7 +159,7 @@ pub struct Landscape2DPayload {
     pub label: String,
 }
 
-/// Per-frame snapshot for a Box2D physics environment.
+/// Per-frame snapshot for a `Box2D` physics environment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Box2dPayload {
     /// Axis-aligned bounding box of the visible world, as `(min, max)`.
@@ -415,15 +415,15 @@ pub struct RunId(pub String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EnvFamily {
-    /// CartPole, MountainCar, Pendulum, Acrobot.
+    /// `CartPole`, `MountainCar`, Pendulum, Acrobot.
     Classic,
     /// Minigrid-style grid worlds (empty, four-rooms, door-key, …).
     Grids,
-    /// FrozenLake, CliffWalking, Taxi, Blackjack.
+    /// `FrozenLake`, `CliffWalking`, Taxi, Blackjack.
     ToyText,
-    /// LunarLander, BipedalWalker, CarRacing (Box2D physics).
+    /// `LunarLander`, `BipedalWalker`, `CarRacing` (`Box2D` physics).
     Box2d,
-    /// Ant, HalfCheetah, Hopper, Walker2D (MuJoCo / locomotion).
+    /// Ant, `HalfCheetah`, Hopper, `Walker2D` (`MuJoCo` / locomotion).
     Locomotion,
     /// Sphere, Ackley, Rastrigin (black-box optimisation landscapes).
     Landscapes,
@@ -440,9 +440,9 @@ pub enum FamilyPayload {
     Ascii,
     /// 2-D landscape-search snapshot (Sphere, Ackley, Rastrigin, …).
     Landscape2D(Landscape2DPayload),
-    /// Box2D rigid-body scene (LunarLander, BipedalWalker, …).
+    /// `Box2D` rigid-body scene (`LunarLander`, `BipedalWalker`, …).
     Box2dBodies(Box2dPayload),
-    /// Sagittal-plane locomotion skeleton (Ant, HalfCheetah, …).
+    /// Sagittal-plane locomotion skeleton (Ant, `HalfCheetah`, …).
     Locomotion2D(Locomotion2DPayload),
     /// Structured tile grid (empty, four-rooms, door-key, …). Added in
     /// `FORMAT_VERSION = 5`.

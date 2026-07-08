@@ -1,4 +1,4 @@
-//! Box2D adapter (LunarLander, BipedalWalker, CarRacing).
+//! `Box2D` adapter (`LunarLander`, `BipedalWalker`, `CarRacing`).
 //!
 //! Consumes a [`FamilyPayload::Box2dBodies`] payload and renders each
 //! [`RigidBody2D`] as a transformed SVG `<polygon>`, with per-body

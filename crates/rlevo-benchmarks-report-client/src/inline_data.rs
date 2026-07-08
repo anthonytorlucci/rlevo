@@ -201,9 +201,8 @@ pub fn read_episode_record(script_id: &str) -> Result<EpisodeRecord, InlineError
 pub fn read_all_episode_records() -> &'static Vec<EpisodeRecord> {
     static CACHE: OnceLock<Vec<EpisodeRecord>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let index = match read_episode_index() {
-            Ok(v) => v,
-            Err(_) => return Vec::new(),
+        let Ok(index) = read_episode_index() else {
+            return Vec::new();
         };
         index
             .iter()

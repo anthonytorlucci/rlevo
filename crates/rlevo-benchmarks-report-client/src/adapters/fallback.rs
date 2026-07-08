@@ -1,7 +1,7 @@
 //! Fallback adapter for env families that lack a bespoke renderer.
 //!
 //! [`render`] is called by other adapters when a frame's [`FamilyPayload`]
-//! variant does not match what the adapter expects (e.g. a Box2D adapter
+//! variant does not match what the adapter expects (e.g. a `Box2D` adapter
 //! receiving a Classic payload).  It delegates to `frame_body`,
 //! which emits a styled ASCII projection when one is present and raw text
 //! otherwise, then appends a `<figcaption>` banner so users know they are

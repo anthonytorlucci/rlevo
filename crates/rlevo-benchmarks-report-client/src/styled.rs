@@ -68,15 +68,15 @@ fn styled_span_view(span: &StyledSpan) -> AnyView {
 #[must_use]
 pub fn span_classes(style: &SpanStyle) -> String {
     let mut parts: Vec<&'static str> = Vec::new();
-    if let Some(fg) = style.fg {
-        if let Some(c) = color_class(fg, true) {
-            parts.push(c);
-        }
+    if let Some(fg) = style.fg
+        && let Some(c) = color_class(fg, true)
+    {
+        parts.push(c);
     }
-    if let Some(bg) = style.bg {
-        if let Some(c) = color_class(bg, false) {
-            parts.push(c);
-        }
+    if let Some(bg) = style.bg
+        && let Some(c) = color_class(bg, false)
+    {
+        parts.push(c);
     }
     parts.extend(modifier_classes(style.modifier));
     parts.join(" ")
@@ -86,7 +86,7 @@ pub fn span_classes(style: &SpanStyle) -> String {
 /// `Reset` and `Indexed(_)` return `None` — the span renders unstyled.
 #[must_use]
 pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
-    let table_fg = [
+    let foreground_classes = [
         // (Color, fg class)
         (Color::Black, "rlevo-fg-black"),
         (Color::Red, "rlevo-fg-red"),
@@ -105,7 +105,7 @@ pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
         (Color::LightCyan, "rlevo-fg-lightcyan"),
         (Color::White, "rlevo-fg-white"),
     ];
-    let table_bg = [
+    let background_classes = [
         (Color::Black, "rlevo-bg-black"),
         (Color::Red, "rlevo-bg-red"),
         (Color::Green, "rlevo-bg-green"),
@@ -124,9 +124,9 @@ pub fn color_class(color: Color, foreground: bool) -> Option<&'static str> {
         (Color::White, "rlevo-bg-white"),
     ];
     let table = if foreground {
-        &table_fg[..]
+        &foreground_classes[..]
     } else {
-        &table_bg[..]
+        &background_classes[..]
     };
     table.iter().find(|(c, _)| *c == color).map(|(_, cls)| *cls)
 }
