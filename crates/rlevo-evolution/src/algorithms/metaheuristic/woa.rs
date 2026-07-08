@@ -44,6 +44,26 @@ use crate::ops::selection::argmax_host;
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
+/// `exp(x)` overflows f32 for x ≳ 88.7; clamp the spiral exponent so an
+/// out-of-range `b` can never produce `inf`/`NaN` in the spiral update.
+const MAX_SPIRAL_EXP: f32 = 80.0; // exp(80) ≈ 5.5e34, well under f32::MAX
+
+/// Per-element spiral bubble-net factor `exp(b·l)·cos(2π·l)`.
+///
+/// The exponent `b·l` is clamped to `±`[`MAX_SPIRAL_EXP`] before
+/// exponentiation. Without the clamp an out-of-range `b` drives
+/// `exp(b·l)` past f32's overflow threshold to `inf`; where `cos(2π·l)`
+/// is zero the product is `inf · 0 = NaN` (and elsewhere it is `±inf`) —
+/// non-finite values that the downstream bounds clamp does not sanitize.
+/// Clamping the exponent keeps the factor finite for every `l`.
+///
+/// This is the pure host-side core the `ask` spiral branch is built on;
+/// keeping it out of the tensor pipeline makes the overflow guard directly
+/// unit-testable with injected pathological `(l, b)` pairs.
+fn spiral_factor(l: f32, b: f32) -> f32 {
+    (b * l).clamp(-MAX_SPIRAL_EXP, MAX_SPIRAL_EXP).exp() * (2.0 * PI * l).cos()
+}
+
 /// Static configuration for [`WhaleOptimization`].
 #[derive(Debug, Clone)]
 pub struct WoaConfig {
@@ -311,7 +331,6 @@ where
         let c_row = Tensor::<B, 1>::from_data(TensorData::new(c_scalar, [pop_size]), device)
             .unsqueeze_dim::<2>(1)
             .expand([pop_size, genome_dim]);
-        let l_vec = Tensor::<B, 1>::from_data(TensorData::new(l_scalar, [pop_size]), device);
         let rand_idx_t =
             Tensor::<B, 1, Int>::from_data(TensorData::new(rand_idx, [pop_size]), device);
         let x_rand = state.positions.clone().select(0, rand_idx_t);
@@ -331,13 +350,16 @@ where
         // Search toward X_rand:    X_rand − A · |C · X_rand − X|
         let enc_rand =
             x_rand.clone() - a_row.mul((c_row.mul(x_rand) - state.positions.clone()).abs());
-        // Spiral toward X_best:    |X_best − X| · exp(b·l) · cos(2π·l) + X_best
+        // Spiral toward X_best:    |X_best − X| · exp(b·l) · cos(2π·l) + X_best.
+        // The per-element factor `exp(b·l)·cos(2π·l)` is computed host-side by
+        // `spiral_factor`, which clamps the exponent so an out-of-range `b`
+        // can never produce `inf · 0 = NaN` in the spiral update.
         let dist = (x_best.clone() - state.positions.clone()).abs();
-        let factor = l_vec
-            .clone()
-            .mul_scalar(params.b)
-            .exp()
-            .mul(l_vec.mul_scalar(2.0 * PI).cos());
+        let factor_host: Vec<f32> = l_scalar
+            .iter()
+            .map(|&l| spiral_factor(l, params.b))
+            .collect();
+        let factor = Tensor::<B, 1>::from_data(TensorData::new(factor_host, [pop_size]), device);
         let factor_mat = factor.unsqueeze_dim::<2>(1).expand([pop_size, genome_dim]);
         let spiral = dist.mul(factor_mat) + x_best;
 
@@ -472,5 +494,50 @@ mod tests {
         while !harness.step(()).done {}
         let best = harness.latest_metrics().unwrap().best_fitness_ever();
         assert!(best < 1e-4, "WOA D10 best={best}");
+    }
+
+    #[test]
+    fn spiral_factor_stays_finite_under_overflow() {
+        // Deterministic reproducer for #156 (WOA): the spiral factor
+        // `exp(b·l)·cos(2π·l)`. A large `b` drives `exp(b·l)` past f32's
+        // overflow threshold (≈ e^88.7). At `l = 0.75`, `cos(2π·0.75)` is
+        // (numerically) zero, so the *un-clamped* product is `inf · 0 = NaN`;
+        // at other overflow points it is `±inf`. Either way the value is
+        // non-finite and survives the downstream bounds clamp, poisoning the
+        // genome. `spiral_factor` clamps the exponent and stays finite.
+        //
+        // Each `(l, b)` pair below has `b·l > 88.7`, so the un-clamped
+        // reference is non-finite — the assertion on `spiral_factor` would
+        // FAIL against the pre-fix (un-clamped) computation, which is exactly
+        // the `unguarded` expression checked to be non-finite here.
+        for &(l, b) in &[
+            (0.75_f32, 200.0_f32),
+            (0.5, 200.0),
+            (0.9, 200.0),
+            (0.75, 500.0),
+        ] {
+            // What the pre-fix code computed (no exponent clamp).
+            let unguarded: f32 = (b * l).exp() * (2.0 * PI * l).cos();
+            assert!(
+                !unguarded.is_finite(),
+                "test setup: expected overflow for l={l}, b={b}, got {unguarded}"
+            );
+            let guarded: f32 = spiral_factor(l, b);
+            assert!(
+                guarded.is_finite(),
+                "spiral_factor non-finite for l={l}, b={b}: {guarded}"
+            );
+        }
+    }
+
+    #[test]
+    fn spiral_factor_matches_unguarded_when_in_range() {
+        // Below the overflow threshold the clamp is a no-op: the guarded
+        // factor must equal the plain `exp(b·l)·cos(2π·l)` computation.
+        for &(l, b) in &[(0.3_f32, 1.0_f32), (-0.7, 2.0), (0.25, 10.0)] {
+            let expected: f32 = (b * l).exp() * (2.0 * PI * l).cos();
+            let got: f32 = spiral_factor(l, b);
+            approx::assert_relative_eq!(got, expected, epsilon = 1e-6);
+        }
     }
 }

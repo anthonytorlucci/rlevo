@@ -67,12 +67,16 @@ impl FireflyConfig {
     /// non-vanishing across pairs.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
+        let (lo, hi): (f32, f32) = (-5.12, 5.12);
+        let length: f32 = hi - lo;
+        // γ ≈ 1/L², Yang's canonical regime scaled to the domain extent.
+        let gamma: f32 = 1.0 / (length * length);
         Self {
             pop_size,
             genome_dim,
-            bounds: Bounds::new(-5.12, 5.12),
+            bounds: Bounds::new(lo, hi),
             beta0: 1.0,
-            gamma: 0.01,
+            gamma,
             alpha: 0.2,
         }
     }
@@ -445,6 +449,15 @@ mod tests {
     #[test]
     fn default_config_validates() {
         assert!(FireflyConfig::default_for(32, 10).validate().is_ok());
+    }
+
+    #[test]
+    fn default_gamma_matches_inverse_length_squared() {
+        let cfg = FireflyConfig::default_for(32, 10);
+        let (lo, hi): (f32, f32) = cfg.bounds.into();
+        let length: f32 = hi - lo;
+        let expected: f32 = 1.0 / (length * length);
+        approx::assert_relative_eq!(cfg.gamma, expected);
     }
 
     #[test]

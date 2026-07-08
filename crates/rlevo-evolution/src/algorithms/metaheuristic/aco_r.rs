@@ -17,7 +17,6 @@
 //!
 //! - Socha & Dorigo (2008), *Ant colony optimization for continuous domains*.
 
-use std::f32::consts::PI;
 use std::marker::PhantomData;
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
@@ -138,17 +137,26 @@ impl<B: Backend> AntColonyReal<B> {
         #[allow(clippy::cast_precision_loss)]
         let k = archive_size as f32;
         let denom = 2.0 * q * q * k * k;
-        let scale = 1.0 / (q * k * (2.0 * PI).sqrt());
+        // Drop the Gaussian-PDF normalisation constant: it cancels exactly under
+        // the sum-to-one renormalisation below, and for tiny q·k it overflows to
+        // +inf, producing inf/inf = NaN. `l` is 0-indexed here; equivalent to the
+        // paper's 1-indexed (l−1)² after normalisation.
         let mut w: Vec<f32> = (0..archive_size)
             .map(|l| {
                 #[allow(clippy::cast_precision_loss)]
                 let rank = l as f32;
-                scale * (-(rank * rank) / denom).exp()
+                (-(rank * rank) / denom).exp()
             })
             .collect();
         let total: f32 = w.iter().sum();
-        for v in &mut w {
-            *v /= total;
+        if !total.is_finite() || total == 0.0 {
+            // Degenerate q (e.g. q == 0 / underflow): fall back to uniform so the
+            // CDF sampler in `ask` never sees all-zero / NaN weights.
+            w.fill(1.0 / k);
+        } else {
+            for v in &mut w {
+                *v /= total;
+            }
         }
         w
     }
@@ -453,6 +461,35 @@ mod tests {
         let w = AntColonyReal::<TestBackend>::compute_weights(10, 0.1);
         let total: f32 = w.iter().sum();
         approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn weights_normal_case_monotone_non_increasing() {
+        let w: Vec<f32> = AntColonyReal::<TestBackend>::compute_weights(10, 0.1);
+        let total: f32 = w.iter().sum();
+        approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
+        // Rank 0 (best) must be the heaviest; weights decay with rank.
+        for pair in w.windows(2) {
+            assert!(
+                pair[0] >= pair[1],
+                "weights must be non-increasing: {} < {}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn weights_degenerate_q_fall_back_to_uniform() {
+        for q in [1e-30_f32, 0.0_f32] {
+            let w: Vec<f32> = AntColonyReal::<TestBackend>::compute_weights(10, q);
+            assert!(
+                w.iter().all(|v| v.is_finite() && *v >= 0.0),
+                "degenerate q={q} produced non-finite / negative weights: {w:?}"
+            );
+            let total: f32 = w.iter().sum();
+            approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
+        }
     }
 
     #[test]
