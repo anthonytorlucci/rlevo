@@ -218,9 +218,37 @@ impl<F: FunctionSet> Alphabet<F> {
 mod tests {
     use super::*;
     use crate::function_set::ArithmeticFunctionSet;
+    use crate::rng::{SeedPurpose, seed_stream};
 
     fn alphabet(n_vars: usize, constants: Vec<f32>) -> Alphabet<ArithmeticFunctionSet> {
         Alphabet::new(ArithmeticFunctionSet, n_vars, constants)
+    }
+
+    /// A deliberately ill-formed function set: an arity-0 opcode (id 0) precedes
+    /// an arity-2 opcode (id 1), violating the "zero-arity functions trailing"
+    /// layout precondition that keeps [`Alphabet::terminal_range`] contiguous.
+    #[derive(Debug)]
+    struct BadLayoutFunctionSet;
+
+    impl FunctionSet for BadLayoutFunctionSet {
+        fn num_functions(&self) -> usize {
+            2
+        }
+
+        fn arity(&self, symbol: Symbol) -> usize {
+            match symbol.value() {
+                1 => 2,
+                _ => 0,
+            }
+        }
+
+        fn max_arity(&self) -> usize {
+            2
+        }
+
+        fn apply(&self, _symbol: Symbol, _args: &[f32]) -> f32 {
+            0.0
+        }
     }
 
     #[test]
@@ -289,5 +317,67 @@ mod tests {
             a.classify(Symbol::from_raw(999)),
             SymbolKind::Function { arity: 0 }
         );
+    }
+
+    /// A function set whose arity-0 opcode precedes an arity-≥1 opcode breaks the
+    /// contiguity precondition; [`Alphabet::new`] catches it with a
+    /// `debug_assert!`.
+    #[test]
+    #[should_panic(expected = "arity-0 functions must be the trailing")]
+    fn new_panics_when_zero_arity_function_precedes_a_function() {
+        let _ = Alphabet::new(BadLayoutFunctionSet, 1, vec![]);
+    }
+
+    /// `sample_tail_symbol` only ever returns terminals (arity 0) inside the
+    /// terminal id range, over many draws.
+    #[test]
+    fn sample_tail_symbol_is_always_a_terminal() {
+        let a: Alphabet<ArithmeticFunctionSet> = alphabet(2, vec![1.0, 2.0]);
+        let range: Range<i32> = a.terminal_range();
+        let mut rng = seed_stream(1, 0, SeedPurpose::Mutation);
+        for _ in 0..1000 {
+            let s: Symbol = a.sample_tail_symbol(&mut rng);
+            assert_eq!(a.arity(s), 0, "tail symbol {s} is not a terminal");
+            assert!(range.contains(&s.value()), "tail symbol {s} outside range");
+        }
+    }
+
+    /// `sample_head_symbol` stays within the full id space `0..len()`.
+    #[test]
+    fn sample_head_symbol_stays_in_id_space() {
+        let a: Alphabet<ArithmeticFunctionSet> = alphabet(2, vec![1.0]);
+        let len: i32 = i32::try_from(a.len()).unwrap();
+        let mut rng = seed_stream(2, 0, SeedPurpose::Init);
+        for _ in 0..1000 {
+            let s: Symbol = a.sample_head_symbol(&mut rng);
+            assert!(
+                (0..len).contains(&s.value()),
+                "head symbol {s} outside 0..{len}"
+            );
+        }
+    }
+
+    /// A non-finite problem constant is still a well-formed terminal: it
+    /// classifies as `Constant`, reports arity 0, and lies in the terminal
+    /// range. (Finiteness of the *value* is the evaluator's concern, not the
+    /// alphabet's.)
+    #[test]
+    fn non_finite_constant_is_a_terminal() {
+        // ids: functions 0..8, variable 8, constants 9 (NaN), 10 (+Inf).
+        let a: Alphabet<ArithmeticFunctionSet> = alphabet(1, vec![f32::NAN, f32::INFINITY]);
+        let range: Range<i32> = a.terminal_range();
+
+        assert_eq!(a.arity(Symbol::from_raw(9)), 0);
+        assert_eq!(a.arity(Symbol::from_raw(10)), 0);
+        assert!(range.contains(&9) && range.contains(&10));
+
+        match a.classify(Symbol::from_raw(9)) {
+            SymbolKind::Constant { value } => assert!(value.is_nan()),
+            other => panic!("expected Constant, got {other:?}"),
+        }
+        match a.classify(Symbol::from_raw(10)) {
+            SymbolKind::Constant { value } => assert!(value.is_infinite()),
+            other => panic!("expected Constant, got {other:?}"),
+        }
     }
 }

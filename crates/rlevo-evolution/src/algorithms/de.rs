@@ -586,6 +586,139 @@ mod tests {
         assert_eq!(cfg.validate().unwrap_err().field, "pop_size");
     }
 
+    /// [`DifferentialEvolution::sample_distinct_excluding`] must return
+    /// exactly `k` indices that are pairwise distinct, all in `0..pop_size`,
+    /// and all different from `self_idx`. Swept over every valid
+    /// `(pop_size, k, self_idx)` triple for a handful of draws each so the
+    /// rejection loop is exercised broadly (`de` §7, operator property).
+    #[test]
+    fn sample_distinct_excluding_yields_valid_indices() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut rng = StdRng::seed_from_u64(20_240_607);
+        for pop_size in [4usize, 5, 8, 20] {
+            // `k` never exceeds the largest per-variant index count (5, Rand2Bin)
+            // and must stay strictly below `pop_size`.
+            for k in 1..pop_size.min(6) {
+                for self_idx in 0..pop_size {
+                    for _ in 0..25 {
+                        let chosen: Vec<usize> =
+                            DifferentialEvolution::<TestBackend>::sample_distinct_excluding(
+                                self_idx, pop_size, k, &mut rng,
+                            );
+                        assert_eq!(chosen.len(), k, "must return exactly k indices");
+                        for (a, &x) in chosen.iter().enumerate() {
+                            assert!(x < pop_size, "index {x} out of range for pop {pop_size}");
+                            assert_ne!(x, self_idx, "index must differ from self_idx");
+                            for &y in &chosen[a + 1..] {
+                                assert_ne!(x, y, "indices must be pairwise distinct");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The rejection loop cannot make progress when `pop_size <= k` (there are
+    /// not enough candidates outside `self_idx`); the documented `assert`
+    /// guards that with a panic rather than spinning forever (`de` §7).
+    #[test]
+    #[should_panic(expected = "pop_size must exceed")]
+    fn sample_distinct_excluding_panics_when_pop_too_small() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut rng = StdRng::seed_from_u64(1);
+        // k == pop_size: impossible to draw k distinct indices excluding self.
+        let _ = DifferentialEvolution::<TestBackend>::sample_distinct_excluding(0, 3, 3, &mut rng);
+    }
+
+    /// Every gene of a generated trial vector stays inside `params.bounds`
+    /// after the mutation + crossover + clamp pipeline (`de` §7, bounds
+    /// handling). Drives the strategy one full ask/tell/ask cycle so the
+    /// second `ask` returns genuine trial vectors rather than the initial
+    /// population.
+    #[test]
+    fn trial_genes_stay_within_bounds() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = DifferentialEvolution::<TestBackend>::new();
+        let mut params = DeConfig::default_for(12, 4);
+        params.variant = DeVariant::Rand1Bin;
+        let (lo, hi): (f32, f32) = params.bounds.into();
+
+        let mut rng = StdRng::seed_from_u64(4242);
+        let state = strategy.init(&params, &mut rng, &device);
+        // First ask returns the initial population unchanged; a tell populates
+        // the fitness cache so the next ask produces trial vectors.
+        let (pop0, s) = strategy.ask(&params, &state, &mut rng, &device);
+        let n = pop0.dims()[0];
+        let fitness =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(vec![0.0_f32; n], [n]), &device);
+        let (s, _) = strategy.tell(&params, pop0, fitness, s, &mut rng);
+        let (trial, _) = strategy.ask(&params, &s, &mut rng, &device);
+        let genes: Vec<f32> = trial
+            .into_data()
+            .into_vec::<f32>()
+            .expect("trial host-read of a tensor this test just built");
+        for g in genes {
+            assert!(
+                g.is_finite() && g >= lo && g <= hi,
+                "trial gene {g} left [{lo}, {hi}]"
+            );
+        }
+    }
+
+    /// Sphere landscape that returns `NaN` for half the domain. Exercises the
+    /// fitness-hygiene chokepoint (ADR 0034): a `NaN` fitness must never become
+    /// the reported best nor poison a population slot ("zombie slot").
+    struct NanSphere;
+    struct NanSphereFit;
+    impl FitnessEvaluable for NanSphereFit {
+        type Individual = Vec<f64>;
+        type Landscape = NanSphere;
+        fn evaluate(&self, x: &Self::Individual, _: &Self::Landscape) -> f64 {
+            let s: f64 = x.iter().map(|v| v * v).sum();
+            if x[0] > 0.0 { f64::NAN } else { s }
+        }
+    }
+
+    /// A fitness function that yields `NaN` for many genomes must not crash the
+    /// run and must never report a `NaN` (or otherwise non-finite) best. The
+    /// harness sanitizes `NaN → −∞` at the driver chokepoint, so the poisoned
+    /// slots can never out-rank a finite individual or block replacement
+    /// (`de` §7, NaN regression).
+    #[test]
+    fn nan_fitness_never_becomes_best() {
+        let device = Default::default();
+        let params = DeConfig::default_for(30, 4);
+        let fitness_fn = FromFitnessEvaluable::new(NanSphereFit, NanSphere);
+        let mut harness = EvolutionaryHarness::<TestBackend, _, _>::new(
+            DifferentialEvolution::<TestBackend>::new(),
+            params,
+            fitness_fn,
+            99,
+            device,
+            40,
+        )
+        .expect("valid params");
+        harness.reset();
+        loop {
+            if harness.step(()).done {
+                break;
+            }
+        }
+        let best = harness.latest_metrics().unwrap().best_fitness_ever();
+        assert!(
+            best.is_finite(),
+            "NaN fitness poisoned best_fitness_ever: {best}"
+        );
+    }
+
     struct Sphere;
     struct SphereFit;
     impl FitnessEvaluable for SphereFit {

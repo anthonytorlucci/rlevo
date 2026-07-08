@@ -517,6 +517,83 @@ mod tests {
 
     type TestBackend = Flex;
 
+    /// All-equal fitness gives every individual the same weight: draws are valid
+    /// indices and every index is reachable.
+    #[test]
+    fn roulette_all_equal_fitness_stays_in_range() {
+        let mut rng = seed_stream(31, 0, SeedPurpose::Selection);
+        let fits: Vec<f32> = vec![1.0; 5];
+        let picks: Vec<usize> = roulette_select(&fits, 10, &mut rng);
+        assert_eq!(picks.len(), 10);
+        assert!(picks.iter().all(|&i| i < 5));
+    }
+
+    /// All-`NaN` fitness zeroes every weight, so selection falls back to
+    /// *uniform* sampling — not a degenerate always-index-0 draw. Over a large
+    /// deterministic sample each of the 4 candidates must appear roughly N/4
+    /// times (loose band), which a silent "always pick 0" fallback would fail.
+    #[test]
+    fn roulette_all_nan_falls_back_to_uniform() {
+        const N: usize = 4000;
+        let mut rng = seed_stream(32, 0, SeedPurpose::Selection);
+        let fits: Vec<f32> = vec![f32::NAN; 4];
+        let picks: Vec<usize> = roulette_select(&fits, N, &mut rng);
+        assert_eq!(picks.len(), N);
+        assert!(picks.iter().all(|&i| i < 4));
+
+        let mut counts = [0usize; 4];
+        for &i in &picks {
+            counts[i] += 1;
+        }
+        // Uniform expectation is N/4 = 1000; allow a generous ±40% band so the
+        // fixed-seed draw cannot flake while still rejecting a collapsed
+        // distribution (e.g. every draw landing on one index).
+        let expected: usize = N / 4;
+        let low = expected - expected * 2 / 5;
+        let high = expected + expected * 2 / 5;
+        for (idx, &c) in counts.iter().enumerate() {
+            assert!(
+                (low..=high).contains(&c),
+                "index {idx} drawn {c} times, outside uniform band [{low}, {high}]"
+            );
+        }
+    }
+
+    /// A single-individual population can only ever pick index 0.
+    #[test]
+    fn roulette_single_element_always_picks_zero() {
+        let mut rng = seed_stream(33, 0, SeedPurpose::Selection);
+        let picks: Vec<usize> = roulette_select(&[3.5], 6, &mut rng);
+        assert_eq!(picks, vec![0usize; 6]);
+    }
+
+    /// Requesting zero parents from an empty fitness slice yields no picks (and
+    /// never samples an empty range).
+    #[test]
+    fn roulette_empty_with_zero_k_is_empty() {
+        let mut rng = seed_stream(34, 0, SeedPurpose::Selection);
+        let picks: Vec<usize> = roulette_select(&[], 0, &mut rng);
+        assert!(picks.is_empty());
+    }
+
+    /// With all-negative (canonical) fitness the shift `f − min_finite` still
+    /// favours the least-negative individual; it is picked more often than the
+    /// most-negative one, and every draw is in range.
+    #[test]
+    fn roulette_negative_fitness_favours_highest() {
+        let mut rng = seed_stream(35, 0, SeedPurpose::Selection);
+        // Index 2 (−1.0) is the largest; index 0 (−100.0) the smallest.
+        let fits: Vec<f32> = vec![-100.0, -50.0, -1.0, -75.0];
+        let picks: Vec<usize> = roulette_select(&fits, 2000, &mut rng);
+        assert!(picks.iter().all(|&i| i < 4));
+        let count_best: usize = picks.iter().filter(|&&i| i == 2).count();
+        let count_worst: usize = picks.iter().filter(|&&i| i == 0).count();
+        assert!(
+            count_best > count_worst,
+            "highest fitness ({count_best}) should be picked more than lowest ({count_worst})"
+        );
+    }
+
     #[test]
     fn try_new_checks_fitness_length() {
         let device = Default::default();

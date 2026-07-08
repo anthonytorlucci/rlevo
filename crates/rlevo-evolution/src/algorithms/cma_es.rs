@@ -1157,4 +1157,132 @@ mod tests {
         assert!(told1.cov().iter().all(|v| v.is_finite()), "cov finite");
         assert!(told1.sigma().is_finite(), "sigma finite");
     }
+
+    /// Issue #147 §7.2: a full adaptive `tell` must leave `C` symmetric and
+    /// positive-definite. The rank-1 / rank-μ update accumulates the two
+    /// triangle entries in the identical order, so symmetry is bit-exact; PD is
+    /// checked via a symmetric eigendecomposition (all eigenvalues strictly
+    /// positive), which is exactly the property `ask`'s `√Λ` sampling and
+    /// `tell`'s `C^{-1/2}` conditioning rely on.
+    #[test]
+    fn tell_keeps_covariance_symmetric_and_positive_definite() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 3);
+        let d: usize = params.genome_dim;
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x5EED_C0DE);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        let cov: &[f32] = told.cov();
+        // Symmetric (bit-exact by construction).
+        for i in 0..d {
+            for j in 0..d {
+                assert_eq!(
+                    cov[i * d + j].to_bits(),
+                    cov[j * d + i].to_bits(),
+                    "asymmetry at ({i}, {j})"
+                );
+            }
+        }
+        // Positive-definite: every eigenvalue strictly positive.
+        let eig: SymEigen = jacobi_eigen(cov, d);
+        assert!(
+            eig.values.iter().all(|&l| l > 0.0),
+            "covariance not positive-definite: eigenvalues {:?}",
+            eig.values
+        );
+        // Diagonal (the variances) is strictly positive too.
+        for i in 0..d {
+            assert!(cov[i * d + i] > 0.0, "non-positive variance at {i}");
+        }
+    }
+
+    /// Issue #147 §7.2 best-tracking: `best()` is `None` before any `tell`, and
+    /// `Some((genome, fitness))` after — reporting the highest-fitness offspring
+    /// (canonical maximise) with the correct `(1, D)` genome shape.
+    #[test]
+    fn best_is_none_before_tell_and_some_after() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0xB357_7E57);
+
+        let state = strategy.init(&params, &mut rng, &device);
+        assert!(
+            strategy.best(&state).is_none(),
+            "best must be None before the first tell"
+        );
+
+        let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        let fitness = Tensor::<Flex, 1>::from_data(
+            TensorData::new(vec![6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0], [6]),
+            &device,
+        );
+        let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+        let best = strategy.best(&told).expect("best is Some after a tell");
+        let (genome, fit): (Tensor<Flex, 2>, f32) = best;
+        approx::assert_relative_eq!(fit, 6.0, epsilon = 1e-6);
+        assert_eq!(genome.dims(), [1, 2]);
+    }
+
+    /// Issue #147 §7.2 eigenvalue-floor clamp: a degenerate (exactly zero)
+    /// eigenvalue is floored to the relative floor `λ_max · CONDITION_FLOOR`,
+    /// strictly above zero, so `√Λ` and `1/√Λ` both stay finite. Without the
+    /// floor the `1/√Λ` used in `tell`'s `C^{-1/2}` would diverge to `+∞`.
+    #[test]
+    fn eigenvalue_floor_clamps_degenerate_eigenvalue() {
+        // λ_max = 1, one exactly-zero eigenvalue.
+        let eigvals: Vec<f32> = vec![1.0, 0.0];
+        let floor: f32 = eigenvalue_floor(&eigvals);
+        // Relative floor dominates the absolute backstop: 1·1e-14 > 1e-20.
+        assert_eq!(floor.to_bits(), CONDITION_FLOOR.to_bits());
+        assert!(floor > EIGENVALUE_FLOOR);
+
+        // The zero eigenvalue is lifted strictly above zero.
+        let clamped: f32 = eigvals[1].max(floor);
+        assert!(clamped > 0.0, "floored eigenvalue must be positive");
+        assert!(clamped.sqrt().is_finite(), "√Λ must be finite");
+        assert!((1.0 / clamped.sqrt()).is_finite(), "1/√Λ must be finite");
+
+        // Contrast: the un-floored zero eigenvalue would diverge under 1/√Λ.
+        assert!(
+            !(1.0f32 / eigvals[1].sqrt()).is_finite(),
+            "un-floored 1/√0 must diverge — proves the floor is load-bearing"
+        );
+    }
+
+    /// Issue #147 §7.2: `update_best` on an empty population is a no-op — it
+    /// short-circuits before touching the population tensor, leaving best-so-far
+    /// tracking untouched (no panic, no spurious best).
+    #[test]
+    fn update_best_empty_population_is_noop() {
+        let strategy = CmaEs::<Flex>::new();
+        let params = CmaEsConfig::with_pop_size(6, 2);
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x0E11_0E11);
+
+        let mut state = strategy.init(&params, &mut rng, &device);
+        // Any population tensor; the empty fitness slice short-circuits before it
+        // is read.
+        let pop = Tensor::<Flex, 2>::from_data(TensorData::new(vec![0.0f32, 0.0], [1, 2]), &device);
+        update_best(&mut state, &pop, &[]);
+
+        assert!(
+            state.best_genome().is_none(),
+            "empty population must not set a best genome"
+        );
+        assert_eq!(
+            state.best_fitness().to_bits(),
+            f32::NEG_INFINITY.to_bits(),
+            "empty population must not move best fitness off its sentinel"
+        );
+    }
 }

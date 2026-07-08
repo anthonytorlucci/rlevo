@@ -14,8 +14,11 @@
 //! byte-for-byte.
 
 use burn::backend::Flex;
+use burn::tensor::backend::{Backend, BackendTypes};
+use burn::tensor::{Int, Tensor, TensorData};
 use rlevo_core::bounds::Bounds;
 use rlevo_core::fitness::FitnessEvaluable;
+use rlevo_core::objective::ObjectiveSense;
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 
@@ -24,6 +27,7 @@ use rlevo_evolution::algorithms::es_classical::{EsConfig, EsKind, EvolutionStrat
 use rlevo_evolution::algorithms::ga::{
     GaConfig, GaCrossover, GaReplacement, GaSelection, GeneticAlgorithm,
 };
+use rlevo_evolution::algorithms::ga_binary::{BinaryGaConfig, BinaryGeneticAlgorithm};
 use rlevo_evolution::algorithms::memetic::{
     CoveragePolicy, MemeticParams, MemeticWrapper, WritebackPolicy,
 };
@@ -68,6 +72,68 @@ where
         strategy,
         params,
         FromFitnessEvaluable::new(SphereFit, Sphere),
+        seed,
+        device,
+        gens,
+    )
+    .expect("valid params");
+    harness.reset();
+    let mut trajectory = Vec::with_capacity(gens);
+    loop {
+        let step = harness.step(());
+        trajectory.push(harness.latest_metrics().unwrap().best_fitness());
+        if step.done {
+            break;
+        }
+    }
+    trajectory
+}
+
+/// `OneMax` batch fitness over a binary genome (`count_ones`, native
+/// maximise). The [`BinaryGeneticAlgorithm`]'s `Tensor<B, 2, Int>` genome is
+/// not covered by the real-valued [`FromFitnessEvaluable`] adapter used by the
+/// generic [`run`] path, so binary-GA determinism is checked with a dedicated
+/// integer fitness driven inline.
+struct OneMaxBatch {
+    dim: usize,
+}
+
+impl<Bk: Backend> BatchFitnessFn<Bk, Tensor<Bk, 2, Int>> for OneMaxBatch {
+    fn evaluate_batch(
+        &mut self,
+        population: &Tensor<Bk, 2, Int>,
+        device: &<Bk as BackendTypes>::Device,
+    ) -> Tensor<Bk, 1> {
+        let pop_size = population.dims()[0];
+        let data = population
+            .clone()
+            .into_data()
+            .into_vec::<i32>()
+            .expect("genome host-read of a tensor this test just built");
+        let mut fitness = Vec::with_capacity(pop_size);
+        for row in 0..pop_size {
+            #[allow(clippy::cast_precision_loss)]
+            let ones = (0..self.dim)
+                .filter(|&col| data[row * self.dim + col] != 0)
+                .count() as f32;
+            fitness.push(ones);
+        }
+        Tensor::<Bk, 1>::from_data(TensorData::new(fitness, [pop_size]), device)
+    }
+
+    fn sense(&self) -> ObjectiveSense {
+        ObjectiveSense::Maximize
+    }
+}
+
+fn run_binary_ga(seed: u64, gens: usize) -> Vec<f32> {
+    let device = Default::default();
+    let dim = 16usize;
+    let params = BinaryGaConfig::default_for(32, dim);
+    let mut harness = EvolutionaryHarness::<B, _, _>::new(
+        BinaryGeneticAlgorithm::<B>::new(),
+        params,
+        OneMaxBatch { dim },
         seed,
         device,
         gens,
@@ -246,6 +312,13 @@ fn same_seed_same_generations() {
     let ga_a = run_ga(SEED, GENS);
     let ga_b = run_ga(SEED, GENS);
     assert_eq!(ga_a, ga_b, "GA trajectories diverge under the same seed");
+
+    let bga_a = run_binary_ga(SEED, GENS);
+    let bga_b = run_binary_ga(SEED, GENS);
+    assert_eq!(
+        bga_a, bga_b,
+        "Binary GA trajectories diverge under the same seed"
+    );
 
     for kind in [
         EsKind::OnePlusOne,

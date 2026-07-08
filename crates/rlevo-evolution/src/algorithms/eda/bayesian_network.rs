@@ -914,4 +914,62 @@ mod tests {
             "s=0 must be floored to keep CPT interior, got {v}"
         );
     }
+
+    #[test]
+    fn cpt_sizes_and_parents_sorted_unique_over_random_fits() {
+        // §7.3: over many seeded random fits, every node's CPT must have exactly
+        // 2^|parents| cells and its parent list must be strictly ascending (hence
+        // sorted and duplicate-free). These are structural invariants of `fit`.
+        let p = BayesianNetworkParams::default_for(4);
+        let d = 4;
+        let n = 16;
+        let mut rng = StdRng::seed_from_u64(2024);
+        for _ in 0..30 {
+            let rows: Vec<f32> = (0..n * d)
+                .map(|_| if rng.random::<f32>() < 0.5 { 0.0 } else { 1.0 })
+                .collect();
+            let state = refit(&p, rows, n, d);
+            for v in 0..d {
+                assert_eq!(
+                    state.cpt[v].len(),
+                    1 << state.parents[v].len(),
+                    "cpt[{v}] must have 2^|parents| cells, parents = {:?}",
+                    state.parents[v]
+                );
+                for w in state.parents[v].windows(2) {
+                    assert!(
+                        w[0] < w[1],
+                        "parents[{v}] must be strictly ascending (sorted & unique), got {:?}",
+                        state.parents[v]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn single_gene_is_edgeless() {
+        // §7.2: genome_dim == 1 has no candidate edges; the single gene must be
+        // parentless with a one-cell CPT, regardless of the data.
+        let p = BayesianNetworkParams::default_for(1);
+        let state = refit(&p, vec![0.0, 1.0, 1.0, 0.0], 4, 1);
+        assert_eq!(state.order, vec![0], "single-gene order is natural");
+        assert!(state.parents[0].is_empty(), "single gene must be edgeless");
+        assert_eq!(state.cpt[0].len(), 1, "single-gene CPT is one cell");
+    }
+
+    #[test]
+    fn single_individual_population_yields_prior_shape() {
+        // §7.2: n == 1. With one row the BIC complexity penalty ½·ln(1)·2^q is 0
+        // and every config's likelihood term is 0, so no edge yields positive
+        // gain: the learned structure is edgeless and prior-shaped (natural
+        // order, empty parent lists, single-cell CPTs).
+        let p = BayesianNetworkParams::default_for(3);
+        let state = refit(&p, vec![1.0, 0.0, 1.0], 1, 3);
+        assert_eq!(state.order, vec![0, 1, 2], "order must be natural");
+        for v in 0..3 {
+            assert!(state.parents[v].is_empty(), "node {v} must be edgeless");
+            assert_eq!(state.cpt[v].len(), 1, "node {v} CPT must be one cell");
+        }
+    }
 }

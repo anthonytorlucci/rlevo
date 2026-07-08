@@ -628,4 +628,71 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn single_dimension_sample_stays_finite() {
+        // §7.1: genome_dim == 1. The chain is a single root node (no links);
+        // sampling must draw finite marginal Gaussian values.
+        let p = DependencyChainParams::default_for(1);
+        let state = refit(&p, vec![1.0, 2.0, 3.0, 4.0], 4, 1);
+        assert_eq!(state.chain, vec![0], "single-dim chain is the root only");
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(3);
+        let samples = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+            &DependencyChain,
+            &state,
+            256,
+            &mut rng,
+            &device,
+        );
+        for v in samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built")
+        {
+            assert!(v.is_finite(), "single-dim sample must be finite, got {v}");
+        }
+    }
+
+    #[test]
+    fn sample_is_deterministic_for_seed_and_state() {
+        // §7.1: same seed + same fitted state ⇒ byte-identical sample tensor.
+        let p = DependencyChainParams::default_for(3);
+        let rows = vec![
+            -2.0, 1.0, 0.5, //
+            -1.0, 2.0, -0.5, //
+            0.0, 0.0, 1.0, //
+            1.0, -1.0, -1.0, //
+        ];
+        let state = refit(&p, rows, 4, 3);
+        let device = Default::default();
+        let mut rng_a = StdRng::seed_from_u64(555);
+        let mut rng_b = StdRng::seed_from_u64(555);
+        let a = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+            &DependencyChain,
+            &state,
+            300,
+            &mut rng_a,
+            &device,
+        );
+        let b = <DependencyChain as ProbabilityModel<TestBackend>>::sample(
+            &DependencyChain,
+            &state,
+            300,
+            &mut rng_b,
+            &device,
+        );
+        let data_a = a
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        let data_b = b
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        assert_eq!(
+            data_a, data_b,
+            "same seed + state must produce identical output"
+        );
+    }
 }

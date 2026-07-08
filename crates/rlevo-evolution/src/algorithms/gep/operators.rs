@@ -299,4 +299,126 @@ mod tests {
         ris_transposition(&mut g_ris, cfg.head_len, &a, &mut rng);
         assert_eq!(&g_ris[cfg.head_len..], &tail_before[..]);
     }
+
+    /// A `NaN` rate is a no-op: `x < NaN` is `false`, so no locus mutates
+    /// (defense-in-depth against a stray non-finite rate, operators.rs §1).
+    #[test]
+    fn point_mutation_nan_rate_is_no_op() {
+        let a = alphabet();
+        let cfg = GepConfig::new(7, 2, 1, 10).unwrap();
+        let mut rng = seed_stream(21, 0, SeedPurpose::Mutation);
+        let original = sample_valid(&a, &cfg, &mut rng);
+        let mut g = original.clone();
+        point_mutation(&mut g, cfg.head_len, &a, f32::NAN, &mut rng);
+        assert_eq!(g, original, "NaN rate must leave the chromosome unchanged");
+    }
+
+    /// An out-of-range rate (`> 1`) mutates every locus — `x < 2.0` is always
+    /// true — yet the tail invariant and the decode guarantee still hold.
+    #[test]
+    fn point_mutation_out_of_range_rate_resamples_all_but_stays_valid() {
+        let a = alphabet();
+        let cfg = GepConfig::new(7, 2, 1, 10).unwrap();
+        let mut rng = seed_stream(22, 0, SeedPurpose::Mutation);
+        let mut g = sample_valid(&a, &cfg, &mut rng);
+        point_mutation(&mut g, cfg.head_len, &a, 2.0, &mut rng);
+        assert!(tail_all_terminals(&g, cfg.head_len, &a));
+        assert!(decodes_complete(&g, &a));
+    }
+
+    /// No operator panics on an empty chromosome / empty parent pair.
+    #[test]
+    fn operators_do_not_panic_on_empty_slices() {
+        let a = alphabet();
+        let mut rng = seed_stream(23, 0, SeedPurpose::Crossover);
+
+        let mut empty: Vec<Symbol> = Vec::new();
+        point_mutation(&mut empty, 0, &a, 1.0, &mut rng);
+        is_transposition(&mut empty, 0, &mut rng);
+        ris_transposition(&mut empty, 0, &a, &mut rng);
+        assert!(empty.is_empty());
+
+        let mut lhs: Vec<Symbol> = Vec::new();
+        let mut rhs: Vec<Symbol> = Vec::new();
+        one_point_crossover(&mut lhs, &mut rhs, &mut rng);
+        two_point_crossover(&mut lhs, &mut rhs, &mut rng);
+        assert!(lhs.is_empty() && rhs.is_empty());
+    }
+
+    /// With `head_len == 1` both transpositions are safe: IS has no non-root
+    /// insertion site (no-op) and RIS keeps the single root, preserving length,
+    /// the tail invariant, and a complete decode.
+    #[test]
+    fn transposition_with_head_len_one_is_safe() {
+        let a = alphabet();
+        let cfg = GepConfig::new(1, 2, 1, 10).unwrap();
+        assert_eq!(cfg.head_len, 1);
+        let mut rng = seed_stream(24, 0, SeedPurpose::Transposition);
+        for _ in 0..200 {
+            let mut g = sample_valid(&a, &cfg, &mut rng);
+            // Guarantee a function at the single head locus for RIS.
+            g[0] = Symbol::from_raw(0);
+            let len_before = g.len();
+            is_transposition(&mut g, cfg.head_len, &mut rng);
+            ris_transposition(&mut g, cfg.head_len, &a, &mut rng);
+            assert_eq!(g.len(), len_before);
+            assert!(tail_all_terminals(&g, cfg.head_len, &a));
+            assert!(decodes_complete(&g, &a));
+        }
+    }
+
+    /// Single-locus parents (`n == 1`) leave both crossovers as no-ops.
+    #[test]
+    fn crossover_with_single_locus_is_no_op() {
+        let mut rng = seed_stream(25, 0, SeedPurpose::Crossover);
+        let a0: Vec<Symbol> = vec![Symbol::from_raw(8)];
+        let b0: Vec<Symbol> = vec![Symbol::from_raw(0)];
+
+        let mut a1 = a0.clone();
+        let mut b1 = b0.clone();
+        one_point_crossover(&mut a1, &mut b1, &mut rng);
+        two_point_crossover(&mut a1, &mut b1, &mut rng);
+        assert_eq!(a1, a0);
+        assert_eq!(b1, b0);
+    }
+
+    /// One-point crossover documents equal parent lengths as a precondition
+    /// (`debug_assert_eq!`); a mismatch panics in debug builds.
+    #[test]
+    #[should_panic(expected = "crossover parents must share genome length")]
+    fn one_point_crossover_panics_on_mismatched_lengths() {
+        let mut rng = seed_stream(26, 0, SeedPurpose::Crossover);
+        let mut a = vec![Symbol::from_raw(8); 4];
+        let mut b = vec![Symbol::from_raw(8); 5];
+        one_point_crossover(&mut a, &mut b, &mut rng);
+    }
+
+    /// Two-point crossover shares the equal-length precondition.
+    #[test]
+    #[should_panic(expected = "crossover parents must share genome length")]
+    fn two_point_crossover_panics_on_mismatched_lengths() {
+        let mut rng = seed_stream(27, 0, SeedPurpose::Crossover);
+        let mut a = vec![Symbol::from_raw(8); 4];
+        let mut b = vec![Symbol::from_raw(8); 5];
+        two_point_crossover(&mut a, &mut b, &mut rng);
+    }
+
+    /// RIS is a no-op when the head holds no function symbol — there is nothing
+    /// to root, so the chromosome is left untouched (§7.4).
+    #[test]
+    fn ris_no_op_when_head_has_no_functions() {
+        let a = alphabet();
+        let cfg = GepConfig::new(7, 2, 1, 10).unwrap();
+        let mut rng = seed_stream(28, 0, SeedPurpose::Transposition);
+        for _ in 0..200 {
+            let mut g = sample_valid(&a, &cfg, &mut rng);
+            // Force the whole head to a terminal (variable id 8 = n_func).
+            for locus in &mut g[..cfg.head_len] {
+                *locus = Symbol::from_raw(8);
+            }
+            let before = g.clone();
+            ris_transposition(&mut g, cfg.head_len, &a, &mut rng);
+            assert_eq!(g, before, "RIS must not alter an all-terminal head");
+        }
+    }
 }

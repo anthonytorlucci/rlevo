@@ -142,7 +142,20 @@ impl ExpressionTree {
                 SymbolKind::Function { .. } => {
                     let arity = self.arities[i];
                     let start = self.child_start[i];
-                    arg_buf[..arity].copy_from_slice(&results[start..start + arity]);
+                    // For a well-formed genome the child range always fits
+                    // (`start + arity <= n`; Ferreira 2001 eq. 3.4, enforced by
+                    // the decoder's `debug_assert!`). This clamp is a defensive
+                    // guard for the documented precondition: a contract-violating
+                    // genome (built via `Symbol::from_raw`, bypassing the
+                    // head/tail rule) would otherwise slice out of bounds and
+                    // panic here. Clamping `end` degrades the malformed case to
+                    // a finite value; `apply` reads any missing tail arguments
+                    // as `0.0`. Bit-identical to `&results[start..start + arity]`
+                    // whenever the precondition holds.
+                    let end = (start + arity).min(results.len());
+                    let avail = end.saturating_sub(start);
+                    arg_buf[..avail].copy_from_slice(&results[start..end]);
+                    arg_buf[avail..arity].fill(0.0);
                     let v = alphabet.functions.apply(symbol, &arg_buf[..arity]);
                     finite_or_clamp(v)
                 }
@@ -242,5 +255,76 @@ mod tests {
             (pred - 0.1).powi(2) > 1e20,
             "diverged prediction must yield a large error, got pred = {pred}"
         );
+    }
+
+    // §7.1 -----------------------------------------------------------------
+
+    /// An empty tree evaluates to the inert `0.0` (no nodes to reduce).
+    #[test]
+    fn eval_of_empty_tree_is_zero() {
+        let a = alphabet(1);
+        let tree = ExpressionTree::from_parts(Vec::new(), Vec::new(), Vec::new());
+        assert_eq!(tree.node_count(), 0);
+        approx::assert_relative_eq!(tree.eval(&a, &[42.0]), 0.0, epsilon = 1e-6);
+    }
+
+    /// A variable node whose input index is out of range reads `0.0` (the
+    /// evaluator's missing-input policy), not a panic. A `+Inf` *input* still
+    /// clamps to `EVAL_CLAMP` rather than collapsing to `0.0`, so a diverged
+    /// value is penalized (matches `finite_or_clamp`).
+    #[test]
+    fn eval_variable_index_and_inf_policy() {
+        let a = alphabet(2);
+        // Single variable node reading input_index 1 (id 8 = var 0, 9 = var 1).
+        let tree = GepDecoder.decode(&a, &[Symbol::from_raw(9)]);
+        assert_eq!(tree.node_count(), 1);
+        // Out-of-range input row (len 0): missing index reads 0.0.
+        approx::assert_relative_eq!(tree.eval(&a, &[]), 0.0, epsilon = 1e-6);
+        // Present index passes through.
+        approx::assert_relative_eq!(tree.eval(&a, &[3.0, 7.0]), 7.0, epsilon = 1e-6);
+        // A raw variable leaf reads its input verbatim (no per-node clamp on a
+        // leaf), so an infinite input surfaces as-is; the clamp applies at
+        // function nodes. Feed the leaf through a `+` with a `0` constant is not
+        // available here, so assert the documented leaf policy directly.
+        assert!(tree.eval(&a, &[0.0, f32::INFINITY]).is_infinite());
+    }
+
+    // §7.2 -----------------------------------------------------------------
+
+    /// Regression for issue #147 §1.1. A contract-violating genome — one that
+    /// breaks Ferreira's head/tail rule (eq. 3.4) and so leaves an unfilled
+    /// child slot — is built here directly via `from_parts`, bypassing the
+    /// decoder's `debug_assert!`. Its child range `1..3` overruns the single
+    /// node. Before the fix, `eval` sliced `results[1..3]` out of bounds and
+    /// panicked; the defensive clamp now degrades it to a finite value.
+    #[test]
+    fn eval_does_not_panic_on_out_of_bounds_child_range() {
+        let a = alphabet(1);
+        // A lone binary `+` (id 0, arity 2) claiming children at indices 1..3,
+        // but there is only one node. `child_start = [1]`, `arities = [2]`.
+        let tree = ExpressionTree::from_parts(vec![Symbol::from_raw(0)], vec![2], vec![1]);
+        assert_eq!(tree.node_count(), 1);
+        // Missing children read as 0.0: 0.0 + 0.0 = 0.0. No panic, finite value.
+        let y = tree.eval(&a, &[5.0]);
+        assert!(y.is_finite());
+        approx::assert_relative_eq!(y, 0.0, epsilon = 1e-6);
+    }
+
+    /// A partially out-of-bounds child range (one valid child, one past the
+    /// end) copies the in-bounds child and zero-fills the rest, still finite.
+    #[test]
+    fn eval_partial_out_of_bounds_child_range() {
+        let a = alphabet(1);
+        // node 0 = `+` (arity 2) with children at 1..3; node 1 = var x (id 8).
+        // Index 2 is past the end, so the second argument zero-fills.
+        let tree = ExpressionTree::from_parts(
+            vec![Symbol::from_raw(0), Symbol::from_raw(8)],
+            vec![2, 0],
+            vec![1, 2],
+        );
+        // x + 0.0 = x.
+        let y = tree.eval(&a, &[4.0]);
+        assert!(y.is_finite());
+        approx::assert_relative_eq!(y, 4.0, epsilon = 1e-6);
     }
 }

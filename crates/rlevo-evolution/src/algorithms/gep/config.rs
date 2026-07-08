@@ -168,4 +168,41 @@ mod tests {
     fn accepts_valid_config() {
         assert!(GepConfig::new(6, 2, 3, 64).unwrap().validate().is_ok());
     }
+
+    #[test]
+    fn rejects_zero_pop() {
+        let err = GepConfig::new(4, 2, 1, 0).unwrap_err();
+        assert_eq!(err.field, "pop_size");
+    }
+
+    /// A unary function set (`max_arity == 1`) collapses the Ferreira tail to a
+    /// single locus, `t = h·(1−1)+1 = 1`, for every head size.
+    #[test]
+    fn unary_max_arity_derives_unit_tail() {
+        for head in [1usize, 2, 5, 7, 20] {
+            let cfg = GepConfig::new(head, 1, 1, 10).unwrap();
+            assert_eq!(cfg.tail_len, 1, "unary tail must be 1 for head {head}");
+            assert_eq!(cfg.genome_len(), head + 1);
+            // The derived layout still satisfies the config invariants.
+            assert!(cfg.validate().is_ok());
+        }
+    }
+
+    /// The operator rates are [`Probability`], so a `NaN`, negative, or `> 1`
+    /// rate is unrepresentable: it cannot be built to assign to a rate field,
+    /// while a valid rate assigns cleanly.
+    #[test]
+    fn rate_fields_reject_nan_negative_and_above_one() {
+        assert!(Probability::try_new(f32::NAN).is_err());
+        assert!(Probability::try_new(-0.1).is_err());
+        assert!(Probability::try_new(1.5).is_err());
+
+        let mut cfg: GepConfig = GepConfig::new(4, 2, 1, 10).unwrap();
+        cfg.mutation_rate = Probability::try_new(0.05).unwrap();
+        cfg.crossover_1p_rate = Probability::try_new(0.9).unwrap();
+        // `Probability`'s derived `PartialEq` compares the wrapped value without
+        // tripping `clippy::float_cmp`; both were assigned exact literals.
+        assert_eq!(cfg.mutation_rate, Probability::try_new(0.05).unwrap());
+        assert_eq!(cfg.crossover_1p_rate, Probability::try_new(0.9).unwrap());
+    }
 }

@@ -860,6 +860,152 @@ mod tests {
         assert_eq!(all, vec![2, 0, 3, 1]);
     }
 
+    #[test]
+    fn coverage_indices_topk_zero_is_empty() {
+        // `TopK { k: 0 }` refines nobody — a degenerate but valid no-op policy.
+        let cover = coverage_indices(&CoveragePolicy::TopK { k: 0 }, &[3.0, 1.0, 2.0], 3);
+        assert!(cover.is_empty(), "TopK{{0}} must cover no rows");
+    }
+
+    #[test]
+    fn coverage_indices_empty_population_is_empty() {
+        // Empty population: every policy yields an empty coverage set, so the
+        // refinement loop is a no-op (no rows to refine, no writeback).
+        assert!(coverage_indices(&CoveragePolicy::Full, &[], 0).is_empty());
+        assert!(coverage_indices(&CoveragePolicy::TopK { k: 3 }, &[], 0).is_empty());
+    }
+
+    #[test]
+    fn coverage_indices_all_equal_breaks_ties_by_lowest_index() {
+        // All-equal fitness: the stable (fitness desc, index asc) sort must
+        // select the lowest indices, so `TopK { k: 2 }` is exactly [0, 1].
+        let fitness = [5.0f32; 4];
+        let top2 = coverage_indices(&CoveragePolicy::TopK { k: 2 }, &fitness, 4);
+        assert_eq!(top2, vec![0, 1], "ties must break toward the lowest index");
+    }
+
+    // ---------------------------------------------------------------------
+    // Minimize-sense refinement path.
+    // ---------------------------------------------------------------------
+
+    /// A `Minimize` sphere: `evaluate_batch` returns the raw sum-of-squares
+    /// *cost* (higher is worse) and declares [`ObjectiveSense::Minimize`]. This
+    /// exercises the wrapper's canonicalisation seam ([`RowFitness`] flips the
+    /// natural cost into canonical maximise space), which every other fixture in
+    /// this module leaves untested because they are all `Maximize`.
+    #[derive(Debug, Default)]
+    struct MinSphereBatch;
+    impl<B: Backend> BatchFitnessFn<B, Tensor<B, 2>> for MinSphereBatch {
+        fn evaluate_batch(
+            &mut self,
+            population: &Tensor<B, 2>,
+            device: &<B as BackendTypes>::Device,
+        ) -> Tensor<B, 1> {
+            let dims = population.dims();
+            let flat = population
+                .clone()
+                .into_data()
+                .into_vec::<f32>()
+                .expect("population host-read of a tensor this test just built");
+            let (pop, dim) = (dims[0], dims[1]);
+            let mut out: Vec<f32> = Vec::with_capacity(pop);
+            for r in 0..pop {
+                let start = r * dim;
+                out.push(flat[start..start + dim].iter().map(|v| v * v).sum::<f32>());
+            }
+            Tensor::<B, 1>::from_data(TensorData::new(out, [pop]), device)
+        }
+
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Minimize
+        }
+    }
+
+    /// Raw sphere cost of a host row (the `Minimize` natural objective).
+    fn sphere_cost(row: &[f32]) -> f32 {
+        row.iter().map(|v| v * v).sum::<f32>()
+    }
+
+    /// The Minimize path must *lower* cost. Under `Full`/`Lamarckian` coverage
+    /// the local searcher runs in canonical maximise space, so for every covered
+    /// row the refined natural cost must not increase, the canonical fitness
+    /// handed to the inner `tell` must not decrease, and that fitness must equal
+    /// `−cost` of the written-back row. At least one row must strictly improve.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn minimize_sense_refinement_reduces_cost() {
+        let device = <TestBackend as BackendTypes>::Device::default();
+        let (pop, dim) = (5usize, 3usize);
+        let rows = fixed_population(pop, dim);
+
+        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+            RecordingStrategy,
+            HillClimbing,
+            MinSphereBatch,
+        );
+        let params = MemeticParams {
+            inner: rec_params(rows, pop, dim),
+            local: HillClimbingParams::default_for(BOUNDS),
+            writeback: WritebackPolicy::Lamarckian,
+            coverage: CoveragePolicy::Full,
+        };
+
+        let mut rng = StdRng::seed_from_u64(9);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        let ask_bytes = ask_pop
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
+
+        // Seed fitness in canonical (maximise) space: for a Minimize objective
+        // the harness hands the strategy `−cost`, so mirror that here.
+        let canonical: Vec<f32> = (0..pop)
+            .map(|i| {
+                let s = i * dim;
+                -sphere_cost(&ask_bytes[s..s + dim])
+            })
+            .collect();
+        let fit =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(canonical.clone(), [pop]), &device);
+
+        let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
+        let recv_pop = next.inner.received_pop.clone().unwrap();
+        let recv_fit = next.inner.received_fit.clone().unwrap();
+
+        let mut any_improved = false;
+        // Indexing several parallel host buffers by row; an iterator over one of
+        // them would not read more clearly than the explicit row index.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..pop {
+            let s = i * dim;
+            let recv_row = &recv_pop[s..s + dim];
+            let ask_row = &ask_bytes[s..s + dim];
+            let recv_cost = sphere_cost(recv_row);
+            let ask_cost = sphere_cost(ask_row);
+            // Refinement never worsens the natural cost (minimise).
+            assert!(
+                recv_cost <= ask_cost + 1e-6,
+                "row {i}: refined cost {recv_cost} must not exceed original {ask_cost}"
+            );
+            // Canonical fitness handed to `tell` never decreases.
+            assert!(
+                recv_fit[i] >= canonical[i] - 1e-6,
+                "row {i}: canonical fitness must not drop"
+            );
+            // And it equals `−cost` of the written-back row.
+            approx::assert_relative_eq!(recv_fit[i], -recv_cost, epsilon = 1e-5);
+            if recv_cost < ask_cost - 1e-6 {
+                any_improved = true;
+            }
+        }
+        assert!(
+            any_improved,
+            "the Minimize path must strictly reduce cost on at least one row"
+        );
+    }
+
     // ---------------------------------------------------------------------
     // 1. Baldwinian bit-identity.
     // ---------------------------------------------------------------------

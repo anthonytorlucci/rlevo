@@ -416,4 +416,128 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn sample_respects_probabilities() {
+        // §7.2: the empirical per-bit frequency of a large sample must match the
+        // Bernoulli probabilities used to draw it.
+        let device = Default::default();
+        let prob: Vec<f32> = vec![0.1, 0.5, 0.9];
+        let d = prob.len();
+        let state = CompactGeneticState { prob: prob.clone() };
+        let mut rng = StdRng::seed_from_u64(42);
+        let n = 20_000_usize;
+        let samples = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+            &CompactGenetic,
+            &state,
+            n,
+            &mut rng,
+            &device,
+        );
+        let data = samples
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        // n = 20_000 is far below f32's 2^24 exact-integer limit; the cast is
+        // lossless.
+        #[allow(clippy::cast_precision_loss)]
+        let nf = n as f32;
+        for j in 0..d {
+            let mut sum = 0.0_f32;
+            for i in 0..n {
+                sum += data[i * d + j];
+            }
+            let freq = sum / nf;
+            approx::assert_abs_diff_eq!(freq, prob[j], epsilon = 0.02);
+        }
+    }
+
+    #[test]
+    fn zero_population_with_prev_returns_prev_unchanged() {
+        // §7.1: a 0×0 selected population carries no genes to compete; the update
+        // loop never runs, so the previous probabilities pass through untouched.
+        let device = Default::default();
+        let p = CompactGeneticParams::default_for(3);
+        let prev = CompactGeneticState {
+            prob: vec![0.25, 0.5, 0.75],
+        };
+        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+            &CompactGenetic,
+            &p,
+            Some(&prev),
+            pop(vec![], 0, 0),
+            fitness(vec![]),
+            &device,
+        );
+        assert_eq!(
+            state.prob, prev.prob,
+            "zero population must leave probabilities unchanged"
+        );
+    }
+
+    #[test]
+    fn fit_uses_population_dims_not_params_genome_dim() {
+        // §7.1: on the fit path `params.genome_dim` is unused — the population's
+        // column count and `prev.prob` length are authoritative. A mismatched
+        // genome_dim does not change the output length (dimension-mismatch
+        // contract: population dims win).
+        let device = Default::default();
+        let p = CompactGeneticParams {
+            genome_dim: 9,
+            virtual_pop_size: 10,
+        };
+        let prev = CompactGeneticState {
+            prob: vec![0.5, 0.5],
+        };
+        let state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+            &CompactGenetic,
+            &p,
+            Some(&prev),
+            pop(vec![1.0, 0.0, 0.0, 1.0], 2, 2),
+            fitness(vec![1.0, 0.0]),
+            &device,
+        );
+        assert_eq!(
+            state.prob.len(),
+            2,
+            "output length follows the population/prev, not params.genome_dim"
+        );
+    }
+
+    #[test]
+    fn sample_is_deterministic_for_seed_and_state() {
+        // §7.4: same seed + same state ⇒ byte-identical sample tensor.
+        let device = Default::default();
+        let state = CompactGeneticState {
+            prob: vec![0.3, 0.6, 0.9],
+        };
+        let mut rng_a = StdRng::seed_from_u64(77);
+        let mut rng_b = StdRng::seed_from_u64(77);
+        let a = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+            &CompactGenetic,
+            &state,
+            256,
+            &mut rng_a,
+            &device,
+        );
+        let b = <CompactGenetic as ProbabilityModel<TestBackend>>::sample(
+            &CompactGenetic,
+            &state,
+            256,
+            &mut rng_b,
+            &device,
+        );
+        let data_a = a
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        let data_b = b
+            .into_data()
+            .into_vec::<f32>()
+            .expect("samples host-read of a tensor this test just built");
+        assert_eq!(
+            data_a, data_b,
+            "same seed + state must produce identical output"
+        );
+    }
 }

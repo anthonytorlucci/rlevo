@@ -490,4 +490,111 @@ mod tests {
         let optimum = dim as f32;
         approx::assert_relative_eq!(best, optimum, epsilon = 1e-6);
     }
+
+    /// Runs one `ask` pipeline over a *uniform* population (every parent is the
+    /// same constant bit) and returns the flat offspring bits. With every
+    /// parent identical, uniform crossover is a no-op (both parents agree at
+    /// every gene), so the only source of variation is bit-flip mutation — the
+    /// offspring is therefore a pure function of `mutation_rate`, RNG-invariant.
+    fn ask_over_uniform_population(rate: f32, bit: i32) -> Vec<i32> {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let (pop, dim) = (4usize, 8usize);
+        let mut params = BinaryGaConfig::default_for(pop, dim);
+        params.mutation_rate = Probability::new(rate);
+        let strategy = BinaryGeneticAlgorithm::<TestBackend>::new();
+
+        let population = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(vec![bit; pop * dim], [pop, dim]),
+            &device,
+        );
+        // Non-empty `fitness` drives the real selection→crossover→mutation path
+        // (an empty cache would short-circuit to returning the seed population).
+        let state = BinaryGaState {
+            population,
+            fitness: vec![1.0; pop],
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 1,
+        };
+        let mut rng = StdRng::seed_from_u64(0);
+        let (offspring, _) = strategy.ask(&params, &state, &mut rng, &device);
+        offspring
+            .into_data()
+            .into_vec::<i32>()
+            .expect("offspring host-read of a tensor this test just built")
+    }
+
+    /// `mutation_rate == 0.0` performs no bit flips: over a uniform all-zero
+    /// population (where crossover is a no-op) the offspring must be all zeros,
+    /// i.e. a subset of the parents' bit values.
+    #[test]
+    fn mutation_rate_zero_flips_no_bits() {
+        let bits = ask_over_uniform_population(0.0, 0);
+        assert!(
+            bits.iter().all(|&b| b == 0),
+            "rate 0.0 must leave every offspring bit at the parent value, got {bits:?}"
+        );
+    }
+
+    /// `mutation_rate == 1.0` flips every bit deterministically: an all-zero
+    /// uniform population becomes all ones after mutation.
+    #[test]
+    fn mutation_rate_one_flips_every_bit() {
+        let bits = ask_over_uniform_population(1.0, 0);
+        assert!(
+            bits.iter().all(|&b| b == 1),
+            "rate 1.0 must flip every 0→1, got {bits:?}"
+        );
+    }
+
+    /// Elitism boundary `elitism_k == pop_size - 1`: all but one slot are the
+    /// top parents, leaving exactly one offspring slot. The `pop_size − 1`
+    /// fittest parents survive (in descending-fitness order) followed by the
+    /// single best offspring, and the champion tracks the best offspring.
+    #[test]
+    fn elitism_k_equals_pop_minus_one_keeps_top_parents_and_one_offspring() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let (pop, dim) = (4usize, 4usize);
+        let mut params = BinaryGaConfig::default_for(pop, dim);
+        params.elitism_k = pop - 1; // boundary: one offspring slot.
+        let strategy = BinaryGeneticAlgorithm::<TestBackend>::new();
+
+        // Four distinct parents with strictly increasing fitness.
+        let parent_pop = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(vec![0i32; pop * dim], [pop, dim]),
+            &device,
+        );
+        let state = BinaryGaState {
+            population: parent_pop,
+            fitness: vec![1.0, 2.0, 3.0, 4.0],
+            best_genome: None,
+            best_fitness: 4.0,
+            generation: 1,
+        };
+
+        // Offspring: only row 0 beats every parent; the rest are worst.
+        let offspring = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(vec![1i32; pop * dim], [pop, dim]),
+            &device,
+        );
+        let off_fitness = Tensor::<TestBackend, 1>::from_data(
+            TensorData::new(vec![10.0f32, 0.0, 0.0, 0.0], [pop]),
+            &device,
+        );
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let (next, m) = strategy.tell(&params, offspring, off_fitness, state, &mut rng);
+
+        // Top `pop-1` parents (fitness 4,3,2 in descending order) then the best
+        // offspring (fitness 10).
+        assert_eq!(next.population.dims(), [pop, dim]);
+        assert_eq!(next.fitness, vec![4.0, 3.0, 2.0, 10.0]);
+        approx::assert_relative_eq!(m.best_fitness_ever(), 10.0, epsilon = 1e-6);
+    }
 }

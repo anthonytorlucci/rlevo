@@ -47,6 +47,22 @@ impl<F: FunctionSet> GenotypePhenotypeMap<F> for GepDecoder {
             orf_len += 1;
         }
 
+        // A well-formed GEP gene (head ∈ F∪T, tail ∈ T strictly, tail length
+        // t = h(n−1)+1 with n = max arity) always satisfies every open child
+        // slot within the chromosome, so the scan must exit with `needed == 0`
+        // (Ferreira 2001, Complex Systems 13(2), §3.2 eq. 3.4). A residual
+        // `needed > 0` can only arise from a contract-violating genome (e.g.
+        // one hand-built via `Symbol::from_raw` that bypasses the head/tail
+        // rule): its child ranges would overrun `node_count()` and later panic
+        // in `eval`. Flag that precondition breach in debug builds; `eval`
+        // carries a matching release-time clamp so the failure degrades to a
+        // finite value rather than an out-of-bounds slice.
+        debug_assert!(
+            needed == 0,
+            "genome violates GEP head/tail invariant t = h(n-1)+1 (Ferreira \
+             2001 eq. 3.4): {needed} child slot(s) left unfilled"
+        );
+
         // 2. Level-order parts. Children are the next unread symbols; a single
         //    read cursor walks them in BFS order.
         let nodes: Vec<Symbol> = genome[..orf_len].to_vec();
@@ -68,6 +84,8 @@ impl<F: FunctionSet> GenotypePhenotypeMap<F> for GepDecoder {
 mod tests {
     use super::*;
     use crate::function_set::ArithmeticFunctionSet;
+    use rand::rngs::StdRng;
+    use rand::{RngExt, SeedableRng};
 
     fn alphabet(n_vars: usize) -> Alphabet<ArithmeticFunctionSet> {
         Alphabet::new(ArithmeticFunctionSet, n_vars, vec![])
@@ -123,5 +141,135 @@ mod tests {
         ];
         let tree = GepDecoder.decode(&a, &genome);
         assert_eq!(tree.node_count(), 1);
+    }
+
+    // §7.1 -----------------------------------------------------------------
+
+    /// An empty genome decodes to an empty (zero-node) tree without panic.
+    #[test]
+    fn empty_genome_decodes_to_zero_node_tree() {
+        let a = alphabet(1);
+        let tree = GepDecoder.decode(&a, &[]);
+        assert_eq!(tree.node_count(), 0);
+        // A zero-node tree evaluates to the inert 0.0.
+        approx::assert_relative_eq!(tree.eval(&a, &[1.0]), 0.0, epsilon = 1e-6);
+    }
+
+    // §7.3 -----------------------------------------------------------------
+
+    /// A unary (arity-1) function head decodes to a two-node ORF: `sin(x)`.
+    #[test]
+    fn arity_one_function_decodes_two_nodes() {
+        let a = alphabet(1);
+        // ids: sin = 4 (arity 1), var x = 8. head [4, 8], tail [8].
+        let genome = vec![
+            Symbol::from_raw(4),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+        ];
+        let tree = GepDecoder.decode(&a, &genome);
+        // sin (root) -> child {x}. 2 nodes.
+        assert_eq!(tree.node_count(), 2);
+        approx::assert_relative_eq!(tree.eval(&a, &[0.0]), 0.0f32.sin(), epsilon = 1e-6);
+    }
+
+    /// A maximally nested (full-tail) binary chromosome decodes to a deep tree
+    /// that consumes the whole coding region.
+    #[test]
+    fn full_tail_deep_tree() {
+        let a = alphabet(1);
+        // head all binary `+` (id 0), length h = 4; tail all `x` (id 8),
+        // length t = h(n-1)+1 = 4*1+1 = 5. A left-full binary tree of 4
+        // internal nodes has 5 leaves: 9 coding nodes total.
+        let mut genome = vec![Symbol::from_raw(0); 4];
+        genome.extend(std::iter::repeat_n(Symbol::from_raw(8), 5));
+        let tree = GepDecoder.decode(&a, &genome);
+        assert_eq!(tree.node_count(), 9);
+        // 4 additions of x summed over the tree: value is 5*x for x-leaves? No
+        // — a chain of `+` with x leaves sums the 5 leaves = 5x.
+        approx::assert_relative_eq!(tree.eval(&a, &[2.0]), 10.0, epsilon = 1e-6);
+    }
+
+    /// An out-of-range head symbol is treated as an inert arity-0 terminal, so
+    /// it terminates the ORF at a single node rather than opening child slots.
+    #[test]
+    fn out_of_range_symbol_is_terminal() {
+        let a = alphabet(1);
+        // id 999 is beyond len(); classify() reports arity 0.
+        let genome = vec![
+            Symbol::from_raw(999),
+            Symbol::from_raw(8),
+            Symbol::from_raw(8),
+        ];
+        let tree = GepDecoder.decode(&a, &genome);
+        assert_eq!(tree.node_count(), 1);
+        approx::assert_relative_eq!(tree.eval(&a, &[3.0]), 0.0, epsilon = 1e-6);
+    }
+
+    // §7.4 -----------------------------------------------------------------
+
+    /// The key guard (issue #147 §1.1). Ferreira (2001, eq. 3.4) guarantees any
+    /// well-formed head/tail gene decodes to a complete tree: the ORF scan never
+    /// leaves an unfilled child slot, so every child range stays in bounds and
+    /// `eval` never slices past `node_count()`. Generate many random but
+    /// well-formed genomes (head ∈ F∪T, tail ∈ T strictly, tail length
+    /// t = h(n−1)+1) and assert the guarantee holds structurally and that `eval`
+    /// returns a finite value without panic.
+    #[test]
+    fn wellformed_genomes_always_decode_in_bounds() {
+        let mut rng = StdRng::seed_from_u64(0x9E37_79B9_7F4A_7C15);
+        let max_arity = 2; // max arity of ArithmeticFunctionSet.
+        for n_vars in 1..=3usize {
+            let alpha = alphabet(n_vars);
+            for _ in 0..2_000 {
+                let head_len = 1 + rng_usize(&mut rng, 12); // head length 1..=12
+                let tail_len = head_len * (max_arity - 1) + 1; // Ferreira eq. 3.4.
+                let mut genome = Vec::with_capacity(head_len + tail_len);
+                for _ in 0..head_len {
+                    genome.push(alpha.sample_head_symbol(&mut rng));
+                }
+                for _ in 0..tail_len {
+                    genome.push(alpha.sample_tail_symbol(&mut rng));
+                }
+
+                let tree = GepDecoder.decode(&alpha, &genome);
+                let node_count = tree.node_count();
+                assert!(node_count >= 1, "coding region must be non-empty");
+
+                // Every non-root coding node is exactly one child of exactly one
+                // parent, so the total child count equals node_count - 1. This
+                // is the public-API restatement of `child_start[i] + arity[i]
+                // <= node_count` for all i (BFS layout): the scan filled every
+                // slot (Ferreira eq. 3.4), i.e. the decoder's `needed == 0`.
+                let total_children: usize = tree.nodes().iter().map(|&sym| alpha.arity(sym)).sum();
+                assert_eq!(
+                    total_children + 1,
+                    node_count,
+                    "well-formed genome left an unfilled child slot: {genome:?}"
+                );
+
+                // `eval` must not panic and must return a finite value for any
+                // input row (the finite_or_clamp guard neutralizes overflow).
+                let inputs: Vec<f32> = (0..n_vars).map(|_| rng_input(&mut rng)).collect();
+                let value = tree.eval(&alpha, &inputs);
+                assert!(value.is_finite(), "eval produced non-finite {value}");
+            }
+        }
+    }
+
+    /// Small uniform `usize` in `0..bound` from a seeded RNG (avoids pulling in
+    /// the distribution imports the alphabet already re-exports).
+    fn rng_usize(rng: &mut StdRng, bound: usize) -> usize {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let hi = bound as i32;
+        #[allow(clippy::cast_sign_loss)]
+        {
+            rng.random_range(0..hi) as usize
+        }
+    }
+
+    /// A bounded, occasionally-large input to exercise the overflow clamp.
+    fn rng_input(rng: &mut StdRng) -> f32 {
+        rng.random_range(-1.0e6f32..1.0e6f32)
     }
 }

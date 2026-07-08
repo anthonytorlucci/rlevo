@@ -428,4 +428,40 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn probabilities_stay_within_bounds_across_generations() {
+        // §7.2: the PBIL update interpolates `prob*(1-lr) + lr*gene` with
+        // `gene ∈ {0, 1}` and `prob ∈ [min_prob, max_prob]`, so every generation
+        // keeps each probability inside the bounds. Drive many seeded
+        // fit/update generations over random binary populations and assert the
+        // invariant holds throughout.
+        let device = Default::default();
+        let p = UnivariateBernoulliParams::default_for(6);
+        let (min_prob, max_prob) = (0.0_f32, 1.0_f32);
+        let (k, d) = (8_usize, 6_usize);
+        let mut state = fit_prior(&p);
+        let mut rng = StdRng::seed_from_u64(4242);
+        for _ in 0..40 {
+            let rows: Vec<f32> = (0..k * d)
+                .map(|_| if rng.random::<f32>() < 0.5 { 0.0 } else { 1.0 })
+                .collect();
+            let fit_vals: Vec<f32> = (0..k).map(|_| rng.random::<f32>()).collect();
+            state = <UnivariateBernoulli as ProbabilityModel<TestBackend>>::fit(
+                &UnivariateBernoulli,
+                &p,
+                Some(&state),
+                pop(rows, k, d),
+                fitness(fit_vals),
+                &device,
+            );
+            for &pj in &state.prob {
+                assert!(pj.is_finite(), "prob must stay finite, got {pj}");
+                assert!(
+                    (min_prob..=max_prob).contains(&pj),
+                    "prob {pj} escaped [{min_prob}, {max_prob}]"
+                );
+            }
+        }
+    }
 }
