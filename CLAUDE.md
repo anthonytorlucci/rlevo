@@ -207,6 +207,16 @@ Workspace lints are configured for:
 - Verify trait implementations with mock types (see `MockEnvironment` tests)
 - Use `approx` crate for floating-point comparisons
 - Test custom trait implementations thoroughly (see `CustomSnapshot` tests)
+- Property/invariant tests use `proptest` (see ADR 0036), a `rlevo-evolution`-only
+  dev-dependency. proptest generates **host config only** (`λ`, `D`, structural
+  sizes, a `seed: u64`); the test body drives all algorithm randomness through
+  `seed_stream(seed, generation, SeedPurpose::_)` per ADR 0029 — proptest's own
+  PRNG never touches Burn. Use proptest for **input-space invariants** (roundtrips,
+  shape/length invariants, monotonicity, "no panic / no NaN across the valid
+  domain", `Validate` accept/reject boundaries); keep seeded-`StdRng` example
+  tests for **specific-scenario / known-answer** cases (e.g.
+  `*_converges_on_sphere_d10`). Do not rewrite passing example tests into
+  properties.
 
 Test placement (ADR 0012): unit tests in-source → single-crate integration tests
 in `crate/tests/` → cross-crate integration tests in `crates/rlevo/tests/`.

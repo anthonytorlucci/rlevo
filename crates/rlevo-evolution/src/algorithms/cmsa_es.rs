@@ -546,6 +546,7 @@ fn update_best<B: Backend>(state: &mut CmsaEsState<B>, pop: &Tensor<B, 2>, fitne
 mod tests {
     use super::*;
     use burn::backend::Flex;
+    use proptest::prelude::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -949,6 +950,107 @@ mod tests {
                 }
             }
             state = told;
+        }
+    }
+
+    proptest! {
+        // Issue #239 §7.3: stochastic-invariant coverage for the CMSA-ES
+        // ask/tell loop. proptest generates ONLY the scalar problem shape
+        // `(lambda, d, seed)` (ADR 0029 RNG boundary); the run then seeds a
+        // `StdRng` exactly as the hand-written tests do and threads it through
+        // `init`/`ask`/`tell`, which key their own `seed_stream`s off
+        // `rng.next_u64()` + the generation counter. No `B::seed` /
+        // `Tensor::random`. `lambda >= 4` keeps `mu = lambda/2 >= 2` so the
+        // rank-µ recombination has at least two parents; `d >= 2` exercises the
+        // off-diagonal symmetry invariant. All four assertions are
+        // thread-count-invariant (sign / finiteness / bit-exact symmetry).
+        #![proptest_config(ProptestConfig {
+            cases: 16,
+            max_shrink_iters: 256,
+            ..ProptestConfig::default()
+        })]
+        #[test]
+        fn ask_tell_preserves_stochastic_invariants(
+            lambda in 4usize..=32,
+            d in 2usize..=30,
+            seed in any::<u64>(),
+        ) {
+            let strategy = CmsaEs::<Flex>::new();
+            let params = CmsaEsConfig::with_pop_size(lambda, d);
+            let device = Default::default();
+            let mut rng = StdRng::seed_from_u64(seed);
+
+            // Strictly descending, finite fitness of length `lambda`
+            // (1.0, 0.0, −1.0, …) — no cast, ranking is unambiguous.
+            let mut fitness_vals: Vec<f32> = Vec::with_capacity(lambda);
+            let mut v: f32 = 1.0;
+            for _ in 0..lambda {
+                fitness_vals.push(v);
+                v -= 1.0;
+            }
+
+            let mut state = strategy.init(&params, &mut rng, &device);
+            for generation in 0..5 {
+                let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+
+                // (4) Every floored σᵢ is strictly positive and finite: the
+                // `.max(f32::MIN_POSITIVE)` floor in `ask` must have clamped
+                // out every raw-zero / NaN draw before `tell` forms sᵢ.
+                for (k, &s) in asked.offspring_sigmas().iter().enumerate() {
+                    prop_assert!(
+                        s.is_finite() && s > 0.0,
+                        "offspring σ[{k}] not finite-positive in generation \
+                         {generation}: {s} (lambda={lambda}, d={d}, seed={seed})"
+                    );
+                }
+
+                let fitness = Tensor::<Flex, 1>::from_data(
+                    TensorData::new(fitness_vals.clone(), [lambda]),
+                    &device,
+                );
+                let (told, _metrics) =
+                    strategy.tell(&params, population, fitness, asked, &mut rng);
+
+                // (1) σ̄ stays strictly positive and finite.
+                prop_assert!(
+                    told.sigma().is_finite() && told.sigma() > 0.0,
+                    "σ̄ not finite-positive in generation {generation}: {} \
+                     (lambda={lambda}, d={d}, seed={seed})",
+                    told.sigma()
+                );
+
+                // (2) covariance stays bit-exactly symmetric.
+                let cov: &[f32] = told.cov();
+                for i in 0..d {
+                    for j in 0..d {
+                        prop_assert_eq!(
+                            cov[i * d + j].to_bits(),
+                            cov[j * d + i].to_bits(),
+                            "cov asymmetry at ({}, {}) in generation {} \
+                             (lambda={}, d={}, seed={})",
+                            i, j, generation, lambda, d, seed
+                        );
+                    }
+                }
+
+                // (3) covariance and mean stay finite (no NaN / inf).
+                for (k, &c) in cov.iter().enumerate() {
+                    prop_assert!(
+                        c.is_finite(),
+                        "cov[{k}] non-finite in generation {generation}: {c} \
+                         (lambda={lambda}, d={d}, seed={seed})"
+                    );
+                }
+                for (k, &m) in told.mean().iter().enumerate() {
+                    prop_assert!(
+                        m.is_finite(),
+                        "mean[{k}] non-finite in generation {generation}: {m} \
+                         (lambda={lambda}, d={d}, seed={seed})"
+                    );
+                }
+
+                state = told;
+            }
         }
     }
 }

@@ -540,4 +540,59 @@ mod tests {
             "same seed + state must produce identical output"
         );
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        // §7.3: `prob ⊆ [0, 1]` must hold after ANY sequence of `fit` updates.
+        // Moderate cost (host-side tensor ops, no backend train) → 64 cases.
+        #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+        /// The per-gene probability vector stays inside `[0, 1]` after every
+        /// `fit` update, for arbitrary binary populations and fitness vectors.
+        ///
+        /// RNG boundary (ADR 0029): proptest chooses the config
+        /// `(genome_dim, virtual_pop_size, iters, seed)`; the seed drives a
+        /// `StdRng` that generates the binary population and fitness data.
+        /// `fit` itself is a deterministic MLE-style update and takes no rng.
+        #[test]
+        fn prob_stays_in_unit_interval(
+            genome_dim in 1usize..=16,
+            virtual_pop_size in 1usize..=200,
+            iters in 1u32..=50,
+            seed in any::<u64>(),
+        ) {
+            let device = Default::default();
+            let params = CompactGeneticParams {
+                genome_dim,
+                virtual_pop_size,
+            };
+            let mut state = fit_prior(&params);
+            let mut rng = StdRng::seed_from_u64(seed);
+
+            for _ in 0..iters {
+                // `k >= 2` so the winner/loser argmax/argmin compare a real pair.
+                let k: usize = rng.random_range(2..=16);
+                let rows: Vec<f32> = (0..k * genome_dim)
+                    .map(|_| if rng.random_bool(0.5) { 1.0 } else { 0.0 })
+                    .collect();
+                let fit_values: Vec<f32> = (0..k).map(|_| rng.random::<f32>()).collect();
+
+                state = <CompactGenetic as ProbabilityModel<TestBackend>>::fit(
+                    &CompactGenetic,
+                    &params,
+                    Some(&state),
+                    pop(rows, k, genome_dim),
+                    fitness(fit_values),
+                    &device,
+                );
+
+                prop_assert!(
+                    state.prob().iter().all(|&p| (0.0..=1.0).contains(&p)),
+                    "prob escaped [0, 1] after fit: {:?}",
+                    state.prob()
+                );
+            }
+        }
+    }
 }

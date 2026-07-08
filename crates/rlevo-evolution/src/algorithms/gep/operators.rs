@@ -144,6 +144,9 @@ mod tests {
     use crate::algorithms::gep::{GepConfig, GepDecoder};
     use crate::function_set::ArithmeticFunctionSet;
     use crate::rng::{SeedPurpose, seed_stream};
+    // Explicit list (not the glob prelude): the prelude re-exports a `Rng`
+    // that would collide with `rand::Rng` pulled in via `use super::*`.
+    use proptest::prelude::{ProptestConfig, any, prop_assert, proptest};
 
     type Fs = ArithmeticFunctionSet;
 
@@ -419,6 +422,98 @@ mod tests {
             let before = g.clone();
             ris_transposition(&mut g, cfg.head_len, &a, &mut rng);
             assert_eq!(g, before, "RIS must not alter an all-terminal head");
+        }
+    }
+
+    proptest! {
+        // Structural / backend-free invariants: no tensor or backend init, so a
+        // generous case count is cheap. Default shrinking is fine for the
+        // small integer / f32 inputs.
+        #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
+
+        /// Point mutation over a generated `(config, rate, seed)` space always
+        /// preserves the tail invariant and the complete-decode guarantee.
+        /// Property-test generalization of the fixed 1000-trial
+        /// `point_mutation_preserves_tail_invariant`.
+        ///
+        /// The RNG is built directly from the proptest-generated `u64` seed via
+        /// `seed_stream` (ADR 0029; GEP is backend-free — no `B::seed`).
+        #[test]
+        fn prop_point_mutation_preserves_invariants(
+            head_len in 1usize..=16,
+            // `tail_len = head_len * (max_arity - 1) + 1` must cover the
+            // function set's true max arity, else an arity-2 function that
+            // lands in the head cannot close and the genome fails to decode.
+            // `ArithmeticFunctionSet::max_arity() == 2`, so the config's
+            // `max_arity` floors at 2 (a `max_arity == 1` config is invalid
+            // for this alphabet, not merely `>= 1`).
+            max_arity in 2usize..=3,
+            n_vars in 1usize..=8,
+            rate in 0.0f32..=1.0,
+            seed in any::<u64>(),
+        ) {
+            let cfg = GepConfig::new(head_len, max_arity, n_vars, 100).unwrap();
+            let a = Alphabet::new(ArithmeticFunctionSet, n_vars, vec![]);
+            let mut rng = seed_stream(seed, 0, SeedPurpose::Mutation);
+
+            let mut g = sample_valid(&a, &cfg, &mut rng);
+            point_mutation(&mut g, cfg.head_len, &a, rate, &mut rng);
+            prop_assert!(
+                tail_all_terminals(&g, cfg.head_len, &a),
+                "tail invariant violated: {g:?}"
+            );
+            prop_assert!(decodes_complete(&g, &a), "offspring failed to decode: {g:?}");
+        }
+
+        /// IS/RIS transposition and one-/two-point crossover over a generated
+        /// `(config, seed)` space always yield offspring that keep the tail
+        /// invariant and decode completely (crossover: BOTH parents, built at
+        /// equal length from the same config). Property-test generalization of
+        /// the fixed 500-trial `all_operators_yield_decodable_offspring`.
+        #[test]
+        fn prop_operators_yield_decodable_offspring(
+            head_len in 1usize..=16,
+            // Floor at the alphabet's true max arity (2); see the mutation
+            // property for why `max_arity == 1` is an invalid config here.
+            max_arity in 2usize..=3,
+            n_vars in 1usize..=8,
+            seed in any::<u64>(),
+        ) {
+            let cfg = GepConfig::new(head_len, max_arity, n_vars, 100).unwrap();
+            let a = Alphabet::new(ArithmeticFunctionSet, n_vars, vec![]);
+
+            // IS / RIS transposition share a transposition-purpose stream.
+            let mut rng = seed_stream(seed, 0, SeedPurpose::Transposition);
+
+            let mut g = sample_valid(&a, &cfg, &mut rng);
+            is_transposition(&mut g, cfg.head_len, &mut rng);
+            prop_assert!(tail_all_terminals(&g, cfg.head_len, &a));
+            prop_assert!(decodes_complete(&g, &a));
+
+            let mut g = sample_valid(&a, &cfg, &mut rng);
+            ris_transposition(&mut g, cfg.head_len, &a, &mut rng);
+            prop_assert!(tail_all_terminals(&g, cfg.head_len, &a));
+            prop_assert!(decodes_complete(&g, &a));
+
+            // Crossover draws from a crossover-purpose stream; parents share a
+            // genome length (same config), satisfying the equal-length pre.
+            let mut rng = seed_stream(seed, 0, SeedPurpose::Crossover);
+
+            let mut p1 = sample_valid(&a, &cfg, &mut rng);
+            let mut p2 = sample_valid(&a, &cfg, &mut rng);
+            one_point_crossover(&mut p1, &mut p2, &mut rng);
+            prop_assert!(tail_all_terminals(&p1, cfg.head_len, &a));
+            prop_assert!(tail_all_terminals(&p2, cfg.head_len, &a));
+            prop_assert!(decodes_complete(&p1, &a));
+            prop_assert!(decodes_complete(&p2, &a));
+
+            let mut p1 = sample_valid(&a, &cfg, &mut rng);
+            let mut p2 = sample_valid(&a, &cfg, &mut rng);
+            two_point_crossover(&mut p1, &mut p2, &mut rng);
+            prop_assert!(tail_all_terminals(&p1, cfg.head_len, &a));
+            prop_assert!(tail_all_terminals(&p2, cfg.head_len, &a));
+            prop_assert!(decodes_complete(&p1, &a));
+            prop_assert!(decodes_complete(&p2, &a));
         }
     }
 }
