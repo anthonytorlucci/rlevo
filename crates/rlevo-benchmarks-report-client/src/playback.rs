@@ -54,7 +54,7 @@ pub fn clamp_idx(requested: usize, frame_count: usize) -> usize {
 /// multiplier. Clamps to a floor so 10× doesn't burn the browser.
 #[must_use]
 pub fn play_interval_ms(speed: u32) -> u64 {
-    let s = speed.max(1) as u64;
+    let s = u64::from(speed.max(1));
     (PLAY_BASE_INTERVAL_MS / s).max(20)
 }
 
@@ -79,6 +79,16 @@ const SPEEDS: &[u32] = &[1, 2, 5, 10];
 /// auto-pauses rather than wrapping.
 ///
 /// Returns an error placeholder when `record.frames` is empty.
+///
+/// # Panics
+///
+/// Panics if the scrubber's `<input type="range">` event fires without a target
+/// element — an invariant guaranteed by the DOM, so this cannot happen in
+/// practice.
+#[must_use]
+// Single reactive-panel builder wiring signals, the play loop, and the scrubber;
+// splitting it would fragment the shared signal graph.
+#[allow(clippy::too_many_lines)]
 pub fn playback_panel(family: EnvFamily, record: EpisodeRecord) -> AnyView {
     let frame_count = record.frames.len();
 

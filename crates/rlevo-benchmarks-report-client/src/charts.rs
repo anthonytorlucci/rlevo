@@ -9,8 +9,8 @@ use leptos::prelude::*;
 use rlevo_metrics_registry::{MetricKind, descriptor, is_per_generation, title_for};
 
 use crate::series::{
-    AxisMode, BandPoint, BoxStats, available_metric_names, distinct_seed_count, diversity_series,
-    downsample_minmax, ensure_svg_header, episode_axis, episode_length_series,
+    AxisMode, BandPoint, BoxStats, FitnessRangeSeries, available_metric_names, distinct_seed_count,
+    diversity_series, downsample_minmax, ensure_svg_header, episode_axis, episode_length_series,
     episode_reward_series, fitness_range_series, low_diversity_threshold, metric_band,
     metric_series, nearest_by_x, population_box_data, remap_episode_series, rolling_mean,
     selection_pressure_series,
@@ -40,14 +40,18 @@ const METRIC_WINDOW: usize = 20;
 /// for discrete x axes (episode / generation / step) and `false` for
 /// continuous ones (wall-clock seconds).
 #[must_use]
+// Straight-line SVG path builder + hover handler; extracting pieces would only
+// scatter the shared scale closures without improving readability. `sx_of`/`sy_of`
+// are the conventional scale-x/scale-y closures.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 pub fn interactive_line_view(
     title: String,
     x_title: &str,
     y_title: &str,
     x_as_int: bool,
     raw_full: Vec<(f64, f64)>,
-    decimated: Vec<(f64, f64)>,
-    smoothed: Option<Vec<(f64, f64)>>,
+    decimated: &[(f64, f64)],
+    smoothed: Option<&[(f64, f64)]>,
 ) -> AnyView {
     use std::fmt::Write as _;
     if decimated.is_empty() {
@@ -69,7 +73,7 @@ pub fn interactive_line_view(
     };
     let mut y_min = f64::INFINITY;
     let mut y_max = f64::NEG_INFINITY;
-    for &(_, y) in decimated.iter().chain(smoothed.iter().flatten()) {
+    for &(_, y) in decimated.iter().chain(smoothed.into_iter().flatten()) {
         if y.is_finite() {
             y_min = y_min.min(y);
             y_max = y_max.max(y);
@@ -100,12 +104,12 @@ pub fn interactive_line_view(
     let sy_of = move |y: f64| BOX_M_T + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h;
 
     let mut raw_path = String::new();
-    for &(x, y) in &decimated {
+    for &(x, y) in decimated {
         if y.is_finite() {
             let _ = write!(raw_path, "{:.2},{:.2} ", sx_of(x), sy_of(y));
         }
     }
-    let smoothed_path = smoothed.as_ref().map(|s| {
+    let smoothed_path = smoothed.map(|s| {
         let mut p = String::new();
         for &(x, y) in s {
             if y.is_finite() {
@@ -146,7 +150,7 @@ pub fn interactive_line_view(
     let overlay = move || match hover.get() {
         Some((sx, sy, dx, dy)) => {
             // Clamp the label x so it stays inside the viewBox.
-            let label_x = sx.min(BOX_VB_W - 90.0).max(BOX_M_L);
+            let label_x = sx.clamp(BOX_M_L, BOX_VB_W - 90.0);
             let label = format!("{dx:.2}, {dy:.4}");
             view! {
                 <line class="rlevo-crosshair" x1={sx} y1={BOX_M_T} x2={sx} y2={PLOT_BOTTOM} />
@@ -248,7 +252,7 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
             "step"
         };
         let panel = if is_per_generation(&name) {
-            interactive_line_view(title, x_title, &y_title, true, raw_full, dec_xy, None)
+            interactive_line_view(title, x_title, &y_title, true, raw_full, &dec_xy, None)
         } else {
             let smoothed: Vec<(f64, f64)> = rolling_mean(&decimated, METRIC_WINDOW)
                 .iter()
@@ -260,8 +264,8 @@ pub fn convergence_panel_view(records: &[EpisodeRecord], _family: EnvFamily) -> 
                 &y_title,
                 true,
                 raw_full,
-                dec_xy,
-                Some(smoothed),
+                &dec_xy,
+                Some(&smoothed),
             )
         };
         match descriptor(&name).map(|d| d.kind) {
@@ -325,8 +329,8 @@ fn episode_outcome_panels(records: &[EpisodeRecord], window: usize) -> AnyView {
                     "reward",
                     x_as_int,
                     reward_xy.clone(),
-                    reward_xy,
-                    Some(reward_sm),
+                    &reward_xy,
+                    Some(&reward_sm),
                 )}
                 {interactive_line_view(
                     format!("Episode length (x: {x_label})"),
@@ -334,8 +338,8 @@ fn episode_outcome_panels(records: &[EpisodeRecord], window: usize) -> AnyView {
                     "frames",
                     x_as_int,
                     length_xy.clone(),
-                    length_xy,
-                    Some(length_sm),
+                    &length_xy,
+                    Some(&length_sm),
                 )}
             </div>
         }
@@ -555,6 +559,8 @@ fn nice_ticks(min: f64, max: f64, target: usize) -> Vec<f64> {
     if !(min.is_finite() && max.is_finite()) || (max - min).abs() < f64::EPSILON {
         return vec![min];
     }
+    // Tick count → f64 for axis spacing; precision loss irrelevant at these sizes.
+    #[allow(clippy::cast_precision_loss)]
     let raw_step = (max - min) / target as f64;
     let mag = 10f64.powf(raw_step.abs().log10().floor());
     let norm = raw_step / mag;
@@ -770,7 +776,9 @@ fn export_panel_svg(ev: &leptos::ev::MouseEvent, filename: &str) {
 /// would alter all jitter positions and break screenshot stability.
 fn jitter_unit(i: u64) -> f64 {
     let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    // Top 53 bits → [0, 1), then map to [-1, 1).
+    // Top 53 bits → [0, 1), then map to [-1, 1). Both operands fit f64's mantissa
+    // exactly (numerator masked to 53 bits, denominator is 2^53), so no real loss.
+    #[allow(clippy::cast_precision_loss)]
     let unit = (h >> 11) as f64 / (1u64 << 53) as f64;
     unit.mul_add(2.0, -1.0)
 }
@@ -787,10 +795,10 @@ fn jitter_unit(i: u64) -> f64 {
 /// `overlays` is the `(best, median, worst)` triple returned by
 /// [`crate::series::fitness_range_series`].
 #[must_use]
-pub fn population_box_view(
-    stats: &[BoxStats],
-    overlays: (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>),
-) -> AnyView {
+// Single cohesive box-and-whisker SVG builder; splitting the tick/box/overlay
+// passes would only thread the shared scale closures through helpers.
+#[allow(clippy::too_many_lines)]
+pub fn population_box_view(stats: &[BoxStats], overlays: FitnessRangeSeries) -> AnyView {
     if stats.is_empty() {
         return view! {
             <figure class="rlevo-chart-card rlevo-chart-empty">
@@ -988,6 +996,8 @@ pub fn population_box_view(
 /// guideline the card border pulses and the title gains a ⚠ glyph — both
 /// colour-redundant so the alert survives a B/W screenshot.
 #[must_use]
+// `sx_of`/`sy_of` are the conventional scale-x/scale-y closures.
+#[allow(clippy::similar_names)]
 pub fn diversity_panel_view(diversity: &[(u32, f64)]) -> AnyView {
     use std::fmt::Write as _;
     if diversity.is_empty() {
@@ -1124,7 +1134,7 @@ pub fn population_panel_view(samples: &[PopulationSample], sense: ObjectiveSense
             "ratio",
             true,
             pressure_xy.clone(),
-            pressure_xy,
+            &pressure_xy,
             None,
         ));
     }

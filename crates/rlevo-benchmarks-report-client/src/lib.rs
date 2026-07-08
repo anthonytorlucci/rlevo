@@ -49,6 +49,12 @@ use wasm_bindgen::prelude::*;
 /// WASM entry point invoked once at module load via `wasm-bindgen`'s
 /// `start` attribute. Installs a panic hook so dev-tools see real
 /// stack traces, then mounts the Leptos app on `#rlevo-app`.
+///
+/// # Panics
+///
+/// Panics if the host page lacks a `#rlevo-app` element or it is not an
+/// `HtmlElement` — the report emitter always writes that mount div, so this
+/// indicates a malformed host page.
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();

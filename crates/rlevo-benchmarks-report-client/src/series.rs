@@ -150,6 +150,9 @@ impl AxisMode {
 ///   `episode_wall_clock_secs` terminal metric. If no episode carries that
 ///   metric the axis would be all-zero, so it falls back to the episode index.
 #[must_use]
+// Episode/frame counts → f64 axis coordinates; precision loss is irrelevant at
+// realistic episode counts.
+#[allow(clippy::cast_precision_loss)]
 pub fn episode_axis(records: &[EpisodeRecord], mode: AxisMode) -> Vec<f64> {
     let n = records.len();
     match mode {
@@ -233,6 +236,9 @@ pub struct LandscapeField {
 /// bounds. Values are min/max-normalised across the grid so the ramp uses the
 /// full range regardless of the surface's absolute scale.
 #[must_use]
+// Grid indices → f64 sample coordinates and the normalised f64→f32 cell ramp;
+// both lose precision harmlessly at texture resolution.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub fn landscape_field(
     label: &str,
     bounds_x: (f32, f32),
@@ -395,6 +401,9 @@ pub fn distinct_seed_count(records: &[EpisodeRecord]) -> usize {
 /// seed has data there). Steps are returned in ascending order. Non-finite
 /// values are ignored. Returns empty when no seed has a finite sample.
 #[must_use]
+// Seed count → f64 divisor for the cross-seed mean/variance; precision loss is
+// irrelevant at realistic seed counts.
+#[allow(clippy::cast_precision_loss)]
 pub fn metric_band(records: &[EpisodeRecord], name: &str) -> Vec<BandPoint> {
     use std::collections::BTreeMap;
     // step -> seed -> (sum, count) for averaging within a seed.
@@ -676,11 +685,15 @@ pub fn selection_pressure_series(
 /// [`ObjectiveSense::Maximize`] best is the largest value and worst the
 /// smallest; for [`ObjectiveSense::Minimize`] the ends swap. Callers pass
 /// the run's declared sense (treating `None` as `Maximize`).
+/// The `(best, median, worst)` per-generation fitness overlays returned by
+/// [`fitness_range_series`]; each element is a `(generation, value)` series.
+pub type FitnessRangeSeries = (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>);
+
 #[must_use]
 pub fn fitness_range_series(
     samples: &[PopulationSample],
     sense: ObjectiveSense,
-) -> (Vec<(u32, f64)>, Vec<(u32, f64)>, Vec<(u32, f64)>) {
+) -> FitnessRangeSeries {
     let mut best = Vec::new();
     let mut median = Vec::new();
     let mut worst = Vec::new();
@@ -710,6 +723,10 @@ pub fn fitness_range_series(
 
 #[cfg(test)]
 mod tests {
+    // Assertions compare against exact integer-valued fixtures (2.0, 3.0, …), so
+    // exact float equality is intentional here. Test-only index→f32 casts are
+    // likewise harmless.
+    #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
     use super::*;
     use crate::wire::{
         EnvFamily, EpisodeKind, EpisodeRecordHeader, FORMAT_VERSION, FamilyPayload, FrameRecord,
@@ -1027,7 +1044,7 @@ mod tests {
         let div = vec![(0u32, 4.0), (1, 2.0), (2, 8.0)];
         let t = low_diversity_threshold(&div).unwrap();
         // sorted [2,4,8]; 5th pct interpolates near the low end.
-        assert!(t >= 2.0 && t < 4.0, "got {t}");
+        assert!((2.0..4.0).contains(&t), "got {t}");
     }
 
     #[test]

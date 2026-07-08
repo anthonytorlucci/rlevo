@@ -31,6 +31,9 @@ use crate::wire::{EnvFamily, EpisodeRecord, ObjectiveSense, RunManifest};
 /// mount_to_body(App);
 /// ```
 #[component]
+// The Leptos `#[component]` macro re-emits `App`, so a `#[must_use]` here is not
+// preserved on the generated fn; suppress the pedantic lint instead.
+#[allow(clippy::must_use_candidate)]
 pub fn App() -> impl IntoView {
     let manifest = read_manifest();
     let family: Option<EnvFamily> = manifest.as_ref().ok().map(|m| m.env_family);
@@ -289,6 +292,9 @@ fn episode_table(
 }
 
 /// Renders a single `<tr>` for one episode; adds the `selected` CSS class reactively.
+// Taken by value: the returned `impl IntoView` would otherwise capture a borrow
+// of `m` under the Rust 2024 `impl Trait` lifetime-capture rules.
+#[allow(clippy::needless_pass_by_value)]
 fn episode_row(
     m: EpisodeMeta,
     selected: ReadSignal<Option<String>>,

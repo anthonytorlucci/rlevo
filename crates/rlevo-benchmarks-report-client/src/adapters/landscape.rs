@@ -3,7 +3,7 @@
 //! Consumes a [`FamilyPayload::Landscape2D`] payload and renders the
 //! search domain as a bounded SVG viewport with:
 //!
-//! - the search rectangle (bounds_x × bounds_y);
+//! - the search rectangle (`bounds_x` × `bounds_y`);
 //! - a trail polyline (most recent candidate positions, oldest first);
 //! - the current candidate as a filled circle (cyan + bold stroke);
 //! - the best-so-far as an open ring with a cross-hair (green) when
@@ -55,6 +55,9 @@ pub fn render(frame: &FrameRecord) -> AnyView {
 /// with cross-hair (when present), and the current candidate as a filled
 /// disk.  Returns an error paragraph if either axis of `bounds` has zero
 /// span.
+// Single paint-ordered SVG scene builder; grid-index→f32 casts for the heatmap
+// cells lose precision harmlessly at texture resolution.
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
     let (xlo, xhi) = payload.bounds_x;
     let (ylo, yhi) = payload.bounds_y;
@@ -87,7 +90,7 @@ fn view_with_payload(payload: &Landscape2DPayload) -> AnyView {
         .join(" ");
 
     let (cx, cy) = xform(&payload.current);
-    let best_marker = payload.best.as_ref().map(|b| xform(b));
+    let best_marker = payload.best.as_ref().map(xform);
 
     let label = payload.label.clone();
     let label_display = label.clone();
