@@ -236,6 +236,12 @@ fn sample_input_pair(col: usize, params: &CgpConfig, rng: &mut dyn Rng) -> (i64,
         pool
     };
     let _ = input_count;
+    if pool.is_empty() {
+        // No legal input candidates (only reachable when n_inputs == 0, which
+        // CgpConfig::validate rejects). Defensive: emit a benign (0, 0) so the
+        // primitive is total for direct callers that bypass the validating harness.
+        return (0, 0);
+    }
     let pick = |rng: &mut dyn Rng| -> i64 {
         let idx = rng.random_range(0..pool.len());
         pool[idx]
@@ -455,6 +461,21 @@ where
             .into_vec::<f32>()
             .expect("fitness tensor must be readable as f32");
 
+        if fitness_host.is_empty() {
+            // A generation with no offspring (only reachable when lambda == 0, which
+            // CgpConfig::validate rejects). Defensive: advance the counter and emit a
+            // worst-case metric without touching selection, so tell is total for
+            // direct callers that bypass the validating harness.
+            state.generation += 1;
+            let m = StrategyMetrics::from_host_fitness(
+                state.generation,
+                &[f32::NEG_INFINITY],
+                state.best_fitness,
+            );
+            state.best_fitness = m.best_fitness_ever();
+            return (state, m);
+        }
+
         if state.parent_fitness.is_none() {
             // First tell: initial parent fitness. Sanitize so a NaN seed cannot
             // masquerade as a finite parent in the later `>=` comparison.
@@ -563,6 +584,69 @@ mod tests {
         let mut cfg = CgpConfig::default_for(1);
         cfg.rows = 0;
         assert_eq!(cfg.validate().unwrap_err().field, "rows");
+    }
+
+    /// Defensive guard for the empty input pool (issue #154, `gp_cgp` §5.2).
+    /// With `n_inputs == 0` and `col == 0` both the built pool and the fallback
+    /// are empty, so the raw `random_range(0..0)` would panic. A direct caller
+    /// bypassing the validating harness must get a benign `(0, 0)` instead.
+    #[test]
+    fn sample_input_pair_empty_pool_returns_benign_zero() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        // Construct an invalid config (n_inputs == 0) by mutating a default,
+        // bypassing `validate` which would reject it.
+        let mut cfg = CgpConfig::default_for(1);
+        cfg.n_inputs = 0;
+        let mut rng = StdRng::seed_from_u64(7);
+        assert_eq!(super::sample_input_pair(0, &cfg, &mut rng), (0, 0));
+    }
+
+    /// Defensive guard for the empty `fitness_host` (issue #154, `gp_cgp` §5.3).
+    /// A generation with no offspring (`lambda == 0`) makes both the bootstrap
+    /// and selection paths index `fitness_host[0]` and panic. A direct caller
+    /// bypassing the validating harness must instead advance the generation
+    /// counter and return without touching selection or the parent fitness.
+    #[test]
+    fn tell_empty_fitness_does_not_panic() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let device = Default::default();
+        let strategy = CartesianGeneticProgramming::<TestBackend>::new();
+
+        // Invalid config (lambda == 0) via mutation, bypassing `validate`.
+        let mut params = CgpConfig::default_for(1);
+        params.lambda = 0;
+        let mut rng = StdRng::seed_from_u64(11);
+        // Build the bootstrap state directly: `init` debug-asserts the config,
+        // which lambda == 0 would trip, and `tell` ignores `params` anyway.
+        let parent = Tensor::<TestBackend, 2, Int>::zeros([1, params.genome_len()], &device);
+        let state: CgpState<TestBackend> = CgpState {
+            parent,
+            parent_fitness: None,
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 0,
+        };
+
+        let empty_fitness =
+            Tensor::<TestBackend, 1>::from_data(TensorData::new(Vec::<f32>::new(), [0]), &device);
+        let empty_offspring = Tensor::<TestBackend, 2, Int>::from_data(
+            TensorData::new(Vec::<i32>::new(), [0, params.genome_len()]),
+            &device,
+        );
+
+        let (state1, _) = strategy.tell(&params, empty_offspring, empty_fitness, state, &mut rng);
+        assert_eq!(
+            state1.generation, 1,
+            "empty generation must advance the counter"
+        );
+        assert_eq!(
+            state1.parent_fitness, None,
+            "empty generation must not bootstrap or mutate parent fitness"
+        );
     }
 
     /// Regression for the `is_finite()` bootstrap sentinel vs the sanitize-to-`−∞`
