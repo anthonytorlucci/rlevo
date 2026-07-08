@@ -22,7 +22,6 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
-use rand_distr::{Distribution as RandDistDist, Normal};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
@@ -307,8 +306,14 @@ where
             SeedPurpose::Mutation,
         );
         for (idx, out) in offspring.iter_mut().enumerate() {
-            let normal = Normal::new(mean_rows[idx], sigma_rows[idx]).expect("sigma > 0");
-            *out = normal.sample(&mut sample_rng);
+            // A non-finite σ falls back to the archive mean rather than
+            // panicking (σ is already floored to 1e-12 above, so this is a
+            // belt-and-braces guard). A NaN mean would pass through unchanged;
+            // the clamp below bounds finite draws but does NOT launder a NaN —
+            // that is neutralized by the ADR-0034 fitness-hygiene chokepoint
+            // downstream.
+            *out =
+                crate::sampling::normal_or_mean(mean_rows[idx], sigma_rows[idx], &mut sample_rng);
         }
         let (lo, hi): (f32, f32) = params.bounds.into();
         for v in &mut offspring {
@@ -430,6 +435,9 @@ mod tests {
     use crate::fitness::FromFitnessEvaluable;
     use crate::strategy::EvolutionaryHarness;
     use burn::backend::Flex;
+    use burn::backend::flex::FlexDevice;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::fitness::FitnessEvaluable;
 
     #[test]
@@ -489,6 +497,106 @@ mod tests {
             );
             let total: f32 = w.iter().sum();
             approx::assert_relative_eq!(total, 1.0, epsilon = 1e-5);
+        }
+    }
+
+    // --- NaN-safe sampling coverage through the real `ask` call site ---
+    //
+    // These exercise the `sampling::normal_or_mean` guard end-to-end: a
+    // non-finite value is injected into the archive that `ask` reads, and we
+    // assert `ask` neither panics nor returns garbage where the guard should
+    // recover. Directly injectable because every `AcoRState` field is `pub`.
+
+    /// Builds a 3-row archive whose weights force the roulette in `ask` to
+    /// always select archive row 0 (`weights = [1, 0, 0]` ⇒ CDF `[1, 1, 1]` ⇒
+    /// `pick(u) == 0` for every `u ∈ [0, 1)`), so the sampled mean is
+    /// deterministically `archive[0, :]`.
+    fn state_forcing_row_zero(
+        archive_vals: Vec<f32>,
+        device: FlexDevice,
+    ) -> AcoRState<TestBackend> {
+        let archive: Tensor<TestBackend, 2> =
+            Tensor::from_data(TensorData::new(archive_vals, [3, 2]), &device);
+        AcoRState {
+            archive,
+            // Non-empty so `ask` takes the sampling path, not the first-call
+            // early return.
+            archive_fitness: vec![3.0, 0.0, -3.0],
+            weights: vec![1.0, 0.0, 0.0],
+            best_genome: None,
+            best_fitness: f32::NEG_INFINITY,
+            generation: 1,
+        }
+    }
+
+    #[test]
+    fn ask_recovers_from_infinite_sigma_via_mean_fallback() {
+        // Row 1, column 0 holds +∞. The on-device σ for column 0 becomes
+        // Σ_e |archive[e,0] − archive[0,0]| ⊇ |∞ − 1| = ∞, and ∞.max(1e-12) == ∞
+        // survives the floor — so `normal_or_mean(mean=1.0, std=∞)` hits the
+        // `Err` fallback and returns the finite mean instead of panicking.
+        let device: FlexDevice = Default::default();
+        let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
+        let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
+        let state: AcoRState<TestBackend> =
+            state_forcing_row_zero(vec![1.0, 2.0, f32::INFINITY, 0.5, -1.0, -2.0], device);
+
+        let mut rng: StdRng = StdRng::seed_from_u64(21);
+        // Must not panic.
+        let (pop, _next): (Tensor<TestBackend, 2>, AcoRState<TestBackend>) =
+            strategy.ask(&params, &state, &mut rng, &device);
+        let vals: Vec<f32> = pop
+            .into_data()
+            .into_vec::<f32>()
+            .expect("offspring tensor must be readable as f32");
+
+        // Every offspring is finite; column 0 recovers exactly to the finite
+        // mean archive[0,0] = 1.0 (the fallback draw, clamped inside bounds).
+        assert_eq!(vals.len(), 4 * 2);
+        for (idx, &v) in vals.iter().enumerate() {
+            assert!(v.is_finite(), "offspring[{idx}] = {v} is not finite");
+        }
+        for i in 0..4 {
+            approx::assert_relative_eq!(vals[i * 2], 1.0_f32, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
+    fn ask_passes_nan_mean_through_for_downstream_hygiene() {
+        // Row 0, column 0 holds NaN and is the always-selected mean. σ for
+        // column 0 is NaN, but NaN.max(1e-12) == 1e-12 (the floor launders the
+        // NaN σ), so `normal_or_mean(mean=NaN, std=1e-12)` takes the `Ok` path
+        // and the NaN *mean* propagates: `ask` intentionally does NOT launder it
+        // (that is the ADR-0034 fitness-hygiene chokepoint's job downstream).
+        let device: FlexDevice = Default::default();
+        let strategy: AntColonyReal<TestBackend> = AntColonyReal::new();
+        let params: AcoRConfig = AcoRConfig::default_for(3, 4, 2);
+        let state: AcoRState<TestBackend> =
+            state_forcing_row_zero(vec![f32::NAN, 2.0, 1.0, 0.5, -1.0, -2.0], device);
+
+        let mut rng: StdRng = StdRng::seed_from_u64(23);
+        // Must not panic despite the NaN in the read path.
+        let (pop, _next): (Tensor<TestBackend, 2>, AcoRState<TestBackend>) =
+            strategy.ask(&params, &state, &mut rng, &device);
+        let vals: Vec<f32> = pop
+            .into_data()
+            .into_vec::<f32>()
+            .expect("offspring tensor must be readable as f32");
+
+        assert_eq!(vals.len(), 4 * 2);
+        for i in 0..4 {
+            // Column 0: NaN mean passes through unchanged.
+            assert!(
+                vals[i * 2].is_nan(),
+                "expected NaN passthrough at column 0, got {}",
+                vals[i * 2]
+            );
+            // Column 1: finite mean/σ still yield a finite draw.
+            assert!(
+                vals[i * 2 + 1].is_finite(),
+                "column 1 offspring should stay finite, got {}",
+                vals[i * 2 + 1]
+            );
         }
     }
 

@@ -44,7 +44,6 @@ use std::marker::PhantomData;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
-use rand_distr::{Distribution as _, Normal};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
@@ -382,8 +381,6 @@ where
             state.generation as u64,
             SeedPurpose::CmaSampling,
         );
-        let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
-
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
         let mut sigmas: Vec<f32> = Vec::with_capacity(lambda);
         for _ in 0..lambda {
@@ -394,9 +391,12 @@ where
             // cma_es.rs. A floored σᵢ yields a *benign zero step* — the
             // offspring collapses to ≈m and contributes ~0 to the rank-μ blend —
             // not a corrected tiny step.
-            let sigma_i: f32 = (state.sigma * (params.tau * normal.sample(&mut stream)).exp())
-                .max(f32::MIN_POSITIVE);
-            let z: Vec<f32> = (0..d).map(|_| normal.sample(&mut stream)).collect();
+            let sigma_i: f32 = (state.sigma
+                * (params.tau * crate::sampling::standard_normal(&mut stream)).exp())
+            .max(f32::MIN_POSITIVE);
+            let z: Vec<f32> = (0..d)
+                .map(|_| crate::sampling::standard_normal(&mut stream))
+                .collect();
             let s: Vec<f32> = matvec(&factor, &z, d);
             for (mean_i, s_i) in state.mean.iter().zip(s.iter()) {
                 rows.push(mean_i + sigma_i * s_i);

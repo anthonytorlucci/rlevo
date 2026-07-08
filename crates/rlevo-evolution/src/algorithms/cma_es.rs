@@ -39,7 +39,6 @@ use std::marker::PhantomData;
 use burn::tensor::{Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
-use rand_distr::{Distribution as _, Normal};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate, Violations};
@@ -562,10 +561,11 @@ where
             state.generation as u64,
             SeedPurpose::CmaSampling,
         );
-        let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
         let mut rows: Vec<f32> = Vec::with_capacity(lambda * d);
         for _ in 0..lambda {
-            let z: Vec<f32> = (0..d).map(|_| normal.sample(&mut stream)).collect();
+            let z: Vec<f32> = (0..d)
+                .map(|_| crate::sampling::standard_normal(&mut stream))
+                .collect();
             let bdz: Vec<f32> = matvec(&bd, &z, d);
             for (mean_i, bdz_i) in state.mean.iter().zip(bdz.iter()) {
                 rows.push(mean_i + state.sigma * bdz_i);

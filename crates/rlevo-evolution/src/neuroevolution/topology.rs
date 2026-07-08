@@ -233,7 +233,7 @@ impl TopologyGenome {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is negative (degenerate normal), or (in debug
+    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`), or (in debug
     /// builds) if `registry`'s counters disagree with the seed sizes.
     #[must_use]
     pub fn minimal(
@@ -248,8 +248,9 @@ impl TopologyGenome {
                 && registry.next_innovation().get() >= (num_inputs * num_outputs) as u64,
             "registry counters must start after the minimal seed (H6)"
         );
-        let normal = Normal::new(0.0_f32, weight_init_std)
-            .expect("weight_init_std must be finite and non-negative");
+        let normal = Normal::new(0.0_f32, weight_init_std).unwrap_or_else(|err| {
+            panic!("weight_init_std must be finite, got {weight_init_std}: {err}")
+        });
 
         let mut nodes: Vec<NodeGene> = Vec::with_capacity(num_inputs + num_outputs);
         for i in 0..num_inputs {

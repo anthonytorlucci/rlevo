@@ -58,6 +58,7 @@ pub mod param_reshaper;
 pub mod population;
 pub mod probability_model;
 pub mod rng;
+pub(crate) mod sampling;
 pub mod shaping;
 pub mod strategy;
 
