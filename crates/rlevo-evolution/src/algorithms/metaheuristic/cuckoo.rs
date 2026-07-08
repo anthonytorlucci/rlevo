@@ -336,11 +336,10 @@ where
             SeedPurpose::Mutation,
         );
         let normal_u = Normal::new(0.0_f32, sigma_u).expect("σ_u > 0");
-        let normal_v = Normal::new(0.0_f32, 1.0_f32).unwrap();
         let mut step = vec![0f32; pop * d];
         for v in &mut step {
             let u: f32 = normal_u.sample(&mut stream);
-            let w: f32 = normal_v.sample(&mut stream);
+            let w: f32 = crate::sampling::standard_normal(&mut stream);
             // `levy_step` guards the degenerate `w == 0` denominator (±∞/NaN
             // survive the bounds clamp and would poison the slot forever).
             *v = levy_step(u, w, params.beta);

@@ -22,7 +22,6 @@
 
 use burn::tensor::backend::Backend;
 use rand::{Rng, RngExt};
-use rand_distr::{Distribution as _, Normal};
 
 use crate::fitness::FitnessFn;
 use crate::local_search::{BudgetedEval, LocalSearch, clamp_vec, sanitize_fitness};
@@ -312,18 +311,17 @@ impl SimulatedAnnealing {
             return (best, best_fit);
         }
 
-        // Unit Gaussian sampled through the passed rng (same path as the crate's
+        // Unit Gaussian sampled through the passed rng via
+        // `sampling::standard_normal` (the same path as the crate's
         // `gaussian_mutation`); scaled by `step_size` per coordinate to realise
         // an `N(0, step_size)` proposal step.
-        let normal: Normal<f32> = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
-
         let mut temp: f32 = params.initial_temp;
 
         loop {
             // Propose: current walker + per-coordinate Gaussian noise.
             let mut candidate: Vec<f32> = current.clone();
             for x in &mut candidate {
-                *x += params.step_size * normal.sample(rng);
+                *x += params.step_size * crate::sampling::standard_normal(rng);
             }
             clamp_vec(&mut candidate, params.bounds);
 

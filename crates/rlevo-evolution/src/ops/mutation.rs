@@ -11,17 +11,15 @@
 
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::{Rng, RngExt};
-use rand_distr::{Distribution as _, Normal};
 use rlevo_core::probability::Probability;
 use rlevo_core::rate::NonNegativeRate;
 
 /// Builds an `(n·d,)` host vector of `N(0, 1)` draws sized for a
 /// `(n, d)` tensor.
 fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
-    let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
     let mut rows = Vec::with_capacity(n * d);
     for _ in 0..n * d {
-        rows.push(normal.sample(rng));
+        rows.push(crate::sampling::standard_normal(rng));
     }
     rows
 }
@@ -34,8 +32,8 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 /// equal to the input.
 ///
 /// The `n·d` standard-normal draws are taken from the caller-supplied host
-/// `rng` via [`rand_distr::Normal`] and loaded onto the device using
-/// [`Tensor::from_data`]; no backend-global RNG state is touched.
+/// `rng` via [`crate::sampling::standard_normal`] and loaded onto the device
+/// using [`Tensor::from_data`]; no backend-global RNG state is touched.
 ///
 /// The input tensor must have shape `(N, D)` where `N` is the population size
 /// and `D` is the genome length; the returned tensor has the same shape.

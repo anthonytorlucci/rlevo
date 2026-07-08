@@ -578,7 +578,7 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is negative (degenerate normal).
+    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
     #[must_use]
     pub fn init(
         &self,
@@ -599,8 +599,12 @@ impl<B: Backend> ArchNasStrategy<B> {
             .collect();
 
         let mut weight_rng = seed_stream(rng.next_u64(), 0, SeedPurpose::Init);
-        let normal = Normal::new(0.0f32, params.weight_init_std)
-            .expect("weight_init_std must be finite and non-negative");
+        let normal = Normal::new(0.0f32, params.weight_init_std).unwrap_or_else(|err| {
+            panic!(
+                "weight_init_std must be finite, got {}: {err}",
+                params.weight_init_std
+            )
+        });
         let mut data = vec![0.0f32; pop * max];
         for (i, &arch) in arch_ids.iter().enumerate() {
             let n = params.per_variant_params[arch];
@@ -637,8 +641,9 @@ impl<B: Backend> ArchNasStrategy<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` or `weight_mutation_std` is negative, or if
-    /// the resident weight tensor cannot be read back to the host as `f32`.
+    /// Panics if `weight_init_std` or `weight_mutation_std` is non-finite
+    /// (`+∞` or `NaN`), or if the resident weight tensor cannot be read back to
+    /// the host as `f32`.
     #[must_use]
     pub fn ask(
         &self,
@@ -666,10 +671,18 @@ impl<B: Backend> ArchNasStrategy<B> {
         let mut arch_rng = seed_stream(rng.next_u64(), gen_idx, SeedPurpose::Representative);
         let mut winit_rng = seed_stream(rng.next_u64(), gen_idx, SeedPurpose::Other);
 
-        let perturb = Normal::new(0.0f32, params.weight_mutation_std)
-            .expect("weight_mutation_std must be finite and non-negative");
-        let reinit = Normal::new(0.0f32, params.weight_init_std)
-            .expect("weight_init_std must be finite and non-negative");
+        let perturb = Normal::new(0.0f32, params.weight_mutation_std).unwrap_or_else(|err| {
+            panic!(
+                "weight_mutation_std must be finite, got {}: {err}",
+                params.weight_mutation_std
+            )
+        });
+        let reinit = Normal::new(0.0f32, params.weight_init_std).unwrap_or_else(|err| {
+            panic!(
+                "weight_init_std must be finite, got {}: {err}",
+                params.weight_init_std
+            )
+        });
 
         let resident: Vec<f32> = state
             .population

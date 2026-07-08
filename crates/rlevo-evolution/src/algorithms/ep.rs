@@ -25,7 +25,6 @@ use std::marker::PhantomData;
 use burn::tensor::{Int, Tensor, TensorData, backend::Backend};
 use rand::Rng;
 use rand::RngExt;
-use rand_distr::{Distribution as _, Normal};
 
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
@@ -288,10 +287,9 @@ where
         // Log-normal σ update for every parent. Host-sample the N(0,1)
         // noise from the deterministic `sigma_rng` so it is reproducible
         // across thread schedules.
-        let normal = Normal::new(0.0f32, 1.0).expect("unit normal is well-defined");
         let mut noise_rows = Vec::with_capacity(mu);
         for _ in 0..mu {
-            noise_rows.push(normal.sample(&mut sigma_rng));
+            noise_rows.push(crate::sampling::standard_normal(&mut sigma_rng));
         }
         let noise = Tensor::<B, 1>::from_data(TensorData::new(noise_rows, [mu]), device);
         // Clamp the log-normal random walk to `[sigma_min, sigma_max]` so σ can

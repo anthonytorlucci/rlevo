@@ -202,7 +202,7 @@ impl<B: Backend> NeatStrategy<B> {
     ///
     /// # Panics
     ///
-    /// Panics if `weight_init_std` is negative (degenerate normal).
+    /// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
     #[must_use]
     pub fn init(
         &self,
@@ -646,12 +646,21 @@ const ADD_CONNECTION_ATTEMPTS: usize = 20;
 ///
 /// # Panics
 ///
-/// Panics if `weight_perturb_std` or `weight_init_std` is negative.
+/// Panics if `weight_perturb_std` or `weight_init_std` is non-finite
+/// (`+∞` or `NaN`).
 fn mutate_weights(genome: &mut TopologyGenome, params: &NeatParams, rng: &mut StdRng) {
-    let perturb = Normal::new(0.0_f32, params.weight_perturb_std)
-        .expect("weight_perturb_std must be finite and non-negative");
-    let replace = Normal::new(0.0_f32, params.weight_init_std)
-        .expect("weight_init_std must be finite and non-negative");
+    let perturb = Normal::new(0.0_f32, params.weight_perturb_std).unwrap_or_else(|err| {
+        panic!(
+            "weight_perturb_std must be finite, got {}: {err}",
+            params.weight_perturb_std
+        )
+    });
+    let replace = Normal::new(0.0_f32, params.weight_init_std).unwrap_or_else(|err| {
+        panic!(
+            "weight_init_std must be finite, got {}: {err}",
+            params.weight_init_std
+        )
+    });
 
     for conn in &mut genome.connections {
         if rng.random::<f32>() < params.p_weight_replace {
@@ -678,15 +687,19 @@ fn mutate_weights(genome: &mut TopologyGenome, params: &NeatParams, rng: &mut St
 ///
 /// # Panics
 ///
-/// Panics if `weight_init_std` is negative.
+/// Panics if `weight_init_std` is non-finite (`+∞` or `NaN`).
 fn mutate_add_connection(
     genome: &mut TopologyGenome,
     params: &NeatParams,
     registry: &InnovationRegistry,
     rng: &mut StdRng,
 ) {
-    let init = Normal::new(0.0_f32, params.weight_init_std)
-        .expect("weight_init_std must be finite and non-negative");
+    let init = Normal::new(0.0_f32, params.weight_init_std).unwrap_or_else(|err| {
+        panic!(
+            "weight_init_std must be finite, got {}: {err}",
+            params.weight_init_std
+        )
+    });
 
     // Sources may be any non-output node; targets any non-input node.
     let sources: Vec<NodeId> = genome
