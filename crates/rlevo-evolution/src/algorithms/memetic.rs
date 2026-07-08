@@ -485,8 +485,7 @@ where
         let dim: usize = dims[1];
         let device: B::Device = population.device();
         let flat: Vec<f32> = population
-            .clone()
-            .into_data()
+            .to_data()
             .into_vec::<f32>()
             .expect("population tensor must be readable as f32");
 
@@ -558,11 +557,48 @@ where
         // (5) Writeback. Start from the ORIGINAL population tensor (moved,
         // untouched). With zero writeback rows the inner `tell` receives the
         // exact tensor `ask` returned — no host round-trip, no rebuild.
+        //
+        // `writeback_rows` is strictly ascending (indices sorted in step 2), so
+        // we coalesce maximal runs of consecutive indices into ONE `[run_len,
+        // dim]` upload + ONE `slice_assign` each. Under `CoveragePolicy::Full`
+        // this collapses to a single upload + slice_assign rather than
+        // `pop_size` of each. The uploaded bytes are identical to a per-row
+        // loop, so the module's bit-identity tests still hold.
         let mut new_pop: Tensor<B, 2> = population;
+        let mut run_start: Option<usize> = None;
+        let mut run_len: usize = 0;
+        let mut run_buf: Vec<f32> = Vec::new();
         for (i, row) in writeback_rows {
-            let data: TensorData = TensorData::new(row, [1, dim]);
-            let row_tensor: Tensor<B, 2> = Tensor::<B, 2>::from_data(data, &device);
-            new_pop = new_pop.slice_assign([i..i + 1, 0..dim], row_tensor);
+            match run_start {
+                // Contiguous with the open run: append and grow it.
+                Some(s) if i == s + run_len => {
+                    run_buf.extend(row);
+                    run_len += 1;
+                }
+                // Gap: flush the open run, then open a fresh one at `i`.
+                Some(s) => {
+                    let flushed: Tensor<B, 2> = Tensor::<B, 2>::from_data(
+                        TensorData::new(core::mem::take(&mut run_buf), [run_len, dim]),
+                        &device,
+                    );
+                    new_pop = new_pop.slice_assign([s..s + run_len, 0..dim], flushed);
+                    run_start = Some(i);
+                    run_len = 1;
+                    run_buf = row;
+                }
+                // First writeback row: open the initial run.
+                None => {
+                    run_start = Some(i);
+                    run_len = 1;
+                    run_buf = row;
+                }
+            }
+        }
+        // Flush the trailing run (empty only when there were no writebacks).
+        if let (Some(s), false) = (run_start, run_buf.is_empty()) {
+            let flushed: Tensor<B, 2> =
+                Tensor::<B, 2>::from_data(TensorData::new(run_buf, [run_len, dim]), &device);
+            new_pop = new_pop.slice_assign([s..s + run_len, 0..dim], flushed);
         }
 
         // (6) Rebuild fitness and delegate.
@@ -957,6 +993,169 @@ mod tests {
                 approx::assert_relative_eq!(recv_fit[i], neg_sphere(recv_row), epsilon = 1e-5);
             } else {
                 assert_eq!(recv_row, ask_row, "uncovered row {i} must be bit-identical");
+            }
+        }
+    }
+
+    /// Non-contiguous Lamarckian writeback: the covered set has gaps, forcing
+    /// the step-5 run coalescer down its flush-on-gap path (multiple runs)
+    /// rather than the single-run `Full` fast path. Covered rows must change,
+    /// the gap rows must stay byte-identical to `ask`, and every covered
+    /// fitness must equal a fresh canonical eval of the written-back row.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn lamarckian_noncontiguous_covered_rows_coalesce_correctly() {
+        let device = <TestBackend as BackendTypes>::Device::default();
+        let (pop, dim) = (5usize, 3usize);
+        // Rows 0, 2, 4 sit near the origin (high canonical negated-sphere
+        // fitness); rows 1, 3 are far out. `TopK{3}` therefore selects the
+        // non-contiguous set {0, 2, 4}, which sorts to a gapped index list.
+        let rows: Vec<f32> = vec![
+            0.3, 0.3, 0.3, // row 0 — fit
+            3.0, 3.0, 3.0, // row 1 — unfit
+            0.4, 0.4, 0.4, // row 2 — fit
+            3.5, 3.5, 3.5, // row 3 — unfit
+            0.5, 0.5, 0.5, // row 4 — fit
+        ];
+
+        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+            RecordingStrategy,
+            HillClimbing,
+            CountingBatchFitness::default(),
+        );
+        let params = MemeticParams {
+            inner: rec_params(rows.clone(), pop, dim),
+            local: HillClimbingParams::default_for(BOUNDS),
+            writeback: WritebackPolicy::Lamarckian,
+            coverage: CoveragePolicy::TopK { k: 3 },
+        };
+
+        let mut rng = StdRng::seed_from_u64(13);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        let ask_bytes = ask_pop
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
+        let mut fitfn = CountingBatchFitness::default();
+        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            &mut fitfn, &ask_pop, &device,
+        )
+        .into_data()
+        .into_vec::<f32>()
+        .expect("fitness host-read of a tensor this test just built");
+        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
+
+        let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
+        let recv_pop = next.inner.received_pop.clone().unwrap();
+        let recv_fit = next.inner.received_fit.clone().unwrap();
+
+        // Rows 0, 2, 4 are the covered (non-contiguous) set; 1, 3 are the gaps.
+        let covered = [true, false, true, false, true];
+        // Indexing several parallel host buffers by row; an iterator over one of
+        // them would not read more clearly than the explicit row index.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..pop {
+            let start = i * dim;
+            let recv_row = &recv_pop[start..start + dim];
+            let ask_row = &ask_bytes[start..start + dim];
+            if covered[i] {
+                // Covered rows changed (HillClimbing improves the negated
+                // sphere from a non-optimal start).
+                assert_ne!(recv_row, ask_row, "covered row {i} should have changed");
+                // received fitness[i] equals a fresh canonical eval of received
+                // row i (the negated sphere) — the coalesced upload preserved
+                // the exact refined bytes.
+                approx::assert_relative_eq!(recv_fit[i], neg_sphere(recv_row), epsilon = 1e-5);
+            } else {
+                // Gap rows must be bit-identical across the coalesced runs.
+                assert_eq!(recv_row, ask_row, "gap row {i} must be bit-identical");
+            }
+        }
+    }
+
+    /// Multi-row-run Lamarckian writeback: the covered set is shaped as a run
+    /// of length 2, a gap, a run of length 3, a gap, then a singleton
+    /// ({0,1,3,4,5,7} on pop 8). This is the one arrangement that drives the
+    /// step-5 coalescer through the `extend` arm (growing `run_len` past 1)
+    /// and THEN the gap-flush arm with a multi-row `run_buf` — the interaction
+    /// the singleton-run test cannot reach. Covered rows must change, gap rows
+    /// stay byte-identical to `ask`, and each covered fitness must equal a
+    /// fresh canonical eval of the coalesced-back row.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn lamarckian_multirow_runs_coalesce_correctly() {
+        let device = <TestBackend as BackendTypes>::Device::default();
+        let (pop, dim) = (8usize, 3usize);
+        // Rows 0,1,3,4,5,7 sit near the origin (high canonical negated-sphere
+        // fitness); the gap rows 2, 6 are far out. `TopK{6}` therefore selects
+        // the covered set {0,1,3,4,5,7}, whose runs are lengths 2, 3, 1.
+        let near: [f32; 3] = [0.3, 0.3, 0.3];
+        let far: [f32; 3] = [4.0, 4.0, 4.0];
+        let gaps = [2usize, 6usize];
+        let mut rows: Vec<f32> = Vec::with_capacity(pop * dim);
+        for r in 0..pop {
+            if gaps.contains(&r) {
+                rows.extend_from_slice(&far);
+            } else {
+                rows.extend_from_slice(&near);
+            }
+        }
+
+        let strategy = MemeticWrapper::<TestBackend, _, _, _>::new(
+            RecordingStrategy,
+            HillClimbing,
+            CountingBatchFitness::default(),
+        );
+        let params = MemeticParams {
+            inner: rec_params(rows.clone(), pop, dim),
+            local: HillClimbingParams::default_for(BOUNDS),
+            writeback: WritebackPolicy::Lamarckian,
+            coverage: CoveragePolicy::TopK { k: 6 },
+        };
+
+        let mut rng = StdRng::seed_from_u64(17);
+        let state = strategy.init(&params, &mut rng, &device);
+        let (ask_pop, asked) = strategy.ask(&params, &state, &mut rng, &device);
+        let ask_bytes = ask_pop
+            .clone()
+            .into_data()
+            .into_vec::<f32>()
+            .expect("population host-read of a tensor this test just built");
+        let mut fitfn = CountingBatchFitness::default();
+        let orig = <CountingBatchFitness as BatchFitnessFn<TestBackend, _>>::evaluate_batch(
+            &mut fitfn, &ask_pop, &device,
+        )
+        .into_data()
+        .into_vec::<f32>()
+        .expect("fitness host-read of a tensor this test just built");
+        let fit = Tensor::<TestBackend, 1>::from_data(TensorData::new(orig, [pop]), &device);
+
+        let (next, _m) = strategy.tell(&params, ask_pop, fit, asked, &mut rng);
+        let recv_pop = next.inner.received_pop.clone().unwrap();
+        let recv_fit = next.inner.received_fit.clone().unwrap();
+
+        // Runs of length 2, 3, 1 with gaps at 2 and 6.
+        let covered = [true, true, false, true, true, true, false, true];
+        // Indexing several parallel host buffers by row; an iterator over one of
+        // them would not read more clearly than the explicit row index.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..pop {
+            let start = i * dim;
+            let recv_row = &recv_pop[start..start + dim];
+            let ask_row = &ask_bytes[start..start + dim];
+            if covered[i] {
+                // Covered rows changed (HillClimbing improves the negated
+                // sphere from a non-optimal start).
+                assert_ne!(recv_row, ask_row, "covered row {i} should have changed");
+                // received fitness[i] equals a fresh canonical eval of received
+                // row i (the negated sphere) — the multi-row coalesced upload
+                // preserved the exact refined bytes at each in-run offset.
+                approx::assert_relative_eq!(recv_fit[i], neg_sphere(recv_row), epsilon = 1e-5);
+            } else {
+                // Gap rows must be bit-identical, unshifted by the coalescing.
+                assert_eq!(recv_row, ask_row, "gap row {i} must be bit-identical");
             }
         }
     }
