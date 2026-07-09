@@ -849,6 +849,52 @@ impl CartPoleState {
     }
 }
 
+impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
+        let x = self.state.x;
+        let theta = self.state.theta; // 0 = upright, +clockwise
+        let xt = self.config.x_threshold;
+        let pole_len = 2.0 * self.config.length; // full rod length = 2·half-length
+        let (cart_w, cart_h) = (0.4_f32, 0.25_f32);
+        let hinge_y = cart_h; // hinge atop the cart
+        // Cart rectangle centred at (x, cart_h/2).
+        let cy = cart_h * 0.5;
+        let cart = vec![
+            Point2::new(x - cart_w * 0.5, cy - cart_h * 0.5),
+            Point2::new(x + cart_w * 0.5, cy - cart_h * 0.5),
+            Point2::new(x + cart_w * 0.5, cy + cart_h * 0.5),
+            Point2::new(x - cart_w * 0.5, cy + cart_h * 0.5),
+        ];
+        let tip = Point2::new(x + pole_len * theta.sin(), hinge_y + pole_len * theta.cos());
+        Classic2DSnapshot {
+            bodies: vec![
+                Classic2DBody {
+                    points: vec![Point2::new(-xt, 0.0), Point2::new(xt, 0.0)],
+                    role: Classic2DRole::Track,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: cart,
+                    role: Classic2DRole::Cart,
+                    closed: true,
+                },
+                Classic2DBody {
+                    points: vec![Point2::new(x, hinge_y), tip],
+                    role: Classic2DRole::Pole,
+                    closed: false,
+                },
+            ],
+            bounds: (
+                Point2::new(-xt - 0.2, -0.4),
+                Point2::new(xt + 0.2, pole_len + 0.4),
+            ),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1179,51 +1225,5 @@ mod tests {
             a, b,
             "reset_with_seed must reproduce the same initial state"
         );
-    }
-}
-
-impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
-        let x = self.state.x;
-        let theta = self.state.theta; // 0 = upright, +clockwise
-        let xt = self.config.x_threshold;
-        let pole_len = 2.0 * self.config.length; // full rod length = 2·half-length
-        let (cart_w, cart_h) = (0.4_f32, 0.25_f32);
-        let hinge_y = cart_h; // hinge atop the cart
-        // Cart rectangle centred at (x, cart_h/2).
-        let cy = cart_h * 0.5;
-        let cart = vec![
-            Point2::new(x - cart_w * 0.5, cy - cart_h * 0.5),
-            Point2::new(x + cart_w * 0.5, cy - cart_h * 0.5),
-            Point2::new(x + cart_w * 0.5, cy + cart_h * 0.5),
-            Point2::new(x - cart_w * 0.5, cy + cart_h * 0.5),
-        ];
-        let tip = Point2::new(x + pole_len * theta.sin(), hinge_y + pole_len * theta.cos());
-        Classic2DSnapshot {
-            bodies: vec![
-                Classic2DBody {
-                    points: vec![Point2::new(-xt, 0.0), Point2::new(xt, 0.0)],
-                    role: Classic2DRole::Track,
-                    closed: false,
-                },
-                Classic2DBody {
-                    points: cart,
-                    role: Classic2DRole::Cart,
-                    closed: true,
-                },
-                Classic2DBody {
-                    points: vec![Point2::new(x, hinge_y), tip],
-                    role: Classic2DRole::Pole,
-                    closed: false,
-                },
-            ],
-            bounds: (
-                Point2::new(-xt - 0.2, -0.4),
-                Point2::new(xt + 0.2, pole_len + 0.4),
-            ),
-        }
     }
 }

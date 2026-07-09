@@ -927,6 +927,51 @@ fn style_label_line(line: &str, label: &str) -> crate::render::StyledLine {
     }
 }
 
+impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPayloadSource
+    for Acrobot<D>
+{
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
+        let l1 = self.config.link_length_1;
+        let l2 = self.config.link_length_2;
+        let t1 = self.state.theta1; // from downward vertical (0 = hanging down)
+        let t2 = self.state.theta2; // relative to link 1
+        // Pivot at origin; downward is -y. Absolute angle of link 2 = t1 + t2.
+        let pivot = Point2::new(0.0, 0.0);
+        let j1 = Point2::new(l1 * t1.sin(), -l1 * t1.cos());
+        let a2 = t1 + t2;
+        let j2 = Point2::new(j1.x + l2 * a2.sin(), j1.y - l2 * a2.cos());
+        let m = l1 + l2 + 0.2;
+        Classic2DSnapshot {
+            bodies: vec![
+                Classic2DBody {
+                    points: vec![pivot, j1],
+                    role: Classic2DRole::Link,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![j1, j2],
+                    role: Classic2DRole::Link,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![pivot],
+                    role: Classic2DRole::Hinge,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![j1],
+                    role: Classic2DRole::Hinge,
+                    closed: false,
+                },
+            ],
+            bounds: (Point2::new(-m, -m), Point2::new(m, m)),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1184,50 +1229,5 @@ mod tests {
             a, b,
             "reset_with_seed must reproduce the same initial state"
         );
-    }
-}
-
-impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPayloadSource
-    for Acrobot<D>
-{
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
-        let l1 = self.config.link_length_1;
-        let l2 = self.config.link_length_2;
-        let t1 = self.state.theta1; // from downward vertical (0 = hanging down)
-        let t2 = self.state.theta2; // relative to link 1
-        // Pivot at origin; downward is -y. Absolute angle of link 2 = t1 + t2.
-        let pivot = Point2::new(0.0, 0.0);
-        let j1 = Point2::new(l1 * t1.sin(), -l1 * t1.cos());
-        let a2 = t1 + t2;
-        let j2 = Point2::new(j1.x + l2 * a2.sin(), j1.y - l2 * a2.cos());
-        let m = l1 + l2 + 0.2;
-        Classic2DSnapshot {
-            bodies: vec![
-                Classic2DBody {
-                    points: vec![pivot, j1],
-                    role: Classic2DRole::Link,
-                    closed: false,
-                },
-                Classic2DBody {
-                    points: vec![j1, j2],
-                    role: Classic2DRole::Link,
-                    closed: false,
-                },
-                Classic2DBody {
-                    points: vec![pivot],
-                    role: Classic2DRole::Hinge,
-                    closed: false,
-                },
-                Classic2DBody {
-                    points: vec![j1],
-                    role: Classic2DRole::Hinge,
-                    closed: false,
-                },
-            ],
-            bounds: (Point2::new(-m, -m), Point2::new(m, m)),
-        }
     }
 }

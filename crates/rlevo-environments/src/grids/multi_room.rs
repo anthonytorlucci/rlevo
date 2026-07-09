@@ -424,6 +424,12 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     }
 }
 
+impl rlevo_core::render::payload::GridPayloadSource for MultiRoomEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,11 +577,5 @@ mod tests {
         assert_eq!(env.steps(), 1);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
-    }
-}
-
-impl rlevo_core::render::payload::GridPayloadSource for MultiRoomEnv {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
     }
 }

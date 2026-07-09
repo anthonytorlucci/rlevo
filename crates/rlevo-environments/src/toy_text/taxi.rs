@@ -641,6 +641,53 @@ fn passenger_label(pass_loc: u8) -> &'static str {
     }
 }
 
+impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
+    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+        use rlevo_core::render::payload::{
+            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+            TabularSnapshot,
+        };
+        // Fixed 5×5 grid. Inter-cell walls are omitted from the structured
+        // view (a deliberate stopgap, like locomotion's 2D projection); the
+        // taxi / passenger / destination markers carry the task dynamics.
+        const SIZE: u16 = 5;
+        let cells = vec![TabularCell::Empty; (SIZE * SIZE) as usize];
+        let mut markers = Vec::with_capacity(3);
+        // Taxi (LOCS entries are (row, col)).
+        markers.push(TabularMarker {
+            x: u16::from(self.state.taxi_col),
+            y: u16::from(self.state.taxi_row),
+            kind: TabularMarkerKind::Agent,
+        });
+        // Passenger: at a named location, or riding in the taxi (loc == 4).
+        let (prow, pcol) = if self.state.passenger_loc < 4 {
+            LOCS[self.state.passenger_loc as usize]
+        } else {
+            (self.state.taxi_row, self.state.taxi_col)
+        };
+        markers.push(TabularMarker {
+            x: u16::from(pcol),
+            y: u16::from(prow),
+            kind: TabularMarkerKind::Passenger,
+        });
+        // Destination.
+        let (drow, dcol) = LOCS[self.state.destination as usize];
+        markers.push(TabularMarker {
+            x: u16::from(dcol),
+            y: u16::from(drow),
+            kind: TabularMarkerKind::Destination,
+        });
+        TabularSnapshot {
+            layout: TabularLayout::Grid(TabularGrid {
+                width: SIZE,
+                height: SIZE,
+                cells,
+                markers,
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`Taxi`], covering state encoding, wall collisions, pickup/dropoff rewards,
 /// stochastic modes, and RNG determinism.
@@ -910,53 +957,6 @@ mod tests {
                 "line exceeds 80 cols: {line:?} ({} chars)",
                 line.chars().count()
             );
-        }
-    }
-}
-
-impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
-            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
-            TabularSnapshot,
-        };
-        // Fixed 5×5 grid. Inter-cell walls are omitted from the structured
-        // view (a deliberate stopgap, like locomotion's 2D projection); the
-        // taxi / passenger / destination markers carry the task dynamics.
-        const SIZE: u16 = 5;
-        let cells = vec![TabularCell::Empty; (SIZE * SIZE) as usize];
-        let mut markers = Vec::with_capacity(3);
-        // Taxi (LOCS entries are (row, col)).
-        markers.push(TabularMarker {
-            x: u16::from(self.state.taxi_col),
-            y: u16::from(self.state.taxi_row),
-            kind: TabularMarkerKind::Agent,
-        });
-        // Passenger: at a named location, or riding in the taxi (loc == 4).
-        let (prow, pcol) = if self.state.passenger_loc < 4 {
-            LOCS[self.state.passenger_loc as usize]
-        } else {
-            (self.state.taxi_row, self.state.taxi_col)
-        };
-        markers.push(TabularMarker {
-            x: u16::from(pcol),
-            y: u16::from(prow),
-            kind: TabularMarkerKind::Passenger,
-        });
-        // Destination.
-        let (drow, dcol) = LOCS[self.state.destination as usize];
-        markers.push(TabularMarker {
-            x: u16::from(dcol),
-            y: u16::from(drow),
-            kind: TabularMarkerKind::Destination,
-        });
-        TabularSnapshot {
-            layout: TabularLayout::Grid(TabularGrid {
-                width: SIZE,
-                height: SIZE,
-                cells,
-                markers,
-            }),
         }
     }
 }

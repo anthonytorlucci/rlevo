@@ -389,6 +389,12 @@ impl Environment<3, 3, 1> for MemoryEnv {
     }
 }
 
+impl rlevo_core::render::payload::GridPayloadSource for MemoryEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,11 +556,5 @@ mod tests {
         let (fx, fy) = env.state().agent.front();
         assert_eq!(env.state().grid.get(fx, fy), Entity::Ball(DISTRACTOR_COLOR));
         assert!(!env.facing_match());
-    }
-}
-
-impl rlevo_core::render::payload::GridPayloadSource for MemoryEnv {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
     }
 }
