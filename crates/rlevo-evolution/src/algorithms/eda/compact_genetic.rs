@@ -120,6 +120,14 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
     /// and argmin (loser) of the fitness vector (canonical maximise: higher is
     /// better), then nudges each gene where winner and loser disagree by
     /// `±1 / virtual_pop_size` (toward the winner), clamped to `[0, 1]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `population` or `fitness` tensor cannot be read back as
+    /// `f32` (`.expect("population tensor must be readable as f32")` /
+    /// `.expect("fitness tensor must be readable as f32")`). Also panics with an
+    /// out-of-bounds index if the population column count `d` exceeds
+    /// `prev.prob.len()` (the per-gene probability vector carried in `prev`).
     fn fit(
         &self,
         params: &Self::Params,
@@ -200,6 +208,11 @@ impl<B: Backend> ProbabilityModel<B> for CompactGenetic {
     /// `0.0` otherwise, using the supplied host RNG (never `Tensor::random` /
     /// `B::seed`). The returned tensor has shape `(n, D)` and contains only
     /// `0.0` and `1.0` values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `n * d` element count overflows allocation or `TensorData`
+    /// capacity (`Vec::with_capacity(n * d)` / the `(n, D)` `TensorData`).
     fn sample(
         &self,
         state: &Self::State,

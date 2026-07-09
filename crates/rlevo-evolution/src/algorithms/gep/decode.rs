@@ -10,8 +10,41 @@ use super::tree::ExpressionTree;
 /// Implementors decode `genome` (a head/tail symbol string) against `alphabet`
 /// into an [`ExpressionTree`]. The decode is deterministic: the same genome and
 /// alphabet always yield the same tree.
+///
+/// # Invariants
+///
+/// The `genome` is expected to satisfy the GEP head/tail layout: a head region
+/// whose loci may hold functions or terminals, followed by a terminal-only tail
+/// of length `t = h(n - 1) + 1`, where `h` is the head length and `n` the
+/// alphabet's maximum arity (Ferreira 2001, eq. 3.4). Any chromosome produced by
+/// the sampling and operator paths in this crate satisfies this by construction;
+/// a hand-built genome that violates it is a precondition breach (see the
+/// implementation's `# Panics`).
 pub trait GenotypePhenotypeMap<F: FunctionSet> {
     /// Decodes a chromosome into its phenotype.
+    ///
+    /// # Arguments
+    ///
+    /// * `alphabet` — the symbol alphabet used to classify each locus (its
+    ///   arity and kind); must be the same alphabet the `genome` was sampled
+    ///   against.
+    /// * `genome` — a linear head/tail chromosome (see the trait-level
+    ///   `# Invariants`). An empty genome decodes to an empty tree.
+    ///
+    /// # Returns
+    ///
+    /// The [`ExpressionTree`] phenotype: the open-reading-frame coding region of
+    /// `genome` in level order.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds assert the head/tail precondition
+    /// (`debug_assert!(needed == 0, ...)`); a genome that violates it panics here
+    /// in debug. In release the assertion is absent — `decode` itself does not
+    /// panic, but a malformed tree silently degrades to a finite-but-incorrect
+    /// value on evaluation (see [`ExpressionTree::eval`]'s defensive clamp,
+    /// issue #147).
+    #[must_use]
     fn decode(&self, alphabet: &Alphabet<F>, genome: &[Symbol]) -> ExpressionTree;
 }
 
@@ -29,6 +62,34 @@ pub trait GenotypePhenotypeMap<F: FunctionSet> {
 ///    order, a node's children are simply the next unread symbols. A running
 ///    read cursor assigns each node `arity` contiguous children — no explicit
 ///    queue is needed, since array order *is* BFS order.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_evolution::algorithms::gep::{Alphabet, GenotypePhenotypeMap, GepDecoder};
+/// use rlevo_evolution::function_set::ArithmeticFunctionSet;
+/// use rlevo_evolution::rng::{seed_stream, SeedPurpose};
+///
+/// // A one-variable arithmetic alphabet (functions over a single `x`).
+/// let alphabet = Alphabet::new(ArithmeticFunctionSet, 1, vec![]);
+///
+/// // Sample a valid head/tail genome: head loci draw any symbol, tail loci
+/// // draw terminals only, with the tail sized per Ferreira (2001) eq. 3.4.
+/// let mut rng = seed_stream(42, 0, SeedPurpose::Mutation);
+/// let head_len = 3;
+/// let tail_len = head_len * (alphabet.max_arity() - 1) + 1;
+/// let mut genome = Vec::with_capacity(head_len + tail_len);
+/// for _ in 0..head_len {
+///     genome.push(alphabet.sample_head_symbol(&mut rng));
+/// }
+/// for _ in 0..tail_len {
+///     genome.push(alphabet.sample_tail_symbol(&mut rng));
+/// }
+///
+/// // Decode the linear chromosome into its expression-tree phenotype.
+/// let tree = GepDecoder.decode(&alphabet, &genome);
+/// assert!(tree.node_count() >= 1);
+/// ```
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GepDecoder;
 

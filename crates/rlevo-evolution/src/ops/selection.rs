@@ -134,6 +134,8 @@ pub fn tournament_indices_host(
 ///
 /// Inherits the panic conditions of [`tournament_indices_host`]:
 /// `fitness.is_empty()` or `tournament_size == 0`.
+///
+/// Panics if `population.dims()[0] != fitness.len()`.
 #[must_use]
 pub fn tournament_select<B: Backend>(
     population: &Tensor<B, 2>,
@@ -143,6 +145,13 @@ pub fn tournament_select<B: Backend>(
     rng: &mut dyn Rng,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
+    assert_eq!(
+        population.dims()[0],
+        fitness.len(),
+        "tournament_select: population rows ({}) must equal fitness.len() ({})",
+        population.dims()[0],
+        fitness.len(),
+    );
     let winners = tournament_indices_host(fitness, tournament_size, n_winners, rng);
     let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [n_winners]), device);
     population.clone().select(0, indices)
@@ -211,6 +220,8 @@ pub fn truncation_indices_host(fitness: &[f32], top_k: usize) -> Vec<i32> {
 ///
 /// Inherits the panic conditions of [`truncation_indices_host`]:
 /// `fitness.is_empty()` or `top_k > fitness.len()`.
+///
+/// Panics if `population.dims()[0] != fitness.len()`.
 #[must_use]
 pub fn truncation_select<B: Backend>(
     population: &Tensor<B, 2>,
@@ -218,6 +229,13 @@ pub fn truncation_select<B: Backend>(
     top_k: usize,
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, 2> {
+    assert_eq!(
+        population.dims()[0],
+        fitness.len(),
+        "truncation_select: population rows ({}) must equal fitness.len() ({})",
+        population.dims()[0],
+        fitness.len(),
+    );
     let winners = truncation_indices_host(fitness, top_k);
     let indices = Tensor::<B, 1, Int>::from_data(TensorData::new(winners, [top_k]), device);
     population.clone().select(0, indices)

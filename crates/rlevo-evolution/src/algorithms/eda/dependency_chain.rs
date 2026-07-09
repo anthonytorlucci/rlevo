@@ -143,8 +143,12 @@ impl<B: Backend> ProbabilityModel<B> for DependencyChain {
     ///
     /// # Panics
     ///
-    /// Does not panic. The `unwrap()` on the last greedy-chain iteration is
-    /// safe because at least one unvisited dimension remains when `d > 1`.
+    /// Panics if the `population` tensor cannot be read back as `f32`
+    /// (`.expect("population tensor must be readable as f32")`), or with an
+    /// out-of-bounds index if the host buffer is shorter than `k * d`. Callers
+    /// must therefore pass an `f32`, `(k, d)`-shaped population tensor. The
+    /// `unwrap()` on the last greedy-chain iteration does not fire: at least one
+    /// unvisited dimension remains when `d > 1`.
     // The MI matrix, greedy chain ordering, and per-link conditional
     // extraction form one coherent algorithmic unit; splitting it would
     // scatter the shared intermediate buffers without aiding readability.

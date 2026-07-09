@@ -336,8 +336,17 @@ impl<B: Backend> ProbabilityModel<B> for BayesianNetwork {
     ///
     /// # Panics
     ///
-    /// Does not panic; the closing `debug_assert_eq!` checks the topological
-    /// order covers all `D` nodes (guaranteed by the DAG invariant).
+    /// In release builds, panics if the `population` tensor cannot be read back
+    /// as `f32` (`.expect("population tensor must be readable as f32")`).
+    ///
+    /// In debug builds, additionally panics on the following `debug_assert`
+    /// checks (all disabled in release):
+    ///
+    /// - the population column count disagrees with `params.genome_dim`;
+    /// - `params.max_parents >= usize::BITS` (which would overflow the
+    ///   `1usize << q` CPT table sizing);
+    /// - the closing topological order fails to cover all `D` nodes (guaranteed
+    ///   by the DAG invariant).
     // The counting passes, gain-cached greedy search, CPT estimation, and
     // topological ordering form one coherent fit; splitting them would scatter
     // the shared `bits`/`parents` buffers without aiding readability.

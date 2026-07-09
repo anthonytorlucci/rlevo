@@ -205,19 +205,27 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | Builder `with_capacity(n)` | `n == 0` |
 | Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
+| `SimulatedAnnealingParams::with_max_iters` | `max_iters == 0` |
+| `SimulatedAnnealingParams::with_initial_temp` | value not finite or not `> 0` |
+| `SimulatedAnnealingParams::with_cooling` | `Geometric` `factor ∉ (0, 1)`; `Linear` `delta` not finite or not `> 0` |
+| `SimulatedAnnealingParams::with_min_temp` | `min_temp` not finite or `< 0` |
+| `SimulatedAnnealingParams::with_step_size` | `step_size` not finite or not `> 0` |
 | Batch rank assertion | `BD != D + 1` or `BAD != AD + 1` |
 | `ops::selection::tournament_*` | `fitness.is_empty()` or `tournament_size < 2` |
 | `ops::selection::truncation_*` | `fitness.is_empty()` or `top_k > fitness.len()` |
+| `ops::selection::{tournament_select, truncation_select}` | `population.dims()[0] != fitness.len()` |
 | `ops::crossover::{blx_alpha, uniform_crossover, binary_uniform_crossover}` | parents differ in shape |
 | `ops::mutation::gaussian_mutation_per_row` | `sigmas.len() != population N` |
 | `ops::replacement::elitist` | `k > pop_size` or `pop_size − k > offspring count` |
 | `ops::replacement::mu_plus_lambda` | `mu > parent count + offspring count` |
 | `ops::replacement::mu_comma_lambda` | `mu > offspring count` (i.e. `λ < μ`) |
+| `local_search::simulated_annealing::{refine, refine_with_known_fitness}` (via `refine_impl`) | `max_iters == 0` |
 
-The `Builder with_capacity(n)` / `with_alpha(x)` rows are the blessed
-**setter-guard** exception: a single `with_*` method may panic on an
-out-of-domain argument because the panic points at the offending call site.
-They do **not** replace whole-config validation — see below.
+The `Builder with_capacity(n)` / `with_alpha(x)` and
+`SimulatedAnnealingParams::with_*` rows are the blessed **setter-guard**
+exception: a single `with_*` method may panic on an out-of-domain argument
+because the panic points at the offending call site. They do **not** replace
+whole-config validation — see below.
 
 ### Config Validation Contract (ADR 0026)
 

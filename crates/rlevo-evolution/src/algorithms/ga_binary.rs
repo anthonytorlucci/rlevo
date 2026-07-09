@@ -73,6 +73,13 @@ impl BinaryGaConfig {
     ///
     /// Mutation rate defaults to `1 / D` (the standard "one expected
     /// flip per genome" rule from the binary-GA literature).
+    ///
+    /// # Panics
+    ///
+    /// Panics when `genome_dim == 0`: the `1 / D` mutation rate becomes
+    /// non-finite (`1.0 / 0.0 == +∞`), which [`Probability::new`] rejects as
+    /// outside `[0, 1]`. This is the sanctioned builder-time panic on an
+    /// unusable config (ADR 0026); pass a non-zero `genome_dim`.
     #[must_use]
     pub fn default_for(pop_size: usize, genome_dim: usize) -> Self {
         Self {
@@ -228,6 +235,18 @@ where
     ///   (probability `crossover_p`);
     /// - `SeedPurpose::Mutation` — per-gene bit-flip
     ///   (probability `mutation_rate`).
+    ///
+    /// # Panics
+    ///
+    /// Propagates the programming-error panics of the delegated host operators
+    /// once `state.fitness` is non-empty:
+    /// [`tournament_indices_host`]
+    /// panics if the fitness slice is empty or `tournament_size == 0`, and the
+    /// crossover / mutation operators assume shape-consistent inputs.
+    /// `validate()` rules
+    /// these out for a well-formed config, but `BinaryGaState` / `BinaryGaConfig`
+    /// fields are public and can be mutated into an invalid state after
+    /// validation.
     fn ask(
         &self,
         params: &BinaryGaConfig,
@@ -305,6 +324,17 @@ where
     /// convention — higher is better. The harness canonicalises a `Minimize`
     /// objective (negation) before this call, so the strategy stays
     /// sense-unaware per ADR 0023.
+    ///
+    /// # Panics
+    ///
+    /// Propagates the programming-error panics of the delegated host path on the
+    /// elitist-replacement branch:
+    /// [`truncation_indices_host`]
+    /// and the bare `state.fitness[i]` indexing assume a `pop_size`-consistent
+    /// fitness buffer. `validate()` rules this out for a well-formed config, but
+    /// `BinaryGaState` / `BinaryGaConfig` fields are public and can be mutated
+    /// into an inconsistent state after validation. Also panics if `fitness`
+    /// cannot be read back as `f32`.
     fn tell(
         &self,
         params: &BinaryGaConfig,
