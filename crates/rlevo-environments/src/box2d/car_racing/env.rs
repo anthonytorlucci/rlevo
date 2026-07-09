@@ -502,6 +502,56 @@ mod tests {
         );
     }
 
+    /// Regression (#98, ADR 0037): the gas force applied by `apply_controls`
+    /// must live exactly one step. A single gas kick followed by an idle step
+    /// (gas = 0) must not keep accelerating the car — with the accumulation bug
+    /// the forward `user_force` persisted, so the idle step re-applied the full
+    /// gas thrust and roughly doubled the speed; with the wrapper clearing
+    /// forces the idle step only shows small joint-settling drift.
+    ///
+    /// The window is deliberately two steps: this ultra-light car has stiff
+    /// wheel fixed-joints that make the solver explode once the body carries any
+    /// speed (a separate pre-existing property, out of scope for #98), so a
+    /// longer constant-throttle rollout is not numerically meaningful here.
+    #[test]
+    fn test_gas_force_does_not_persist_into_idle_step() {
+        let mut env = make_env();
+        env.reset().unwrap();
+
+        let speed = |e: &CarRacing| -> f32 {
+            e.world
+                .bodies()
+                .get(e.state.car_handle)
+                .map_or(0.0, |b| b.linvel().length())
+        };
+
+        // One-shot gas kick → forward motion occurs.
+        env.step(CarRacingAction {
+            steer: 0.0,
+            gas: 0.01,
+            brake: 0.0,
+        })
+        .unwrap();
+        let kicked: f32 = speed(&env);
+        assert!(kicked > 0.0, "gas kick should move the car");
+
+        // One idle step (no gas). The velocity change must be far smaller than
+        // the kick itself: with the bug the persisted force would add another
+        // ~kicked, roughly doubling speed. Correct physics shows only settling.
+        env.step(CarRacingAction {
+            steer: 0.0,
+            gas: 0.0,
+            brake: 0.0,
+        })
+        .unwrap();
+        let idle: f32 = speed(&env);
+        assert!(
+            idle < kicked * 1.5,
+            "speed jumped from {kicked} to {idle} on an unactuated step \
+             (gas force persisted?)"
+        );
+    }
+
     #[test]
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;

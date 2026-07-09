@@ -235,18 +235,13 @@ impl Reacher<Rapier3DBackend> {
         ])
     }
 
-    fn apply_action(&mut self, action: &ReacherAction) {
+    /// Compute the two joint torques for `action` (clip → gear). Pure: the
+    /// torques are *applied* inside the `step_actuated` closure so they are
+    /// re-applied fresh each substep (ADR 0037 force-lifetime contract).
+    fn control_torques(&self, action: &ReacherAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
-        let torques = self.config.gear.apply(&clipped);
-        // Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
-        // Elbow torque ±τ[1] between link1 and link2 (Newton's third law).
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.link1) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[0] - torques[1]), true);
-        }
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.link2) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
-        }
+        self.config.gear.apply(&clipped)
     }
 }
 
@@ -315,8 +310,23 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             )));
         }
 
-        self.apply_action(&action);
-        Rapier3DBackend::step(&mut self.world);
+        // Re-apply the constant joint torques before every substep so they are
+        // held across the frame skip and cannot accumulate (ADR 0037). Handles
+        // are `Copy` and `torques` is precomputed, so the closure borrows only
+        // the world — not `self`.
+        //   Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
+        //   Elbow torque ±τ[1] between link1 and link2 (Newton's third law).
+        let torques = self.control_torques(&action);
+        let link1 = self.state.link1;
+        let link2 = self.state.link2;
+        self.world.step_actuated(|w| {
+            if let Some(body) = w.bodies_mut().get_mut(link1) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[0] - torques[1]), true);
+            }
+            if let Some(body) = w.bodies_mut().get_mut(link2) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
+            }
+        });
         self.steps += 1;
 
         let obs = self.extract_observation();
@@ -577,6 +587,74 @@ mod tests {
             let c = snap.metadata().unwrap().components[METADATA_KEY_REWARD_CONTROL];
             assert!(c <= 0.0, "reward_control must be ≤ 0, got {c} at step {i}");
         }
+    }
+
+    #[test]
+    fn constant_torque_does_not_accumulate() {
+        // Regression for #98 (ADR 0037): a constant actuator torque must live
+        // exactly ONE integration step and must not accumulate across env steps.
+        //
+        // We assert the invariant *directly* rather than through emergent
+        // dynamics. The reacher is a chaotic, numerically stiff double pendulum:
+        // its shoulder velocity θ̇₁ diverges across CPU architectures (aarch64
+        // vs x86_64 libm/SIMD rounding), so any absolute bound on θ̇₁ is
+        // platform-dependent and was observed to hold locally yet blow past a
+        // 1 000 rad s⁻¹ cap on x86_64 CI (peak 175 local vs 2 659 CI). Instead
+        // we read the actuated link's residual `user_torque` accumulator after
+        // the rollout: the applied torque (`gear × action`) and its running sum
+        // are plain IEEE-754 adds, so this probe is bit-identical everywhere.
+        //
+        //   * With the fix, `step_once` calls `reset_external_forces` after the
+        //     final substep, so the accumulator is ~0 (`< 1e-3`).
+        //   * With the pre-fix bug the accumulator is never cleared and grows to
+        //     `steps × frame_skip × τ` — here 3 × 2 × 100 = 600 N·m — failing the
+        //     bound. (Confirmed: reverting `reset_external_forces` leaves a
+        //     residual of ~600.)
+        //
+        // `reset_noise_scale = 0.0` fixes the initial arm configuration so the
+        // rollout is deterministic.
+        const STEPS: usize = 3;
+        const RESIDUAL_TOL: f32 = 1e-3;
+
+        let mut env = ReacherRapier::with_config(ReacherConfig {
+            seed: 5,
+            reset_noise_scale: 0.0,
+            ..Default::default()
+        })
+        .expect("valid config");
+        env.reset().unwrap();
+
+        // Clipped action 0.5 × gear 200 ⇒ 100 N·m shoulder torque per substep.
+        let mut moved = false;
+        for i in 0..STEPS {
+            let snap = env.step(ReacherAction::new(0.5, 0.0)).unwrap();
+            assert!(
+                snap.observation().is_finite(),
+                "obs must stay finite at step {i}"
+            );
+            moved |= snap.observation().theta1_dot().abs() > 0.0;
+        }
+
+        // link1 (shoulder) carries the actuated torque τ[0] − τ[1] = 100 N·m;
+        // its residual accumulator must be zeroed after `step`. `user_torque`
+        // returns a glam `Vec3`, so magnitude is `.length()`.
+        let residual: f32 = env
+            .world
+            .bodies()
+            .get(env.state.link1)
+            .expect("link1 rigid body exists")
+            .user_torque()
+            .length();
+
+        assert!(
+            residual < RESIDUAL_TOL,
+            "applied torque must be cleared after each step (ADR 0037); residual \
+             |τ| = {residual} N·m (the accumulation bug leaves ~600)"
+        );
+        assert!(
+            moved,
+            "constant torque should have moved the shoulder at least once"
+        );
     }
 
     #[test]

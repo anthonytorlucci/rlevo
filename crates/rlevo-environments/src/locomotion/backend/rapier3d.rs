@@ -74,6 +74,14 @@ impl Rapier3DWorld {
     }
 
     /// Advance the simulation by `frame_skip` physics substeps.
+    ///
+    /// External-force lifetime: forces applied via `add_force` / `add_torque`
+    /// live **exactly one** substep — each [`step_once`](Self::step_once)
+    /// integrates the current accumulator and then clears it. A control input
+    /// applied once before this call therefore affects only the *first*
+    /// substep. To hold an actuator constant across the frame skip (MuJoCo
+    /// `ctrl`-held-across-substeps semantics), apply control every substep via
+    /// [`step_actuated`](Self::step_actuated) instead. See ADR 0037.
     pub fn step_with_frame_skip(&mut self) {
         for _ in 0..self.frame_skip.max(1) {
             self.step_once();
@@ -81,6 +89,16 @@ impl Rapier3DWorld {
     }
 
     /// Advance the simulation by a single physics substep (ignores `frame_skip`).
+    ///
+    /// External-force lifetime: rapier3d 0.32 `add_force` / `add_torque` are
+    /// **additive** (`user_force += force`) and the pipeline never clears the
+    /// accumulator on its own (the "auto-cleared each step" folklore is false —
+    /// only `reset_forces` / `reset_torques` clear it). To make an external
+    /// force live exactly one integration step, this method calls
+    /// [`reset_external_forces`](Self::reset_external_forces) **after** the
+    /// pipeline step: forces applied before a `step_once` are integrated once,
+    /// then zeroed. Re-apply control before each `step_once` to sustain it.
+    /// See ADR 0037.
     pub fn step_once(&mut self) {
         self.pipeline.step(
             self.gravity,
@@ -96,6 +114,38 @@ impl Rapier3DWorld {
             &(),
             &(),
         );
+        // Enforce the one-integration-step force lifetime (ADR 0037): the
+        // accumulator just integrated is cleared so it cannot carry into the
+        // next substep/env step and grow monotonically.
+        self.reset_external_forces();
+    }
+
+    /// Advance `frame_skip` substeps, applying control fresh before EACH substep.
+    ///
+    /// rapier 0.32 `add_force`/`add_torque` are additive and consumed+cleared by
+    /// [`step_once`](Self::step_once); to hold an actuator constant across the
+    /// frame skip (MuJoCo `ctrl`-held-across-substeps semantics) the caller MUST
+    /// re-apply control every substep. `apply` is invoked with `&mut self`
+    /// immediately before each `step_once`. See ADR 0037.
+    pub fn step_actuated(&mut self, mut apply: impl FnMut(&mut Self)) {
+        for _ in 0..self.frame_skip.max(1) {
+            apply(self);
+            self.step_once();
+        }
+    }
+
+    /// Zero every rigid body's accumulated external force and torque.
+    ///
+    /// Called by [`step_once`](Self::step_once) after the pipeline step so an
+    /// external force lives exactly one integration step (ADR 0037). Uses
+    /// `wake_up = false`: zeroing the accumulator must not wake a sleeping body
+    /// (actuated bodies are already awake from their `add_force(.., true)`
+    /// calls).
+    fn reset_external_forces(&mut self) {
+        for (_handle, body) in self.bodies.iter_mut() {
+            body.reset_forces(false);
+            body.reset_torques(false);
+        }
     }
 
     // ─── Insertion helpers (used by env skeleton builders) ───────────────────
@@ -407,5 +457,71 @@ mod tests {
         let world = make_world();
         let s = format!("{world:?}");
         assert!(s.contains("Rapier3DWorld"));
+    }
+
+    /// A constant force re-applied before every substep must produce a
+    /// **stationary** per-step velocity increment. With the pre-ADR-0037 bug
+    /// (`user_force` never cleared) the accumulator grows linearly, so Δv grows
+    /// linearly too. Zero gravity + a single free body isolates F = m·a.
+    #[test]
+    fn constant_actuation_gives_stationary_delta_v() {
+        let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), 1.0 / 60.0, 1);
+        let handle = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0, 0.0))
+                .additional_mass(2.0),
+        );
+
+        let mut prev_vx = 0.0f32;
+        let mut deltas: Vec<f32> = Vec::new();
+        for _ in 0..60 {
+            world.step_actuated(|w| {
+                if let Some(b) = w.bodies.get_mut(handle) {
+                    b.add_force(Vector::new(3.0, 0.0, 0.0), true);
+                }
+            });
+            let vx = world.bodies.get(handle).unwrap().linvel().x;
+            deltas.push(vx - prev_vx);
+            prev_vx = vx;
+            assert!(vx.is_finite(), "velocity must stay finite (vx={vx})");
+        }
+
+        // Compare the first and last increments: constant force ⇒ constant Δv.
+        let first = deltas[1]; // skip step 0 (solver warm-up)
+        let last = *deltas.last().unwrap();
+        assert!(first > 0.0, "force should accelerate the body (Δv={first})");
+        assert!(
+            (last - first).abs() < 1e-4,
+            "Δv must be stationary under constant force: first={first}, last={last}"
+        );
+    }
+
+    /// A one-shot force applied before a single `step_once` must not persist:
+    /// a following `step_once` with no force applied must leave velocity
+    /// essentially unchanged (Δv ≈ 0). With the pre-ADR-0037 bug the leftover
+    /// accumulator would keep accelerating the body.
+    #[test]
+    fn one_shot_force_does_not_persist() {
+        let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), 1.0 / 60.0, 1);
+        let handle = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0, 0.0))
+                .additional_mass(1.0),
+        );
+
+        if let Some(b) = world.bodies.get_mut(handle) {
+            b.add_force(Vector::new(5.0, 0.0, 0.0), true);
+        }
+        world.step_once();
+        let vx_after_push = world.bodies.get(handle).unwrap().linvel().x;
+        assert!(vx_after_push > 0.0, "first step must impart velocity");
+
+        // Second step, no force re-applied: velocity must not change.
+        world.step_once();
+        let vx_after_coast = world.bodies.get(handle).unwrap().linvel().x;
+        assert!(
+            (vx_after_coast - vx_after_push).abs() < 1e-5,
+            "force must not persist: pushed={vx_after_push}, coasted={vx_after_coast}"
+        );
     }
 }
