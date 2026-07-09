@@ -5,19 +5,29 @@
 //! bytes per pixel in RGB order. The camera is fixed on the car's current
 //! position, so the car always appears near the centre of the frame.
 //!
-//! When fed to a neural network via `TensorConvertible`, callers are expected to
-//! normalise pixel values from `[0, 255]` to `[0.0, 1.0]`; that normalisation
-//! is the caller's responsibility and is not performed here.
+//! [`TensorConvertible`](rlevo_core::base::TensorConvertible) produces a Burn
+//! `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, with each pixel byte normalised
+//! by `÷255` to `[0.0, 1.0]` *inside* the conversion — no external normalisation
+//! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
+//! the frame from HWC to CHW first.
 
-use rlevo_core::base::Observation;
+use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+
+use burn::tensor::{Tensor, backend::Backend};
 
 use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 
 /// 96×96×3 pixel observation for CarRacing.
 ///
-/// Pixel values are `u8` in `[0, 255]` (row-major, RGB).
-/// When converted to tensors via [`TensorConvertible`](rlevo_core::base::TensorConvertible), values are
-/// normalised to `[0.0, 1.0]`.
+/// Pixel values are stored as `u8` in `[0, 255]`, row-major, RGB.
+///
+/// When converted to tensors via
+/// [`TensorConvertible`](rlevo_core::base::TensorConvertible), the buffer becomes
+/// a Burn `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, each byte normalised by
+/// `÷255` to `[0.0, 1.0]`. [`from_tensor`](TensorConvertible::from_tensor)
+/// reconstructs the buffer by scaling back (`×255`) and rounding, so the
+/// round-trip is exact for every `u8` value. This convention follows ADR 0020
+/// (synthetic pixel over grid).
 #[derive(Clone)]
 pub struct CarRacingObservation {
     /// Raw pixel buffer: 96 × 96 × 3 = 27 648 bytes.
@@ -94,6 +104,63 @@ impl Observation<3> for CarRacingObservation {
     }
 }
 
+impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
+    fn row_shape() -> [usize; 3] {
+        [FRAME_SIZE, FRAME_SIZE, 3]
+    }
+
+    fn write_host_row(&self, buf: &mut Vec<f32>) {
+        // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
+        buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
+    }
+
+    /// Reconstructs the frame from a normalized `[FRAME_SIZE, FRAME_SIZE, 3]`
+    /// tensor by scaling back to `0..=255` and rounding.
+    ///
+    /// Round-trips exactly for any `u8` payload: `b / 255.0 * 255.0` rounds back
+    /// to `b`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TensorConversionError`] if the tensor shape is not
+    /// `[FRAME_SIZE, FRAME_SIZE, 3]`, the backend fails to materialize its data,
+    /// or any value lies outside `[0, 1]` after scaling to the `u8` range.
+    fn from_tensor(tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
+        let dims = tensor.dims();
+        if dims.as_slice() != [FRAME_SIZE, FRAME_SIZE, 3] {
+            return Err(TensorConversionError {
+                message: format!("expected shape [{FRAME_SIZE}, {FRAME_SIZE}, 3], got {dims:?}"),
+            });
+        }
+        let flat: Vec<f32> =
+            tensor
+                .into_data()
+                .into_vec::<f32>()
+                .map_err(|e| TensorConversionError {
+                    message: format!("failed to read tensor data: {e:?}"),
+                })?;
+        let mut pixels: Vec<u8> = Vec::with_capacity(PIXEL_BYTES);
+        for (idx, &value) in flat.iter().enumerate() {
+            let scaled: f32 = value * 255.0;
+            if !scaled.is_finite() || scaled < -0.5 || scaled > f32::from(u8::MAX) + 0.5 {
+                return Err(TensorConversionError {
+                    message: format!("value at index {idx} out of u8 range: {value}"),
+                });
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            pixels.push(scaled.round() as u8);
+        }
+        let arr: Box<[u8; PIXEL_BYTES]> =
+            pixels
+                .into_boxed_slice()
+                .try_into()
+                .map_err(|_| TensorConversionError {
+                    message: "wrong element count".into(),
+                })?;
+        Ok(Self { pixels: arr })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +174,61 @@ mod tests {
     fn test_default_is_zeroed() {
         let obs = CarRacingObservation::default();
         assert!(obs.pixels.iter().all(|&p| p == 0));
+    }
+
+    #[test]
+    fn tensor_round_trip() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        let mut px: [u8; PIXEL_BYTES] = [0u8; PIXEL_BYTES];
+        for (i, p) in px.iter_mut().enumerate() {
+            *p = (i % 256) as u8;
+        }
+        let obs: CarRacingObservation = CarRacingObservation::new(px);
+        let tensor =
+            <CarRacingObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let back: CarRacingObservation =
+            <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+                .unwrap();
+        assert_eq!(&*obs.pixels, &*back.pixels);
+    }
+
+    #[test]
+    fn tensor_boundary_values() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        let mut px: [u8; PIXEL_BYTES] = [0u8; PIXEL_BYTES];
+        px[0] = 0;
+        px[1] = 255;
+        let obs: CarRacingObservation = CarRacingObservation::new(px);
+        let tensor =
+            <CarRacingObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let flat: Vec<f32> = tensor.clone().into_data().into_vec::<f32>().unwrap();
+        assert!((flat[0] - 0.0).abs() < 1e-6);
+        assert!((flat[1] - 1.0).abs() < 1e-6);
+
+        let back: CarRacingObservation =
+            <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+                .unwrap();
+        assert_eq!(back.pixels[0], 0);
+        assert_eq!(back.pixels[1], 255);
+    }
+
+    #[test]
+    fn from_tensor_rejects_wrong_shape() {
+        use burn::backend::Flex;
+        use burn::tensor::{Tensor, TensorData};
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        let data: TensorData = TensorData::new(vec![0.0f32; 2 * 2 * 2], [2, 2, 2]);
+        let tensor = Tensor::<TestBackend, 3>::from_data(data, &device);
+        let err = <CarRacingObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+            .unwrap_err();
+        assert!(err.message.contains("expected shape"));
     }
 }
