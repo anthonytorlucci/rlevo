@@ -294,9 +294,22 @@ pub trait MultiDiscreteAction<const R: usize>: Action<R> {
 /// `sigmoid` activation functions. Use [`clip()`](ContinuousAction::clip) to
 /// ensure outputs stay within valid ranges.
 pub trait ContinuousAction<const R: usize>: Action<R> {
+    /// The number of scalar components in this action's flattened representation —
+    /// i.e. the length of the slice returned by [`as_slice`](ContinuousAction::as_slice)
+    /// and consumed by [`from_slice`](ContinuousAction::from_slice).
+    ///
+    /// This is deliberately distinct from [`Action::RANK`] (the tensor rank) and from
+    /// `shape().iter().product()`: the workspace carries two encodings of component
+    /// count (a rank-1 action with `shape() == [C]`, and a rank-C action with
+    /// `shape() == [1; C]`), and neither derived quantity is universally correct.
+    /// Implementors MUST declare it explicitly; there is intentionally no default
+    /// (a default of `= R` would silently reproduce the `random()` panic for
+    /// multi-component rank-1 actions). See ADR 0038.
+    const COMPONENTS: usize;
+
     /// Returns a slice view of this action's component values.
     ///
-    /// The returned slice must have exactly `RANK` elements. This is used for
+    /// The returned slice must have exactly `COMPONENTS` elements. This is used for
     /// efficient serialization and tensor conversion.
     fn as_slice(&self) -> &[f32];
 
@@ -315,18 +328,26 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 
     /// Samples a random action with components uniformly distributed in `[-1.0, 1.0)`.
     ///
-    /// The default implementation generates uniform random values in the half-open
-    /// range `[-1.0, 1.0)` using `rand::random_range`. Override this method if you
-    /// need different sampling behavior (e.g., Gaussian noise, domain-specific
-    /// distributions, or bounds derived from [`BoundedAction`]).
+    /// The default implementation draws [`COMPONENTS`](ContinuousAction::COMPONENTS)
+    /// uniform random values in the half-open range `[-1.0, 1.0)` using
+    /// `rand::random_range`, then builds the action via
+    /// [`from_slice`](ContinuousAction::from_slice).
+    ///
+    /// # Warning
+    ///
+    /// The `[-1.0, 1.0)` range assumes **symmetric-unit** component bounds. Types
+    /// with asymmetric bounds (e.g. a `[0, 1]` throttle) MUST override this method,
+    /// otherwise it will sample values outside their valid range and fail
+    /// [`is_valid`](Action::is_valid). Override it also for Gaussian noise,
+    /// domain-specific distributions, or bounds derived from [`BoundedAction`].
+    /// See ADR 0038.
     fn random() -> Self
     where
         Self: Sized,
     {
         use rand::RngExt;
         let mut rng = rand::rng();
-        // Default implementation - override for custom behavior
-        let values: Vec<f32> = (0..Self::RANK)
+        let values: Vec<f32> = (0..Self::COMPONENTS)
             .map(|_| rng.random_range(-1.0..1.0))
             .collect();
         Self::from_slice(&values)
@@ -498,6 +519,8 @@ mod tests {
     }
 
     impl ContinuousAction<3> for ContinuousActionTest {
+        const COMPONENTS: usize = 3;
+
         fn as_slice(&self) -> &[f32] {
             &self.values
         }

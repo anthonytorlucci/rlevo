@@ -33,6 +33,8 @@ impl Action<1> for LunarLanderContinuousAction {
 }
 
 impl ContinuousAction<1> for LunarLanderContinuousAction {
+    const COMPONENTS: usize = 2;
+
     fn as_slice(&self) -> &[f32] {
         &self.0
     }
@@ -81,5 +83,22 @@ mod tests {
         let a = LunarLanderContinuousAction([2.0, -2.0]);
         let c = a.clip(-1.0, 1.0);
         assert_eq!(c.0, [1.0, -1.0]);
+    }
+
+    #[test]
+    fn test_random_is_valid() {
+        // Regression for #100: the corrected default `random()` samples
+        // `COMPONENTS` values (2) rather than `RANK` (1), so `from_slice` no
+        // longer panics; symmetric `[-1, 1)` sampling keeps every draw valid.
+        for _ in 0..100 {
+            let a = LunarLanderContinuousAction::random();
+            assert!(a.is_valid(), "random action must be valid: {a:?}");
+        }
+    }
+
+    #[test]
+    fn test_components_matches_as_slice() {
+        let a = LunarLanderContinuousAction([0.0; 2]);
+        assert_eq!(LunarLanderContinuousAction::COMPONENTS, a.as_slice().len());
     }
 }

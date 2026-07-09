@@ -29,6 +29,8 @@ impl Action<1> for InvertedPendulumAction {
 }
 
 impl ContinuousAction<1> for InvertedPendulumAction {
+    const COMPONENTS: usize = 1;
+
     /// Returns the raw force value as a single-element slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
