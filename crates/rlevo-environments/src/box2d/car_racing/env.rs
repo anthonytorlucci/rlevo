@@ -26,7 +26,7 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rapier2d::prelude::*;
-use rlevo_core::base::Action;
+use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
@@ -96,7 +96,7 @@ impl CarRacing {
             state: CarRacingState {
                 car_handle: RigidBodyHandle::invalid(),
                 wheel_handles: [RigidBodyHandle::invalid(); 4],
-                current_tile: 0,
+                current_tile: None,
                 tiles_visited: 0,
                 total_tiles: track.tiles.len(),
                 lap_complete: false,
@@ -164,7 +164,7 @@ impl CarRacing {
         }
 
         // Tile visits are detected via nearest_tile() position query, not physics contacts.
-        self.state.current_tile = 0;
+        self.state.current_tile = None;
         self.state.tiles_visited = 0;
         self.state.lap_complete = false;
         self.steps = 0;
@@ -215,7 +215,7 @@ impl CarRacing {
                 self.state.tiles_visited += 1;
                 tile_reward = self.config.tile_reward;
             }
-            self.state.current_tile = idx;
+            self.state.current_tile = Some(idx);
         }
 
         let lap_threshold =
@@ -280,6 +280,18 @@ impl CarRacing {
 
         CarRacingObservation::new(*self.rasterizer.pixels())
     }
+
+    /// Borrow the internal physics state for in-crate invariant tests.
+    #[cfg(test)]
+    pub(crate) fn state_for_test(&self) -> &CarRacingState {
+        &self.state
+    }
+
+    /// Mutably borrow the internal physics state for in-crate invariant tests.
+    #[cfg(test)]
+    pub(crate) fn state_for_test_mut(&mut self) -> &mut CarRacingState {
+        &mut self.state
+    }
 }
 
 impl ConstructableEnv for CarRacing {
@@ -306,6 +318,10 @@ impl Environment<3, 3, 1> for CarRacing {
         self.build_world();
         let obs = self.render_frame();
         self.state.last_obs = obs.clone();
+        debug_assert!(
+            self.state.is_valid(),
+            "CarRacingState invariant violated after reset"
+        );
         Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
     }
 
@@ -337,6 +353,10 @@ impl Environment<3, 3, 1> for CarRacing {
 
         let obs = self.render_frame();
         self.state.last_obs = obs.clone();
+        debug_assert!(
+            self.state.is_valid(),
+            "CarRacingState invariant violated after step"
+        );
         Ok(SnapshotBase {
             observation: obs,
             reward: ScalarReward(reward),

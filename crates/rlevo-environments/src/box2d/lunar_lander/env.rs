@@ -30,7 +30,7 @@ use rand::rngs::StdRng;
 use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
-use rlevo_core::base::Action;
+use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus};
 use rlevo_core::reward::ScalarReward;
@@ -170,6 +170,13 @@ impl LunarLanderCore {
         let obs = self.compute_obs();
         self.state.prev_shaping = self.shaping(&obs);
         self.state.last_obs = obs;
+
+        // Handles are now assigned and `last_obs`/`prev_shaping` written; the
+        // state is fully assembled, so the invariant must hold.
+        debug_assert!(
+            self.state.is_valid(),
+            "LunarLanderState invariant violated after reset"
+        );
     }
 
     fn apply_wind(&mut self) {
@@ -311,6 +318,13 @@ impl LunarLanderCore {
         };
 
         self.state.last_obs = obs.clone();
+
+        // `last_obs`/`prev_shaping` are written and handles remain valid; the
+        // state is fully assembled, so the invariant must hold.
+        debug_assert!(
+            self.state.is_valid(),
+            "LunarLanderState invariant violated after step"
+        );
         (obs, reward, status)
     }
 
@@ -703,6 +717,19 @@ impl crate::render::AsciiRenderable for LunarLanderContinuous {
             Some(LANDER_GROUND_Y),
             self.core.steps,
         )
+    }
+}
+
+#[cfg(test)]
+impl LunarLanderContinuous {
+    /// Borrow the shared core's physics state (test-only introspection).
+    pub(crate) fn core_state(&self) -> &LunarLanderState {
+        &self.core.state
+    }
+
+    /// Mutably borrow the shared core's physics state (test-only introspection).
+    pub(crate) fn core_state_mut(&mut self) -> &mut LunarLanderState {
+        &mut self.core.state
     }
 }
 
