@@ -527,6 +527,130 @@ mod tests {
     }
 
     #[test]
+    fn test_compatibility_distance_empty_genome_branch() {
+        // Early-return branch (one genome has no connections): every gene of the
+        // other is excess. `excess = max(len_a, len_b)`, `N = 1` when `excess <
+        // 20` else `excess`, and δ = c1·excess/N. With 25 genes (≥ 20) N = excess,
+        // so δ = c1·excess/excess = c1 exactly.
+        let full = genome_with((0..25).map(|k| conn(k, 0.0)).collect());
+        let empty = genome_with(vec![]);
+
+        // empty-vs-full: excess = 25, N = 25 → δ = c1 = 1.0.
+        approx::assert_relative_eq!(
+            compatibility_distance(&empty, &full, 1.0, 1.0, 0.4),
+            1.0,
+            epsilon = 1e-6
+        );
+        // full-vs-empty: symmetric — same δ = 1.0.
+        approx::assert_relative_eq!(
+            compatibility_distance(&full, &empty, 1.0, 1.0, 0.4),
+            1.0,
+            epsilon = 1e-6
+        );
+        // empty-vs-empty: excess = 0, N = 1 → δ = c1·0/1 = 0.0.
+        approx::assert_relative_eq!(
+            compatibility_distance(&empty, &empty, 1.0, 1.0, 0.4),
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "population and fitness must have equal length")]
+    fn test_speciate_panics_on_length_mismatch() {
+        let mut rng = StdRng::seed_from_u64(0);
+        let population = vec![
+            genome_with(vec![conn(0, 0.0)]),
+            genome_with(vec![conn(0, 1.0)]),
+        ];
+        // Deliberately shorter than the population to trip the `assert_eq!`.
+        let fitness = vec![1.0];
+        let mut species: Vec<Species> = Vec::new();
+        let mut next_id = SpeciesId::new(0);
+        speciate(
+            &population,
+            &fitness,
+            &mut species,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            &mut next_id,
+            0,
+            &mut rng,
+        );
+    }
+
+    #[test]
+    fn test_allocate_offspring_single_species_gets_all() {
+        // n == 1 with positive adjusted fitness: share == pop_size, so the lone
+        // species receives every seat.
+        let species = vec![species_with(0, 3.0, 3.0, 0)];
+        let counts = allocate_offspring(&species, 32);
+        assert_eq!(counts, vec![32]);
+    }
+
+    #[test]
+    fn test_allocate_offspring_empty_species_returns_empty() {
+        let species: Vec<Species> = Vec::new();
+        let counts = allocate_offspring(&species, 32);
+        assert!(counts.is_empty(), "no species → no offspring counts");
+    }
+
+    #[test]
+    fn test_allocate_offspring_counts_len_equals_species_len() {
+        let species = vec![
+            species_with(0, 1.0, 1.0, 0),
+            species_with(1, 2.0, 1.0, 0),
+            species_with(2, 3.0, 1.0, 0),
+        ];
+        let counts = allocate_offspring(&species, 20);
+        assert_eq!(
+            counts.len(),
+            species.len(),
+            "one count per species, positionally aligned"
+        );
+    }
+
+    #[test]
+    fn test_remove_stagnant_keeps_best_when_all_stagnant() {
+        // All three species are stagnant (last improved gen 0; gen 30, limit 15).
+        // The top-K=2 protection shields the two highest-fitness species, so the
+        // population is never wiped: species 0 (best 9) and species 1 (best 5)
+        // survive, species 2 (best 1) is removed. (The lower `keep single best`
+        // fallback is unreachable here — top-K already keeps 2.)
+        let mut species = vec![
+            species_with(0, 1.0, 9.0, 0),
+            species_with(1, 1.0, 5.0, 0),
+            species_with(2, 1.0, 1.0, 0),
+        ];
+        remove_stagnant(&mut species, 30, 15);
+        assert_eq!(
+            species.len(),
+            2,
+            "top-K protection keeps the population alive"
+        );
+        let ids: Vec<u64> = species.iter().map(|s| s.id().get()).collect();
+        assert!(ids.contains(&0), "highest-fitness species survives");
+        assert!(ids.contains(&1), "second-highest-fitness species survives");
+        assert!(
+            !ids.contains(&2),
+            "lowest-fitness stagnant species is removed"
+        );
+        assert!(!species.is_empty(), "removal never empties the population");
+    }
+
+    #[test]
+    fn test_remove_stagnant_single_species_is_noop() {
+        // `species.len() <= 1` returns early — even a long-stagnant lone species
+        // is retained (never empty the population).
+        let mut species = vec![species_with(0, 1.0, 1.0, 0)];
+        remove_stagnant(&mut species, 1000, 15);
+        assert_eq!(species.len(), 1, "a single species is a no-op");
+        assert_eq!(species[0].id().get(), 0);
+    }
+
+    #[test]
     fn test_allocate_offspring_sums_to_pop_size() {
         // Largest-remainder over shares 1.0, 2.0, 3.0 of 64 seats.
         let species = vec![

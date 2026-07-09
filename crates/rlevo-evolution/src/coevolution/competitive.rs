@@ -423,4 +423,137 @@ mod tests {
             m.mean_fitness_a
         );
     }
+
+    /// Coupled fitness returning a DISTINCT ascending ramp per population: A's
+    /// ramp peaks at `10.0`, B's at `20.0`. Because the two returned vectors
+    /// differ, this pins that population A is scored by
+    /// `evaluate_coupled(...)[0]` and B by `[1]` (index 0 → A, index 1 → B).
+    /// Maximize, so natural == canonical and the reported best is the peak.
+    struct DistinctRamps;
+
+    impl CoupledFitness<TB> for DistinctRamps {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            let peaks = [10.0_f32, 20.0_f32];
+            populations
+                .iter()
+                .enumerate()
+                .map(|(k, p)| {
+                    let n = p.dims()[0];
+                    let device = p.device();
+                    let peak = peaks[k];
+                    #[allow(clippy::cast_precision_loss)]
+                    let v: Vec<f32> = (0..n)
+                        .map(|i| peak * (i as f32) / ((n - 1).max(1) as f32))
+                        .collect();
+                    Tensor::<TB, 1>::from_data(TensorData::new(v, [n]), &device)
+                })
+                .collect()
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    /// One `step` bumps `generation` from 0 to 1 (asserted via both the
+    /// returned [`CoEAMetrics`] and `metrics()` on the returned state), and the
+    /// bi-population fitness split routes each population to its own index:
+    /// A is scored by `evaluate_coupled(...)[0]` (peak `10.0`) and B by `[1]`
+    /// (peak `20.0`). Maximize sense, so natural == canonical.
+    #[test]
+    fn step_increments_generation_and_splits_fitness_by_population() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            DistinctRamps,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = algo.init(&params, &mut rng, &device);
+        let (next, metrics) = algo.step(&params, state, &mut rng, &device);
+
+        assert_eq!(metrics.generation, 1, "one step must bump generation 0 → 1");
+        assert_eq!(
+            algo.metrics(&next).generation,
+            1,
+            "metrics() on the returned state must agree with the step snapshot"
+        );
+        // A peaks at 10.0 (index 0), B at 20.0 (index 1): the split is correct.
+        approx::assert_relative_eq!(metrics.best_fitness_a, 10.0, epsilon = 1e-6);
+        approx::assert_relative_eq!(metrics.best_fitness_b, 20.0, epsilon = 1e-6);
+    }
+
+    /// A plain [`CoupledFitness`] with no hall-of-fame archive returns an empty
+    /// `archive_sizes()` (fewer than 2 entries), so `snapshot` falls back to
+    /// `hof_size_a == 0` and `hof_size_b == 0` via `.first()` / `.get(1)` with
+    /// `.unwrap_or(0)`.
+    #[test]
+    fn snapshot_hof_size_falls_back_to_zero_without_archive() {
+        let m = run_one_step(DistinctRamps);
+        assert_eq!(m.hof_size_a, 0, "no archive → hof_size_a falls back to 0");
+        assert_eq!(m.hof_size_b, 0, "no archive → hof_size_b falls back to 0");
+    }
+
+    /// `best_fitness_a` is a rolling max (`best_fitness_ever`), so threading the
+    /// returned state through a second `step` must leave it monotonically
+    /// non-decreasing while `generation` advances 0 → 1 → 2. Deterministic under
+    /// a fixed seed.
+    #[test]
+    fn best_a_tracks_rolling_max_across_generations() {
+        let device = Default::default();
+        let algo = CompetitiveCoEA::new(
+            GeneticAlgorithm::<TB>::new(),
+            GeneticAlgorithm::<TB>::new(),
+            DistinctRamps,
+        );
+        let params: CompetitiveCoEAParams<GaConfig, GaConfig> = CompetitiveCoEAParams {
+            params_a: ga_config(),
+            params_b: ga_config(),
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let state = algo.init(&params, &mut rng, &device);
+        let (state, m1) = algo.step(&params, state, &mut rng, &device);
+        let (_state, m2) = algo.step(&params, state, &mut rng, &device);
+
+        assert_eq!(m2.generation, 2, "two steps must reach generation 2");
+        assert!(
+            m2.best_fitness_a >= m1.best_fitness_a,
+            "best_fitness_a is a rolling max and must be non-decreasing: {} → {}",
+            m1.best_fitness_a,
+            m2.best_fitness_a
+        );
+    }
+
+    /// Coupled fitness returning the WRONG number of vectors (one, not two),
+    /// violating the bi-population contract.
+    struct WrongLen;
+
+    impl CoupledFitness<TB> for WrongLen {
+        fn evaluate_coupled(&self, populations: &[Tensor<TB, 2>]) -> Vec<Tensor<TB, 1>> {
+            // Return only ONE vector (for population A) — one short of the two
+            // the competitive algorithm requires.
+            let p = &populations[0];
+            let n = p.dims()[0];
+            let device = p.device();
+            vec![Tensor::<TB, 1>::from_data(
+                TensorData::new(vec![0.0_f32; n], [n]),
+                &device,
+            )]
+        }
+        fn sense(&self) -> ObjectiveSense {
+            ObjectiveSense::Maximize
+        }
+    }
+
+    // Pins the debug-only bi-population length contract: `step` carries a
+    // `debug_assert_eq!(fits.len(), 2, …)` which fires under `cargo test`
+    // (debug_assertions on). A wrong-length `evaluate_coupled` must trip it.
+    #[test]
+    #[should_panic(expected = "competitive co-evolution is bi-population")]
+    fn step_panics_on_wrong_length_coupled_fitness() {
+        let _ = run_one_step(WrongLen);
+    }
 }

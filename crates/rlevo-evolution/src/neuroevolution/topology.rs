@@ -412,6 +412,127 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "weight_init_std")]
+    fn test_minimal_panics_on_nan_std() {
+        // `Normal::new(0.0, NaN)` returns `Err`, so `minimal`'s `unwrap_or_else`
+        // fires the documented `weight_init_std` panic. Registry is sized to
+        // satisfy the debug_assert first, so the std check is what panics.
+        let registry: InnovationRegistry = InnovationRegistry::new(3, 2);
+        let mut rng: StdRng = StdRng::seed_from_u64(1);
+        let _g = TopologyGenome::minimal(2, 1, &registry, &mut rng, f32::NAN);
+    }
+
+    #[test]
+    #[should_panic(expected = "weight_init_std")]
+    fn test_minimal_panics_on_infinite_std() {
+        // `+∞` std is likewise rejected by `Normal::new`, reaching the panic.
+        let registry: InnovationRegistry = InnovationRegistry::new(3, 2);
+        let mut rng: StdRng = StdRng::seed_from_u64(1);
+        let _g = TopologyGenome::minimal(2, 1, &registry, &mut rng, f32::INFINITY);
+    }
+
+    #[test]
+    #[should_panic(expected = "registry counters must start after the minimal seed")]
+    fn test_minimal_panics_on_registry_counter_disagreement() {
+        // A registry sized for a tiny seed (next_node_id = 1, next_innovation =
+        // 0) is too small for a (num_inputs=2, num_outputs=1) minimal genome,
+        // which requires next_node_id >= 3 and next_innovation >= 2. This
+        // violates the H6 precondition and trips the `debug_assert!` in
+        // `minimal`. `weight_init_std` is finite (1.0) so the *first* panic path
+        // (non-finite std) does not fire — the registry check is what panics.
+        // NOTE: this is a `debug_assert!`, so it only fires with debug
+        // assertions on; `cargo test` builds with `debug_assertions`, pinning
+        // this debug-only H6 registry precondition.
+        let registry: InnovationRegistry = InnovationRegistry::new(1, 0);
+        let mut rng: StdRng = StdRng::seed_from_u64(1);
+        let _g = TopologyGenome::minimal(2, 1, &registry, &mut rng, 1.0);
+    }
+
+    #[test]
+    fn test_minimal_negative_std_does_not_panic() {
+        // NOTE: contrary to the naive expectation, a *negative* std_dev is NOT
+        // rejected by `rand_distr::Normal::new` — only non-finite std_dev
+        // (`NaN` / `±∞`) returns `Err`. So `minimal` does not panic here; it
+        // builds a valid seed genome. This test pins that boundary so a future
+        // rand_distr change that tightens the check is caught.
+        let registry: InnovationRegistry = InnovationRegistry::new(3, 2);
+        let mut rng: StdRng = StdRng::seed_from_u64(1);
+        let g: TopologyGenome = TopologyGenome::minimal(2, 1, &registry, &mut rng, -1.0);
+        assert_eq!(g.nodes.len(), 3, "negative std still yields the I + O seed");
+        assert_eq!(
+            g.connections.len(),
+            2,
+            "negative std still yields I * O edges"
+        );
+    }
+
+    #[test]
+    fn test_empty_genome_invariants() {
+        // An empty genome exercises the vacuous / short-circuit branches of the
+        // query methods. Every assertion below is grounded in the real code.
+        let g: TopologyGenome = TopologyGenome::new(vec![], vec![]);
+
+        // `windows(2)` over an empty slice yields nothing, so `all` is vacuously
+        // true — an empty connection list counts as sorted.
+        assert!(
+            g.is_innovation_sorted(),
+            "empty connections are vacuously innovation-sorted"
+        );
+
+        // `any` over no connections is false — nothing is connected.
+        assert!(
+            !g.is_connected(NodeId::new(0), NodeId::new(1)),
+            "no edges means no connection"
+        );
+
+        // `would_create_cycle` short-circuits `source == target` to true before
+        // touching the (empty) edge set: a self-loop is always a cycle.
+        assert!(
+            g.would_create_cycle(NodeId::new(0), NodeId::new(0)),
+            "self-loop short-circuits to a cycle even with no edges"
+        );
+        // Distinct endpoints with no reachable path: the DFS pops `target`,
+        // finds no outgoing edges, and returns false.
+        assert!(
+            !g.would_create_cycle(NodeId::new(0), NodeId::new(1)),
+            "distinct nodes with no edges cannot form a cycle"
+        );
+
+        // `find` over an empty node list is None.
+        assert!(
+            g.node(NodeId::new(0)).is_none(),
+            "no nodes means lookup returns None"
+        );
+    }
+
+    #[test]
+    fn test_activation_fn_propagates_nan() {
+        // NaN handling is per-arm, not uniform. Sigmoid, Tanh, and Linear all
+        // carry NaN through their arithmetic...
+        assert!(
+            ActivationFn::Sigmoid.apply(f32::NAN).is_nan(),
+            "Sigmoid: NaN flows through exp and the reciprocal"
+        );
+        assert!(
+            ActivationFn::Tanh.apply(f32::NAN).is_nan(),
+            "Tanh: NaN.tanh() is NaN"
+        );
+        assert!(
+            ActivationFn::Linear.apply(f32::NAN).is_nan(),
+            "Linear: identity passes NaN through"
+        );
+        // ...but Relu uses `x.max(0.0)`, and `f32::max` returns the non-NaN
+        // operand when either argument is NaN. So `NaN.max(0.0)` is 0.0, NOT
+        // NaN — Relu swallows the NaN rather than propagating it.
+        let relu_nan: f32 = ActivationFn::Relu.apply(f32::NAN);
+        assert!(
+            !relu_nan.is_nan(),
+            "Relu does NOT propagate NaN: f32::max drops the NaN operand"
+        );
+        approx::assert_relative_eq!(relu_nan, 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
     fn test_insert_connection_sorted_keeps_order() {
         let registry = InnovationRegistry::new(3, 2);
         let mut rng = StdRng::seed_from_u64(1);
