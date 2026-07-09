@@ -151,9 +151,10 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
     ///
     /// # Panics
     ///
-    /// Does not panic. The `expect` inside `sample` (not `fit`) is guarded
-    /// by the variance floor, which guarantees a positive, finite standard
-    /// deviation for every dimension.
+    /// Panics if the `population` tensor cannot be read back as `f32`
+    /// (`.expect("population tensor must be readable as f32")`), or with an
+    /// out-of-bounds index if the host buffer is shorter than `k * d`. Callers
+    /// must therefore pass an `f32`, `(k, d)`-shaped population tensor.
     fn fit(
         &self,
         params: &Self::Params,
@@ -234,9 +235,14 @@ impl<B: Backend> ProbabilityModel<B> for UnivariateGaussian {
     ///
     /// # Panics
     ///
-    /// Does not panic under normal operation. The internal `Normal::new`
-    /// constructor is guarded by `min_variance`, ensuring the standard
-    /// deviation is always strictly positive and finite.
+    /// The internal `Normal::new` constructor is guarded by `min_variance`,
+    /// ensuring the standard deviation is always strictly positive and finite,
+    /// so `.expect("floored std is positive and finite")` does not fire. Any
+    /// non-finite genome values are already contained in [`fit`](Self::fit):
+    /// a non-finite mean falls back to `init_mean`, and the MLE variance is
+    /// floored to a finite, positive value at least `min_variance`. Given a
+    /// state produced by `fit`, this method does not panic under normal
+    /// operation.
     fn sample(
         &self,
         state: &Self::State,

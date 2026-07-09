@@ -108,9 +108,14 @@ pub fn ris_transposition<F: FunctionSet>(
 
 /// One-point crossover: swaps the suffixes of two equal-length parents at a
 /// random cut. Class-aligned, so the tail stays terminal-only.
+///
+/// # Panics
+///
+/// Panics if `a.len() != b.len()` — crossover parents must share the genome
+/// layout. This is a programming error, not a recoverable condition.
 pub fn one_point_crossover(a: &mut [Symbol], b: &mut [Symbol], rng: &mut dyn Rng) {
     let n = a.len();
-    debug_assert_eq!(n, b.len(), "crossover parents must share genome length");
+    assert_eq!(n, b.len(), "crossover parents must share genome length");
     if n < 2 {
         return;
     }
@@ -120,9 +125,14 @@ pub fn one_point_crossover(a: &mut [Symbol], b: &mut [Symbol], rng: &mut dyn Rng
 
 /// Two-point crossover: swaps the middle segment between two random cuts.
 /// Class-aligned, so the tail stays terminal-only.
+///
+/// # Panics
+///
+/// Panics if `a.len() != b.len()` — crossover parents must share the genome
+/// layout. This is a programming error, not a recoverable condition.
 pub fn two_point_crossover(a: &mut [Symbol], b: &mut [Symbol], rng: &mut dyn Rng) {
     let n = a.len();
-    debug_assert_eq!(n, b.len(), "crossover parents must share genome length");
+    assert_eq!(n, b.len(), "crossover parents must share genome length");
     if n < 2 {
         return;
     }
@@ -386,7 +396,7 @@ mod tests {
     }
 
     /// One-point crossover documents equal parent lengths as a precondition
-    /// (`debug_assert_eq!`); a mismatch panics in debug builds.
+    /// (`assert_eq!`); a mismatch panics in all builds with the named message.
     #[test]
     #[should_panic(expected = "crossover parents must share genome length")]
     fn one_point_crossover_panics_on_mismatched_lengths() {

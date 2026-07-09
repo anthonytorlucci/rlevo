@@ -80,6 +80,12 @@ pub fn elitist<B: Backend>(
     );
 
     let n_offspring_to_keep = pop_size - k;
+    assert!(
+        n_offspring_to_keep <= offspring_fitness.len(),
+        "elitist: not enough offspring ({}) to backfill {} slots after {k} elites",
+        offspring_fitness.len(),
+        n_offspring_to_keep,
+    );
     let offspring_keep_idx = truncation_indices_host(offspring_fitness, n_offspring_to_keep);
     let kept_offspring = offspring_pop.select(
         0,

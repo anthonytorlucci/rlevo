@@ -58,6 +58,15 @@ use rand::Rng;
 /// - **`Sync` state.** [`State`](Self::State) requires `Sync`, deliberately
 ///   exceeding [`crate::Strategy::State`]'s `Send`-only bound, to leave room for
 ///   a future thread-shared CMA-ES state.
+/// - **Sanitized input assumed.** [`fit`](Self::fit) and
+///   [`sample`](Self::sample) are infallible by design. The
+///   [`EdaStrategy`](crate::algorithms::eda::EdaStrategy) driver sanitizes
+///   fitness (`NaN` → `-inf`) and clamps the selected-row count to `≥ 2` before
+///   calling `fit`, so the supported call path never supplies empty populations
+///   or non-finite fitness. Callers that invoke `fit`/`sample` directly
+///   (bypassing the driver) must uphold the same preconditions; otherwise
+///   behaviour is unspecified — implementations may emit `NaN` statistics or
+///   panic in `sample`.
 ///
 /// # Examples
 ///
@@ -116,6 +125,13 @@ pub trait ProbabilityModel<B: Backend>: Send + Sync {
     /// All randomness must be drawn from `rng` (host RNG only — never
     /// `Tensor::random`/`B::seed`). The returned tensor has shape `(n, D)`
     /// where `D` is the model's genome dimensionality.
+    ///
+    /// # Panics
+    ///
+    /// Implementations may panic if `state` was not produced by a prior
+    /// [`fit`](Self::fit) call — e.g. a user-constructed state with non-finite
+    /// mean or variance (concrete impls call `Normal::new(...).expect(...)`,
+    /// which panics on non-finite parameters).
     fn sample(
         &self,
         state: &Self::State,
