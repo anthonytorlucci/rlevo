@@ -22,7 +22,7 @@ use rand::rngs::StdRng;
 use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
-use rlevo_core::base::Action;
+use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
@@ -436,6 +436,12 @@ impl BipedalWalker {
         let ctrl_cost = 0.3 * action.0.iter().map(|a| a * a).sum::<f32>();
         vel_x - ctrl_cost
     }
+
+    /// Borrow the internal physics state for in-crate invariant tests.
+    #[cfg(test)]
+    pub(crate) fn state_for_test(&self) -> &BipedalWalkerState {
+        &self.state
+    }
 }
 
 impl ConstructableEnv for BipedalWalker {
@@ -461,6 +467,10 @@ impl Environment<1, 1, 1> for BipedalWalker {
         self.state.leg2_contact = false;
         let obs = self.compute_observation();
         self.state.last_obs = obs.clone();
+        debug_assert!(
+            self.state.is_valid(),
+            "BipedalWalkerState invariant violated after reset"
+        );
         Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
     }
 
@@ -493,6 +503,10 @@ impl Environment<1, 1, 1> for BipedalWalker {
 
         let obs = self.compute_observation();
         self.state.last_obs = obs.clone();
+        debug_assert!(
+            self.state.is_valid(),
+            "BipedalWalkerState invariant violated after step"
+        );
 
         let hull_down = self.hull_touching_ground();
         let terminated = hull_down || self.total_reward < -100.0;
