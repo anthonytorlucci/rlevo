@@ -38,6 +38,8 @@ impl Action<1> for ReacherAction {
 }
 
 impl ContinuousAction<1> for ReacherAction {
+    const COMPONENTS: usize = 2;
+
     /// Returns the raw `[shoulder, elbow]` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0

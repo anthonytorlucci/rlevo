@@ -37,6 +37,8 @@ impl Action<1> for SwimmerAction {
 }
 
 impl ContinuousAction<1> for SwimmerAction {
+    const COMPONENTS: usize = 2;
+
     /// Returns the raw `[joint1, joint2]` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0

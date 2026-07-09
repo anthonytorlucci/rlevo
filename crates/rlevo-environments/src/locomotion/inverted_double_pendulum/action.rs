@@ -33,6 +33,8 @@ impl Action<1> for InvertedDoublePendulumAction {
 }
 
 impl ContinuousAction<1> for InvertedDoublePendulumAction {
+    const COMPONENTS: usize = 1;
+
     fn as_slice(&self) -> &[f32] {
         &self.0
     }

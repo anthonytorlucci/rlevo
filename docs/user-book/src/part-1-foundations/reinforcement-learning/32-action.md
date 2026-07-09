@@ -150,6 +150,7 @@ reals, produced directly by an actor network:
 
 ```rust
 pub trait ContinuousAction<const R: usize>: Action<R> {
+    const COMPONENTS: usize;               // scalar count == as_slice().len()
     fn as_slice(&self) -> &[f32];          // action → components
     fn from_slice(values: &[f32]) -> Self; // components → action
     fn clip(&self, min: f32, max: f32) -> Self;
@@ -162,6 +163,20 @@ the bridge between your typed action and the flat `f32` vector a network emits.
 `clip` matters more than it looks — an actor with a `tanh` head can still drift
 slightly out of range under exploration noise or numerical error, and `clip`
 pulls it back into the valid box before the environment ever sees it.
+
+`COMPONENTS` deserves a word, because it is easy to confuse with the rank `R`.
+The two are genuinely different: `R` is the *tensor rank* — the number of axes —
+while `COMPONENTS` is the number of scalars you flatten to, exactly the length
+`as_slice` returns and `from_slice` consumes. A four-motor walker is a single
+rank-1 vector (`R == 1`) carrying four components; `shape()` gives \\([4]\\), not
+\\([1]\\). We make you declare `COMPONENTS` explicitly — there is deliberately no
+default — so the built-in `random()` samples the right number of values. Keying
+it off `R` instead would sample one value and hand it to a `from_slice` expecting
+four, panicking on every call; requiring the constant makes that trap
+unreachable. See [ADR 0038](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0038-continuous-action-components-const.md)
+for the full rationale. The default `random()` draws each component uniformly from
+\\([-1, 1)\\), so if your action space is asymmetric — CarRacing's throttle and
+brake live in \\([0, 1]\\) — override `random()` to sample within the true bounds.
 
 When the bounds are known, layer on `BoundedAction`:
 
@@ -185,6 +200,7 @@ Pendulum is a clean single-axis example — one torque value bounded to
 pub struct PendulumAction(f32);
 
 impl ContinuousAction<1> for PendulumAction {
+    const COMPONENTS: usize = 1;
     fn as_slice(&self) -> &[f32] { std::slice::from_ref(&self.0) }
     fn from_slice(values: &[f32]) -> Self {
         assert_eq!(values.len(), 1, "PendulumAction expects a 1-element slice");

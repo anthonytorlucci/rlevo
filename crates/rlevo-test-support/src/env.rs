@@ -112,6 +112,8 @@ impl Action<1> for LinearAction {
 }
 
 impl ContinuousAction<1> for LinearAction {
+    const COMPONENTS: usize = 1;
+
     fn as_slice(&self) -> &[f32] {
         std::slice::from_ref(&self.0)
     }

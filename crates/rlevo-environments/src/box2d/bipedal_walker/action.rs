@@ -43,6 +43,8 @@ impl Action<1> for BipedalWalkerAction {
 }
 
 impl ContinuousAction<1> for BipedalWalkerAction {
+    const COMPONENTS: usize = 4;
+
     /// Returns the four motor targets as a contiguous `f32` slice.
     fn as_slice(&self) -> &[f32] {
         &self.0
@@ -104,5 +106,22 @@ mod tests {
     fn test_from_slice() {
         let a = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3, 0.4]);
         assert_eq!(a.0, [0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    fn test_random_is_valid() {
+        // Regression for #100: the corrected default `random()` samples
+        // `COMPONENTS` values (4), so `from_slice` no longer panics; symmetric
+        // `[-1, 1)` sampling keeps every draw valid.
+        for _ in 0..100 {
+            let a = BipedalWalkerAction::random();
+            assert!(a.is_valid(), "random action must be valid: {a:?}");
+        }
+    }
+
+    #[test]
+    fn test_components_matches_as_slice() {
+        let a = BipedalWalkerAction([0.0; 4]);
+        assert_eq!(BipedalWalkerAction::COMPONENTS, a.as_slice().len());
     }
 }

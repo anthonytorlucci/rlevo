@@ -177,17 +177,17 @@ impl CarRacing {
             let right = Vector::new(angle.cos(), angle.sin());
 
             // Gas → forward thrust
-            let thrust = action.gas * 500.0 * self.config.car_density;
+            let thrust = action.gas() * 500.0 * self.config.car_density;
             car.add_force(forward * thrust, true);
 
             // Brake → opposing velocity
             let vel = car.linvel();
-            let brake_force = vel * (-action.brake * 200.0 * self.config.car_density);
+            let brake_force = vel * (-action.brake() * 200.0 * self.config.car_density);
             car.add_force(brake_force, true);
 
             // Steer → torque
             let speed = vel.length();
-            let steer_torque = action.steer * speed * 2.0;
+            let steer_torque = action.steer() * speed * 2.0;
             car.apply_torque_impulse(steer_torque, true);
 
             // Lateral friction (prevent drifting)
@@ -314,7 +314,9 @@ impl Environment<3, 3, 1> for CarRacing {
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
                 "CarRacingAction invalid: steer={}, gas={}, brake={}",
-                action.steer, action.gas, action.brake
+                action.steer(),
+                action.gas(),
+                action.brake()
             )));
         }
 
@@ -431,11 +433,7 @@ mod tests {
     fn test_d5_negative_gas() {
         let mut env = make_env();
         env.reset().unwrap();
-        let bad = CarRacingAction {
-            steer: 0.0,
-            gas: -0.1,
-            brake: 0.0,
-        };
+        let bad = CarRacingAction::new(0.0, -0.1, 0.0);
         assert!(env.step(bad).is_err(), "D5: negative gas must error");
     }
 
@@ -443,13 +441,7 @@ mod tests {
     fn test_frame_penalty_every_step() {
         let mut env = make_env();
         env.reset().unwrap();
-        let snap = env
-            .step(CarRacingAction {
-                steer: 0.0,
-                gas: 0.0,
-                brake: 0.0,
-            })
-            .unwrap();
+        let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
         let reward: f32 = (*snap.reward()).into();
         let config = CarRacingConfig::default();
         // Frame penalty is always applied; tile reward may also apply on step 1.
@@ -475,11 +467,7 @@ mod tests {
             .seed(5)
             .build()
             .expect("valid config");
-        let action = CarRacingAction {
-            steer: 0.1,
-            gas: 0.5,
-            brake: 0.0,
-        };
+        let action = CarRacingAction::new(0.1, 0.5, 0.0);
 
         let run = |a: &CarRacingAction| {
             let mut env = CarRacing::with_config(cfg.clone()).expect("valid config");
@@ -526,24 +514,14 @@ mod tests {
         };
 
         // One-shot gas kick → forward motion occurs.
-        env.step(CarRacingAction {
-            steer: 0.0,
-            gas: 0.01,
-            brake: 0.0,
-        })
-        .unwrap();
+        env.step(CarRacingAction::new(0.0, 0.01, 0.0)).unwrap();
         let kicked: f32 = speed(&env);
         assert!(kicked > 0.0, "gas kick should move the car");
 
         // One idle step (no gas). The velocity change must be far smaller than
         // the kick itself: with the bug the persisted force would add another
         // ~kicked, roughly doubling speed. Correct physics shows only settling.
-        env.step(CarRacingAction {
-            steer: 0.0,
-            gas: 0.0,
-            brake: 0.0,
-        })
-        .unwrap();
+        env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
         let idle: f32 = speed(&env);
         assert!(
             idle < kicked * 1.5,

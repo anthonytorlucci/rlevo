@@ -34,7 +34,7 @@
 //! # use rlevo_core::environment::{Environment, Snapshot};
 //! let mut env = CarRacing::with_config(CarRacingConfig::default()).expect("valid config");
 //! let _snap = env.reset().unwrap();
-//! let snap = env.step(CarRacingAction { steer: 0.0, gas: 0.5, brake: 0.0 }).unwrap();
+//! let snap = env.step(CarRacingAction::new(0.0, 0.5, 0.0)).unwrap();
 //! println!("reward: {:?}", snap.reward());
 //! ```
 
