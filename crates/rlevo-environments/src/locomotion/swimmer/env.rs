@@ -765,29 +765,65 @@ mod tests {
 
     #[test]
     fn constant_action_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant action applies a constant
-        // actuator torque, held across the 8 substeps and cleared each substep.
-        // With the pre-fix bug the joint torque (and drag) accumulated across
-        // substeps and env steps, so a monotonic constant action diverged the
-        // free-floating chain (velocities blow up / NaN). With drag balancing a
-        // constant torque, segment velocities must stay finite and bounded.
+        // Regression for #98 (ADR 0037): a constant actuator torque must live
+        // exactly ONE integration step and must not accumulate across substeps
+        // or env steps.
+        //
+        // We assert the invariant *directly* via the residual `user_torque`
+        // accumulator rather than through the chain's emergent angular velocity.
+        // The 3-segment swimmer is a driven multi-body chain integrated over
+        // many substeps; a hard bound on its emergent |ω| sits only ~1.24×
+        // above the measured value (40.4 vs a 50 cap) and depends on nonlinear
+        // trajectory details that diverge across CPU architectures (aarch64 vs
+        // x86_64 libm/SIMD rounding). The applied torque (`gear × action`) and
+        // its running sum are plain IEEE-754 adds, so the residual probe is
+        // bit-identical everywhere.
+        //
+        //   * With the fix, `step_once` calls `reset_external_forces` after the
+        //     final substep, so every body's accumulator is exactly 0.
+        //   * With the pre-fix bug the accumulator is never cleared and grows
+        //     unbounded as `steps × frame_skip × τ` is summed (net of the
+        //     opposing angular drag torque) — failing the `< 1e-3` bound.
+        //     (Confirmed: reverting `reset_external_forces` leaves segment1 with
+        //     a residual of ~86 N·m.)
+        const STEPS: usize = 3;
+        const RESIDUAL_TOL: f32 = 1e-3;
+
         let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
         env.reset().unwrap();
-        let mut max_omega = 0.0f32;
-        for i in 0..300 {
+
+        // Clipped action ±1.0 × gear 5 ⇒ ±5 N·m joint torque per substep.
+        let mut moved = false;
+        for i in 0..STEPS {
             let snap = env.step(SwimmerAction::new(1.0, -1.0)).unwrap();
             let obs = snap.observation();
             assert!(obs.is_finite(), "obs must stay finite at step {i}");
-            max_omega = max_omega.max(obs.omega_body().abs());
-            max_omega = max_omega.max(obs.joint1_dot().abs());
-            max_omega = max_omega.max(obs.joint2_dot().abs());
+            moved |= obs.joint1_dot().abs() > 0.0 || obs.joint2_dot().abs() > 0.0;
         }
-        // Constant torque balanced by drag reaches a bounded steady state; the
-        // accumulation bug drives this unbounded (or to NaN, caught above).
+
+        // segment1/segment2 are the joint children that carry the actuator
+        // torque (and per-substep drag); both accumulators must be zeroed after
+        // `step`. `user_torque`/`user_force` return glam `Vec3`s, so magnitude
+        // is `.length()`.
+        let residual = |body: RigidBodyHandle| -> (f32, f32) {
+            let rb = env.world.bodies().get(body).expect("segment body exists");
+            (rb.user_torque().length(), rb.user_force().length())
+        };
+        for (name, handle) in [
+            ("segment1", env.state.segment1),
+            ("segment2", env.state.segment2),
+        ] {
+            let (torque, force): (f32, f32) = residual(handle);
+            assert!(
+                torque < RESIDUAL_TOL && force < RESIDUAL_TOL,
+                "{name} accumulators must be cleared after each step (ADR 0037); \
+                 residual |τ| = {torque} N·m, |F| = {force} N (the accumulation \
+                 bug leaves |τ| ~86)"
+            );
+        }
         assert!(
-            max_omega < 50.0,
-            "segment angular velocity must stay bounded under a constant action, \
-             got max |ω| = {max_omega}"
+            moved,
+            "constant action should have moved the joints at least once"
         );
     }
 

@@ -591,60 +591,69 @@ mod tests {
 
     #[test]
     fn constant_torque_does_not_accumulate() {
-        // Regression for #98 (ADR 0037): a constant actuator torque must not
-        // accumulate across env steps. The reacher is a *frictionless* two-link
-        // arm on compliant impulse joints, so a one-shot-vs-idle velocity probe
-        // is unreliable — the double-pendulum coupling makes the shoulder
-        // velocity θ̇₁ chaotic even under the fix (a single applied step already
-        // spins the tiny-inertia links to O(100) rad s⁻¹, and idle steps then
-        // redistribute momentum chaotically). Instead we bound the *magnitude*
-        // of θ̇₁ under a short, constant-torque rollout, the regime the QA proved
-        // reliable:
+        // Regression for #98 (ADR 0037): a constant actuator torque must live
+        // exactly ONE integration step and must not accumulate across env steps.
         //
-        //   * With the fix, a modest constant torque holds the arm in a bounded
-        //     orbit — over 15 steps |θ̇₁| plateaus around ~175 rad s⁻¹ (measured
-        //     135–175 for 5–15 steps, i.e. it does not grow with the horizon).
-        //   * With the pre-fix bug the per-substep `user_force` is never cleared,
-        //     so the effective torque grows every step and the arm escapes the
-        //     orbit: |θ̇₁| climbs to ~2 989 rad s⁻¹ by step 15 (and to millions
-        //     over longer rollouts, per issue #98).
+        // We assert the invariant *directly* rather than through emergent
+        // dynamics. The reacher is a chaotic, numerically stiff double pendulum:
+        // its shoulder velocity θ̇₁ diverges across CPU architectures (aarch64
+        // vs x86_64 libm/SIMD rounding), so any absolute bound on θ̇₁ is
+        // platform-dependent and was observed to hold locally yet blow past a
+        // 1 000 rad s⁻¹ cap on x86_64 CI (peak 175 local vs 2 659 CI). Instead
+        // we read the actuated link's residual `user_torque` accumulator after
+        // the rollout: the applied torque (`gear × action`) and its running sum
+        // are plain IEEE-754 adds, so this probe is bit-identical everywhere.
         //
-        // A 1 000 rad s⁻¹ cap sits ~5.7× above the fixed plateau and ~3× below
-        // the bug's blow-up, so the assertion fails iff the force-clearing fix is
-        // reverted. `reset_noise_scale = 0.0` makes the rollout deterministic
-        // (the initial arm configuration is seed-independent), so these figures
-        // are exact and reproducible.
-        const HORIZON: usize = 15;
-        const MAX_OMEGA: f32 = 1_000.0;
+        //   * With the fix, `step_once` calls `reset_external_forces` after the
+        //     final substep, so the accumulator is ~0 (`< 1e-3`).
+        //   * With the pre-fix bug the accumulator is never cleared and grows to
+        //     `steps × frame_skip × τ` — here 3 × 2 × 100 = 600 N·m — failing the
+        //     bound. (Confirmed: reverting `reset_external_forces` leaves a
+        //     residual of ~600.)
+        //
+        // `reset_noise_scale = 0.0` fixes the initial arm configuration so the
+        // rollout is deterministic.
+        const STEPS: usize = 3;
+        const RESIDUAL_TOL: f32 = 1e-3;
 
         let mut env = ReacherRapier::with_config(ReacherConfig {
             seed: 5,
             reset_noise_scale: 0.0,
-            max_steps: 10_000,
             ..Default::default()
         })
         .expect("valid config");
         env.reset().unwrap();
 
-        let mut peak_omega: f32 = 0.0;
-        for i in 0..HORIZON {
-            let snap = env.step(ReacherAction::new(0.05, 0.0)).unwrap();
+        // Clipped action 0.5 × gear 200 ⇒ 100 N·m shoulder torque per substep.
+        let mut moved = false;
+        for i in 0..STEPS {
+            let snap = env.step(ReacherAction::new(0.5, 0.0)).unwrap();
             assert!(
                 snap.observation().is_finite(),
                 "obs must stay finite at step {i}"
             );
-            peak_omega = peak_omega.max(snap.observation().theta1_dot().abs());
+            moved |= snap.observation().theta1_dot().abs() > 0.0;
         }
 
+        // link1 (shoulder) carries the actuated torque τ[0] − τ[1] = 100 N·m;
+        // its residual accumulator must be zeroed after `step`. `user_torque`
+        // returns a glam `Vec3`, so magnitude is `.length()`.
+        let residual: f32 = env
+            .world
+            .bodies()
+            .get(env.state.link1)
+            .expect("link1 rigid body exists")
+            .user_torque()
+            .length();
+
         assert!(
-            peak_omega > 0.0,
-            "constant torque should spin the shoulder (peak |θ̇₁| = {peak_omega})"
+            residual < RESIDUAL_TOL,
+            "applied torque must be cleared after each step (ADR 0037); residual \
+             |τ| = {residual} N·m (the accumulation bug leaves ~600)"
         );
         assert!(
-            peak_omega < MAX_OMEGA,
-            "shoulder velocity must stay bounded under a constant torque; the \
-             accumulation bug drives it well past {MAX_OMEGA}, got peak |θ̇₁| = \
-             {peak_omega}"
+            moved,
+            "constant torque should have moved the shoulder at least once"
         );
     }
 
