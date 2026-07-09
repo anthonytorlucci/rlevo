@@ -86,6 +86,14 @@ impl RapierWorld {
     }
 
     /// Advance the simulation by one timestep.
+    ///
+    /// External forces/torques applied via [`bodies_mut`](Self::bodies_mut)
+    /// (`add_force` / `add_torque`) affect exactly the next `step()` and are
+    /// then cleared — re-apply control every step. rapier2d 0.32 accumulates
+    /// `add_force` into `user_force` and never clears it on its own, so this
+    /// wrapper resets external forces after integrating (ADR 0037). Impulses
+    /// (`apply_impulse` / `apply_torque_impulse`) are instantaneous and are not
+    /// affected.
     pub fn step(&mut self) {
         self.pipeline.step(
             self.gravity,
@@ -101,6 +109,20 @@ impl RapierWorld {
             &(),
             &(),
         );
+        self.reset_external_forces();
+    }
+
+    /// Clear accumulated external forces/torques on every rigid body.
+    ///
+    /// Called at the end of [`step`](Self::step) so a force applied via
+    /// `add_force` lives for exactly one integration step (ADR 0037). Uses
+    /// `wake_up = false`: zeroing forces must not wake sleeping bodies —
+    /// actuated bodies are already woken by their own `add_force(.., true)`.
+    fn reset_external_forces(&mut self) {
+        for (_, body) in self.bodies.iter_mut() {
+            body.reset_forces(false);
+            body.reset_torques(false);
+        }
     }
 
     /// Capture the current state of all rigid bodies.
@@ -292,5 +314,77 @@ mod tests {
         let world = make_world();
         let s = format!("{world:?}");
         assert!(s.contains("RapierWorld"));
+    }
+
+    /// Regression (#98, ADR 0037): a constant `add_force` re-applied every step
+    /// must produce a stationary per-step velocity change. Before the wrapper
+    /// cleared `user_force`, rapier2d accumulated the force so Δv grew ~linearly
+    /// with the step count (silent, deterministic corruption).
+    #[test]
+    fn test_constant_force_gives_stationary_delta_v() {
+        // Zero gravity so linvel change comes only from the applied force.
+        let mut world = RapierWorld::new(Vector::new(0.0, 0.0), 1.0 / 60.0);
+        let handle = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0))
+                .additional_mass(1.0),
+        );
+        let force = Vector::new(10.0, 0.0);
+
+        let mut prev_v: f32 = world.bodies().get(handle).unwrap().linvel().x;
+        let mut deltas: Vec<f32> = Vec::new();
+        for _ in 0..60 {
+            world
+                .bodies_mut()
+                .get_mut(handle)
+                .unwrap()
+                .add_force(force, true);
+            world.step();
+            let v: f32 = world.bodies().get(handle).unwrap().linvel().x;
+            deltas.push(v - prev_v);
+            prev_v = v;
+        }
+
+        // Every per-step Δv must match the first within a tight tolerance. With
+        // the accumulation bug the last Δv would be ~60× the first.
+        let first: f32 = deltas[0];
+        assert!(first > 0.0, "force should accelerate the body");
+        for (i, &d) in deltas.iter().enumerate() {
+            assert!(
+                (d - first).abs() < 1e-4,
+                "Δv drifted at step {i}: {d} vs first {first} (force accumulating?)"
+            );
+        }
+    }
+
+    /// Regression (#98, ADR 0037): a one-shot `add_force` must not persist. The
+    /// step after the force is applied — with no new force — must show ~zero
+    /// velocity change.
+    #[test]
+    fn test_one_shot_force_does_not_persist() {
+        let mut world = RapierWorld::new(Vector::new(0.0, 0.0), 1.0 / 60.0);
+        let handle = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0))
+                .additional_mass(1.0),
+        );
+
+        // Step 1: apply a force, integrate.
+        world
+            .bodies_mut()
+            .get_mut(handle)
+            .unwrap()
+            .add_force(Vector::new(10.0, 0.0), true);
+        world.step();
+        let v_after_force: f32 = world.bodies().get(handle).unwrap().linvel().x;
+        assert!(v_after_force > 0.0, "one-shot force should accelerate body");
+
+        // Step 2: no force applied — velocity must be unchanged (force cleared).
+        world.step();
+        let v_after_idle: f32 = world.bodies().get(handle).unwrap().linvel().x;
+        assert!(
+            (v_after_idle - v_after_force).abs() < 1e-4,
+            "force persisted into idle step: {v_after_force} -> {v_after_idle}"
+        );
     }
 }

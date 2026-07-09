@@ -235,18 +235,13 @@ impl Reacher<Rapier3DBackend> {
         ])
     }
 
-    fn apply_action(&mut self, action: &ReacherAction) {
+    /// Compute the two joint torques for `action` (clip → gear). Pure: the
+    /// torques are *applied* inside the `step_actuated` closure so they are
+    /// re-applied fresh each substep (ADR 0037 force-lifetime contract).
+    fn control_torques(&self, action: &ReacherAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
-        let torques = self.config.gear.apply(&clipped);
-        // Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
-        // Elbow torque ±τ[1] between link1 and link2 (Newton's third law).
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.link1) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[0] - torques[1]), true);
-        }
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.link2) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
-        }
+        self.config.gear.apply(&clipped)
     }
 }
 
@@ -315,8 +310,23 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             )));
         }
 
-        self.apply_action(&action);
-        Rapier3DBackend::step(&mut self.world);
+        // Re-apply the constant joint torques before every substep so they are
+        // held across the frame skip and cannot accumulate (ADR 0037). Handles
+        // are `Copy` and `torques` is precomputed, so the closure borrows only
+        // the world — not `self`.
+        //   Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
+        //   Elbow torque ±τ[1] between link1 and link2 (Newton's third law).
+        let torques = self.control_torques(&action);
+        let link1 = self.state.link1;
+        let link2 = self.state.link2;
+        self.world.step_actuated(|w| {
+            if let Some(body) = w.bodies_mut().get_mut(link1) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[0] - torques[1]), true);
+            }
+            if let Some(body) = w.bodies_mut().get_mut(link2) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
+            }
+        });
         self.steps += 1;
 
         let obs = self.extract_observation();
@@ -577,6 +587,65 @@ mod tests {
             let c = snap.metadata().unwrap().components[METADATA_KEY_REWARD_CONTROL];
             assert!(c <= 0.0, "reward_control must be ≤ 0, got {c} at step {i}");
         }
+    }
+
+    #[test]
+    fn constant_torque_does_not_accumulate() {
+        // Regression for #98 (ADR 0037): a constant actuator torque must not
+        // accumulate across env steps. The reacher is a *frictionless* two-link
+        // arm on compliant impulse joints, so a one-shot-vs-idle velocity probe
+        // is unreliable — the double-pendulum coupling makes the shoulder
+        // velocity θ̇₁ chaotic even under the fix (a single applied step already
+        // spins the tiny-inertia links to O(100) rad s⁻¹, and idle steps then
+        // redistribute momentum chaotically). Instead we bound the *magnitude*
+        // of θ̇₁ under a short, constant-torque rollout, the regime the QA proved
+        // reliable:
+        //
+        //   * With the fix, a modest constant torque holds the arm in a bounded
+        //     orbit — over 15 steps |θ̇₁| plateaus around ~175 rad s⁻¹ (measured
+        //     135–175 for 5–15 steps, i.e. it does not grow with the horizon).
+        //   * With the pre-fix bug the per-substep `user_force` is never cleared,
+        //     so the effective torque grows every step and the arm escapes the
+        //     orbit: |θ̇₁| climbs to ~2 989 rad s⁻¹ by step 15 (and to millions
+        //     over longer rollouts, per issue #98).
+        //
+        // A 1 000 rad s⁻¹ cap sits ~5.7× above the fixed plateau and ~3× below
+        // the bug's blow-up, so the assertion fails iff the force-clearing fix is
+        // reverted. `reset_noise_scale = 0.0` makes the rollout deterministic
+        // (the initial arm configuration is seed-independent), so these figures
+        // are exact and reproducible.
+        const HORIZON: usize = 15;
+        const MAX_OMEGA: f32 = 1_000.0;
+
+        let mut env = ReacherRapier::with_config(ReacherConfig {
+            seed: 5,
+            reset_noise_scale: 0.0,
+            max_steps: 10_000,
+            ..Default::default()
+        })
+        .expect("valid config");
+        env.reset().unwrap();
+
+        let mut peak_omega: f32 = 0.0;
+        for i in 0..HORIZON {
+            let snap = env.step(ReacherAction::new(0.05, 0.0)).unwrap();
+            assert!(
+                snap.observation().is_finite(),
+                "obs must stay finite at step {i}"
+            );
+            peak_omega = peak_omega.max(snap.observation().theta1_dot().abs());
+        }
+
+        assert!(
+            peak_omega > 0.0,
+            "constant torque should spin the shoulder (peak |θ̇₁| = {peak_omega})"
+        );
+        assert!(
+            peak_omega < MAX_OMEGA,
+            "shoulder velocity must stay bounded under a constant torque; the \
+             accumulation bug drives it well past {MAX_OMEGA}, got peak |θ̇₁| = \
+             {peak_omega}"
+        );
     }
 
     #[test]

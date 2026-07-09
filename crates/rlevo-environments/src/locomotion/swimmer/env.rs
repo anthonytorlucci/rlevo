@@ -101,9 +101,11 @@ impl Swimmer<Rapier3DBackend> {
 
     fn build_world(config: &SwimmerConfig, rng: &mut StdRng) -> (Rapier3DWorld, SwimmerState) {
         // Zero gravity — swimmer floats in open water.
-        // Pass frame_skip=1 to the world: the env owns its own substep loop so
-        // drag can be injected per substep (see `step_physics`).
-        let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), config.dt, 1);
+        // The world owns the `frame_skip` substep loop; `step_physics` drives it
+        // via `step_actuated`, re-applying actuator torque and drag before each
+        // substep (see `step_physics`).
+        let mut world =
+            Rapier3DWorld::new(Vector::new(0.0, 0.0, 0.0), config.dt, config.frame_skip);
 
         // Reset-noise sampling: qpos and qvel all ~ U(-s, s).
         let n = config.reset_noise_scale;
@@ -244,76 +246,55 @@ impl Swimmer<Rapier3DBackend> {
         ])
     }
 
-    fn apply_action(&mut self, action: &SwimmerAction) {
+    /// Compute the two gear-scaled joint torques for `action` (clip → gear).
+    /// Pure: the torques are *applied* inside the `step_physics` substep hook so
+    /// they are re-applied fresh each substep (ADR 0037 force-lifetime contract).
+    ///
+    /// gear is frozen at its current value here; re-tuning it toward the
+    /// canonical Swimmer-v5 value (`gear [150, 150]`) is deferred to a follow-up
+    /// issue — #98 fixes only force accumulation and must not silently change
+    /// gear.
+    fn control_torques(&self, action: &SwimmerAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
-        let torques = self.config.gear.apply(&clipped);
-
-        // Under `MultibodyJointSet`, applying an external torque to a child
-        // body produces an equal-and-opposite reaction on the parent through
-        // the joint (reduced-coordinate solver handles this automatically).
-        // Torque only the child of each joint: seg1 for joint1, seg2 for
-        // joint2. Double-torquing (also applying -τ to the parent as we do
-        // in impulse-joint envs like Reacher) would inject spurious net
-        // torque on the free-floating chain.
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.segment1) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[0]), true);
-        }
-        if let Some(body) = self.world.bodies_mut().get_mut(self.state.segment2) {
-            body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
-        }
+        self.config.gear.apply(&clipped)
     }
 
-    /// Apply per-segment viscous drag to each segment:
-    /// quadratic linear drag `F = −k · v · ‖v‖` plus **linear** angular
-    /// drag `τ = −k_ang · ω`.
+    /// Run the `frame_skip` physics substeps, re-applying the constant actuator
+    /// torque **and** recomputing viscous drag before every substep.
     ///
-    /// The angular term is linear (not quadratic) because Rapier integrates
-    /// forces with explicit Euler, and the overshoot threshold of an
-    /// explicit step for quadratic drag is `k_ang · |ω| · dt / I < 1`:
-    /// at gear=150 the chain reaches `|ω|` in the 100s of rad/s, which
-    /// drives quadratic drag unstable and diverges to NaN in one substep.
-    /// Linear drag is unconditionally stable as long as `k_ang · dt / I < 2`.
-    /// MuJoCo's own swimmer uses quadratic drag but with an implicit
-    /// integrator; our linear variant is a Rapier-compatibility divergence.
-    fn apply_drag(&mut self) {
+    /// Force lifetime (ADR 0037): rapier3d 0.32 does **not** auto-clear external
+    /// forces — the accumulator would otherwise grow monotonically across
+    /// substeps and env steps. `Rapier3DWorld::step_once` now clears it after
+    /// integrating, so control that must persist has to be re-applied every
+    /// substep. Accordingly:
+    ///   * the actuator torque (`torques`) is held **constant** across the
+    ///     frame skip — the same magnitude re-applied each substep, matching
+    ///     MuJoCo's `ctrl`-held-across-substeps semantics;
+    ///   * viscous drag is recomputed each substep from the segments' **current**
+    ///     velocity, so it tracks the chain as it accelerates within the step.
+    ///
+    /// Under `MultibodyJointSet`, torquing a child body produces an
+    /// equal-and-opposite reaction on the parent through the joint (the
+    /// reduced-coordinate solver handles this), so only the child of each joint
+    /// is torqued: seg1 for joint1, seg2 for joint2. Double-torquing (also
+    /// applying −τ to the parent, as impulse-joint envs like Reacher do) would
+    /// inject spurious net torque on the free-floating chain.
+    fn step_physics(&mut self, torques: [f32; 2]) {
+        let seg0 = self.state.segment0;
+        let seg1 = self.state.segment1;
+        let seg2 = self.state.segment2;
         let k = self.config.drag_coefficient;
         let k_ang = self.config.angular_drag_coefficient;
-        for handle in [
-            self.state.segment0,
-            self.state.segment1,
-            self.state.segment2,
-        ] {
-            let twist = Rapier3DBackend::get_vel(&self.world, handle);
-            let v = twist.linear;
-            let speed = (v[0] * v[0] + v[1] * v[1]).sqrt();
-            let fx = -k * v[0] * speed;
-            let fy = -k * v[1] * speed;
-            let wz = twist.angular[2];
-            let tau_z = -k_ang * wz;
-            if let Some(body) = self.world.bodies_mut().get_mut(handle) {
-                body.add_force(Vector::new(fx, fy, 0.0), true);
-                body.add_torque(Vector::new(0.0, 0.0, tau_z), true);
+        self.world.step_actuated(|w| {
+            if let Some(body) = w.bodies_mut().get_mut(seg1) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[0]), true);
             }
-        }
-    }
-
-    /// Run `frame_skip` physics substeps, injecting viscous drag before each.
-    /// Replaces the `Rapier3DBackend::step` call used by envs without drag.
-    ///
-    /// Drag is applied *every* substep because Rapier clears external-force
-    /// accumulators after each `step_once`. The actuator torque, in contrast,
-    /// is applied once per env step at the top of `Environment::step` — same
-    /// convention as [`crate::locomotion::reacher::Reacher`] and
-    /// [`crate::locomotion::inverted_double_pendulum::InvertedDoublePendulum`].
-    /// Applying it per-substep under Rapier's PGS solver over-drives the
-    /// low-inertia chain and NaNs out.
-    fn step_physics(&mut self) {
-        let substeps = self.config.frame_skip.max(1);
-        for _ in 0..substeps {
-            self.apply_drag();
-            self.world.step_once();
-        }
+            if let Some(body) = w.bodies_mut().get_mut(seg2) {
+                body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
+            }
+            apply_drag_to(w, [seg0, seg1, seg2], k, k_ang);
+        });
     }
 }
 
@@ -394,8 +375,8 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
             )));
         }
 
-        self.apply_action(&action);
-        self.step_physics();
+        let torques = self.control_torques(&action);
+        self.step_physics(torques);
         self.steps += 1;
 
         let obs = self.extract_observation();
@@ -436,6 +417,36 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
 fn segment_z_angle(orientation: [f32; 4]) -> f32 {
     let [w, _, _, z] = orientation;
     2.0 * z.atan2(w)
+}
+
+/// Apply per-segment viscous drag to each handle in `handles`:
+/// quadratic linear drag `F = −k · v · ‖v‖` plus **linear** angular drag
+/// `τ = −k_ang · ω`, read from each body's current velocity.
+///
+/// The angular term is linear (not quadratic) because Rapier integrates forces
+/// with explicit Euler, and the overshoot threshold of an explicit step for
+/// quadratic drag is `k_ang · |ω| · dt / I < 1`: at gear=150 the chain reaches
+/// `|ω|` in the 100s of rad/s, which drives quadratic drag unstable and diverges
+/// to NaN in one substep. Linear drag is unconditionally stable as long as
+/// `k_ang · dt / I < 2`. MuJoCo's own swimmer uses quadratic drag but with an
+/// implicit integrator; our linear variant is a Rapier-compatibility divergence.
+///
+/// Free function (not a `&mut self` method) so it can be invoked from inside a
+/// `step_actuated` closure that borrows only the world (ADR 0037).
+fn apply_drag_to(world: &mut Rapier3DWorld, handles: [RigidBodyHandle; 3], k: f32, k_ang: f32) {
+    for handle in handles {
+        let twist = Rapier3DBackend::get_vel(world, handle);
+        let v = twist.linear;
+        let speed = (v[0] * v[0] + v[1] * v[1]).sqrt();
+        let fx = -k * v[0] * speed;
+        let fy = -k * v[1] * speed;
+        let wz = twist.angular[2];
+        let tau_z = -k_ang * wz;
+        if let Some(body) = world.bodies_mut().get_mut(handle) {
+            body.add_force(Vector::new(fx, fy, 0.0), true);
+            body.add_torque(Vector::new(0.0, 0.0, tau_z), true);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -749,6 +760,34 @@ mod tests {
         assert!(
             decayed,
             "drag must damp vx to < 0.5 of peak {peak_vx_mag}; final |vx| = {final_vx_mag}"
+        );
+    }
+
+    #[test]
+    fn constant_action_does_not_accumulate() {
+        // Regression for #98 (ADR 0037): a constant action applies a constant
+        // actuator torque, held across the 8 substeps and cleared each substep.
+        // With the pre-fix bug the joint torque (and drag) accumulated across
+        // substeps and env steps, so a monotonic constant action diverged the
+        // free-floating chain (velocities blow up / NaN). With drag balancing a
+        // constant torque, segment velocities must stay finite and bounded.
+        let mut env = SwimmerRapier::with_config(deterministic_cfg()).expect("valid config");
+        env.reset().unwrap();
+        let mut max_omega = 0.0f32;
+        for i in 0..300 {
+            let snap = env.step(SwimmerAction::new(1.0, -1.0)).unwrap();
+            let obs = snap.observation();
+            assert!(obs.is_finite(), "obs must stay finite at step {i}");
+            max_omega = max_omega.max(obs.omega_body().abs());
+            max_omega = max_omega.max(obs.joint1_dot().abs());
+            max_omega = max_omega.max(obs.joint2_dot().abs());
+        }
+        // Constant torque balanced by drag reaches a bounded steady state; the
+        // accumulation bug drives this unbounded (or to NaN, caught above).
+        assert!(
+            max_omega < 50.0,
+            "segment angular velocity must stay bounded under a constant action, \
+             got max |ω| = {max_omega}"
         );
     }
 

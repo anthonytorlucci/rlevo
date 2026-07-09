@@ -811,6 +811,55 @@ mod tests {
         assert_eq!(run(&actions), run(&actions));
     }
 
+    /// Regression (#98, ADR 0037): firing the main engine at constant thrust
+    /// each step must not integrate a monotonically growing force. The shared
+    /// [`RapierWorld::step`] clears external forces after integrating, so the
+    /// net (thrust − gravity) force is constant and the per-step Δ(vertical
+    /// velocity) stays bounded/decaying under damping. With the accumulation
+    /// bug the effective thrust grew each step, so Δvy grew ~linearly.
+    #[test]
+    fn test_constant_main_engine_delta_vy_does_not_grow() {
+        let cfg = LunarLanderConfig::builder()
+            .seed(7)
+            .build()
+            .expect("valid config");
+        let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
+        env.reset().unwrap();
+
+        let vy = |e: &LunarLanderDiscrete| -> f32 {
+            e.core
+                .world
+                .bodies()
+                .get(e.core.state.lander_handle)
+                .map_or(0.0, |b| b.linvel().y)
+        };
+
+        let mut prev: f32 = vy(&env);
+        let mut deltas: Vec<f32> = Vec::new();
+        for _ in 0..40 {
+            env.step(LunarLanderDiscreteAction::MainEngine).unwrap();
+            let v: f32 = vy(&env);
+            deltas.push(v - prev);
+            prev = v;
+        }
+
+        // Under correct (non-accumulating) physics the net force is constant, so
+        // |Δvy| is stationary and decays under damping: the second half's mean
+        // magnitude must not exceed the first half's. Under the accumulation bug
+        // the second half dwarfs the first.
+        let mid: usize = deltas.len() / 2;
+        let mean_abs = |slice: &[f32]| -> f32 {
+            slice.iter().map(|d| d.abs()).sum::<f32>() / slice.len() as f32
+        };
+        let first_half: f32 = mean_abs(&deltas[..mid]);
+        let second_half: f32 = mean_abs(&deltas[mid..]);
+        assert!(
+            second_half <= first_half + 1e-3,
+            "mean |Δvy| grew: first half {first_half}, second half {second_half} \
+             (force accumulating?)"
+        );
+    }
+
     #[test]
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;

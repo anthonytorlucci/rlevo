@@ -239,17 +239,14 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         ])
     }
 
-    /// Clip the action to `action_clip`, apply the gear multiplier, and
-    /// apply the resulting force to the cart along world-x for the current
-    /// substep.
-    fn apply_action(&mut self, action: &InvertedDoublePendulumAction) {
+    /// Compute the world-x cart force for `action` (clip → gear). Pure: the
+    /// force is *applied* inside the `step_actuated` closure so it is re-applied
+    /// fresh each substep (ADR 0037 force-lifetime contract).
+    fn control_force(&self, action: &InvertedDoublePendulumAction) -> f32 {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
-        let force = torques[0];
-        if let Some(cart) = self.world.bodies_mut().get_mut(self.state.cart) {
-            cart.add_force(Vector::new(force, 0.0, 0.0), true);
-        }
+        torques[0]
     }
 
     /// World-frame position of the tip (upper end of pole2).
@@ -345,8 +342,17 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
             )));
         }
 
-        self.apply_action(&action);
-        Rapier3DBackend::step(&mut self.world);
+        // Re-apply the constant cart force before every substep so it is held
+        // across the frame skip and cannot accumulate (ADR 0037). The handle is
+        // `Copy` and `force` is precomputed, so the closure borrows only the
+        // world — not `self`.
+        let force = self.control_force(&action);
+        let cart_handle = self.state.cart;
+        self.world.step_actuated(|w| {
+            if let Some(cart) = w.bodies_mut().get_mut(cart_handle) {
+                cart.add_force(Vector::new(force, 0.0, 0.0), true);
+            }
+        });
         self.steps += 1;
 
         let obs = self.extract_observation();
@@ -669,6 +675,43 @@ mod tests {
         assert_eq!(a.0[0], 1.0);
         let a = InvertedDoublePendulumAction::new(-10.0).clip(-1.0, 1.0);
         assert_eq!(a.0[0], -1.0);
+    }
+
+    #[test]
+    fn constant_force_does_not_accumulate() {
+        // Regression for #98 (ADR 0037): a constant action must produce a
+        // stationary per-step cart-velocity increment. With the pre-fix bug the
+        // cart force accumulated across steps, so Δvx grew ~linearly.
+        let mut env = InvertedDoublePendulumRapier::with_config(InvertedDoublePendulumConfig {
+            seed: 1,
+            reset_noise_scale: 0.0,
+            termination: TerminationMode::Never,
+            max_steps: 10_000,
+            ..Default::default()
+        })
+        .expect("valid config");
+        env.reset().unwrap();
+
+        let mut prev_vx = 0.0f32;
+        let mut deltas: Vec<f32> = Vec::new();
+        for _ in 0..40 {
+            let snap = env.step(InvertedDoublePendulumAction::new(1.0)).unwrap();
+            assert!(snap.observation().is_finite(), "obs must stay finite");
+            let vx = snap.observation().cart_velocity();
+            deltas.push(vx - prev_vx);
+            prev_vx = vx;
+        }
+
+        let early: f32 = deltas[0..5].iter().sum::<f32>() / 5.0;
+        let late: f32 = deltas[35..40].iter().sum::<f32>() / 5.0;
+        assert!(
+            early > 0.0,
+            "force should accelerate the cart (early Δv={early})"
+        );
+        assert!(
+            late < early * 5.0,
+            "per-step Δvx must not grow under constant force: early={early}, late={late}"
+        );
     }
 
     #[test]
