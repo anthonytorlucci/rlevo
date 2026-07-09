@@ -408,7 +408,7 @@ mod tests {
             self.steps_taken += 1;
             let done = self.steps_taken >= self.steps_until_done;
             Ok(BenchStep {
-                observation: self.steps_taken as u32,
+                observation: u32::try_from(self.steps_taken).expect("stub step count fits in u32"),
                 reward: 1.0,
                 done,
             })
@@ -624,7 +624,7 @@ mod tests {
             fn reset(&mut self) -> Result<u32, BenchError> {
                 Ok(0)
             }
-            fn step(&mut self, _: ()) -> Result<BenchStep<u32>, BenchError> {
+            fn step(&mut self, (): ()) -> Result<BenchStep<u32>, BenchError> {
                 panic!("deliberate evaluator test panic");
             }
         }
@@ -670,7 +670,7 @@ mod tests {
             .map(|t| (t.key.env_idx, t.key.trial_idx))
             .collect();
         let mut expected = keys.clone();
-        expected.sort();
+        expected.sort_unstable();
         assert_eq!(keys, expected);
     }
 

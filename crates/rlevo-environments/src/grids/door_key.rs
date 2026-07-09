@@ -384,6 +384,12 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     }
 }
 
+impl rlevo_core::render::payload::GridPayloadSource for DoorKeyEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,11 +528,5 @@ mod tests {
         assert_eq!(env.state().agent.x, 1);
         assert_eq!(env.state().agent.y, 2);
         assert_eq!(env.state().agent.direction, Direction::North);
-    }
-}
-
-impl rlevo_core::render::payload::GridPayloadSource for DoorKeyEnv {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
     }
 }

@@ -459,6 +459,45 @@ fn cell_char(row: u8, col: u8, agent_row: u8, agent_col: u8) -> char {
     }
 }
 
+impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
+    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+        use rlevo_core::render::payload::{
+            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+            TabularSnapshot,
+        };
+        // Fixed 4×12 grid: bottom-row interior is the cliff; corners are
+        // start (3,0) and goal (3,11).
+        let height: u8 = 4;
+        let mut cells = Vec::with_capacity(usize::from(height) * usize::from(NCOL));
+        for row in 0..height {
+            for col in 0..NCOL {
+                let cell = if (row, col) == START {
+                    TabularCell::Start
+                } else if (row, col) == GOAL {
+                    TabularCell::Goal
+                } else if is_cliff(row, col) {
+                    TabularCell::Hazard
+                } else {
+                    TabularCell::Empty
+                };
+                cells.push(cell);
+            }
+        }
+        TabularSnapshot {
+            layout: TabularLayout::Grid(TabularGrid {
+                width: u16::from(NCOL),
+                height: u16::from(height),
+                cells,
+                markers: vec![TabularMarker {
+                    x: u16::from(self.state.col),
+                    y: u16::from(self.state.row),
+                    kind: TabularMarkerKind::Agent,
+                }],
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`CliffWalking`], covering state encoding, cliff/goal transitions,
 /// boundary behaviour, slippery distributions, and RNG determinism.
@@ -696,45 +735,6 @@ mod tests {
                 "line exceeds 80 cols: {line:?} ({} chars)",
                 line.chars().count()
             );
-        }
-    }
-}
-
-impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
-            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
-            TabularSnapshot,
-        };
-        // Fixed 4×12 grid: bottom-row interior is the cliff; corners are
-        // start (3,0) and goal (3,11).
-        let height: u8 = 4;
-        let mut cells = Vec::with_capacity(usize::from(height) * usize::from(NCOL));
-        for row in 0..height {
-            for col in 0..NCOL {
-                let cell = if (row, col) == START {
-                    TabularCell::Start
-                } else if (row, col) == GOAL {
-                    TabularCell::Goal
-                } else if is_cliff(row, col) {
-                    TabularCell::Hazard
-                } else {
-                    TabularCell::Empty
-                };
-                cells.push(cell);
-            }
-        }
-        TabularSnapshot {
-            layout: TabularLayout::Grid(TabularGrid {
-                width: u16::from(NCOL),
-                height: u16::from(height),
-                cells,
-                markers: vec![TabularMarker {
-                    x: u16::from(self.state.col),
-                    y: u16::from(self.state.row),
-                    kind: TabularMarkerKind::Agent,
-                }],
-            }),
         }
     }
 }

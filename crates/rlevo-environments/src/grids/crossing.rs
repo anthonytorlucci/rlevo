@@ -427,6 +427,12 @@ impl Environment<3, 3, 1> for CrossingEnv {
     }
 }
 
+impl rlevo_core::render::payload::GridPayloadSource for CrossingEnv {
+    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
+        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,11 +578,5 @@ mod tests {
         let env = default_env(CrossingKind::Lava);
         assert_eq!(env.gap_col(), 3);
         assert_eq!(env.strip_rows(), vec![2, 4]);
-    }
-}
-
-impl rlevo_core::render::payload::GridPayloadSource for CrossingEnv {
-    fn grid_snapshot(&self) -> rlevo_core::render::payload::GridSnapshot {
-        crate::grids::core::render::grid_snapshot(&self.state.grid, &self.state.agent)
     }
 }

@@ -776,6 +776,38 @@ const fn tile_char(t: Tile) -> char {
     }
 }
 
+impl rlevo_core::render::payload::TabularPayloadSource for FrozenLake {
+    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
+        use rlevo_core::render::payload::{
+            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
+            TabularSnapshot,
+        };
+        let cells = self
+            .map
+            .tiles
+            .iter()
+            .map(|t| match t {
+                Tile::Start => TabularCell::Start,
+                Tile::Frozen => TabularCell::Frozen,
+                Tile::Hole => TabularCell::Hazard,
+                Tile::Goal => TabularCell::Goal,
+            })
+            .collect();
+        TabularSnapshot {
+            layout: TabularLayout::Grid(TabularGrid {
+                width: self.map.ncol as u16,
+                height: self.map.nrow as u16,
+                cells,
+                markers: vec![TabularMarker {
+                    x: u16::from(self.state.col),
+                    y: u16::from(self.state.row),
+                    kind: TabularMarkerKind::Agent,
+                }],
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 /// Unit tests for [`FrozenLake`], covering map validation, tile transitions,
 /// reward customisation, slippery distributions, random map generation, and determinism.
@@ -834,7 +866,7 @@ mod tests {
         // "SFFF / FHFH / FFFH / HFFG": start top-left, goal bottom-right, holes present.
         assert_eq!(grid.cells[0], TabularCell::Start);
         assert_eq!(grid.cells[15], TabularCell::Goal);
-        assert!(grid.cells.iter().any(|c| *c == TabularCell::Hazard));
+        assert!(grid.cells.contains(&TabularCell::Hazard));
         // One agent marker at the start cell (0, 0).
         assert_eq!(grid.markers.len(), 1);
         assert_eq!(grid.markers[0].kind, TabularMarkerKind::Agent);
@@ -1106,38 +1138,6 @@ mod tests {
                 "line exceeds 80 cols: {line:?} ({} chars)",
                 line.chars().count()
             );
-        }
-    }
-}
-
-impl rlevo_core::render::payload::TabularPayloadSource for FrozenLake {
-    fn tabular_snapshot(&self) -> rlevo_core::render::payload::TabularSnapshot {
-        use rlevo_core::render::payload::{
-            TabularCell, TabularGrid, TabularLayout, TabularMarker, TabularMarkerKind,
-            TabularSnapshot,
-        };
-        let cells = self
-            .map
-            .tiles
-            .iter()
-            .map(|t| match t {
-                Tile::Start => TabularCell::Start,
-                Tile::Frozen => TabularCell::Frozen,
-                Tile::Hole => TabularCell::Hazard,
-                Tile::Goal => TabularCell::Goal,
-            })
-            .collect();
-        TabularSnapshot {
-            layout: TabularLayout::Grid(TabularGrid {
-                width: self.map.ncol as u16,
-                height: self.map.nrow as u16,
-                cells,
-                markers: vec![TabularMarker {
-                    x: u16::from(self.state.col),
-                    y: u16::from(self.state.row),
-                    kind: TabularMarkerKind::Agent,
-                }],
-            }),
         }
     }
 }

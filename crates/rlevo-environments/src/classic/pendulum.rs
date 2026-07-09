@@ -587,6 +587,34 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumActi
     }
 }
 
+impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
+    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
+        use rlevo_core::render::payload::{
+            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
+        };
+        let l = self.config.l;
+        let theta = self.state.theta; // 0 = upright, measured from up vertical
+        // Tip: upright (+y) at theta=0; +theta rotates clockwise.
+        let tip = Point2::new(l * theta.sin(), l * theta.cos());
+        let m = l + 0.2;
+        Classic2DSnapshot {
+            bodies: vec![
+                Classic2DBody {
+                    points: vec![Point2::new(0.0, 0.0), tip],
+                    role: Classic2DRole::Pole,
+                    closed: false,
+                },
+                Classic2DBody {
+                    points: vec![Point2::new(0.0, 0.0)],
+                    role: Classic2DRole::Hinge,
+                    closed: false,
+                },
+            ],
+            bounds: (Point2::new(-m, -m), Point2::new(m, m)),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -783,33 +811,5 @@ mod tests {
             a, b,
             "reset_with_seed must reproduce the same initial state"
         );
-    }
-}
-
-impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
-    fn classic2d_snapshot(&self) -> rlevo_core::render::payload::Classic2DSnapshot {
-        use rlevo_core::render::payload::{
-            Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
-        };
-        let l = self.config.l;
-        let theta = self.state.theta; // 0 = upright, measured from up vertical
-        // Tip: upright (+y) at theta=0; +theta rotates clockwise.
-        let tip = Point2::new(l * theta.sin(), l * theta.cos());
-        let m = l + 0.2;
-        Classic2DSnapshot {
-            bodies: vec![
-                Classic2DBody {
-                    points: vec![Point2::new(0.0, 0.0), tip],
-                    role: Classic2DRole::Pole,
-                    closed: false,
-                },
-                Classic2DBody {
-                    points: vec![Point2::new(0.0, 0.0)],
-                    role: Classic2DRole::Hinge,
-                    closed: false,
-                },
-            ],
-            bounds: (Point2::new(-m, -m), Point2::new(m, m)),
-        }
     }
 }
