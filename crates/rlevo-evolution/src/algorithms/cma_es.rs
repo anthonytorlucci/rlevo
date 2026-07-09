@@ -43,7 +43,7 @@ use rand::RngExt;
 use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate, Violations};
 
-use crate::ops::linalg::{SymEigen, jacobi_eigen, matvec};
+use crate::ops::linalg::{SymEigen, jacobi_eigen, matvec, symmetrize};
 use crate::rng::{SeedPurpose, seed_stream};
 use crate::strategy::{Strategy, StrategyMetrics};
 
@@ -385,7 +385,7 @@ impl<B: Backend> CmaEsState<B> {
         // (pycma-style) — better than a tolerance-based rejection, mirroring the
         // sanitize-at-the-chokepoint convention of ADR 0034 rather than pushing
         // the problem back onto the caller.
-        crate::ops::linalg::symmetrize(&mut cov, d);
+        symmetrize(&mut cov, d);
         Ok(Self {
             mean,
             cov,
@@ -769,12 +769,23 @@ where
                 let rank1: f32 = params.c_1 * (p_c[i] * p_c[j] + delta_h * c_old[i * d + j]);
                 let mut rankmu: f32 = 0.0;
                 for (rank, yi) in y_sel.iter().enumerate() {
-                    rankmu += params.weights[rank] * yi[i] * yi[j];
+                    // Factor the bare outer-product term `yi[i] * yi[j]` before
+                    // scaling by the per-rank weight: this makes each (i,j) and
+                    // (j,i) contribution bit-identical (float multiply is
+                    // commutative but not associative), so `C` is symmetric by
+                    // construction rather than only up to a few ULPs.
+                    rankmu += params.weights[rank] * (yi[i] * yi[j]);
                 }
                 rankmu *= params.c_mu;
                 cov_new[i * d + j] = decay * c_old[i * d + j] + rank1 + rankmu;
             }
         }
+        // Defensive float-drift hygiene (pycma-style): with the factored-product
+        // accumulation above, `C` is already bit-exact symmetric by construction,
+        // so this re-symmetrization is a no-op today. It is a backstop guarding
+        // the solver's symmetry assumption (ask's `√Λ` sampling, tell's `C^{-1/2}`
+        // conditioning) against any future edit that reorders the accumulation.
+        symmetrize(&mut cov_new, d);
 
         // Track the best individual this generation.
         update_best(&mut state, &population, &fitness_host);
@@ -1164,16 +1175,17 @@ mod tests {
     }
 
     /// Issue #147 §7.2: a full adaptive `tell` must leave `C` symmetric and
-    /// positive-definite. The rank-1 / rank-μ update preserves symmetry only up
-    /// to a few ULPs (the transposed triangle entries accumulate the same
-    /// factors in a different order, and float multiplication is not
-    /// associative); this single-seed test happens to round identically for its
-    /// specific seed/dims, so it can assert exact equality — the general
-    /// relative-tolerance guarantee is covered by the
-    /// `cma_es_drive_preserves_invariants` property. PD is checked via a
-    /// symmetric eigendecomposition (all eigenvalues strictly positive), which
-    /// is exactly the property `ask`'s `√Λ` sampling and `tell`'s `C^{-1/2}`
-    /// conditioning rely on.
+    /// positive-definite. Since #241 the rank-μ update factors the bare
+    /// outer-product term before applying the per-rank weight, so each (i,j)
+    /// and (j,i) contribution is bit-identical, and a `symmetrize` backstop
+    /// runs after the loop — symmetry is therefore a *structural* guarantee,
+    /// not a lucky rounding for this seed. The `to_bits()` assertions below are
+    /// consequently a genuine invariant that holds for every seed/dim; the
+    /// `cma_es_drive_preserves_invariants` property asserts the same bit-exact
+    /// equality across the sampled space. PD is checked via a symmetric
+    /// eigendecomposition (all eigenvalues strictly positive), which is exactly
+    /// the property `ask`'s `√Λ` sampling and `tell`'s `C^{-1/2}` conditioning
+    /// rely on.
     #[test]
     fn tell_keeps_covariance_symmetric_and_positive_definite() {
         let strategy = CmaEs::<Flex>::new();
@@ -1212,6 +1224,125 @@ mod tests {
         for i in 0..d {
             assert!(cov[i * d + i] > 0.0, "non-positive variance at {i}");
         }
+    }
+
+    /// Issue #241's open question: does the rank-μ update's ULP asymmetry
+    /// *compound* over hundreds of generations, drifting `C` off the symmetric
+    /// manifold the solver assumes? With the #241 fix (factored-product
+    /// accumulation + `symmetrize` backstop) the answer is structurally no: `C`
+    /// is bit-exact symmetric after every `tell`, so it never leaves the
+    /// symmetric manifold and no drift can accumulate — there is nothing to
+    /// compound. This long run (`λ=16`, `D=5`, 400 generations of synthetic
+    /// strictly-descending fitness) exercises many `tell` updates and asserts,
+    /// after *every* generation, bit-exact symmetry across all `(i,j)`/`(j,i)`
+    /// pairs plus all-finite entries. It protects the fix against a future edit
+    /// that reorders the accumulation and reintroduces per-generation drift.
+    #[test]
+    #[allow(clippy::cast_precision_loss)]
+    fn long_run_tell_never_drifts_off_symmetric_manifold() {
+        let strategy = CmaEs::<Flex>::new();
+        let lambda: usize = 16;
+        let params = CmaEsConfig::with_pop_size(lambda, 5);
+        let d: usize = params.genome_dim;
+        let device = Default::default();
+        let mut rng = StdRng::seed_from_u64(0x0241_D21F7);
+
+        // Synthetic strictly-descending fitness: the point is to drive many
+        // `tell` updates, not to actually optimize a landscape.
+        let fitness_vals: Vec<f32> = (0..lambda).map(|i| (lambda - i) as f32).collect();
+
+        let mut state = strategy.init(&params, &mut rng, &device);
+        for generation in 0..400 {
+            let (population, asked) = strategy.ask(&params, &state, &mut rng, &device);
+            let fitness = Tensor::<Flex, 1>::from_data(
+                TensorData::new(fitness_vals.clone(), [lambda]),
+                &device,
+            );
+            let (told, _metrics) = strategy.tell(&params, population, fitness, asked, &mut rng);
+
+            let cov: &[f32] = told.cov();
+            assert!(
+                cov.iter().all(|v| v.is_finite()),
+                "cov non-finite at generation {generation}"
+            );
+            for i in 0..d {
+                for j in 0..d {
+                    assert_eq!(
+                        cov[i * d + j].to_bits(),
+                        cov[j * d + i].to_bits(),
+                        "asymmetry at ({i}, {j}) in generation {generation}"
+                    );
+                }
+            }
+            state = told;
+        }
+    }
+
+    /// Issue #241, isolated: guards the Task-1 accumulation fix on its own.
+    /// `tell` runs an unconditional `symmetrize` backstop, so every `tell`-level
+    /// symmetry test would still pass even if the parenthesization were reverted
+    /// — nothing would independently catch a regressed "bit-exact by
+    /// construction" claim. This test reconstructs the rank-µ accumulation the
+    /// way `tell` does but WITHOUT calling `tell`, so no backstop can mask a bad
+    /// grouping. It uses non-power-of-two floats chosen so the naive grouping
+    /// actually diverges in the last ULPs:
+    ///  - (a) the FIXED grouping `w · (yᵢ[i]·yᵢ[j])` is bit-exact symmetric;
+    ///  - (b) the OLD grouping `(w · yᵢ[i]) · yᵢ[j]` diverges on at least one
+    ///    transposed pair, documenting why the parenthesization is load-bearing.
+    #[test]
+    fn rankmu_accumulation_is_symmetric_by_construction() {
+        let d: usize = 3;
+        // Per-rank weights and selected step vectors picked so float
+        // non-associativity bites (non-power-of-two magnitudes).
+        let weights: Vec<f32> = vec![0.3, 0.7];
+        let y_sel: Vec<Vec<f32>> = vec![vec![1.1, 3.3, 7.7], vec![2.2, 5.5, 9.9]];
+
+        // (a) FIXED grouping — factor the bare outer product before the weight.
+        let mut fixed: Vec<f32> = vec![0.0; d * d];
+        for i in 0..d {
+            for j in 0..d {
+                let mut acc: f32 = 0.0;
+                for (rank, yi) in y_sel.iter().enumerate() {
+                    acc += weights[rank] * (yi[i] * yi[j]);
+                }
+                fixed[i * d + j] = acc;
+            }
+        }
+        for i in 0..d {
+            for j in 0..d {
+                assert_eq!(
+                    fixed[i * d + j].to_bits(),
+                    fixed[j * d + i].to_bits(),
+                    "fixed grouping asymmetric at ({i}, {j})"
+                );
+            }
+        }
+
+        // (b) OLD grouping — proves the hazard is real: at least one transposed
+        // pair diverges in its last ULPs without the parenthesization.
+        let mut old: Vec<f32> = vec![0.0; d * d];
+        for i in 0..d {
+            for j in 0..d {
+                let mut acc: f32 = 0.0;
+                for (rank, yi) in y_sel.iter().enumerate() {
+                    acc += weights[rank] * yi[i] * yi[j];
+                }
+                old[i * d + j] = acc;
+            }
+        }
+        let mut old_diverges: bool = false;
+        for i in 0..d {
+            for j in 0..d {
+                if old[i * d + j].to_bits() != old[j * d + i].to_bits() {
+                    old_diverges = true;
+                }
+            }
+        }
+        assert!(
+            old_diverges,
+            "old grouping did not diverge — contrast values no longer exercise \
+             float non-associativity"
+        );
     }
 
     /// Issue #147 §7.2 best-tracking: `best()` is `None` before any `tell`, and
@@ -1360,28 +1491,21 @@ mod tests {
                     strategy.tell(&params, population, fitness, asked, &mut rng);
 
                 let cov: &[f32] = told.cov();
-                // Invariant 2: covariance is symmetric. The single-seed test
-                // asserts *bit-exact* symmetry, but that holds only for inputs
-                // where the rank-μ accumulation happens to round identically:
-                // `params.weights[rank] * yi[i] * yi[j]` parses as
-                // `(w · yi[i]) · yi[j]`, whose transpose `(w · yi[j]) · yi[i]`
-                // is equal under commutativity but *not* associativity, so the
-                // two triangle entries can diverge by a few ULPs. Across the
-                // sampled space we therefore assert tight relative symmetry.
+                // Invariant 2: covariance is *bit-exact* symmetric (was relative
+                // pre-#241). The rank-μ update now factors the bare
+                // outer-product term before the per-rank weight, so each (i,j)
+                // and (j,i) contribution is bit-identical, and a `symmetrize`
+                // backstop runs after the loop. Symmetry is therefore guaranteed
+                // by construction across the whole sampled space — no ULP
+                // divergence between the transposed triangle entries.
                 for i in 0..d {
                     for j in 0..d {
-                        prop_assert!(
-                            approx::relative_eq!(
-                                cov[i * d + j],
-                                cov[j * d + i],
-                                epsilon = 1e-6,
-                                max_relative = 1e-4
-                            ),
-                            "asymmetry at ({}, {}): {} vs {}",
+                        prop_assert_eq!(
+                            cov[i * d + j].to_bits(),
+                            cov[j * d + i].to_bits(),
+                            "asymmetry at ({}, {})",
                             i,
-                            j,
-                            cov[i * d + j],
-                            cov[j * d + i]
+                            j
                         );
                     }
                 }

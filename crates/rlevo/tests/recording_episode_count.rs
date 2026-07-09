@@ -73,8 +73,8 @@ const EP_LEN: usize = 10;
 /// Fixed-length toy environment that terminates every `episode_len` steps,
 /// used to make episode counts predictable in recording tests.
 ///
-/// Reuses CartPole's observation, action, and reward types solely to inherit
-/// their `Observation`, `Action`, and `TensorConvertible` impls. No CartPole
+/// Reuses `CartPole`'s observation, action, and reward types solely to inherit
+/// their `Observation`, `Action`, and `TensorConvertible` impls. No `CartPole`
 /// physics is involved.
 #[derive(Debug)]
 struct FixedLenEnv {
