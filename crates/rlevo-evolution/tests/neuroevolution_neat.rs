@@ -185,18 +185,26 @@ fn test_neat_run_is_reproducible_under_fixed_seed() {
 /// so the dense path is exercised on all four [`ActivationFn`] variants, padding
 /// (node counts 3..=5, so `N = 5`), a two-hidden-layer chain, and edge disabling.
 fn parity_population() -> Vec<TopologyGenome> {
-    let input = |id: u64| NodeGene {
+    vec![parity_g1(), parity_g2(), parity_g3(), parity_g4()]
+}
+
+/// An `Input` node with linear activation and zero bias — the shared I/O head
+/// every parity genome carries on ids 0 and 1.
+fn input_node(id: u64) -> NodeGene {
+    NodeGene {
         id: NodeId::new(id),
         kind: NodeKind::Input,
         activation: ActivationFn::Linear,
         bias: 0.0,
-    };
+    }
+}
 
-    // G1 — sigmoid output, no hidden.
-    let g1 = TopologyGenome::new(
+/// G1 — sigmoid output, no hidden.
+fn parity_g1() -> TopologyGenome {
+    TopologyGenome::new(
         vec![
-            input(0),
-            input(1),
+            input_node(0),
+            input_node(1),
             NodeGene {
                 id: NodeId::new(2),
                 kind: NodeKind::Output,
@@ -220,13 +228,15 @@ fn parity_population() -> Vec<TopologyGenome> {
                 enabled: true,
             },
         ],
-    );
+    )
+}
 
-    // G2 — tanh hidden → linear output, plus a DISABLED direct edge 0→2.
-    let g2 = TopologyGenome::new(
+/// G2 — tanh hidden → linear output, plus a DISABLED direct edge 0→2.
+fn parity_g2() -> TopologyGenome {
+    TopologyGenome::new(
         vec![
-            input(0),
-            input(1),
+            input_node(0),
+            input_node(1),
             NodeGene {
                 id: NodeId::new(2),
                 kind: NodeKind::Output,
@@ -270,14 +280,16 @@ fn parity_population() -> Vec<TopologyGenome> {
                 enabled: true,
             },
         ],
-    );
+    )
+}
 
-    // G3 — two hidden layers: relu (3) → sigmoid (4) → linear output (longest
-    // path 3 edges, so it needs the multi-iteration propagation to settle).
-    let g3 = TopologyGenome::new(
+/// G3 — two hidden layers: relu (3) → sigmoid (4) → linear output (longest
+/// path 3 edges, so it needs the multi-iteration propagation to settle).
+fn parity_g3() -> TopologyGenome {
+    TopologyGenome::new(
         vec![
-            input(0),
-            input(1),
+            input_node(0),
+            input_node(1),
             NodeGene {
                 id: NodeId::new(2),
                 kind: NodeKind::Output,
@@ -327,13 +339,15 @@ fn parity_population() -> Vec<TopologyGenome> {
                 enabled: true,
             },
         ],
-    );
+    )
+}
 
-    // G4 — linear output, no hidden, non-zero output bias.
-    let g4 = TopologyGenome::new(
+/// G4 — linear output, no hidden, non-zero output bias.
+fn parity_g4() -> TopologyGenome {
+    TopologyGenome::new(
         vec![
-            input(0),
-            input(1),
+            input_node(0),
+            input_node(1),
             NodeGene {
                 id: NodeId::new(2),
                 kind: NodeKind::Output,
@@ -357,9 +371,7 @@ fn parity_population() -> Vec<TopologyGenome> {
                 enabled: true,
             },
         ],
-    );
-
-    vec![g1, g2, g3, g4]
+    )
 }
 
 /// The four binary XOR input rows as a `[4, 2]` observation batch.
