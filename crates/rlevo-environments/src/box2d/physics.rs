@@ -212,6 +212,11 @@ impl RapierWorld {
         &mut self.bodies
     }
 
+    /// Read-only access to all impulse joints (for observation extraction).
+    pub fn joints(&self) -> &ImpulseJointSet {
+        &self.impulse_joints
+    }
+
     /// Mutable access to impulse joints (for setting motor targets / velocities).
     pub fn joints_mut(&mut self) -> &mut ImpulseJointSet {
         &mut self.impulse_joints
