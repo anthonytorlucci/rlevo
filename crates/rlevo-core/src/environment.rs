@@ -93,6 +93,18 @@ pub enum EnvironmentError {
     /// An I/O operation failed (wraps std::io::Error).
     #[error("IO operation failed: {0}")]
     IoError(#[from] std::io::Error),
+    /// A configuration-domain invariant failed during a lifecycle operation.
+    ///
+    /// A `reset()` may re-run construction-time work (e.g. rebuilding a
+    /// procedural world), so a config-domain invariant — a [`ConfigError`] —
+    /// can surface at reset, not only at construction. This variant is kept
+    /// **generic** (not tied to any one environment) so any lifecycle method
+    /// that re-validates config-domain state can propagate the failure with
+    /// `?`, avoiding a stringly-typed re-wrap.
+    ///
+    /// [`ConfigError`]: crate::config::ConfigError
+    #[error("Configuration error: {0}")]
+    Config(#[from] crate::config::ConfigError),
 }
 
 /// Snapshot trait defines the interface for environment state observations.

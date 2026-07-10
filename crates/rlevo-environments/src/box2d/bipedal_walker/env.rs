@@ -23,7 +23,7 @@ use rapier2d::dynamics::RevoluteJoint;
 use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
-use rlevo_core::config::{ConfigError, Validate};
+use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
 };
@@ -158,24 +158,43 @@ impl BipedalWalker {
             steps: 0,
             total_reward: 0.0,
         };
-        env.rebuild_world();
+        env.rebuild_world()?;
         Ok(env)
     }
 
     /// Tear down and rebuild the rapier world with fresh terrain and walker bodies.
-    fn rebuild_world(&mut self) {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the active [`TerrainGenerator`] violates its
+    /// output contract (ADR 0040): fewer than two points, or a decreasing x
+    /// step. This is the single chokepoint that enforces the terrain-output
+    /// invariant before any collider is built.
+    fn rebuild_world(&mut self) -> Result<(), ConfigError> {
         self.world = RapierWorld::new(Vector::new(0.0, self.config.gravity), self.config.dt);
-        let pts = self.terrain.generate(&mut self.rng);
+        let pts: Vec<[f32; 2]> = self.terrain.generate(&mut self.rng);
+        // Validate the generator output contract (ADR 0040): at least two
+        // points, x non-decreasing left-to-right. A violation would build a
+        // backwards or zero-length ground collider (#120).
+        if pts.len() < 2 || pts.windows(2).any(|w| w[0][0] > w[1][0]) {
+            return Err(ConfigError {
+                config: "BipedalWalker",
+                field: "terrain",
+                kind: ConstraintKind::Custom(
+                    "terrain generator produced fewer than 2 non-decreasing points",
+                ),
+            });
+        }
         self.build_ground(&pts);
         self.build_walker();
         // Warm-start: one step so joints settle
         self.world.step();
+        Ok(())
     }
 
     fn build_ground(&mut self, pts: &[[f32; 2]]) {
-        if pts.len() < 2 {
-            return;
-        }
+        // `pts` is guaranteed to hold at least two non-decreasing points by the
+        // `rebuild_world` chokepoint (ADR 0040), so no length guard is needed.
         // Build ground as a series of cuboid segments approximating the polyline.
         // For simplicity, use a long flat cuboid for now.
         let ground_rb = self.world.add_body(RigidBodyBuilder::fixed());
@@ -185,28 +204,26 @@ impl BipedalWalker {
                 .friction(self.config.hull_friction),
             ground_rb,
         );
-        // Additional segments for rough / hardcore terrain
-        if pts.len() >= 2 {
-            for w in pts.windows(2) {
-                let x0 = w[0][0] / SCALE;
-                let y0 = w[0][1] / SCALE;
-                let x1 = w[1][0] / SCALE;
-                let y1 = w[1][1] / SCALE;
-                let mx = (x0 + x1) / 2.0;
-                let my = (y0 + y1) / 2.0;
-                let dx = x1 - x0;
-                let dy = y1 - y0;
-                let len = (dx * dx + dy * dy).sqrt() / 2.0;
-                let angle = dy.atan2(dx);
-                let seg_rb = self.world.add_body(RigidBodyBuilder::fixed());
-                self.world.add_collider(
-                    ColliderBuilder::cuboid(len, 0.05)
-                        .rotation(angle)
-                        .translation(Vector::new(mx, my + GROUND_Y))
-                        .friction(self.config.hull_friction),
-                    seg_rb,
-                );
-            }
+        // Additional segments for rough / hardcore terrain.
+        for w in pts.windows(2) {
+            let x0 = w[0][0] / SCALE;
+            let y0 = w[0][1] / SCALE;
+            let x1 = w[1][0] / SCALE;
+            let y1 = w[1][1] / SCALE;
+            let mx = (x0 + x1) / 2.0;
+            let my = (y0 + y1) / 2.0;
+            let dx = x1 - x0;
+            let dy = y1 - y0;
+            let len = (dx * dx + dy * dy).sqrt() / 2.0;
+            let angle = dy.atan2(dx);
+            let seg_rb = self.world.add_body(RigidBodyBuilder::fixed());
+            self.world.add_collider(
+                ColliderBuilder::cuboid(len, 0.05)
+                    .rotation(angle)
+                    .translation(Vector::new(mx, my + GROUND_Y))
+                    .friction(self.config.hull_friction),
+                seg_rb,
+            );
         }
     }
 
@@ -476,8 +493,13 @@ impl Environment<1, 1, 1> for BipedalWalker {
 
     /// Rebuild the physics world, reset counters, and return the initial
     /// observation with reward 0 and status `Running`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::Config`] if the active terrain generator
+    /// violates its output contract (ADR 0040) when the world is rebuilt.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rebuild_world();
+        self.rebuild_world()?;
         self.steps = 0;
         self.total_reward = 0.0;
         self.state.leg1_contact = false;
@@ -855,6 +877,129 @@ mod tests {
             assert!(
                 snap.observation().is_finite(),
                 "reset obs must be finite for terrain {terrain:?}"
+            );
+        }
+    }
+
+    /// Test-only generator: returns a decreasing-x polyline (violates the
+    /// non-decreasing-x output contract).
+    #[derive(Debug)]
+    struct DecreasingXTerrain;
+
+    impl TerrainGenerator for DecreasingXTerrain {
+        fn generate(&self, _rng: &mut StdRng) -> Vec<[f32; 2]> {
+            // 5.0 -> 1.0 is a backwards step.
+            vec![[-10.0, 0.0], [5.0, 0.0], [1.0, 0.0]]
+        }
+    }
+
+    /// Test-only generator: returns fewer than two points.
+    #[derive(Debug)]
+    struct TooFewPointsTerrain;
+
+    impl TerrainGenerator for TooFewPointsTerrain {
+        fn generate(&self, _rng: &mut StdRng) -> Vec<[f32; 2]> {
+            vec![[-10.0, 0.0]]
+        }
+    }
+
+    /// Test-only generator: valid on the first call (construction), invalid on
+    /// every subsequent call (reset) — so the `reset()` chokepoint reject branch
+    /// and the `EnvironmentError::Config` conversion are exercised end-to-end.
+    #[derive(Debug)]
+    struct ValidThenInvalidTerrain {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl TerrainGenerator for ValidThenInvalidTerrain {
+        fn generate(&self, _rng: &mut StdRng) -> Vec<[f32; 2]> {
+            let n: usize = self
+                .calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if n == 0 {
+                // Valid flat polyline for construction.
+                (0..=200).map(|i| [i as f32 - 10.0, 0.0]).collect()
+            } else {
+                // Invalid (decreasing x) for the reset rebuild.
+                vec![[-10.0, 0.0], [5.0, 0.0], [1.0, 0.0]]
+            }
+        }
+    }
+
+    #[test]
+    fn test_rebuild_world_rejects_invalid_terrain() {
+        // #120 / ADR 0040: the rebuild_world chokepoint rejects a generator that
+        // violates the output contract. Construction routes through build ->
+        // rebuild_world, so both sub-cases surface as Err(ConfigError) at
+        // with_terrain time.
+        let cfg_a: BipedalWalkerConfig = BipedalWalkerConfig::default();
+        let err_a: ConfigError =
+            BipedalWalker::with_terrain(cfg_a, Box::new(DecreasingXTerrain)).unwrap_err();
+        assert_eq!(
+            err_a.field, "terrain",
+            "decreasing-x terrain must be rejected on the `terrain` field"
+        );
+
+        let cfg_b: BipedalWalkerConfig = BipedalWalkerConfig::default();
+        let err_b: ConfigError =
+            BipedalWalker::with_terrain(cfg_b, Box::new(TooFewPointsTerrain)).unwrap_err();
+        assert_eq!(
+            err_b.field, "terrain",
+            "<2-point terrain must be rejected on the `terrain` field"
+        );
+    }
+
+    #[test]
+    fn test_reset_maps_invalid_terrain_to_config_error() {
+        // #120 / ADR 0040: a generator valid at construction but invalid on the
+        // reset rebuild must surface as EnvironmentError::Config(_) — exercising
+        // the `#[from] ConfigError` conversion in `reset()`.
+        let cfg: BipedalWalkerConfig = BipedalWalkerConfig::default();
+        let terrain = Box::new(ValidThenInvalidTerrain {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut env: BipedalWalker =
+            BipedalWalker::with_terrain(cfg, terrain).expect("first build must be valid");
+        let err: EnvironmentError = env.reset().unwrap_err();
+        assert!(
+            matches!(err, EnvironmentError::Config(_)),
+            "reset must map an invalid-terrain ConfigError to EnvironmentError::Config, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_reset_finite_obs_all_terrains() {
+        // #120: reset() must succeed and yield finite observations for every
+        // terrain preset. Hardcore is swept over several seeds because its
+        // procedural geometry (and the old backwards-collider bug) is
+        // seed-dependent.
+        use crate::box2d::bipedal_walker::config::BipedalTerrain;
+
+        for terrain in [BipedalTerrain::Flat, BipedalTerrain::Rough] {
+            let cfg = BipedalWalkerConfig::builder()
+                .terrain(terrain)
+                .seed(1)
+                .build()
+                .expect("valid config");
+            let mut env = BipedalWalker::with_config(cfg).expect("valid config");
+            let snap = env.reset().expect("reset must succeed");
+            assert!(
+                snap.observation().is_finite(),
+                "reset obs must be finite for {terrain:?}"
+            );
+        }
+
+        for seed in 0..16u64 {
+            let cfg = BipedalWalkerConfig::builder()
+                .terrain(BipedalTerrain::Hardcore)
+                .seed(seed)
+                .build()
+                .expect("valid config");
+            let mut env = BipedalWalker::with_config(cfg).expect("valid config");
+            let snap = env.reset().expect("hardcore reset must succeed");
+            assert!(
+                snap.observation().is_finite(),
+                "hardcore reset obs must be finite for seed {seed}"
             );
         }
     }
