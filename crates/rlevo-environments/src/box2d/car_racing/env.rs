@@ -318,7 +318,12 @@ impl CarRacing {
             .collect();
         self.rasterizer.fill_polygon(&car_px, [255, 255, 255]);
 
-        CarRacingObservation::new(*self.rasterizer.pixels())
+        // PERF(#115): zero-copy hand-off — move the rasterizer's buffer into the
+        // observation instead of copying it twice. The residual cost is one
+        // Box->Arc header-prepend copy in `from_boxed`; a future Arc-in-rasterizer
+        // design (get_mut on a shared buffer) could retire even that if profiling
+        // ever justifies the added write-path surface.
+        CarRacingObservation::from_boxed(self.rasterizer.take_pixels())
     }
 
     /// Borrow the internal physics state for in-crate invariant tests.

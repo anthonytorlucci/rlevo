@@ -11,6 +11,8 @@
 //! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
 //! the frame from HWC to CHW first.
 
+use std::sync::Arc;
+
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
 
 use burn::tensor::{Tensor, backend::Backend};
@@ -21,6 +23,13 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 ///
 /// Pixel values are stored as `u8` in `[0, 255]`, row-major, RGB.
 ///
+/// The buffer is held behind an [`Arc`] so cloning an observation — which the
+/// hot path does for the cached `last_obs` and on every `observe()` — is a
+/// refcount bump rather than a 27 KB deep copy. The `Arc` also makes the
+/// observation `Send + Sync`, which parallel EA rollouts require. Construct one
+/// on the render path with [`from_boxed`](Self::from_boxed), which moves the
+/// rasterizer's owned buffer in.
+///
 /// When converted to tensors via
 /// [`TensorConvertible`](rlevo_core::base::TensorConvertible), the buffer becomes
 /// a Burn `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, each byte normalised by
@@ -30,15 +39,30 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 /// (synthetic pixel over grid).
 #[derive(Clone)]
 pub struct CarRacingObservation {
-    /// Raw pixel buffer: 96 × 96 × 3 = 27 648 bytes.
-    pub pixels: Box<[u8; PIXEL_BYTES]>,
+    /// Raw pixel buffer: 96 × 96 × 3 = 27 648 bytes, shared via `Arc` so clones
+    /// are cheap refcount bumps.
+    pub pixels: Arc<[u8; PIXEL_BYTES]>,
 }
 
 impl CarRacingObservation {
     /// Construct from a raw pixel array.
     pub fn new(pixels: [u8; PIXEL_BYTES]) -> Self {
         Self {
-            pixels: Box::new(pixels),
+            pixels: Arc::new(pixels),
+        }
+    }
+
+    /// Construct by moving an owned boxed buffer in — the zero-copy hand-off from
+    /// the rasterizer. Wraps the buffer in an `Arc` so later clones (the cached
+    /// `last_obs` and every `observe()`) are refcount bumps rather than 27 KB deep
+    /// copies. The `Box` → `Arc` conversion is the single residual 27 KB copy on
+    /// the render *hot path* (an `Arc` must prepend a refcount header, so the box
+    /// allocation cannot be reused). The cold [`Deserialize`](serde::Deserialize)
+    /// and [`from_tensor`](TensorConvertible::from_tensor) paths each perform one
+    /// such `Box` → `Arc` copy too, but neither runs per render step.
+    pub fn from_boxed(pixels: Box<[u8; PIXEL_BYTES]>) -> Self {
+        Self {
+            pixels: Arc::from(pixels),
         }
     }
 
@@ -57,7 +81,7 @@ impl std::fmt::Debug for CarRacingObservation {
 impl Default for CarRacingObservation {
     fn default() -> Self {
         Self {
-            pixels: Box::new([0u8; PIXEL_BYTES]),
+            pixels: Arc::new([0u8; PIXEL_BYTES]),
         }
     }
 }
@@ -91,7 +115,9 @@ impl<'de> serde::Deserialize<'de> for CarRacingObservation {
                         .next_element()?
                         .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
                 }
-                Ok(CarRacingObservation { pixels })
+                Ok(CarRacingObservation {
+                    pixels: Arc::from(pixels),
+                })
             }
         }
         deserializer.deserialize_tuple(PIXEL_BYTES, PixelVisitor)
@@ -157,13 +183,23 @@ impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
                 .map_err(|_| TensorConversionError {
                     message: "wrong element count".into(),
                 })?;
-        Ok(Self { pixels: arr })
+        Ok(Self {
+            pixels: Arc::from(arr),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Compile-time guard for the struct doc's claim that observations cross EA
+    // rollout threads: adding a non-`Send`/`Sync` field (e.g. swapping `Arc` for
+    // `Rc`) would make this fail to compile.
+    fn _assert_send_sync() {
+        fn f<T: Send + Sync>() {}
+        f::<CarRacingObservation>();
+    }
 
     #[test]
     fn test_shape() {
@@ -174,6 +210,34 @@ mod tests {
     fn test_default_is_zeroed() {
         let obs = CarRacingObservation::default();
         assert!(obs.pixels.iter().all(|&p| p == 0));
+    }
+
+    #[test]
+    fn serde_round_trip() {
+        let mut px: [u8; PIXEL_BYTES] = [0u8; PIXEL_BYTES];
+        for (i, p) in px.iter_mut().enumerate() {
+            *p = (i % 256) as u8;
+        }
+        let obs = CarRacingObservation::new(px);
+
+        let cfg = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&obs, cfg).unwrap();
+        let (back, _len): (CarRacingObservation, usize) =
+            bincode::serde::decode_from_slice(&bytes, cfg).unwrap();
+
+        // End-to-end: custom Serialize → Deserialize visitor (Box scratch → Arc).
+        assert_eq!(&*obs.pixels, &*back.pixels);
+    }
+
+    #[test]
+    fn from_boxed_preserves_pixels() {
+        let mut src = Box::new([0u8; PIXEL_BYTES]);
+        for (i, b) in src.iter_mut().enumerate() {
+            *b = (i % 256) as u8;
+        }
+        let expected = *src.clone();
+        let obs = CarRacingObservation::from_boxed(src);
+        assert_eq!(&*obs.pixels, &expected);
     }
 
     #[test]
