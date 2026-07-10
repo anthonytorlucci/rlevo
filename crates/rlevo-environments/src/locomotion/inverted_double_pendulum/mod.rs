@@ -36,6 +36,13 @@
 //!   MuJoCo's equivalent `cfrc_inv[0]` is a joint reaction force computed in
 //!   generalised coordinates. Signs and rough magnitudes follow the same
 //!   dynamics; absolute values will differ.
+//!
+//!   Note: jointed-neighbour contacts are disabled on both revolute joints for
+//!   MuJoCo parent–child contact-filter parity (ADR 0041), so pole2 touches
+//!   nothing in normal operation and `obs[8]` is `≈ 0`. The slot is retained as
+//!   a placeholder for a future re-model against Gymnasium's `qfrc_constraint`
+//!   (the generalised constraint force on the cart slider DOF), tracked in
+//!   issue #271.
 //! * `ω₂` is reported as world-frame angular velocity (not relative to pole1),
 //!   matching MuJoCo's `qvel` for the second hinge — i.e. it is the body's
 //!   absolute rate, not the rate of the relative joint angle.

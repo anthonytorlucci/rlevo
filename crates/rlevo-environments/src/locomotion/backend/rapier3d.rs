@@ -7,13 +7,17 @@
 //! they behave closer to MuJoCo's generalised coordinates than plain impulse
 //! joints would.
 //!
-//! Note: rapier3d 0.32 uses glam (`Vec3`, `Quat`) under the hood via parry's
-//! re-exports — there is no nalgebra in observation paths.
+//! Note on math types: rapier3d 0.32's `Vector`, `Rotation`, and `Isometry`
+//! come from parry's glam-backed re-exports (parry3d 0.26 wraps glam — its
+//! `Vector` is `glam::Vec3`, `Rotation` is `glam::Quat`). This backend is the
+//! **seam** that packs those engine math types into plain `[f32; N]` arrays
+//! ([`Pose`], [`Twist`], and the `[f32; 6]` contact wrench), so no glam (or
+//! nalgebra) type ever crosses into observation/state code.
 
 use rapier3d::math::{Real, Vector};
 use rapier3d::prelude::*;
 
-use super::{LocomotionBackend, Pose, Twist};
+use super::{BackendError, LocomotionBackend, Pose, Twist};
 
 /// Rapier3D scene for one locomotion environment.
 ///
@@ -241,6 +245,22 @@ impl From<MultibodyJointHandle> for Rapier3DJointHandle {
 #[derive(Debug, Clone, Copy)]
 pub struct Rapier3DBackend;
 
+/// True iff `locked` describes a **revolute** (hinge) joint: a single free
+/// angular degree of freedom and no free translation.
+///
+/// A scalar torque is the generalized force on exactly one hinge axis, so it is
+/// only well-defined here. This accepts rapier's `LOCKED_REVOLUTE_AXES` (all
+/// three linear axes plus two of three angular axes locked, leaving one angular
+/// free) and rejects prismatic (free linear), spherical (three free angular),
+/// and fixed (zero free) joints.
+fn is_revolute_axes(locked: JointAxesMask) -> bool {
+    // No free translation …
+    let all_lin_locked = locked.contains(JointAxesMask::LIN_AXES);
+    // … and exactly one free angular axis.
+    let free_ang = JointAxesMask::ANG_AXES.difference(locked);
+    all_lin_locked && free_ang.bits().count_ones() == 1
+}
+
 impl LocomotionBackend for Rapier3DBackend {
     type World = Rapier3DWorld;
     type BodyHandle = RigidBodyHandle;
@@ -285,39 +305,158 @@ impl LocomotionBackend for Rapier3DBackend {
         )
     }
 
-    /// **Not yet implemented — panics at runtime.**
+    /// Drive a revolute joint's free axis by a scalar torque (MuJoCo `motor`
+    /// analogue). Dispatches on the [`Rapier3DJointHandle`] kind — the maximal-
+    /// vs reduced-coordinate mechanics differ and this split is load-bearing.
     ///
-    /// Rapier3D lacks a first-class "apply torque to joint" primitive. The
-    /// planned v0.2 implementation will either (a) apply equal-and-opposite
-    /// angular impulses to the two bodies about the joint's free axis, or
-    /// (b) use the joint motor API with high damping / zero stiffness.
-    /// Until then, per-env skeleton builders apply torque directly via
-    /// `RigidBodySet::get_mut(…).add_torque(…)`.
+    /// - **`Impulse` (maximal coordinates).** Both bodies are free; the hinge is
+    ///   enforced by the solver. Apply **equal-and-opposite** world-axis torques:
+    ///   `+τ·â` to `body2`, `−τ·â` to `body1`. The pair injects zero *net*
+    ///   external torque, so the generalized force lands on the hinge DOF alone.
+    /// - **`Multibody` (reduced coordinates).** The hinge is baked into the
+    ///   parameterization, so torque the **child only** (`body2` of the
+    ///   parent→child insertion): `+τ·â` on the child projects onto the hinge DOF
+    ///   and the solver supplies the parent reaction. Also torquing the parent
+    ///   (as the impulse path does) would inject spurious generalized force on
+    ///   upstream DOFs — the existing swimmer/env.rs child-only convention.
     ///
-    /// # Panics
+    /// `â` is the joint's free hinge axis in world space: `body1`'s world rotation
+    /// applied to `local_frame1.rotation · X` (the unit hinge axis in `body1`'s
+    /// local frame). `GenericJoint::local_axis1()` is deliberately **avoided** —
+    /// under rapier 0.32's glam backend `Pose * Vector` is `transform_point`, so
+    /// `local_axis1()` returns `axis + anchor` (non-unit, contaminated). A positive
+    /// `τ` drives `body2` positively about `+â`. The torque lives one substep (ADR 0037):
+    /// callers hold it across `frame_skip` by re-applying inside
+    /// [`Rapier3DWorld::step_actuated`]. See ADR 0041.
     ///
-    /// Always panics with an explanatory message.
-    fn apply_joint_torque(_world: &mut Self::World, _joint: Self::JointHandle, _torque: f32) {
-        // Rapier 3D doesn't expose a clean "joint torque" primitive — for
-        // revolute joints the future implementation will either (a) apply
-        // equal-and-opposite angular impulses to the two bodies about the
-        // joint's free axis, or (b) use the joint motor API with high
-        // damping / zero stiffness. The cleanest mapping depends on whether
-        // the joint is impulse-based or multibody. Per-env skeleton builders
-        // currently apply torque directly via
-        // `RigidBodySet::get_mut(...).add_torque(...)`.
-        unimplemented!(
-            "Rapier3DBackend::apply_joint_torque is not wired up; \
-             per-env skeletons apply torque directly via RigidBodySet::add_torque. \
-             Planned for v0.2."
-        );
+    /// # Errors
+    ///
+    /// - [`BackendError::InvalidJointHandle`] — the handle is stale/unknown, or a
+    ///   joint body (or the multibody parent link) cannot be resolved.
+    /// - [`BackendError::UnsupportedJoint`] — the joint is not revolute (it lacks
+    ///   a single free angular axis), e.g. prismatic, spherical, or fixed.
+    fn apply_joint_torque(
+        world: &mut Self::World,
+        joint: Self::JointHandle,
+        torque: f32,
+    ) -> Result<(), BackendError> {
+        match joint {
+            Rapier3DJointHandle::Impulse(handle) => {
+                // Resolve the joint, validate revolute, and compute the world
+                // hinge axis under one immutable borrow of disjoint world fields.
+                let (body1, body2, axis) = {
+                    let joint = world
+                        .impulse_joints
+                        .get(handle)
+                        .ok_or(BackendError::InvalidJointHandle)?;
+                    if !is_revolute_axes(joint.data.locked_axes) {
+                        return Err(BackendError::UnsupportedJoint(
+                            "impulse joint has no single free angular axis (expected revolute)",
+                        ));
+                    }
+                    let body1 = joint.body1;
+                    let body2 = joint.body2;
+                    // Hinge axis in body1's local frame = local_frame1's rotation
+                    // applied to the joint's principal (X) axis. NOTE: do NOT use
+                    // `GenericJoint::local_axis1()` here — under rapier 0.32's glam
+                    // backend `Pose * Vector` is `transform_point` (adds the frame
+                    // translation), so `local_axis1()` returns `axis + anchor`, a
+                    // non-unit contaminated vector. Extracting from the rotation
+                    // only yields the correct unit axis. See ADR 0041.
+                    let local_axis = joint.data.local_frame1.rotation * Vector::X;
+                    let rot1 = *world
+                        .bodies
+                        .get(body1)
+                        .ok_or(BackendError::InvalidJointHandle)?
+                        .rotation();
+                    // â: world-frame hinge axis (unit) from body1's rotation.
+                    let axis = rot1 * local_axis;
+                    (body1, body2, axis)
+                };
+                // Equal-and-opposite: in maximal coordinates both bodies are free,
+                // so the solver — not this torque pair — enforces the hinge.
+                world
+                    .bodies
+                    .get_mut(body2)
+                    .ok_or(BackendError::InvalidJointHandle)?
+                    .add_torque(axis * torque, true);
+                world
+                    .bodies
+                    .get_mut(body1)
+                    .ok_or(BackendError::InvalidJointHandle)?
+                    .add_torque(axis * -torque, true);
+                Ok(())
+            }
+            Rapier3DJointHandle::Multibody(handle) => {
+                // Resolve child + parent bodies and the local hinge axis under one
+                // immutable borrow of the multibody set.
+                let (parent, child, local_axis) = {
+                    let (multibody, link_id) = world
+                        .multibody_joints
+                        .get(handle)
+                        .ok_or(BackendError::InvalidJointHandle)?;
+                    let link = multibody
+                        .link(link_id)
+                        .ok_or(BackendError::InvalidJointHandle)?;
+                    if !is_revolute_axes(link.joint().data.locked_axes) {
+                        return Err(BackendError::UnsupportedJoint(
+                            "multibody joint has no single free angular axis (expected revolute)",
+                        ));
+                    }
+                    // Insertion invariant (add_multibody_joint callers): joints go
+                    // parent→child (b1 = parent, b2 = child). The handle indexes
+                    // the CHILD link; its parent link gives body1.
+                    let child = link.rigid_body_handle();
+                    let parent_id = link.parent_id().ok_or(BackendError::InvalidJointHandle)?;
+                    let parent = multibody
+                        .link(parent_id)
+                        .ok_or(BackendError::InvalidJointHandle)?
+                        .rigid_body_handle();
+                    // Hinge axis from the rotation only (see the impulse branch:
+                    // `local_axis1()` is anchor-contaminated under the glam backend).
+                    let local_axis = link.joint().data.local_frame1.rotation * Vector::X;
+                    (parent, child, local_axis)
+                };
+                // â from the PARENT (body1) rotation, per the sign convention.
+                let rot_parent = *world
+                    .bodies
+                    .get(parent)
+                    .ok_or(BackendError::InvalidJointHandle)?
+                    .rotation();
+                let axis = rot_parent * local_axis;
+                // Reduced coordinates: torque the child only; the solver supplies
+                // the parent reaction through the hinge parameterization.
+                world
+                    .bodies
+                    .get_mut(child)
+                    .ok_or(BackendError::InvalidJointHandle)?
+                    .add_torque(axis * torque, true);
+                Ok(())
+            }
+        }
     }
 
     fn contact_force(world: &Self::World, body: Self::BodyHandle) -> [f32; 6] {
-        // Aggregate impulses over all contact manifolds touching any collider
-        // attached to `body`. Impulse is in N·s; dividing by dt yields an
-        // average force over the substep. Torque is r × F, with r taken from
-        // the manifold contact point relative to the body centre of mass.
+        // Instantaneous last-substep contact wrench (ADR 0041): aggregate the
+        // LAST solve's per-contact impulses over every manifold touching any
+        // collider of `body`, dividing each by the substep dt to get the average
+        // force over that substep — the analogue of MuJoCo's post-`mj_step`
+        // `cfrc_ext` read (instantaneous, frame-skip-independent). Torque is r × F
+        // about the body's OWN centre of mass (MuJoCo references the subtree CoM
+        // — identical for leaf bodies, different for internal ones). This sums
+        // contact-manifold forces only, not the full RNE external wrench.
+        //
+        // Sign: the returned wrench is the external contact force-torque acting
+        // ON the queried body (the analogue of MuJoCo cfrc_ext = "external force
+        // acting on the body"). A ball resting on the ground therefore reports a
+        // positive (upward) vertical force. By Newton's third law the force part
+        // of `contact_force(A)` ≈ −that of `contact_force(B)` for a contacting
+        // pair (torque parts differ: each is taken about its own body's CoM).
+        //
+        // Self-contacts cannot appear here: rapier 0.32 unconditionally clears
+        // same-parent contact pairs (rapier3d-0.32.0 narrow_phase.rs:841,
+        // "Same parents. Ignore collisions."), matching MuJoCo's undisableable
+        // same-body geom filter, so two colliders on `body` never contribute.
         let Some(rb) = world.bodies.get(body) else {
             return [0.0; 6];
         };
@@ -329,11 +468,26 @@ impl LocomotionBackend for Rapier3DBackend {
             for pair in world.narrow_phase.contact_pairs_with(collider_handle) {
                 let flipped = pair.collider2 == collider_handle;
                 for manifold in &pair.manifolds {
-                    // Normal points from body1 to body2; flip for incident body.
+                    // Force ON the queried body. parry's manifold normal points
+                    // from collider1 toward collider2 (parry3d-0.26.1
+                    // query/contact_manifolds/contact_manifold.rs:449 — "points
+                    // from the first shape toward the second shape"). rapier's
+                    // solver drives the non-negative `contact.data.impulse`
+                    // (contact_pair.rs:34; written back at
+                    // solver/contact_constraint/contact_with_coulomb_friction.rs:491)
+                    // along `dir1 = -normal` on collider1's body and `+normal`
+                    // on collider2's body (dir1 = -normal at
+                    // contact_with_coulomb_friction.rs:83, applied to the two
+                    // bodies at contact_constraint_element.rs:282/285). So the
+                    // contact force exerted ON the queried body is
+                    // `-force_mag·normal` when it owns collider1 and
+                    // `+force_mag·normal` when it owns collider2. Swapping which
+                    // collider is collider1 flips BOTH `normal` and `flipped`,
+                    // so the attributed force is insertion-order invariant.
                     let n = if flipped {
-                        -manifold.data.normal
-                    } else {
                         manifold.data.normal
+                    } else {
+                        -manifold.data.normal
                     };
                     for contact in &manifold.points {
                         let impulse = contact.data.impulse;
@@ -522,6 +676,441 @@ mod tests {
         assert!(
             (vx_after_coast - vx_after_push).abs() < 1e-5,
             "force must not persist: pushed={vx_after_push}, coasted={vx_after_coast}"
+        );
+    }
+
+    // ── apply_joint_torque ───────────────────────────────────────────────────
+
+    /// Build a zero-gravity hinge about +Z anchored at the world origin, with
+    /// both body COMs on the Z axis so rotation about it induces no translation.
+    /// `base_fixed` selects a fixed vs dynamic first body. Returns the world, the
+    /// tagged joint handle, and the (body1, body2) handles.
+    fn hinge_pair_impulse(
+        base_fixed: bool,
+    ) -> (
+        Rapier3DWorld,
+        Rapier3DJointHandle,
+        RigidBodyHandle,
+        RigidBodyHandle,
+    ) {
+        let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 60.0, 1);
+        let b1_builder = if base_fixed {
+            RigidBodyBuilder::fixed()
+        } else {
+            RigidBodyBuilder::dynamic()
+        };
+        let body1 = world.add_body(b1_builder.translation(Vector::new(0.0, 0.0, -0.5)));
+        if !base_fixed {
+            world.add_collider(ColliderBuilder::ball(0.3), body1);
+        }
+        let body2 =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 0.5)));
+        world.add_collider(ColliderBuilder::ball(0.3), body2);
+        // Revolute hinge about +Z; anchors meet at the origin (both on the axis).
+        let joint = RevoluteJointBuilder::new(Vector::Z)
+            .local_anchor1(Vector::new(0.0, 0.0, 0.5))
+            .local_anchor2(Vector::new(0.0, 0.0, -0.5))
+            .build();
+        let handle: Rapier3DJointHandle = world.add_impulse_joint(body1, body2, joint).into();
+        (world, handle, body1, body2)
+    }
+
+    /// Sign pin (impulse): a positive torque about +â drives body2's angular
+    /// velocity about +Z positive. Fixed base isolates body2's response.
+    #[test]
+    fn apply_joint_torque_impulse_positive_spins_body2_positive() {
+        let (mut world, handle, _base, arm) = hinge_pair_impulse(true);
+        for _ in 0..30 {
+            world.step_actuated(|w| {
+                Rapier3DBackend::apply_joint_torque(w, handle, 0.5).expect("revolute joint");
+            });
+        }
+        let wz = world.bodies.get(arm).unwrap().angvel().z;
+        assert!(
+            wz > 0.0,
+            "positive torque must spin body2 positively about +Z (ωz={wz})"
+        );
+    }
+
+    /// Equal-and-opposite (impulse): two identical free bodies, zero gravity.
+    /// The `±τ·â` pair injects zero NET external torque, so with symmetric
+    /// inertia the bodies counter-rotate and their z-angular-velocities cancel —
+    /// i.e. the system's total angular momentum stays ≈ 0.
+    #[test]
+    fn apply_joint_torque_impulse_is_equal_and_opposite() {
+        let (mut world, handle, body1, body2) = hinge_pair_impulse(false);
+        for _ in 0..30 {
+            world.step_actuated(|w| {
+                Rapier3DBackend::apply_joint_torque(w, handle, 0.1).expect("revolute joint");
+            });
+        }
+        let w1 = world.bodies.get(body1).unwrap().angvel().z;
+        let w2 = world.bodies.get(body2).unwrap().angvel().z;
+        assert!(w2 > 0.0, "body2 must spin positively (ω2z={w2})");
+        assert!(w1 < 0.0, "body1 must counter-rotate (ω1z={w1})");
+        // Identical inertia ⇒ ω1z ≈ −ω2z ⇒ no net external torque on the system.
+        assert!(
+            (w1 + w2).abs() < 0.01 * w2.abs(),
+            "equal-and-opposite ⇒ ωz cancels (ω1z={w1}, ω2z={w2})"
+        );
+    }
+
+    /// Build a zero-gravity two-body multibody chain about +Z (same on-axis
+    /// geometry as the impulse hinge). Returns the world, the tagged handle, and
+    /// the (parent, child) handles.
+    fn hinge_chain_multibody() -> (
+        Rapier3DWorld,
+        Rapier3DJointHandle,
+        RigidBodyHandle,
+        RigidBodyHandle,
+    ) {
+        let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 60.0, 1);
+        let parent =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, -0.5)));
+        world.add_collider(ColliderBuilder::ball(0.3), parent);
+        let child =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 0.5)));
+        world.add_collider(ColliderBuilder::ball(0.3), child);
+        let joint = RevoluteJointBuilder::new(Vector::Z)
+            .local_anchor1(Vector::new(0.0, 0.0, 0.5))
+            .local_anchor2(Vector::new(0.0, 0.0, -0.5))
+            .build();
+        let handle: Rapier3DJointHandle = world
+            .add_multibody_joint(parent, child, joint)
+            .expect("insert multibody joint")
+            .into();
+        (world, handle, parent, child)
+    }
+
+    /// Multibody child-only: a positive torque spins the child about +Z relative
+    /// to its parent. The parent stays put here *not* because the root is a fixed
+    /// base (rapier's multibody root DOF count follows the actual body type — a
+    /// dynamic parent is a free 6-DOF root), but because this test's geometry is
+    /// degenerate on-axis: the hinge axis, both anchors, and both bodies' centers
+    /// of mass are colinear, so a pure spin torque about that axis transmits zero
+    /// joint reaction to the parent regardless of parent mass. The whole hinge
+    /// motion therefore shows up as the child's angular velocity about the free
+    /// axis — the torque landed on the hinge DOF.
+    #[test]
+    fn apply_joint_torque_multibody_child_only_spins_child_positive() {
+        let (mut world, handle, parent, child) = hinge_chain_multibody();
+        for _ in 0..30 {
+            world.step_actuated(|w| {
+                Rapier3DBackend::apply_joint_torque(w, handle, 0.1).expect("revolute joint");
+            });
+        }
+        let wc = world.bodies.get(child).unwrap().angvel().z;
+        let wp = world.bodies.get(parent).unwrap().angvel().z;
+        assert!(wc > 0.0, "child must spin positively about +Z (ωc={wc})");
+        // On-axis geometry (not a fixed base): with the hinge axis, anchors, and
+        // both centers of mass colinear, a pure spin torque transmits zero joint
+        // reaction to the parent, so it does not rotate; the torque projects
+        // wholly onto the child's hinge DOF (not the parent's upstream DOFs).
+        assert!(wp.abs() < 1e-6, "on-axis parent must not rotate (ωp={wp})");
+    }
+
+    /// Multibody dispatch equals a manual child-only `add_torque` about the world
+    /// hinge axis. Here the parent only ever rotates about +Z, so `â` stays +Z
+    /// exactly and the two trajectories must coincide — pinning the multibody arm
+    /// to "child body only", not the impulse equal-and-opposite pair.
+    #[test]
+    fn apply_joint_torque_multibody_matches_manual_child_torque() {
+        let tau = 0.1f32;
+        let (mut w_trait, h_trait, _p_t, child_trait) = hinge_chain_multibody();
+        let (mut w_manual, _h_m, _p_m, child_manual) = hinge_chain_multibody();
+        for _ in 0..40 {
+            w_trait.step_actuated(|w| {
+                Rapier3DBackend::apply_joint_torque(w, h_trait, tau).expect("revolute joint");
+            });
+            w_manual.step_actuated(|w| {
+                if let Some(b) = w.bodies_mut().get_mut(child_manual) {
+                    b.add_torque(Vector::new(0.0, 0.0, tau), true);
+                }
+            });
+        }
+        let wt = w_trait.bodies.get(child_trait).unwrap().angvel().z;
+        let wm = w_manual.bodies.get(child_manual).unwrap().angvel().z;
+        assert!(
+            (wt - wm).abs() < 1e-5,
+            "trait multibody torque must equal manual child-only add_torque (trait={wt}, manual={wm})"
+        );
+    }
+
+    /// Error path: a stale/default handle of either kind yields `InvalidJointHandle`.
+    #[test]
+    fn apply_joint_torque_stale_handle_errors() {
+        let mut world = make_world();
+        let impulse: Rapier3DJointHandle = ImpulseJointHandle::invalid().into();
+        assert_eq!(
+            Rapier3DBackend::apply_joint_torque(&mut world, impulse, 1.0),
+            Err(BackendError::InvalidJointHandle),
+            "stale impulse handle must error"
+        );
+        let multibody: Rapier3DJointHandle = MultibodyJointHandle::invalid().into();
+        assert_eq!(
+            Rapier3DBackend::apply_joint_torque(&mut world, multibody, 1.0),
+            Err(BackendError::InvalidJointHandle),
+            "stale multibody handle must error"
+        );
+    }
+
+    /// Error path: a non-revolute (fixed) joint has no free angular axis, so a
+    /// scalar torque is rejected with `UnsupportedJoint`.
+    #[test]
+    fn apply_joint_torque_fixed_joint_unsupported() {
+        let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 60.0, 1);
+        let b1 =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 0.0)));
+        let b2 =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(1.0, 0.0, 0.0)));
+        let joint = FixedJointBuilder::new().build();
+        let handle: Rapier3DJointHandle = world.add_impulse_joint(b1, b2, joint).into();
+        let result = Rapier3DBackend::apply_joint_torque(&mut world, handle, 1.0);
+        assert!(
+            matches!(result, Err(BackendError::UnsupportedJoint(_))),
+            "fixed joint must be rejected as UnsupportedJoint (got {result:?})"
+        );
+    }
+
+    // ── contact_force ────────────────────────────────────────────────────────
+
+    /// Insert a large fixed ground collider (top face at z = 0) and a dynamic
+    /// ball of exactly `mass` (collider density 0) resting just above it, then
+    /// settle. Returns the world and the ball handle.
+    fn resting_ball_world(
+        frame_skip: u32,
+        gravity: f32,
+        mass: f32,
+    ) -> (Rapier3DWorld, RigidBodyHandle) {
+        let radius = 0.25f32;
+        let mut world =
+            Rapier3DWorld::new(Vector::new(0.0, 0.0, -gravity), 1.0 / 240.0, frame_skip);
+        world.add_ground_collider(
+            ColliderBuilder::cuboid(10.0, 10.0, 0.5).translation(Vector::new(0.0, 0.0, -0.5)),
+        );
+        let ball = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0, radius + 0.001))
+                .additional_mass(mass),
+        );
+        world.add_collider(ColliderBuilder::ball(radius).density(0.0), ball);
+        // Settle: ~600 total substeps regardless of frame_skip.
+        for _ in 0..(600 / frame_skip.max(1)) {
+            world.step_with_frame_skip();
+        }
+        (world, ball)
+    }
+
+    /// Magnitude + sign pin: a resting ball's vertical contact wrench balances its
+    /// weight (`|wrench[2]| ≈ m·g`, an order-of-magnitude larger than any
+    /// `1/frame_skip`-scaled value), with lateral force and all torque components
+    /// ≈ 0 for an on-axis contact.
+    ///
+    /// SIGN: the wrench is the external contact force acting ON the ball, so the
+    /// ground below pushes UP and `wrench[2]` is **positive** (≈ +m·g). This is
+    /// the physically correct convention (MuJoCo `cfrc_ext` = "external force
+    /// acting on the body"); it is verified insertion-order invariant and
+    /// Newton's-third-law antisymmetric by the companion tests below. A slight
+    /// `> m·g` magnitude is rapier's steady-state penetration bias.
+    #[test]
+    fn contact_force_resting_ball_balances_gravity() {
+        let g = 9.81f32;
+        let m = 1.0f32;
+        let (world, ball) = resting_ball_world(1, g, m);
+        let wrench = Rapier3DBackend::contact_force(&world, ball);
+        let fz = wrench[2];
+        assert!(
+            fz > 0.0,
+            "resting-ball wrench is the force ON the ball: ground pushes UP (fz={fz})"
+        );
+        assert!(
+            (fz.abs() - m * g).abs() < 0.4 * m * g,
+            "vertical wrench magnitude must be ≈ m·g={} (|fz|={}), not 1/frame_skip-scaled",
+            m * g,
+            fz.abs()
+        );
+        assert!(
+            wrench[0].abs() < 0.2 && wrench[1].abs() < 0.2,
+            "no lateral contact force (fx={}, fy={})",
+            wrench[0],
+            wrench[1]
+        );
+        for (axis, &t) in wrench[3..6].iter().enumerate() {
+            assert!(
+                t.abs() < 0.5,
+                "torque component {axis} must be ≈0 for an on-axis contact (t={t})"
+            );
+        }
+    }
+
+    /// Frame-skip invariance: the steady-state normal force is the same for
+    /// `frame_skip = 1` and `frame_skip = 5` — the wrench is an instantaneous
+    /// last-substep force, NOT a `1/frame_skip`-scaled quantity.
+    #[test]
+    fn contact_force_is_frame_skip_invariant() {
+        let g = 9.81f32;
+        let (w1, b1) = resting_ball_world(1, g, 1.0);
+        let (w5, b5) = resting_ball_world(5, g, 1.0);
+        let fz1 = Rapier3DBackend::contact_force(&w1, b1)[2];
+        let fz5 = Rapier3DBackend::contact_force(&w5, b5)[2];
+        assert!(
+            (fz1 - fz5).abs() < 0.5,
+            "steady-state vertical wrench must be frame-skip invariant (fs1={fz1}, fs5={fz5})"
+        );
+        assert!(
+            fz5.abs() > 5.0,
+            "fs5 wrench must be the physical m·g magnitude, not a ~1/5-scaled value (fs5={fz5})"
+        );
+    }
+
+    /// Same-body invariant: two overlapping colliders on ONE body, zero gravity,
+    /// no other body — rapier clears same-parent contact pairs, so the wrench is
+    /// exactly zero (pins rapier 0.32 narrow_phase.rs:841).
+    #[test]
+    fn contact_force_same_body_colliders_zero_wrench() {
+        let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 60.0, 1);
+        let body =
+            world.add_body(RigidBodyBuilder::dynamic().translation(Vector::new(0.0, 0.0, 0.0)));
+        world.add_collider(ColliderBuilder::ball(0.5), body);
+        // Second collider overlaps the first (centres 0.2 apart, radii 0.5).
+        world.add_collider(
+            ColliderBuilder::ball(0.5).translation(Vector::new(0.2, 0.0, 0.0)),
+            body,
+        );
+        world.step_once();
+        let wrench = Rapier3DBackend::contact_force(&world, body);
+        assert_eq!(
+            wrench, [0.0; 6],
+            "same-body collider pairs must contribute zero wrench"
+        );
+    }
+
+    /// Newton's third law: for the single contact pair between two dynamic
+    /// bodies, the force part of `contact_force(A)` is the negation of
+    /// `contact_force(B)`. Two dynamic balls are pressed together by a sustained
+    /// equal-and-opposite external force (zero gravity, net external force zero
+    /// so the pair settles in place) until they reach a steady-state contact —
+    /// the horizontal analogue of the resting ball. The solver stores a single
+    /// per-contact impulse that acts oppositely on the two bodies
+    /// (`-force_mag·normal` on collider1, `+force_mag·normal` on collider2), so
+    /// the aggregated force vectors are exactly antisymmetric. (Torque parts are
+    /// taken about each body's own CoM and need not cancel.)
+    #[test]
+    fn contact_force_newton_third_law_antisymmetric() {
+        let radius = 0.25f32;
+        let push = 5.0f32;
+        let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 240.0, 1);
+        // Start marginally overlapping along +x; the push holds them in contact.
+        let a = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(0.0, 0.0, 0.0))
+                .additional_mass(1.0),
+        );
+        world.add_collider(ColliderBuilder::ball(radius).density(0.0), a);
+        let b = world.add_body(
+            RigidBodyBuilder::dynamic()
+                .translation(Vector::new(2.0 * radius - 0.01, 0.0, 0.0))
+                .additional_mass(1.0),
+        );
+        world.add_collider(ColliderBuilder::ball(radius).density(0.0), b);
+        // Press A toward +x and B toward -x every substep; re-applied because the
+        // external-force accumulator lives one substep (ADR 0037). Net force is
+        // zero, so the pair stays put and reaches a steady contact.
+        for _ in 0..600 {
+            world.step_actuated(|w| {
+                if let Some(ba) = w.bodies.get_mut(a) {
+                    ba.add_force(Vector::new(push, 0.0, 0.0), true);
+                }
+                if let Some(bb) = w.bodies.get_mut(b) {
+                    bb.add_force(Vector::new(-push, 0.0, 0.0), true);
+                }
+            });
+        }
+
+        let fa = Rapier3DBackend::contact_force(&world, a);
+        let fb = Rapier3DBackend::contact_force(&world, b);
+        // Non-trivial contact, so antisymmetry is not a 0 ≈ −0 tautology.
+        let mag = (fa[0] * fa[0] + fa[1] * fa[1] + fa[2] * fa[2]).sqrt();
+        assert!(
+            mag > 1.0,
+            "pressed balls must generate a real contact force (|F_A|={mag})"
+        );
+        for k in 0..3 {
+            assert!(
+                (fa[k] + fb[k]).abs() < 1e-3 * mag,
+                "force component {k} must be antisymmetric (F_A={}, F_B={})",
+                fa[k],
+                fb[k]
+            );
+        }
+        // Repulsion pushes each ball away from the other along the contact axis.
+        assert!(
+            fa[0] < 0.0,
+            "A is pushed in −x, away from B (fa_x={})",
+            fa[0]
+        );
+        assert!(
+            fb[0] > 0.0,
+            "B is pushed in +x, away from A (fb_x={})",
+            fb[0]
+        );
+    }
+
+    /// Build the resting-ball-on-ground scene with a selectable collider
+    /// insertion order (ground-first vs ball-first), then settle. Swapping the
+    /// order swaps which collider is `collider1` in the contact pair, so this
+    /// exercises the insertion-order attribution path.
+    fn resting_ball_insertion_order(ground_first: bool) -> (Rapier3DWorld, RigidBodyHandle) {
+        let radius = 0.25f32;
+        let g = 9.81f32;
+        let mut world = Rapier3DWorld::new(Vector::new(0.0, 0.0, -g), 1.0 / 240.0, 1);
+        let ground =
+            ColliderBuilder::cuboid(10.0, 10.0, 0.5).translation(Vector::new(0.0, 0.0, -0.5));
+        let ball;
+        if ground_first {
+            world.add_ground_collider(ground);
+            ball = world.add_body(
+                RigidBodyBuilder::dynamic()
+                    .translation(Vector::new(0.0, 0.0, radius + 0.001))
+                    .additional_mass(1.0),
+            );
+            world.add_collider(ColliderBuilder::ball(radius).density(0.0), ball);
+        } else {
+            ball = world.add_body(
+                RigidBodyBuilder::dynamic()
+                    .translation(Vector::new(0.0, 0.0, radius + 0.001))
+                    .additional_mass(1.0),
+            );
+            world.add_collider(ColliderBuilder::ball(radius).density(0.0), ball);
+            world.add_ground_collider(ground);
+        }
+        for _ in 0..600 {
+            world.step_once();
+        }
+        (world, ball)
+    }
+
+    /// Insertion-order robustness: the attributed vertical force on the ball is
+    /// positive (ground pushes UP) regardless of whether the ground or the ball
+    /// collider was inserted first — the branch that flips `normal` and the
+    /// `flipped` flag together must leave the sign (and magnitude) invariant.
+    #[test]
+    fn contact_force_insertion_order_robust() {
+        let (w_gf, ball_gf) = resting_ball_insertion_order(true);
+        let (w_bf, ball_bf) = resting_ball_insertion_order(false);
+        let fz_gf = Rapier3DBackend::contact_force(&w_gf, ball_gf)[2];
+        let fz_bf = Rapier3DBackend::contact_force(&w_bf, ball_bf)[2];
+        assert!(
+            fz_gf > 0.0,
+            "ground-first: force on ball must be upward (fz={fz_gf})"
+        );
+        assert!(
+            fz_bf > 0.0,
+            "ball-first: force on ball must be upward (fz={fz_bf})"
+        );
+        assert!(
+            (fz_gf - fz_bf).abs() < 0.5,
+            "attributed vertical force must not depend on insertion order (gf={fz_gf}, bf={fz_bf})"
         );
     }
 }

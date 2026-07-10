@@ -148,10 +148,14 @@ impl InvertedPendulum<Rapier3DBackend> {
 
         // Revolute joint about the y-axis. Local anchor on cart is top face;
         // local anchor on pole is its bottom (i.e. -pole_half along local z).
+        // Disable jointed-neighbour contacts: the cart top face and the pole's
+        // bottom cap overlap at the shared anchor, which would otherwise seed
+        // permanent internal contacts (MuJoCo parent–child filter parity, ADR 0041).
         let y_axis: Vector = Vector::new(0.0, 1.0, 0.0);
         let joint = RevoluteJointBuilder::new(y_axis)
             .local_anchor1(Vector::new(0.0, 0.0, config.cart_half_extents[2]))
             .local_anchor2(Vector::new(0.0, 0.0, -pole_half))
+            .contacts_enabled(false)
             .build();
         let joint_handle = world.add_impulse_joint(cart, pole, joint);
 

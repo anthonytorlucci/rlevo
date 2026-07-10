@@ -185,15 +185,24 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         );
 
         let y_axis: Vector = Vector::new(0.0, 1.0, 0.0);
+        // Disable jointed-neighbour contacts: the cart top face and pole1's
+        // bottom cap overlap at the shared anchor, which would otherwise seed
+        // permanent internal contacts (MuJoCo parent–child filter parity, ADR 0041).
         let joint1 = RevoluteJointBuilder::new(y_axis)
             .local_anchor1(Vector::new(0.0, 0.0, cart_half_z))
             .local_anchor2(Vector::new(0.0, 0.0, -pole_half))
+            .contacts_enabled(false)
             .build();
         let joint1_handle = world.add_impulse_joint(cart, pole1, joint1);
 
+        // Disable jointed-neighbour contacts: pole1's top cap and pole2's
+        // bottom cap overlap at the shared anchor, which would otherwise seed
+        // permanent internal contacts polluting obs[8] (MuJoCo parent–child
+        // filter parity, ADR 0041).
         let joint2 = RevoluteJointBuilder::new(y_axis)
             .local_anchor1(Vector::new(0.0, 0.0, pole_half))
             .local_anchor2(Vector::new(0.0, 0.0, -pole_half))
+            .contacts_enabled(false)
             .build();
         let joint2_handle = world.add_impulse_joint(pole1, pole2, joint2);
 
@@ -211,6 +220,12 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// Sample the current physics state and pack it into a 9-element
     /// observation. θ₂ is the **relative** elbow angle (pole2 world angle
     /// minus pole1 world angle), wrapped to `(-π, π]`.
+    ///
+    /// `obs[8]` is the aggregated contact wrench on pole2 (`cfrc_ext[0]`). With
+    /// jointed-neighbour contacts disabled for MuJoCo parent–child filter parity
+    /// (ADR 0041), pole2 touches nothing in normal operation, so this slot is
+    /// `≈ 0`; it is retained as a placeholder for the `qfrc_constraint`-based
+    /// re-model tracked in issue #271.
     fn extract_observation(&self) -> InvertedDoublePendulumObservation {
         let cart_pose = Rapier3DBackend::get_pose(&self.world, self.state.cart);
         let cart_vel = Rapier3DBackend::get_vel(&self.world, self.state.cart);
@@ -578,6 +593,32 @@ mod tests {
         assert!(
             terminated,
             "sustained +1.0 action must drop tip below 1.0 within 500 steps; min y_tip={min_y_tip}"
+        );
+    }
+
+    #[test]
+    fn jointed_neighbor_contacts_produce_no_wrench() {
+        // Regression for #123 (ADR 0041). Pole1's top cap and pole2's bottom
+        // cap both extend `pole_radius` past the shared elbow anchor, so with
+        // rapier's default `contacts_enabled = true` the solver generated
+        // permanent internal contacts between the jointed neighbours. That
+        // internal wrench leaked into `contact_force(pole2)` — packed as
+        // observation index 8. MuJoCo's parent–child contact filter excludes
+        // exactly these pairs ("avoid permanent contacts within bodies and
+        // joints"); disabling jointed-neighbour contacts restores parity and
+        // drives the wrench to ~0 in normal operation.
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(deterministic_cfg()).expect("valid config");
+        env.reset().unwrap();
+        for _ in 0..10 {
+            env.step(InvertedDoublePendulumAction::new(0.0)).unwrap();
+        }
+        let wrench = Rapier3DBackend::contact_force(&env.world, env.state.pole2);
+        let max_abs = wrench.iter().fold(0.0f32, |m, &c| m.max(c.abs()));
+        assert!(
+            max_abs < 1e-4,
+            "pole2 must feel no internal contact wrench once jointed-neighbour \
+             contacts are disabled; got {wrench:?} (max |component| = {max_abs})"
         );
     }
 
