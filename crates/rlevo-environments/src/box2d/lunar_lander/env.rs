@@ -20,9 +20,10 @@
 //!        - 0.3 * (|main| + |lateral|)  -- control cost
 //! ```
 //!
-//! Terminal bonuses/penalties are applied on top: +100 for a soft landing,
-//! −100 for a crash or out-of-bounds exit. See [`LunarLanderSnapshot`] for
-//! how the raw shaping value is surfaced through step metadata.
+//! On a terminal step the reward is **set to** +100 (soft landing) or −100
+//! (crash / out-of-bounds), replacing that step's shaping delta and control
+//! cost — matching Gymnasium LunarLander. See [`LunarLanderSnapshot`] for how
+//! the raw shaping value is surfaced through step metadata.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -238,6 +239,26 @@ impl LunarLanderCore {
         self.state.leg2_contact = leg2_col.is_some_and(|c| self.world.is_in_contact(c));
     }
 
+    /// Returns `true` if the hull is touching the ground.
+    ///
+    /// Mirrors [`Self::update_contacts`]: the hull body has a single collider,
+    /// fetched via `b.colliders().iter().next().copied()`. Hull↔leg contacts
+    /// are disabled at joint setup (`set_contacts_enabled(false)`), so the only
+    /// thing the hull can contact is the ground. A missing body degrades to
+    /// `false` (never panics) per the never-panic-on-runtime-data rule.
+    ///
+    /// This is the physics basis for Gym's `game_over` flag: in Gymnasium's
+    /// `LunarLander`, a crash is set the instant the hull body begins touching
+    /// the ground, unconditionally (leg contact does not suppress it).
+    fn hull_in_contact(&self) -> bool {
+        let hull_col = self
+            .world
+            .bodies()
+            .get(self.state.lander_handle)
+            .and_then(|b| b.colliders().iter().next().copied());
+        hull_col.is_some_and(|c| self.world.is_in_contact(c))
+    }
+
     fn compute_obs(&self) -> LunarLanderObservation {
         let bodies = self.world.bodies();
         let (x, y, vx, vy, angle, angvel) =
@@ -296,7 +317,14 @@ impl LunarLanderCore {
 
         let lander = self.world.bodies().get(self.state.lander_handle);
         let pos = lander.map(|b| b.translation()).unwrap_or_default();
-        let is_crashed = pos.y < 0.1 && !self.state.leg1_contact && !self.state.leg2_contact;
+        // A crash is a hull–ground contact, mirroring Gymnasium's `game_over`
+        // flag (set unconditionally the instant the hull touches the ground;
+        // leg contact does NOT suppress it). A clean landing keeps the hull off
+        // the ground — the legs extend below the hull and take the load — so
+        // crash and landing stay mutually exclusive. This replaces the old
+        // positional proxy (`pos.y < 0.1`), which was physically unreachable:
+        // a hull resting on the ground settles at `pos.y ≈ 0.78`.
+        let is_crashed = self.hull_in_contact();
         let is_out_of_bounds =
             pos.x < 0.0 || pos.x > VIEWPORT_W / SCALE || pos.y > VIEWPORT_H / SCALE;
         let is_landed = self.state.leg1_contact
@@ -306,10 +334,13 @@ impl LunarLanderCore {
             && obs.angle().abs() < 0.1;
 
         let status = if is_crashed || is_out_of_bounds {
-            reward -= 100.0;
+            // Gym overwrite: a terminal step's reward is set to exactly −100,
+            // discarding this step's shaping delta and control cost.
+            reward = -100.0;
             EpisodeStatus::Terminated
         } else if is_landed {
-            reward += 100.0;
+            // Gym overwrite: a successful landing's reward is exactly +100.
+            reward = 100.0;
             EpisodeStatus::Terminated
         } else if self.steps >= self.config.max_steps {
             EpisodeStatus::Truncated
@@ -398,9 +429,8 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     ///
     /// The returned snapshot status is:
     /// - `Running` — episode continues.
-    /// - `Terminated` — lander crashed (hull touched ground without both legs
-    ///   down) or flew out of bounds (reward −100), or landed softly (reward
-    ///   +100).
+    /// - `Terminated` — lander crashed (hull contacts the ground) or flew out
+    ///   of bounds (reward −100), or landed softly (reward +100).
     /// - `Truncated` — `config.max_steps` reached without a terminal event.
     ///
     /// This variant never returns `Err`; the result is always `Ok`.
@@ -886,6 +916,93 @@ mod tests {
              (force accumulating?)"
         );
     }
+
+    /// Terminal transition: reaching `max_steps` without a terminal event must
+    /// `Truncated`, not `Terminated`. Three `DoNothing` steps under `max_steps
+    /// == 3` leave the lander mid-air (it spawns high and falls under gravity),
+    /// so the third snapshot truncates.
+    #[test]
+    fn test_step_truncates_at_max_steps() {
+        let cfg = LunarLanderConfig::builder()
+            .seed(0)
+            .max_steps(3)
+            .build()
+            .expect("valid config");
+        let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
+        env.reset().unwrap();
+
+        let snap1 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+        assert!(!snap1.is_done(), "step 1 should still be running");
+        let snap2 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+        assert!(!snap2.is_done(), "step 2 should still be running");
+        let snap3 = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+
+        assert!(
+            snap3.is_truncated(),
+            "3rd step at max_steps=3 must truncate"
+        );
+        assert!(
+            !snap3.is_terminated(),
+            "step-limit truncation must not report terminated"
+        );
+    }
+
+    /// Terminal transition: dropping the lander under gravity with no thrust
+    /// crashes the hull into the ground, which must `Terminated` (not truncate)
+    /// before `max_steps` and apply the −100 crash penalty.
+    ///
+    /// This is the regression for issue #122: the crash branch was previously
+    /// gated on `pos.y < 0.1`, which Rapier's solver never reaches (a hull
+    /// resting on the ground settles at `pos.y ≈ 0.78`), so the branch was dead
+    /// and the episode silently ran to `Truncated`. Against the old code this
+    /// test fails (free-fall never terminates, so `terminal` stays `None` and
+    /// the `expect` panics); with the hull-contact check it passes.
+    ///
+    /// The terminal reward is exactly −100.0: rlevo matches Gymnasium's
+    /// **overwrite** semantics, where a terminal step's reward is *set to*
+    /// ∓100, discarding that step's shaping delta and control cost.
+    #[test]
+    fn test_step_terminates_on_hull_crash() {
+        let cfg = LunarLanderConfig::builder()
+            .seed(0)
+            .build()
+            .expect("valid config");
+        let max_steps = cfg.max_steps;
+        let mut env = LunarLanderDiscrete::with_config(cfg).expect("valid config");
+        env.reset().unwrap();
+
+        // Capture (steps_taken, terminal_reward).
+        let mut terminal: Option<(usize, f32)> = None;
+        for i in 0..max_steps {
+            let snap = env.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+            if snap.is_terminated() {
+                terminal = Some((i + 1, snap.reward().0));
+                break;
+            }
+            assert!(
+                !snap.is_truncated(),
+                "must terminate (crash) before truncating at step {i}"
+            );
+        }
+
+        let (steps_taken, reward) =
+            terminal.expect("free-fall must terminate via hull crash (dead branch under old code)");
+        assert!(
+            steps_taken < max_steps,
+            "crash must terminate before max_steps ({steps_taken} < {max_steps})"
+        );
+        // Gym overwrite semantics: a crash terminal step's reward is exactly −100.
+        approx::assert_relative_eq!(reward, -100.0, epsilon = 1e-4);
+    }
+
+    // Landing test (issue #122 §7.1 test 3) intentionally omitted: a soft
+    // landing that reports `is_terminated()` with reward ≈ +100 requires a
+    // control policy to null out velocity/angle and let the legs settle at
+    // rest (leg1_contact && leg2_contact && |vx|,|vy|,|angle| < 0.1). The
+    // discrete actions cannot deterministically achieve this within a fixed,
+    // hand-written script without flakiness, so the landing branch is left to
+    // integration-level policy tests. Tests 1 and 2 above are deterministic and
+    // directly exercise the truncation and (newly live) hull-crash branches.
 
     #[test]
     fn render_styled_matches_ascii() {
