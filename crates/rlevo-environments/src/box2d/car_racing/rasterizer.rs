@@ -106,6 +106,16 @@ impl Rasterizer {
     pub fn pixels(&self) -> &[u8; PIXEL_BYTES] {
         &self.buffer
     }
+
+    /// Move the filled framebuffer out, swapping in a fresh zeroed buffer.
+    ///
+    /// This is the zero-copy hand-off used on the render hot path: it transfers
+    /// ownership of the current buffer to the caller instead of copying its 27 KB.
+    /// The swapped-in buffer is zeroed; `render_frame` calls [`clear`](Self::clear)
+    /// before drawing, so the zero-init is overwritten each frame.
+    pub fn take_pixels(&mut self) -> Box<[u8; PIXEL_BYTES]> {
+        std::mem::replace(&mut self.buffer, Box::new([0u8; PIXEL_BYTES]))
+    }
 }
 
 impl Default for Rasterizer {
@@ -143,6 +153,21 @@ mod tests {
         let mut r = Rasterizer::new();
         r.fill_polygon(&[[10.0, 10.0], [20.0, 10.0]], [255, 0, 0]);
         r.fill_polygon(&[], [255, 0, 0]);
+    }
+
+    #[test]
+    fn test_take_pixels_transfers_and_zeroes() {
+        let mut r = Rasterizer::new();
+        r.clear([7, 8, 9]);
+        let taken = r.take_pixels();
+        // The taken buffer holds the filled contents.
+        for i in 0..FRAME_SIZE * FRAME_SIZE {
+            assert_eq!(taken[i * 3], 7);
+            assert_eq!(taken[i * 3 + 1], 8);
+            assert_eq!(taken[i * 3 + 2], 9);
+        }
+        // The rasterizer is left with a fresh zeroed buffer.
+        assert!(r.pixels().iter().all(|&b| b == 0));
     }
 
     #[test]
