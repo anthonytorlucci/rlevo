@@ -19,6 +19,28 @@
 //! Tile visits are detected by a nearest-centre scan on every step, not by
 //! physics collision callbacks. A tile can only be counted once per episode.
 //!
+//! ## Tile-visit sweep proxy
+//!
+//! Canonical Gymnasium CarRacing marks *every* tile a wheel physically touches
+//! via a Box2D contact stream. rlevo has no cheap contact stream, so a fast car
+//! that skips several tiles between steps would leave gaps that a closed loop
+//! never revisits — undercounting `tiles_visited` and making completion
+//! unreachable. The proxy is a bounded contiguous **sweep**: on each step the
+//! tile-index range from the previous `current_tile` to the new nearest tile is
+//! marked (see [`sweep_visits`]), reconstructing "every tile between here and
+//! there" including across the start/finish seam. `BOUND` caps the sweep to the
+//! maximum plausible per-step tile advance given the physics speed ceiling, so a
+//! spurious nearest-jump (self-intersection) or backward motion cannot mark the
+//! whole track.
+//!
+//! rlevo keeps its own coverage-threshold termination
+//! (`tiles_visited >= lap_complete_percent × total_tiles`) rather than gym's
+//! re-cross-tile-0 rule, which couples completion to a single tile and makes
+//! `lap_complete_percent` a near-no-op (upstream Gymnasium issue #1269). The
+//! sweep makes laps *reachable in principle*; it does not make them *easy* —
+//! dynamic difficulty under the fragile stiff-joint physics is a separate,
+//! pre-existing concern.
+//!
 //! The camera-following ASCII renderer ([`AsciiRenderable`](crate::render::AsciiRenderable))
 //! shows a 20-unit-wide window centred on the car body. Full track tile geometry
 //! is available only in the report tier via `FamilyPayload::Box2D`.
@@ -40,7 +62,7 @@ use super::config::CarRacingConfig;
 use super::observation::CarRacingObservation;
 use super::rasterizer::{FRAME_SIZE, Rasterizer};
 use super::state::CarRacingState;
-use super::track::Track;
+use super::track::{Track, TrackTile};
 
 /// Viewport width in world units.
 const VIEWPORT_W: f32 = 600.0 / 30.0;
@@ -207,19 +229,37 @@ impl CarRacing {
             .map(|b| [b.translation().x, b.translation().y])
             .unwrap_or([0.0; 2]);
 
-        let nearest = self.track.nearest_tile(pos);
-        let mut tile_reward = 0.0;
-        if let Some(idx) = nearest {
-            if !self.track.tiles[idx].visited {
-                self.track.tiles[idx].visited = true;
-                self.state.tiles_visited += 1;
-                tile_reward = self.config.tile_reward;
-            }
-            self.state.current_tile = Some(idx);
+        let Some(nearest) = self.track.nearest_tile(pos) else {
+            return 0.0;
+        };
+
+        let total = self.state.total_tiles;
+        // Max plausible per-step tile advance given the physics speed ceiling:
+        // an eighth of the loop, clamped to a sane [3, 16] band. The final
+        // `.min((total-1)/2)` enforces `bound < total/2`, on which the
+        // forward/backward disambiguation relies: a backward move has
+        // `forward_gap ≈ total`, so it must never fall inside `1..=bound`.
+        // Without this cap a tiny loop (e.g. total=5 ⇒ bound=3 > 2.5) would let
+        // a reverse step be scored as forward progress.
+        let bound = (total / 8).clamp(3, 16).min(total.saturating_sub(1) / 2);
+        let prev = self.state.current_tile;
+
+        // `sweep_visits` is the single source of truth for both the newly-marked
+        // count and whether a genuine forward step (or first acquisition)
+        // occurred; `current_tile` advances only when it did.
+        let (newly, advanced) = sweep_visits(prev, nearest, total, bound, &mut self.track.tiles);
+        self.state.tiles_visited += newly;
+        if advanced {
+            self.state.current_tile = Some(nearest);
         }
 
-        let lap_threshold =
-            (self.config.lap_complete_percent * self.state.total_tiles as f32) as usize;
+        // validate() guarantees total_tiles >= 5, so this only documents the
+        // reliance; total_tiles is refreshed in reset() after regeneration.
+        debug_assert!(total > 0, "total_tiles must be positive");
+        let per_tile = self.config.lap_reward / total as f32;
+        let tile_reward = newly as f32 * per_tile;
+
+        let lap_threshold = (self.config.lap_complete_percent * total as f32) as usize;
         if self.state.tiles_visited >= lap_threshold {
             self.state.lap_complete = true;
         }
@@ -426,6 +466,63 @@ impl CarRacing {
     }
 }
 
+/// Marks the tiles newly covered by a forward step from `prev` to `nearest`
+/// along the closed tile loop.
+///
+/// Returns `(newly_marked, advanced)`: the number of tiles flipped from
+/// unvisited to visited on this call, and whether a genuine forward step (or
+/// first acquisition) occurred — the caller advances `current_tile` iff
+/// `advanced`. This makes the function the single source of truth for both the
+/// count and the advancement decision.
+///
+/// This is rlevo's proxy for gym's per-contact tile marking: because the
+/// physics layer exposes no cheap contact stream, a step that carries the car
+/// across several ordered tiles is reconstructed as the contiguous index range
+/// `prev+1 ..= nearest` (modulo `total`, so it spans the start/finish seam).
+///
+/// Marking is bounded to genuine forward progress:
+/// - `prev == None` (first acquisition): mark `nearest` alone; `advanced`.
+/// - `forward_gap == 0` (same tile / stationary): mark nothing; not advanced.
+/// - `1 <= forward_gap <= bound`: mark the whole contiguous range once;
+///   `advanced`.
+/// - `forward_gap > bound`: mark nothing, not advanced — either a spurious
+///   nearest-jump across a self-intersection, or backward motion (where
+///   `forward_gap ≈ total`); neither is real forward coverage. This
+///   disambiguation relies on the caller's `bound < total/2`.
+///
+/// Pure: integer/flag math only, no RNG and no physics, so it is unit-testable
+/// on synthetic index sequences. Each tile flips at most once, preserving the
+/// `tiles_visited <= total_tiles` invariant when the caller adds the count.
+fn sweep_visits(
+    prev: Option<usize>,
+    nearest: usize,
+    total: usize,
+    bound: usize,
+    tiles: &mut [TrackTile],
+) -> (usize, bool) {
+    let Some(prev) = prev else {
+        // First acquisition: mark the single nearest tile.
+        let newly = usize::from(!tiles[nearest].visited);
+        tiles[nearest].visited = true;
+        return (newly, true);
+    };
+
+    let forward_gap = (nearest + total - prev) % total;
+    if forward_gap == 0 || forward_gap > bound {
+        return (0, false);
+    }
+
+    let mut newly = 0;
+    for step in 1..=forward_gap {
+        let k = (prev + step) % total;
+        if !tiles[k].visited {
+            tiles[k].visited = true;
+            newly += 1;
+        }
+    }
+    (newly, true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,14 +558,21 @@ mod tests {
     fn test_frame_penalty_every_step() {
         let mut env = make_env();
         env.reset().unwrap();
+        let total = env.state_for_test().total_tiles();
+        let before = env.state_for_test().tiles_visited();
         let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
         let reward: f32 = (*snap.reward()).into();
+        let newly = env.state_for_test().tiles_visited() - before;
+
+        // Reward decomposes exactly as: newly-marked tiles × per-tile reward
+        // (lap_reward / total_tiles) plus the constant frame penalty.
         let config = CarRacingConfig::default();
-        // Frame penalty is always applied; tile reward may also apply on step 1.
-        // Even with one tile: tile_reward + frame_penalty < tile_reward.
+        let per_tile = config.lap_reward / total as f32;
+        let expected = newly as f32 * per_tile + config.frame_penalty;
         assert!(
-            reward < config.tile_reward,
-            "frame penalty must reduce reward below tile_reward, got {reward}"
+            (reward - expected).abs() < 1e-4,
+            "reward must equal newly * per_tile + frame_penalty; \
+             got {reward}, expected {expected} (newly={newly})"
         );
     }
 
@@ -590,5 +694,158 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    // -- sweep_visits: pure, synthetic index sequences (no physics) ----------
+
+    /// Builds `n` unvisited placeholder tiles (geometry irrelevant to the sweep).
+    fn dummy_tiles(n: usize) -> Vec<TrackTile> {
+        (0..n)
+            .map(|_| TrackTile {
+                vertices: [[0.0; 2]; 4],
+                centre: [0.0; 2],
+                color: [0, 0, 0],
+                visited: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sweep_first_acquisition_marks_nearest() {
+        let mut tiles = dummy_tiles(10);
+        assert_eq!(sweep_visits(None, 4, 10, 4, &mut tiles), (1, true));
+        assert!(tiles[4].visited);
+        // Re-acquiring an already-visited tile counts zero but still advances.
+        assert_eq!(sweep_visits(None, 4, 10, 4, &mut tiles), (0, true));
+    }
+
+    #[test]
+    fn sweep_forward_run_crosses_seam() {
+        let mut tiles = dummy_tiles(10);
+        tiles[8].visited = true; // prior position
+        // prev=8, nearest=1 → forward_gap = (1 + 10 - 8) % 10 = 3 → mark 9, 0, 1.
+        assert_eq!(sweep_visits(Some(8), 1, 10, 4, &mut tiles), (3, true));
+        assert!(tiles[9].visited && tiles[0].visited && tiles[1].visited);
+    }
+
+    #[test]
+    fn sweep_marks_contiguous_range_once() {
+        let mut tiles = dummy_tiles(10);
+        // prev=2, nearest=5, gap=3 → mark 3, 4, 5.
+        assert_eq!(sweep_visits(Some(2), 5, 10, 4, &mut tiles), (3, true));
+        assert!(tiles[3].visited && tiles[4].visited && tiles[5].visited);
+        // Sweeping the same range again marks nothing new but still advances.
+        assert_eq!(sweep_visits(Some(2), 5, 10, 4, &mut tiles), (0, true));
+    }
+
+    #[test]
+    fn sweep_far_jump_beyond_bound_marks_nothing() {
+        let mut tiles = dummy_tiles(10);
+        // prev=0, nearest=7, gap=7 > bound=3 → spurious jump, mark nothing.
+        assert_eq!(sweep_visits(Some(0), 7, 10, 3, &mut tiles), (0, false));
+        assert!(tiles.iter().all(|t| !t.visited));
+    }
+
+    #[test]
+    fn sweep_backward_step_marks_nothing() {
+        let mut tiles = dummy_tiles(10);
+        // prev=5, nearest=3 → forward_gap = (3 + 10 - 5) % 10 = 8 > bound → none.
+        assert_eq!(sweep_visits(Some(5), 3, 10, 4, &mut tiles), (0, false));
+        assert!(tiles.iter().all(|t| !t.visited));
+    }
+
+    #[test]
+    fn sweep_stationary_marks_nothing() {
+        let mut tiles = dummy_tiles(10);
+        // prev == nearest → forward_gap == 0 → mark nothing, no advance.
+        assert_eq!(sweep_visits(Some(4), 4, 10, 4, &mut tiles), (0, false));
+        assert!(tiles.iter().all(|t| !t.visited));
+    }
+
+    #[test]
+    fn sweep_gap_equal_to_bound_marks() {
+        let mut tiles = dummy_tiles(20);
+        // prev=2, nearest=6, forward_gap=4 == bound=4 → mark 3, 4, 5, 6.
+        assert_eq!(sweep_visits(Some(2), 6, 20, 4, &mut tiles), (4, true));
+        assert!((3..=6).all(|i| tiles[i].visited));
+    }
+
+    #[test]
+    fn sweep_gap_one_beyond_bound_marks_nothing() {
+        let mut tiles = dummy_tiles(20);
+        // prev=2, nearest=7, forward_gap=5 == bound+1 → mark nothing, no advance.
+        assert_eq!(sweep_visits(Some(2), 7, 20, 4, &mut tiles), (0, false));
+        assert!(tiles.iter().all(|t| !t.visited));
+    }
+
+    /// Reachability: driving a scripted contiguous forward sequence through the
+    /// real `update_tile_visits` (via teleport, not a fragile high-speed
+    /// rollout) marks every tile, sets `lap_complete`, and a subsequent step
+    /// returns `Terminated` — closing the previously-untested branch.
+    #[test]
+    fn lap_completes_via_scripted_contiguous_sweep() {
+        let mut env = make_env();
+        env.reset().unwrap();
+        let total = env.state_for_test().total_tiles();
+        let car = env.state_for_test().car_handle();
+
+        // Teleport the car onto each tile centre in order. Each move is a single
+        // forward step (gap == 1, within bound), so the sweep marks tiles
+        // contiguously with no reliance on physics stability.
+        for i in 0..total {
+            let centre = env.track.tiles[i].centre;
+            if let Some(body) = env.world.bodies_mut().get_mut(car) {
+                body.set_translation(Vector::new(centre[0], centre[1]), true);
+            }
+            env.update_tile_visits();
+        }
+
+        assert_eq!(
+            env.state_for_test().tiles_visited(),
+            total,
+            "scripted contiguous sweep must visit every tile"
+        );
+        assert!(
+            env.state_for_test().lap_complete(),
+            "visiting every tile must satisfy the lap-complete threshold"
+        );
+        assert!(
+            env.state_for_test().is_valid(),
+            "tiles_visited <= total_tiles invariant must hold"
+        );
+
+        let snap = env.step(CarRacingAction::new(0.0, 0.0, 0.0)).unwrap();
+        assert!(
+            matches!(snap.status(), EpisodeStatus::Terminated),
+            "a completed lap must report Terminated"
+        );
+    }
+
+    /// Headline acceptance invariant `reward_per_tile_sums_to_1000`: driving a
+    /// full contiguous traversal, the tile-reward component summed across the
+    /// lap must equal `config.lap_reward` (per-tile = `lap_reward/total_tiles`,
+    /// every tile counted exactly once).
+    #[test]
+    fn full_lap_tile_reward_sums_to_lap_reward() {
+        let mut env = make_env();
+        env.reset().unwrap();
+        let total = env.state_for_test().total_tiles();
+        let car = env.state_for_test().car_handle();
+        let lap_reward = env.config.lap_reward;
+
+        let mut tile_reward_sum = 0.0f32;
+        for i in 0..total {
+            let centre = env.track.tiles[i].centre;
+            if let Some(body) = env.world.bodies_mut().get_mut(car) {
+                body.set_translation(Vector::new(centre[0], centre[1]), true);
+            }
+            tile_reward_sum += env.update_tile_visits();
+        }
+
+        assert!(
+            (tile_reward_sum - lap_reward).abs() < 1e-3,
+            "full-lap tile reward must sum to lap_reward ({lap_reward}), \
+             got {tile_reward_sum}"
+        );
     }
 }

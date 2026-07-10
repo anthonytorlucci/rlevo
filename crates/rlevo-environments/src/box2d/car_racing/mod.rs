@@ -13,7 +13,9 @@
 //!
 //! ## Reward structure
 //!
-//! - `+tile_reward` for each new track tile visited (total ≈ 1000 for a full lap).
+//! - Each new track tile visited pays `lap_reward / total_tiles`, so visiting
+//!   every tile sums to `lap_reward` (default 1000) for a full lap, regardless
+//!   of how many tiles the episode's track happens to have.
 //! - `frame_penalty` (default −0.1) applied every step.
 //!
 //! ## Termination conditions

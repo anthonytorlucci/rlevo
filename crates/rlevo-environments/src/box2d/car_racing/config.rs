@@ -18,8 +18,15 @@ pub struct CarRacingConfig {
     pub track_width: f32,
     /// Fraction of track tiles that must be visited to complete a lap.
     pub lap_complete_percent: f32,
-    /// Reward per new tile visited. Total lap reward ≈ 1000.
-    pub tile_reward: f32,
+    /// Total reward for a full lap, distributed evenly across the track's tiles.
+    ///
+    /// A full lap (every tile visited) sums to exactly `lap_reward`; the
+    /// effective per-tile reward is therefore `lap_reward / total_tiles`,
+    /// computed per episode from the actual generated tile count. This matches
+    /// the canonical Gymnasium CarRacing formulation (`+1000 / len(track)` per
+    /// tile), where a full lap pays ≈ 1000 regardless of the episode's tile
+    /// count.
+    pub lap_reward: f32,
     /// Penalty applied every step regardless of tile visits.
     pub frame_penalty: f32,
     /// Car body density.
@@ -43,7 +50,7 @@ impl Default for CarRacingConfig {
             track_turn_rate: 0.31,
             track_width: 40.0,
             lap_complete_percent: 0.95,
-            tile_reward: 1000.0 / 200.0, // 200 tiles approximated
+            lap_reward: 1000.0, // full-lap total; per-tile = lap_reward / total_tiles
             frame_penalty: -0.1,
             car_density: 0.001,
             friction: 1.0,
@@ -72,7 +79,7 @@ impl Validate for CarRacingConfig {
             1.0,
             f64::from(self.lap_complete_percent),
         )?;
-        config::positive(C, "tile_reward", f64::from(self.tile_reward))?;
+        config::positive(C, "lap_reward", f64::from(self.lap_reward))?;
         config::ordered(C, "frame_penalty", f64::from(self.frame_penalty), 0.0)?;
         config::positive(C, "car_density", f64::from(self.car_density))?;
         config::in_range(C, "friction", 0.0, f64::INFINITY, f64::from(self.friction))?;
@@ -116,6 +123,15 @@ impl CarRacingConfigBuilder {
         self
     }
 
+    /// Sets the total reward paid out for completing a full lap.
+    ///
+    /// The value is distributed evenly across the track's tiles, so the
+    /// effective per-tile reward is `lap_reward / total_tiles`.
+    pub fn lap_reward(mut self, lap_reward: f32) -> Self {
+        self.inner.lap_reward = lap_reward;
+        self
+    }
+
     /// Consumes the builder and returns the configured [`CarRacingConfig`].
     ///
     /// # Errors
@@ -136,7 +152,7 @@ mod tests {
     #[test]
     fn test_default() {
         let cfg = CarRacingConfig::default();
-        assert!(cfg.tile_reward > 0.0);
+        assert!(cfg.lap_reward > 0.0);
         assert!(cfg.frame_penalty < 0.0);
         assert_eq!(cfg.track_n_checkpoints, 12);
     }
