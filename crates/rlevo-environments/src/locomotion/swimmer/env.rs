@@ -189,17 +189,24 @@ impl Swimmer<Rapier3DBackend> {
         );
 
         let z_axis: Vector = Vector::new(0.0, 0.0, 1.0);
+        // Disable jointed-neighbour contacts: adjacent segment caps overlap at
+        // the shared anchor. The narrow phase honours the per-joint flag for
+        // multibody joints too (MuJoCo parent–child filter parity, ADR 0041).
         let joint1 = RevoluteJointBuilder::new(z_axis)
             .local_anchor1(Vector::new(half_l, 0.0, 0.0))
             .local_anchor2(Vector::new(-half_l, 0.0, 0.0))
+            .contacts_enabled(false)
             .build();
         let joint1_handle = world
             .add_multibody_joint(segment0, segment1, joint1)
             .expect("joint1 must form a tree — segment0 is the multibody root");
 
+        // Disable jointed-neighbour contacts: segment1's and segment2's caps
+        // overlap at the shared anchor (MuJoCo parent–child filter parity, ADR 0041).
         let joint2 = RevoluteJointBuilder::new(z_axis)
             .local_anchor1(Vector::new(half_l, 0.0, 0.0))
             .local_anchor2(Vector::new(-half_l, 0.0, 0.0))
+            .contacts_enabled(false)
             .build();
         let joint2_handle = world
             .add_multibody_joint(segment1, segment2, joint2)

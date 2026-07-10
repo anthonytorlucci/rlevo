@@ -21,7 +21,9 @@ use rlevo_core::environment::{
 };
 use rlevo_core::reward::ScalarReward;
 
-use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
+use crate::locomotion::backend::{
+    LocomotionBackend, Rapier3DBackend, Rapier3DJointHandle, Rapier3DWorld,
+};
 use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
 
 use super::action::ReacherAction;
@@ -145,11 +147,14 @@ impl Reacher<Rapier3DBackend> {
             link1,
         );
 
-        // Shoulder revolute joint (impulse), axis = world-z.
+        // Shoulder revolute joint (impulse), axis = world-z. Disable
+        // jointed-neighbour contacts: root and link1's inner cap overlap at the
+        // shoulder anchor (MuJoCo parent–child filter parity, ADR 0041).
         let z_axis: Vector = Vector::new(0.0, 0.0, 1.0);
         let shoulder_joint = RevoluteJointBuilder::new(z_axis)
             .local_anchor1(Vector::new(0.0, 0.0, 0.0))
             .local_anchor2(Vector::new(-half1, 0.0, 0.0))
+            .contacts_enabled(false)
             .build();
         let shoulder = world.add_impulse_joint(root, link1, shoulder_joint);
 
@@ -176,10 +181,13 @@ impl Reacher<Rapier3DBackend> {
             link2,
         );
 
-        // Elbow revolute joint (impulse), axis = world-z.
+        // Elbow revolute joint (impulse), axis = world-z. Disable
+        // jointed-neighbour contacts: link1's outer cap and link2's inner cap
+        // overlap at the elbow anchor (MuJoCo parent–child filter parity, ADR 0041).
         let elbow_joint = RevoluteJointBuilder::new(z_axis)
             .local_anchor1(Vector::new(half1, 0.0, 0.0))
             .local_anchor2(Vector::new(-half2, 0.0, 0.0))
+            .contacts_enabled(false)
             .build();
         let elbow = world.add_impulse_joint(link1, link2, elbow_joint);
 
@@ -314,18 +322,32 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         // held across the frame skip and cannot accumulate (ADR 0037). Handles
         // are `Copy` and `torques` is precomputed, so the closure borrows only
         // the world — not `self`.
-        //   Shoulder torque τ[0] on link1 (root is fixed → no reaction needed).
-        //   Elbow torque ±τ[1] between link1 and link2 (Newton's third law).
+        //
+        // Drive the two revolute (impulse) joints through the backend seam
+        // instead of hand-rolling body torques. For an `Impulse` joint,
+        // `apply_joint_torque(j, τ)` applies `+τ·â` to body2 and `−τ·â` to body1
+        // about the joint's world hinge axis â (here `+Z`, since both joints are
+        // built with a `+Z` axis and every dynamic link rotates only about `Z`,
+        // so `â` stays `+Z`). This reproduces the previous manual torques
+        // *exactly* by construction:
+        //   * Shoulder (root→link1): body1 = root is FIXED, so its `−τ[0]`
+        //     reaction is inert; link1 receives `+τ[0]`.
+        //   * Elbow (link1→link2): link1 receives the `−τ[1]` reaction and link2
+        //     receives `+τ[1]`.
+        // Net per body: link1 = τ[0] − τ[1], link2 = τ[1] — identical to the old
+        // `add_torque` code, modulo floating-point summation order (link1's two
+        // reaction adds vs one fused subtraction). Positive action ⇒ `+Z` torque
+        // ⇒ counterclockwise, unchanged. The env owns and constructed both
+        // joints as `+Z` revolute impulse joints, so a non-revolute/stale-handle
+        // error would be a programming error (docs/rules.md §4) — hence `expect`.
         let torques = self.control_torques(&action);
-        let link1 = self.state.link1;
-        let link2 = self.state.link2;
+        let shoulder: Rapier3DJointHandle = self.state.shoulder.into();
+        let elbow: Rapier3DJointHandle = self.state.elbow.into();
         self.world.step_actuated(|w| {
-            if let Some(body) = w.bodies_mut().get_mut(link1) {
-                body.add_torque(Vector::new(0.0, 0.0, torques[0] - torques[1]), true);
-            }
-            if let Some(body) = w.bodies_mut().get_mut(link2) {
-                body.add_torque(Vector::new(0.0, 0.0, torques[1]), true);
-            }
+            Rapier3DBackend::apply_joint_torque(w, shoulder, torques[0])
+                .expect("reacher shoulder is a revolute impulse joint");
+            Rapier3DBackend::apply_joint_torque(w, elbow, torques[1])
+                .expect("reacher elbow is a revolute impulse joint");
         });
         self.steps += 1;
 
