@@ -32,10 +32,10 @@ use rlevo_core::reward::ScalarReward;
 use crate::box2d::physics::RapierWorld;
 
 use super::action::BipedalWalkerAction;
-use super::config::BipedalWalkerConfig;
+use super::config::{BipedalTerrain, BipedalWalkerConfig};
 use super::observation::BipedalWalkerObservation;
 use super::state::BipedalWalkerState;
-use super::terrain::{FlatTerrain, TerrainGenerator};
+use super::terrain::{FlatTerrain, HardcoreTerrain, RoughTerrain, TerrainGenerator};
 
 // ─── Physical constants matching Gymnasium BipedalWalker-v3 ──────────────────
 
@@ -91,11 +91,11 @@ pub struct BipedalWalker {
 impl BipedalWalker {
     /// Create a new environment from a [`BipedalWalkerConfig`].
     ///
-    /// The terrain generator is chosen based on `config.terrain`: `Flat` uses
-    /// [`FlatTerrain`]; `Rough` and `Hardcore` require constructing the
-    /// environment via [`BipedalWalker::with_terrain`] and supplying the
-    /// corresponding generator explicitly, or by using the `BipedalTerrain`
-    /// dispatch in `with_config`.
+    /// The terrain generator is selected by dispatching on `config.terrain`:
+    /// [`BipedalTerrain::Flat`] uses [`FlatTerrain`], [`BipedalTerrain::Rough`]
+    /// uses [`RoughTerrain`], and [`BipedalTerrain::Hardcore`] uses
+    /// [`HardcoreTerrain`], each with its default parameters. To supply a
+    /// custom generator, use [`BipedalWalker::with_terrain`] instead.
     ///
     /// The physics world is fully built and warm-started during construction,
     /// so the environment is ready to receive `reset()` immediately.
@@ -105,7 +105,11 @@ impl BipedalWalker {
     /// Returns a [`ConfigError`] if `config` fails [`Validate`] (e.g.
     /// non-positive `motors_torque`, `dt`, or `max_steps == 0`).
     pub fn with_config(config: BipedalWalkerConfig) -> Result<Self, ConfigError> {
-        let terrain: Box<dyn TerrainGenerator> = Box::new(FlatTerrain);
+        let terrain: Box<dyn TerrainGenerator> = match config.terrain {
+            BipedalTerrain::Flat => Box::new(FlatTerrain),
+            BipedalTerrain::Rough => Box::new(RoughTerrain::default()),
+            BipedalTerrain::Hardcore => Box::new(HardcoreTerrain::default()),
+        };
         Self::build(config, terrain)
     }
 
@@ -342,6 +346,7 @@ impl BipedalWalker {
 
     fn compute_observation(&mut self) -> BipedalWalkerObservation {
         let bodies = self.world.bodies();
+        let joints_set = self.world.joints();
         let mut v = [0.0f32; 24];
 
         if let Some(hull) = bodies.get(self.state.hull_handle) {
@@ -351,18 +356,24 @@ impl BipedalWalker {
             v[3] = (hull.linvel().y / 10.0).clamp(-1.0, 1.0);
         }
 
+        // Joint observations: relative angle and speed-normalized relative
+        // angular velocity between each joint's parent (body1) and child (body2).
+        // Mirrors Gymnasium `joints[i].angle` / `joints[i].speed / SPEED_x`, but
+        // WITHOUT the +1.0 knee offset — rlevo builds knees at 0 relative
+        // rotation, so that constant would be an unphysical bias (deliberate,
+        // documented deviation).
         let joints = [
-            (self.state.hip1_joint, 4),
-            (self.state.knee1_joint, 6),
-            (self.state.hip2_joint, 9),
-            (self.state.knee2_joint, 11),
+            (self.state.hip1_joint, 4, self.config.speed_hip),
+            (self.state.knee1_joint, 6, self.config.speed_knee),
+            (self.state.hip2_joint, 9, self.config.speed_hip),
+            (self.state.knee2_joint, 11, self.config.speed_knee),
         ];
-        for (jhandle, base) in joints {
-            if let Some(j) = self.world.joints_mut().get(jhandle) {
-                let ang = j.data.local_anchor1().y; // proxy for angle
-                let vel = 0.0f32; // motor speed not directly exposed
-                v[base] = ang;
-                v[base + 1] = vel;
+        for (jhandle, base, speed) in joints {
+            if let Some(j) = joints_set.get(jhandle)
+                && let (Some(p), Some(c)) = (bodies.get(j.body1), bodies.get(j.body2))
+            {
+                v[base] = c.rotation().angle() - p.rotation().angle();
+                v[base + 1] = (c.angvel() - p.angvel()) / speed;
             }
         }
         v[8] = f32::from(self.state.leg1_contact);
@@ -441,6 +452,12 @@ impl BipedalWalker {
     #[cfg(test)]
     pub(crate) fn state_for_test(&self) -> &BipedalWalkerState {
         &self.state
+    }
+
+    /// Debug representation of the active terrain generator, for dispatch tests.
+    #[cfg(test)]
+    pub(crate) fn terrain_debug(&self) -> String {
+        format!("{:?}", self.terrain)
     }
 }
 
@@ -723,6 +740,123 @@ mod tests {
             .expect("Walker label span present");
         assert_eq!(label.style.fg, Some(AGENT_FG));
         assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn test_joint_obs_not_dead() {
+        // Regression (#119): joint angle/speed dims must be live, not constants.
+        // Dims [4,6,9,11] are joint angles; [5,7,10,12] are joint speeds.
+        let mut env = make_env();
+        let reset_snap = env.reset().unwrap();
+        let reset_obs = reset_snap.observation().values;
+
+        // Drive asymmetric motor targets so joints move differently.
+        let mut moved_obs = reset_obs;
+        for _ in 0..30 {
+            let action = BipedalWalkerAction([1.0, -1.0, -1.0, 1.0]);
+            let snap = env.step(action).unwrap();
+            moved_obs = snap.observation().values;
+        }
+
+        let joint_dims = [4usize, 5, 6, 7, 9, 10, 11, 12];
+
+        // At least one joint-speed dim must be non-zero — proving speeds are
+        // read from the physics world rather than hardcoded to 0.0.
+        let speed_dims = [5usize, 7, 10, 12];
+        assert!(
+            speed_dims.iter().any(|&d| moved_obs[d] != 0.0),
+            "all joint-speed dims are zero: {:?}",
+            speed_dims.map(|d| moved_obs[d])
+        );
+
+        // The joint sub-vector must change from its reset-time values —
+        // proving angles track posture rather than a fixed anchor constant.
+        let reset_joints: Vec<f32> = joint_dims.iter().map(|&d| reset_obs[d]).collect();
+        let moved_joints: Vec<f32> = joint_dims.iter().map(|&d| moved_obs[d]).collect();
+        assert_ne!(
+            reset_joints, moved_joints,
+            "joint observation dims did not change after motion (dead obs)"
+        );
+    }
+
+    #[test]
+    fn test_hip_speed_obs_normalized_by_speed_const() {
+        // Regression (#119): the joint-speed dims must divide the raw relative
+        // angular velocity by the joint's speed constant.
+        //
+        // `speed_hip` appears in BOTH `apply_motors` (motor target = action *
+        // speed) and `compute_observation` (divisor). To isolate the divisor we
+        // drive the ZERO action: the motor target becomes `0 * speed = 0`
+        // regardless of `speed_hip`, so the physics is byte-identical between two
+        // envs that differ only in `speed_hip`. Gravity/settling still induces a
+        // non-zero hip relative angvel, and that RAW angvel is identical in both
+        // envs. Only the observation divisor differs, so the reported hip-speed
+        // dims (v[5], v[10]) must scale as 1/speed_hip: doubling speed_hip halves
+        // the reported speed. This fails if the `/speed` division is dropped.
+        let run_settle = |speed_hip: f32| -> (f32, f32) {
+            let cfg = BipedalWalkerConfig {
+                speed_hip,
+                seed: 123,
+                ..Default::default()
+            };
+            let mut env = BipedalWalker::with_config(cfg).expect("valid config");
+            env.reset().unwrap();
+            // Zero action -> motor target 0 for all joints (speed-independent).
+            // A few steps of gravity-driven settling build up hip angvel.
+            let mut v = [0.0f32; 24];
+            for _ in 0..8 {
+                let snap = env.step(BipedalWalkerAction([0.0; 4])).unwrap();
+                v = snap.observation().values;
+            }
+            (v[5], v[10])
+        };
+
+        let (slow_h1, slow_h2) = run_settle(4.0);
+        let (fast_h1, fast_h2) = run_settle(8.0);
+
+        // Guard against the near-zero case: the hips must have moved for the
+        // ratio to be meaningful.
+        assert!(
+            fast_h1.abs() > 1e-4 && fast_h2.abs() > 1e-4,
+            "hips did not move; cannot test normalization: {fast_h1}, {fast_h2}"
+        );
+
+        // speed_hip doubled -> reported hip speed halved (raw angvel identical).
+        approx::assert_relative_eq!(slow_h1 / fast_h1, 2.0, epsilon = 1e-3);
+        approx::assert_relative_eq!(slow_h2 / fast_h2, 2.0, epsilon = 1e-3);
+    }
+
+    #[test]
+    fn test_with_config_dispatches_terrain() {
+        use crate::box2d::bipedal_walker::config::BipedalTerrain;
+
+        // Build one env per terrain preset via with_config; each must construct
+        // successfully and reset to a finite observation, AND select the matching
+        // generator. Asserting the active generator's debug string regression-
+        // guards the dispatch: the pre-fix code hardcoded FlatTerrain for every
+        // preset, so the Rough/Hardcore expectations below fail against it.
+        for (terrain, expected) in [
+            (BipedalTerrain::Flat, "FlatTerrain"),
+            (BipedalTerrain::Rough, "RoughTerrain"),
+            (BipedalTerrain::Hardcore, "HardcoreTerrain"),
+        ] {
+            let cfg = BipedalWalkerConfig::builder()
+                .terrain(terrain)
+                .seed(7)
+                .build()
+                .expect("valid config");
+            let mut env = BipedalWalker::with_config(cfg).expect("valid config");
+            assert!(
+                env.terrain_debug().contains(expected),
+                "with_config({terrain:?}) selected {:?}, expected {expected}",
+                env.terrain_debug()
+            );
+            let snap = env.reset().unwrap();
+            assert!(
+                snap.observation().is_finite(),
+                "reset obs must be finite for terrain {terrain:?}"
+            );
+        }
     }
 
     #[test]
