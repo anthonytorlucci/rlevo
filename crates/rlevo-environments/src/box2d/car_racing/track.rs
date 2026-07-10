@@ -26,6 +26,9 @@ use super::config::CarRacingConfig;
 pub struct TrackTile {
     /// Four world-space corners of the tile quad (winding: CCW).
     pub vertices: [[f32; 2]; 4],
+    /// World-space centroid of the quad, precomputed once at generation time so
+    /// [`Track::nearest_tile`] need not recompute it on every comparison.
+    pub centre: [f32; 2],
     /// RGB colour for rendering.
     pub color: [u8; 3],
     /// Whether this tile has been visited by the car.
@@ -113,19 +116,22 @@ impl Track {
             let ny = dx / len;
 
             let color = if i % 3 == 0 { kerb_color } else { road_color };
+            let vertices = [
+                [a[0] + nx * hw, a[1] + ny * hw],
+                [a[0] - nx * hw, a[1] - ny * hw],
+                [b[0] - nx * hw, b[1] - ny * hw],
+                [b[0] + nx * hw, b[1] + ny * hw],
+            ];
+            let cx = vertices.iter().map(|v| v[0]).sum::<f32>() / 4.0;
+            let cy = vertices.iter().map(|v| v[1]).sum::<f32>() / 4.0;
             tiles.push(TrackTile {
-                vertices: [
-                    [a[0] + nx * hw, a[1] + ny * hw],
-                    [a[0] - nx * hw, a[1] - ny * hw],
-                    [b[0] - nx * hw, b[1] - ny * hw],
-                    [b[0] + nx * hw, b[1] + ny * hw],
-                ],
+                vertices,
+                centre: [cx, cy],
                 color,
                 visited: false,
             });
         }
 
-        // Update tile_reward based on actual tile count
         let start_pos = centreline[0];
         let dx = centreline[1][0] - centreline[0][0];
         let dy = centreline[1][1] - centreline[0][1];
@@ -139,15 +145,16 @@ impl Track {
     }
 
     /// Return the index of the tile closest to `pos`.
+    ///
+    /// Reads each tile's precomputed [`centre`](TrackTile::centre) rather than
+    /// recomputing the centroid inside the comparison.
     pub fn nearest_tile(&self, pos: [f32; 2]) -> Option<usize> {
         self.tiles
             .iter()
             .enumerate()
             .min_by(|(_, a), (_, b)| {
-                let ca = tile_centre(a);
-                let cb = tile_centre(b);
-                let da = dist2(pos, ca);
-                let db = dist2(pos, cb);
+                let da = dist2(pos, a.centre);
+                let db = dist2(pos, b.centre);
                 da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(i, _)| i)
@@ -160,12 +167,6 @@ fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
         + (-p0 + p2) * t
         + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
         + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
-}
-
-fn tile_centre(tile: &TrackTile) -> [f32; 2] {
-    let x = tile.vertices.iter().map(|v| v[0]).sum::<f32>() / 4.0;
-    let y = tile.vertices.iter().map(|v| v[1]).sum::<f32>() / 4.0;
-    [x, y]
 }
 
 fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
