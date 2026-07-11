@@ -124,7 +124,7 @@ The three senses map onto three different mechanisms:
   [`Observable<OR>`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
   projection trait is for: it lets a state `project()` into an observation of a
   *different* tensor order $OR \neq SR$. The
-  [Environments chapter](../part-1-foundations/34-environment.md) walks through how
+  [Environments chapter](../part-1-foundations/reinforcement-learning/34-environment.md) walks through how
   an environment wires this up.
 
 The one-line takeaway: **partial observability is almost always a dimensionality or

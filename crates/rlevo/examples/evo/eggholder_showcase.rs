@@ -24,6 +24,6 @@ scattered across competing wells. \n\
         "",
     );
     let dim = 10;
-    let landscape = Eggholder::new(dim);
+    let landscape = Eggholder::new(dim).expect("dim >= 2");
     common::showcase("Eggholder", dim, landscape.bounds(), 20.0, landscape);
 }

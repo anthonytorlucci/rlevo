@@ -144,7 +144,7 @@ fn main() {
     let strategy = GeneticAlgorithm::<B>::new();
     let params = GaConfig::default_for(/* pop = */ 64, /* dim = */ 8);
     let mut rng = StdRng::seed_from_u64(42);
-    let mut fitness_fn = FromLandscape::new(Sphere::new(8));
+    let mut fitness_fn = FromLandscape::new(Sphere::new(8).expect("dim >= 1"));
 
     // init builds the first state and samples the initial population.
     let mut state = strategy.init(&params, &mut rng, &device);

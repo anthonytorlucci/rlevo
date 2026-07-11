@@ -78,7 +78,7 @@ and weaknesses in isolation:
   Cross-in-Tray, Bukin N.6, and Trefethen.
 
 The continuous ones implement the `Landscape` trait from
-[Optimising a Function](../part-2-guided-tour/01-optimizing-a-function.md), so
+[Optimising a Function](../part-2-guided-tour/10-optimizing-a-function.md), so
 you can drop any of them into the harness in place of `Sphere`.
 
 ## The hiker analogy

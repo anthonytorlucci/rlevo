@@ -12,11 +12,13 @@
 //! astronomically small (volume fraction `≈ 10⁻¹⁰` at `n = 2`), so this is a
 //! failure-demonstration function, not a solvable test. Requires `n ≥ 1`.
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Needle-Eye function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Needle {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Needle {
@@ -24,9 +26,23 @@ impl Needle {
     pub const EYE: f64 = 1e-4;
 
     /// Creates a `dim`-dimensional Needle-Eye evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the "inside the eye" predicate
+    /// `∀i. |x_i| ≤ EYE` is vacuously true over an empty coordinate set, so
+    /// every point returns the global minimum `f* = 1` and the needle can never
+    /// be missed.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Needle";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Needle-Eye function at `x`.
@@ -102,15 +118,25 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Needle::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Needle::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
         // Inside the needle, f = 1 (the minimum).
-        let n = Needle::new(3);
+        let n = Needle::new(3).expect("dim >= 1");
         assert_relative_eq!(n.evaluate(&[0.0, 0.0, 0.0]), 1.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        let n = Needle::new(1);
+        let n = Needle::new(1).expect("dim >= 1");
         assert!(
             n.evaluate(&[1.0]) > 1.0,
             "value outside the needle must exceed the minimum 1"
@@ -119,14 +145,14 @@ mod tests {
 
     #[test]
     fn inside_eye_gives_one() {
-        let n = Needle::new(3);
+        let n = Needle::new(3).expect("dim >= 1");
         assert_relative_eq!(n.evaluate(&[0.0, 0.0, 0.0]), 1.0, epsilon = 1e-12);
         assert_relative_eq!(n.evaluate(&[5e-5, -5e-5, 0.0]), 1.0, epsilon = 1e-12);
     }
 
     #[test]
     fn outside_eye_gives_penalty() {
-        let n = Needle::new(1);
+        let n = Needle::new(1).expect("dim >= 1");
         // |1.0| > EYE, so f = 100 + 1.0 = 101.0.
         assert_relative_eq!(n.evaluate(&[1.0]), 101.0, epsilon = 1e-10);
     }
@@ -135,7 +161,7 @@ mod tests {
     fn exact_boundary_stays_at_minimum() {
         // A point exactly on the boundary |x_i| = EYE is inside the eye, so
         // f = 1 — never below the global minimum.
-        let n = Needle::new(2);
+        let n = Needle::new(2).expect("dim >= 1");
         assert_relative_eq!(
             n.evaluate(&[Needle::EYE, -Needle::EYE]),
             1.0,
@@ -145,7 +171,7 @@ mod tests {
 
     #[test]
     fn just_outside_eye_gives_penalty() {
-        let n = Needle::new(1);
+        let n = Needle::new(1).expect("dim >= 1");
         let x = 1.1e-4_f64; // just outside the eye
         assert!(n.evaluate(&[x]) > 1.0);
     }
@@ -154,7 +180,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let n = Needle::new(2);
+        let n = Needle::new(2).expect("dim >= 1");
         let plain_no_trailing: String = n.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(n.render_styled().plain_text(), plain_no_trailing);
     }
@@ -164,7 +190,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let n = Needle::new(2);
+        let n = Needle::new(2).expect("dim >= 1");
         let styled = n.render_styled();
         let label = styled.lines[0]
             .spans
@@ -179,7 +205,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let n = Needle::new(2);
+        let n = Needle::new(2).expect("dim >= 1");
         for line in n.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

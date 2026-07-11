@@ -12,18 +12,33 @@
 
 use std::f64::consts::PI;
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Deb's function No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Deb1 {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Deb1 {
     /// Creates a `dim`-dimensional Deb No.01 evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the `1/n` averaging factor divides
+    /// the empty sum by zero, so evaluation yields `0.0 / 0.0` = `NaN` rather
+    /// than a comparable fitness value.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Deb1";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate Deb's function No.01 at `x`.
@@ -80,16 +95,26 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Deb1::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Deb1::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
         // x_i = 0.1 ⇒ sin(π/2)⁶ = 1 in every dimension ⇒ f = −1.
-        let d = Deb1::new(3);
+        let d = Deb1::new(3).expect("dim >= 1");
         assert_relative_eq!(d.evaluate(&[0.1; 3]), -1.0, epsilon = 1e-10);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         // f ∈ [−1, 0]; a non-optimal point exceeds the minimum −1.
-        let d = Deb1::new(1);
+        let d = Deb1::new(1).expect("dim >= 1");
         assert!(
             d.evaluate(&[0.15]) > -1.0,
             "non-optimal point must exceed the minimum −1"
@@ -98,14 +123,14 @@ mod tests {
 
     #[test]
     fn global_minimum_at_sample_optima() {
-        let d = Deb1::new(3);
+        let d = Deb1::new(3).expect("dim >= 1");
         assert_relative_eq!(d.evaluate(&[0.1, 0.1, 0.1]), -1.0, epsilon = 1e-10);
         assert_relative_eq!(d.evaluate(&[-0.9, 0.3, 0.7]), -1.0, epsilon = 1e-10);
     }
 
     #[test]
     fn local_minimum_shallower() {
-        let d = Deb1::new(1);
+        let d = Deb1::new(1).expect("dim >= 1");
         assert!(d.evaluate(&[0.15]) > -1.0);
     }
 
@@ -113,7 +138,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let d = Deb1::new(2);
+        let d = Deb1::new(2).expect("dim >= 1");
         let plain_no_trailing: String = d.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(d.render_styled().plain_text(), plain_no_trailing);
     }
@@ -123,7 +148,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let d = Deb1::new(2);
+        let d = Deb1::new(2).expect("dim >= 1");
         let styled = d.render_styled();
         let label = styled.lines[0]
             .spans
@@ -138,7 +163,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let d = Deb1::new(2);
+        let d = Deb1::new(2).expect("dim >= 1");
         for line in d.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

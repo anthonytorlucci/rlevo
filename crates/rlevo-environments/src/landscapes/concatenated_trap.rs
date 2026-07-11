@@ -46,26 +46,57 @@
 //! - Pelikan, M., Goldberg, D. E. & Cantú-Paz, E. (1999). "BOA: The Bayesian
 //!   Optimization Algorithm." *Proceedings of GECCO-99*, 525–532.
 
+use rlevo_core::config::{self, ConfigError, ConstraintKind};
+
 /// Concatenated trap evaluator: `num_blocks` order-`block_size` traps.
+///
+/// Construct with [`new`](Self::new), which rejects the degenerate
+/// configurations (see its `# Errors` section); the fields are private so a
+/// constructed value always has a well-defined, non-zero
+/// [`dim`](Self::dim).
 #[derive(Debug, Clone, Copy)]
 pub struct ConcatenatedTrap {
-    /// Number of contiguous, non-overlapping trap blocks.
-    pub num_blocks: usize,
-    /// Trap order `k` — the number of bits in each block.
-    pub block_size: usize,
+    /// Number of contiguous, non-overlapping trap blocks. Always non-zero.
+    num_blocks: usize,
+    /// Trap order `k` — the number of bits in each block. Always non-zero.
+    block_size: usize,
 }
 
 impl ConcatenatedTrap {
     /// Creates a concatenated trap of `num_blocks` blocks, each an order-`block_size` trap.
-    #[must_use]
-    pub const fn new(num_blocks: usize, block_size: usize) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// - [`ConstraintKind::Zero`] when `num_blocks == 0` or `block_size == 0`:
+    ///   either yields a zero-dimensional genome, and a zero `block_size` also
+    ///   makes [`evaluate`](Self::evaluate) partition with `chunks_exact(0)`
+    ///   (a panic) while scoring an empty genome at the *optimum* cost `0` —
+    ///   a misconfigured run would read as "solved".
+    /// - [`ConstraintKind::Custom`] when `num_blocks · block_size` overflows
+    ///   `usize`: the genome dimension cannot be represented, so
+    ///   [`dim`](Self::dim) has no correct answer to return.
+    pub fn new(num_blocks: usize, block_size: usize) -> Result<Self, ConfigError> {
+        const C: &str = "ConcatenatedTrap";
+        config::nonzero(C, "num_blocks", num_blocks)?;
+        config::nonzero(C, "block_size", block_size)?;
+        if num_blocks.checked_mul(block_size).is_none() {
+            return Err(ConfigError {
+                config: C,
+                field: "num_blocks",
+                kind: ConstraintKind::Custom("num_blocks * block_size must not overflow usize"),
+            });
+        }
+        Ok(Self {
             num_blocks,
             block_size,
-        }
+        })
     }
 
-    /// Total genome dimension: `num_blocks · block_size`.
+    /// Total genome dimension: `num_blocks · block_size`. Always non-zero.
+    ///
+    /// The multiplication cannot overflow: [`new`](Self::new) rejects any
+    /// `(num_blocks, block_size)` whose product exceeds `usize`, and the fields
+    /// are private, so no other value can exist.
     #[must_use]
     pub const fn dim(&self) -> usize {
         self.num_blocks * self.block_size
@@ -174,28 +205,67 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
+    /// A valid trap-5 × 4 for the happy-path tests.
+    fn trap_5x4() -> ConcatenatedTrap {
+        ConcatenatedTrap::new(4, 5).expect("4 blocks of 5 bits is a valid trap")
+    }
+
     #[test]
     fn dim_is_blocks_times_block_size() {
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         assert_eq!(t.dim(), 20, "4 blocks of 5 bits must yield dim 20");
     }
 
     #[test]
+    fn new_rejects_zero_num_blocks() {
+        let err = ConcatenatedTrap::new(0, 5).expect_err("zero blocks must be rejected");
+        assert_eq!(err.config, "ConcatenatedTrap");
+        assert_eq!(err.field, "num_blocks");
+        assert_eq!(err.kind, ConstraintKind::Zero);
+    }
+
+    #[test]
+    fn new_rejects_zero_block_size() {
+        // A zero block size would panic in `chunks_exact(0)` and score the
+        // empty genome at the optimum — the silent-success failure mode.
+        let err = ConcatenatedTrap::new(4, 0).expect_err("zero block size must be rejected");
+        assert_eq!(err.field, "block_size");
+        assert_eq!(err.kind, ConstraintKind::Zero);
+    }
+
+    #[test]
+    fn new_rejects_overflowing_dim() {
+        let err =
+            ConcatenatedTrap::new(usize::MAX, 2).expect_err("an overflowing dim must be rejected");
+        assert_eq!(err.field, "num_blocks");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::Custom("num_blocks * block_size must not overflow usize"),
+        );
+    }
+
+    #[test]
+    fn new_accepts_the_largest_representable_dim() {
+        let t = ConcatenatedTrap::new(usize::MAX, 1).expect("dim == usize::MAX is representable");
+        assert_eq!(t.dim(), usize::MAX);
+    }
+
+    #[test]
     fn global_minimum_all_ones() {
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         assert_relative_eq!(t.evaluate(&[1.0; 20]), 0.0, epsilon = 1e-6);
     }
 
     #[test]
     fn deceptive_optimum_all_zeros_costs_num_blocks() {
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         // Each all-zeros block costs cost(0) = 1, so 4 blocks cost 4.
         assert_relative_eq!(t.evaluate(&[0.0; 20]), 4.0, epsilon = 1e-6);
     }
 
     #[test]
     fn single_flip_from_all_zeros_is_strictly_worse() {
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         let baseline = t.evaluate(&[0.0; 20]);
         for i in 0..t.dim() {
             let mut x = [0.0_f64; 20];
@@ -213,7 +283,7 @@ mod tests {
 
     #[test]
     fn per_block_cost_curve_matches_trap() {
-        let t = ConcatenatedTrap::new(1, 5);
+        let t = ConcatenatedTrap::new(1, 5).expect("valid trap");
         let expected = [1.0, 2.0, 3.0, 4.0, 5.0, 0.0];
         for (u, &want) in expected.iter().enumerate() {
             let mut x = [0.0_f64; 5];
@@ -226,8 +296,8 @@ mod tests {
 
     #[test]
     fn additively_decomposable_across_blocks() {
-        let block = ConcatenatedTrap::new(1, 5);
-        let two = ConcatenatedTrap::new(2, 5);
+        let block = ConcatenatedTrap::new(1, 5).expect("valid trap");
+        let two = ConcatenatedTrap::new(2, 5).expect("valid trap");
         // Two distinct blocks: one with u=2 leading ones, one with u=3.
         let a = [1.0, 1.0, 0.0, 0.0, 0.0];
         let b = [1.0, 1.0, 1.0, 0.0, 0.0];
@@ -243,7 +313,7 @@ mod tests {
 
     #[test]
     fn threshold_rounds_genes_to_bits() {
-        let t = ConcatenatedTrap::new(1, 5);
+        let t = ConcatenatedTrap::new(1, 5).expect("valid trap");
         // 0.49 -> 0, 0.5 -> 1, 0.51 -> 1, 1.0 -> 1, 0.99 -> 1 ⇒ u = 4 ⇒ cost 5.
         assert_relative_eq!(
             t.evaluate(&[0.5, 0.49, 0.51, 1.0, 0.99]),
@@ -255,7 +325,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "input dimension mismatch")]
     fn evaluate_panics_on_dimension_mismatch() {
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         let _ = t.evaluate(&[0.0; 19]);
     }
 
@@ -263,7 +333,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         let plain_no_trailing: String = t.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(
             t.render_styled().plain_text(),
@@ -277,7 +347,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         let styled = t.render_styled();
         let label = styled.lines[0]
             .spans
@@ -299,7 +369,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let t = ConcatenatedTrap::new(4, 5);
+        let t = trap_5x4();
         for line in t.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

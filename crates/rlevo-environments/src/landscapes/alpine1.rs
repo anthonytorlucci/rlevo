@@ -11,18 +11,33 @@
 //! Note: the canonical formula is `|x_i·sin(x_i) + 0.1·x_i|`; some libraries
 //! (e.g. NiaPy) drop the leading `x_i` factor — that is a different function.
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Alpine function No.01 evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Alpine1 {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Alpine1 {
     /// Creates a `dim`-dimensional Alpine No.01 evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: `f` is a sum of per-coordinate
+    /// absolute values, so an empty coordinate set sums to `0` — the Alpine
+    /// No.01 global minimum `f* = 0` — making every evaluation look optimal.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Alpine1";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Alpine No.01 function at `x`.
@@ -88,14 +103,24 @@ mod tests {
     use std::f64::consts::PI;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Alpine1::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Alpine1::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
-        let a = Alpine1::new(4);
+        let a = Alpine1::new(4).expect("dim >= 1");
         assert_relative_eq!(a.evaluate(&[0.0; 4]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        let a = Alpine1::new(3);
+        let a = Alpine1::new(3).expect("dim >= 1");
         assert!(
             a.evaluate(&[5.0, -3.0, 7.0]) > 0.0,
             "value away from the origin must exceed the minimum 0"
@@ -104,7 +129,7 @@ mod tests {
 
     #[test]
     fn non_negative_everywhere() {
-        let a = Alpine1::new(5);
+        let a = Alpine1::new(5).expect("dim >= 1");
         for x in [1.0, -3.7, 5.5, -9.1, 0.01_f64] {
             assert!(
                 a.evaluate(&[x; 5]) >= 0.0,
@@ -116,7 +141,7 @@ mod tests {
     #[test]
     fn known_value_at_pi() {
         // At x = π: |π·sin(π) + 0.1·π| = 0.1π.
-        let a = Alpine1::new(1);
+        let a = Alpine1::new(1).expect("dim >= 1");
         let expected = (PI * PI.sin() + 0.1 * PI).abs();
         assert_relative_eq!(a.evaluate(&[PI]), expected, epsilon = 1e-10);
     }
@@ -125,7 +150,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let a = Alpine1::new(2);
+        let a = Alpine1::new(2).expect("dim >= 1");
         let plain_no_trailing: String = a.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(a.render_styled().plain_text(), plain_no_trailing);
     }
@@ -135,7 +160,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let a = Alpine1::new(2);
+        let a = Alpine1::new(2).expect("dim >= 1");
         let styled = a.render_styled();
         let label = styled.lines[0]
             .spans
@@ -150,7 +175,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let a = Alpine1::new(2);
+        let a = Alpine1::new(2).expect("dim >= 1");
         for line in a.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

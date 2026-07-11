@@ -13,35 +13,47 @@
 //!
 //! Requires `n ≥ 2`; the sum is empty for `n = 1`.
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Rosenbrock function evaluator with configurable dimensionality.
 ///
 /// The `100` and `1` coefficients are fixed per the canonical definition, so the
 /// struct carries no tunable constants.
 #[derive(Debug, Clone, Copy)]
 pub struct Rosenbrock {
-    /// Number of input dimensions. Must be `≥ 2`.
-    pub dim: usize,
+    /// Number of input dimensions. Always `≥ 2` — enforced by [`Rosenbrock::new`].
+    dim: usize,
 }
 
 impl Rosenbrock {
     /// Creates a `dim`-dimensional Rosenbrock evaluator.
     ///
-    /// `dim` should be `≥ 2`; [`evaluate`](Self::evaluate) panics otherwise.
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim < 2`. The chained sum runs over adjacent
+    /// coordinate pairs (`i = 1..n−1`) and is empty for a single coordinate, so
+    /// `f` would be identically `0` everywhere — a constant "landscape" whose
+    /// every point is a global optimum.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Rosenbrock";
+        config::at_least(C, "dim", dim, 2)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Rosenbrock function at `x`.
     ///
     /// # Panics
     ///
-    /// Panics if `x.len() != self.dim`, or if `self.dim < 2` (the pairwise sum is
-    /// undefined for a single coordinate).
+    /// Panics if `x.len() != self.dim`.
     #[must_use]
     pub fn evaluate(&self, x: &[f64]) -> f64 {
         assert_eq!(x.len(), self.dim, "input dimension mismatch");
-        assert!(self.dim >= 2, "Rosenbrock requires dim >= 2");
         x.windows(2)
             .map(|w| {
                 let (xi, xn) = (w[0], w[1]);
@@ -102,13 +114,13 @@ mod tests {
 
     #[test]
     fn global_minimum_at_known_location() {
-        let r = Rosenbrock::new(4);
+        let r = Rosenbrock::new(4).expect("dim >= 2");
         assert_relative_eq!(r.evaluate(&[1.0; 4]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        let r = Rosenbrock::new(3);
+        let r = Rosenbrock::new(3).expect("dim >= 2");
         assert!(
             r.evaluate(&[0.0, 0.0, 0.0]) > 0.0,
             "Rosenbrock must be positive away from (1,…,1)"
@@ -118,29 +130,40 @@ mod tests {
     #[test]
     fn minimum_at_ones() {
         // Every term vanishes: 100·(1−1)² + (1−1)² = 0.
-        let r = Rosenbrock::new(5);
+        let r = Rosenbrock::new(5).expect("dim >= 2");
         assert_relative_eq!(r.evaluate(&[1.0; 5]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn known_value_at_origin() {
         // Each of the n−1 terms contributes 100·0 + 1 = 1, so f(0) = n−1.
-        let r = Rosenbrock::new(4);
+        let r = Rosenbrock::new(4).expect("dim >= 2");
         assert_relative_eq!(r.evaluate(&[0.0; 4]), 3.0, epsilon = 1e-12);
     }
 
     #[test]
-    #[should_panic(expected = "requires dim >= 2")]
-    fn panics_on_dim_one() {
-        let r = Rosenbrock::new(1);
-        let _ = r.evaluate(&[0.5]);
+    fn new_rejects_dim_one() {
+        assert!(
+            Rosenbrock::new(1).is_err(),
+            "dim = 1 leaves the pairwise sum empty"
+        );
+    }
+
+    #[test]
+    fn new_rejects_dim_zero() {
+        assert!(Rosenbrock::new(0).is_err(), "dim = 0 has no coordinates");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Rosenbrock::new(7).expect("dim >= 2").dim(), 7);
     }
 
     #[test]
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let r = Rosenbrock::new(2);
+        let r = Rosenbrock::new(2).expect("dim >= 2");
         let plain_no_trailing: String = r.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(r.render_styled().plain_text(), plain_no_trailing);
     }
@@ -150,7 +173,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let r = Rosenbrock::new(2);
+        let r = Rosenbrock::new(2).expect("dim >= 2");
         let styled = r.render_styled();
         let label = styled.lines[0]
             .spans
@@ -165,7 +188,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let r = Rosenbrock::new(2);
+        let r = Rosenbrock::new(2).expect("dim >= 2");
         for line in r.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

@@ -5,20 +5,35 @@
 
 use std::f64::consts::PI;
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Rastrigin function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Rastrigin {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
     /// Amplitude constant (canonical: `10.0`).
     pub a: f64,
 }
 
 impl Rastrigin {
     /// Creates a `dim`-dimensional Rastrigin evaluator with `A = 10`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the `A·n` offset collapses to `0`
+    /// and the per-coordinate sum is empty, so `f` is identically `0` — the
+    /// Rastrigin's global optimum — for every input.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Rastrigin";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim, a: 10.0 })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim, a: 10.0 }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Rastrigin function at `x`.
@@ -87,14 +102,24 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Rastrigin::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Rastrigin::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_origin() {
-        let r = Rastrigin::new(5);
+        let r = Rastrigin::new(5).expect("dim >= 1");
         assert_relative_eq!(r.evaluate(&[0.0; 5]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_elsewhere() {
-        let r = Rastrigin::new(3);
+        let r = Rastrigin::new(3).expect("dim >= 1");
         assert!(r.evaluate(&[1.0, 2.0, 3.0]) > 0.0);
     }
 
@@ -102,7 +127,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let r = Rastrigin::new(2);
+        let r = Rastrigin::new(2).expect("dim >= 1");
         let plain_no_trailing: String = r.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(r.render_styled().plain_text(), plain_no_trailing);
     }
@@ -112,7 +137,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let r = Rastrigin::new(2);
+        let r = Rastrigin::new(2).expect("dim >= 1");
         let styled = r.render_styled();
         let label = styled.lines[0]
             .spans
@@ -127,7 +152,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let r = Rastrigin::new(2);
+        let r = Rastrigin::new(2).expect("dim >= 1");
         for line in r.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

@@ -214,7 +214,7 @@ fn rosenbrock_demo() {
          strongest captured link correlation grow while UMDA has no such notion.\n"
     );
 
-    let landscape = Rosenbrock::new(ROSEN_DIM);
+    let landscape = Rosenbrock::new(ROSEN_DIM).expect("dim >= 2");
     let trace_seed = ROSEN_SEEDS[0];
 
     // Verbose single-seed run: UMDA. Print mean position magnitude + mean σ.
@@ -572,7 +572,8 @@ fn trap_demo() {
          full-refit models, where the structural story is clean.\n"
     );
 
-    let trap = ConcatenatedTrap::new(TRAP_BLOCKS, TRAP_K);
+    let trap =
+        ConcatenatedTrap::new(TRAP_BLOCKS, TRAP_K).expect("num_blocks >= 1 && block_size >= 1");
 
     // UMDA trace: per-gene Gaussian means collapse toward 0 (deceived).
     println!("UMDA (seed {TRAP_TRACE_SEED}) — independent per-dimension Gaussian:");

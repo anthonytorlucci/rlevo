@@ -23,6 +23,6 @@ near-flat — so reaching `−1` is about landing on the regular grid, and a
         "",
     );
     let dim = 10;
-    let landscape = Deb1::new(dim);
+    let landscape = Deb1::new(dim).expect("dim >= 1");
     common::showcase("Deb1", dim, landscape.bounds(), 0.05, landscape);
 }

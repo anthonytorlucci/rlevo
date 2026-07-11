@@ -97,12 +97,20 @@ fn de_config() -> DeConfig {
 fn sphere_strategies_reach_near_optimum() {
     // Sphere is convex/unimodal with optimum 0; every real-valued strategy
     // should drive best_fitness_ever well below 1.0 in user space.
-    let ga = run_to_best(GeneticAlgorithm::<B>::new(), ga_config(), Sphere::new(DIM));
-    let es = run_to_best(EvolutionStrategy::<B>::new(), es_config(), Sphere::new(DIM));
+    let ga = run_to_best(
+        GeneticAlgorithm::<B>::new(),
+        ga_config(),
+        Sphere::new(DIM).expect("dim >= 1"),
+    );
+    let es = run_to_best(
+        EvolutionStrategy::<B>::new(),
+        es_config(),
+        Sphere::new(DIM).expect("dim >= 1"),
+    );
     let de = run_to_best(
         DifferentialEvolution::<B>::new(),
         de_config(),
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
     );
 
     for (name, best) in [("GA", ga), ("ES", es), ("DE", de)] {
@@ -125,17 +133,17 @@ fn rastrigin_strategies_improve_on_random_search() {
     let ga = run_to_best(
         GeneticAlgorithm::<B>::new(),
         ga_config(),
-        Rastrigin::new(DIM),
+        Rastrigin::new(DIM).expect("dim >= 1"),
     );
     let es = run_to_best(
         EvolutionStrategy::<B>::new(),
         es_config(),
-        Rastrigin::new(DIM),
+        Rastrigin::new(DIM).expect("dim >= 1"),
     );
     let de = run_to_best(
         DifferentialEvolution::<B>::new(),
         de_config(),
-        Rastrigin::new(DIM),
+        Rastrigin::new(DIM).expect("dim >= 1"),
     );
 
     for (name, best) in [("GA", ga), ("ES", es), ("DE", de)] {
@@ -156,7 +164,7 @@ fn ackley_de_reaches_near_optimum() {
     let de = run_to_best(
         DifferentialEvolution::<B>::new(),
         de_config(),
-        Ackley::new(DIM),
+        Ackley::new(DIM).expect("dim >= 1"),
     );
     assert!(
         de.is_finite() && de >= 0.0,

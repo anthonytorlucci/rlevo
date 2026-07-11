@@ -132,7 +132,7 @@ fn all_five_models_reach_sphere_threshold() {
         UnivariateGaussianParams::default_for(DIM),
         SELECTION_RATIO,
         bounds,
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
         SEED,
     );
     assert!(
@@ -147,7 +147,7 @@ fn all_five_models_reach_sphere_threshold() {
         UnivariateBernoulliParams::default_for(DIM),
         SELECTION_RATIO,
         None,
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
         SEED,
     );
     assert!(
@@ -160,7 +160,7 @@ fn all_five_models_reach_sphere_threshold() {
         CompactGeneticParams::default_for(DIM),
         SELECTION_RATIO,
         None,
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
         SEED,
     );
     assert!(
@@ -173,7 +173,7 @@ fn all_five_models_reach_sphere_threshold() {
         DependencyChainParams::default_for(DIM),
         SELECTION_RATIO,
         bounds,
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
         SEED,
     );
     assert!(
@@ -188,7 +188,7 @@ fn all_five_models_reach_sphere_threshold() {
         BayesianNetworkParams::default_for(DIM),
         SELECTION_RATIO,
         None,
-        Sphere::new(DIM),
+        Sphere::new(DIM).expect("dim >= 1"),
         SEED,
     );
     assert!(
@@ -224,7 +224,8 @@ fn boa_solves_trap_where_umda_and_mimic_stall() {
     const TRAP_POP: usize = 2000;
     const TRAP_RATIO: f32 = 0.3;
     const TRAP_GENS: usize = 60;
-    let trap = ConcatenatedTrap::new(4, 5); // trap-5 × 4 blocks, dim 20
+    // trap-5 × 4 blocks, dim 20
+    let trap = ConcatenatedTrap::new(4, 5).expect("num_blocks >= 1 && block_size >= 1");
 
     let mut boa: Vec<f32> = SEEDS
         .iter()
@@ -344,7 +345,7 @@ fn mimic_beats_umda_median_on_rosenbrock() {
                 p,
                 RATIO,
                 bounds,
-                Rosenbrock::new(DIM),
+                Rosenbrock::new(DIM).expect("dim >= 2"),
                 seed,
             )
         })
@@ -361,7 +362,7 @@ fn mimic_beats_umda_median_on_rosenbrock() {
                 p,
                 RATIO,
                 bounds,
-                Rosenbrock::new(DIM),
+                Rosenbrock::new(DIM).expect("dim >= 2"),
                 seed,
             )
         })

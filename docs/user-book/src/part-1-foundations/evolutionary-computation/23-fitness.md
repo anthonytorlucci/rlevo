@@ -148,10 +148,14 @@ construction site so intent is visible:
 
 ```rust,ignore
 use rlevo_core::objective::ObjectiveSense;
+use rlevo_environments::landscapes::sphere::Sphere;
 use rlevo_evolution::fitness::FromLandscape;
 
 // A cost surface: declare Minimize explicitly (the adapter would default to it).
-let fitness = FromLandscape::with_sense(SphereLandscape::new(dim), ObjectiveSense::Minimize);
+let fitness = FromLandscape::with_sense(
+    Sphere::new(dim).expect("dim >= 1"),
+    ObjectiveSense::Minimize,
+);
 // ... run the harness ...
 // best_fitness_ever reads in your declared sense — the natural cost.
 assert!(harness.latest_metrics().unwrap().best_fitness_ever < 1e-3); // Sphere → 0
@@ -233,7 +237,7 @@ impl FitnessEvaluable for Minimizer {
 }
 
 // 10-dimensional Rastrigin, ready to hand to an EvolutionaryHarness.
-let fitness_fn = FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM));
+let fitness_fn = FromFitnessEvaluable::new(Minimizer, Rastrigin::new(DIM).expect("dim >= 1"));
 ```
 
 **Evaluator carries the scoring; the landscape is a marker.** The per-strategy
@@ -263,7 +267,8 @@ defined right next to the test or experiment, fold it into the evaluator and let
 the landscape collapse to a marker. When the landscape *is* the whole objective
 and no scoring shim adds anything, skip `FromFitnessEvaluable` and reach for
 `FromLandscape` instead — `crates/rlevo-examples/examples/book/ch01_sphere_ga.rs`
-does exactly that with `FromLandscape::new(Sphere::new(DIM))`.
+does exactly that with
+`FromLandscape::with_sense(Sphere::new(DIM).expect("dim >= 1"), ObjectiveSense::Minimize)`.
 
 Both adapters follow the same recipe per generation: pull each population row to
 host as `f32`, widen to `f64`, evaluate on the CPU row-by-row, and re-upload the

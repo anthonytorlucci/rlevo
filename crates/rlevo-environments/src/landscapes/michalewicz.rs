@@ -13,11 +13,13 @@
 
 use std::f64::consts::{FRAC_PI_2, PI};
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Michalewicz function evaluator with configurable dimensionality and steepness.
 #[derive(Debug, Clone, Copy)]
 pub struct Michalewicz {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
     /// Steepness parameter; the canonical value is `10`. Lower values (e.g. `2`)
     /// produce a smoother surface useful for debugging gradient-based agents.
     pub m: u32,
@@ -25,9 +27,22 @@ pub struct Michalewicz {
 
 impl Michalewicz {
     /// Creates a `dim`-dimensional Michalewicz evaluator with canonical `m = 10`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the sum over dimensions is empty,
+    /// so `f ≡ 0` — a perfectly flat surface with no local minima, no gradient,
+    /// and no certified optimum to converge on.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Michalewicz";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim, m: 10 })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim, m: 10 }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Michalewicz function at `x`.
@@ -101,9 +116,19 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Michalewicz::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Michalewicz::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
         // Certified n=2 optimum f* ≈ −1.8013 near (2.20, π/2).
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         assert_relative_eq!(
             m.evaluate(&[2.20290552, FRAC_PI_2]),
             -1.8013,
@@ -115,7 +140,7 @@ mod tests {
     fn positive_or_greater_elsewhere() {
         // f is ≤ 0 everywhere; a generic interior point exceeds (is greater than)
         // the global minimum value.
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         assert!(
             m.evaluate(&[0.5, 0.5]) > m.evaluate(&[2.20290552, FRAC_PI_2]),
             "interior point must score worse than the global optimum"
@@ -125,7 +150,7 @@ mod tests {
     #[test]
     fn always_non_positive() {
         // The outer minus sign and sin^{2m} ∈ [0, 1] keep f ≤ 0 across the domain.
-        let m = Michalewicz::new(3);
+        let m = Michalewicz::new(3).expect("dim >= 1");
         for &xi in &[0.1, 0.8, 1.6, 2.4, 3.0] {
             assert!(
                 m.evaluate(&[xi; 3]) <= 1e-12,
@@ -136,7 +161,7 @@ mod tests {
 
     #[test]
     fn known_value_n2() {
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         assert_relative_eq!(
             m.evaluate(&[2.20290552, FRAC_PI_2]),
             -1.8013,
@@ -148,8 +173,9 @@ mod tests {
     fn lower_m_produces_smoother_surface() {
         // Structural sanity check: a steeper m yields a sharper (more negative or
         // equal) value at a near-ridge point than a smoother m does.
-        let steep = Michalewicz { dim: 2, m: 10 };
-        let smooth = Michalewicz { dim: 2, m: 2 };
+        let steep = Michalewicz::new(2).expect("dim >= 1"); // canonical m = 10
+        let mut smooth = Michalewicz::new(2).expect("dim >= 1");
+        smooth.m = 2;
         let _ = smooth.evaluate(&[1.0, 1.5]);
         let _ = steep.evaluate(&[1.0, 1.5]);
     }
@@ -158,7 +184,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         let plain_no_trailing: String = m.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(m.render_styled().plain_text(), plain_no_trailing);
     }
@@ -168,7 +194,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         let styled = m.render_styled();
         let label = styled.lines[0]
             .spans
@@ -183,7 +209,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let m = Michalewicz::new(2);
+        let m = Michalewicz::new(2).expect("dim >= 1");
         for line in m.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

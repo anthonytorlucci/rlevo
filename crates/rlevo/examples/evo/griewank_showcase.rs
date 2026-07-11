@@ -22,6 +22,6 @@ than settling in the central bowl.\n\
         "",
     );
     let dim = 10;
-    let landscape = Griewank::new(dim);
+    let landscape = Griewank::new(dim).expect("dim >= 1");
     common::showcase("Griewank", dim, landscape.bounds(), 20.0, landscape);
 }
