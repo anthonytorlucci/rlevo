@@ -11,18 +11,33 @@
 //!
 //! Requires `n ≥ 1`.
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Griewank function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Griewank {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Griewank {
     /// Creates a `dim`-dimensional Griewank evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the quadratic term is an empty sum
+    /// (`0`) and the cosine term an empty product (`1`), so `f = 0 − 1 + 1 = 0`
+    /// — precisely the Griewank's global minimum — for every input.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Griewank";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Griewank function at `x`.
@@ -95,15 +110,25 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Griewank::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Griewank::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
         // sum_sq = 0, prod_cos = 1, so f(0) = 0 − 1 + 1 = 0 exactly.
-        let g = Griewank::new(5);
+        let g = Griewank::new(5).expect("dim >= 1");
         assert_relative_eq!(g.evaluate(&[0.0; 5]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
-        let g = Griewank::new(3);
+        let g = Griewank::new(3).expect("dim >= 1");
         assert!(
             g.evaluate(&[100.0, -50.0, 25.0]) > 0.0,
             "Griewank must exceed its minimum away from the origin"
@@ -113,7 +138,7 @@ mod tests {
     #[test]
     fn known_value_at_ones() {
         // f([1,1]) = 2/4000 − cos(1)·cos(1/√2) + 1.
-        let g = Griewank::new(2);
+        let g = Griewank::new(2).expect("dim >= 1");
         let expected = 2.0 / 4000.0 - (1.0_f64).cos() * (1.0_f64 / 2.0_f64.sqrt()).cos() + 1.0;
         assert_relative_eq!(g.evaluate(&[1.0, 1.0]), expected, epsilon = 1e-12);
     }
@@ -122,7 +147,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let g = Griewank::new(2);
+        let g = Griewank::new(2).expect("dim >= 1");
         let plain_no_trailing: String = g.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(g.render_styled().plain_text(), plain_no_trailing);
     }
@@ -132,7 +157,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let g = Griewank::new(2);
+        let g = Griewank::new(2).expect("dim >= 1");
         let styled = g.render_styled();
         let label = styled.lines[0]
             .spans
@@ -147,7 +172,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let g = Griewank::new(2);
+        let g = Griewank::new(2).expect("dim >= 1");
         for line in g.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

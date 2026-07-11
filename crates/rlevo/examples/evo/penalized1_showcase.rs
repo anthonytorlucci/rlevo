@@ -23,6 +23,6 @@ penalized region.\n\
         "",
     );
     let dim = 10;
-    let landscape = Penalized1::new(dim);
+    let landscape = Penalized1::new(dim).expect("dim >= 1");
     common::showcase("Penalized1", dim, landscape.bounds(), 2.0, landscape);
 }

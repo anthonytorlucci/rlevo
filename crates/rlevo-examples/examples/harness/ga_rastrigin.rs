@@ -76,7 +76,7 @@ struct GaEnv {
 
 impl GaEnv {
     fn new(seed: u64, dim: usize, pop_size: usize, max_generations: usize) -> Self {
-        let landscape = Rastrigin::new(dim);
+        let landscape = Rastrigin::new(dim).expect("dim >= 1");
         let mut rng = StdRng::seed_from_u64(seed);
         let population = sample_population(&mut rng, &landscape, pop_size);
         Self {
@@ -130,7 +130,7 @@ fn sample_population(rng: &mut StdRng, landscape: &Rastrigin, pop_size: usize) -
     let (lo, hi) = landscape.bounds();
     let unit = Uniform::new(lo, hi).unwrap();
     (0..pop_size)
-        .map(|_| (0..landscape.dim).map(|_| unit.sample(rng)).collect())
+        .map(|_| (0..landscape.dim()).map(|_| unit.sample(rng)).collect())
         .collect()
 }
 

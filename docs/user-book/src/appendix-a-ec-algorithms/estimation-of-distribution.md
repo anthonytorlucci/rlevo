@@ -69,7 +69,7 @@ model and every page below:
   seeded through process-global state, which interleaves across parallel
   strategy calls and breaks the per-stream determinism the crate guarantees.
   Models sample on the host and upload with `Tensor::from_data`
-  (the [evolution host-RNG convention](../part-3-evolution/index.md)).
+  (the [evolution host-RNG convention](../appendix-d-suppl/ask-tell-contract.md#the-seed_stream-and-reproducibility)).
 - **Selection order is a convenience, not a contract.** The rows handed to
   `fit` arrive in descending-fitness order (best = highest first), deterministically.
   Models that need the best or worst row (PBIL, cGA) still compute

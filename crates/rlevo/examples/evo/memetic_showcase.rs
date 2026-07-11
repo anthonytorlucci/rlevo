@@ -129,7 +129,7 @@ where
 {
     let device: <B as BackendTypes>::Device = Default::default();
     let fitness: CountingRastrigin = CountingRastrigin {
-        landscape: Rastrigin::new(DIM),
+        landscape: Rastrigin::new(DIM).expect("dim >= 1"),
         evals: evals.clone(),
     };
     let mut harness = EvolutionaryHarness::<B, S, CountingRastrigin>::new(
@@ -176,7 +176,7 @@ fn run_memetic_row(
 ) {
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let wrapper_fitness: CountingRastrigin = CountingRastrigin {
-        landscape: Rastrigin::new(DIM),
+        landscape: Rastrigin::new(DIM).expect("dim >= 1"),
         evals: evals.clone(),
     };
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(

@@ -23,6 +23,6 @@ the output\" section for the full column legend.\n\
         "",
     );
     let dim = 10;
-    let landscape = Alpine1::new(dim);
+    let landscape = Alpine1::new(dim).expect("dim >= 1");
     common::showcase("Alpine1", dim, landscape.bounds(), 0.4, landscape);
 }

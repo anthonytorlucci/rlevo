@@ -22,6 +22,6 @@ difficulty this benchmark is designed to expose.\n\
         "",
     );
     let dim = 10;
-    let landscape = LunacekBiRastrigin::new(dim);
+    let landscape = LunacekBiRastrigin::new(dim).expect("dim >= 2");
     common::showcase("Lunacek", dim, landscape.bounds(), 0.2, landscape);
 }

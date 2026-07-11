@@ -129,6 +129,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   call `reset()` to start a new episode. So far only the `toy_text` family and
   the `TimeLimit` wrapper enforce this — the remaining environments are tracked
   in #289.
+- **Every n-dimensional landscape constructor is now fallible and its `dim` is
+  private** (resolves #110) — `Sphere::new(dim)` and its 14 siblings return
+  `Result<Self, ConfigError>` instead of `Self`, rejecting a degenerate `dim`
+  at construction via the ADR 0026 `config::nonzero` / `config::at_least`
+  helpers, exactly as ADR 0030 did for `Population`. Ten landscapes require
+  `dim >= 1` (`Sphere`, `Rastrigin`, `Ackley`, `Griewank`, `Schwefel`,
+  `Alpine1`, `Deb1`, `Needle`, `Michalewicz`, `Penalized1`); four require
+  `dim >= 2` because their sum runs over adjacent coordinate pairs and is empty
+  at `n = 1` (`Rosenbrock`, `RosenbrockFlat`, `Eggholder`,
+  `LunacekBiRastrigin`); `ConcatenatedTrap::new` requires both `num_blocks` and
+  `block_size` to be non-zero and their product to not overflow `usize`.
+  Migration: `Sphere::new(d)` becomes `Sphere::new(d).expect("dim >= 1")` at a
+  setup boundary (`main`, a test), or `?` where a `Result` is already threaded.
+  The `dim` field is no longer `pub` — read it through the new
+  `#[must_use] pub const fn dim(&self) -> usize`, and construct through `new`
+  rather than a struct literal. `new` is also no longer `const`; no `const` or
+  `static` landscape item existed in the workspace, so nothing else moves. No
+  persisted data is affected — landscapes carry no serialized form.
 
 ### `rlevo-core`
 
@@ -207,6 +225,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A zero-dimensional landscape reported itself as *solved*** (resolves #110) —
+  every n-D landscape constructor accepted `dim == 0` unchecked, and the
+  resulting evaluator did not fail: it lied. `Sphere`, `Rastrigin`, `Alpine1`,
+  `Schwefel`, `Needle` and `Griewank` evaluated over an empty slice and returned
+  their own **global optimum**, so a misconfigured run read as converged —
+  `Griewank` via `sum − prod + 1 = 0 − 1 + 1 = 0`, where the empty product is
+  `1`. `Ackley` and `Deb1` divided by `n` and returned `NaN`, and
+  `Penalized1` was worse still — `y[0]`
+  indexed an empty `Vec` and `self.dim - 1` underflowed `usize`, panicking in
+  debug but *wrapping* in release. `ConcatenatedTrap` accepted a zero
+  `block_size`, where `chunks_exact(0)` panicked with std's anonymous "chunk
+  size must be non-zero" and an all-zeros genome scored the optimum.
+  `LunacekBiRastrigin` was the sharpest case: its `dim >= 2` assert lived inside
+  `evaluate`, but the *public* `s()` and `mu2()` accessors bypass `evaluate`
+  entirely, and below `n = 2` the depth-scaling parameter
+  `s = 1 − 1/(2√(n+20) − 8.2)` goes non-positive (`s(1) ≈ −0.036`), making
+  `mu2 = −√((μ₁² − d)/s)` a silent `NaN` that no assert could reach. The
+  existing tests missed all of this because they only ever constructed
+  *sensible* dimensions, and — per ADR 0034 — the fitness-hygiene chokepoint
+  maps `NaN → −inf`, so even the NaN cases surfaced as "the optimizer failed to
+  converge" rather than "the landscape is misconfigured". The guard now lives at
+  construction, where it is unreachable-by-design rather than merely asserted,
+  and a table-driven regression test pins all 15 constructors so a future
+  landscape cannot land unguarded.
 - **Post-terminal `step()` silently resurrected a finished episode across the
   whole `toy_text` family** (ADR 0044, resolves #105) — no environment tracked
   terminality, so a `step()` after a terminal snapshot kept mutating state.

@@ -22,6 +22,6 @@ for `n ≥ 4`.\n\
         "",
     );
     let dim = 10;
-    let landscape = Rosenbrock::new(dim);
+    let landscape = Rosenbrock::new(dim).expect("dim >= 2");
     common::showcase("Rosenbrock", dim, landscape.bounds(), 1.0, landscape);
 }

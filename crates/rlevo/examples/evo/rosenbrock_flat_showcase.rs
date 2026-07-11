@@ -23,6 +23,6 @@ valley.\n\
         "",
     );
     let dim = 10;
-    let landscape = RosenbrockFlat::new(dim);
+    let landscape = RosenbrockFlat::new(dim).expect("dim >= 2");
     common::showcase("RosenbrockFlat", dim, landscape.bounds(), 1.0, landscape);
 }

@@ -48,7 +48,10 @@ where
     let mut harness = EvolutionaryHarness::<B, EdaStrategy<B, M>, _>::new(
         EdaStrategy::new(model),
         params,
-        FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize),
+        FromLandscape::with_sense(
+            Sphere::new(DIM).expect("dim >= 1"),
+            ObjectiveSense::Minimize,
+        ),
         SEED,
         device,
         GENS,

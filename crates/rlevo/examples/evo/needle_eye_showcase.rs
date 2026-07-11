@@ -23,6 +23,6 @@ luck-of-sampling test.\n\
         "",
     );
     let dim = 10;
-    let landscape = Needle::new(dim);
+    let landscape = Needle::new(dim).expect("dim >= 1");
     common::showcase("NeedleEye", dim, landscape.bounds(), 0.4, landscape);
 }

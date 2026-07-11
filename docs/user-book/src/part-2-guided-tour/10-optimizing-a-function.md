@@ -28,9 +28,16 @@ The sphere is built in:
 ```rust,no_run
 use rlevo::envs::landscapes::sphere::Sphere;
 
-let problem = Sphere::new(/* dim = */ 8);
+let problem = Sphere::new(/* dim = */ 8).expect("dim >= 1");
 assert_eq!(problem.evaluate(&[0.0; 8]), 0.0);   // the global minimum
 ```
+
+Construction is fallible on purpose: at `dim == 0`, \\(\sum_i x_i^2\\) is an empty
+sum, which evaluates to exactly `0.0` — the sphere's own global optimum — so an
+unguarded zero-dimensional instance would silently report every run "solved"
+rather than fail loudly at setup. Every landscape in `rlevo::envs::landscapes`
+rejects its degenerate dimensionality this way; we `.expect` here because `8` is
+a compile-time constant we control, not a value read from user input.
 
 `Sphere` also tells you a sensible search box via `problem.bounds()`, which
 returns `(-5.12, 5.12)` — the conventional range for this benchmark.
@@ -159,7 +166,7 @@ You optimised a *function*. But the candidates were just vectors — nothing sai
 they couldn't be the **weights of a neural network**, or that the score had to
 come from a formula instead of an **agent acting in a world**.
 
-The [next section](03-classic-control.md) brings in a real `Environment`, a
+The [next section](20-classic-control.md) brings in a real `Environment`, a
 reward signal, and a gradient-based RL agent. If you first want to see exactly
 how the harness drove the strategy here — and how to write that ask/tell loop by
 hand when the harness doesn't fit — read

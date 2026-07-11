@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_build_provenance();
     let sink: Arc<Mutex<dyn RecordSink>> = Arc::new(Mutex::new(writer));
 
-    let sphere = Sphere::new(2);
+    let sphere = Sphere::new(2).expect("dim >= 1");
     let (lo, hi) = sphere.bounds();
     let bounds_f32 = (lo as f32, hi as f32);
 

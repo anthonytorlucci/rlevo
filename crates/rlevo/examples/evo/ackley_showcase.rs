@@ -33,6 +33,6 @@ means a run never crossed into the central funnel.\n\n\
         "",
     );
     let dim = 10;
-    let landscape = Ackley::new(dim);
+    let landscape = Ackley::new(dim).expect("dim >= 1");
     common::showcase("Ackley", dim, landscape.bounds(), 0.4, landscape);
 }

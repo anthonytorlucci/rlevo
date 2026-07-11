@@ -26,18 +26,34 @@ const X_OPT: f64 = 420.968_746_359_982_025;
 #[cfg(test)]
 const F_PER_DIM: f64 = 418.982_887_274_338;
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Schwefel function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Schwefel {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Schwefel {
     /// Creates a `dim`-dimensional Schwefel evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: the coordinate sum is empty, so
+    /// `f = 0`, which is also the certified optimum `−418.9829·n` evaluated at
+    /// `n = 0` — the landscape would report itself solved before the search
+    /// starts.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Schwefel";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Schwefel function at `x`.
@@ -103,10 +119,20 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Schwefel::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Schwefel::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_known_location() {
         // Numerically certified optimum; relative tolerance per the literature floor.
         let n = 4;
-        let s = Schwefel::new(n);
+        let s = Schwefel::new(n).expect("dim >= 1");
         assert_relative_eq!(
             s.evaluate(&[X_OPT; 4]),
             -F_PER_DIM * n as f64,
@@ -117,7 +143,7 @@ mod tests {
     #[test]
     fn positive_or_greater_elsewhere() {
         // f(0) = 0, which exceeds the true minimum −418.98·n for any n ≥ 1.
-        let s = Schwefel::new(3);
+        let s = Schwefel::new(3).expect("dim >= 1");
         assert!(
             s.evaluate(&[0.0; 3]) > s.evaluate(&[X_OPT; 3]),
             "origin must score worse than the global optimum"
@@ -126,7 +152,7 @@ mod tests {
 
     #[test]
     fn origin_is_not_minimum() {
-        let s = Schwefel::new(2);
+        let s = Schwefel::new(2).expect("dim >= 1");
         assert_relative_eq!(s.evaluate(&[0.0, 0.0]), 0.0, epsilon = 1e-12);
         assert!(s.evaluate(&[0.0, 0.0]) > s.evaluate(&[X_OPT, X_OPT]));
     }
@@ -135,7 +161,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let s = Schwefel::new(2);
+        let s = Schwefel::new(2).expect("dim >= 1");
         let plain_no_trailing: String = s.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(s.render_styled().plain_text(), plain_no_trailing);
     }
@@ -145,7 +171,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let s = Schwefel::new(2);
+        let s = Schwefel::new(2).expect("dim >= 1");
         let styled = s.render_styled();
         let label = styled.lines[0]
             .spans
@@ -160,7 +186,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let s = Schwefel::new(2);
+        let s = Schwefel::new(2).expect("dim >= 1");
         for line in s.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

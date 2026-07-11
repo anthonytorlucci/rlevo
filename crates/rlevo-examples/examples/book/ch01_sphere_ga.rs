@@ -45,7 +45,10 @@ fn main() {
         },
         replacement: GaReplacement::Elitist { elitism_k: 2 },
     };
-    let fitness_fn = FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize);
+    let fitness_fn = FromLandscape::with_sense(
+        Sphere::new(DIM).expect("dim >= 1"),
+        ObjectiveSense::Minimize,
+    );
 
     let mut harness =
         EvolutionaryHarness::<B, _, _>::new(strategy, config, fitness_fn, SEED, device, GENS)
@@ -92,7 +95,10 @@ mod tests {
                 },
                 replacement: GaReplacement::Elitist { elitism_k: 2 },
             },
-            FromLandscape::with_sense(Sphere::new(DIM), ObjectiveSense::Minimize),
+            FromLandscape::with_sense(
+                Sphere::new(DIM).expect("dim >= 1"),
+                ObjectiveSense::Minimize,
+            ),
             SEED,
             device,
             GENS,

@@ -23,6 +23,6 @@ that explored poorly.\n\
         "",
     );
     let dim = 10;
-    let landscape = Michalewicz::new(dim);
+    let landscape = Michalewicz::new(dim).expect("dim >= 1");
     common::showcase("Michalewicz", dim, landscape.bounds(), 0.1, landscape);
 }

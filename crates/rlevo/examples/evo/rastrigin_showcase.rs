@@ -35,6 +35,6 @@ run settled into one of the off-origin minima.\n\n\
         "",
     );
     let dim = 10;
-    let landscape = Rastrigin::new(dim);
+    let landscape = Rastrigin::new(dim).expect("dim >= 1");
     common::showcase("Rastrigin", dim, landscape.bounds(), 0.4, landscape);
 }

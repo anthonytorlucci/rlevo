@@ -24,6 +24,6 @@ the wrong basins.\n\
         "",
     );
     let dim = 10;
-    let landscape = Schwefel::new(dim);
+    let landscape = Schwefel::new(dim).expect("dim >= 1");
     common::showcase("Schwefel", dim, landscape.bounds(), 20.0, landscape);
 }

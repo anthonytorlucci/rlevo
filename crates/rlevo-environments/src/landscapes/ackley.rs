@@ -9,11 +9,13 @@
 
 use std::f64::consts::{E, PI};
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Ackley function evaluator with configurable dimensionality and constants.
 #[derive(Debug, Clone, Copy)]
 pub struct Ackley {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
     /// Outer scaling constant (canonical: `20.0`).
     pub a: f64,
     /// Inner exponential decay constant (canonical: `0.2`).
@@ -24,14 +26,27 @@ pub struct Ackley {
 
 impl Ackley {
     /// Build an Ackley with Ackley's canonical constants (`a=20`, `b=0.2`, `c=2π`).
-    #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: both mean terms divide by `n`, so
+    /// a zero-dimensional instance evaluates `0.0 / 0.0` and returns `NaN`,
+    /// which silently poisons every downstream fitness comparison.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Ackley";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self {
             dim,
             a: 20.0,
             b: 0.2,
             c: 2.0 * PI,
-        }
+        })
+    }
+
+    /// Number of input dimensions.
+    #[must_use]
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Ackley function at `x`.
@@ -99,14 +114,24 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Ackley::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Ackley::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_origin() {
-        let a = Ackley::new(5);
+        let a = Ackley::new(5).expect("dim >= 1");
         assert_relative_eq!(a.evaluate(&[0.0; 5]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_elsewhere() {
-        let a = Ackley::new(3);
+        let a = Ackley::new(3).expect("dim >= 1");
         assert!(a.evaluate(&[1.0, 2.0, 3.0]) > 0.0);
     }
 
@@ -114,7 +139,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let a = Ackley::new(2);
+        let a = Ackley::new(2).expect("dim >= 1");
         let plain_no_trailing: String = a.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(a.render_styled().plain_text(), plain_no_trailing);
     }
@@ -124,7 +149,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let a = Ackley::new(2);
+        let a = Ackley::new(2).expect("dim >= 1");
         let styled = a.render_styled();
         let label = styled.lines[0]
             .spans
@@ -139,7 +164,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let a = Ackley::new(2);
+        let a = Ackley::new(2).expect("dim >= 1");
         for line in a.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

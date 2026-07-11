@@ -142,7 +142,7 @@ where
         PsoConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -160,7 +160,7 @@ fn gwo_ra(
         GwoConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -178,7 +178,7 @@ fn woa_ra(
         WoaConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -196,7 +196,7 @@ fn salp_ra(
         SalpConfig::default_for(32, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -214,7 +214,7 @@ fn abc_ra(
         AbcConfig::default_for(30, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -232,7 +232,7 @@ fn bat_ra(
         BatConfig::default_for(30, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -250,7 +250,7 @@ fn aco_r_ra(
         AcoRConfig::default_for(30, 15, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -270,7 +270,7 @@ fn cuckoo_ra(
         cfg,
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -288,7 +288,7 @@ fn firefly_ra(
         FireflyConfig::default_for(24, DIM),
         FromFitnessEvaluable::with_sense(
             RastriginFit,
-            Rastrigin::new(DIM),
+            Rastrigin::new(DIM).expect("dim >= 1"),
             ObjectiveSense::Minimize,
         ),
         seed,
@@ -308,7 +308,11 @@ fn pso_ak(
     EvolutionaryHarness::new(
         ParticleSwarm::<B>::new(),
         PsoConfig::default_for(32, DIM),
-        FromFitnessEvaluable::with_sense(AckleyFit, Ackley::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            AckleyFit,
+            Ackley::new(DIM).expect("dim >= 1"),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,
@@ -329,7 +333,11 @@ fn de_rand1_ak(
     EvolutionaryHarness::new(
         DifferentialEvolution::<B>::new(),
         params,
-        FromFitnessEvaluable::with_sense(AckleyFit, Ackley::new(DIM), ObjectiveSense::Minimize),
+        FromFitnessEvaluable::with_sense(
+            AckleyFit,
+            Ackley::new(DIM).expect("dim >= 1"),
+            ObjectiveSense::Minimize,
+        ),
         seed,
         Default::default(),
         MAX_GENS,

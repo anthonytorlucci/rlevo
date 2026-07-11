@@ -110,7 +110,8 @@ struct RunResult {
 fn de_evals_to_target(seed: u64, de: &DeConfig, target: f32, max_gens: usize) -> RunResult {
     let device: <B as BackendTypes>::Device = Default::default();
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let fitness: CountingRastrigin = CountingRastrigin::new(Rastrigin::new(DIM), evals.clone());
+    let fitness: CountingRastrigin =
+        CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
     let strategy: DifferentialEvolution<B> = DifferentialEvolution::<B>::new();
     let mut harness =
         EvolutionaryHarness::<B, _, _>::new(strategy, de.clone(), fitness, seed, device, max_gens)
@@ -151,9 +152,9 @@ fn memetic_evals_to_target(
     // scoring) and the wrapper's (local-search probes).
     let evals: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let harness_fitness: CountingRastrigin =
-        CountingRastrigin::new(Rastrigin::new(DIM), evals.clone());
+        CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
     let wrapper_fitness: CountingRastrigin =
-        CountingRastrigin::new(Rastrigin::new(DIM), evals.clone());
+        CountingRastrigin::new(Rastrigin::new(DIM).expect("dim >= 1"), evals.clone());
 
     let strategy: MemeticWrapper<B, _, _, _> = MemeticWrapper::<B, _, _, _>::new(
         DifferentialEvolution::<B>::new(),

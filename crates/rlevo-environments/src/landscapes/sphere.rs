@@ -4,18 +4,34 @@
 //! Commonly evaluated over `[-5.12, 5.12]^n` for comparability with
 //! Rastrigin / Ackley, though any symmetric domain works.
 
+use rlevo_core::config::{self, ConfigError};
+
 /// Sphere function evaluator with configurable dimensionality.
 #[derive(Debug, Clone, Copy)]
 pub struct Sphere {
     /// Number of input dimensions.
-    pub dim: usize,
+    dim: usize,
 }
 
 impl Sphere {
     /// Creates a `dim`-dimensional Sphere evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if `dim == 0`: `f(x) = Σ x_i²` over an empty
+    /// coordinate set is the empty sum `0`, which is exactly the Sphere's
+    /// global optimum — a zero-dimensional instance would report itself solved
+    /// on every evaluation.
+    pub fn new(dim: usize) -> Result<Self, ConfigError> {
+        const C: &str = "Sphere";
+        config::nonzero(C, "dim", dim)?;
+        Ok(Self { dim })
+    }
+
+    /// Number of input dimensions.
     #[must_use]
-    pub const fn new(dim: usize) -> Self {
-        Self { dim }
+    pub const fn dim(&self) -> usize {
+        self.dim
     }
 
     /// Evaluate the Sphere function at `x`.
@@ -82,14 +98,24 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn dim_zero_is_rejected() {
+        assert!(Sphere::new(0).is_err(), "dim = 0 must not construct");
+    }
+
+    #[test]
+    fn dim_accessor_reports_configured_dim() {
+        assert_eq!(Sphere::new(7).expect("dim >= 1").dim(), 7);
+    }
+
+    #[test]
     fn global_minimum_at_origin() {
-        let s = Sphere::new(4);
+        let s = Sphere::new(4).expect("dim >= 1");
         assert_relative_eq!(s.evaluate(&[0.0; 4]), 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn positive_elsewhere() {
-        let s = Sphere::new(3);
+        let s = Sphere::new(3).expect("dim >= 1");
         assert_relative_eq!(s.evaluate(&[1.0, 2.0, 3.0]), 14.0, epsilon = 1e-12);
     }
 
@@ -97,7 +123,7 @@ mod tests {
     fn render_styled_matches_ascii() {
         use crate::render::AsciiRenderable;
 
-        let s = Sphere::new(2);
+        let s = Sphere::new(2).expect("dim >= 1");
         let plain_no_trailing: String = s.render_ascii().lines().collect::<Vec<_>>().join("\n");
         assert_eq!(s.render_styled().plain_text(), plain_no_trailing);
     }
@@ -107,7 +133,7 @@ mod tests {
         use crate::render::AsciiRenderable;
         use crate::render::palette::{BEST_FG, BEST_MODIFIER};
 
-        let s = Sphere::new(2);
+        let s = Sphere::new(2).expect("dim >= 1");
         let styled = s.render_styled();
         let label = styled.lines[0]
             .spans
@@ -122,7 +148,7 @@ mod tests {
     fn render_ascii_within_width_budget() {
         use crate::render::AsciiRenderable;
 
-        let s = Sphere::new(2);
+        let s = Sphere::new(2).expect("dim >= 1");
         for line in s.render_ascii().lines() {
             assert!(
                 line.chars().count() <= 80,

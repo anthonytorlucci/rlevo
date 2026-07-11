@@ -197,21 +197,21 @@ fn toy_text_blackjack() {
 #[test]
 fn landscapes_sphere() {
     use rlevo_environments::landscapes::sphere::Sphere;
-    let env = Sphere::new(2);
+    let env = Sphere::new(2).expect("dim >= 1");
     assert_render_invariants(&env, "Sphere");
 }
 
 #[test]
 fn landscapes_rastrigin() {
     use rlevo_environments::landscapes::rastrigin::Rastrigin;
-    let env = Rastrigin::new(2);
+    let env = Rastrigin::new(2).expect("dim >= 1");
     assert_render_invariants(&env, "Rastrigin");
 }
 
 #[test]
 fn landscapes_ackley() {
     use rlevo_environments::landscapes::ackley::Ackley;
-    let env = Ackley::new(2);
+    let env = Ackley::new(2).expect("dim >= 1");
     assert_render_invariants(&env, "Ackley");
 }
 
