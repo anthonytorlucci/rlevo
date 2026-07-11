@@ -4,8 +4,9 @@
 //! (drawn uniformly from the seeded RNG) and the agent picks an arm
 //! `a ∈ {0, …, K-1}`. The reward is sampled from `N(q*(c, a), 1)` where the
 //! per-context, per-arm means `q*(c, a)` are drawn once from `N(0, 1)` at
-//! construction (and re-drawn from the same seed on
-//! [`Environment::reset`]).
+//! construction and **preserved** across [`Environment::reset`] — the problem
+//! is fixed for the lifetime of the environment; only the revealed context and
+//! the reward realisations advance with the persistent RNG.
 //!
 //! This is the simplest contextual-bandit testbed — a `C × K` table of
 //! Gaussian means — which exercises algorithms that must learn a separate
@@ -42,7 +43,8 @@ use rlevo_core::base::{
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
-use serde::{Deserialize, Serialize};
+use rlevo_core::state::StateError;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -78,10 +80,91 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// The raw struct holds the context index as a `usize`. When converted via
 /// [`TensorConvertible::to_tensor`], the index is encoded as a one-hot vector
 /// of length `C` for use with neural-network policies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+///
+/// # Invariants
+///
+/// `context < C` always. The field is private and every construction path
+/// reachable from outside this module — [`ContextualBanditObservation::new`],
+/// [`TensorConvertible::from_tensor`], and `Deserialize` — validates the index
+/// against `C`, so an observation that would index past the end of its own
+/// one-hot encoding is unrepresentable. The type deliberately does **not**
+/// implement `Default`: a defaulted `context: 0` is the one index that cannot
+/// be validated at construction, and it is out of range for the degenerate
+/// `C == 0`.
+///
+/// The single in-module struct-literal path, [`State::observe`], copies a
+/// context the environment sampled from `0..C`, so it upholds the invariant by
+/// construction; [`TensorConvertible::write_host_row`] carries a
+/// `debug_assert!` as defence-in-depth against that path ever regressing.
+///
+/// # Examples
+///
+/// ```rust
+/// use rlevo_environments::classic::ContextualBanditObservation;
+///
+/// let obs = ContextualBanditObservation::<4>::new(2).expect("2 < 4");
+/// assert_eq!(obs.context(), 2);
+/// assert!(ContextualBanditObservation::<4>::new(4).is_err());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct ContextualBanditObservation<const C: usize> {
-    /// Index of the revealed context (`0..C`).
-    pub context: usize,
+    context: usize,
+}
+
+impl<'de, const C: usize> Deserialize<'de> for ContextualBanditObservation<C> {
+    /// Deserializes an observation, validating the context index against the
+    /// type-level context count `C`.
+    ///
+    /// The wire form is the single field `context` — identical to what the
+    /// derived [`Serialize`] emits — but an index arriving from an untrusted
+    /// payload is checked by [`ContextualBanditObservation::new`] before it can
+    /// reach the one-hot encoder (`docs/rules.md` §4: deserialized data must
+    /// yield an `Err`, never a panic).
+    ///
+    /// # Errors
+    ///
+    /// Returns a deserializer error if the payload does not have the expected
+    /// shape, or if the decoded index is `>= C`.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        /// Unvalidated wire form of [`ContextualBanditObservation`]: same field
+        /// layout, so the serialized representation is unchanged.
+        #[derive(Deserialize)]
+        struct Repr {
+            context: usize,
+        }
+
+        let repr = Repr::deserialize(deserializer)?;
+        Self::new(repr.context).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<const C: usize> ContextualBanditObservation<C> {
+    /// Constructs an observation revealing `context`.
+    ///
+    /// This is the only public construction path; it upholds the `context < C`
+    /// invariant that [`TensorConvertible::write_host_row`] relies on.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::InvalidData`] if `context >= C`.
+    pub fn new(context: usize) -> Result<Self, StateError> {
+        if context < C {
+            Ok(Self { context })
+        } else {
+            Err(StateError::InvalidData(format!(
+                "context index {context} out of range [0, {C})"
+            )))
+        }
+    }
+
+    /// The index of the revealed context, in `0..C`.
+    #[must_use]
+    pub fn context(&self) -> usize {
+        self.context
+    }
 }
 
 impl<const C: usize> Observation<1> for ContextualBanditObservation<C> {
@@ -119,9 +202,28 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
     }
 
     /// One-hot encoding of the current context, length `C`.
+    ///
+    /// The write goes through `get_mut` rather than `[]`, so the encoder is
+    /// total in release builds: an out-of-range index would yield an all-zero
+    /// row rather than an out-of-bounds panic.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds only, and unreachable through the public API: the
+    /// `debug_assert!` fires if `context >= C`. `context < C` is a construction
+    /// invariant of [`ContextualBanditObservation`] — every public constructor
+    /// validates it — so the assert only guards the in-module struct-literal
+    /// path in [`State::observe`] against a future regression.
     fn write_host_row(&self, buf: &mut Vec<f32>) {
+        debug_assert!(
+            self.context < C,
+            "context {} out of range [0, {C})",
+            self.context
+        );
         let mut one_hot = [0.0_f32; C];
-        one_hot[self.context] = 1.0;
+        if let Some(slot) = one_hot.get_mut(self.context) {
+            *slot = 1.0;
+        }
         buf.extend_from_slice(&one_hot);
     }
 
@@ -129,7 +231,9 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
     ///
     /// # Errors
     ///
-    /// Returns [`TensorConversionError`] if the tensor shape is not `[C]`.
+    /// Returns [`TensorConversionError`] if the tensor shape is not `[C]`, if
+    /// the host read of the tensor fails, or if the decoded index is not a
+    /// valid context.
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [C] {
@@ -147,7 +251,9 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
                 if v > v_best { (i, v) } else { (i_best, v_best) }
             },
         );
-        Ok(Self { context: argmax })
+        Self::new(argmax).map_err(|e| TensorConversionError {
+            message: format!("failed to decode context: {e}"),
+        })
     }
 }
 
@@ -403,7 +509,7 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
 // ASCII renderer
 // ---------------------------------------------------------------------------
 
-impl<const K: usize, const C: usize> crate::render::AsciiRenderable for ContextualBandit<K, C> {
+impl<const C: usize, const K: usize> crate::render::AsciiRenderable for ContextualBandit<C, K> {
     fn render_ascii(&self) -> String {
         let ctx = self.state.context;
         let (best_arm, best_mean) = super::k_armed::argmax(&self.arm_means[ctx]);
@@ -453,7 +559,7 @@ mod tests {
     fn observation_round_trips_through_tensor() {
         let device = Default::default();
         for ctx in 0..C {
-            let obs = ContextualBanditObservation::<C> { context: ctx };
+            let obs = ContextualBanditObservation::<C>::new(ctx).expect("ctx < C");
             let tensor =
                 <ContextualBanditObservation<C> as TensorConvertible<1, TestBackend>>::to_tensor(
                     &obs, &device,
@@ -463,8 +569,101 @@ mod tests {
                     tensor,
                 )
                 .expect("round-trip should succeed");
-            assert_eq!(back.context, ctx);
+            assert_eq!(back.context(), ctx, "round-trip must preserve the context");
         }
+    }
+
+    /// Raw, unvalidated wire form of `ContextualBanditObservation` — the same
+    /// single `context` field the derived `Serialize` emits. Used to forge the
+    /// payloads an untrusted peer could send.
+    #[derive(Serialize)]
+    struct RawObservation {
+        context: usize,
+    }
+
+    #[test]
+    fn observation_new_boundaries() {
+        assert!(
+            ContextualBanditObservation::<4>::new(0).is_ok(),
+            "0 is the lower in-range boundary for C=4"
+        );
+        assert!(
+            ContextualBanditObservation::<4>::new(3).is_ok(),
+            "C - 1 is the upper in-range boundary for C=4"
+        );
+        assert!(
+            ContextualBanditObservation::<4>::new(4).is_err(),
+            "C itself is the first out-of-range index for C=4"
+        );
+        assert!(
+            ContextualBanditObservation::<4>::new(99).is_err(),
+            "99 must be rejected rather than panicking in write_host_row"
+        );
+    }
+
+    #[test]
+    fn single_context_observation_works_end_to_end() {
+        // C = 1: the degenerate-but-supported single-context bandit.
+        let device = Default::default();
+        let obs = ContextualBanditObservation::<1>::new(0).expect("0 < 1");
+        assert_eq!(obs.context(), 0);
+        assert!(
+            ContextualBanditObservation::<1>::new(1).is_err(),
+            "context 1 is out of range for C=1"
+        );
+
+        let tensor =
+            <ContextualBanditObservation<1> as TensorConvertible<1, TestBackend>>::to_tensor(
+                &obs, &device,
+            );
+        assert_eq!(tensor.dims(), [1], "one-hot row for C=1 has length 1");
+        let values: Vec<f32> = tensor
+            .clone()
+            .into_data()
+            .to_vec()
+            .expect("host read of a tensor we just built");
+        assert_eq!(values, vec![1.0_f32], "the single context is the hot index");
+
+        let back =
+            <ContextualBanditObservation<1> as TensorConvertible<1, TestBackend>>::from_tensor(
+                tensor,
+            )
+            .expect("round-trip should succeed");
+        assert_eq!(back, obs);
+    }
+
+    #[test]
+    fn observation_deserialize_rejects_out_of_range_context() {
+        // An out-of-range context arriving from an untrusted payload must be
+        // an `Err`, not a panic in the one-hot encoder (rules.md §4). `C` is
+        // the boundary case: the first index that is one past the end.
+        let cfg = bincode::config::standard();
+        for context in [C, 99] {
+            let bytes = bincode::serde::encode_to_vec(RawObservation { context }, cfg)
+                .expect("encoding the raw wire form succeeds");
+            let decoded: Result<(ContextualBanditObservation<C>, usize), _> =
+                bincode::serde::decode_from_slice(&bytes, cfg);
+            assert!(
+                decoded.is_err(),
+                "deserializing context={context} into C={C} must fail validation"
+            );
+        }
+    }
+
+    #[test]
+    fn observation_serde_round_trips_valid_context() {
+        let cfg = bincode::config::standard();
+        let obs = ContextualBanditObservation::<C>::new(2).expect("2 < C");
+        let bytes = bincode::serde::encode_to_vec(obs, cfg).expect("encode");
+        let (back, _): (ContextualBanditObservation<C>, usize) =
+            bincode::serde::decode_from_slice(&bytes, cfg).expect("decode");
+        assert_eq!(back, obs, "serde round-trip must preserve the observation");
+
+        // The validating `Deserialize` must not change the wire format: the
+        // bytes are exactly those of a bare `{ context }` payload.
+        let raw =
+            bincode::serde::encode_to_vec(RawObservation { context: 2 }, cfg).expect("encode");
+        assert_eq!(bytes, raw, "wire format must stay a single `context` field");
     }
 
     #[test]
@@ -489,7 +688,10 @@ mod tests {
             <ContextualBandit<C, K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset");
         assert!(!snap.is_done());
         assert_eq!(f32::from(*snap.reward()), 0.0);
-        assert!(snap.observation().context < C);
+        assert!(
+            snap.observation().context() < C,
+            "revealed context must be in range"
+        );
     }
 
     #[test]
@@ -502,7 +704,7 @@ mod tests {
             <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         // After `step`, the observation reflects the *next* context that the
         // env has just sampled.
-        assert_eq!(snap.observation().context, env.current_context());
+        assert_eq!(snap.observation().context(), env.current_context());
     }
 
     #[test]
@@ -541,7 +743,10 @@ mod tests {
             let snap_b =
                 <ContextualBandit<C, K> as Environment<1, 1, 1>>::step(&mut b, action).unwrap();
             assert_eq!(f32::from(*snap_a.reward()), f32::from(*snap_b.reward()));
-            assert_eq!(snap_a.observation().context, snap_b.observation().context);
+            assert_eq!(
+                snap_a.observation().context(),
+                snap_b.observation().context()
+            );
             assert_eq!(snap_a.status(), snap_b.status());
         }
     }
@@ -649,6 +854,18 @@ mod tests {
             .expect("Contextual label span present");
         assert_eq!(label.style.fg, Some(AGENT_FG));
         assert!(label.style.modifier.contains(AGENT_MODIFIER));
+    }
+
+    #[test]
+    fn render_ascii_labels_match_const_generics() {
+        use crate::render::AsciiRenderable;
+
+        // `ContextualBandit<C, K>`: 7 contexts, 3 arms. The rendered labels
+        // must not transpose the two counts.
+        let env: ContextualBandit<7, 3> = ContextualBandit::with_seed(0);
+        let s = env.render_ascii();
+        assert!(s.contains("K=3"), "K label must be the arm count: {s}");
+        assert!(s.contains("C=7"), "C label must be the context count: {s}");
     }
 
     #[test]
