@@ -40,6 +40,7 @@ use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
 
+use crate::episode::EpisodeGuard;
 use crate::toy_text::MapError;
 
 // ── tile ──────────────────────────────────────────────────────────────────────
@@ -535,12 +536,22 @@ fn apply_action(row: u8, col: u8, action: FrozenLakeAction, nrow: u8, ncol: u8) 
 ///
 /// Construction is infallible via `new()` (uses default random 8×8 map).
 /// For custom maps, use `with_config(config)` which may return a [`MapError`].
+///
+/// # Episode lifecycle
+///
+/// Entering a `Hole` or `Goal` tile terminates the episode. The agent remains on
+/// that tile, so an unguarded `step()` would walk it back onto a frozen
+/// neighbour and report `Running` — resurrecting a finished episode. An
+/// [`EpisodeGuard`] therefore rejects any `step()` taken after a done snapshot
+/// with [`EnvironmentError::StepAfterEpisodeEnd`]; call
+/// [`reset`](Environment::reset) to begin a new episode.
 #[derive(Debug)]
 pub struct FrozenLake {
     state: FrozenLakeState,
     map: ResolvedMap,
     config: FrozenLakeConfig,
     rng: StdRng,
+    guard: EpisodeGuard,
 }
 
 impl FrozenLake {
@@ -571,6 +582,7 @@ impl FrozenLake {
             map,
             config,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -624,6 +636,18 @@ impl Environment<1, 1, 1> for FrozenLake {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, FrozenLakeObservation, ScalarReward>;
 
+    /// Starts a new episode: rebuilds the map (random specs only), places the
+    /// agent on the start tile, and re-opens the [`EpisodeGuard`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::RenderFailed`] wrapping a [`MapError`] when a
+    /// [`FrozenMapSpec::Random`] map cannot be regenerated. The guard is *not*
+    /// re-opened in that case: the environment still holds the previous episode's
+    /// map and agent position, so re-opening it would let a `step()` walk the
+    /// agent off the terminal tile it is standing on — the very defect the guard
+    /// exists to prevent. A failed reset leaves the episode closed; the caller
+    /// must reset successfully before stepping again.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         // Regenerate map for random spec; reuse preset/custom maps.
         if let FrozenMapSpec::Random {
@@ -641,13 +665,26 @@ impl Environment<1, 1, 1> for FrozenLake {
             nrow: self.map.nrow as u8,
             ncol: self.map.ncol as u8,
         };
+        // Only after the reset has actually succeeded.
+        self.guard.reset();
         Ok(SnapshotBase::running(
             self.state.observe(),
             ScalarReward(0.0),
         ))
     }
 
+    /// Moves the agent one tile, terminating on a `Hole` or `Goal`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode already
+    /// ended. The check is the first statement, before any state mutation and
+    /// before [`resolve_action`](FrozenLake::resolve_action) draws from the RNG,
+    /// so a rejected call leaves both the agent position and the slip stream
+    /// untouched — a rejected step must not perturb a seeded run.
     fn step(&mut self, action: FrozenLakeAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.check()?;
+
         let effective = self.resolve_action(action);
         let (nr, nc) = apply_action(
             self.state.row,
@@ -661,20 +698,19 @@ impl Environment<1, 1, 1> for FrozenLake {
 
         let tile = self.tile_at(nr, nc);
         let obs = self.state.observe();
-        match tile {
-            Tile::Hole => Ok(SnapshotBase::terminated(
-                obs,
-                ScalarReward(self.config.reward_schedule.hole),
-            )),
-            Tile::Goal => Ok(SnapshotBase::terminated(
-                obs,
-                ScalarReward(self.config.reward_schedule.goal),
-            )),
-            _ => Ok(SnapshotBase::running(
-                obs,
-                ScalarReward(self.config.reward_schedule.frozen),
-            )),
-        }
+        // Build the snapshot once, then record its own status — no `match` arm
+        // can return without the guard seeing what it emitted.
+        let snapshot = match tile {
+            Tile::Hole => {
+                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.hole))
+            }
+            Tile::Goal => {
+                SnapshotBase::terminated(obs, ScalarReward(self.config.reward_schedule.goal))
+            }
+            _ => SnapshotBase::running(obs, ScalarReward(self.config.reward_schedule.frozen)),
+        };
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -997,6 +1033,13 @@ mod tests {
         let n = 10_000u32;
         let mut right_count = 0u32;
         for _ in 0..n {
+            // This is a slip-distribution harness, not an episode: it places the
+            // agent by hand, so it must re-open the episode by hand too. The
+            // intended Right lands on the hole at (2,3), which ends the episode
+            // — without this the guard would (correctly) reject the next step.
+            // `guard.reset()` rather than `reset()` because the latter would also
+            // move the agent back to the start tile we are about to overwrite.
+            env.guard.reset();
             env.state = FrozenLakeState {
                 row: 2,
                 col: 2,
@@ -1029,6 +1072,10 @@ mod tests {
         let n = 10_000u32;
         let (mut intended, mut perp1, mut perp2) = (0u32, 0u32, 0u32);
         for _ in 0..n {
+            // Same hand-placed harness as above; (4,4)'s neighbours happen to be
+            // all frozen, but re-opening the episode keeps the harness correct
+            // independently of the tiles it lands on.
+            env.guard.reset();
             env.state = FrozenLakeState {
                 row: 4,
                 col: 4,
@@ -1077,6 +1124,179 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
+    }
+
+    // ── post-terminal step guard (issue #105) ────────────────────────────────
+    //
+    // On termination the agent is left standing *on* the Hole/Goal tile. An
+    // unguarded `step()` walks it back onto a frozen neighbour and reports
+    // `Running`, resurrecting a finished episode — hence the `EpisodeGuard`.
+    // All of these use the non-slippery 4×4 preset so the terminal tile is
+    // reached deterministically.
+
+    #[test]
+    /// Verifies a `step()` after falling into a hole is rejected, and that the
+    /// rejected step leaves the agent on the hole tile.
+    fn test_frozen_lake_step_after_hole_is_rejected() {
+        use crate::episode::assert_rejects_post_terminal_step;
+
+        let mut env = four_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| {
+                env.reset().expect("reset on the 4x4 preset must succeed");
+                env.step(FrozenLakeAction::Down)
+                    .expect("(0,0) → Down → (1,0) is frozen");
+                env.step(FrozenLakeAction::Right)
+                    .expect("(1,0) → Right → (1,1) is a hole")
+            },
+            // Legal action, illegal call sequence: Up would walk the agent out of
+            // the hole to the frozen (0,1) were the episode not already over.
+            FrozenLakeAction::Up,
+        );
+
+        assert_eq!(
+            (env.state.row, env.state.col),
+            (1, 1),
+            "the rejected step must leave the agent in the hole, not walk it out"
+        );
+    }
+
+    #[test]
+    /// Verifies a `step()` after reaching the goal is rejected, and that the
+    /// rejected step leaves the agent on the goal tile.
+    fn test_frozen_lake_step_after_goal_is_rejected() {
+        use crate::episode::assert_rejects_post_terminal_step;
+
+        let mut env = four_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| {
+                env.reset().expect("reset on the 4x4 preset must succeed");
+                // (0,0)→(1,0)→(2,0)→(2,1)→(2,2)→(3,2)→(3,3), the goal.
+                let path = [
+                    FrozenLakeAction::Down,
+                    FrozenLakeAction::Down,
+                    FrozenLakeAction::Right,
+                    FrozenLakeAction::Right,
+                    FrozenLakeAction::Down,
+                ];
+                for &a in &path {
+                    let snap = env.step(a).expect("the route to the goal is all frozen");
+                    assert!(!snap.is_done(), "the route to the goal must not terminate");
+                }
+                env.step(FrozenLakeAction::Right)
+                    .expect("(3,2) → Right → (3,3) is the goal")
+            },
+            // Legal action, illegal call sequence: Left would walk the agent off
+            // the goal back to the frozen (3,2).
+            FrozenLakeAction::Left,
+        );
+
+        assert_eq!(
+            (env.state.row, env.state.col),
+            (3, 3),
+            "the rejected step must leave the agent on the goal, not walk it off"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens an environment whose episode has terminated.
+    fn test_frozen_lake_reset_reopens_terminated_episode() {
+        let mut env = four_env();
+        env.reset().expect("reset on the 4x4 preset must succeed");
+        env.step(FrozenLakeAction::Down)
+            .expect("(0,0) → Down → (1,0) is frozen");
+        let snap = env
+            .step(FrozenLakeAction::Right)
+            .expect("(1,0) → Right → (1,1) is a hole");
+        assert!(snap.is_terminated(), "falling into a hole must terminate");
+        assert!(
+            env.step(FrozenLakeAction::Up).is_err(),
+            "the episode has ended; a further step must be rejected"
+        );
+
+        env.reset().expect("reset must re-open the environment");
+        let snap = env
+            .step(FrozenLakeAction::Right)
+            .expect("reset() must re-open the episode for stepping");
+        assert!(
+            !snap.is_done(),
+            "a re-opened episode steps onto the frozen (0,1) and keeps running"
+        );
+        assert_eq!(
+            (env.state.row, env.state.col),
+            (0, 1),
+            "the new episode must start from the start tile, not the hole"
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal `step()` draws nothing from the slip RNG.
+    ///
+    /// `guard.check()?` runs before `resolve_action`, so a rejected call cannot
+    /// advance the RNG stream; were the check placed after the draw, a rejected
+    /// step would silently desynchronise every subsequent episode of a seeded run.
+    fn test_frozen_lake_rejected_step_does_not_advance_rng() {
+        fn slippery_env() -> FrozenLake {
+            FrozenLake::with_config(
+                FrozenLakeConfig::builder()
+                    .map(FrozenMapSpec::Preset(FrozenPreset::Four4x4))
+                    .is_slippery(true)
+                    .seed(21)
+                    .build(),
+            )
+            .expect("the 4x4 preset must build")
+        }
+
+        /// Walks Right until the episode ends (slips make this terminate quickly).
+        fn drive_to_done(env: &mut FrozenLake) {
+            env.reset().expect("reset must succeed");
+            for _ in 0..500 {
+                let snap = env
+                    .step(FrozenLakeAction::Right)
+                    .expect("stepping a running episode must succeed");
+                if snap.is_done() {
+                    return;
+                }
+            }
+            panic!("a slippery 4x4 walk must reach a hole or the goal within 500 steps");
+        }
+
+        /// Records the agent's path over one fresh episode.
+        fn next_episode_path(env: &mut FrozenLake) -> Vec<(u8, u8)> {
+            env.reset().expect("reset must succeed");
+            let mut path = Vec::new();
+            for _ in 0..500 {
+                let snap = env
+                    .step(FrozenLakeAction::Right)
+                    .expect("stepping a running episode must succeed");
+                path.push((env.state.row, env.state.col));
+                if snap.is_done() {
+                    break;
+                }
+            }
+            path
+        }
+
+        // Identical seeds, identically driven to termination: the two RNG streams
+        // are in the same position.
+        let mut untouched = slippery_env();
+        drive_to_done(&mut untouched);
+
+        let mut rejected = slippery_env();
+        drive_to_done(&mut rejected);
+        assert!(
+            rejected.step(FrozenLakeAction::Right).is_err(),
+            "the episode has ended; a further step must be rejected"
+        );
+
+        // The rejected step is the only difference between the two environments.
+        assert_eq!(
+            next_episode_path(&mut untouched),
+            next_episode_path(&mut rejected),
+            "a rejected step must not consume a slip draw: the next episode must replay identically"
+        );
     }
 
     #[test]

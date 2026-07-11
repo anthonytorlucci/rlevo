@@ -183,24 +183,79 @@ correct — truncation is not part of CartPole's MDP. Where does the 500-step ti
 limit come from, then? Not from here. (Hold that thought for the wrappers
 section.)
 
+## The post-terminal rule
+
+`reset`/`step` cover the lifecycle you *call* correctly. There is one more edge
+the type signature alone cannot rule out: what happens if you call `step` again
+after a snapshot has already reported `is_done() == true`? The `Result` return
+type doesn't stop you from trying — a call sequence isn't something the type
+checker can forbid — so `rlevo` states the rule in the trait's contract and
+enforces it in code: **once a snapshot is done, the only valid next call is
+`reset()`.** Stepping again returns
+[`EnvironmentError::StepAfterEpisodeEnd { status }`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/enum.EnvironmentError.html#variant.StepAfterEpisodeEnd),
+where `status` is the `EpisodeStatus` that ended the episode — so you can tell
+an intrinsic MDP termination (`Terminated`) from a wrapper-imposed truncation
+(`Truncated`) without re-deriving it.
+
+This is not a hypothetical foot-gun. `CliffWalking`'s goal tile sits *adjacent*
+to the cliff, so before this rule existed, a move made after reaching the goal
+could walk the agent back off the goal and onto the cliff — teleporting it to
+the start and paying the −100 cliff penalty on a snapshot still reporting
+`Running`. A finished episode was silently brought back to life, and the
+trajectory a caller recorded from it was quietly wrong. Rejecting the call turns
+that silent corruption into a loud, typed error at the exact point it happens.
+
+**Why reject instead of absorbing?** Sutton & Barto's *absorbing state* — a
+terminal state that transitions only to itself and pays zero reward — is a
+notational device that lets the return \\(G_t = \sum_k \gamma^k R_{t+k+1}\\) be
+written as one infinite sum across episodic and continuing tasks [Sutton and
+Barto, 2018]. It is a statement about the mathematical process, not a
+specification for what a `step()` function should do when a caller invokes it
+out of sequence — and the reference implementations don't fill that gap either:
+Gymnasium's `CartPole` prints a one-time warning and then keeps integrating the
+physics past termination. An `Err` is strictly more informative than either, and
+the choice is asymmetric: a caller who genuinely wants an absorbing, zero-reward
+tail can still build a wrapper over a rejecting environment, but a caller who
+silently absorbed a bug into a replay buffer has no way back. Reject is the
+reversible choice.
+
+**This is not yet universal — check before you rely on it.** Only the
+`toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`) and the
+`TimeLimit` wrapper enforce this rule today. Every other environment's
+behaviour after a terminal snapshot remains **undefined**; do not depend on it,
+even by accident, until it lands for that family — the rollout is tracked
+family-by-family in
+[issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). If you're
+implementing your own environment, [Bring Your Own
+Environment](../../part-2-guided-tour/99-extending-the-environment.md#step-4--guard-the-post-terminal-step)
+shows the `EpisodeGuard` helper that gets you this behaviour without hand-rolling
+the state machine.
+
 ## Errors are part of the contract
 
 `reset` and `step` return `Result` rather than a bare snapshot, and the error
-type is a small, closed enum:
+type is a small enum — small, but no longer *closed*:
 
 ```rust
+#[non_exhaustive]
 pub enum EnvironmentError {
-    InvalidAction(String),   // action illegal in the current state
-    RenderFailed(String),    // display/rendering failure
-    IoError(std::io::Error), // e.g. loading level data
+    InvalidAction(String),               // action illegal in the current state
+    RenderFailed(String),                // display/rendering failure
+    IoError(std::io::Error),             // e.g. loading level data
+    Config(ConfigError),                 // a config invariant failed at reset
+    StepAfterEpisodeEnd { status: EpisodeStatus }, // step() called past a done snapshot
 }
 ```
 
 Making fallibility explicit means a misbehaving agent that submits an illegal
 action gets a typed `Err(InvalidAction(..))` it can handle, not a panic that
 takes down the training run. Many simple environments (CartPole included) are
-in practice infallible and always return `Ok`, but the signature keeps the door
-open for the ones that aren't.
+in practice infallible for `InvalidAction`, but the signature keeps the door
+open for the ones that aren't — and `StepAfterEpisodeEnd`, from the previous
+section, is exactly that door being used for a lifecycle fault rather than a bad
+action. The `#[non_exhaustive]` attribute means a `match` on `EnvironmentError`
+outside `rlevo-core` needs a wildcard `_` arm; that's what let this new variant
+land without breaking any downstream match.
 
 ## Construction is a *separate* trait
 
@@ -213,7 +268,7 @@ pub trait ConstructableEnv {
 }
 ```
 
-This split is deliberate ([ADR-0011](../part-4-open-problems/01-where-rlevo-stands.md)).
+This split is deliberate ([ADR-0011](../../part-4-open-problems/01-where-rlevo-stands.md)).
 Construction is a different concern from the `reset`/`step` *behaviour*, and
 keeping it separate is what makes **transparent decorators** possible. A wrapper
 like `TimeLimit` or a recording tap is built from an *existing* inner
@@ -299,7 +354,7 @@ the crate as a vocabulary anchor more than a workhorse.
 > **The honest status.** Use `Environment` (and `step`) for everything you
 > actually run today. Treat `TransitionDynamics` and `UpdateFunction` as
 > sign-posts for where model-based methods would plug in — and check the
-> [status page](../part-4-open-problems/01-where-rlevo-stands.md) before building
+> [status page](../../part-4-open-problems/01-where-rlevo-stands.md) before building
 > on them.
 
 ## Putting it together
@@ -313,7 +368,12 @@ the crate as a vocabulary anchor more than a workhorse.
   the typed home for a state→observation rank change ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)) —
   and the `SnapshotType` bound forces the noun-set to agree.
 - `reset`/`step` return `Result<Snapshot, EnvironmentError>` — fallibility is
-  part of the contract.
+  part of the contract, and `EnvironmentError` is `#[non_exhaustive]`.
+- **A `step()` taken after `is_done()` is `true` is an error, not a silent
+  resume.** It returns `EnvironmentError::StepAfterEpisodeEnd { status }`; call
+  `reset()` to start a new episode. Only `toy_text` and `TimeLimit` enforce this
+  today ([issue #289](https://github.com/anthonytorlucci/rlevo/issues/289) tracks
+  the rest).
 - **`ConstructableEnv`** keeps construction off the behaviour trait so
   **wrappers** like `TimeLimit` compose cleanly — and that is where `Truncated`
   comes from.
@@ -322,9 +382,9 @@ the crate as a vocabulary anchor more than a workhorse.
   workhorse today.
 
 That completes the foundational vocabulary — state, action, reward, and the
-environment loop that drives them. From here, [Part II](../part-2-guided-tour/00-overview.md)
+environment loop that drives them. From here, [Part II](../../part-2-guided-tour/00-overview.md)
 puts the whole interface to work on real problems, and the
-[evolutionary-computation](20-evolutionary-computation.md) track shows how the
+[evolutionary-computation](../20-evolutionary-computation.md) track shows how the
 same environments serve as fitness landscapes for population-based search.
 
 ---

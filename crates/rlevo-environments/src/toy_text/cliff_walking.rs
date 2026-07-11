@@ -25,6 +25,13 @@
 //! | Any other step  | −1   |
 //! | Goal step       | −1 (terminates) |
 //!
+//! ## Episode lifecycle
+//!
+//! Only the goal terminates. Falling off the cliff is a *penalty*, not a terminal:
+//! the agent is teleported back to the start and the episode continues. Once the goal
+//! terminates the episode, a further [`Environment::step`] returns
+//! [`EnvironmentError::StepAfterEpisodeEnd`] — call [`Environment::reset`] first.
+//!
 //! ## Observation space
 //!
 //! Integer state id in `[0, 48)` encoded as `row × 12 + col`.
@@ -38,6 +45,7 @@
 //! When enabled, intended direction succeeds with probability 1/3; each of the two
 //! perpendicular directions occurs with probability 1/3.
 
+use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -278,11 +286,20 @@ fn is_cliff(row: u8, col: u8) -> bool {
 ///
 /// Deterministic by default. Use `TimeLimit` wrapper for a step cap since the
 /// environment itself never truncates.
+///
+/// Reaching the goal terminates the episode; the cliff does not. A
+/// [`step`](Environment::step) taken after the goal terminated is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 #[derive(Debug)]
 pub struct CliffWalking {
     state: CliffWalkingState,
     config: CliffWalkingConfig,
     rng: StdRng,
+    /// Rejects a `step()` taken after the goal ended the episode. Without it, the
+    /// post-terminal `Left` from the goal `(3, 11)` lands on the cliff `(3, 10)`,
+    /// teleporting the agent to the start and emitting −100 on a `Running`
+    /// snapshot — resurrecting a finished episode.
+    guard: EpisodeGuard,
 }
 
 impl CliffWalking {
@@ -304,6 +321,7 @@ impl CliffWalking {
             },
             config,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -335,6 +353,7 @@ impl Environment<1, 1, 1> for CliffWalking {
     type SnapshotType = SnapshotBase<1, CliffWalkingObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = CliffWalkingState {
             row: START.0,
             col: START.1,
@@ -346,32 +365,36 @@ impl Environment<1, 1, 1> for CliffWalking {
     }
 
     fn step(&mut self, action: CliffWalkingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before any state mutation and — critically — before
+        // `resolve_action`, which draws from `self.rng` in slippery mode. A rejected
+        // call must leave both the position and the RNG stream untouched, or the
+        // stream would depend on how many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         let effective = self.resolve_action(action);
         let (nr, nc) = apply_action(self.state.row, self.state.col, effective);
 
-        if is_cliff(nr, nc) {
+        // Single exit: every path builds exactly one snapshot, and the guard is fed
+        // that snapshot's own status, so no branch can forget to record.
+        let snapshot = if is_cliff(nr, nc) {
+            // The cliff is a penalty, not a terminal: teleport to the start and
+            // keep the episode running.
             self.state.row = START.0;
             self.state.col = START.1;
-            return Ok(SnapshotBase::running(
-                self.state.observe(),
-                ScalarReward(-100.0),
-            ));
-        }
-
-        self.state.row = nr;
-        self.state.col = nc;
-
-        if (nr, nc) == GOAL {
-            Ok(SnapshotBase::terminated(
-                self.state.observe(),
-                ScalarReward(-1.0),
-            ))
+            SnapshotBase::running(self.state.observe(), ScalarReward(-100.0))
         } else {
-            Ok(SnapshotBase::running(
-                self.state.observe(),
-                ScalarReward(-1.0),
-            ))
-        }
+            self.state.row = nr;
+            self.state.col = nc;
+
+            if (nr, nc) == GOAL {
+                SnapshotBase::terminated(self.state.observe(), ScalarReward(-1.0))
+            } else {
+                SnapshotBase::running(self.state.observe(), ScalarReward(-1.0))
+            }
+        };
+
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -503,12 +526,29 @@ impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
 /// boundary behaviour, slippery distributions, and RNG determinism.
 mod tests {
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::{EpisodeStatus, Snapshot};
 
     fn make_env() -> CliffWalking {
         CliffWalking::with_config(CliffWalkingConfig::default()).expect("valid config")
+    }
+
+    /// Walks the optimal path `Up, Right×11, Down` from the start onto the goal and
+    /// returns the terminal snapshot. Deterministic mode only.
+    fn drive_to_goal(
+        env: &mut CliffWalking,
+    ) -> SnapshotBase<1, CliffWalkingObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        env.step(CliffWalkingAction::Up)
+            .expect("step off the cliff row must succeed");
+        for _ in 0..11 {
+            env.step(CliffWalkingAction::Right)
+                .expect("step along row 2 must succeed");
+        }
+        env.step(CliffWalkingAction::Down)
+            .expect("step onto the goal must succeed")
     }
 
     #[test]
@@ -736,5 +776,162 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    // ── post-terminal step guard (issue #105) ────────────────────────────────
+
+    #[test]
+    /// Verifies `CliffWalking` satisfies the shared post-terminal conformance check:
+    /// once the goal has terminated the episode, a further legal `step()` fails with
+    /// `StepAfterEpisodeEnd { status: Terminated }`.
+    fn test_cliff_walking_rejects_post_terminal_step() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, CliffWalkingAction::Left);
+    }
+
+    #[test]
+    /// Regression for the exact defect in issue #105: the goal `(3, 11)` is adjacent to
+    /// the cliff `(3, 10)`, so an unguarded post-terminal `Left` teleported the agent
+    /// back to the start and emitted −100 on a *`Running`* snapshot — resurrecting a
+    /// terminated episode. The guard must reject the step, leave the agent standing on
+    /// the goal, and emit no snapshot at all.
+    fn test_cliff_walking_post_terminal_step_into_cliff_does_not_resurrect_episode() {
+        let mut env = make_env();
+        let terminal = drive_to_goal(&mut env);
+        assert!(
+            terminal.is_terminated(),
+            "reaching the goal must terminate the episode"
+        );
+        let goal_id = CliffWalkingState::from(GOAL).state_id();
+        assert_eq!(
+            env.state.state_id(),
+            goal_id,
+            "the terminal snapshot must leave the agent on the goal"
+        );
+
+        // `Left` from the goal targets (3, 10) — cliff.
+        let err = env
+            .step(CliffWalkingAction::Left)
+            .expect_err("a step after termination must return Err, not a -100 Running snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry Terminated, the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.state.state_id(),
+            goal_id,
+            "a rejected step must not teleport the agent to the start; it must not mutate state at all"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated environment: the next `step()` succeeds
+    /// and the agent is back at the start.
+    fn test_cliff_walking_reset_reopens_terminated_episode() {
+        let mut env = make_env();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(CliffWalkingAction::Left).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(CliffWalkingAction::Up)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+    }
+
+    #[test]
+    /// Verifies the cliff is a penalty, not a terminal: falling in leaves the guard open,
+    /// so the following step still succeeds. Only the goal terminates `CliffWalking`.
+    fn test_cliff_walking_cliff_step_leaves_episode_steppable() {
+        let mut env = make_env();
+        env.reset().expect("reset must succeed");
+
+        // Start (3,0): Right → (3,1) = cliff.
+        let fall = env
+            .step(CliffWalkingAction::Right)
+            .expect("stepping into the cliff must succeed");
+        assert!(!fall.is_done(), "cliff must not terminate episode");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "a cliff fall must leave the guard open"
+        );
+
+        let next = env
+            .step(CliffWalkingAction::Up)
+            .expect("the episode continues after a cliff fall");
+        assert!(
+            !next.is_done(),
+            "a step following a cliff fall must still be running"
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step draws no randomness: in slippery mode
+    /// `resolve_action` samples from the persistent RNG, so checking the guard *after*
+    /// it would let illegal calls advance the stream and desynchronise replay (ADR 0029).
+    fn test_cliff_walking_rejected_step_does_not_advance_rng() {
+        // Two envs on the same seed, driven identically to the goal, hold identical RNG
+        // streams. Only one of them then takes a (rejected) post-terminal step.
+        let slippery_env_at_goal = || {
+            let cfg = CliffWalkingConfig::builder()
+                .is_slippery(true)
+                .seed(11)
+                .build();
+            let mut env = CliffWalking::with_config(cfg).expect("valid config");
+            env.reset().expect("reset must succeed");
+            // Slippery: re-place at (2,11) and press Down until the intended move lands.
+            for _ in 0..1_000 {
+                env.state = CliffWalkingState { row: 2, col: 11 };
+                if env
+                    .step(CliffWalkingAction::Down)
+                    .expect("step must succeed while the episode is running")
+                    .is_done()
+                {
+                    return env;
+                }
+            }
+            panic!("a slippery Down from (2,11) must reach the goal within 1000 attempts");
+        };
+
+        let mut rejected = slippery_env_at_goal();
+        let mut untouched = slippery_env_at_goal();
+
+        rejected
+            .step(CliffWalkingAction::Left)
+            .expect_err("a step after termination must be rejected");
+
+        let after: Vec<u32> = (0..16)
+            .map(|_| rejected.rng.random_range(0u32..3))
+            .collect();
+        let baseline: Vec<u32> = (0..16)
+            .map(|_| untouched.rng.random_range(0u32..3))
+            .collect();
+        assert_eq!(
+            after, baseline,
+            "a rejected step must draw no randomness; the RNG stream must be identical to one that never saw the step"
+        );
     }
 }

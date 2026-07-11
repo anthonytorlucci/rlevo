@@ -32,3 +32,6 @@ docs/contributor-book/book/
 
 # private specs, sessions, etc.
 docs/.private/
+
+# personal DRY scripts
+scripts/

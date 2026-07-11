@@ -41,13 +41,16 @@
 //! - **Fickle passenger** (`fickle_passenger`): after pickup, the first movement step has a
 //!   30% chance to resample the destination.
 
+use crate::episode::EpisodeGuard;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -331,6 +334,11 @@ fn attempt_move(row: u8, col: u8, action: TaxiAction) -> (u8, u8) {
 ///
 /// The RNG advances continuously across episodes — `reset()` does **not** reseed from
 /// `config.seed`. Two `Taxi` instances created with the same seed produce identical trajectories.
+///
+/// Once an episode has ended (a correct [`TaxiAction::Dropoff`]), a further
+/// [`step`](Environment::step) is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] rather than driving the taxi on;
+/// call [`reset`](Environment::reset) to begin a new episode.
 #[derive(Debug)]
 pub struct Taxi {
     state: TaxiState,
@@ -338,6 +346,8 @@ pub struct Taxi {
     rng: StdRng,
     /// Tracks whether the fickle destination resample is armed (fickle mode only).
     fickle_armed: bool,
+    /// Rejects a `step()` taken after the episode has already ended.
+    guard: EpisodeGuard,
 }
 
 impl Taxi {
@@ -362,6 +372,7 @@ impl Taxi {
             config,
             rng,
             fickle_armed: false,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -411,6 +422,7 @@ impl Environment<1, 1, 1> for Taxi {
     type SnapshotType = SnapshotBase<1, TaxiObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = self.sample_initial_state();
         self.fickle_armed = false;
         Ok(SnapshotBase::running(
@@ -420,6 +432,12 @@ impl Environment<1, 1, 1> for Taxi {
     }
 
     fn step(&mut self, action: TaxiAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Must precede every state mutation *and* every RNG draw: `resolve_movement`
+        // and the fickle-passenger resample both consume from `self.rng`, so a
+        // rejected call that got past this point would advance the stream and break
+        // the determinism guarantee (identical seeds → identical trajectories).
+        self.guard.check()?;
+
         let reward;
         let mut terminated = false;
 
@@ -469,11 +487,16 @@ impl Environment<1, 1, 1> for Taxi {
         }
 
         let obs = self.state.observe();
-        if terminated {
-            Ok(SnapshotBase::terminated(obs, ScalarReward(reward)))
+        let snapshot = if terminated {
+            SnapshotBase::terminated(obs, ScalarReward(reward))
         } else {
-            Ok(SnapshotBase::running(obs, ScalarReward(reward)))
-        }
+            SnapshotBase::running(obs, ScalarReward(reward))
+        };
+
+        // Record from the snapshot we are about to emit, so the guard and the
+        // snapshot can never disagree on any path.
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -693,12 +716,34 @@ impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
 /// stochastic modes, and RNG determinism.
 mod tests {
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::{EpisodeStatus, Snapshot};
 
     fn make_env() -> Taxi {
         Taxi::with_config(TaxiConfig::default()).expect("valid config")
+    }
+
+    /// Passenger aboard, taxi parked on destination `G = LOCS[1] = (0, 4)`:
+    /// the next [`TaxiAction::Dropoff`] is correct and terminates the episode.
+    fn about_to_drop_off() -> TaxiState {
+        TaxiState {
+            taxi_row: 0,
+            taxi_col: 4,
+            passenger_loc: 4,
+            destination: 1,
+        }
+    }
+
+    /// Resets `env`, pins it one correct `Dropoff` from the goal, and takes it —
+    /// returning the terminal snapshot. Consumes RNG only inside `reset()`: the
+    /// `Dropoff` branch of `step` makes no draw.
+    fn drive_to_correct_dropoff(env: &mut Taxi) -> SnapshotBase<1, TaxiObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        env.state = about_to_drop_off();
+        env.step(TaxiAction::Dropoff)
+            .expect("a correct dropoff must succeed")
     }
 
     #[test]
@@ -882,6 +927,114 @@ mod tests {
             total
         };
         assert!((run() - run()).abs() < 1e-5, "determinism check failed");
+    }
+
+    // ── post-terminal step guard (issue #105) ────────────────────────────────
+
+    #[test]
+    /// Verifies that stepping after a correct dropoff is rejected with
+    /// `StepAfterEpisodeEnd { status: Terminated }` and leaves the taxi where it was.
+    fn test_taxi_step_after_correct_dropoff_is_rejected() {
+        let mut env = make_env();
+        let terminal = drive_to_correct_dropoff(&mut env);
+
+        let r: f32 = (*terminal.reward()).into();
+        assert_eq!(r, 20.0, "a correct dropoff must pay +20");
+        assert!(
+            terminal.is_terminated(),
+            "a correct dropoff must terminate the episode"
+        );
+
+        let before = env.state.encode();
+        let err = env
+            .step(TaxiAction::South)
+            .expect_err("the episode has ended; a further step must not drive the taxi on");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry Terminated, the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+        assert_eq!(
+            env.state.encode(),
+            before,
+            "a rejected post-terminal step must leave the state untouched"
+        );
+    }
+
+    #[test]
+    /// Verifies [`Taxi`] satisfies the shared post-terminal-step conformance check.
+    fn test_taxi_rejects_post_terminal_step_conformance() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_correct_dropoff, TaxiAction::North);
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated environment for a new episode.
+    fn test_taxi_reset_reopens_env_after_termination() {
+        let mut env = make_env();
+        drive_to_correct_dropoff(&mut env);
+        assert!(
+            env.step(TaxiAction::South).is_err(),
+            "the episode has ended; a step before reset must be rejected"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        let snap = env
+            .step(TaxiAction::South)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step consumes no randomness: the guard's
+    /// `check()?` precedes the rainy-slip draw, so two identically seeded envs stay
+    /// in lock-step even when one of them is stepped after its episode ended.
+    fn test_taxi_rejected_post_terminal_step_does_not_advance_rng() {
+        let cfg = TaxiConfig::builder().is_rainy(true).seed(99).build();
+
+        // A full rainy trajectory of state ids, driven purely by the RNG stream.
+        fn trajectory(env: &mut Taxi) -> Vec<u16> {
+            env.reset().expect("reset must succeed");
+            let mut ids = vec![env.state.encode()];
+            for _ in 0..20 {
+                let snap = env
+                    .step(TaxiAction::South)
+                    .expect("movement never terminates the episode");
+                assert!(!snap.is_done(), "South must not end a Taxi episode");
+                ids.push(env.state.encode());
+            }
+            ids
+        }
+
+        let mut probed = Taxi::with_config(cfg.clone()).expect("valid config");
+        let mut clean = Taxi::with_config(cfg).expect("valid config");
+
+        drive_to_correct_dropoff(&mut probed);
+        drive_to_correct_dropoff(&mut clean);
+
+        // `probed` alone attempts (and is denied) several post-terminal steps.
+        for _ in 0..5 {
+            let err = probed
+                .step(TaxiAction::South)
+                .expect_err("post-terminal steps must be rejected");
+            assert!(
+                matches!(err, EnvironmentError::StepAfterEpisodeEnd { .. }),
+                "expected StepAfterEpisodeEnd, got {err:?}"
+            );
+        }
+
+        assert_eq!(
+            trajectory(&mut probed),
+            trajectory(&mut clean),
+            "rejected post-terminal steps must not draw from the RNG; a probed env must \
+             replay the same rainy trajectory as an unprobed one seeded identically"
+        );
     }
 
     #[test]

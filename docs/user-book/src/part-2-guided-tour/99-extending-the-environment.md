@@ -208,7 +208,93 @@ status queries Chapter 3's training loop used.
 > [Rewards §Shaped and multi-component rewards](../part-1-foundations/reinforcement-learning/33-reward.md#shaped-and-multi-component-rewards)
 > for the full contract.
 
-## Step 4 — construction
+## Step 4 — guard the post-terminal step
+
+We've covered the happy path — `reset` opens an episode, `step` advances it,
+`SnapshotBase`'s status tells the caller when it ends. One lifecycle edge
+remains, and `rlevo` treats it normatively rather than leaving it to each
+environment's discretion: what should `step` do if a caller calls it *again*
+after a snapshot has already reported `is_done() == true`? Left unguarded, the
+answer is "whatever your code happens to do" — and for `CliffWalking`, whose
+goal tile sits directly next to the cliff, the unguarded answer used to be a
+real bug: a post-terminal move could walk the agent back off the goal and onto
+the cliff, teleporting it to the start and paying the −100 cliff penalty on a
+snapshot still reporting `Running`. A finished episode came back to life with a
+corrupted trajectory. See [Environments §The post-terminal
+rule](../part-1-foundations/reinforcement-learning/34-environment.md#the-post-terminal-rule)
+for the full contract and why `rlevo` rejects rather than silently absorbs.
+
+The rule your `step` must satisfy: once you have emitted a snapshot whose
+status is done, the *only* legal next call is `reset()`; a further `step()`
+must return `Err(EnvironmentError::StepAfterEpisodeEnd { status })`. You don't
+have to hand-write that state machine — `rlevo_environments::episode::EpisodeGuard`
+is the one-field helper every `toy_text` environment holds for exactly this.
+Add it to your struct:
+
+```rust,no_run
+use rlevo_environments::episode::EpisodeGuard;
+
+pub struct MyEnv {
+    // ... your state, config, rng ...
+    guard: EpisodeGuard,
+}
+```
+
+and wire it into the three lifecycle points, following `CliffWalking`'s own
+implementation
+([`crates/rlevo-environments/src/toy_text/cliff_walking.rs`](https://github.com/anthonytorlucci/rlevo/blob/main/crates/rlevo-environments/src/toy_text/cliff_walking.rs)):
+
+```rust,no_run
+fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+    self.guard.reset();                    // only once reset has actually succeeded
+    self.state = /* fresh initial state */;
+    Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+}
+
+fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+    // Guard first: before any state mutation, and before any RNG draw. A
+    // rejected call must leave both the state and the RNG stream untouched —
+    // otherwise the stream depends on how many illegal steps a caller made,
+    // silently breaking seed -> trajectory reproducibility (ADR 0029).
+    self.guard.check()?;
+
+    // ... apply the action, compute the reward ...
+
+    // Single exit: build exactly one snapshot, then feed the guard that same
+    // snapshot's status, so the two cannot drift apart.
+    let snapshot = /* SnapshotBase::running/terminated/truncated(..) */;
+    self.guard.record(snapshot.status);
+    Ok(snapshot)
+}
+```
+
+Three details here are load-bearing, not stylistic:
+
+- **`check()` is the first statement.** Not just before mutating state — before
+  *any* RNG draw too. `CliffWalking`'s slippery-move resolution samples from
+  `self.rng`; if the guard ran after that sample, a rejected step would still
+  advance the RNG stream, and the same seed would no longer reproduce the same
+  trajectory.
+- **One exit, one `record`.** Build the snapshot once and record *its own*
+  status on the way out, rather than setting the guard from a separately
+  computed `terminated`/`truncated` flag. Two independent judgments about
+  "did the episode end" can drift apart; one snapshot feeding both the caller
+  and the guard cannot.
+- **`reset()` only after reset succeeds.** If your `reset` can itself fail (a
+  `ConfigError` from re-validating a procedurally rebuilt world, say), reopen
+  the guard *after* the fallible work, not before — a failed reset must not
+  silently re-open a finished episode.
+
+> **Scope: only four environments enforce this today.** `EpisodeGuard` ships in
+> `rlevo-environments`, and the `toy_text` family (`Blackjack`, `CliffWalking`,
+> `FrozenLake`, `Taxi`) plus the `TimeLimit` wrapper use it. The other ~44
+> built-in environments do not yet — their post-terminal behaviour is
+> undefined, tracked family-by-family in
+> [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). Your own
+> environment doesn't have to wait for that rollout: reach for `EpisodeGuard`
+> the same way `CliffWalking` does, and it conforms from day one.
+
+## Step 5 — construction
 
 Construction lives on a *separate* factory trait, `ConstructableEnv`, never on
 `Environment` itself (ADR 0011). That keeps the runtime contract — `reset`/`step`
@@ -243,8 +329,13 @@ algorithm will drive your environment correctly:
 - **`reset()` always yields a valid, non-terminal first snapshot** — or an
   `EnvironmentError`. It must fully re-initialise episode state.
 - **`step(action)` advances exactly one timestep** and flags the snapshot
-  terminal (or truncated) the moment the episode ends. After a terminal step the
-  caller will `reset()` before the next `step()`.
+  terminal (or truncated) the moment the episode ends. A further `step()` after
+  that is a caller error, not a fresh transition, and should be rejected with
+  `EnvironmentError::StepAfterEpisodeEnd` rather than silently continuing — see
+  [Step 4](#step-4--guard-the-post-terminal-step) above for the `EpisodeGuard`
+  recipe. (Only the `toy_text` family and `TimeLimit` enforce this today; treat
+  it as the target for any environment you write, not yet a workspace-wide
+  guarantee.)
 - **Neither method panics on valid input.** Return `EnvironmentError::InvalidAction`
   for out-of-range actions; reserve panics for genuine internal-logic bugs.
 - **Your config validates its own invariants.** Implement
@@ -270,6 +361,12 @@ Mirror the bandit's test module. The shape that matters:
 4. **`InvalidAction` is returned** for out-of-bounds actions — test the error path, not just the happy path.
 5. **Same seed ⇒ same trajectory.** Construct twice with one seed, run the same actions, assert identical rewards.
 6. **`TensorConvertible` round-trips** and rejects wrong-shaped tensors.
+7. **If you added an `EpisodeGuard`, test the post-terminal rejection directly.**
+   Drive the environment to a done snapshot, `step()` once more with a legal
+   action, and assert you get back
+   `Err(EnvironmentError::StepAfterEpisodeEnd { status })` carrying the status
+   that ended the episode — not `Ok`, and not a different error variant. Then
+   assert `reset()` re-opens the environment for a second episode.
 
 Once these pass, your environment is a first-class citizen: the evolutionary
 harness, the DQN/PPO agents from Chapter 3, and the hybrid loops in Part IV all
