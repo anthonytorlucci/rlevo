@@ -11,6 +11,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Breaking changes
 
+- **`rlevo-evolution` switches to a maximise-native convention** (ADR 0023) —
+  `ObjectiveSense { Minimize, Maximize }` is introduced; `BatchFitnessFn`
+  gains a required `sense()` method (no default) and `CoupledFitness` (used by
+  `coevolution`) later gains the same requirement for parity (ADR 0035,
+  resolves #160). `Landscape::sense()` defaults to `Minimize`. A cost
+  objective now declares its sense once instead of every caller hand-negating
+  fitness. `rlevo-benchmarks`' record schema bumps **v6 → v7**:
+  `RunManifest` gains `objective_sense` (absent ⇒ `Maximize`).
+- **`Probability` and `NonNegativeRate` newtypes replace bare `f32` rate
+  fields** (ADR 0031) across `rlevo-evolution` config and operator signatures
+  — `GaConfig`/`BinaryGaConfig`/`CgpConfig`/`GepConfig`, `GaCrossover`,
+  `WritebackPolicy` fields now take these validated types instead of `f32`.
+- **NEAT's `NodeId`/`InnovationId`/`SpeciesId` become opaque newtypes**
+  (ADR 0032), no longer interchangeable with `u64` or each other; construct
+  with `::new`, read with `.get()`.
+- **`rlevo-evolution` state/params/genome structs lose their public fields**
+  (issue #141 sweep) — `StrategyMetrics`, `CmaEsState`/`CmsaEsState`,
+  `EsState`, `GepState`, `MemeticState`, the metaheuristic states
+  (Abc/Bat/Cuckoo/Firefly/Gwo/Woa), the EDA states (CompactGenetic/
+  UnivariateBernoulli/UnivariateGaussian), `HillClimbingParams`/
+  `SimulatedAnnealingParams`, `NasGenome`/`NasParams`, `Species`/
+  `TopologyGenome`, and `function_set::Symbol`'s inner id are now private (or
+  `pub(crate)` for in-place-mutated NEAT types) behind accessors and
+  validating constructors.
+- **`Population::new` and related constructors now return
+  `Result<Self, ConfigError>`** (ADR 0030), rejecting a zero-row/zero-column
+  tensor instead of yielding an inhabitable-but-invalid population.
+- **`ContinuousAction` gains a required `const COMPONENTS: usize`** (ADR
+  0038, resolves #100) — the previous default `random()` sampled `Self::RANK`
+  values instead of the flattened component count, so any multi-component
+  rank-1 action (e.g. BipedalWalker's 4-dim action) panicked unconditionally.
+  All 11 impls now declare `COMPONENTS` explicitly; no default is provided so
+  the gap is a compile error, not a runtime one.
+- **box2d `State` structs (bipedal_walker, car_racing, lunar_lander) are now
+  encapsulated** (ADR 0039, resolves #117) — fields that used to be `pub`
+  aliases over external Rapier handles are now `pub(crate)` behind
+  `#[must_use]` accessors, and `is_valid()` now genuinely validates handle
+  liveness, finiteness, and structural invariants instead of rubber-stamping
+  `true`. `CarRacingState::current_tile` becomes `Option<usize>`.
+- **`LunarLander`'s terminal reward is now overwritten, not accumulated**
+  (resolves #122) — crash/out-of-bounds is a flat −100 and landing is a flat
+  +100 (matching Gymnasium), replacing that step's shaping delta and control
+  cost. Previously a hard crash could net a positive reward via Rapier's
+  stiff-contact shaping spike; recorded LunarLander benchmark numbers will
+  shift. `Running`/`Truncated` rewards are unchanged.
 - **`SnapshotBase` gains `metadata: Option<SnapshotMetadata>`** (ADR 0042,
   resolves #128) — `SnapshotBase<R, ObservationType, RewardType>` now carries
   an optional `SnapshotMetadata` field and a fluent `#[must_use]
@@ -74,6 +119,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-core`
 
+**Added**
+
+- `Observable<OR>` projection trait decoupling observation tensor order from
+  state rank, for modality-changing POMDPs such as a pixel-over-compact-state
+  environment (ADR 0019); `Environment<R, SR, AR>` permits `R != SR`.
+- `config::Validate` trait with `ConfigError` and check helpers
+  (`positive`/`in_range`/`ordered`/`distinct`/`nonzero`/`at_least`) as the
+  shared, fail-fast hyperparameter-validation convention (ADR 0026); adopted
+  by config structs across `rlevo-evolution`, `rlevo-reinforcement-learning`,
+  and `rlevo-hybrid`.
+- `Bounds<f32>` — validated-by-construction inclusive `[lo, hi]` range newtype
+  (rejects `lo > hi` and NaN) replacing raw `(f32, f32)` pairs across
+  range-shaped config/state fields (ADR 0027).
+- `stack_to_tensor` host-row batch-conversion seam: `TensorConvertible` now
+  derives `to_tensor` from a `row_shape`/`write_host_row` primitive so a
+  batch uploads as one `Tensor::from_data` instead of per-item transfers +
+  `cat` (ADR 0028); migrated across ~27 impls.
+- `Probability` ([0,1]) and `NonNegativeRate` (finite, ≥0) validated newtypes
+  (ADR 0031).
+- Public `splitmix64` mixer, promoted from a duplicated private copy (ADR
+  0033).
+- `EnvironmentError::Config(#[from] ConfigError)` variant (ADR 0040) — gives
+  reset-time config-domain failures (e.g. invalid terrain roughness) one
+  shared, structured error channel instead of a panic.
+
+**Fixed**
+
+- Environments re-seeded their RNG from `config.seed` inside `reset()`,
+  replaying bit-identical episode noise instead of drawing fresh randomness;
+  swept across all 11 stochastic environments so the persistent RNG stream
+  now advances across resets (seeding happens once, at construction). New
+  inherent `reset_with_seed` gives deterministic single-episode replay (ADR
+  0029). Successive episodes now differ where they previously repeated.
+
 **Changed**
 
 - `SnapshotBase` struct gains a `pub metadata: Option<SnapshotMetadata>` field
@@ -84,6 +163,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- `PixelGridEnv` — first production consumer of `Observable<OR>`, projecting a
+  compact rank-1 grid latent into a rank-3 `[20, 20, 3]` RGB image (ADR 0020).
+- `SantaFeAntEnv` — canonical GP/POMDP benchmark: artificial-ant trail
+  following with a one-bit `food_ahead` percept on a 32×32 toroidal grid, plus
+  a structured render path and optional `AsciiRenderable` debug helper.
+- Three-tier benchmark landscape function suite (unimodal / multimodal /
+  deceptive) for evolutionary-algorithm evaluation.
+- `TensorConvertible` impls for `BipedalWalkerObservation` and
+  `CarRacingObservation`, previously missing/self-contradicting and blocking
+  DRL usage of both environments entirely (resolves #116).
 - `GoToDoorObservation` (`[7, 7, 4]`), `GoToDoorSnapshot`, and the consts
   `MISSION_CHANNEL`, `GO_TO_DOOR_OBS_CHANNELS`, `DOOR_COUNT` — re-exported from
   `grids` alongside `GoToDoorEnv` (ADR 0043).
@@ -93,6 +182,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Rapier `user_force`/`user_torque` were never cleared after a physics
+  step** (ADR 0037, resolves #98) — despite rapier2d/3d 0.32's doc comment
+  claiming auto-clear, forces/torques silently accumulated across steps for
+  any env driving control via `add_force`/`add_torque`, corrupting control
+  dynamics in a way existing determinism tests could not detect. Now cleared
+  once per integration step; `bipedal_walker` (motor-driven) is unaffected.
+- **`bipedal_walker`'s joint angle/speed observations were dead** (resolves
+  #119) — angle read a build-time-constant local anchor and speed was
+  hardcoded to `0.0`, so 8 of 24 observation dims carried no posture
+  information and no policy could learn to walk; now reads live joint state.
+  `with_config` also silently ignored `config.terrain`, always building flat
+  ground regardless of the Rough/Hardcore preset — now dispatches correctly.
+- **`HardcoreTerrain` could generate invalid geometry** (resolves #120) — a
+  non-monotonic terminal point, a spawn pad that didn't span the spawn point,
+  and a panic on negative/NaN roughness. Terrain fields are now private with
+  validating constructors; invalid roughness now surfaces as
+  `EnvironmentError::Config` instead of panicking.
+- **`car_racing`'s reward and termination were miscalibrated** (resolves
+  #121) — the default per-tile reward was calibrated to a phantom 200-tile
+  track (the generator actually produces 60), understating a full-lap payout
+  by ~3.5×; the config field is renamed `lap_reward` (default 1000) and
+  per-tile reward is now derived from it. The per-step progress scan also
+  marked only the single nearest tile, letting a fast car skip tiles and
+  making the 95%-lap-complete termination unreachable; replaced with a
+  bounded contiguous forward sweep.
+- **`car_racing`'s 27 KB pixel framebuffer was deep-copied ~3–4× per step**
+  (resolves #115) — `Rasterizer::take_pixels()` now moves the buffer out and
+  it's stored as `Arc<[u8; N]>` instead of `Box`, dropping the hot path to
+  one copy plus atomic-refcount clones.
+- **`lunar_lander`'s crash termination was unreachable** (resolves #122) —
+  gated on `pos.y < 0.1`, a height the hull collider never reaches (it rests
+  at `y≈0.78`), so crashes never terminated the episode; replaced with a
+  hull-ground contact query matching Gymnasium's `game_over` semantics.
+- **Locomotion `rapier3d` backend's `apply_joint_torque` was
+  `unimplemented!()`** (ADR 0041, resolves #123) — now dispatches by joint
+  kind and returns `Result<(), BackendError>`; `contact_force`'s wrench sign
+  was also inverted (Rapier applies contact impulses along `-normal`), which
+  produced a spurious ~675 N permanent internal wrench on jointed neighbors —
+  fixed and jointed-neighbor contacts are now disabled for MuJoCo parent-child
+  filter parity.
+- `mountain_car`/`acrobot`/`cartpole` action decoders panicked on a NaN
+  policy logit via `partial_cmp().unwrap()`; routed through a NaN-safe argmax
+  helper that falls back to index 0.
 - **`MemoryEnv` now actually requires memory** (ADR 0043, #109). The cue was a
   compile-time constant (`Key(Yellow)`), the stored RNG was never read, and the
   reward was keyed to a coordinate independent of the cue — a reactive
@@ -138,6 +270,104 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   after `reset` and derive the script, across a range of seeds. The old
   hard-coded scripts ("walk north to the Red door", "the match is on the top
   fork") encode answers that are now per-episode random — they would pass by luck.
+- `Direction` moved out of `grids::core` to a crate-level module so non-grid
+  classic environments (e.g. `SantaFeAntEnv`) don't depend on the Minigrid
+  framework; `grids::core` re-exports it for source compatibility.
+- Range-shaped config/state fields across the crate adopted `Bounds` in place
+  of raw `(f32, f32)` pairs (ADR 0027).
+
+### `rlevo-evolution`
+
+**Added**
+
+- Memetic algorithms — `LocalSearch<B>` trait (hill-climb, random-restart,
+  simulated-annealing-style, pattern search) and `MemeticWrapper<B, S, L, F>`
+  refining offspring inside `tell` (ADR 0016).
+- Estimation-of-distribution algorithms — `ProbabilityModel<B>` trait and
+  generic `EdaStrategy<B, M>` with four models (UMDA, PBIL, cGA, MIMIC, ADR
+  0017), plus a fifth, `BayesianNetwork` (BOA), using BIC-scored greedy
+  structure learning (ADR 0018).
+- Co-evolutionary algorithms module — cooperative/competitive coupled-
+  population evolution.
+- Neuroevolution: weight-only evolution of Burn `Module` weights, bounded
+  architecture NAS via enum-dispatched module variants, interpreted NEAT with
+  speciation, and a tensorized/GPU-accelerated NEAT batch evaluator that
+  forward-passes a whole population on-device (the interpreted path remains
+  the numerical-parity oracle).
+- Gene Expression Programming (GEP).
+- CMA-ES and CMSA-ES strategies — host-side Jacobi eigensolver + Cholesky,
+  no external linear-algebra dependency (ADR 0021).
+- `proptest` adopted as a dev-dependency for input-space invariant testing
+  (roundtrips, shape/length invariants, no-panic/no-NaN, `Validate`
+  accept/reject boundaries), complementing rather than replacing seeded-
+  `StdRng` example tests; all algorithm randomness still routes through
+  `seed_stream` (ADR 0029) — proptest's own PRNG never touches Burn (ADR
+  0036).
+
+**Fixed**
+
+- A central fitness-hygiene chokepoint sanitizes NaN/Inf fitness (NaN → -inf,
+  +inf → `f32::MAX`) before every `Strategy::tell` inside
+  `EvolutionaryHarness::step` (ADR 0034), closing holes previously found
+  independently in EDA probability models (#129), GEP (#130), `local_search`,
+  `ep`/`es_classical` sigma self-adaptation, `gp_cgp`'s uninitialized-vs.
+  sanitized parent fitness, GWO's leader selector, and the non-harness NEAT /
+  ArchNAS / coevolution driver seams.
+- CMA-ES/CMSA-ES numerical stability: a NaN Cholesky pivot could return a
+  poisoned factor past the existing guard; `sigma_i` could underflow to `0.0`
+  and poison the rank-µ blend via `0/0`; a generation with fewer than `mu`
+  finite fitness values could corrupt the rank-µ update; rank-µ covariance
+  accumulation could drift a few ULPs off symmetric under float
+  non-associativity (resolves #241, closed by a new proptest property).
+- `gp_cgp` (Cartesian GP) panicked on an empty candidate pool or an empty
+  fitness batch (`lambda == 0`), and an `Inf` fitness sentinel could collapse
+  the `(1+λ)` loop; all three now degrade gracefully.
+- `memetic.rs` had a NaN-selection bug in hall-of-fame/coverage selection
+  (fitness now sanitized before `total_cmp`) and a per-row writeback upload
+  that's now coalesced per contiguous covered-index run.
+- Metaheuristics gained algorithm-specific divergence/overflow guards
+  (resolves #156): WOA clamps its spiral exponent before `exp()`; Firefly
+  derives `gamma` from the bounds extent instead of a hardcoded constant;
+  Bat clamps velocity like PSO's `v_max`; Cuckoo folds a non-finite Lévy
+  denominator to `0`; ACO_R falls back to uniform weights on a non-finite
+  weight sum.
+- `aco_r`/`firefly` panicked when `genome_dim == 1` — Burn's `squeeze::<2>()`
+  strips every size-1 axis, collapsing rank below 2; fixed via axis-targeted
+  `squeeze_dim` (resolves #233).
+- `Normal::new(...).expect(...)` Gaussian sampling could abort evolution on a
+  non-finite `std`; replaced with a NaN-safe sampling module that falls back
+  to `mean` (resolves #145).
+- Weight-only/NEAT neuroevolution's `ModuleReshaper` could desync between the
+  strategy's reshaper and a second, convention-only instance on template
+  drift; `ModuleReshaper` is now `Clone` and shared (resolves #157).
+- Crate-wide sweep replacing `.unwrap_or_default()` / bare `.unwrap()` on
+  tensor host-reads with `.expect(...)` — a dtype/device transfer failure
+  previously substituted an empty `Vec` silently, surfacing generations later
+  as a misleading out-of-bounds panic (resolves #136).
+
+**Changed**
+
+- Duplicated per-algorithm argmax/tournament-selection helpers (10+ copies)
+  consolidated into shared `ops::selection` functions.
+- `PopulationObserver` dispatch wrapped in `catch_unwind` — a panicking
+  observer no longer aborts the run.
+- `InterpretedPhenotype::new` rewritten from O(n²)+O(n·e) to O(n+e); `forward`'s
+  per-column input clone cut from O(I²·B) to O(I·B) — no behavior change,
+  removes a performance cliff on larger genomes.
+
+### `rlevo-hybrid`
+
+**Added**
+
+- `StatefulPolicy<B, E>` trait (`type Hidden`, `reset`, `act`) so recurrent/
+  memory policies are first-class in `RolloutFitness`, plus a `ReactivePolicy`
+  blanket convenience for Markov (stateless) policies (ADR 0025).
+
+### `rlevo-benchmarks`
+
+**Changed**
+
+- Record schema **v6 → v7**: `RunManifest` gains `objective_sense` (ADR 0023).
 
 ### Infrastructure
 
@@ -147,6 +377,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   --no-default-features --features box2d` and `--features locomotion` run in
   isolation to catch a type gated behind only one of the two orthogonal
   features silently breaking the other (`.github/workflows/crate-tests.yml`).
+- `rustfmt.toml` added; `cargo fmt --all --check` is now enforced in CI.
+- `rlevo-test-support` — dev-only, unpublished crate consolidating duplicated
+  RL integration-test fixtures (ADR 0024).
+
+**Changed**
+
+- CI toolchain-install steps reconciled with `rust-toolchain.toml` (redundant
+  explicit installs removed; the pin auto-installs on first cargo/rustc
+  invocation).
+- Long-running RL integration tests (DQN, C51, QR-DQN, PPO, PPG, DDPG, TD3,
+  SAC) gated behind manual/weekly CI runs instead of the default suite.
+- `docs/rules.md` codifies: NaN-safe fitness comparison (sanitize-then-
+  `total_cmp`), the host-RNG `seed_stream` seeding convention — sample once
+  at construction, never re-seed in `reset()` (ADR 0029), a CI grep guard
+  against `unwrap_or_default()` masking tensor host-read failures (ADR 0028),
+  the state/params/genome struct-field-encapsulation convention, and a rule
+  that deferred work must be filed as a GitHub issue before the deferring
+  change lands.
+- 28 new ADRs (0016–0043) recording the design decisions above; see
+  [`docs/adr/README.md`](docs/adr/README.md) for the annotated index.
 
 ---
 
