@@ -7,23 +7,28 @@
 //!
 //! ## Reward formula
 //!
-//! Each step applies potential-based shaping plus a control cost:
+//! Each step applies potential-based shaping plus a control cost. `Φ` is the
+//! **shaping potential** — an absolute scalar field over states, not a reward:
 //!
 //! ```text
-//! shaping(obs) = -100 * dist_to_helipad
-//!              - 100 * speed
-//!              - 100 * |angle|
-//!              +  10 * leg1_contact
-//!              +  10 * leg2_contact
+//! Φ(obs) = -100 * dist_to_helipad
+//!        - 100 * speed
+//!        - 100 * |angle|
+//!        +  10 * leg1_contact
+//!        +  10 * leg2_contact
 //!
-//! reward = shaping(t) - shaping(t-1)   -- potential difference
+//! reward = Φ(t) - Φ(t-1)               -- potential difference (the shaping reward)
 //!        - 0.3 * (|main| + |lateral|)  -- control cost
 //! ```
 //!
 //! On a terminal step the reward is **set to** +100 (soft landing) or −100
 //! (crash / out-of-bounds), replacing that step's shaping delta and control
-//! cost — matching Gymnasium LunarLander. See [`LunarLanderSnapshot`] for how
-//! the raw shaping value is surfaced through step metadata.
+//! cost — matching Gymnasium LunarLander.
+//!
+//! The **absolute potential Φ(t)** (not the difference that enters `reward`) is
+//! surfaced through step metadata under
+//! [`METADATA_KEY_SHAPING`](super::snapshot::METADATA_KEY_SHAPING); see that
+//! constant's docs for the reconstruction rule and the terminal-step caveat.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -42,7 +47,7 @@ use super::action_continuous::LunarLanderContinuousAction;
 use super::action_discrete::LunarLanderDiscreteAction;
 use super::config::{LunarLanderConfig, WindMode};
 use super::observation::LunarLanderObservation;
-use super::snapshot::LunarLanderSnapshot;
+use super::snapshot::{LunarLanderSnapshot, shaping_metadata};
 use super::state::LunarLanderState;
 
 // ─── Physical constants ───────────────────────────────────────────────────────
@@ -369,8 +374,12 @@ impl LunarLanderCore {
 /// LunarLander with a 4-way discrete action space.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// Wrapping with `TimeLimit` is not supported because this environment uses a
-/// custom snapshot type ([`LunarLanderSnapshot`]) rather than `SnapshotBase`.
+/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
+/// carrying the shaping potential as metadata, so wrapping with
+/// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
+/// metadata.
+///
+/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
 ///
 /// Actions never return an error; all four [`LunarLanderDiscreteAction`] variants
 /// are always valid.
@@ -418,11 +427,8 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.state.last_obs.clone();
-        Ok(LunarLanderSnapshot::running(
-            obs,
-            ScalarReward(0.0),
-            self.core.shaping_value(),
-        ))
+        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+            .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
     /// Advance the simulation by one timestep and return the resulting snapshot.
@@ -445,18 +451,13 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
             LunarLanderDiscreteAction::RightEngine => (0.0, 1.0),
         };
         let (obs, reward, status) = self.core.step_common(main, lateral);
-        let shaping = self.core.shaping_value();
+        let meta = shaping_metadata(self.core.shaping_value());
         let snap = match status {
-            EpisodeStatus::Running => {
-                LunarLanderSnapshot::running(obs, ScalarReward(reward), shaping)
-            }
-            EpisodeStatus::Terminated => {
-                LunarLanderSnapshot::terminated(obs, ScalarReward(reward), shaping)
-            }
-            EpisodeStatus::Truncated => {
-                LunarLanderSnapshot::truncated(obs, ScalarReward(reward), shaping)
-            }
-        };
+            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+        }
+        .with_metadata(meta);
         Ok(snap)
     }
 }
@@ -474,8 +475,12 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
 /// component drives the side engines symmetrically.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
-/// Wrapping with `TimeLimit` is not supported because this environment uses a
-/// custom snapshot type ([`LunarLanderSnapshot`]) rather than `SnapshotBase`.
+/// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
+/// carrying the shaping potential as metadata, so wrapping with
+/// [`TimeLimit`](crate::wrappers::TimeLimit) composes and preserves that
+/// metadata.
+///
+/// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
 #[derive(Debug)]
 pub struct LunarLanderContinuous {
     core: LunarLanderCore,
@@ -518,11 +523,8 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
         let obs = self.core.state.last_obs.clone();
-        Ok(LunarLanderSnapshot::running(
-            obs,
-            ScalarReward(0.0),
-            self.core.shaping_value(),
-        ))
+        Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
+            .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
 
     /// Advance the simulation by one timestep and return the resulting snapshot.
@@ -549,18 +551,13 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
         // main engine: [0, 1] throttle when > 0
         let main = main_raw.max(0.0);
         let (obs, reward, status) = self.core.step_common(main, lateral);
-        let shaping = self.core.shaping_value();
+        let meta = shaping_metadata(self.core.shaping_value());
         let snap = match status {
-            EpisodeStatus::Running => {
-                LunarLanderSnapshot::running(obs, ScalarReward(reward), shaping)
-            }
-            EpisodeStatus::Terminated => {
-                LunarLanderSnapshot::terminated(obs, ScalarReward(reward), shaping)
-            }
-            EpisodeStatus::Truncated => {
-                LunarLanderSnapshot::truncated(obs, ScalarReward(reward), shaping)
-            }
-        };
+            EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
+            EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
+            EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
+        }
+        .with_metadata(meta);
         Ok(snap)
     }
 }
@@ -799,6 +796,41 @@ mod tests {
         assert!(
             meta.components.contains_key(METADATA_KEY_SHAPING),
             "shaping key must be in metadata"
+        );
+    }
+
+    /// Issue #128: `LunarLanderSnapshot` is now a `SnapshotBase` alias, so the
+    /// env composes with [`TimeLimit`] (which is bound to `SnapshotType =
+    /// SnapshotBase`). Previously this did not compile at all. The wrapper must
+    /// truncate at its own cap *and* preserve the shaping metadata the inner env
+    /// attached.
+    #[test]
+    fn test_time_limit_wraps_and_preserves_metadata() {
+        use crate::wrappers::TimeLimit;
+
+        let env =
+            LunarLanderDiscrete::with_config(LunarLanderConfig::default()).expect("valid config");
+        // Inner env's own cap is 1000; TimeLimit's cap of 2 fires first.
+        let mut timed = TimeLimit::new(env, 2);
+        timed.reset().unwrap();
+
+        let s1 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+        assert!(!s1.is_done(), "step 1 is below the TimeLimit cap");
+        assert!(
+            s1.metadata()
+                .expect("metadata must survive the wrapper")
+                .components
+                .contains_key(METADATA_KEY_SHAPING)
+        );
+
+        let s2 = timed.step(LunarLanderDiscreteAction::DoNothing).unwrap();
+        assert!(s2.is_truncated(), "TimeLimit must truncate at its cap");
+        assert!(
+            s2.metadata()
+                .expect("metadata must survive the truncation path")
+                .components
+                .contains_key(METADATA_KEY_SHAPING),
+            "TimeLimit must not drop metadata when upgrading Running -> Truncated"
         );
     }
 

@@ -171,7 +171,11 @@ A few things connect back to earlier chapters. The full `CartPoleState` lives
 the boundary into a snapshot, exactly the [state/observation wall](31-state.md)
 from before. The reward is a `ScalarReward`. And `SnapshotBase` (the default
 `Snapshot` implementation) has three constructors — `running`, `terminated`,
-`truncated` — matching the [`EpisodeStatus`](33-reward.md) variants.
+`truncated` — matching the [`EpisodeStatus`](33-reward.md) variants. Each of
+these leaves `SnapshotBase`'s fourth field, `metadata: Option<SnapshotMetadata>`,
+as `None`; CartPole never needs it, but an environment that does chains
+`.with_metadata(..)` onto any of the three constructors, as the
+[reward chapter](33-reward.md#shaped-and-multi-component-rewards) shows.
 
 Notice what CartPole's `step` *never* produces: `Truncated`. It emits `Running`
 until the pole falls or the cart leaves the track, then `Terminated`. That is
@@ -245,6 +249,13 @@ accordingly.
 
 This is the decorator pattern that the `ConstructableEnv` split exists to
 enable: wrappers compose around a core environment without polluting it.
+`TimeLimit` binds to `SnapshotType = SnapshotBase<D, Obs, Rew>` and only ever
+touches the `status` field, so any [`SnapshotMetadata`](33-reward.md#shaped-and-multi-component-rewards)
+an inner environment attached with `.with_metadata(..)` rides through unchanged
+— including on the very step `TimeLimit` truncates. Because every environment's
+`SnapshotType` is a `SnapshotBase` instance, metadata-carrying environments
+compose with `TimeLimit` (and any other `SnapshotBase`-bound wrapper) the same
+way a plain `ScalarReward`-only environment like CartPole does.
 
 ## Related abstractions: `TransitionDynamics` and `UpdateFunction`
 

@@ -295,7 +295,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             .with(METADATA_KEY_REWARD_DISTANCE, 0.0)
             .with(METADATA_KEY_REWARD_CONTROL, 0.0)
             .with_position("target", [obs.target_xy()[0], obs.target_xy()[1], 0.0]);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
+        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one environment timestep (`dt * frame_skip`).
@@ -379,12 +379,12 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
             .with(METADATA_KEY_REWARD_CONTROL, reward_control)
             .with_position("fingertip", [fx, fy, 0.0])
             .with_position("target", [tx, ty, 0.0]);
-        Ok(LocomotionSnapshot::new(
-            obs,
-            ScalarReward(total),
+        Ok(LocomotionSnapshot {
+            observation: obs,
+            reward: ScalarReward(total),
             status,
-            meta,
-        ))
+            metadata: Some(meta),
+        })
     }
 }
 

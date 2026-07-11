@@ -354,7 +354,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
             .with_position("torso", torso_pos)
             .with_position("com", torso_pos)
             .with_position("main_body", torso_pos);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
+        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one env step.
@@ -410,12 +410,12 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
             .with_position("torso", torso_pos)
             .with_position("com", torso_pos)
             .with_position("main_body", torso_pos);
-        Ok(LocomotionSnapshot::new(
-            obs,
-            ScalarReward(total),
+        Ok(LocomotionSnapshot {
+            observation: obs,
+            reward: ScalarReward(total),
             status,
-            meta,
-        ))
+            metadata: Some(meta),
+        })
     }
 }
 

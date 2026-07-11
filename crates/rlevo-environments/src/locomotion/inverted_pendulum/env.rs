@@ -243,7 +243,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         let obs = self.extract_observation();
         self.state.last_obs = obs;
         let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, 0.0);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
+        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advances the simulation by one timestep (`dt * frame_skip` seconds).
@@ -318,7 +318,12 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
                 "cart",
                 [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
             );
-        Ok(LocomotionSnapshot::new(obs, reward, status, meta))
+        Ok(LocomotionSnapshot {
+            observation: obs,
+            reward,
+            status,
+            metadata: Some(meta),
+        })
     }
 }
 

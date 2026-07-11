@@ -563,6 +563,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
             observation: obs,
             reward: ScalarReward(final_reward),
             status,
+            metadata: None,
         })
     }
 }

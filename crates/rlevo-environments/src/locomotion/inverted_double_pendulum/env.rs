@@ -328,7 +328,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
                 [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
             )
             .with_position("tip", tip);
-        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0), meta))
+        Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
     }
 
     /// Advance the simulation by one step (or `frame_skip` Rapier substeps)
@@ -411,12 +411,12 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
                 [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
             )
             .with_position("tip", tip);
-        Ok(LocomotionSnapshot::new(
-            obs,
-            ScalarReward(total),
+        Ok(LocomotionSnapshot {
+            observation: obs,
+            reward: ScalarReward(total),
             status,
-            meta,
-        ))
+            metadata: Some(meta),
+        })
     }
 }
 

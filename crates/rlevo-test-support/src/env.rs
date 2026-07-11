@@ -181,6 +181,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             observation: self.state.observe(),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
+            metadata: None,
         })
     }
 
@@ -202,6 +203,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             observation: self.state.observe(),
             reward: ScalarReward::new(reward),
             status,
+            metadata: None,
         })
     }
 }

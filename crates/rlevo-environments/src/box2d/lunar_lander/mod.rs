@@ -51,5 +51,5 @@ pub use action_discrete::LunarLanderDiscreteAction;
 pub use config::{LunarLanderConfig, LunarLanderConfigBuilder, WindMode};
 pub use env::{LunarLanderContinuous, LunarLanderDiscrete};
 pub use observation::LunarLanderObservation;
-pub use snapshot::{LunarLanderSnapshot, METADATA_KEY_SHAPING};
+pub use snapshot::{LunarLanderSnapshot, METADATA_KEY_SHAPING, shaping_metadata};
 pub use state::LunarLanderState;
