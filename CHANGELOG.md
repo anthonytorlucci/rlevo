@@ -56,6 +56,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
     episode; determinism for tests is served by the new `reset_with_seed` (ADR
     0029) instead, which exercises the real sampling environment.
 
+- **`ContextualBanditObservation` closes its construction surface** (resolves
+  #124) — the `pub context: usize` field is **private**; read it with the new
+  `context()` accessor and build one with the fallible
+  `ContextualBanditObservation::<C>::new(context) -> Result<Self, StateError>`,
+  which rejects `context >= C` with `StateError::InvalidData`. The public field
+  let a caller construct an out-of-range context that then panicked with an
+  index-out-of-bounds inside `TensorConvertible::write_host_row`'s one-hot
+  encoder — a panic on user-supplied data, which `docs/rules.md` §4 forbids.
+  `Deserialize` is now hand-written and validates through the same constructor,
+  so the identical hole is closed on the serde path (the wire format is
+  byte-identical — a single `context` field — so existing persisted
+  observations still load; an out-of-range one now errors instead of panicking
+  later). The **`Default` derive is removed**: it yielded `context: 0`, which is
+  out of range at `C == 0` and was the only construction path that skipped
+  validation. `context < C` is now an invariant no public API can break.
+
 ### `rlevo-core`
 
 **Changed**
@@ -100,6 +116,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ADR 0029 — harmless only because the RNG was never read, and a live landmine
   the moment sampling was added. Both re-seed lines are deleted; `reset()` draws
   from the persistent stream and `reset_with_seed` covers deterministic replay.
+- **`ContextualBandit`'s ASCII render no longer transposes its arm and context
+  counts** (#124). The `AsciiRenderable` impl was declared
+  `impl<const K, const C> … for ContextualBandit<K, C>` while the struct is
+  `ContextualBandit<C, K>`, so inside the impl `K` was bound to the context
+  count and `C` to the arm count and the `"Contextual (K=…, C=…)"` label printed
+  them backwards: `ContextualBandit<10, 4>` (10 contexts, 4 arms) rendered as
+  `K=10, C=4`. Only the labels lied — the arm-mean lookup and `best@ctx` are
+  indexed positionally and were always correct — and no test asserted on the
+  label text, so the existing suite could not catch it. The impl now matches the
+  struct's `<C, K>` order (as `Display` already did) and a regression test pins
+  the labels to the const generics.
 
 **Changed**
 
