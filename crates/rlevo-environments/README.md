@@ -37,22 +37,30 @@ Tabular MDPs for baseline algorithm validation. Every state is fully observable.
 
 ### Gridworlds
 
-Twelve partially observable grid environments inspired by [Farama Minigrid](https://minigrid.farama.org). All share a common egocentric 7×7×3 observation and a 7-action discrete space. Physics are implemented once in `grids::core` and reused across every variant.
+Twelve partially observable grid environments inspired by [Farama Minigrid](https://minigrid.farama.org). All share an egocentric 7×7 view and a 7-action discrete space. Physics are implemented once in `grids::core` and reused across every variant.
 
-| Environment | Grid size | Key mechanic |
-|---|---|---|
-| `EmptyEnv` | 6×6 | Reach the goal |
-| `DoorKeyEnv` | 8×8 | Pick up key, unlock door, reach goal |
-| `LavaGapEnv` | 7×7 | Navigate a gap in a lava wall |
-| `FourRoomsEnv` | 19×19 | Long-horizon exploration |
-| `UnlockEnv` | 6×6 | Single lock/key |
-| `UnlockPickupEnv` | 7×7 | Unlock then pick up object |
-| `MemoryEnv` | 5×… | Remember seen target |
-| `MultiRoomEnv` | variable | Chain of rooms |
-| `CrossingEnv` | 11×11 | Navigate obstacles |
-| `DistShiftEnv` | 9×… | Adaption to distribution shift |
-| `DynamicObstaclesEnv` | 6×6 | Moving obstacles |
-| `GoToDoorEnv` | 5×5 | Reach specified door |
+Eleven of the twelve encode that view as the shared 3-channel `GridObservation` (`[type, color, state]` per cell). **`GoToDoorEnv` is the one exception**: it emits a bespoke 4-channel `GoToDoorObservation`, whose extra channel carries the episode's mission (ADR 0043 — see the row below).
+
+| Environment | Grid size | Observation | Key mechanic |
+|---|---|---|---|
+| `EmptyEnv` | 6×6 | 7×7×3 | Reach the goal |
+| `DoorKeyEnv` | 8×8 | 7×7×3 | Pick up key, unlock door, reach goal |
+| `LavaGapEnv` | 7×7 | 7×7×3 | Navigate a gap in a lava wall |
+| `FourRoomsEnv` | 19×19 | 7×7×3 | Long-horizon exploration |
+| `UnlockEnv` | 6×6 | 7×7×3 | Single lock/key |
+| `UnlockPickupEnv` | 7×7 | 7×7×3 | Unlock then pick up object |
+| `MemoryEnv` | 13×13 (min 11, odd) | 7×7×3 | POMDP recall: a green Key-or-Ball cue is **sampled each episode**, then must be matched by *type* at a fork from which the cue is not observable |
+| `MultiRoomEnv` | variable | 7×7×3 | Chain of rooms |
+| `CrossingEnv` | 11×11 | 7×7×3 | Navigate obstacles |
+| `DistShiftEnv` | 9×… | 7×7×3 | Adaption to distribution shift |
+| `DynamicObstaclesEnv` | 6×6 | 7×7×3 | Moving obstacles |
+| `GoToDoorEnv` | 6×6 | **7×7×4** | Instruction-conditioned: the four door colours **and the target are re-sampled each episode**; the mission colour rides in observation channel 3, broadcast to every cell |
+
+`MemoryEnv`'s minimum size of 11 is not arbitrary. rlevo's egocentric view applies no occlusion, so only *distance* can keep the cue out of sight from the fork; `size >= 11` is exactly the distance required (Invariant M, ADR 0043). Lowering it re-opens the bug that made the task solvable without memory.
+
+Be precise about what that buys, though. The cue is **not** hidden everywhere — because the view reaches 6 cells backward from the cue's fixed column (`x = 1`), an agent standing anywhere in the corridor at `x <= 7` can turn to face West and re-read it. That leak zone is fixed by the view geometry and does not depend on `size`. What Invariant M guarantees is that the cue is unobservable **at the fork**, and that no single observation ever contains the cue *and* a fork object (they are more than a view-width apart) — which is what makes a memoryless policy unable to beat chance.
+
+Since the leak zone is fixed while the corridor grows, the **recall horizon scales with `size`**: the cue-free corridor cells are exactly `x ∈ [8, size - 3]`. At the floor of `size = 11` that is the single gap cell (≈1–2 steps of retention); at the **default `size = 13`** it is three cells; at `17`, seven. The default is deliberately *not* the minimum: `11` is the smallest **correct** size, not a memory benchmark, and shipping it would ship the weakest recall task the layout supports. Use the default (`13`, `max_steps = 845`) for memory research, or `17` for a long-horizon variant; drop to `11` only when step budget matters more than horizon.
 
 ---
 
@@ -208,7 +216,9 @@ let env = CartPole::with_config(
 
 ### Reproducibility
 
-`reset()` re-seeds the environment's internal RNG from `config.seed` so the same seed always produces the same episode trajectory. Pass different seeds across parallel workers to get independent rollouts.
+Stochastic environments seed a **persistent** RNG once at construction from `config.seed` and let it advance across resets (ADR 0029). A fixed seed therefore reproduces a fixed *sequence* of episodes, not one episode over and over — successive `reset()` calls sample independent episodes, which is what makes an env like `MemoryEnv` or `GoToDoorEnv` a learning problem at all. Pass different seeds across parallel workers to get independent rollouts.
+
+To replay one specific episode bit-for-bit, use the inherent `reset_with_seed(seed)` on the environments that expose it (`MemoryEnv`, `GoToDoorEnv`).
 
 ### Wrappers
 

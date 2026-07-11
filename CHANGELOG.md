@@ -28,6 +28,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   previously-locked-out environments (4 locomotion + `LunarLanderDiscrete` /
   `LunarLanderContinuous`).
 
+- **`MemoryEnv` and `GoToDoorEnv` config and observation surfaces change**
+  (ADR 0043, resolves #109) — both environments claimed properties they did not
+  have, and fixing them removes the config fields that caused the defect.
+  - `MemoryConfig::swap_fork` is **removed**, and `MemoryConfig::new` changes
+    arity: `new(size, max_steps, seed)` (was `new(max_steps, seed, swap_fork)`).
+    `size` is a new field — odd and `>= 11`, rejected by `Validate` otherwise.
+    Defaults are `size = 13`, `max_steps = 845` (`5 * size²`), `seed = 0`.
+    The default sits deliberately **above** the minimum: `11` is the smallest
+    size at which the cue is unobservable from the fork (Invariant M), but it is
+    also the size at which the cue-free corridor run collapses to a single cell,
+    so it is the *weakest* recall task the layout supports. `13` gives a
+    three-cell cue-free run for ~40% more step budget.
+    A `swap_fork=…` key in a `MemoryConfig` config string is now an error, not
+    a silently ignored no-op.
+  - `GoToDoorConfig::target_color` is **removed**, and `GoToDoorConfig::new`
+    changes arity: `new(size, max_steps, seed)` (was
+    `new(size, max_steps, seed, target_color)`). The target is sampled per
+    episode. `target_color=…` / `color=…` config-string keys are now errors.
+  - **`GoToDoorEnv`'s observation and snapshot types change.** It no longer
+    emits the shared `GridObservation` / `GridSnapshot`; it emits
+    `GoToDoorObservation` (`[7, 7, 4]`) and `GoToDoorSnapshot`. Rank is still
+    `3`, so `Environment<3, 3, 1>` is unchanged, but any code naming its
+    `ObservationType` / `SnapshotType`, or feeding a `7×7×3` model, must be
+    updated. This is the grid family's only 4-channel observation.
+  - Both configs pinned a quantity the environment is supposed to sample every
+    episode; determinism for tests is served by the new `reset_with_seed` (ADR
+    0029) instead, which exercises the real sampling environment.
+
 ### `rlevo-core`
 
 **Changed**
@@ -38,11 +66,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-environments`
 
+**Added**
+
+- `GoToDoorObservation` (`[7, 7, 4]`), `GoToDoorSnapshot`, and the consts
+  `MISSION_CHANNEL`, `GO_TO_DOOR_OBS_CHANNELS`, `DOOR_COUNT` — re-exported from
+  `grids` alongside `GoToDoorEnv` (ADR 0043).
+- `MemoryEnv::reset_with_seed`, `MemoryEnv::cue`, `MemoryEnv::size`, and
+  `GoToDoorEnv::reset_with_seed`, `GoToDoorEnv::doors` — the accessors a
+  scripted oracle or a replay needs now that both envs sample per episode.
+
+**Fixed**
+
+- **`MemoryEnv` now actually requires memory** (ADR 0043, #109). The cue was a
+  compile-time constant (`Key(Yellow)`), the stored RNG was never read, and the
+  reward was keyed to a coordinate independent of the cue — a reactive
+  feedforward policy solved it outright. The cue type and the fork order are now
+  drawn from a live persistent RNG each episode, all three objects are green so
+  colour cannot leak the answer, `match_pos()` is derived from the sampled cue,
+  and the layout is size-configurable on the canonical Minigrid geometry with a
+  `Validate`-enforced `size >= 11` (Invariant M: with no occlusion in
+  `egocentric_view`, only distance can hide the cue from the fork). A reactive
+  policy is now capped at chance on the binary fork.
+- **`GoToDoorEnv`'s mission now reaches the policy** (ADR 0043, #109). The
+  instruction previously existed only on the env — `mission()` had zero callers
+  workspace-wide — so simply sampling the target (what #109 asked for) would have
+  made the task unsolvable at 25%. The mission colour is now broadcast into
+  channel 3 of every observation cell, in the same ordinal encoding
+  `Entity::color_u8` uses for perceived door colours, so a network can learn
+  equality between the two. The four door colours are rejection-sampled distinct
+  per episode and the fixed Red=North / Green=East / Blue=South / Yellow=West map
+  is gone.
+- Both envs re-seeded their RNG from `config.seed` inside `reset()`, violating
+  ADR 0029 — harmless only because the RNG was never read, and a live landmine
+  the moment sampling was added. Both re-seed lines are deleted; `reset()` draws
+  from the persistent stream and `reset_with_seed` covers deterministic replay.
+
 **Changed**
 
 - `LocomotionSnapshot<O>` and `LunarLanderSnapshot` are now type aliases over
   `SnapshotBase` instead of hand-rolled `Snapshot` impls; construction moves
   metadata onto a `.with_metadata(...)` builder call (ADR 0042).
+- `grids_solvable` integration tests for `MemoryEnv` and `GoToDoorEnv` are now
+  **seed-driven oracles**: they read the sampled cue / mission back from the env
+  after `reset` and derive the script, across a range of seeds. The old
+  hard-coded scripts ("walk north to the Red door", "the match is on the top
+  fork") encode answers that are now per-episode random — they would pass by luck.
 
 ### Infrastructure
 
