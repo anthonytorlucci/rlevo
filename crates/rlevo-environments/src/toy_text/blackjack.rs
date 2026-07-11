@@ -26,6 +26,11 @@
 //! Configure via [`BlackjackVariant`]: standard casino rules or the Sutton & Barto Example 5.1
 //! formulation.
 //!
+//! ## Episode lifecycle
+//!
+//! Stepping after the episode has ended returns
+//! [`EnvironmentError::StepAfterEpisodeEnd`]; call `reset()` to start a new episode.
+//!
 //! ## RNG behaviour
 //!
 //! The RNG advances continuously across episodes — `reset()` does **not** reseed. Two instances
@@ -37,9 +42,13 @@ use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
+
+use crate::episode::EpisodeGuard;
 
 // ── card helpers ──────────────────────────────────────────────────────────────
 
@@ -47,8 +56,24 @@ fn draw_card(rng: &mut StdRng) -> u8 {
     rng.random_range(1u8..=13).min(10)
 }
 
+/// Scores `hand`, returning `(total, usable_ace)`.
+///
+/// An ace counts as 11 whenever that keeps the hand at or under 21 (`usable_ace`
+/// is then `true`); otherwise every card counts at face value.
+///
+/// # Saturation invariant
+///
+/// The raw pip total is accumulated in a `u16` and saturated to [`u8::MAX`] on
+/// the way out, so an arbitrarily long hand can never overflow the accumulator
+/// (a `u8` sum overflows at ~26 ten-valued cards: a panic in debug, a silent
+/// wraparound into the "valid" range in release). Saturation is sound for every
+/// consumer of this value: `255 > 21`, so a saturated total is still classified
+/// as a bust, which is the only meaningful reading of a hand that large. The
+/// usable-ace branch is unaffected — it only adds 10 when the total is at most
+/// 11, far below the saturation point.
 fn hand_value(hand: &[u8]) -> (u8, bool) {
-    let sum: u8 = hand.iter().sum();
+    let sum: u16 = hand.iter().map(|&card| u16::from(card)).sum();
+    let sum = u8::try_from(sum).unwrap_or(u8::MAX);
     let has_ace = hand.contains(&1);
     if has_ace && sum.saturating_add(10) <= 21 {
         (sum + 10, true)
@@ -270,11 +295,17 @@ impl DiscreteAction<1> for BlackjackAction {
 /// The RNG advances continuously across episodes — `reset()` does **not**
 /// reseed from `config.seed`. Two `Blackjack` instances created with the same
 /// seed will produce identical trajectories.
+///
+/// A finished episode is not resumable: once `step()` has emitted a terminal
+/// snapshot, further calls return [`EnvironmentError::StepAfterEpisodeEnd`]
+/// until `reset()` is called.
 #[derive(Debug)]
 pub struct Blackjack {
     state: BlackjackState,
     config: BlackjackConfig,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode has ended.
+    guard: EpisodeGuard,
 }
 
 impl Blackjack {
@@ -299,6 +330,7 @@ impl Blackjack {
             },
             config,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -347,6 +379,7 @@ impl Environment<1, 1, 1> for Blackjack {
     type SnapshotType = SnapshotBase<1, BlackjackObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.deal_initial();
         Ok(SnapshotBase::running(
             self.state.observe(),
@@ -354,7 +387,18 @@ impl Environment<1, 1, 1> for Blackjack {
         ))
     }
 
+    /// Applies one action and settles the hand.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended. The check runs before any card is drawn, so a rejected
+    /// call leaves both the hands and the RNG stream untouched.
     fn step(&mut self, action: BlackjackAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Before any mutation *and* before any RNG draw: a rejected step must not
+        // advance the stream, or determinism would depend on the caller's mistakes.
+        self.guard.check()?;
+
         let mut reward;
         let mut done;
 
@@ -408,11 +452,15 @@ impl Environment<1, 1, 1> for Blackjack {
         self.apply_sab_override(&mut reward, &mut done);
 
         let obs = self.state.observe();
-        if done {
-            Ok(SnapshotBase::terminated(obs, ScalarReward(reward)))
+        // Build the snapshot once and record *its* status, so the guard can never
+        // disagree with the snapshot the caller was handed.
+        let snapshot = if done {
+            SnapshotBase::terminated(obs, ScalarReward(reward))
         } else {
-            Ok(SnapshotBase::running(obs, ScalarReward(reward)))
-        }
+            SnapshotBase::running(obs, ScalarReward(reward))
+        };
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -471,9 +519,10 @@ impl rlevo_core::render::payload::TabularPayloadSource for Blackjack {
 /// Unit tests for [`Blackjack`], covering actions, observations, rewards, and RNG determinism.
 mod tests {
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::EpisodeStatus;
 
     fn make_env() -> Blackjack {
         Blackjack::with_config(BlackjackConfig::default()).expect("valid config")
@@ -720,5 +769,236 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    // ── post-terminal step guard ─────────────────────────────────────────────
+    //
+    // A player sitting on a hard 21 busts on *any* card: the total lands in
+    // [22, 31], and an ace drawn there counts as 1 (11 would put it at 32+), so
+    // these fixtures terminate the episode without searching for a seed.
+
+    /// Drives `env` to a bust on `Hit`, returning the terminal snapshot.
+    fn bust_on_hit(env: &mut Blackjack) -> SnapshotBase<1, BlackjackObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        env.set_hands(vec![10, 7, 4], vec![6, 5]); // hard 21 — any card busts it
+        env.step(BlackjackAction::Hit)
+            .expect("the first hit must be accepted")
+    }
+
+    #[test]
+    /// Verifies a `Hit` replayed after a bust is rejected with `StepAfterEpisodeEnd`.
+    fn test_blackjack_step_rejects_post_terminal_hit_after_bust() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(&mut env, bust_on_hit, BlackjackAction::Hit);
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal `Hit` draws no card and leaves the hand intact.
+    fn test_blackjack_step_leaves_hand_untouched_when_rejected() {
+        let mut env = make_env();
+        let snapshot = bust_on_hit(&mut env);
+        assert!(
+            snapshot.is_done(),
+            "hitting a hard 21 must bust and terminate the episode"
+        );
+
+        let hand_len = env.state.player_hand.len();
+        let player_sum = env.state.player_sum;
+
+        let err = env
+            .step(BlackjackAction::Hit)
+            .expect_err("a Hit after the bust must be rejected, not dealt");
+        assert!(
+            matches!(
+                err,
+                EnvironmentError::StepAfterEpisodeEnd {
+                    status: EpisodeStatus::Terminated
+                }
+            ),
+            "a post-terminal Hit must fail with StepAfterEpisodeEnd{{Terminated}}, got {err:?}"
+        );
+        assert_eq!(
+            env.state.player_hand.len(),
+            hand_len,
+            "a rejected Hit must not push a card onto the player's hand"
+        );
+        assert_eq!(
+            env.state.player_sum, player_sum,
+            "a rejected Hit must not change the player's total"
+        );
+    }
+
+    #[test]
+    /// Verifies a `Stick` replayed after the hand settled is rejected rather than re-adjudicated.
+    fn test_blackjack_step_rejects_post_terminal_stick_after_settlement() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| {
+                env.reset().expect("reset must succeed");
+                // Player 18, dealer 18 (10+8, no draw needed) → settles as a push.
+                env.set_hands(vec![9, 9], vec![10, 8]);
+                env.step(BlackjackAction::Stick)
+                    .expect("the first stick must settle the hand")
+            },
+            BlackjackAction::Stick,
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens an environment whose episode had already terminated.
+    fn test_blackjack_reset_reopens_terminated_episode() {
+        let mut env = make_env();
+        let snapshot = bust_on_hit(&mut env);
+        assert!(snapshot.is_done(), "the episode must have terminated");
+        assert!(
+            env.step(BlackjackAction::Hit).is_err(),
+            "the guard must be closed before reset()"
+        );
+
+        env.reset()
+            .expect("reset must succeed after a terminal episode");
+        env.step(BlackjackAction::Hit)
+            .expect("reset() must re-open the environment for a new episode");
+        assert_eq!(
+            env.state.player_hand.len(),
+            3,
+            "the re-opened episode deals two cards and the accepted Hit adds a third"
+        );
+    }
+
+    /// One entry per emitted snapshot: `(player_hand, dealer_hand, reward_bits, done)`.
+    ///
+    /// The reward is kept as raw bits so the comparison is exact — this trace is asserted to be
+    /// bit-identical, not approximately equal.
+    type BlackjackTrace = Vec<(Vec<u8>, Vec<u8>, u32, bool)>;
+
+    /// Replays a fixed "hit below 18" policy over several episodes, recording everything the RNG
+    /// touches: both hands (every card dealt, in order), the reward, and the terminal flag.
+    ///
+    /// Every card in the trace comes from `env.rng`, so two environments produce the same trace
+    /// **iff** their RNG streams are at the same offset. That is what makes this a stream probe
+    /// rather than a state probe.
+    fn replay_trace(env: &mut Blackjack) -> BlackjackTrace {
+        let mut trace = BlackjackTrace::new();
+        for _ in 0..8 {
+            env.reset().expect("reset must succeed");
+            loop {
+                // A pure function of the observable state: the policy itself draws no randomness,
+                // so any divergence between two traces comes from the RNG stream alone.
+                let action = if env.state.player_sum < 18 {
+                    BlackjackAction::Hit
+                } else {
+                    BlackjackAction::Stick
+                };
+                let snapshot = env
+                    .step(action)
+                    .expect("a running episode must accept a step");
+                let reward: f32 = (*snapshot.reward()).into();
+                trace.push((
+                    env.state.player_hand.clone(),
+                    env.state.dealer_hand.clone(),
+                    reward.to_bits(),
+                    snapshot.is_done(),
+                ));
+                if snapshot.is_done() {
+                    break;
+                }
+            }
+        }
+        trace
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step draws no card, leaving the RNG stream untouched.
+    ///
+    /// `Hit` calls `draw_card(&mut self.rng)` as its very first act, so a guard checked *after*
+    /// the draw would still leave the hand intact (the card is never pushed) while silently
+    /// advancing the shared stream. Determinism would then depend on how many illegal steps a
+    /// caller made, breaking seed→trajectory reproducibility (ADR 0029, `rules.md` §8). Hand-level
+    /// assertions cannot see that; only replaying the stream can.
+    ///
+    /// `StdRng` is not `Clone`, so the baseline is a second environment built from the same seed
+    /// and driven identically — never probed.
+    fn test_blackjack_rejected_post_terminal_step_does_not_advance_rng() {
+        // Same seed, same drive: both streams sit at the same offset (4 cards from the deal,
+        // 1 from the busting Hit).
+        let mut probed = make_env();
+        let mut clean = make_env();
+
+        for env in [&mut probed, &mut clean] {
+            let terminal = bust_on_hit(env);
+            assert!(
+                terminal.is_done(),
+                "hitting a hard 21 must bust and terminate the episode"
+            );
+        }
+
+        // `probed` alone attempts (and is denied) several post-terminal `Hit`s — the action whose
+        // first statement draws a card.
+        for attempt in 0..3 {
+            let err = probed
+                .step(BlackjackAction::Hit)
+                .expect_err("a post-terminal Hit must be rejected, not dealt");
+            assert!(
+                matches!(
+                    err,
+                    EnvironmentError::StepAfterEpisodeEnd {
+                        status: EpisodeStatus::Terminated
+                    }
+                ),
+                "post-terminal Hit #{attempt} must fail with StepAfterEpisodeEnd{{Terminated}}, got {err:?}"
+            );
+        }
+
+        assert_eq!(
+            replay_trace(&mut probed),
+            replay_trace(&mut clean),
+            "a rejected step must draw no card; a probed env must replay a bit-identical \
+             trajectory (same cards, same rewards, same terminals) to one that never saw the step"
+        );
+    }
+
+    #[test]
+    /// Verifies `hand_value` saturates instead of overflowing on a hand whose pip total exceeds
+    /// `u8::MAX`, and still classifies it as a bust.
+    fn test_hand_value_saturates_on_overflowing_hand() {
+        // 30 ten-valued cards sum to 300 — an overflow of the old `u8` accumulator
+        // (panic in debug; a wraparound to 44 in release).
+        let hand = vec![10_u8; 30];
+        let (sum, usable_ace) = hand_value(&hand);
+        assert_eq!(
+            sum,
+            u8::MAX,
+            "a hand totalling more than u8::MAX must saturate, not wrap"
+        );
+        assert!(
+            sum > 21,
+            "a saturated total must still be classified as a bust, got {sum}"
+        );
+        assert!(
+            !usable_ace,
+            "an aceless hand can never report a usable ace, saturated or not"
+        );
+    }
+
+    #[test]
+    /// Verifies the usable-ace rule survives the widened accumulator for ordinary hands.
+    fn test_hand_value_counts_usable_ace_as_eleven() {
+        assert_eq!(
+            hand_value(&[1, 6]),
+            (17, true),
+            "an ace with 6 counts as 11 (soft 17)"
+        );
+        assert_eq!(
+            hand_value(&[1, 6, 10]),
+            (17, false),
+            "the same ace drops to 1 once counting it as 11 would bust the hand"
+        );
+        assert_eq!(
+            hand_value(&[10, 7, 4]),
+            (21, false),
+            "an aceless hand totals at face value"
+        );
     }
 }

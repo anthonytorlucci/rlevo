@@ -82,7 +82,11 @@ impl SnapshotMetadata {
 /// `EnvironmentError` captures failures that can occur during environment
 /// initialization, reset, or stepping. It provides detailed error messages
 /// and supports error chaining via the standard [`std::error::Error`] trait.
+///
+/// The enum is `#[non_exhaustive]`: downstream `match` expressions must carry a
+/// wildcard arm, so a future variant is not a breaking change.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EnvironmentError {
     /// An invalid or out-of-bounds action was provided.
     #[error("Invalid action: {0}")]
@@ -105,6 +109,26 @@ pub enum EnvironmentError {
     /// [`ConfigError`]: crate::config::ConfigError
     #[error("Configuration error: {0}")]
     Config(#[from] crate::config::ConfigError),
+    /// `step()` was called after the episode already ended.
+    ///
+    /// The action itself was legal; the *call sequence* was not. An episode that
+    /// has emitted a snapshot with [`Snapshot::is_done`] `== true` is over — the
+    /// only valid next lifecycle call is [`Environment::reset`]. Stepping again
+    /// would silently resurrect a finished episode (re-entering the MDP from a
+    /// terminal state, emitting rewards on a `Running` snapshot), so it is an
+    /// error rather than a no-op.
+    ///
+    /// The variant carries the [`EpisodeStatus`] that ended the episode, so the
+    /// caller can distinguish an intrinsic MDP termination
+    /// ([`EpisodeStatus::Terminated`]) from a wrapper-imposed truncation
+    /// ([`EpisodeStatus::Truncated`]).
+    #[error(
+        "step() called after the episode ended ({status:?}); call reset() before stepping again"
+    )]
+    StepAfterEpisodeEnd {
+        /// The status that ended the episode (`Terminated` or `Truncated`).
+        status: EpisodeStatus,
+    },
 }
 
 /// Snapshot trait defines the interface for environment state observations.
@@ -312,11 +336,30 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// and the new [`EpisodeStatus`]. When [`Snapshot::is_done`] returns `true`
     /// the episode is over; call [`reset`](Self::reset) to begin a new one.
     ///
+    /// # Post-terminal contract
+    ///
+    /// Implementations **must** return [`EnvironmentError::StepAfterEpisodeEnd`]
+    /// when `step()` is called after a snapshot whose [`Snapshot::is_done`] is
+    /// `true`. A finished episode is not silently resumed, and the terminal
+    /// snapshot is not silently repeated: the call sequence is the caller's bug
+    /// and is reported as one. Call [`reset`](Self::reset) to begin a new
+    /// episode.
+    ///
+    /// The check belongs at the **top** of `step()`, before any state mutation,
+    /// so a rejected call leaves the environment untouched.
+    ///
+    /// **Migration note (alpha).** Only the `toy_text` family and the `TimeLimit`
+    /// wrapper currently enforce this. The behaviour of every other environment
+    /// after a terminal snapshot is **undefined** — see issue #289 for the
+    /// family-by-family rollout. Callers must not rely on it.
+    ///
     /// # Errors
     ///
     /// Returns [`EnvironmentError::InvalidAction`] if the action is not legal in
-    /// the current state, or another [`EnvironmentError`] variant if the step
-    /// cannot complete (e.g. physics simulation failure).
+    /// the current state, [`EnvironmentError::StepAfterEpisodeEnd`] if the
+    /// episode has already ended (see the post-terminal contract above), or
+    /// another [`EnvironmentError`] variant if the step cannot complete (e.g. a
+    /// physics simulation failure).
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
 }
 
@@ -725,6 +768,42 @@ mod tests {
             }
             _ => panic!("Expected IoError variant"),
         }
+    }
+
+    #[test]
+    fn test_environment_error_step_after_episode_end_carries_status() {
+        for status in [EpisodeStatus::Terminated, EpisodeStatus::Truncated] {
+            let error = EnvironmentError::StepAfterEpisodeEnd { status };
+            match error {
+                EnvironmentError::StepAfterEpisodeEnd { status: carried } => {
+                    assert_eq!(
+                        carried, status,
+                        "StepAfterEpisodeEnd must carry the status that ended the episode"
+                    );
+                }
+                _ => panic!("Expected StepAfterEpisodeEnd variant"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_environment_error_step_after_episode_end_display() {
+        let error = EnvironmentError::StepAfterEpisodeEnd {
+            status: EpisodeStatus::Terminated,
+        };
+        let display_str = format!("{error}");
+        assert!(
+            display_str.contains("after the episode ended"),
+            "Display must state that the episode had already ended, got: {display_str}"
+        );
+        assert!(
+            display_str.contains("Terminated"),
+            "Display must name the ending status, got: {display_str}"
+        );
+        assert!(
+            display_str.contains("reset()"),
+            "Display must point the caller at reset(), got: {display_str}"
+        );
     }
 
     #[test]

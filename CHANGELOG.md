@@ -116,6 +116,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   later). The **`Default` derive is removed**: it yielded `context: 0`, which is
   out of range at `C == 0` and was the only construction path that skipped
   validation. `context < C` is now an invariant no public API can break.
+- **`EnvironmentError` is now `#[non_exhaustive]` and gains a
+  `StepAfterEpisodeEnd { status: EpisodeStatus }` variant** (ADR 0044, resolves
+  #105). Downstream code can no longer `match` on `EnvironmentError`
+  exhaustively — add a `_` arm. Calling `step()` after a snapshot whose
+  `is_done()` is `true` now returns `Err(StepAfterEpisodeEnd { .. })` instead
+  of silently continuing; the carried `status` says whether the episode ended
+  by intrinsic MDP termination (`Terminated`) or wrapper-imposed truncation
+  (`Truncated`). Any rollout loop that already breaks or resets on `is_done()`
+  is unaffected — every loop in this workspace already did. A loop that stepped
+  past termination was corrupting its own trajectory and now fails loudly;
+  call `reset()` to start a new episode. So far only the `toy_text` family and
+  the `TimeLimit` wrapper enforce this — the remaining environments are tracked
+  in #289.
 
 ### `rlevo-core`
 
@@ -143,6 +156,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `EnvironmentError::Config(#[from] ConfigError)` variant (ADR 0040) — gives
   reset-time config-domain failures (e.g. invalid terrain roughness) one
   shared, structured error channel instead of a panic.
+- `EnvironmentError::StepAfterEpisodeEnd { status }` variant (ADR 0044) — a
+  structured channel for a *sequencing* fault, kept distinct from
+  `InvalidAction` because the action is legal and only the call order is
+  wrong. `Environment::step`'s rustdoc now states the post-terminal contract
+  normatively, with a migration note disclosing which environments do not yet
+  enforce it (#289).
 
 **Fixed**
 
@@ -179,9 +198,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `MemoryEnv::reset_with_seed`, `MemoryEnv::cue`, `MemoryEnv::size`, and
   `GoToDoorEnv::reset_with_seed`, `GoToDoorEnv::doors` — the accessors a
   scripted oracle or a replay needs now that both envs sample per episode.
+- `episode::EpisodeGuard` — the reusable post-terminal guard env authors hold
+  on their struct (ADR 0044). It stores an `EpisodeStatus`, never a
+  `done: bool`, so termination keeps a single source of truth (`docs/rules.md`
+  §10). Call `check()?` as the first statement of `step()`, `record()` the
+  emitted status on a single exit path, and `reset()` it once a reset has
+  actually succeeded.
 
 **Fixed**
 
+- **Post-terminal `step()` silently resurrected a finished episode across the
+  whole `toy_text` family** (ADR 0044, resolves #105) — no environment tracked
+  terminality, so a `step()` after a terminal snapshot kept mutating state.
+  This was not a benign no-op. In `CliffWalking` the goal `(3, 11)` sits
+  *adjacent to the cliff*, so a post-terminal `Left` landed on `(3, 10)`,
+  teleported the agent back to the start, and emitted −100 on a **`Running`**
+  snapshot — a finished episode brought back to life with a corrupted
+  trajectory. In `Blackjack` a post-terminal `Hit` kept pushing cards onto the
+  player's hand, and `hand_value` summed them into a `u8`: ~26 ten-valued cards
+  overflowed it, panicking in debug and *wrapping* in release, where a wrapped
+  sum (260 → 4) re-entered the valid range and emitted a nonsense non-terminal
+  reward. `FrozenLake` walked the agent back off a hole or goal tile; `Taxi`
+  kept driving after a completed dropoff. The existing tests missed all of this
+  because every one of them stopped at the terminal snapshot — the bug lived
+  entirely past the point the suite bothered to look. `hand_value` now
+  accumulates in a `u16` and saturates, so even an unreachable oversized hand
+  classifies as a bust instead of panicking.
+- **`TimeLimit` manufactured a second terminal snapshot after truncation**
+  (ADR 0044, resolves #105) — the wrapper delegated to the inner environment
+  *before* stamping `Truncated`, so the inner env never learned it had been
+  truncated and no guard it held could fire. A post-truncation `step()` mutated
+  the inner env and returned a fresh, fabricated `Truncated` snapshot. The
+  wrapper now owns its own guard and checks it *before* delegating; any wrapper
+  that synthesizes a terminal status must do the same (ADR 0044).
 - **Rapier `user_force`/`user_torque` were never cleared after a physics
   step** (ADR 0037, resolves #98) — despite rapier2d/3d 0.32's doc comment
   claiming auto-clear, forces/torques silently accumulated across steps for

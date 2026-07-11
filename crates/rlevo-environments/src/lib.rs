@@ -8,6 +8,8 @@
 //! # Module Organization
 //!
 //! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot, TenArmedBandit)
+//! - [`episode`]: [`EpisodeGuard`](episode::EpisodeGuard) — the shared post-terminal
+//!   `step()` guard consumed by `toy_text` and [`wrappers::time_limit`]
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
 //!   plus the scalable n-D, classical 2-D, and stress-test benchmark suites)
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
@@ -75,6 +77,7 @@ pub mod classic;
 /// depending on the Minigrid framework. `grids::core` re-exports it for
 /// backward compatibility.
 pub mod direction;
+pub mod episode;
 /// Board-game environments — **stub, planned for v0.2**.
 ///
 /// The submodules compile but do not yet implement the [`rlevo_core::environment::Environment`]
