@@ -192,6 +192,25 @@ The keys are `&'static str` constants defined per-environment, so there are no
 magic strings at the call sites. The scalar the agent optimises stays a clean
 `ScalarReward`; the decomposition lives alongside it purely for analysis.
 
+You do not need a bespoke snapshot type to carry it, either. `SnapshotBase`
+itself — the [`Snapshot`](34-environment.md) implementation almost every
+environment uses — has a public `metadata: Option<SnapshotMetadata>` field, left
+`None` by the `running`/`terminated`/`truncated` constructors, and a fluent
+`with_metadata` you chain onto any of them:
+
+```rust
+let snap = LunarLanderSnapshot::running(obs, reward)
+    .with_metadata(shaping_metadata(phi));
+```
+
+`phi` here is the **absolute shaping potential** \\(\Phi(t)\\) — a scalar field
+over states — not the shaping reward. The shaping reward is the *difference*
+\\(\Phi(t) - \Phi(t-1)\\); a single snapshot's metadata gives you one term of
+that difference, not the reward it produces. Because `LunarLanderSnapshot` is a
+plain `SnapshotBase` under the hood, attaching metadata this way keeps it
+composable with any wrapper bound to `SnapshotBase` — see the next chapter's
+discussion of `TimeLimit`.
+
 When the reward's *structure itself* needs to survive — a vector-valued reward
 you intend to scalarise differently per experiment, or a typed bundle you want
 to keep distinct until the last moment — you implement `Reward` directly on your
@@ -213,7 +232,9 @@ impl.
 - **`EpisodeStatus`** keeps `Terminated` and `Truncated` separate so value
   targets bootstrap correctly — a type-level guard against a classic RL bug.
 - **`SnapshotMetadata`** logs shaped-reward components without polluting the
-  optimised scalar; custom `Reward` impls cover genuinely structured rewards.
+  optimised scalar. `SnapshotBase` carries it natively — attach with
+  `.with_metadata(..)` — so custom `Reward` impls are only needed for genuinely
+  structured rewards, not merely for logging.
 
 We now have the three nouns of the agent's interface — state, action, reward.
 The next chapter brings them together under the **`Environment`** trait, the

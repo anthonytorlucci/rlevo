@@ -7,6 +7,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Breaking changes
+
+- **`SnapshotBase` gains `metadata: Option<SnapshotMetadata>`** (ADR 0042,
+  resolves #128) — `SnapshotBase<R, ObservationType, RewardType>` now carries
+  an optional `SnapshotMetadata` field and a fluent `#[must_use]
+  with_metadata(self, SnapshotMetadata) -> Self` builder; `Snapshot::metadata()`
+  is overridden on `SnapshotBase` to return it instead of the inherited `None`
+  default. `running`/`terminated`/`truncated` now construct with `metadata:
+  None`; attach metadata with a `.with_metadata(...)` tail. The two bespoke
+  hand-rolled `impl Snapshot<1>` types collapse to type aliases over
+  `SnapshotBase` — `LocomotionSnapshot<O>` (`rlevo-environments::locomotion::common`)
+  and `LunarLanderSnapshot` (`rlevo-environments::box2d::lunar_lander::snapshot`) —
+  so their type names are unaffected, but their constructors' metadata
+  arguments move to the `.with_metadata()` tail (no `#[deprecated]` shim: a
+  constructor cannot be deprecated-and-retained on a type that is now a
+  foreign alias). This unblocks `TimeLimit` composition for all six
+  previously-locked-out environments (4 locomotion + `LunarLanderDiscrete` /
+  `LunarLanderContinuous`).
+
+### `rlevo-core`
+
+**Changed**
+
+- `SnapshotBase` struct gains a `pub metadata: Option<SnapshotMetadata>` field
+  and a `with_metadata` builder; `Snapshot::metadata()` is now overridden on
+  `SnapshotBase` (ADR 0042).
+
+### `rlevo-environments`
+
+**Changed**
+
+- `LocomotionSnapshot<O>` and `LunarLanderSnapshot` are now type aliases over
+  `SnapshotBase` instead of hand-rolled `Snapshot` impls; construction moves
+  metadata onto a `.with_metadata(...)` builder call (ADR 0042).
+
+### Infrastructure
+
+**Added**
+
+- CI: `rlevo-environments` feature-orthogonality check — `cargo check
+  --no-default-features --features box2d` and `--features locomotion` run in
+  isolation to catch a type gated behind only one of the two orthogonal
+  features silently breaking the other (`.github/workflows/crate-tests.yml`).
+
+---
+
 ## [0.2.0] – 2026-06-07
 
 ### Breaking changes

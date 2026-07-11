@@ -152,9 +152,27 @@ pub trait Snapshot<const R: usize>: Debug {
 
 /// Default snapshot implementation for standard reinforcement learning observations.
 ///
-/// `SnapshotBase` stores an observation, reward, and [`EpisodeStatus`].
-/// Construct via the named constructors [`running`](Self::running),
-/// [`terminated`](Self::terminated), or [`truncated`](Self::truncated).
+/// `SnapshotBase` stores an observation, reward, [`EpisodeStatus`], and an
+/// optional [`SnapshotMetadata`]. Construct via the named constructors
+/// [`running`](Self::running), [`terminated`](Self::terminated), or
+/// [`truncated`](Self::truncated) — each of which leaves `metadata` as `None` —
+/// and attach metadata with the fluent [`with_metadata`](Self::with_metadata):
+///
+/// ```
+/// # use rlevo_core::environment::{Snapshot, SnapshotBase, SnapshotMetadata};
+/// # use rlevo_core::reward::ScalarReward;
+/// # use rlevo_core::base::Observation;
+/// # use serde::{Deserialize, Serialize};
+/// # #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// # struct Obs(f32);
+/// # impl Observation<1> for Obs { fn shape() -> [usize; 1] { [1] } }
+/// let snap = SnapshotBase::running(Obs(0.0), ScalarReward(1.0))
+///     .with_metadata(SnapshotMetadata::new().with("ctrl", -0.25));
+/// assert_eq!(snap.metadata().unwrap().components["ctrl"], -0.25);
+/// ```
+///
+/// Because environments that emit metadata still return a `SnapshotBase`, they
+/// compose with wrappers such as `TimeLimit` that are bound to this type.
 ///
 /// # Type Parameters
 ///
@@ -169,6 +187,8 @@ pub struct SnapshotBase<const R: usize, ObservationType: Observation<R>, RewardT
     pub reward: RewardType,
     /// Episode lifecycle status.
     pub status: EpisodeStatus,
+    /// Optional named reward components and positions for this step.
+    pub metadata: Option<SnapshotMetadata>,
 }
 
 impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
@@ -180,6 +200,7 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
             observation,
             reward,
             status: EpisodeStatus::Running,
+            metadata: None,
         }
     }
 
@@ -189,6 +210,7 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
             observation,
             reward,
             status: EpisodeStatus::Terminated,
+            metadata: None,
         }
     }
 
@@ -198,7 +220,18 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward>
             observation,
             reward,
             status: EpisodeStatus::Truncated,
+            metadata: None,
         }
+    }
+
+    /// Builder-style attachment of [`SnapshotMetadata`] to a snapshot.
+    ///
+    /// Chains off any of the named constructors; replaces any metadata already
+    /// present.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: SnapshotMetadata) -> Self {
+        self.metadata = Some(metadata);
+        self
     }
 }
 
@@ -218,6 +251,10 @@ impl<const R: usize, ObservationType: Observation<R>, RewardType: Reward> Snapsh
 
     fn status(&self) -> EpisodeStatus {
         self.status
+    }
+
+    fn metadata(&self) -> Option<&SnapshotMetadata> {
+        self.metadata.as_ref()
     }
 }
 
@@ -497,6 +534,7 @@ mod tests {
                 observation: new_state.observe(),
                 reward: ScalarReward(reward),
                 status,
+                metadata: None,
             })
         }
     }
@@ -722,6 +760,31 @@ mod tests {
         // RewardType implements Into<f32>
         let reward_as_f32: f32 = (*snapshot.reward()).into();
         assert_eq!(reward_as_f32, 42.5);
+    }
+
+    #[test]
+    fn test_snapshot_base_metadata_defaults_to_none() {
+        let obs = MockObservation { position: 1 };
+        let snapshot = SnapshotBase::running(obs, ScalarReward(0.0));
+        assert!(
+            snapshot.metadata().is_none(),
+            "named constructors must leave metadata unset"
+        );
+    }
+
+    #[test]
+    fn test_snapshot_base_with_metadata_on_every_status() {
+        let obs = MockObservation { position: 2 };
+        let meta = || SnapshotMetadata::new().with("shaping", -1.5);
+
+        for snapshot in [
+            SnapshotBase::running(obs, ScalarReward(0.0)).with_metadata(meta()),
+            SnapshotBase::terminated(obs, ScalarReward(0.0)).with_metadata(meta()),
+            SnapshotBase::truncated(obs, ScalarReward(0.0)).with_metadata(meta()),
+        ] {
+            let m = snapshot.metadata().expect("metadata must be Some");
+            assert_eq!(m.components.get("shaping"), Some(&-1.5));
+        }
     }
 
     #[test]

@@ -8,15 +8,17 @@
 //! * [`Gear`] is a type-level gear-ratio vector, size-checked against the
 //!   per-env actuator count.
 //! * [`LocomotionSnapshot`] is the shared snapshot type every locomotion env
-//!   returns; it carries a [`SnapshotMetadata`] (reward components + positions)
-//!   and is generic in the per-env observation type.
+//!   returns — an alias for [`SnapshotBase`] generic in the per-env observation
+//!   type, carrying an optional [`SnapshotMetadata`] (reward components +
+//!   positions).
 //! * Small helpers: [`ctrl_cost`] for the quadratic control cost that every
 //!   locomotion env pays, and [`is_finite_state`] for the `np.isfinite(state).all()`
 //!   gate Gymnasium uses.
+//!
+//! [`SnapshotMetadata`]: rlevo_core::environment::SnapshotMetadata
 
-use rlevo_core::base::Observation;
 use rlevo_core::bounds::Bounds;
-use rlevo_core::environment::{EpisodeStatus, Snapshot, SnapshotMetadata};
+use rlevo_core::environment::SnapshotBase;
 use rlevo_core::reward::ScalarReward;
 
 /// Which optional components are included in an environment's observation
@@ -235,85 +237,24 @@ pub fn wrap_to_pi(angle: f32) -> f32 {
 
 /// Shared snapshot type for every locomotion environment.
 ///
-/// Generic in the per-env [`Observation`] so each env's snapshot has a
-/// precise observation type at the type level, while the 11 envs share one
-/// `impl Snapshot<1>` rather than duplicating it. Carries a
-/// [`SnapshotMetadata`] whose `components` map records decomposed reward
-/// contributions and whose `positions` map records torso / centre-of-mass /
-/// fingertip coordinates.
-#[derive(Debug, Clone)]
-pub struct LocomotionSnapshot<O>
-where
-    O: Observation<1> + Clone,
-{
-    observation: O,
-    reward: ScalarReward,
-    status: EpisodeStatus,
-    metadata: SnapshotMetadata,
-}
-
-impl<O> LocomotionSnapshot<O>
-where
-    O: Observation<1> + Clone,
-{
-    /// Build a snapshot directly from its parts.
-    #[must_use]
-    pub fn new(
-        observation: O,
-        reward: ScalarReward,
-        status: EpisodeStatus,
-        metadata: SnapshotMetadata,
-    ) -> Self {
-        Self {
-            observation,
-            reward,
-            status,
-            metadata,
-        }
-    }
-
-    /// Convenience constructor — running-episode snapshot.
-    #[must_use]
-    pub fn running(observation: O, reward: ScalarReward, metadata: SnapshotMetadata) -> Self {
-        Self::new(observation, reward, EpisodeStatus::Running, metadata)
-    }
-
-    /// Convenience constructor — terminated-episode snapshot (MDP sink).
-    #[must_use]
-    pub fn terminated(observation: O, reward: ScalarReward, metadata: SnapshotMetadata) -> Self {
-        Self::new(observation, reward, EpisodeStatus::Terminated, metadata)
-    }
-
-    /// Convenience constructor — truncated-episode snapshot (step-cap hit).
-    #[must_use]
-    pub fn truncated(observation: O, reward: ScalarReward, metadata: SnapshotMetadata) -> Self {
-        Self::new(observation, reward, EpisodeStatus::Truncated, metadata)
-    }
-}
-
-impl<O> Snapshot<1> for LocomotionSnapshot<O>
-where
-    O: Observation<1> + Clone,
-{
-    type ObservationType = O;
-    type RewardType = ScalarReward;
-
-    fn observation(&self) -> &O {
-        &self.observation
-    }
-
-    fn reward(&self) -> &ScalarReward {
-        &self.reward
-    }
-
-    fn status(&self) -> EpisodeStatus {
-        self.status
-    }
-
-    fn metadata(&self) -> Option<&SnapshotMetadata> {
-        Some(&self.metadata)
-    }
-}
+/// This is an alias for [`SnapshotBase`], not a bespoke type: the four
+/// locomotion environments (`InvertedPendulum`, `InvertedDoublePendulum`,
+/// `Reacher`, `Swimmer`) all return `SnapshotBase<1, O, ScalarReward>`, generic
+/// in the per-env [`Observation`] so each env's snapshot keeps a precise
+/// observation type at the type level.
+///
+/// Each env attaches a [`SnapshotMetadata`] via
+/// [`SnapshotBase::with_metadata`] (or by writing the `metadata` field
+/// directly): its `components` map records decomposed reward contributions and
+/// its `positions` map records torso / centre-of-mass / fingertip coordinates.
+///
+/// Because the snapshot is a plain `SnapshotBase`, these environments compose
+/// with wrappers bound to that type — notably [`TimeLimit`].
+///
+/// [`Observation`]: rlevo_core::base::Observation
+/// [`SnapshotMetadata`]: rlevo_core::environment::SnapshotMetadata
+/// [`TimeLimit`]: crate::wrappers::TimeLimit
+pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;
 
 #[cfg(test)]
 mod tests {

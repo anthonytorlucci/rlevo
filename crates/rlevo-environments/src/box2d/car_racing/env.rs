@@ -406,6 +406,7 @@ impl Environment<3, 3, 1> for CarRacing {
             observation: obs,
             reward: ScalarReward(reward),
             status,
+            metadata: None,
         })
     }
 }

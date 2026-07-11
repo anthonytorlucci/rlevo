@@ -38,6 +38,28 @@ jobs:
             exit 1
           fi
 
+  # ADR 0042 / issue #128: `box2d` and `locomotion` are orthogonal
+  # rlevo-environments features (neither implies the other) — a shared type
+  # gated behind only one of them silently breaks the other's build. Two
+  # cheap `cargo check` steps in isolation catch that class of bug; the full
+  # `cargo hack --feature-powerset` sweep is deliberately deferred (own issue).
+  feature-orthogonality:
+    name: rlevo-environments feature orthogonality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: feature-orthogonality
+
+      - name: Check box2d in isolation
+        run: cargo check -p rlevo-environments --no-default-features --features box2d
+
+      - name: Check locomotion in isolation
+        run: cargo check -p rlevo-environments --no-default-features --features locomotion
+
   test:
     name: ${{ matrix.crate }}
     runs-on: ubuntu-latest

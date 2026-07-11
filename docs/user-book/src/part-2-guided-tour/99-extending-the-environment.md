@@ -194,6 +194,20 @@ Note the three `SnapshotBase` constructors that encode episode status:
 `snapshot.is_done()`, `is_terminated()`, and `is_truncated()` — exactly the
 status queries Chapter 3's training loop used.
 
+> **If your environment needs to log reward components.** The bandit's reward
+> is a single clean number, so it never needs this, but a richer environment —
+> a locomotion task with a forward-progress term, a control-cost penalty, and a
+> "still alive" bonus — usually wants to *log* those components without
+> changing `RewardType` away from `ScalarReward`. You do not need a bespoke
+> `Snapshot` type for that: `SnapshotBase` carries an optional
+> `metadata: Option<SnapshotMetadata>` field, and a fluent `with_metadata`
+> chains onto any of the three constructors above, e.g.
+> `SnapshotBase::running(obs, reward).with_metadata(my_metadata)`. Because the
+> result is still a `SnapshotBase`, it stays compatible with `TimeLimit` and
+> any other wrapper bound to `SnapshotBase` — see
+> [Rewards §Shaped and multi-component rewards](../part-1-foundations/reinforcement-learning/33-reward.md#shaped-and-multi-component-rewards)
+> for the full contract.
+
 ## Step 4 — construction
 
 Construction lives on a *separate* factory trait, `ConstructableEnv`, never on
@@ -287,7 +301,7 @@ Where to go next depends on what you want:
 > traits encode are introduced in
 > [Reinforcement Learning](../part-1-foundations/30-reinforcement-learning.md);
 > the `State`/`Observation` distinction and the observability seam are developed
-> in [State and Observation Spaces](../part-1-foundations/31-state.md).
+> in [State and Observation Spaces](../part-1-foundations/reinforcement-learning/31-state.md).
 
 ---
 
