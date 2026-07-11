@@ -1,20 +1,72 @@
-//! Random baseline vs. DQN on [`MemoryEnv`] — quality summary + throughput.
+//! Random baseline vs. feedforward DQN on [`MemoryEnv`] — quality + throughput.
 //!
-//! `MemoryEnv` exists to demonstrate *why memory matters*: the agent sees a
-//! cue at step 0 and must pick the matching fork option hundreds of steps
-//! later. A uniformly random policy wins only by luck (~50% on the binary
-//! fork, lower end-to-end).
+//! ## What this bench is actually showing
 //!
-//! This bench keeps that random policy as the baseline and pairs it with a
-//! **feedforward** DQN — and that pairing is the point. A memoryless network
-//! cannot carry the cue across the corridor, so the DQN is expected to land
-//! near chance, *not* to solve the task. The comparison therefore documents a
-//! real limitation: clearing this env needs a recurrent or memory-augmented
-//! policy, which the library does not yet provide. Treat the DQN column as a
-//! "memoryless learners do not help here" control, not a success story.
+//! `MemoryEnv` is a POMDP recall task: a cue object (a Key or a Ball, both
+//! green) is shown once in the start room, the agent walks a corridor out of
+//! sight of it, and at the far end must issue `Done` facing the fork object
+//! *whose type equals the cue*. The cue type and the fork order are sampled
+//! afresh every episode, and the layout (`size >= 11`, **Invariant M** in the
+//! [`memory`](rlevo_environments::grids::memory) module docs) guarantees the cue
+//! is outside the egocentric view from every cell the agent can answer from.
 //!
-//! 1. **Quality comparison** — trains a DQN, then prints mean terminal reward
-//!    and success rate for the random policy vs. the (near-)greedy DQN policy.
+//! This bench runs [`MemoryConfig::default`] (currently `size = 13`,
+//! `max_steps = 845`) rather than pinning its own literals, so it always
+//! benchmarks the configuration rlevo actually ships.
+//!
+//! **That was not true until ADR 0043 landed (issue #109).** Before the fix the
+//! cue was a compile-time constant and the reward was keyed to a fixed
+//! coordinate, so a feedforward DQN could solve the environment outright — this
+//! bench's previous module doc claimed the opposite ("a memoryless network
+//! cannot carry the cue across the corridor") and was simply wrong about the
+//! environment it was benchmarking. The claim is true *now*.
+//!
+//! ## The number to read: success rate, against the 50% ceiling
+//!
+//! At the fork the observation is **cue-invariant** — two episodes differing only
+//! in cue type produce byte-identical observations while demanding opposite
+//! turns. A reactive/memoryless policy therefore cannot do better than guess
+//! between the two arms, which caps it at **50%** success:
+//!
+//! | Policy | Success-rate ceiling |
+//! |---|---|
+//! | Any memoryless policy (random, feedforward DQN, …) | **50%** — chance on the binary fork |
+//! | Memory-augmented (recurrent) policy | can approach **100%** |
+//!
+//! The ceiling is 50%, **not** 0%: a reactive policy that reaches the fork and
+//! commits still collects the reward on the half of episodes where its guess
+//! happens to be right. That distinction is why this bench prints **success
+//! rate** as the headline column and pins a literal `reactive ceiling` reference
+//! row under it — mean reward alone smears the ceiling into an uninterpretable
+//! scalar, because the reward also decays with episode length.
+//!
+//! ## What the numbers actually come out as (and why)
+//!
+//! A ceiling is not an achievement. Both policies benchmarked here currently
+//! score **≈ 0%**, which is *below* the 50% ceiling, for a reason that has
+//! nothing to do with memory:
+//!
+//! - **Random** fires `Done` with probability `1/7` at every step, so it ends the
+//!   episode after ~7 actions — long before it could have walked the corridor
+//!   (`size - 3 == 10` forward steps at the default size). It essentially never
+//!   reaches the fork to guess at all.
+//! - **The feedforward DQN**, at the `TRAIN_TIMESTEPS` budget below, does not
+//!   learn to traverse the corridor either: the reward is sparse (paid only on a
+//!   correct `Done` at the fork) and the horizon is long. It is capped at 50% *in
+//!   principle* and sits near 0% *in practice*.
+//!
+//! So read the table as two separate failures, not one: a score **under** 50%
+//! means the policy never got to the fork; a score **at** ~50% would mean it got
+//! there and guessed; a score **consistently over** ~55% on a large evaluation
+//! would be a red flag that the cue has leaked back into the observation and
+//! issue #109 has regressed.
+//!
+//! rlevo ships no recurrent policy today, so the memory-augmented row above has
+//! no column here. The feedforward DQN is a *control*, not a success story.
+//!
+//! 1. **Quality comparison** — trains a DQN, then prints success rate (headline)
+//!    and mean terminal reward for the random policy vs. the greedy DQN policy,
+//!    against the reactive ceiling.
 //! 2. **Throughput** — a Criterion group timing per-step rollout cost of the
 //!    random policy vs. DQN-greedy inference.
 //!
@@ -56,21 +108,32 @@ const SEED: u64 = 2026;
 /// Flattened observation width: `7 * 7 * 3 = 147`.
 const OBS_FEATURES: usize = VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS;
 const ACTIONS: usize = GridAction::ACTION_COUNT;
-/// Episode step cap baked into the env config.
-const MAX_STEPS: usize = 140;
 const TRAIN_TIMESTEPS: usize = 40_000;
 const EVAL_EPISODES: usize = 200;
+/// Success-rate ceiling for any policy without memory: the fork is binary and
+/// the observation at the decision cell is cue-invariant, so the arm is a coin
+/// flip. A reactive policy is capped here — it is **not** pinned to zero.
+const REACTIVE_CEILING: f32 = 0.5;
 
 type Backend_ = Autodiff<Flex>;
 type MemoryAgent = DqnAgent<Backend_, GridMlpDqn<Backend_>, GridObservation, GridAction, 3, 4>;
 
+/// The shipped default (`size`, `max_steps`) under this bench's fixed seed.
+///
+/// Deliberately *not* a set of local `SIZE` / `MAX_STEPS` literals: those drifted
+/// out of step with `MemoryConfig::default()` once, and a bench that silently
+/// measures a configuration nobody runs is worse than no bench. Overriding only
+/// `seed` keeps the geometry pinned to whatever rlevo actually ships.
 fn memory_config() -> MemoryConfig {
-    MemoryConfig::new(MAX_STEPS, SEED, false)
+    MemoryConfig {
+        seed: SEED,
+        ..MemoryConfig::default()
+    }
 }
 
 /// Trains a feedforward DQN on a fresh, seeded `MemoryEnv`. See the module
-/// docs: this is not expected to solve the task, only to confirm a memoryless
-/// learner does not beat chance.
+/// docs: this is a *control*, not an attempt to solve the task — a memoryless
+/// policy is capped at the ~50% chance rate on the binary fork.
 fn train_dqn() -> MemoryAgent {
     let device = Default::default();
     let mut rng = StdRng::seed_from_u64(SEED);
@@ -139,14 +202,21 @@ fn print_quality_comparison(agent: &MemoryAgent) {
     let mut eval_rng = StdRng::seed_from_u64(SEED.wrapping_add(1));
     let (dqn_reward, dqn_success) = evaluate(|obs| agent.act(obs, &mut eval_rng));
 
+    let cfg = memory_config();
     println!();
     println!(
-        "MemoryEnv policy quality | max_steps={MAX_STEPS} episodes={EVAL_EPISODES} train_steps={TRAIN_TIMESTEPS}"
+        "MemoryEnv policy quality | size={} max_steps={} \
+         episodes={EVAL_EPISODES} train_steps={TRAIN_TIMESTEPS}",
+        cfg.size, cfg.max_steps
     );
-    println!("  (feedforward DQN is memoryless; near-chance is the expected result)");
-    println!("  policy        mean_reward   success_rate");
-    println!("  random        {rand_reward:>11.4}   {rand_success:>11.2}");
-    println!("  dqn (greedy)  {dqn_reward:>11.4}   {dqn_success:>11.2}");
+    println!("  Success rate is the headline. Both policies below are memoryless, so both are");
+    println!("  capped at chance on the binary fork; only a recurrent policy (not yet in rlevo)");
+    println!("  can exceed that. A score *below* the ceiling means the policy never reached");
+    println!("  the fork at all; a score consistently *above* it means the cue has leaked.");
+    println!("  policy             success_rate   mean_reward");
+    println!("  random             {rand_success:>12.3}  {rand_reward:>12.4}");
+    println!("  dqn (greedy)       {dqn_success:>12.3}  {dqn_reward:>12.4}");
+    println!("  reactive ceiling   {REACTIVE_CEILING:>12.3}  {:>12}", "-");
     println!();
 }
 
