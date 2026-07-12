@@ -21,7 +21,7 @@ rlevo-hybrid = { path = "../rlevo-hybrid", version = "0.2.0" }
 [dev-dependencies]
 rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.2.0" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.2.0", features = ["bench"] }
-rlevo-test-support = { path = "../rlevo-test-support", version = "0.2.0" }
+rlevo-test-support = { path = "../rlevo-test-support" }
 approx = { workspace = true }
 burn = { workspace = true }
 criterion = { workspace = true }

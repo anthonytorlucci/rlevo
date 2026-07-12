@@ -5,6 +5,7 @@ authors.workspace = true
 description = "Evolutionary algorithms for rlevo (internal crate — use `rlevo` for the full API)"
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
