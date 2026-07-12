@@ -225,6 +225,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Two `DynamicObstacles` balls could merge into a single cell** (resolves
+  #125) — `move_obstacles` decides every obstacle's target against a stable
+  *pre-move* snapshot of the grid and only then applies the moves, so two
+  obstacles adjacent to the same free cell each saw it as empty and both took
+  it. The merged pair left a duplicate entry in `obstacles()` while the grid
+  drew only one ball, so the environment's difficulty contract — `N`
+  *independent* hazards — silently decayed toward fewer, and the tracked
+  obstacle list disagreed with the rendered grid. The existing tests missed it
+  because the defect is arithmetically unreachable at the default
+  `num_obstacles = 1`, and no test drove a multi-obstacle episode far enough
+  for two random walks to contend for one cell. Obstacle targets are now
+  reconciled in index order against a claimed set: the first obstacle to claim
+  a cell keeps it, and any later obstacle whose draw lands on a claimed cell
+  stays at its old position — the standard vertex-conflict rule, and the same
+  no-merge guarantee Farama Minigrid gets from its `place_obj` rejection loop.
+  The agent's cell is claimed like every other, so exactly one obstacle can
+  collide with the agent on a step (the −1.0 terminal collision is unchanged);
+  `obstacles()` positions are now pairwise distinct throughout any episode
+  driven per the `Environment` contract (`reset` → `step` until `done` →
+  `reset`), including on the terminal collision step. (Stepping *past* a
+  terminal snapshot without resetting still desyncs the tracked obstacles from
+  the grid; that is the grids family's separately tracked missing
+  post-terminal-`step` guard, not a property of this fix.) **Note for anyone
+  comparing against earlier runs:** multi-obstacle seeded trajectories shift, so `num_obstacles >= 2`
+  baselines from before #125 are not comparable. `num_obstacles = 1` is
+  bit-for-bit unchanged — a conflict is impossible with one obstacle, and each
+  obstacle still consumes exactly one RNG draw per step.
 - **A landscape's search box could exclude its own global optimum** (resolves
   #113, ADR 0045) — `bounds()` returns a single `(lo, hi)` pair that every
   consumer applies to *each* coordinate, so for a landscape whose true domain is

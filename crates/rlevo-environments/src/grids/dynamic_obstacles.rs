@@ -76,6 +76,7 @@ use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -318,6 +319,18 @@ impl DynamicObstaclesEnv {
     /// Positions are updated after every [`Environment::step`] call. The
     /// slice length equals `num_obstacles` (or fewer if there were not enough
     /// free cells at spawn time).
+    ///
+    /// Throughout any episode driven per the [`Environment`] contract
+    /// (`reset` → `step` until `done` → `reset`), the returned positions are
+    /// **pairwise distinct** — including on the terminal step where an obstacle
+    /// collides with the agent. Obstacles that would otherwise merge are
+    /// resolved by [`move_obstacles`](Self::move_obstacles): the first claimant
+    /// of a cell keeps it and the loser stays put.
+    ///
+    /// Calling [`step`](Environment::step) again *after* a terminal snapshot,
+    /// without an intervening [`reset`](Environment::reset), leaves the
+    /// contract and may break the invariant — see the note on
+    /// [`move_obstacles`](Self::move_obstacles).
     #[must_use]
     pub fn obstacles(&self) -> &[(i32, i32)] {
         &self.obstacles
@@ -373,12 +386,51 @@ impl DynamicObstaclesEnv {
 
     /// Perform one random-walk step for each obstacle and return `true`
     /// if any obstacle landed on the agent's cell.
+    ///
+    /// Every obstacle picks its target against the same stable *pre-move*
+    /// snapshot of the grid, so two obstacles adjacent to one free cell can
+    /// independently draw it. Targets are therefore reconciled by a
+    /// **claimed-set** pass in index order: the first obstacle to claim a cell
+    /// wins, and any later obstacle whose draw lands on an already-claimed cell
+    /// stays at its old position. The agent's cell is claimed like any other, so
+    /// at most one obstacle can reach the agent on a given step. Obstacle
+    /// positions are consequently pairwise distinct in every state reachable
+    /// through the documented [`Environment`] contract (`reset` → `step` until
+    /// `done` → `reset`).
+    ///
+    /// # Stepping past a terminal snapshot
+    ///
+    /// On a collision-terminal step the winning obstacle's tracked position is
+    /// set to the agent's cell, but no [`Ball`](Entity::Ball) is *drawn* there —
+    /// the episode is over. `self.obstacles` is therefore deliberately desynced
+    /// from the grid, which is harmless only because the contract requires a
+    /// [`reset`](Environment::reset) next. Calling [`step`](Environment::step)
+    /// again instead violates the contract: the stale entry's cell no longer
+    /// reads as `Ball`, the SOUNDNESS premise below fails, and obstacles can
+    /// merge. That is the grids family's known missing post-terminal `step`
+    /// guard (the ADR 0044 / #105 sweep covered `toy_text` only), not a property
+    /// of this function; `Environment` claims nothing about post-terminal steps.
     fn move_obstacles(&mut self) -> bool {
         let mut collision = false;
         let agent_pos = (self.state.agent.x, self.state.agent.y);
 
         // Decide each obstacle's new position before mutating the grid
         // so later obstacles see a stable snapshot.
+        //
+        // SOUNDNESS (why one resolution pass suffices, with no cascade):
+        // reverting a rejected claimant to its *own* old position can never
+        // create a new conflict, *provided* every obstacle's old cell holds
+        // `Entity::Ball` on entry. `is_obstacle_target` only admits
+        // `Empty | Floor` (or the agent's cell), so under that premise no
+        // *other* obstacle can have that old cell among its candidates: each
+        // old position is uniquely reserved for its own occupant.
+        //
+        // The premise holds in every state reachable through the documented
+        // `Environment` contract (`reset` -> `step` until `done` -> `reset`).
+        // It does *not* hold if a caller steps past a terminal snapshot without
+        // resetting — see the "Stepping past a terminal snapshot" section on
+        // this function.
+        let mut claimed: HashSet<(i32, i32)> = HashSet::with_capacity(self.obstacles.len());
         let mut new_positions: Vec<(i32, i32)> = Vec::with_capacity(self.obstacles.len());
         for &pos in &self.obstacles {
             let candidates: Vec<(i32, i32)> = [
@@ -391,12 +443,22 @@ impl DynamicObstaclesEnv {
             .filter(|&p| Self::is_obstacle_target(&self.state.grid, p, agent_pos))
             .collect();
 
-            if candidates.is_empty() {
-                new_positions.push(pos);
-                continue;
-            }
-            let idx = self.rng.random_range(0..candidates.len());
-            new_positions.push(candidates[idx]);
+            // Draw first, resolve conflicts second: an obstacle with at least
+            // one candidate consumes exactly one draw whether or not it later
+            // loses the cell, which keeps seeded draw sequences stable.
+            let target = if candidates.is_empty() {
+                pos
+            } else {
+                let idx = self.rng.random_range(0..candidates.len());
+                candidates[idx]
+            };
+            let resolved = if claimed.contains(&target) {
+                pos
+            } else {
+                target
+            };
+            claimed.insert(resolved);
+            new_positions.push(resolved);
         }
 
         // Clear old obstacle cells; place at new cells (unless collision).
@@ -676,6 +738,151 @@ mod tests {
             layouts.len() > 1,
             "successive resets must spawn independent obstacle layouts"
         );
+    }
+
+    /// Counts the ball entities currently drawn on the grid.
+    fn count_balls(env: &DynamicObstaclesEnv) -> usize {
+        #[allow(clippy::cast_possible_wrap)]
+        let size = env.config().size as i32;
+        let mut n = 0;
+        for x in 0..size {
+            for y in 0..size {
+                if env.state().grid.get(x, y) == Entity::Ball(OBSTACLE_COLOR) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// `(size, num_obstacles)` layouts swept by the #125 regression tests,
+    /// spanning a range of obstacle densities. `(8, 4)` is the original repro.
+    const REGRESSION_LAYOUTS: [(usize, usize); 4] = [(6, 3), (6, 5), (8, 4), (10, 8)];
+    /// Seeds swept by the #125 regression tests. Seed 7 is the original repro
+    /// and must stay pinned.
+    const REGRESSION_SEEDS: [u64; 5] = [0, 1, 7, 42, 123];
+    /// Episode budget per swept configuration — kept short so the sweep stays
+    /// unit-test cheap.
+    const REGRESSION_MAX_STEPS: usize = 200;
+
+    /// Every `(layout, seed)` pair the #125 regression tests sweep.
+    fn regression_configs() -> impl Iterator<Item = DynamicObstaclesConfig> {
+        REGRESSION_LAYOUTS
+            .into_iter()
+            .flat_map(|(size, obstacles)| {
+                REGRESSION_SEEDS.into_iter().map(move |seed| {
+                    DynamicObstaclesConfig::new(size, obstacles, REGRESSION_MAX_STEPS, seed)
+                })
+            })
+    }
+
+    #[test]
+    fn obstacles_stay_distinct_across_steps() {
+        // Regression for #125: two obstacles adjacent to the same free cell
+        // could both claim it, merging into one cell and leaving duplicate
+        // entries in `obstacles()`. Impossible at the default 1 obstacle, so
+        // sweep several seeds and densities rather than a single repro.
+        for cfg in regression_configs() {
+            let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+            env.reset().unwrap();
+            assert_distinct(&env, cfg, 0);
+            for step in 1..=cfg.max_steps {
+                let snap = env.step(GridAction::TurnLeft).unwrap();
+                assert_distinct(&env, cfg, step);
+                if snap.is_done() {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn assert_distinct(env: &DynamicObstaclesEnv, cfg: DynamicObstaclesConfig, step: usize) {
+        let unique: std::collections::HashSet<(i32, i32)> =
+            env.obstacles().iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            env.obstacles().len(),
+            "obstacles must be pairwise distinct at step {step} of \
+             size={}/num_obstacles={}/seed={}, got {:?}",
+            cfg.size,
+            cfg.num_obstacles,
+            cfg.seed,
+            env.obstacles()
+        );
+    }
+
+    #[test]
+    fn grid_ball_count_matches_tracked_obstacles() {
+        // A merge used to draw fewer balls than `obstacles()` reported. Swept
+        // over the same seeds and densities as the distinctness regression.
+        for cfg in regression_configs() {
+            let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+            env.reset().unwrap();
+            for step in 1..=cfg.max_steps {
+                let snap = env.step(GridAction::TurnLeft).unwrap();
+                if snap.is_done() {
+                    break;
+                }
+                assert_eq!(
+                    count_balls(&env),
+                    env.obstacles().len(),
+                    "grid must draw one ball per tracked obstacle at step {step} of \
+                     size={}/num_obstacles={}/seed={}",
+                    cfg.size,
+                    cfg.num_obstacles,
+                    cfg.seed,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn conflicting_obstacle_loses_and_stays_put() {
+        // Hand-built corridor on a `size = 7` grid: both balls have exactly one
+        // legal target, and it is the same cell (3, 2), so `random_range(0..1)`
+        // is forced and the outcome is deterministic. The lower-index obstacle
+        // claims the shared cell; the loser must stay at its old cell rather
+        // than merge.
+        //
+        // Grid is 7 wide so the goal at (size - 2, size - 2) = (5, 5) sits well
+        // clear of the corridor — nothing below overwrites `Entity::Goal`.
+        //
+        //   x: 0 1 2 3 4 5 6
+        // y=0:  # # # # # # #
+        // y=1:  # A # B # . #   A = agent (1, 1); B = ball (3, 1)
+        // y=2:  # . . * . . #   * = (3, 2), the single shared target
+        // y=3:  # . # C # . #   C = ball (3, 3)
+        // y=4:  # . . # . . #   wall at (3, 4) seals C from below
+        // y=5:  # . . . . G #   G = goal (5, 5)
+        // y=6:  # # # # # # #
+        let cfg = DynamicObstaclesConfig::new(7, 0, 100, 0);
+        let mut env = DynamicObstaclesEnv::with_config(cfg, false).expect("valid config");
+        env.reset().unwrap();
+        // B at (3, 1): walled at (2, 1) and (4, 1), border wall at (3, 0).
+        env.state.grid.set(3, 1, Entity::Ball(OBSTACLE_COLOR));
+        env.state.grid.set(2, 1, Entity::Wall);
+        env.state.grid.set(4, 1, Entity::Wall);
+        // C at (3, 3): walled at (2, 3), (4, 3) and (3, 4).
+        env.state.grid.set(3, 3, Entity::Ball(OBSTACLE_COLOR));
+        env.state.grid.set(2, 3, Entity::Wall);
+        env.state.grid.set(4, 3, Entity::Wall);
+        env.state.grid.set(3, 4, Entity::Wall);
+        env.obstacles = vec![(3, 1), (3, 3)];
+        // The crafted layout must leave the goal intact.
+        assert_eq!(env.state().grid.get(5, 5), Entity::Goal);
+
+        // TurnLeft leaves the agent at (1, 1), far from both balls.
+        let snap = env.step(GridAction::TurnLeft).unwrap();
+        assert!(!snap.is_done());
+        assert_eq!(
+            env.obstacles(),
+            &[(3, 2), (3, 3)],
+            "first claimant takes (3, 2); the loser stays at (3, 3)"
+        );
+        assert_eq!(env.state().grid.get(3, 2), Entity::Ball(OBSTACLE_COLOR));
+        assert_eq!(env.state().grid.get(3, 3), Entity::Ball(OBSTACLE_COLOR));
+        assert_eq!(env.state().grid.get(3, 1), Entity::Empty);
+        assert_eq!(count_balls(&env), 2);
     }
 
     #[test]
