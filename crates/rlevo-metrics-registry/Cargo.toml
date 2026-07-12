@@ -5,6 +5,7 @@ authors.workspace = true
 description = "Single-source-of-truth typed registry of canonical rlevo training metrics, shared by the benchmarks recorder and the WASM report client (ADR-0015)"
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
