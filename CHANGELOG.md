@@ -222,6 +222,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   §10). Call `check()?` as the first statement of `step()`, `record()` the
   emitted status on a single exit path, and `reset()` it once a reset has
   actually succeeded.
+- **`RecordedEnvFamily` now covers every built-in environment** (resolves #126)
+  — `bench::family` previously carried impls for only six envs, so
+  `RecordingConfig::for_env::<Pendulum>(seed)` simply did not compile and a
+  driver had to fall back to `RecordingConfig::new(EnvFamily::Classic, seed)`.
+  That literal is exactly the footgun the trait exists to remove: it can
+  disagree with the env being recorded, which compiles fine and silently emits
+  the wrong report-tier adapter. The remaining classic, bandit, grid, toy-text,
+  `box2d`, and locomotion envs now carry impls, as does `TimeLimit<E>` (it
+  forwards its inner env's family, so wrapping an env in a step cap no longer
+  loses it). The bandits are generic over their arm count, so the impls are
+  too — `TenArmedBandit` is a transparent alias for `KArmedBandit<10>` and is
+  covered by the generic impl rather than one of its own.
 
 **Fixed**
 
