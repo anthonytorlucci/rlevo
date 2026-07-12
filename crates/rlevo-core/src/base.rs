@@ -148,7 +148,11 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
     fn is_valid(&self) -> bool;
 }
 
-/// Deterministic environment transition dynamics: s_{t+1} = f(s_t, a_t).
+/// Deterministic environment transition dynamics.
+///
+/// ```math
+/// s_{t+1} = f(s_t, a_t)
+/// ```
 ///
 /// This trait covers only **deterministic** transitions. Stochastic dynamics
 /// (where the successor state is drawn from a distribution) are not modeled

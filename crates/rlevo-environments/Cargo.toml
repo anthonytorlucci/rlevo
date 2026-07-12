@@ -25,9 +25,12 @@ approx = { workspace = true }
 bincode = { version = "2", features = ["serde"] }
 
 # Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
+# The header must live inside this crate's own directory — docs.rs builds
+# from the packaged tarball, which cannot contain files outside the crate
+# root, so a `../../` path here silently works locally but 404s on docs.rs.
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--html-in-header", "../../katex-header.html"]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
 
 [features]
 default = ["box2d", "locomotion"]

@@ -19,3 +19,10 @@ rand_distr = {workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+
+# Render LaTeX in docs (e.g. TransitionDynamics) via KaTeX on docs.rs.
+# The header must live inside this crate's own directory — docs.rs builds
+# from the packaged tarball, which cannot contain files outside the crate
+# root, so a `../../` path here silently works locally but 404s on docs.rs.
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
