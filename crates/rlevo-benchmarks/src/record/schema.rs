@@ -74,6 +74,13 @@ impl RunId {
 
 /// Environment family classification used both to choose a
 /// [`default_frame_stride`] and to pick the report-tier panel mode.
+///
+/// A variant names the **report adapter that decodes an environment's frames**
+/// — this is a *render* family, not the `rlevo-environments` module an env
+/// lives in and not a taxonomy of task type. Nothing else keys off it: metrics
+/// and charts render family-independently, so the family only selects the frame
+/// decoder and the default stride. See [`RecordedEnvFamily::FAMILY`] for the
+/// invariant this places on each environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum EnvFamily {
@@ -112,7 +119,27 @@ pub enum EnvFamily {
 /// [`RecordingConfig`]: crate::record::writer::RecordingConfig
 /// [`RecordingConfig::for_env`]: crate::record::writer::RecordingConfig::for_env
 pub trait RecordedEnvFamily {
-    /// The recording / visualisation family this environment belongs to.
+    /// The report adapter that decodes this environment's recorded frames.
+    ///
+    /// It must agree with the [`FamilyPayload`] variant the environment
+    /// actually emits, via whichever producer-side payload trait it implements
+    /// — [`GridPayloadSource`](rlevo_core::render::GridPayloadSource) means
+    /// [`FamilyPayload::Grid`] frames, which only the grids adapter can decode,
+    /// hence [`EnvFamily::Grids`]. It is *not* the module the environment lives
+    /// in, and not a statement about what kind of task it is.
+    ///
+    /// `SantaFeAnt` is the worked example: it lives in `rlevo-environments`'
+    /// `classic` module, but it implements `GridPayloadSource` and so records as
+    /// [`EnvFamily::Grids`]. "Correcting" it to [`EnvFamily::Classic`] to match
+    /// its module would route `Grid` payloads through the classic adapter, which
+    /// cannot decode them and would quietly degrade every frame to the ASCII
+    /// fallback.
+    ///
+    /// An environment with no rich payload source emits
+    /// [`FamilyPayload::Ascii`], which each adapter renders through its fallback
+    /// path. For those the family is picked for the closest report tier rather
+    /// than for a decodable payload — the bandits live in `classic::bandit`,
+    /// emit ASCII, and take [`EnvFamily::Classic`].
     const FAMILY: EnvFamily;
 }
 
