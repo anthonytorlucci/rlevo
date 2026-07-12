@@ -5,7 +5,7 @@
 
 mod common;
 
-use rlevo::envs::landscapes::rastrigin::Rastrigin;
+use rlevo::envs::landscapes::sphere::Sphere;
 
 fn main() {
     println!(
@@ -30,6 +30,6 @@ whether they find the optimum at all.\n\n\
         "",
     );
     let dim = 10;
-    let landscape = Rastrigin::new(dim).expect("dim >= 1");
-    common::showcase("Rastrigin", dim, landscape.bounds(), 0.4, landscape);
+    let landscape = Sphere::new(dim).expect("dim >= 1");
+    common::showcase("Sphere", dim, landscape.bounds(), 0.4, landscape);
 }

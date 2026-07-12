@@ -42,6 +42,23 @@ a compile-time constant we control, not a value read from user input.
 `Sphere` also tells you a sensible search box via `problem.bounds()`, which
 returns `(-5.12, 5.12)` — the conventional range for this benchmark.
 
+Read that name carefully, because it promises less than it appears to. `bounds()`
+returns a **recommended search box, not the landscape's mathematical domain**. It
+is a single \\( (lo, hi) \\) pair, and every consumer applies it to *each*
+coordinate — so for `Sphere`, whose domain is the symmetric hypercube
+\\( [-5.12, 5.12]^D \\), the two coincide and the distinction costs you nothing.
+It starts to matter for the landscapes whose true domain is a *rectangle*.
+`Branin` lives on \\( x_1 \in [-5, 10] \\), \\( x_2 \in [0, 15] \\), which no
+single pair can express, so its `bounds()` returns the **square hull**
+\\( (-5, 15) \\) of that rectangle. We guarantee two things about whatever box a
+landscape hands you: it can **reach every certified global optimum** on every
+axis, and it contains **no point better than the true optimum** \\( f^* \\). The
+first is what lets you trust a converged run; the second is what stops a
+generous box from inventing an optimum that isn't there. The trade is that the
+hull may admit points outside the published domain — harmless, precisely because
+of the second guarantee. ADR 0045 records the reasoning, and each landscape's
+module docs cite the source for its domain.
+
 ## Step 2 — the searcher is a `Strategy`
 
 A **`Strategy`** proposes candidate populations and updates itself from their

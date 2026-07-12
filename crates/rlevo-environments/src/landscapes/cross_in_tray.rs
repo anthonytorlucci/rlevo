@@ -8,8 +8,17 @@
 //! oscillating product creates V-shaped kinks along the coordinate axes, giving
 //! the function its cross pattern.
 //!
-//! Evaluated over `[-15, 15]²`. Over this window the inner exponential reaches
-//! ≈ `e⁹³`, but the outer `0.0001·(·)^0.1` compresses it back — no `f64` overflow.
+//! # Domain
+//!
+//! [`bounds`](CrossInTray::bounds) returns `(-15.0, 15.0)`, which **is** the
+//! canonical domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
+//! Repository*, function #44 "Cross-in-Tray Function", gives `−15 ≤ xᵢ ≤ 15` with
+//! `f* ≈ −2.0626` at the four symmetric points `xᵢ* ≈ ±1.3494`. All four lie inside
+//! the box and none of it scores below `f*`, so both `bounds()` obligations hold
+//! (ADR 0045: O1 reachability, O2 no spurious optimum) — pinned by unit tests below.
+//!
+//! Over this window the inner exponential reaches ≈ `e⁹³`, but the outer
+//! `0.0001·(·)^0.1` compresses it back — no `f64` overflow.
 
 // non-differentiable at zero crossings of sin(x1)*sin(x2) (the cross ridges)
 
@@ -33,7 +42,8 @@ impl CrossInTray {
         -0.0001 * (inner + 1.0).powf(0.1)
     }
 
-    /// Recommended search domain for each coordinate.
+    /// Recommended search box `(-15.0, 15.0)` applied per-coordinate — the canonical
+    /// domain per Al-Roomi #44. Contains all four global minimizers `(±1.3494…, ±1.3494…)`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-15.0, 15.0)
@@ -78,10 +88,17 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
-    /// Certified global-minimum value (Mishra 2006).
+    /// Certified global-minimum value (Mishra 2006; Al-Roomi #44 gives −2.0626).
     const F_OPT: f64 = -2.062_611_870_822_739;
-    /// Per-axis magnitude of each of the four minimizers.
+    /// Per-axis magnitude of each of the four minimizers (Al-Roomi #44: ±1.3494).
     const X_OPT: f64 = 1.349_406_608_602_084;
+    /// All four certified global minimizers — the sign combinations of `±X_OPT`.
+    const OPTIMA: [(f64, f64); 4] = [
+        (X_OPT, X_OPT),
+        (X_OPT, -X_OPT),
+        (-X_OPT, X_OPT),
+        (-X_OPT, -X_OPT),
+    ];
 
     #[test]
     fn global_minimum_at_known_location() {
@@ -118,6 +135,55 @@ mod tests {
     fn negative_everywhere_in_domain() {
         assert!(CrossInTray::new().evaluate(0.0, 0.0) < 0.0);
         assert!(CrossInTray::new().evaluate(5.0, 7.0) < 0.0);
+    }
+
+    /// O1 (reachability) — the search box reaches every certified global optimum.
+    ///
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so ALL FOUR
+    /// degenerate minima must lie in `[lo, hi]` on BOTH axes.
+    #[test]
+    fn bounds_box_contains_optimum_on_both_axes() {
+        let (lo, hi) = CrossInTray::new().bounds();
+        for (x1, x2) in OPTIMA {
+            assert!(
+                lo <= x1 && x1 <= hi,
+                "x1 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+            assert!(
+                lo <= x2 && x2 <= hi,
+                "x2 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+        }
+    }
+
+    /// O2 (no spurious optimum) — no point of the box scores below `f*`.
+    ///
+    /// A deterministic 401×401 sweep of `bounds()²`. `eps` is looser here (`1e-6`,
+    /// i.e. ~5e-7 relative on the `≈2.06` scale) than for the polynomial landscapes:
+    /// the grid steps by `0.075`, which lands a sample almost exactly on a minimizer
+    /// (`±1.35` vs `±1.34941`), so the true margin at the tightest sample is small —
+    /// and the `exp(≈99) → (·)^0.1` path is where any float noise would appear.
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        const STEPS: u16 = 400;
+        const EPS: f64 = 1e-6;
+
+        let c = CrossInTray::new();
+        let (lo, hi) = c.bounds();
+        let span = hi - lo;
+        let n = f64::from(STEPS);
+
+        for i in 0..=STEPS {
+            let x1 = lo + span * f64::from(i) / n;
+            for j in 0..=STEPS {
+                let x2 = lo + span * f64::from(j) / n;
+                let v = c.evaluate(x1, x2);
+                assert!(
+                    v >= F_OPT - EPS,
+                    "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"
+                );
+            }
+        }
     }
 
     #[test]

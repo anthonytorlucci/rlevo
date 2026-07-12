@@ -16,6 +16,24 @@
 //! domain, the parabolic ridge, and the optimum `(−10, 1)` — a per-axis `x₁`
 //! range like `(-15, -5)` would exclude both the ridge (`x₂ = 0.01·x₁² ≈ 0..2.25`)
 //! and the optimum. The evaluator never clamps.
+//!
+//! The hull also admits points outside the published rectangle (e.g. `x₁ = +2`).
+//! That is harmless: `f` is a sum of two non-negative terms, so `f ≥ 0` on all
+//! of `ℝ²` and `f* = 0` is the global infimum — no widening of the box can admit
+//! a point better than `f*`. Both obligations are pinned by unit tests
+//! (`bounds_box_contains_optimum_on_both_axes` /
+//! `bounds_box_contains_full_asymmetric_domain` for reachability, and
+//! `no_point_in_bounds_beats_global_minimum` for the absence of a spurious
+//! optimum).
+//!
+//! # References
+//!
+//! Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
+//! Repository*, Dalhousie University — function #52: the source of the
+//! asymmetric domain `x₁ ∈ [-15, -5]`, `x₂ ∈ [-3, 3]` and of the global minimum
+//! `f* = 0` at `(−10, 1)`. Corroborated by Surjanovic, S. & Bingham, D.,
+//! *Virtual Library of Simulation Experiments: Test Functions and Datasets*,
+//! Simon Fraser University.
 
 // non-differentiable on the parabolic ridge x2 = 0.01*x1^2 and at x1 = -10
 
@@ -135,6 +153,32 @@ mod tests {
         let (lo, hi) = Bukin6::new().bounds();
         assert!(lo <= -15.0 && hi >= -5.0, "x1 domain not covered");
         assert!(lo <= -3.0 && hi >= 3.0, "x2 domain not covered");
+    }
+
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        // O2 — no spurious optimum. f = 100·√|x₂ − 0.01·x₁²| + 0.01·|x₁ + 10| is a
+        // sum of two non-negative terms, so f ≥ 0 identically on ℝ² and f* = 0 at
+        // (−10, 1). The square hull deliberately admits points outside the published
+        // rectangle x₁ ∈ [-15, -5], x₂ ∈ [-3, 3] (e.g. x₁ = +2, which the sweep below
+        // visits) — this test is precisely the check that those extra points are
+        // harmless: none of them can beat f*.
+        let b = Bukin6::new();
+        let (lo, hi) = b.bounds();
+        const STEPS: i32 = 300;
+        let step = (hi - lo) / f64::from(STEPS);
+
+        for i in 0..=STEPS {
+            let x1 = lo + step * f64::from(i);
+            for j in 0..=STEPS {
+                let x2 = lo + step * f64::from(j);
+                let v = b.evaluate(x1, x2);
+                assert!(
+                    v >= -1e-12,
+                    "f({x1}, {x2}) = {v} beats the global minimum f* = 0 inside bounds()"
+                );
+            }
+        }
     }
 
     #[test]

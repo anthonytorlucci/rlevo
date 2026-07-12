@@ -4,18 +4,33 @@
 //! f(x₁,x₂) = e^{sin(50·x₁)} + sin(60·e^{x₂}) + sin(70·sin(x₁))
 //!          + sin(sin(80·x₂)) − sin(10·(x₁+x₂)) + (x₁² + x₂²)/4
 //! ```
-//! Global minimum `f* ≈ −3.3069` at `(−0.0244, 0.2106)`. The frequencies
-//! `{50, 60, 70, 80, 10}` share no ratio, so there is no periodic lattice of
-//! equivalent basins and no dominant spatial scale — dense grid search plus
-//! local refinement is needed. The stabilising `(x₁²+x₂²)/4` term keeps the
-//! minimum interior and well-defined.
+//! Global minimum `f* ≈ −3.306_868_647_475_23` at `(−0.024403, 0.210612)`. The
+//! frequencies `{50, 60, 70, 80, 10}` share no ratio, so there is no periodic
+//! lattice of equivalent basins and no dominant spatial scale — dense grid
+//! search plus local refinement is needed. The stabilising `(x₁²+x₂²)/4` term is
+//! coercive, so it keeps the minimum interior and well-defined.
 //!
 //! # Domain
 //!
-//! The canonical competition domain is `[-1, 1]²`; the EA-friendly extended
-//! domain is `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]`.
-//! [`bounds`](Trefethen::bounds) returns `(-4.5, 4.5)` (the tighter `x₂` range)
-//! for the renderer. From Lloyd Trefethen's 2002 SIAM 100-Digit Challenge.
+//! Trefethen's original problem — Problem 4 of the SIAM 100-Digit Challenge
+//! (*SIAM News*, Jan/Feb 2002) — is **unconstrained**: it states no box at all.
+//! It is well-posed anyway because the `(x₁²+x₂²)/4` term is coercive, so a
+//! finite global minimum exists without an artificial box. (The `[-1, 1]²`
+//! framing often repeated in benchmark write-ups is a *visualization*
+//! convention, not a published constraint — it is not cited here as one.)
+//!
+//! The **bounded benchmark box** used by the optimization literature —
+//! `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]` — was imposed by Mishra, S. (2006),
+//! *"Some New Test Functions for Global Optimization and Performance of
+//! Repulsive Particle Swarm Method"*, MPRA Paper 2718, and propagated via
+//! Gavana (2013) → Al-Roomi (2015).
+//!
+//! That box is asymmetric. [`bounds`](Trefethen::bounds) returns a single
+//! `(lo, hi)` pair applied per-coordinate (the consuming renderer and search
+//! harnesses use one box for every axis), so it returns the *square hull*
+//! `(-6.5, 6.5)` of that box — the smallest symmetric square containing the full
+//! benchmark domain and the optimum `(−0.024403, 0.210612)` on both axes.
+//! The evaluator never clamps.
 
 /// Trefethen's function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
@@ -43,11 +58,31 @@ impl Trefethen {
             + (x1 * x1 + x2 * x2) / 4.0
     }
 
-    /// Renderer-safe symmetric search domain (the tighter `x₂` range). See the
-    /// type-level docs for the full asymmetric domain.
+    /// Square hull `(-6.5, 6.5)` of the asymmetric benchmark box
+    /// `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]`, applied per-coordinate. Contains
+    /// the full domain and the optimum `(−0.024403, 0.210612)` on both axes. See
+    /// the module-level docs for the provenance of that box.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
-        (-4.5, 4.5)
+        // Why widening x2 from ±4.5 to ±6.5 cannot admit a spurious optimum
+        // (i.e. any point with f < f*):
+        //
+        // Every oscillatory term is bounded below:
+        //     e^{sin(50·x₁)}   ≥ e^{-1}    ≈  0.3679
+        //     sin(60·e^{x₂})   ≥ −1
+        //     sin(70·sin(x₁))  ≥ −1
+        //     sin(sin(80·x₂))  ≥ −sin(1)   ≈ −0.8415
+        //     −sin(10·(x₁+x₂)) ≥ −1
+        // Summing: the oscillatory part ≥ e^{-1} − 1 − 1 − sin(1) − 1 ≈ −3.4736.
+        //
+        // The stabiliser (x₁² + x₂²)/4 ≥ 0. So any point with
+        // f < f* = −3.306_868_647_475_23 must satisfy
+        //     (x₁² + x₂²)/4 < −3.30686… + 3.4736… ≈ 0.1667,
+        // i.e. it lies within radius ≈ 0.817 of the origin — comfortably inside
+        // both the old (±4.5) and the new (±6.5) box. Widening the box therefore
+        // cannot expose any point better than f*; it only restores reachability
+        // of the full x₁ domain, which ±4.5 was clipping.
+        (-6.5, 6.5)
     }
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
@@ -89,25 +124,80 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
+    /// Certified global minimum value of Trefethen's function.
+    const F_OPT: f64 = -3.306_868_647_475_23;
+
+    /// Certified global minimiser.
+    const X_OPT: (f64, f64) = (-0.024_403, 0.210_612);
+
     #[test]
     fn global_minimum_at_known_location() {
         let t = Trefethen::new();
-        assert_relative_eq!(t.evaluate(-0.024_403, 0.210_612), -3.3069, epsilon = 1e-3);
+        assert_relative_eq!(t.evaluate(X_OPT.0, X_OPT.1), F_OPT, epsilon = 1e-3);
     }
 
     #[test]
     fn positive_or_greater_elsewhere() {
         let t = Trefethen::new();
         assert!(
-            t.evaluate(6.0, 4.0) > t.evaluate(-0.024_403, 0.210_612),
+            t.evaluate(6.0, 4.0) > t.evaluate(X_OPT.0, X_OPT.1),
             "value far from the optimum must exceed f*"
         );
     }
 
     #[test]
-    fn global_minimum_approx() {
+    fn bounds_box_contains_optimum_on_both_axes() {
+        // The single `(lo, hi)` pair is applied per-coordinate, so the optimum
+        // must lie inside [lo, hi] on BOTH axes for search harnesses to be able
+        // to reach it (obligation O1 — reachability).
+        let (lo, hi) = Trefethen::new().bounds();
+        assert!(lo <= X_OPT.0 && X_OPT.0 <= hi, "x1 optimum outside bounds");
+        assert!(lo <= X_OPT.1 && X_OPT.1 <= hi, "x2 optimum outside bounds");
+    }
+
+    #[test]
+    fn bounds_box_contains_full_asymmetric_domain() {
+        // The square hull must cover x1 ∈ [-6.5, 6.5] and x2 ∈ [-4.5, 4.5]
+        // (obligation O1 — the ±4.5 box used to clip the x1 domain).
+        let (lo, hi) = Trefethen::new().bounds();
+        assert!(lo <= -6.5 && hi >= 6.5, "x1 domain not covered");
+        assert!(lo <= -4.5 && hi >= 4.5, "x2 domain not covered");
+    }
+
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        // Obligation O2 — no spurious optimum: widening the box must not expose
+        // any point with f < f*. Trefethen oscillates at frequencies 50–80, so a
+        // 400×400 grid will NOT land near the true optimum — that is expected.
+        // This test asserts only that the lower bound f* is never breached.
         let t = Trefethen::new();
-        assert_relative_eq!(t.evaluate(-0.024_403, 0.210_612), -3.3069, epsilon = 1e-3);
+        let (lo, hi) = t.bounds();
+        const STEPS: usize = 400;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "STEPS is 400; grid indices are exactly representable in f64"
+        )]
+        let step = (hi - lo) / STEPS as f64;
+
+        for i in 0..=STEPS {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "i <= 400; exactly representable in f64"
+            )]
+            let x1 = lo + step * i as f64;
+            for j in 0..=STEPS {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "j <= 400; exactly representable in f64"
+                )]
+                let x2 = lo + step * j as f64;
+                let f = t.evaluate(x1, x2);
+                assert!(
+                    f >= F_OPT - 1e-6,
+                    "found point ({x1}, {x2}) with f = {f} below the global minimum {F_OPT}"
+                );
+            }
+        }
     }
 
     #[test]
