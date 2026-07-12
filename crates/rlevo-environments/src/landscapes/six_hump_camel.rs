@@ -5,8 +5,21 @@
 //! `(±0.08984…, ∓0.71266…)`, with `f* ≈ −1.031628…`. A pure polynomial,
 //! differentiable everywhere, satisfying `f(−x₁, −x₂) = f(x₁, x₂)`.
 //!
-//! Evaluated over `[-2, 2]²` — the narrow window that shows the six-hump
-//! structure; both global minima lie inside it.
+//! # Domain
+//!
+//! The canonical domain is `[-5, 5]²` (Al-Roomi, *Unconstrained Single-Objective
+//! Benchmark Functions Repository*, function #23 "Six-Hump Camel-Back Function").
+//! [`bounds`](SixHumpCamel::bounds) deliberately returns the **reduced range**
+//! `(-2.0, 2.0)` — the narrow window that shows the six-hump structure, which is
+//! what makes the surface worth rendering and searching.
+//!
+//! The reduction conforms to the `bounds()` contract (ADR 0045): `bounds()` is
+//! the *recommended per-coordinate search box*, not the mathematical domain, and
+//! it must (O1) contain every certified global optimum on every coordinate and
+//! (O2) contain no point scoring below `f*`. Both hold here — the two global
+//! minima `(±0.08984…, ∓0.71266…)` lie well inside `[-2, 2]²`, and `f* ≈ −1.031628`
+//! is the global infimum of a coercive polynomial, so no point of the smaller box
+//! can beat it. Both obligations are pinned by unit tests below.
 
 /// Six-Hump Camel-Back function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +40,10 @@ impl SixHumpCamel {
             + 4.0 * x2.powi(4)
     }
 
-    /// Recommended search domain for each coordinate.
+    /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — a deliberate
+    /// *reduced range* of the canonical `[-5, 5]²` domain, chosen because it frames
+    /// the six-hump structure. Both global minima lie inside it and no point of the
+    /// box scores below `f*`. See the type-level docs.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-2.0, 2.0)
@@ -72,8 +88,14 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
-    /// Certified global-minimum value (Dixon & Szego 1978).
+    /// Certified global-minimum value (Dixon & Szego 1978; Al-Roomi #23 gives −1.03163).
     const F_OPT: f64 = -1.031_628_453_489_877;
+
+    /// Both certified global minimizers `(±0.08984…, ∓0.71266…)` (Al-Roomi #23).
+    const OPTIMA: [(f64, f64); 2] = [
+        (0.089_842_013_683_013_31, -0.712_656_403_270_413_5),
+        (-0.089_842_013_683_013_31, 0.712_656_403_270_413_5),
+    ];
 
     #[test]
     fn global_minimum_at_known_location() {
@@ -111,6 +133,55 @@ mod tests {
             c.evaluate(-1.3, 0.7),
             epsilon = 1e-12
         );
+    }
+
+    /// O1 (reachability) — the search box reaches every certified global optimum.
+    ///
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so BOTH
+    /// degenerate minima must lie in `[lo, hi]` on BOTH axes. `(-2, 2)` is a
+    /// reduced range of the canonical `[-5, 5]²`, which is exactly the situation
+    /// that silently excluded an optimum in issue #113.
+    #[test]
+    fn bounds_box_contains_optimum_on_both_axes() {
+        let (lo, hi) = SixHumpCamel::new().bounds();
+        for (x1, x2) in OPTIMA {
+            assert!(
+                lo <= x1 && x1 <= hi,
+                "x1 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+            assert!(
+                lo <= x2 && x2 <= hi,
+                "x2 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+        }
+    }
+
+    /// O2 (no spurious optimum) — no point of the reduced box scores below `f*`.
+    ///
+    /// A deterministic 401×401 sweep of `bounds()²`. `eps` guards float error only:
+    /// the surface has O(1) scale near the minimum, so `1e-9` is far below any real
+    /// dip yet far above the ~1e-16 rounding of the polynomial.
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        const STEPS: u16 = 400;
+        const EPS: f64 = 1e-9;
+
+        let c = SixHumpCamel::new();
+        let (lo, hi) = c.bounds();
+        let span = hi - lo;
+        let n = f64::from(STEPS);
+
+        for i in 0..=STEPS {
+            let x1 = lo + span * f64::from(i) / n;
+            for j in 0..=STEPS {
+                let x2 = lo + span * f64::from(j) / n;
+                let v = c.evaluate(x1, x2);
+                assert!(
+                    v >= F_OPT - EPS,
+                    "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"
+                );
+            }
+        }
     }
 
     #[test]

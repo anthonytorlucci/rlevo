@@ -225,6 +225,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A landscape's search box could exclude its own global optimum** (resolves
+  #113, ADR 0045) — `bounds()` returns a single `(lo, hi)` pair that every
+  consumer applies to *each* coordinate, so for a landscape whose true domain is
+  a rectangle the only correct value is the **square hull** of that rectangle.
+  `Branin` instead returned the `x₁` range `(-5, 10)`, and `Trefethen` the `x₂`
+  range `(-4.5, 4.5)`. Branin's box therefore **excluded the certified global
+  minimum `(−π, 12.275)`** outright — `x₂ = 12.275 > 10`, so no search
+  constrained to `bounds()` could ever reach one of its three equal optima, and
+  a run that never found it looked like an algorithm that had converged rather
+  than a box that was wrong. `Trefethen` clipped `x₁ ∈ [-6.5, 6.5]` to `±4.5`.
+  Both now return the hull (`(-5, 15)` and `(-6.5, 6.5)`); `Bukin6` had this
+  right already and is now the documented model. The existing tests missed it
+  because they only ever asserted that `evaluate` returns `f*` **at** each
+  optimum — never that `bounds()` could **reach** it. That gap is now closed by
+  two obligations tested on every 2-D landscape: **O1**, the box contains every
+  certified optimum on every axis (this is the test that catches #113), and
+  **O2**, the box contains no point beating `f*` — the guard that makes widening
+  a box safe rather than a silent way to invent a better optimum. Both widenings
+  are provably safe: Branin's `f* = 10/(8π)` is the global infimum over all of
+  `ℝ²`, and any point beating Trefethen's `f*` must lie within radius ≈0.817 of
+  the origin. **Note for anyone comparing against earlier runs:** Branin and
+  Trefethen results are now obtained over a larger box, so their baselines shift
+  and are not comparable to pre-#113 numbers.
+- **The Sphere showcase was running Rastrigin** — `sphere_showcase.rs` imported
+  and constructed `Rastrigin`, not just mislabelled its title, so the example
+  advertised as the convex-bowl baseline was in fact demonstrating a multimodal
+  landscape. It now runs `Sphere` and converges to `~1e-16`, as its own docs
+  promise.
 - **A zero-dimensional landscape reported itself as *solved*** (resolves #110) —
   every n-D landscape constructor accepted `dim == 0` unchecked, and the
   resulting evaluator did not fail: it lied. `Sphere`, `Rastrigin`, `Alpine1`,

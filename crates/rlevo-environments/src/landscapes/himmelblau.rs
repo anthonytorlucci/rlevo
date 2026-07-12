@@ -6,7 +6,15 @@
 //! minima, four saddles, one local maximum). Widely used in niching competitions
 //! (CEC 2013 F4) because the four equal-depth basins test species formation.
 //!
-//! Evaluated over `[-6, 6]²`; all four minima lie inside this window.
+//! # Domain
+//!
+//! [`bounds`](Himmelblau::bounds) returns `(-6.0, 6.0)`, which **is** the canonical
+//! domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
+//! Repository*, function #56 "Himmelblau's Function", gives `−6 ≤ xᵢ ≤ 6` with
+//! `f* = 0` at `(3, 2)`, `(3.5844, −1.8481)`, `(−3.7793, −3.2832)` and
+//! `(−2.8051, 3.1313)`. All four lie inside the box, and `f` is a sum of two squares
+//! so nothing can score below `0` — both `bounds()` obligations hold (ADR 0045:
+//! O1 reachability, O2 no spurious optimum), pinned by unit tests below.
 
 /// Himmelblau's function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
@@ -25,7 +33,8 @@ impl Himmelblau {
         (x1 + x2 * x2 - 7.0).powi(2) + (x1 * x1 + x2 - 11.0).powi(2)
     }
 
-    /// Recommended search domain for each coordinate.
+    /// Recommended search box `(-6.0, 6.0)` applied per-coordinate — the canonical
+    /// domain per Al-Roomi #56. Contains all four global minimizers.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-6.0, 6.0)
@@ -70,6 +79,19 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
+    /// Certified global-minimum value (Al-Roomi #56).
+    const F_OPT: f64 = 0.0;
+
+    /// All four certified global minimizers, 12-digit (Al-Roomi 2015 via Maple;
+    /// the source table rounds them to `(3,2)`, `(3.5844,−1.8481)`,
+    /// `(−3.7793,−3.2832)`, `(−2.8051,3.1313)`).
+    const OPTIMA: [(f64, f64); 4] = [
+        (3.0, 2.0),
+        (3.584_428_340_330, -1.848_126_526_964),
+        (-3.779_310_253_378, -3.283_185_991_286),
+        (-2.805_118_086_953, 3.131_312_518_250),
+    ];
+
     #[test]
     fn global_minimum_at_known_location() {
         // The exact minimum (3, 2) evaluates to 0.
@@ -110,6 +132,53 @@ mod tests {
     fn positive_at_origin() {
         // f(0,0) = 49 + 121 = 170.
         assert_relative_eq!(Himmelblau::new().evaluate(0.0, 0.0), 170.0, epsilon = 1e-10);
+    }
+
+    /// O1 (reachability) — the search box reaches every certified global optimum.
+    ///
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so ALL FOUR
+    /// equal-depth minima must lie in `[lo, hi]` on BOTH axes.
+    #[test]
+    fn bounds_box_contains_optimum_on_both_axes() {
+        let (lo, hi) = Himmelblau::new().bounds();
+        for (x1, x2) in OPTIMA {
+            assert!(
+                lo <= x1 && x1 <= hi,
+                "x1 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+            assert!(
+                lo <= x2 && x2 <= hi,
+                "x2 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+        }
+    }
+
+    /// O2 (no spurious optimum) — no point of the box scores below `f* = 0`.
+    ///
+    /// A deterministic 401×401 sweep of `bounds()²`. `f` is a sum of two squares, so
+    /// `f ≥ 0` holds exactly and `eps` guards float error only (each square is
+    /// non-negative in IEEE-754 too, so the margin is really zero-sided).
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        const STEPS: u16 = 400;
+        const EPS: f64 = 1e-9;
+
+        let h = Himmelblau::new();
+        let (lo, hi) = h.bounds();
+        let span = hi - lo;
+        let n = f64::from(STEPS);
+
+        for i in 0..=STEPS {
+            let x1 = lo + span * f64::from(i) / n;
+            for j in 0..=STEPS {
+                let x2 = lo + span * f64::from(j) / n;
+                let v = h.evaluate(x1, x2);
+                assert!(
+                    v >= F_OPT - EPS,
+                    "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"
+                );
+            }
+        }
     }
 
     #[test]

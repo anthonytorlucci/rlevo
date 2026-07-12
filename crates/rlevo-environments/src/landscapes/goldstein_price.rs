@@ -8,7 +8,14 @@
 //! the domain and the value ranges over `[3, ~1.3×10⁶]`, which makes the raw
 //! form hostile to surrogate models. Differentiable everywhere.
 //!
-//! Evaluated over `[-2, 2]²`.
+//! # Domain
+//!
+//! [`bounds`](GoldsteinPrice::bounds) returns `(-2.0, 2.0)`, which **is** the
+//! canonical domain: Al-Roomi, *Unconstrained Single-Objective Benchmark Functions
+//! Repository*, function #14 "Goldstein-Price's Function", gives `−2 ≤ xᵢ ≤ 2` with
+//! `f* = 3` at `(0, −1)`. The optimum lies inside the box and no point of it scores
+//! below `3`, so both `bounds()` obligations hold (ADR 0045: O1 reachability,
+//! O2 no spurious optimum) — pinned by unit tests below.
 
 /// Goldstein-Price function (strictly 2-D).
 #[derive(Debug, Clone, Copy)]
@@ -33,7 +40,8 @@ impl GoldsteinPrice {
         a * b
     }
 
-    /// Recommended search domain for each coordinate.
+    /// Recommended search box `(-2.0, 2.0)` applied per-coordinate — the canonical
+    /// domain per Al-Roomi #14. Contains the global minimizer `(0, −1)`.
     #[must_use]
     pub const fn bounds(&self) -> (f64, f64) {
         (-2.0, 2.0)
@@ -78,6 +86,11 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
+    /// Certified global-minimum value (Al-Roomi #14).
+    const F_OPT: f64 = 3.0;
+    /// The single certified global minimizer `(0, −1)` (Al-Roomi #14).
+    const OPTIMA: [(f64, f64); 1] = [(0.0, -1.0)];
+
     #[test]
     fn global_minimum_at_known_location() {
         assert_relative_eq!(
@@ -107,6 +120,54 @@ mod tests {
     #[test]
     fn greater_than_minimum_elsewhere() {
         assert!(GoldsteinPrice::new().evaluate(1.0, 1.0) > 3.0);
+    }
+
+    /// O1 (reachability) — the search box reaches the certified global optimum.
+    ///
+    /// `bounds()` is one `(lo, hi)` pair applied to *every* coordinate, so `(0, −1)`
+    /// must lie in `[lo, hi]` on BOTH axes.
+    #[test]
+    fn bounds_box_contains_optimum_on_both_axes() {
+        let (lo, hi) = GoldsteinPrice::new().bounds();
+        for (x1, x2) in OPTIMA {
+            assert!(
+                lo <= x1 && x1 <= hi,
+                "x1 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+            assert!(
+                lo <= x2 && x2 <= hi,
+                "x2 of optimum ({x1}, {x2}) outside bounds [{lo}, {hi}]"
+            );
+        }
+    }
+
+    /// O2 (no spurious optimum) — no point of the box scores below `f* = 3`.
+    ///
+    /// A deterministic 401×401 sweep of `bounds()²`. The 400-step grid over `[-2, 2]`
+    /// lands exactly on `(0, −1)`, so the tightest sample sits at `f*` itself; `eps`
+    /// covers float error only. The surface spans `[3, ≈1.3e6]`, but near the minimum
+    /// its scale is O(1), so an absolute `1e-9` is the right guard.
+    #[test]
+    fn no_point_in_bounds_beats_global_minimum() {
+        const STEPS: u16 = 400;
+        const EPS: f64 = 1e-9;
+
+        let g = GoldsteinPrice::new();
+        let (lo, hi) = g.bounds();
+        let span = hi - lo;
+        let n = f64::from(STEPS);
+
+        for i in 0..=STEPS {
+            let x1 = lo + span * f64::from(i) / n;
+            for j in 0..=STEPS {
+                let x2 = lo + span * f64::from(j) / n;
+                let v = g.evaluate(x1, x2);
+                assert!(
+                    v >= F_OPT - EPS,
+                    "f({x1}, {x2}) = {v} beats f* = {F_OPT}: bounds admit a spurious optimum"
+                );
+            }
+        }
     }
 
     #[test]
