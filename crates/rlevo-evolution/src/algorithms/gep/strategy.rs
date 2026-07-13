@@ -116,7 +116,7 @@ impl<B: Backend> GepState<B> {
 /// unchanged into every new generation, while the rest are produced by
 /// roulette selection followed by crossover, transposition, and locus-class
 /// point mutation. All randomness is host-side via
-/// [`seed_stream`](crate::rng::seed_stream); each operator draws from its own
+/// [`seed_stream`]; each operator draws from its own
 /// [`SeedPurpose`] stream.
 ///
 /// Decoding and phenotype evaluation are **not** part of the strategy — they

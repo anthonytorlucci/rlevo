@@ -38,7 +38,7 @@ use super::innovation::InnovationRegistry;
 /// crossover logic can never confuse the two id spaces. It has no invariant —
 /// every `u64` is a legal id — so [`new`](NodeId::new) is infallible. Construct
 /// with `new`, read with [`get`](NodeId::get); the crate-internal
-/// [`succ`](NodeId::succ) is the only arithmetic, used solely by the
+/// `succ` is the only arithmetic, used solely by the
 /// [`InnovationRegistry`] counters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(u64);
@@ -138,7 +138,7 @@ impl ActivationFn {
     /// Apply the activation to a scalar, host-side.
     ///
     /// The tensor forward pass in [`crate::neuroevolution::phenotype`] mirrors
-    /// these exact formulas (including the [`SIGMOID_GAIN`] steepening) so a
+    /// these exact formulas (including the `SIGMOID_GAIN` steepening) so a
     /// hand-computed truth table matches the interpreted phenotype.
     #[must_use]
     pub fn apply(self, x: f32) -> f32 {

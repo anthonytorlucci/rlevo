@@ -13,8 +13,8 @@ burn = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.2.0", default-features = false }
+rlevo-core = { path = "../rlevo-core", version = "0.3.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.3.0", default-features = false }
 
 [lints]
 workspace = true

@@ -18,8 +18,8 @@
 //!   strategy, operator, shaping rule, and metric aggregation works purely here
 //!   and never sees an `ObjectiveSense`.
 //!
-//! [`to_canonical`](ObjectiveSense::to_canonical) maps user space → canonical
-//! space (negate iff `Minimize`); [`from_canonical`](ObjectiveSense::from_canonical)
+//! [`to_canonical`](crate::objective::ObjectiveSense::to_canonical) maps user space → canonical
+//! space (negate iff `Minimize`); [`from_canonical`](crate::objective::ObjectiveSense::from_canonical)
 //! is its inverse, used to report results back in the user's sense (a `Minimize`
 //! landscape's `best_fitness` reads as its natural cost — Sphere → 0).
 //!

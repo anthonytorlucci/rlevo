@@ -532,7 +532,7 @@ where
     /// the population).
     ///
     /// The one thing `ask` *does* mutate on the returned state is the
-    /// eigendecomposition memo ([`CmaEsState::eig`]): it stores the fresh
+    /// eigendecomposition memo (`CmaEsState::eig`): it stores the fresh
     /// decomposition of the current `C` so the paired `tell` reuses it to build
     /// `C^{-1/2}` instead of decomposing the same unchanged matrix a second
     /// time. `ask` produces the memo and never trusts a prior one.

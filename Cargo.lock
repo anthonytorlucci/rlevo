@@ -6364,7 +6364,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "burn",
@@ -6387,7 +6387,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-benchmarks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "base64 0.22.1",
@@ -6414,7 +6414,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-benchmarks-report-client"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "bincode",
@@ -6432,7 +6432,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "burn",
@@ -6445,7 +6445,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-environments"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "bincode",
@@ -6462,7 +6462,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-evolution"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "burn",
@@ -6481,7 +6481,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-examples"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "parking_lot",
@@ -6500,7 +6500,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-hybrid"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "burn",
@@ -6514,11 +6514,11 @@ dependencies = [
 
 [[package]]
 name = "rlevo-metrics-registry"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "rlevo-reinforcement-learning"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "burn",
@@ -6534,7 +6534,7 @@ dependencies = [
 
 [[package]]
 name = "rlevo-test-support"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "rand 0.10.1",

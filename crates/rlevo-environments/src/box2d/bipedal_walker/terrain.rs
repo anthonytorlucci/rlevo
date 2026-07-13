@@ -10,7 +10,7 @@
 //! | [`HardcoreTerrain`] | Pits and stumps with tunable frequency |
 //!
 //! All generators hold a flat spawn pad that **spans the spawn point** (the
-//! walker's hull spawns at world x = 0). The pad is [`SPAWN_PAD`] one-unit
+//! walker's hull spawns at world x = 0). The pad is `SPAWN_PAD` one-unit
 //! steps wide and the walker sits at its middle, matching the reference
 //! Gymnasium `TERRAIN_STARTPAD` convention, so obstacles and roughness never
 //! begin at the spawn point regardless of the difficulty setting.
@@ -142,7 +142,7 @@ impl TerrainGenerator for FlatTerrain {
 
 /// Rough terrain: randomly varying height after a flat spawn pad.
 ///
-/// The first [`SPAWN_PAD`] points are flat so the walker spawns on solid
+/// The first `SPAWN_PAD` points are flat so the walker spawns on solid
 /// ground; every point beyond the pad receives a y coordinate sampled uniformly
 /// from `[-roughness, roughness]`. The default values are `roughness = 1.5` and
 /// `step = 1.0`.
@@ -234,8 +234,8 @@ impl TerrainGenerator for RoughTerrain {
 /// After the flat spawn pad the generator advances in world space. At each
 /// obstacle site a Bernoulli draw inserts a pit, a stump, or a 1-unit flat
 /// step; each obstacle advances x by **its own width** (pits by their sampled
-/// 2–5 units, stumps by [`STUMP_WIDTH`], flat by 1). Pits drop to
-/// [`PIT_DEPTH`]; stumps rise to [`STUMP_HEIGHT`].
+/// 2–5 units, stumps by `STUMP_WIDTH`, flat by 1). Pits drop to
+/// `PIT_DEPTH`; stumps rise to `STUMP_HEIGHT`.
 ///
 /// The default values are `pit_frequency = 0.5` and `stump_frequency = 0.5`,
 /// giving an effective obstacle probability of 0.1 per site (each divided by 10

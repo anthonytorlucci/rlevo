@@ -2,7 +2,7 @@
 
 Deep reinforcement learning algorithms for the `rlevo` workspace.
 
-This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function.
+This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.
 
 All algorithms operate over the `rlevo-core` environment and agent abstractions. Neural-network operations go through Burn's `AutodiffBackend` so the same code runs on `ndarray` (CPU, bit-deterministic) and `wgpu` (GPU, within `1e-5` relative tolerance).
 
@@ -14,7 +14,7 @@ All algorithms operate over the `rlevo-core` environment and agent abstractions.
 
 **Module:** `algorithms::dqn`
 
-Mnih et al.'s seminal value-based algorithm. A policy Q-network maps observations to per-action Q-values; actions are selected by ε-greedy exploration; targets are bootstrapped from a periodically-synced frozen copy (target network). Supports both vanilla DQN (max-Q targets) and Double-DQN (action selected by online network, evaluated by target).
+Mnih et al.'s seminal value-based algorithm. A policy Q-network maps observations to per-action Q-values; actions are selected by \[\epsilon\]-greedy exploration; targets are bootstrapped from a periodically-synced frozen copy (target network). Supports both vanilla DQN (max-Q targets) and Double-DQN (action selected by online network, evaluated by target).
 
 Key components:
 
@@ -86,7 +86,7 @@ All standard DQN hyperparameters are inherited unchanged.
 
 **Module:** `algorithms::qrdqn`
 
-Dabney et al.'s distributional algorithm that replaces C51's fixed atom support with implicit quantile targets. The network outputs N quantile values `θ_i(s, a)` for midpoints `τ_i = (i + 0.5) / N`. No `[v_min, v_max]` range is required — the distribution is unconstrained. The loss is the quantile Huber loss (asymmetric Huber weighted by `|τ_i − 𝟙[u < 0]|`).
+Dabney et al.'s distributional algorithm that replaces C51's fixed atom support with implicit quantile targets. The network outputs N quantile values \[\theta_i(s, a)\] for midpoints \[\tau_i = (i + 0.5) / N\]. No `[v_min, v_max]` range is required — the distribution is unconstrained. The loss is the quantile Huber loss (asymmetric Huber weighted by \[\left | \tau_i − 𝟙[u < 0] \right |\]).
 
 Key components:
 
@@ -267,7 +267,7 @@ TD3 inherits DDPG's defaults and adds target-smoothing parameters:
 
 **Module:** `algorithms::sac`
 
-Haarnoja et al.'s off-policy max-entropy algorithm for continuous action spaces. Pairs a squashed-Gaussian stochastic actor with two critics (each with a Polyak-averaged target), a scalar learnable temperature α, and a uniform replay buffer. The Bellman target includes the entropy term `−α·log π(a'|s')`; the actor is trained via reparameterization; α is auto-tuned toward the heuristic target entropy `-|A|` by default. CleanRL's `sac_continuous_action.py` is the reference.
+Haarnoja et al.'s off-policy max-entropy algorithm for continuous action spaces. Pairs a squashed-Gaussian stochastic actor with two critics (each with a Polyak-averaged target), a scalar learnable temperature α, and a uniform replay buffer. The Bellman target includes the entropy term \(-\alpha  \log \pi \left ( a' \mid s' \right )\); the actor is trained via reparameterization; \(\alpha\) is auto-tuned toward the heuristic target entropy \(-\left | A \right |\) by default. CleanRL's `sac_continuous_action.py` is the reference.
 
 Key components:
 
@@ -290,11 +290,11 @@ Default hyperparameters follow CleanRL:
 | `actor_lr` | 3e-4 | CleanRL |
 | `critic_lr` | 1e-3 | CleanRL |
 | `alpha_lr` | 1e-3 | CleanRL |
-| `gamma` (γ) | 0.99 | CleanRL |
+| `gamma` \(\gamma\) | 0.99 | CleanRL |
 | `tau` (Polyak) | 0.005 | CleanRL |
-| `autotune` (α auto-tune) | true | Haarnoja et al. (2018b) |
+| `autotune` (\(\alpha\) auto-tune) | true | Haarnoja et al. (2018b) |
 | `initial_alpha` | 1.0 | CleanRL |
-| `target_entropy` | `-|A|` heuristic | Haarnoja et al. (2018b) |
+| `target_entropy` | \(-\left | A \right |\) heuristic | Haarnoja et al. (2018b) |
 | `log_std_min` | -5.0 | CleanRL |
 | `log_std_max` | 2.0 | CleanRL |
 | `policy_frequency` | 2 | CleanRL |

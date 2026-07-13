@@ -5,7 +5,7 @@
 //! bytes per pixel in RGB order. The camera is fixed on the car's current
 //! position, so the car always appears near the centre of the frame.
 //!
-//! [`TensorConvertible`](rlevo_core::base::TensorConvertible) produces a Burn
+//! [`TensorConvertible`] produces a Burn
 //! `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, with each pixel byte normalised
 //! by `÷255` to `[0.0, 1.0]` *inside* the conversion — no external normalisation
 //! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
@@ -31,7 +31,7 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 /// rasterizer's owned buffer in.
 ///
 /// When converted to tensors via
-/// [`TensorConvertible`](rlevo_core::base::TensorConvertible), the buffer becomes
+/// [`TensorConvertible`], the buffer becomes
 /// a Burn `Tensor<B, 3>` with HWC layout `[96, 96, 3]`, each byte normalised by
 /// `÷255` to `[0.0, 1.0]`. [`from_tensor`](TensorConvertible::from_tensor)
 /// reconstructs the buffer by scaling back (`×255`) and rounding, so the

@@ -12,20 +12,20 @@
 //! # One scoring path
 //!
 //! `RolloutFitness` is, structurally, a
-//! [`ModuleEvalFn`](rlevo_evolution::module_eval_fn::ModuleEvalFn) whose scorer
+//! [`ModuleEvalFn`] whose scorer
 //! happens to be an environment rollout. It therefore **holds** an inner
 //! `ModuleEvalFn` and delegates [`evaluate_batch`](BatchFitnessFn::evaluate_batch)
 //! to it: the slice/unflatten/collect scaffolding lives once, in
-//! `rlevo-evolution`. The rollout scorer is the only caller of [`rollout_once`].
+//! `rlevo-evolution`. The rollout scorer is the only caller of `rollout_once`.
 //!
 //! # Stateful policies
 //!
 //! The evolved module `M` carries the rollout contract via
-//! [`StatefulPolicy`]: [`rollout_once`] calls
+//! [`StatefulPolicy`]: `rollout_once` calls
 //! [`reset`](StatefulPolicy::reset) once at episode start and threads
 //! `&mut Hidden` through the step loop, so **recurrent / memory policies are
 //! first-class**. A memoryless classic-control policy is the `Hidden = ()` case
-//! supplied for free by [`ReactivePolicy`].
+//! supplied for free by [`ReactivePolicy`](crate::policy::ReactivePolicy).
 //!
 //! # Rank fixing
 //!

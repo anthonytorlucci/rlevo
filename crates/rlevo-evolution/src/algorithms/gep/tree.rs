@@ -111,10 +111,10 @@ impl ExpressionTree {
     ///
     /// Variable nodes resolve to `inputs[input_index]` (missing indices read as
     /// `0.0`); constant nodes resolve to their stored value; function nodes call
-    /// [`FunctionSet::apply`](crate::function_set::FunctionSet::apply) with their
+    /// [`FunctionSet::apply`] with their
     /// children's already-computed results, then sanitize the result via
-    /// [`finite_or_clamp`]: a `NaN` collapses to `0.0` (it has no meaningful
-    /// sign or magnitude), while `±Inf` clamps to `±`[`EVAL_CLAMP`] (sign
+    /// `finite_or_clamp`: a `NaN` collapses to `0.0` (it has no meaningful
+    /// sign or magnitude), while `±Inf` clamps to `±EVAL_CLAMP` (sign
     /// preserved). Clamping — rather than zeroing — a diverged (`±Inf`) subtree
     /// keeps its magnitude large, so it yields a large MSE and ranks *worst*
     /// instead of masquerading as a perfect `0.0` predictor near zero-valued

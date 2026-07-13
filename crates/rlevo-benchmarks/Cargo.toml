@@ -12,13 +12,13 @@ categories.workspace = true
 build = "build.rs"
 
 [dependencies]
-rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.3.0" }
 # Shared single-source-of-truth metric registry (ADR-0015). Tiny no_std
 # leaf crate, also depended on by the WASM report client.
-rlevo-metrics-registry = { path = "../rlevo-metrics-registry", version = "0.2.0" }
+rlevo-metrics-registry = { path = "../rlevo-metrics-registry", version = "0.3.0" }
 # Population observer trait — only pulled in with the `record` feature
 # so non-recording builds do not link burn through this crate.
-rlevo-evolution = { path = "../rlevo-evolution", version = "0.2.0", optional = true, default-features = false }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.3.0", optional = true, default-features = false }
 rayon = "1"
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -52,6 +52,14 @@ record = ["dep:bincode", "dep:parking_lot", "dep:toml", "dep:time", "dep:serde",
 # (Milestone 5). Builds on `record`; adds `base64` for payload inlining
 # and `serde_json` for the manifest JSON payload.
 report = ["record", "dep:base64", "dep:serde_json"]
+
+# Render LaTeX in docs (e.g. the cartpole physics) via KaTeX on docs.rs.
+# The header must live inside this crate's own directory — docs.rs builds
+# from the packaged tarball, which cannot contain files outside the crate
+# root, so a `../../` path here silently works locally but 404s on docs.rs.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "katex-header.html"]
 
 [[bin]]
 name = "export-report"
