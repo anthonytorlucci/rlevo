@@ -22,12 +22,17 @@
 //! Legacy comparator. The spiral bubble-net and encircle-best operators
 //! compose to a motion pattern that is equivalent in expectation to a
 //! weighted PSO update toward the current best (Camacho Villalón et al.
-//! 2020 review the structural similarities). Ship it for API coverage;
+//! 2023 review the structural similarities — the 2020 paper by the same
+//! authors covers only GWO/FA/BA, not WOA). Ship it for API coverage;
 //! prefer CMA-ES or LSHADE when available.
 //!
 //! # References
 //!
 //! - Mirjalili & Lewis (2016), *The Whale Optimization Algorithm*.
+//! - Camacho Villalón, Dorigo & Stützle (2023), *Exposing the grey wolf,
+//!   moth-flame, whale, firefly, bat, and antlion algorithms: six misleading
+//!   optimization techniques inspired by bestial metaphors*, International
+//!   Transactions in Operational Research 30:2945-2971.
 
 use std::f32::consts::PI;
 use std::marker::PhantomData;

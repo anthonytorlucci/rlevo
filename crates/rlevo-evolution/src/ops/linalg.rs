@@ -43,8 +43,10 @@ pub struct SymEigen {
 ///
 /// The eigenvector columns are orthonormal, so the input is reconstructed as
 /// `V · diag(Λ) · Vᵀ`. The classic numerically stable rotation (Golub & Van
-/// Loan, *Matrix Computations*, §8.4) is used; sweeps stop once the
-/// off-diagonal Frobenius mass is negligible or after `MAX_SWEEPS`.
+/// Loan, *Matrix Computations*, ch. 8, "Symmetric Eigenvalue Problems" — the
+/// Jacobi-methods section is §8.4 in the 1st edition, §8.5 from the 2nd
+/// edition on) is used; sweeps stop once the off-diagonal Frobenius mass is
+/// negligible or after `MAX_SWEEPS`.
 ///
 /// Jacobi is the eigensolver `pycma` itself uses; it is slower than tridiagonal
 /// QR but more accurate on the small eigenvalues that govern an ill-conditioned

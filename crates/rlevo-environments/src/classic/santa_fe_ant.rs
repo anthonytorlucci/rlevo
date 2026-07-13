@@ -1,6 +1,7 @@
 //! Santa Fe Trail artificial-ant environment — a dependency-free POMDP benchmark.
 //!
-//! The artificial ant (Jefferson et al. 1991; Koza 1992, pp. 147–155) walks a
+//! The artificial ant (Koza 1992, pp. 147–155, following the toroidal-grid
+//! ant-trail paradigm of Jefferson et al.'s 1991 "John Muir Trail") walks a
 //! 32×32 **toroidal** grid carrying food pellets laid out along the canonical
 //! *Santa Fe Trail*. The ant perceives a single bit — *is there food in the
 //! cell directly ahead?* — and may [`Move`](SantaFeAntAction::Move) forward,
@@ -537,7 +538,7 @@ const fn wrap_step(pos: usize, delta: i32) -> usize {
 ///
 /// **Defect note (row 24).** The DEAP source file is malformed on this row: it
 /// is 33 columns wide with a stray space byte (`0x20`) at column 6
-/// (`...##.·.#####....#...`). The canonical Koza/Langton grid has no such cell;
+/// (`...##.·.#####....#...`). The canonical Koza 1992 Fig. 7.1 grid has no such cell;
 /// the space is dropped here, yielding the correct 32-column
 /// `...##..#####....#...............`. This preserves the 89-pellet count and a
 /// true 32×32 grid; the invariant tests below lock it in.

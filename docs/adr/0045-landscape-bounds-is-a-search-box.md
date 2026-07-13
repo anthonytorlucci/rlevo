@@ -263,11 +263,15 @@ representable, at which point one rectangle type serves both (Open questions).
   `f* ≈ −3.306868647475` at `(−0.024403, 0.210612)`**, and for what it does *not*
   say: the original problem is **unconstrained** (well-posed anyway — the
   `(x₁²+x₂²)/4` term is coercive), so it is not the source of any box.
-- Mishra, S. (2006), *"Some New Test Functions for Global Optimization and
-  Performance of Repulsive Particle Swarm Method"*, MPRA Paper 2718 (propagated
-  via Gavana 2013 → Al-Roomi 2015) — the actual source of Trefethen's
-  **asymmetric benchmark box** `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]`, whose
-  square hull `(-6.5, 6.5)` this ADR adopts.
+- Al-Roomi, A.R. (2015), *Unconstrained Single-Objective Benchmark Functions
+  Repository*, propagated via Gavana's `benchmark_functions` (2013) — source of
+  Trefethen's **asymmetric benchmark box** `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5,
+  4.5]`, whose square hull `(-6.5, 6.5)` this ADR adopts. Al-Roomi's page lists
+  Mishra, S. (2006), *"Some New Test Functions for Global Optimization and
+  Performance of Repulsive Particle Swarm Method"*, MPRA Paper 2718, among its
+  references, but Mishra's paper does not itself discuss the Trefethen
+  function or these bounds — the box is attributed here to Al-Roomi/Gavana,
+  not to Mishra.
 - Monismith, D. (2010) — the canonical `[-2000, 2000]ⁿ` side constraints of the
   modified (flat) Rosenbrock; Chen, Y. (1997) — the reduced `[-30, 30]` range
   adopted here under §3.

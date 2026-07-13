@@ -1,8 +1,9 @@
 //! CartPole-v1 environment.
 //!
 //! Balance a pole attached to a cart by applying left or right forces.
-//! Physics from Barto, Sutton, and Anderson (1983); equations of motion
-//! match the Gymnasium `CartPole-v1` reference implementation exactly.
+//! Physics from Barto, Sutton, and Anderson (1983), as corrected by
+//! Florian (2007); equations of motion match the Gymnasium `CartPole-v1`
+//! reference implementation exactly.
 //!
 //! ## Physical model
 //!
@@ -96,9 +97,10 @@
 //!
 //! - A. G. Barto, R. S. Sutton, C. W. Anderson, "Neuronlike adaptive elements
 //!   that can solve difficult learning control problems," *IEEE Trans. SMC*,
-//!   1983.
+//!   1983 — source of the `$\tfrac{4}{3}$` rod-inertia term.
 //! - R. V. Florian, "Correct equations of motion for the cart-pole system,"
-//!   tech. report, 2007 — source of the `$\tfrac{4}{3}$` rod-inertia term.
+//!   tech. report, 2007 — corrects Barto et al.'s friction-force term and the
+//!   sign of `$g$`; the `$\tfrac{4}{3}$` term itself is unchanged from 1983.
 //!
 //! ## Integrators
 //!

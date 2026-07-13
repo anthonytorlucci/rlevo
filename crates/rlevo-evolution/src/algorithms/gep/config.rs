@@ -52,8 +52,10 @@ impl GepConfig {
     /// complete tree. `max_arity` is the function set's largest
     /// arity ([`FunctionSet::max_arity`](crate::function_set::FunctionSet::max_arity)).
     ///
-    /// Operator rates default to canonical Ferreira (2001) values; assign a
-    /// validated [`Probability`] to the public fields afterwards to override.
+    /// The IS/RIS transposition rates default to Ferreira's (2001) canonical
+    /// `0.1`; the crossover rates (`0.3`/`0.3`) are rlevo's own choice, not
+    /// Ferreira's commonly cited `0.2`/`0.5`. Assign a validated
+    /// [`Probability`] to the public fields afterwards to override.
     /// The point-mutation rate defaults to `2 / genome_len` (≈ two genes per
     /// chromosome). Because the rates are [`Probability`], a `NaN`/`Inf`/
     /// out-of-`[0, 1]` rate is unrepresentable — the silent operator

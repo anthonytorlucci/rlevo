@@ -45,6 +45,11 @@
 //!   function optimization* (CCGA).
 //! - Rosin & Belew (1997), *New methods for competitive coevolution* (hall of
 //!   fame).
+//! - Ficici & Pollack (1998), *Challenges in coevolutionary learning:
+//!   arms-race dynamics, open-endedness, and mediocre stable states*
+//!   (Artificial Life VI) — first identifies the cycling pathology.
+//! - Watson & Pollack (2001), *Coevolutionary dynamics in a minimal
+//!   substrate* (GECCO) — analyzes intransitive cycling dynamics.
 //! - Ficici (2004), *Solution concepts in coevolutionary algorithms* (cycling
 //!   / intransitive dominance).
 

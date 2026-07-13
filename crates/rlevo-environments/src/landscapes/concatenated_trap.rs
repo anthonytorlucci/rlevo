@@ -42,7 +42,18 @@
 //! # References
 //!
 //! - Deb, K. & Goldberg, D. E. (1992). "Analyzing deception in trap functions."
-//!   *Foundations of Genetic Algorithms 2*, 93–108.
+//!   *Foundations of Genetic Algorithms 2*, 93–108 — origin of trap-function
+//!   deception analysis via GA schema theory; does not itself discuss UMDA,
+//!   PBIL, or cGA, which postdate it.
+//! - Baluja, S. (1994). "Population-Based Incremental Learning: A Method for
+//!   Integrating Genetic Search Based Function Optimization and Competitive
+//!   Learning." Tech. report CMU-CS-94-163 — introduces PBIL.
+//! - Mühlenbein, H. & Paaß, G. (1996). "From recombination of genes to the
+//!   estimation of distributions I: Binary parameters." *PPSN IV*, 178–187 —
+//!   introduces UMDA.
+//! - Harik, G. R., Lobo, F. G. & Goldberg, D. E. (1999). "The compact genetic
+//!   algorithm." *IEEE Trans. Evolutionary Computation*, 3(4), 287–297 —
+//!   introduces cGA.
 //! - Pelikan, M., Goldberg, D. E. & Cantú-Paz, E. (1999). "BOA: The Bayesian
 //!   Optimization Algorithm." *Proceedings of GECCO-99*, 525–532.
 

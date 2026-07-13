@@ -100,8 +100,10 @@ impl Species {
 ///
 /// `E` is the excess gene count, `D` the disjoint gene count, `W̄` the mean
 /// absolute weight difference over matching genes, and `N` the connection-gene
-/// count of the larger genome — or `1` when both genomes are small (< 20 genes),
-/// to avoid over-penalizing tiny networks (Stanley 2002 footnote).
+/// count of the larger genome — or `1` when both genomes are small, to avoid
+/// over-penalizing tiny networks (Stanley & Miikkulainen 2002 footnote; the
+/// paper does not itself state a numeric "small" threshold — the `< 20 genes`
+/// cutoff used here is rlevo's own choice).
 ///
 /// Runs in `O(n)` by merging the two innovation-sorted connection lists.
 // `a`/`b` are the two genomes and `i`/`j`/`n` the merge indices — the canonical

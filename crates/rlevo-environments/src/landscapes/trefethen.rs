@@ -20,10 +20,14 @@
 //! convention, not a published constraint — it is not cited here as one.)
 //!
 //! The **bounded benchmark box** used by the optimization literature —
-//! `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]` — was imposed by Mishra, S. (2006),
-//! *"Some New Test Functions for Global Optimization and Performance of
-//! Repulsive Particle Swarm Method"*, MPRA Paper 2718, and propagated via
-//! Gavana (2013) → Al-Roomi (2015).
+//! `x₁ ∈ [-6.5, 6.5]`, `x₂ ∈ [-4.5, 4.5]` — is documented by Al-Roomi (2015)
+//! and propagated through Gavana's `benchmark_functions` (2013). Al-Roomi's
+//! page lists Mishra, S. (2006), *"Some New Test Functions for Global
+//! Optimization and Performance of Repulsive Particle Swarm Method"*, MPRA
+//! Paper 2718, among its references, but Mishra's paper does not itself
+//! discuss the Trefethen function or these bounds — the ultimate origin of
+//! this specific box could not be confirmed, so it is attributed here to
+//! Al-Roomi/Gavana rather than to Mishra.
 //!
 //! That box is asymmetric. [`bounds`](Trefethen::bounds) returns a single
 //! `(lo, hi)` pair applied per-coordinate (the consuming renderer and search
