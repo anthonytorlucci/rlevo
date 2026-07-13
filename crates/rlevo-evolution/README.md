@@ -14,9 +14,9 @@ preserved as design docs (`src/ops/kernels/mod.rs`) for a follow-up.
 
 | Family | Entry point | Genome | Convergence on Sphere-D10 (ndarray) |
 |---|---|---|---|
-| Genetic Algorithm (real) | `algorithms::ga::GeneticAlgorithm` | `Tensor<B, 2>` | ~1e-1 (fixed σ) |
+| Genetic Algorithm (real) | `algorithms::ga::GeneticAlgorithm` | `Tensor<B, 2>` | ~1e-1 (fixed \[\sigma\]) |
 | Genetic Algorithm (binary) | `algorithms::ga_binary::BinaryGeneticAlgorithm` | `Tensor<B, 2, Int>` | OneMax: exact |
-| Evolution Strategy | `algorithms::es_classical::EvolutionStrategy` | `Tensor<B, 2>` | < 1e-30 (μ+λ) |
+| Evolution Strategy | `algorithms::es_classical::EvolutionStrategy` | `Tensor<B, 2>` | < 1e-30 \[(\mu + \lambda)\] |
 | Evolutionary Programming | `algorithms::ep::EvolutionaryProgramming` | `Tensor<B, 2>` | ~3e-17 |
 | Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<B, 2>` | < 1e-22 (rand/1/bin) |
 | Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<B, 2, Int>` | see symbolic regression test |
@@ -122,9 +122,9 @@ non-deterministic across runs; both backends converge to similar optima.
 
 - **DE/Best1Bin and DE/CurrentToBest1Bin** converge prematurely on
   unimodal landscapes — documented on `DeVariant`.
-- **Classical ES `(1+1)` and `(1+λ)` use fixed σ** (no log-normal
-  adaptation) and therefore converge more slowly than `(μ,λ)` / `(μ+λ)`
-  which do adapt σ.
+- **Classical ES \[(1+1)\] and \[(1 + \lambda)\] use fixed σ** (no log-normal
+  adaptation) and therefore converge more slowly than \[(\mu , \lambda)\] / \[(/mu + \lambda)\]
+  which do adapt \[\sigma\].
 - **CGP phenotype evaluation runs on the host** (topological-sweep
   dispatch is not a good fit for dense tensor ops). Genotype storage
   stays on-device.

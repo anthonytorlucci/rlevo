@@ -12,9 +12,9 @@ categories.workspace = true
 
 [dependencies]
 burn = { workspace = true }
-rlevo-core = { path = "../rlevo-core", version = "0.2.0" }
-rlevo-evolution = { path = "../rlevo-evolution", version = "0.2.0" }
-rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.2.0" }
+rlevo-core = { path = "../rlevo-core", version = "0.3.0" }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.3.0" }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.3.0" }
 rand = { workspace = true }
 serde = { workspace = true }
 
@@ -23,4 +23,4 @@ approx = { workspace = true }
 # CartPole for the policy-neuroevolution integration smoke test. Dev-only:
 # `PolicyNeuroevolution` is generic over `E: Environment`, so the production
 # crate carries no environment dependency.
-rlevo-environments = { path = "../rlevo-environments", version = "0.2.0" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.3.0" }
