@@ -99,7 +99,7 @@ impl Rapier3DWorld {
     /// accumulator on its own (the "auto-cleared each step" folklore is false —
     /// only `reset_forces` / `reset_torques` clear it). To make an external
     /// force live exactly one integration step, this method calls
-    /// [`reset_external_forces`](Self::reset_external_forces) **after** the
+    /// `reset_external_forces` **after** the
     /// pipeline step: forces applied before a `step_once` are integrated once,
     /// then zeroed. Re-apply control before each `step_once` to sustain it.
     /// See ADR 0037.

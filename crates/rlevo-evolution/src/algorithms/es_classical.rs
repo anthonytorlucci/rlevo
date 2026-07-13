@@ -85,12 +85,12 @@ pub struct EsConfig {
     /// variants) and the Rechenberg 1/5-rule (`(1+1)`) are unbounded
     /// multiplicative processes; without a floor σ can underflow toward `0`,
     /// collapsing the mutation amplitude so the search freezes. Must be
-    /// strictly positive and `< sigma_max`. Default [`DEFAULT_SIGMA_MIN`].
+    /// strictly positive and `< sigma_max`. Default `DEFAULT_SIGMA_MIN`.
     pub sigma_min: f32,
     /// Upper clamp for the self-adaptive σ.
     ///
     /// Without a ceiling σ can overflow toward `+∞` (genes then saturate to a
-    /// bound with no error). Default [`DEFAULT_SIGMA_MAX`] — far outside any
+    /// bound with no error). Default `DEFAULT_SIGMA_MAX` — far outside any
     /// practical step scale on the `[-5.12, 5.12]` benchmark domain, so it
     /// never binds in normal operation and only catches a runaway process.
     pub sigma_max: f32,

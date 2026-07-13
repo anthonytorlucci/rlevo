@@ -20,7 +20,7 @@
 //!
 //! # Architecture dispatch — closure-erased registry
 //!
-//! Because [`ParamReshaper`](crate::param_reshaper::ParamReshaper) carries an
+//! Because [`ParamReshaper`] carries an
 //! associated `type Module`, a `dyn ParamReshaper` is not object-safe and a
 //! `Vec` of heterogeneous-variant reshapers is impossible. Instead each variant
 //! is type-erased into a [`VariantEvaluator`]: a boxed closure that owns a
@@ -44,7 +44,7 @@
 //! Every type here is generic over `B: Backend`, never `AutodiffBackend` —
 //! gradient isolation at the type level. All sampling
 //! (architecture ids, selection, crossover, weight perturbation) goes through
-//! [`seed_stream`](crate::rng::seed_stream) host-side `StdRng` substreams; the
+//! [`seed_stream`] host-side `StdRng` substreams; the
 //! process-wide backend RNG is never touched (see [`crate::rng`]).
 
 use std::marker::PhantomData;
@@ -779,9 +779,9 @@ impl<B: Backend> ArchNasStrategy<B> {
     /// strategy is its own driver and does **not** run through
     /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
     /// no harness above it. `tell` applies
-    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) to the host fitness
+    /// `sanitize_fitness` to the host fitness
     /// vector (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
-    /// **before** [`update_best`] and before it is stored as `state.fitness`, so
+    /// **before** `update_best` and before it is stored as `state.fitness`, so
     /// a non-finite fitness can never become an immortal champion nor win the
     /// next [`ask`](Self::ask)'s elite carry or tournament.
     ///

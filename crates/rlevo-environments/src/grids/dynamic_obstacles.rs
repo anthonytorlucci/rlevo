@@ -324,13 +324,13 @@ impl DynamicObstaclesEnv {
     /// (`reset` → `step` until `done` → `reset`), the returned positions are
     /// **pairwise distinct** — including on the terminal step where an obstacle
     /// collides with the agent. Obstacles that would otherwise merge are
-    /// resolved by [`move_obstacles`](Self::move_obstacles): the first claimant
+    /// resolved by `move_obstacles`: the first claimant
     /// of a cell keeps it and the loser stays put.
     ///
     /// Calling [`step`](Environment::step) again *after* a terminal snapshot,
     /// without an intervening [`reset`](Environment::reset), leaves the
     /// contract and may break the invariant — see the note on
-    /// [`move_obstacles`](Self::move_obstacles).
+    /// `move_obstacles`.
     #[must_use]
     pub fn obstacles(&self) -> &[(i32, i32)] {
         &self.obstacles

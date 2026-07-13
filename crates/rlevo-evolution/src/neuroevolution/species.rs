@@ -27,7 +27,7 @@ use super::topology::{InnovationId, TopologyGenome};
 /// be confused with a node id, an innovation, or a population index. It has no
 /// invariant — every `u64` is a legal id — so [`new`](SpeciesId::new) is
 /// infallible. Construct with `new`, read with [`get`](SpeciesId::get); the
-/// crate-internal [`succ`](SpeciesId::succ) is the only arithmetic, used solely
+/// crate-internal `succ` is the only arithmetic, used solely
 /// by the [`speciate`] id counter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SpeciesId(u64);
@@ -208,7 +208,7 @@ pub fn compatibility_distance(
 /// # Fitness hygiene
 ///
 /// Each `fitness[i]` is passed through
-/// [`sanitize_fitness`](crate::fitness::sanitize_fitness) before it feeds a
+/// `sanitize_fitness` before it feeds a
 /// per-species best or `adjusted_fitness_sum` reduction (ADR 0034 correctness
 /// floor). This guards direct (non-harness) callers — `NeatStrategy::tell`
 /// sanitizes too, so the guard is idempotent on that path — and stops a single

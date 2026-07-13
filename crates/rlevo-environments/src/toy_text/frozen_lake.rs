@@ -679,7 +679,7 @@ impl Environment<1, 1, 1> for FrozenLake {
     ///
     /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode already
     /// ended. The check is the first statement, before any state mutation and
-    /// before [`resolve_action`](FrozenLake::resolve_action) draws from the RNG,
+    /// before `resolve_action` draws from the RNG,
     /// so a rejected call leaves both the agent position and the slip stream
     /// untouched — a rejected step must not perturb a seeded run.
     fn step(&mut self, action: FrozenLakeAction) -> Result<Self::SnapshotType, EnvironmentError> {

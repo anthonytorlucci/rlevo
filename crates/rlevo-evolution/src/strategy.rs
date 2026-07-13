@@ -23,7 +23,7 @@
 //! [`StrategyMetrics::best_fitness`] field is the largest value observed in
 //! a generation; [`StrategyMetrics::best_fitness_ever`] is a rolling
 //! maximum. Strategies are **sense-unaware** — they never see an
-//! [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense). Cost
+//! [`ObjectiveSense`]. Cost
 //! objectives (e.g. the benchmark landscapes) are negated into canonical
 //! space at exactly one chokepoint, [`EvolutionaryHarness`], which also
 //! maps metrics back to the objective's declared sense for reporting.
@@ -147,7 +147,7 @@ pub trait Strategy<B: Backend>: Send + Sync {
     /// build leaders / personal-best / global-best directly from it without a
     /// finite check. Callers that invoke `tell` **directly, bypassing the
     /// harness**, do *not* get this guarantee and must apply
-    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) at every
+    /// `sanitize_fitness` at every
     /// ordering/aggregation site (`rules.md` §3).
     fn tell(
         &self,
@@ -232,7 +232,7 @@ impl StrategyMetrics {
     /// Computes population statistics from a host-side fitness slice.
     ///
     /// Each value is passed through the crate's fitness-hygiene primitive
-    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) before folding, so
+    /// `sanitize_fitness` before folding, so
     /// `NaN → −∞` and `+∞ → f32::MAX` (the maximise convention, ADR 0023/0034)
     /// *consistently* across every statistic — `best`/`worst` can no longer
     /// silently drop a `NaN` (comparisons against `NaN` are false) while the sum
@@ -423,7 +423,7 @@ fn build_population_snapshot(
 ///
 /// Each [`step`](BenchEnv::step) runs one generation (ask → evaluate →
 /// tell). The harness is the sole canonicaliser: it reads the fitness fn's
-/// [`ObjectiveSense`](rlevo_core::objective::ObjectiveSense), negates a
+/// [`ObjectiveSense`], negates a
 /// `Minimize` objective into the engine's maximise space before `tell`, and
 /// maps the metrics back to the declared sense for reporting. The reward
 /// returned is the **canonical** `best_fitness_ever` directly (already

@@ -30,7 +30,7 @@ fn function_symbol(i: usize) -> Symbol {
 pub enum SymbolKind {
     /// A function opcode of the given arity. Zero-arity functions (e.g. a
     /// constant `1.0`) are leaves evaluated via
-    /// [`FunctionSet::apply`](crate::function_set::FunctionSet::apply) with an
+    /// [`FunctionSet::apply`] with an
     /// empty argument slice.
     Function {
         /// Number of children the function consumes.
@@ -85,7 +85,7 @@ impl<F: FunctionSet> Alphabet<F> {
     /// # Panics
     ///
     /// In debug builds, panics if any arity-0 function id precedes a function
-    /// with arity ≥ 1 — that ordering would make [`terminal_range`] include a
+    /// with arity ≥ 1 — that ordering would make [`terminal_range`](Self::terminal_range) include a
     /// non-terminal. (Release builds skip the check; well-formed function sets
     /// such as [`ArithmeticFunctionSet`](crate::function_set::ArithmeticFunctionSet)
     /// always satisfy it.)
@@ -191,7 +191,7 @@ impl<F: FunctionSet> Alphabet<F> {
         Symbol::from_raw(rng.random_range(0..upper))
     }
 
-    /// Samples a uniformly-random terminal symbol from [`terminal_range`].
+    /// Samples a uniformly-random terminal symbol from [`terminal_range`](Self::terminal_range).
     pub fn sample_tail_symbol(&self, rng: &mut dyn Rng) -> Symbol {
         let range = self.terminal_range();
         Symbol::from_raw(rng.random_range(range))

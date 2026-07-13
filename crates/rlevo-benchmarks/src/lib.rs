@@ -52,7 +52,7 @@ pub mod seed {
 
 /// Flat crate-root re-export of the most commonly needed evaluation types.
 ///
-/// These are the same items available through the [`env`] compatibility alias
+/// These are the same items available through the [`env`](mod@env) compatibility alias
 /// module; this re-export lets callers write `rlevo_benchmarks::BenchEnv`
 /// without navigating a sub-module.
 pub use rlevo_core::evaluation::{BenchEnv, BenchError, BenchStep};

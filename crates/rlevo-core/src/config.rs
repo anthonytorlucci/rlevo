@@ -90,7 +90,7 @@ pub trait Validate {
     /// with several **independent** derived fields — CMA-ES recombination
     /// weights and covariance learning rates being the motivating case — where
     /// surfacing all violations at once spares the caller a fix-recheck-repeat
-    /// cycle. Accumulate the checks with [`Violations`], and keep [`validate`]
+    /// cycle. Accumulate the checks with [`Violations`], and keep [`validate`](Self::validate)
     /// consistent by deriving it from the first collected error.
     ///
     /// # Errors

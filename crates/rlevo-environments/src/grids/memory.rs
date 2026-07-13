@@ -394,7 +394,7 @@ impl MemoryConfig {
 impl Default for MemoryConfig {
     /// `size = 13`, `max_steps = 845` (`5 * size²`), `seed = 0`.
     ///
-    /// Deliberately **one step above [`MIN_SIZE`]**: see the module docs. The
+    /// Deliberately **one step above `MIN_SIZE`**: see the module docs. The
     /// floor is a correctness bound, and shipping it as the default would ship
     /// the weakest recall task the layout supports (a one-cell cue-free run).
     fn default() -> Self {

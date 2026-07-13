@@ -57,13 +57,13 @@ pub struct EpConfig {
     /// The log-normal update `σ' = σ · exp(τ · N(0,1))` is an unbounded
     /// multiplicative random walk; without a floor σ can underflow toward
     /// `0`, collapsing the mutation amplitude so the search freezes. Must be
-    /// strictly positive and `< sigma_max`. Default [`DEFAULT_SIGMA_MIN`].
+    /// strictly positive and `< sigma_max`. Default `DEFAULT_SIGMA_MIN`.
     pub sigma_min: f32,
     /// Upper clamp for the self-adaptive σ.
     ///
     /// Without a ceiling the log-normal update can overflow toward `+∞`
     /// (genes then saturate to a bound with no error). Default
-    /// [`DEFAULT_SIGMA_MAX`] — far outside any practical step scale on the
+    /// `DEFAULT_SIGMA_MAX` — far outside any practical step scale on the
     /// `[-5.12, 5.12]` benchmark domain, so it never binds in normal
     /// operation and only catches a runaway walk.
     pub sigma_max: f32,

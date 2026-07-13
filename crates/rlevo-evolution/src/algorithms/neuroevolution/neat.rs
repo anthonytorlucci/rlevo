@@ -318,7 +318,7 @@ impl<B: Backend> NeatStrategy<B> {
     /// and does **not** run through
     /// [`EvolutionaryHarness`](crate::strategy::EvolutionaryHarness), so there is
     /// no harness above it to sanitize fitness. `tell` therefore applies
-    /// [`sanitize_fitness`](crate::fitness::sanitize_fitness) to the incoming
+    /// `sanitize_fitness` to the incoming
     /// `fitness` (`NaN → −∞`, `+∞ → f32::MAX`, `−∞` and finite pass through)
     /// **before** it is stored or handed to [`species::speciate`], so a
     /// non-finite fitness can never poison speciation, offspring apportionment,

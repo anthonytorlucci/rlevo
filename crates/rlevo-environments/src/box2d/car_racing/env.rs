@@ -27,7 +27,7 @@
 //! never revisits — undercounting `tiles_visited` and making completion
 //! unreachable. The proxy is a bounded contiguous **sweep**: on each step the
 //! tile-index range from the previous `current_tile` to the new nearest tile is
-//! marked (see [`sweep_visits`]), reconstructing "every tile between here and
+//! marked (see `sweep_visits`), reconstructing "every tile between here and
 //! there" including across the start/finish seam. `BOUND` caps the sweep to the
 //! maximum plausible per-step tile advance given the physics speed ceiling, so a
 //! spurious nearest-jump (self-intersection) or backward motion cannot mark the

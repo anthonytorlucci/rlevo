@@ -79,7 +79,7 @@ pub struct SuiteInfo {
     pub num_trials_per_env: usize,
     /// Success threshold from the evaluator config, surfaced so recording
     /// reporters can stamp it onto the run manifest without reaching into
-    /// [`EvaluatorConfig`](crate::evaluator::EvaluatorConfig). `None` when the
+    /// [`EvaluatorConfig`]. `None` when the
     /// suite defines no success criterion.
     pub success_threshold: Option<f64>,
 }

@@ -32,7 +32,7 @@ fn standard_normal_rows(n: usize, d: usize, rng: &mut dyn Rng) -> Vec<f32> {
 /// equal to the input.
 ///
 /// The `n·d` standard-normal draws are taken from the caller-supplied host
-/// `rng` via [`crate::sampling::standard_normal`] and loaded onto the device
+/// `rng` via `crate::sampling::standard_normal` and loaded onto the device
 /// using [`Tensor::from_data`]; no backend-global RNG state is touched.
 ///
 /// The input tensor must have shape `(N, D)` where `N` is the population size
