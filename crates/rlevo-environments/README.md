@@ -14,7 +14,7 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 
 | Environment | Module | Observation | Action | Notes |
 |---|---|---|---|---|
-| `CartPole` | `classic::CartPole` | 4-D continuous | Discrete(2) | Physics match Gymnasium `CartPole-v1` exactly |
+| `CartPole` | `classic::CartPole` | 4-D continuous | Discrete(2) | Physics match Gymnasium `CartPole-v1`'s frictionless, corrected-dynamics formulation (Florian, 2007) |
 | `Acrobot` | `classic::Acrobot` | 6-D continuous | Discrete(3) | Sutton two-link dynamics |
 | `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
@@ -255,9 +255,9 @@ cargo test -p rlevo-environments --test grids_solvable
 
 - G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba, "OpenAI Gym," arXiv preprint arXiv:1606.01540, Jun. 2016. https://arxiv.org/abs/1606.01540
 - M. Chevalier-Boisvert, B. Dai, M. Towers, R. de Lazcano, L. Willems, S. Lahlou, S. Pal, P. S. Castro, and J. Terry, "Minigrid & Miniworld: Modular & Customizable Reinforcement Learning Environments for Goal-Oriented Tasks," arXiv preprint arXiv:2306.13831, Jun. 2023. https://arxiv.org/abs/2306.13831
-- A. G. Barto, R. S. Sutton, and C. W. Anderson, "Neuronlike adaptive elements that can solve difficult learning control problems," IEEE Transactions on Systems, Man, and Cybernetics, vol. SMC-13, no. 5, pp. 834–846, Sep./Oct. 1983. doi: 10.1109/TSMC.1983.6313077.
+- A. G. Barto, R. S. Sutton, and C. W. Anderson, "Neuronlike adaptive elements that can solve difficult learning control problems," IEEE Transactions on Systems, Man, and Cybernetics, vol. SMC-13, no. 5, pp. 834–846, Sep./Oct. 1983. doi: 10.1109/TSMC.1983.6313077. — origin of the CartPole problem and its physical constants.
+- F. Florian, "Correct equations for the dynamics of the cart-pole system," Technical report, 2007. https://coneural.org/florian/papers/05_cart_pole.pdf — corrected, frictionless equations of motion that Gymnasium's `CartPole-v1` (and `rlevo`'s port) actually implement.
 - D. Silver, T. Hubert, J. Schrittwieser, I. Antonoglou, M. Lai, A. Guez, M. Lanctot, L. Sifre, D. Kumaran, T. Graepel, T. P. Lillicrap, K. Simonyan, and D. Hassabis, “Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm,” arXiv preprint arXiv:1712.01815, Dec. 2017. https://arxiv.org/abs/1712.01815
-- J. Leike, M. Martic, V. Krakovna, P. A. Ortega, T. Everitt, A. Lefrancq, L. Orseau, and S. Legg, "AI safety gridworlds," arXiv preprint arXiv:1711.09883, Nov. 2017. https://arxiv.org/abs/1711.09883
 - Rapier physics engine — https://rapier.rs
 - Burn framework — https://burn.dev
 

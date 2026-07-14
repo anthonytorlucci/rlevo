@@ -3,7 +3,10 @@
 <!-- source: crates/rlevo-evolution/src/algorithms/ep.rs -->
 
 Evolutionary Programming (EP) is a continuous optimiser in the ES family tree,
-introduced by Fogel (1995) [[Fogel, 1995]](../bibliography.md). Like ES it uses no crossover — each parent produces
+originally proposed by L. J. Fogel for finite-state-machine evolution
+[[Fogel et al., 1966]](../bibliography.md) and extended to continuous,
+self-adaptive optimisation by D. B. Fogel (1995)
+[[Fogel, 1995]](../bibliography.md), the variant `rlevo` implements. Like ES it uses no crossover — each parent produces
 exactly one offspring by Gaussian mutation — and each individual carries its own
 self-adaptive step size σ. The distinguishing feature of EP is its **survivor
 selection**: rather than truncation (keep the μ best), EP uses a

@@ -51,8 +51,12 @@ impl LunacekBiRastrigin {
     /// `s(1) ≈ −0.036`), which makes `μ₂ = −√((μ₁² − d)/s)` the square root of a
     /// negative number — i.e. `NaN`, propagated silently through
     /// [`evaluate`](Self::evaluate) with no panic and no diagnostic. This bound is
-    /// *derived* from the published parameterization (Lunacek, Whitley & Sutton,
-    /// PPSN X, 2008); the paper does not state it explicitly.
+    /// *derived* from the closed-form `s(n)` used by the BBOB/COCO benchmark suite
+    /// (Hansen, Finck, Ros & Auger, "Real-Parameter Black-Box Optimization
+    /// Benchmarking 2009," INRIA RR-6829); Lunacek, Whitley & Sutton's original
+    /// PPSN X (2008) paper leaves `s` a free parameter in `[0.2, 1.4]` rather than
+    /// a function of `n`, and neither source states this non-positivity bound
+    /// explicitly.
     pub fn new(dim: usize) -> Result<Self, ConfigError> {
         const C: &str = "LunacekBiRastrigin";
         config::at_least(C, "dim", dim, 2)?;

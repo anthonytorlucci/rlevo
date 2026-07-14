@@ -2,9 +2,12 @@
 //!
 //! Continuous-action variant of [`crate::classic::mountain_car::MountainCar`].
 //! The agent applies a scalar force in `[-1, 1]` at each step; it must swing
-//! left to build momentum before cresting the right hill. The update rule
-//! matches the Gymnasium `MountainCarContinuous-v0` reference implementation
-//! exactly. Reference: Moore (1990) and Sutton & Barto §10.1.
+//! left to build momentum before cresting the right hill. The valley/momentum
+//! problem originates with Moore (1990) and Sutton & Barto §10.1, but both
+//! describe only the classic discrete-action task; the continuous-force
+//! control scheme is a later Gymnasium/OpenAI Gym addition, and it is that
+//! Gymnasium `MountainCarContinuous-v0` reference implementation the update
+//! rule below matches exactly.
 //!
 //! ## Physical model
 //!

@@ -40,8 +40,8 @@ pub struct SacTrainingConfig {
     /// Initial value for α (i.e. `log α = ln(initial_alpha)`). Defaults to
     /// `1.0` so `log α` starts at `0`, matching CleanRL.
     pub initial_alpha: f32,
-    /// Target entropy H̄. `None` ⇒ `-(A::RANK as f32)` (the common heuristic
-    /// from Haarnoja et al. 2018b, matching CleanRL).
+    /// Target entropy H̄. `None` ⇒ `-(A::COMPONENTS as f32)` (the common
+    /// heuristic from Haarnoja et al. 2018b, matching CleanRL).
     pub target_entropy: Option<f32>,
     /// Lower clamp applied to the policy's `log σ` head. CleanRL uses `-5`.
     pub log_std_min: f32,

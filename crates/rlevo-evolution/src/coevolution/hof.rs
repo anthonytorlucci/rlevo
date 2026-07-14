@@ -1,9 +1,10 @@
 //! Hall-of-fame pathology mitigation for competitive co-evolution.
 //!
-//! Naive competitive co-evolution suffers from **cycling** (Ficici 2004): a
-//! population evolves a best response to the opponent's current composition,
-//! the opponent shifts in turn, and neither makes lasting progress (the
-//! rock-paper-scissors trap). Rosin & Belew (1997) mitigate this with a
+//! Naive competitive co-evolution suffers from **cycling** (Ficici & Pollack
+//! 1998; Watson & Pollack 2001; Ficici 2004): a population evolves a best
+//! response to the opponent's current composition, the opponent shifts in
+//! turn, and neither makes lasting progress (the rock-paper-scissors trap).
+//! Rosin & Belew (1997) mitigate this with a
 //! *hall of fame* — an archive of past champions that the current population
 //! must also perform well against, anchoring the fitness landscape so it can
 //! no longer be chased in a circle.

@@ -100,4 +100,4 @@ The field of RL safety and AI ethics is actively evolving. This document is a li
 - *Krakovna et al.:* [Specification Gaming: The Flip Side of AI Ingenuity](https://deepmind.google/discover/blog/specification-gaming-the-flip-side-of-ai-ingenuity/) — catalog of reward hacking examples
 - *Leike et al.:* [AI Safety Gridworlds](https://arxiv.org/abs/1711.09883) — safety properties for RL agents
 - *Red Hat:* [Ethics in Open and Public AI](https://www.redhat.com/en/blog/ethics-open-and-public-ai-balancing-transparency-and-safety)
-- *arXiv:* [Open Foundation Models and the Balance of Risk](https://arxiv.org/html/2406.18071v1)
+- *Kapoor et al.:* [On the Societal Impact of Open Foundation Models](https://arxiv.org/abs/2403.07918) — marginal-risk framework for open-weight model release

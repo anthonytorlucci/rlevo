@@ -33,7 +33,7 @@ sampled uniformly from \\([\min(a_i, b_i) - \alpha \cdot d,\ \max(a_i, b_i) +
 parental range offspring can land: `alpha = 0.0` restricts offspring to the
 parental interval; `alpha = 0.5` (the default) allows 50% extrapolation on
 each side and is the value that minimises selection pressure on schema length
-(Deb & Agrawal, 1995).
+(Eshelman & Schaffer, 1993).
 
 **Uniform crossover** (`GaCrossover::Uniform { p }`) swaps each gene
 independently with probability `p`, identical in structure to binary uniform
