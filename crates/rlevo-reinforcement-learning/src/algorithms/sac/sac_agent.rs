@@ -272,7 +272,9 @@ where
         let initial_alpha = config.initial_alpha;
         let log_alpha_init = initial_alpha.max(f32::MIN_POSITIVE).ln();
         let log_alpha = LogAlpha::new(log_alpha_init);
-        let target_entropy = config.target_entropy.unwrap_or_else(|| -(A::RANK as f32));
+        let target_entropy = config
+            .target_entropy
+            .unwrap_or_else(|| -(A::COMPONENTS as f32));
         let buffer_capacity = config.buffer_capacity;
         let stats = AgentStats::<SacMetrics>::new(100);
         Ok(Self {
