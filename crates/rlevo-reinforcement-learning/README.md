@@ -35,7 +35,7 @@ Default hyperparameters match the Nature DQN paper:
 | `tau` (soft-update) | 0.005 | CleanRL |
 | `learning_rate` | 0.001 | CleanRL |
 | `epsilon_start` | 1.0 | Nature DQN |
-| `epsilon_end` | 0.01 | Nature DQN |
+| `epsilon_end` | 0.01 | CleanRL |
 | `replay_buffer_capacity` | 10 000 | CleanRL |
 | `learning_starts` | 1 000 | CleanRL |
 | `train_frequency` | 4 | Nature DQN |
@@ -142,12 +142,12 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 | `learning_rate` | 2.5e-4 | CleanRL |
 | `anneal_lr` | true | Huang et al. #4 |
 | `gamma` (γ) | 0.99 | CleanRL |
-| `gae_lambda` (λ) | 0.95 | Schulman et al. (2015) |
+| `gae_lambda` (λ) | 0.95 | Schulman et al. (2017) |
 | `clip_coef` (ε) | 0.2 | Schulman et al. (2017) |
-| `clip_value_loss` | true | Huang et al. #8 |
+| `clip_value_loss` | true | Huang et al. #9 |
 | `entropy_coef` | 0.01 | CleanRL |
 | `value_coef` | 0.5 | CleanRL |
-| `max_grad_norm` | 0.5 | Huang et al. #10 |
+| `max_grad_norm` | 0.5 | Huang et al. #11 |
 | Adam `epsilon` | 1e-5 | Huang et al. #3 |
 
 `num_envs` is fixed at `1` in v0.1.0; vectorised rollout is deferred.
@@ -199,7 +199,7 @@ The PPG-specific hyperparameters layer on top of PPO's defaults:
 
 **Module:** `algorithms::ddpg`
 
-Lillicrap et al.'s off-policy actor-critic for continuous action spaces. Pairs a deterministic actor with a Q-critic, each with a Polyak-averaged target copy. Explores via Gaussian noise on the actor output and learns off a uniform replay buffer. CleanRL's `ddpg_continuous_action.py` is the reference implementation.
+Lillicrap et al.'s off-policy actor-critic for continuous action spaces. Pairs a deterministic actor with a Q-critic, each with a Polyak-averaged target copy. Learns off a uniform replay buffer. The original paper explores via Ornstein-Uhlenbeck process noise; this crate instead follows CleanRL's `ddpg_continuous_action.py` reference implementation, which substitutes Gaussian noise on the actor output.
 
 Key components:
 
