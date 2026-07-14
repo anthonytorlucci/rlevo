@@ -1,5 +1,7 @@
 # rlevo-core
 
+![Alt Text](rlevo-logo.png)
+
 Core abstractions for the `rlevo` Deep Reinforcement Learning with Evolutionary Optimization library.
 
 This crate defines the foundational trait hierarchy and concrete types shared across all other `rlevo` crates. It deliberately contains no learning algorithms or environment implementations — only the interfaces those depend on.

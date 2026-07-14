@@ -1,5 +1,7 @@
 # rlevo-metrics-registry
 
+![Alt Text](rlevo-logo.png)
+
 Single source of truth for the canonical training-metric registry shared across
 the `rlevo` workspace (ADR-0015).
 

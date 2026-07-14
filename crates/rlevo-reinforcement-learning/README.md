@@ -1,5 +1,7 @@
 # rlevo-reinforcement-learning
 
+![Alt Text](rlevo-logo.png)
+
 Deep reinforcement learning algorithms for the `rlevo` workspace.
 
 This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.

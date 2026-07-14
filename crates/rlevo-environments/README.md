@@ -1,5 +1,7 @@
 # rlevo-environments
 
+![Alt Text](rlevo-logo.png)
+
 Standard benchmark environments and landscapes for the `rlevo` workspace.
 
 This crate provides a collection of reinforcement learning environments ranging from classic tabular problems through continuous-control physics simulations. All environments implement the `rlevo-core` `Environment` trait — a common `reset` / `step` interface that makes them drop-in compatible with every algorithm in `rlevo-reinforcement-learning` and `rlevo-evolution`.

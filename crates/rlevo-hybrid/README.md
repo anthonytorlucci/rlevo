@@ -1,5 +1,7 @@
 # rlevo-hybrid
 
+![Alt Text](rlevo-logo.png)
+
 Hybrid evolutionary + deep reinforcement learning strategies for the `rlevo` workspace,
 built on [Burn](https://burn.dev/) tensor operations.
 

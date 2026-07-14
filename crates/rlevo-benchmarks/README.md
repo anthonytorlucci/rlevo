@@ -1,5 +1,7 @@
 # rlevo-benchmarks
 
+![Alt Text](rlevo-logo.png)
+
 Reproducible benchmarking harness for the `rlevo` workspace.
 
 This crate provides a deterministic, parallelisable evaluation framework for testing reinforcement-learning and evolutionary-optimisation agents across one or more environments. A single `base_seed` fans out to per-trial seeds via splitmix64 so results are reproducible regardless of thread scheduling. Completed trials can be checkpointed and resumed without recomputation.

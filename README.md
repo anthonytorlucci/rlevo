@@ -1,6 +1,6 @@
 # rlevo
 
-![Alt Text](rlevo-logo.svg)
+![Alt Text](rlevo-logo.png)
 
 **Survival of the fittest, implemented in Rust.**
 
