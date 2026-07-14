@@ -56,8 +56,11 @@ Evolutionary Computing* (2nd ed.). Springer.
 Real-coded genetic algorithms and interval-schemata. In D. Whitley (Ed.),
 *Foundations of Genetic Algorithms 2* (pp. 187–202). Morgan Kaufmann.
 
-**[Ferreira, 2002]** Ferreira, C. (2002). Gene expression programming: A new
+**[Ferreira, 2001]** Ferreira, C. (2001). Gene expression programming: A new
 adaptive algorithm for solving problems. *Complex Systems*, 13(2), 87–129.
+
+**[Fogel et al., 1966]** Fogel, L. J., Owens, A. J., & Walsh, M. J. (1966).
+*Artificial Intelligence through Simulated Evolution*. Wiley.
 
 **[Fogel, 1995]** Fogel, D. B. (1995). *Evolutionary Computation: Toward a New
 Philosophy of Machine Intelligence*. IEEE Press.

@@ -16,7 +16,7 @@ it a place. When a policy is non-differentiable, when the reward is sparse or
 deceptive, or when the network *structure* is itself a thing you want to search,
 a population of networks scored by episodic return is a credible rival to gradient
 descent. This is not a niche curiosity: Moriarty and Miikkulainen (1996)
-[[Moriarty and Miikkulainen, 1996]](#bibliography) first evolved network weights
+[[Moriarty and Miikkulainen, 1996]](#bibliography) evolved network weights
 for control, and two decades on Such et al. (2017)
 [[Such et al., 2017]](#bibliography) showed a *plain GA on the weights* — no
 gradients at all — matching DQN and A3C on many Atari games while training far
