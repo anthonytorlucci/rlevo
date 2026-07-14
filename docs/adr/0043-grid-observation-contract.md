@@ -273,7 +273,7 @@ color instead of type.
   from. Cited from the NeurIPS proceedings listing; the primary PDF did not
   text-extract, so no text is quoted from it here.
 - [Recurrent Action Transformer with Memory](https://consensus.app/papers/details/68507af9cdd55a95be4bb13ed7f0785d/)
-  (Bessonov et al., 2023) — uses Minigrid-Memory as a memory-intensive
+  (Cherepanov et al., 2023) — uses Minigrid-Memory as a memory-intensive
   benchmark, motivating why the recall property must actually hold.
 - [Probing Dec-POMDP Reasoning in Cooperative MARL](https://consensus.app/papers/details/3165d3bb87845894a6cdfb6470592c81/)
   (Tessera et al., 2026) — finds reactive policies match memory-based agents
