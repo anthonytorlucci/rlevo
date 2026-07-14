@@ -51,6 +51,7 @@ Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
 | Trait | Purpose |
 |---|---|
 | `MarkovState` | Asserts the Markov property holds for this state representation |
+| `Observable<OR>` | Modality-changing state→observation projection for `OR != SR` (ADR 0019) |
 | `BeliefState<SR, AR, S, A>` | POMDP belief distribution over latent states, updated by action `A` |
 | `HiddenState<R>` | RNN-style recurrent memory (`update`, `reset`) |
 | `LatentState<R, AR>` | World-model compressed representation (`encode`, `predict`, `decode`) |
@@ -60,7 +61,8 @@ Extensions to `State<R>` for partial observability, recurrence, and hierarchy:
 
 | Item | Description |
 |---|---|
-| `Environment<D, SD, AD>` | Core trait: `new(render)`, `reset()`, `step(action)` |
+| `Environment<D, SD, AD>` | Core trait: `reset()`, `step(action)` |
+| `ConstructableEnv` | Default-construction factory (`new(render)`), lifted off `Environment` per ADR 0011 |
 | `Snapshot<D>` | Per-step result: `observation()`, `reward()`, `status()` |
 | `EpisodeStatus` | `Running \| Terminated \| Truncated` — distinguishes natural episode ends from step-limit truncations (important for value bootstrapping) |
 | `SnapshotBase<D, O, R>` | Default `Snapshot` implementation with named constructors: `running()`, `terminated()`, `truncated()` |
@@ -82,7 +84,7 @@ A lightweight evaluation surface for the benchmark harness (`rlevo-benchmarks`),
 
 ### `fitness` — Evaluation & Fitness Traits
 
-The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `Fitness`/`MultiFitness`/`GenomeKind` evolutionary traits now live in `rlevo-evolution` per ADR 0002 — they are **not** in this crate.)
+The agent/landscape side of the benchmark harness, also hoisted into core per ADR 0004. (Note: the `FitnessFn`/`BatchFitnessFn`/`GenomeKind` evolutionary traits now live in `rlevo-evolution` per ADR 0002 — they are **not** in this crate.)
 
 | Trait / Type | Description |
 |---|---|
@@ -98,6 +100,19 @@ The agent/landscape side of the benchmark harness, also hoisted into core per AD
 |---|---|
 | `combinations(n, k)` | Binomial coefficient (folded in from the former `rlevo-utils` crate per ADR 0003) |
 | `seed::SeedStream` | Reproducible host-side seed source for downstream RNGs |
+
+### `bounds`, `config`, `objective`, `probability`, `rate` — Validated Value Types
+
+Small, dependency-free newtypes and helpers shared across config validation in environments and algorithms:
+
+| Item | Description |
+|---|---|
+| `Bounds` / `BoundsError` | Validated `[low, high]` interval type |
+| `Validate` | Trait for config structs to self-check via `Violations` |
+| `ConfigError` / `ConstraintKind` / `Violations` | Structured config-validation error reporting, plus helper checks (`positive`, `in_range`, `ordered`, `distinct`, `nonzero`, `at_least`) |
+| `ObjectiveSense` | `Minimize \| Maximize`, used to disambiguate landscape/fitness direction |
+| `Probability` / `ProbabilityError` | Validated `[0, 1]` newtype |
+| `NonNegativeRate` / `NonNegativeRateError` | Validated non-negative `f32` newtype (learning rates, decay rates, etc.) |
 
 ### `agent` — Agent Traits (reserved)
 
@@ -172,7 +187,7 @@ rlevo-core = { path = "../rlevo-core" }  # or version once published
 ```rust
 use rlevo_core::{
     base::{Action, Observation, Reward, State},
-    environment::{Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
     reward::ScalarReward,
 };
 
@@ -185,8 +200,6 @@ impl Environment<1, 1, 1> for MyEnv {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, MyObservation, ScalarReward>;
 
-    fn new(render: bool) -> Self { MyEnv { /* ... */ } }
-
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         // reset internal state, return initial snapshot
         Ok(SnapshotBase::running(MyObservation::default(), ScalarReward::new(0.0)))
@@ -196,6 +209,10 @@ impl Environment<1, 1, 1> for MyEnv {
         // apply action, compute reward
         Ok(SnapshotBase::terminated(MyObservation::default(), ScalarReward::new(1.0)))
     }
+}
+
+impl ConstructableEnv for MyEnv {
+    fn new(render: bool) -> Self { MyEnv { /* ... */ } }
 }
 ```
 
@@ -227,4 +244,4 @@ The following papers directly informed the algorithms and concepts in this crate
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

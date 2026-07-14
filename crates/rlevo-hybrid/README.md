@@ -5,29 +5,44 @@ built on [Burn](https://burn.dev/) tensor operations.
 
 ## Status
 
-**Alpha stub.** The crate is reserved for hybrid algorithms that combine
-`rlevo-evolution` and `rlevo-reinforcement-learning` — for example,
-evolution-guided policy initialisation, population-based training (PBT),
-and ERL-style concurrent evolution + RL actor pools. No hybrid strategies
-are implemented in v0.1.0; this release establishes the crate skeleton and
-dependency wiring.
+**Alpha, evolution-guided policy init shipped.** This crate is the
+dependency boundary between pure evolution (`rlevo-evolution`, which never
+depends on `rlevo-core`) and anything that couples an evolutionary strategy
+to an `Environment` rollout. Three modules ship today:
+
+- `rollout_fitness::RolloutFitness` — a `BatchFitnessFn` that scores a
+  population of flat policy parameters by running episodes against an
+  `Environment`.
+- `policy_neuroevolution::PolicyNeuroevolution` — pairs a `WeightOnly`
+  evolutionary strategy with `RolloutFitness` inside an
+  `EvolutionaryHarness`, evolving the weights of a fixed-topology policy
+  network directly against environment return.
+- `policy::{StatefulPolicy, ReactivePolicy}` — the rollout contract by
+  which a policy module carries per-episode (recurrent or stateless) state
+  across a `RolloutFitness` rollout.
+
+Exercised end-to-end by `tests/cartpole_smoke.rs` (evolves a real CartPole
+MLP policy) and `tests/stateful_rollout.rs`. Population-based training,
+ERL-style concurrent evolution + gradient RL, and CEM-RL remain future work.
 
 ## Planned strategies
 
-| Strategy | Description | Target |
+| Strategy | Description | Status |
 |---|---|---|
-| Evolution-Guided Policy Init | Run a few generations of an evolutionary algorithm to seed a good starting policy for PPO/SAC | v0.2.0 |
-| Population-Based Training (PBT) | Jaderberg et al.'s hyperparameter and weight exploitation/exploration schedule | v0.2.0 |
-| ERL (Evolutionary RL) | Khadka & Tumer: concurrent evolutionary population + gradient-trained RL actor | v0.3.0 |
-| CEM-RL | Pourchot & Sigaud: interleaved CMA-ES population + TD3 actor | v0.3.0 |
+| Evolution-Guided Policy Init | Evolve policy weights directly against rollout fitness (`WeightOnly` + `RolloutFitness`) | **Shipped** — `PolicyNeuroevolution` |
+| Population-Based Training (PBT) | Jaderberg et al.'s hyperparameter and weight exploitation/exploration schedule | Planned |
+| ERL (Evolutionary RL) | Khadka & Tumer: concurrent evolutionary population + gradient-trained RL actor | Planned |
+| CEM-RL | Pourchot & Sigaud: interleaved CMA-ES population + TD3 actor | Planned |
 
 ## Design intent
 
-The crate sits at the intersection of `rlevo-evolution`'s
-`Strategy<B>` trait and `rlevo-reinforcement-learning`'s gradient-trained
-agents. The planned abstraction is a `HybridHarness<B, S, A>` that runs an
-evolutionary outer loop and a gradient inner loop, sharing parameters or
-fitness signals between them.
+`PolicyNeuroevolution<B, S, M, E>` wires `rlevo-evolution`'s `WeightOnly`
+strategy and `RolloutFitness` into an `EvolutionaryHarness`, so a
+fixed-topology policy module `M` is optimized purely by black-box search
+against environment `E`'s return — no gradients. Planned strategies that
+interleave gradient-based RL with the evolutionary loop (PBT, ERL, CEM-RL)
+will build on this same rollout/fitness seam once `rlevo-reinforcement-learning`
+integration lands.
 
 ## Related crates
 
@@ -43,4 +58,4 @@ fitness signals between them.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

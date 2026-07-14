@@ -6,9 +6,10 @@ the [Burn](https://burn.dev/) framework.
 ## Status
 
 **Alpha.** v1 of the `classical-evolutionary-algorithms` spec. The
-trait surface, the five classical families, and a swarm/metaheuristic
-suite below are shipping; custom CubeCL kernels on hot paths are
-preserved as design docs (`src/ops/kernels/mod.rs`) for a follow-up.
+trait surface, the classical families, the EDA/neuroevolution/coevolution
+suites, and a swarm/metaheuristic suite below are shipping; custom CubeCL
+kernels are enabled by default (`custom-kernels` feature, default-on) with
+the pure-Burn-ops path preserved for backends that don't support them.
 
 ## Algorithm families
 
@@ -16,10 +17,24 @@ preserved as design docs (`src/ops/kernels/mod.rs`) for a follow-up.
 |---|---|---|---|
 | Genetic Algorithm (real) | `algorithms::ga::GeneticAlgorithm` | `Tensor<B, 2>` | ~1e-1 (fixed \[\sigma\]) |
 | Genetic Algorithm (binary) | `algorithms::ga_binary::BinaryGeneticAlgorithm` | `Tensor<B, 2, Int>` | OneMax: exact |
-| Evolution Strategy | `algorithms::es_classical::EvolutionStrategy` | `Tensor<B, 2>` | < 1e-30 \[(\mu + \lambda)\] |
+| Evolution Strategy (classical) | `algorithms::es_classical::EvolutionStrategy` | `Tensor<B, 2>` | < 1e-30 \[(\mu + \lambda)\] |
+| CMA-ES | `algorithms::cma_es::CmaEs` | `Tensor<B, 2>` | full covariance adaptation |
+| CMSA-ES | `algorithms::cmsa_es::CmsaEs` | `Tensor<B, 2>` | covariance matrix self-adaptation |
 | Evolutionary Programming | `algorithms::ep::EvolutionaryProgramming` | `Tensor<B, 2>` | ~3e-17 |
 | Differential Evolution | `algorithms::de::DifferentialEvolution` | `Tensor<B, 2>` | < 1e-22 (rand/1/bin) |
 | Cartesian Genetic Programming | `algorithms::gp_cgp::CartesianGeneticProgramming` | `Tensor<B, 2, Int>` | see symbolic regression test |
+| Gene Expression Programming | `algorithms::gep::strategy::GepStrategy` | linear chromosome → expression tree | see `GepSymRegression` |
+| Estimation of Distribution (EDA) | `algorithms::eda::EdaStrategy` | `Tensor<B, 2>` | 5 model variants: univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network |
+| Memetic wrapper | `algorithms::memetic::MemeticWrapper` | wraps any `Strategy<B>` | hybridizes a population strategy with local search |
+| Neuroevolution — weight-only | `algorithms::neuroevolution::weight_only::WeightOnly` | fixed-topology network weights | evolves weights of a fixed architecture (used by `rlevo-hybrid`) |
+| Neuroevolution — NEAT | `algorithms::neuroevolution::neat::NeatStrategy` | growing topology + weights | complexifying topology search |
+
+Also shipping, not tied to a single-population `Strategy<B>`:
+
+| Module | Entry point | Purpose |
+|---|---|---|
+| Local search | `algorithms::local_search::{HillClimbing, NelderMead, RandomRestart, SimulatedAnnealing}` | standalone local-search operators, also used inside `MemeticWrapper` |
+| Coevolution | `algorithms::coevolution::{CompetitiveCoEA, CooperativeCoEA, CoEvolutionaryHarness, HallOfFame}` | two-population competitive/cooperative coevolution with hall-of-fame tracking |
 
 ## Swarm & metaheuristic suite
 
@@ -71,7 +86,7 @@ fn main() {
         42,          // base seed
         device,
         500,         // max generations
-    );
+    ).expect("valid config");
     harness.reset();
     while !harness.step(()).done {}
     let best = harness.latest_metrics().unwrap().best_fitness_ever;
@@ -84,10 +99,12 @@ dependency — it was hoisted there per ADR 0004), and the `EvolutionaryHarness`
 exposes the strategy as a `rlevo_core::evaluation::BenchEnv`. Swap in your own
 objective by implementing `FitnessEvaluable` or `BatchFitnessFn` directly.
 
-Run the showcase across every shipping family:
+This crate ships no examples of its own; runnable demos live in
+`rlevo-examples`, e.g.:
 
 ```bash
-cargo run --release -p rlevo-evolution --example sphere_showcase
+cargo run --release -p rlevo-examples --example ga_rastrigin
+cargo run --release -p rlevo-examples --example cooperative_ccga_rastrigin
 ```
 
 ## Design
@@ -163,4 +180,4 @@ non-deterministic across runs; both backends converge to similar optima.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.
