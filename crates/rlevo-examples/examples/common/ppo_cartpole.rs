@@ -1,5 +1,7 @@
 //! Shared PPO-on-[`CartPole`] scaffolding for the viz examples.
 //!
+//! This file packages a reproducible PPO-on-CartPole training setup;
+//!
 //! The two cartpole viz examples ([`tui_ppo_cartpole`] and
 //! [`report_ppo_cartpole_with_client`]) differ only in which
 //! visualisation tier they wire up — the *agent*, the *value network*,
@@ -55,7 +57,7 @@ pub const LOG_EVERY: usize = 1_024;
 pub const EPISODE_TIME_LIMIT: usize = 500;
 
 const HIDDEN: usize = 64;
-const OBS_RANK: usize = 4;
+const OBS_RANK: usize = 4; // todo! this should be dim. rank = 1
 const NUM_ACTIONS: usize = 2;
 
 /// Autodiff backend the cartpole viz examples train on.
@@ -63,11 +65,34 @@ pub type Be = Autodiff<Flex>;
 
 /// Concrete PPO agent type the examples drive — a categorical policy head
 /// over a two-hidden-layer value MLP.
+///
+/// pub struct PpoAgent<B, P, V, O, const DO: usize, const DB: usize>
+/// where
+///     B: AutodiffBackend,  --> Be = Autodiff<Flex>
+///     P: PpoPolicy<B, DB>,  --> CategoricalPolicyHead<Be>
+///     V: PpoValue<B, DB>,  --> ValueMlp<Be>
+///     O: Observation<DO> + TensorConvertible<DO, B>, --> CartPoleObservation
+/// { /* private fields */ }
+///
+/// todo! further discuss CategoricalPolicyHead<Be> and CarPoleObservation
+/// links:
+/// - https://docs.rs/rlevo-reinforcement-learning/0.3.0/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html
+/// - https://docs.rs/rlevo-environments/0.3.0/rlevo_environments/classic/cartpole/index.html
 pub type CartPoleAgent =
     PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2>;
 
-/// Two-hidden-layer `tanh` MLP critic, matching the `ppo_cart_pole`
-/// reference example so comparisons stay apples-to-apples.
+/// The neural network "brain"
+/// This is the critic. It's a multi-layer perceptron (MLP) or
+/// feed-forward neural network.
+/// It takes `obs_dim` (4) inputs -> `hidden` (64) -> `hidden` (64) -> 1 output.
+/// The single output is the estimated value (expected discounted return) of a
+/// state. `tanh` activations in `forward_impl` squash intermediate layers into
+/// range [-1, 1].
+/// todo! discuss why the activation function is important here ...
+///
+/// Note the policy (actor) is *not* defined here - it's imported as
+/// `CategoricalPolicyHead`. That's a categorical distribution over the 2
+/// actions, which is what you want for discrete actions like CartPole's.
 #[derive(Module, Debug)]
 pub struct ValueMlp<B: Backend> {
     fc1: Linear<B>,
@@ -88,6 +113,10 @@ impl<B: Backend> ValueMlp<B> {
         }
     }
 
+    /// Applies a foward pass ...
+    /// The 2 is the input tensor rank (batched observations are 2D:
+    /// `[batch_size, obs_dim]`), and `squeeze_dims` the trailing singleton
+    /// so the output is a flat vector of values, one per observation.
     fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
         let h = tanh(self.fc1.forward(obs));
         let h = tanh(self.fc2.forward(h));
@@ -95,6 +124,7 @@ impl<B: Backend> ValueMlp<B> {
     }
 }
 
+/// This is the adapter that lets the PPO framework call this network.
 impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
     fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
         self.forward_impl(obs)
@@ -103,6 +133,17 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
 
 /// Builds the base [`CartPole`] wrapped in a [`TimeLimit`]. Each example
 /// then adds its own viz tap(s) on top of this.
+///
+/// CartPole can theoretically run forever if the agent is perfect, i.e.
+/// it learns to oscillate back and forth keeping the pole upright, which
+/// would stall training. So it's wrapped in `TimeLimit`, which truncates an
+/// episode after `max_steps` or in this case `EPISODE_TIME_LIMIT = 500` steps.
+/// This is standard RL practice: **truncation != failure**, it just means "stop
+/// after maximum number of steps allowed."
+///
+/// The `seed = 42` makes the run reproducible.
+///
+/// todo! document the default values here for reference
 pub fn base_env() -> TimeLimit<CartPole> {
     let base = CartPole::with_config(CartPoleConfig {
         seed: SEED,
@@ -114,6 +155,30 @@ pub fn base_env() -> TimeLimit<CartPole> {
 
 /// Builds a fresh PPO agent with the shared hyperparameters. `total_timesteps`
 /// sizes the learning-rate / clip annealing schedule.
+///
+/// This wires teh policy + value + hyperparameters into a `PpoAgent`. The
+/// hyperparameters are:
+///
+/// | Hyperparameter | Value | Meaning |
+/// |---|---|---|
+/// | `num_envs` | 1 | One parallel environment (no vectorization here) |
+/// | `num_steps` | 128 | Collect 128 steps of experience before each update |
+/// | `num_minibatches` | 4 | Split those 128 steps into 4 mini-batches of 32 |
+/// | `update_epochs` | 4 | Reuse the collected data 4× per rollout (PPO's signature reuse) |
+/// | `learning_rate` | 2.5e-4 | Optimizer step size |
+/// | `clip_coef` | 0.2 | The PPO clip radius — the heart of the algorithm |
+/// | `entropy_coef` | 0.01 | Bonus to keep the policy *exploring* (avoid collapse to one action) |
+/// | `value_coef` | 0.5 | Weight of the value-loss term in the total loss |
+/// | `gamma` | 0.99 | Discount factor — future rewards matter 99% as much as now |
+/// | `gae_lambda` | 0.95 | Bias/variance knob for advantage estimation (GAE) |
+///
+/// `total_iterations = total_timesteps / batch_size` tells PPO how many updates
+///  it'll do total, so it can **anneal** (gradually shrink) the learning rate
+/// and clip over training. This is why `total_timesteps` is a parameter rather
+/// than a constant.
+///
+/// todo! discuss the relationship between `total_timesteps` and
+/// `TimeLimit` wrapper
 pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     let device = Default::default();
 
@@ -126,7 +191,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     let value: ValueMlp<Be> = ValueMlp::new(OBS_RANK, HIDDEN, &device);
 
     let config = PpoTrainingConfigBuilder::new()
-        .num_envs(1)
+        .num_envs(1) // One parallel environment (no vectorization here)
         .num_steps(NUM_STEPS)
         .num_minibatches(4)
         .update_epochs(4)
@@ -150,7 +215,17 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// `env` is generic over the viz-tier composition: a bare [`TimeLimit`],
 /// a `TuiEnvTap`-wrapped env, a `RecordingTap`-wrapped env, or any nesting
 /// of those — they all forward `CartPole`'s observation / action / reward
-/// associated types.
+/// associated types. In other words, all those wrappers forward CartPole's
+/// observation/action/reward types, so a single generic function handles them
+/// all.
+///
+/// The const generics `<1, 1, 1>` and the turbofish in
+/// `train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>` encode
+/// type-level facts:
+/// - Reward rank `1`, state rank `1`, action rank `1` (scalar rewards, 1D state tensors)
+/// - `2` actions at the end (CartPole's push-left / push-right)
+///
+/// The whole `train` function exists mainly to **hide that gnarly turbofish** from each example call site — a small but real ergonomics win.
 pub fn train<E>(
     agent: &mut CartPoleAgent,
     env: &mut E,
