@@ -1,27 +1,52 @@
-<!-- Synced copy of the canonical file at the repo root (`katex-header.html`).
-     Cargo can only package files inside a crate's own directory, so every
-     crate using `[package.metadata.docs.rs] rustdoc-args` for KaTeX needs its
-     own copy here. Edit the root file, then copy it into every crate that
-     references it (currently: rlevo-core, rlevo-environments). -->
+<!-- Hand-synced KaTeX header for docs.rs. Cargo can only package files inside
+     a crate's own directory, so every crate using `[package.metadata.docs.rs]
+     rustdoc-args` for KaTeX needs its own identical copy. When editing, apply
+     the change to ALL copies (they must stay byte-identical):
+       rlevo-core, rlevo-environments, rlevo-evolution,
+       rlevo-benchmarks, rlevo-reinforcement-learning. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     // Render fenced ```math blocks (verbatim, so markdown never mangles `_`/`\`).
+    // rustdoc puts the language class on the <pre> (`<pre class="language-math">
+    // <code>…</code></pre>`); older layouts put it on the <code>. Match both,
+    // then render the enclosing <pre>'s text so either shape works.
     document
-      .querySelectorAll("pre code.language-math, code.language-math")
+      .querySelectorAll("pre.language-math, pre code.language-math, code.language-math")
       .forEach(function (el) {
-        var pre = el.closest("pre") || el;
+        var pre = el.tagName === "PRE" ? el : el.closest("pre") || el;
         var span = document.createElement("span");
         try {
-          katex.render(el.textContent, span, {
+          katex.render(pre.textContent, span, {
             displayMode: true,
             throwOnError: false,
           });
           pre.replaceWith(span);
         } catch (e) {
           /* leave the raw block in place on failure */
+        }
+      });
+    // Render backtick-wrapped inline `$...$`. rustdoc emits these as <code>,
+    // which renderMathInElement ignores; the backticks are kept in source so
+    // markdown never mangles `_`/`\`. Whole-span match only, so shell spans
+    // like `$HOME` or `$ cargo` (no closing `$`) are left untouched.
+    document
+      .querySelectorAll("code:not(.language-math)")
+      .forEach(function (el) {
+        var t = el.textContent;
+        if (t.length > 2 && t[0] === "$" && t[t.length - 1] === "$") {
+          var span = document.createElement("span");
+          try {
+            katex.render(t.slice(1, -1), span, {
+              displayMode: false,
+              throwOnError: false,
+            });
+            el.replaceWith(span);
+          } catch (e) {
+            /* leave the raw code span in place on failure */
+          }
         }
       });
     // Render inline $...$ / \(...\) in prose.
