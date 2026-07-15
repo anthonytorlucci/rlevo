@@ -45,8 +45,10 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier as RatModifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+use crate::metrics_registry::{hint_for, trend_for};
 use crate::reporter::tui::{TuiEvent, TuiHandle};
 use crate::tui::panels::{LogPanel, MetricSparkline, RewardSparkline};
 use crate::tui::state::{
@@ -366,6 +368,10 @@ fn render_metrics_combined(frame: &mut Frame<'_>, state: &AppState, area: Rect) 
 /// Separate layout: the reward sparkline and each metric in `state.metrics`
 /// get their own bordered, titled panel, splitting the column evenly so
 /// every chart has room for taller bars.
+///
+/// Each panel title carries a trend glyph and a one-line interpretation hint
+/// from the metric registry (see [`panel_title`]) so a reader can answer *"is
+/// a rising sparkline good news?"* without leaving the dashboard.
 fn render_metrics_separate(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let panel_count = u32::try_from(1 + state.metrics.len()).unwrap_or(u32::MAX);
     let constraints: Vec<Constraint> =
@@ -373,19 +379,49 @@ fn render_metrics_separate(frame: &mut Frame<'_>, state: &AppState, area: Rect) 
     let rects = Layout::vertical(constraints).split(area);
 
     if let Some(&rect) = rects.first() {
-        let block = Block::default().borders(Borders::ALL).title("Reward");
+        // The reward panel plots episode returns, so it borrows that row's
+        // registry metadata (higher = learning) for its glyph and hint.
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(panel_title("Reward", "episode_return"));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
         frame.render_widget(RewardSparkline::new(state), inner);
     }
     for (i, name) in state.metrics.iter().enumerate() {
         if let Some(&rect) = rects.get(i + 1) {
-            let block = Block::default().borders(Borders::ALL).title(*name);
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(panel_title(name, name));
             let inner = block.inner(rect);
             frame.render_widget(block, rect);
             frame.render_widget(MetricSparkline::bars_only(state, name), inner);
         }
     }
+}
+
+/// Compose a metric panel's title line: `↑ display  —  hint`.
+///
+/// The trend glyph + `display` name are emphasised; the interpretation hint is
+/// dimmed and dropped entirely when the registry carries none. `meta_key` is
+/// the registry field name supplying the glyph and hint — usually the same as
+/// `display`, but the reward panel titles itself "Reward" while reading
+/// `episode_return`'s metadata.
+fn panel_title(display: &str, meta_key: &str) -> Line<'static> {
+    let glyph = trend_for(meta_key).glyph();
+    let hint = hint_for(meta_key);
+
+    let mut spans = vec![Span::styled(
+        format!("{glyph} {display}"),
+        Style::default().add_modifier(RatModifier::BOLD),
+    )];
+    if !hint.is_empty() {
+        spans.push(Span::styled(
+            format!("  —  {hint}"),
+            Style::default().add_modifier(RatModifier::DIM),
+        ));
+    }
+    Line::from(spans)
 }
 
 /// Bordered log block + its inner [`LogPanel`].
@@ -684,6 +720,45 @@ mod tests {
         assert!(
             !text.contains("best_fitness"),
             "dropped metric should not appear"
+        );
+    }
+
+    /// The separate-layout panel titles carry a trend glyph and the
+    /// registry interpretation hint so the reader knows which direction is
+    /// good news.
+    #[test]
+    fn separate_layout_titles_carry_trend_glyph_and_hint() {
+        const M: &[&str] = &["episode_return", "approx_kl"];
+        let backend = TestBackend::new(90, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut state = AppState::default().with_layout(M, MetricsLayout::Separate);
+        for name in M {
+            state.record_metric(*name, 0.5);
+        }
+
+        terminal
+            .draw(|f| draw_dashboard(f, &state))
+            .expect("draw failed");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(Cell::symbol)
+            .collect();
+
+        // Reward panel: "higher is better" glyph + its hint.
+        assert!(text.contains('↑'), "up glyph missing: {text:?}");
+        assert!(
+            text.contains("higher = agent learning"),
+            "reward hint missing: {text:?}"
+        );
+        // A diagnostic metric: neutral glyph + its healthy-range hint.
+        assert!(text.contains('•'), "diagnostic glyph missing: {text:?}");
+        assert!(
+            text.contains("keep small & stable"),
+            "approx_kl hint missing: {text:?}"
         );
     }
 
