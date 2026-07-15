@@ -127,8 +127,14 @@ tui-ppo-cartpole:
 # stale — re-running is cheap (~0.2s) when nothing changed. Needs `trunk`
 # (cargo install trunk) + the wasm32-unknown-unknown target.
 #
+# NOTE: the target must be installed for the *pinned* toolchain (rust-toolchain.toml,
+# currently 1.94.1), not just the default. A rustup update can leave the pinned
+# toolchain without wasm32, surfacing as `error[E0463]: can't find crate for core`.
+# The `rustup target add` below is idempotent and self-heals that case.
+#
 # Rebuild the Leptos/WASM report client (auto-run before every report-* recipe).
 client-build:
+    rustup target add wasm32-unknown-unknown
     cd crates/rlevo-benchmarks-report-client && trunk build --release
 
 report-ppo-cartpole: client-build
