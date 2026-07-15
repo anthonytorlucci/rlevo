@@ -342,6 +342,11 @@ fn render_metrics_column(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 /// Combined layout: one bordered "Metrics" block holding the reward
 /// sparkline plus one `MetricSparkline` per name in `state.metrics`. Each
 /// occupies a single row; remaining vertical space is left blank.
+///
+/// Each metric's label is prefixed with its [`Trend`](crate::metrics_registry::Trend)
+/// glyph (`↑`/`↓`/`•`) so the compact view still signals which direction is
+/// good news. The full interpretation hint is a Separate-layout feature —
+/// a single row leaves no room for it here.
 fn render_metrics_combined(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title("Metrics");
     let inner = block.inner(area);
@@ -360,7 +365,8 @@ fn render_metrics_combined(frame: &mut Frame<'_>, state: &AppState, area: Rect) 
     }
     for (i, name) in state.metrics.iter().enumerate() {
         if let Some(row) = rects.get(i + 1) {
-            frame.render_widget(MetricSparkline::from_name(state, name), *row);
+            let label = format!("{} {name}", trend_for(name).glyph());
+            frame.render_widget(MetricSparkline::new(state, name, &label), *row);
         }
     }
 }
@@ -720,6 +726,48 @@ mod tests {
         assert!(
             !text.contains("best_fitness"),
             "dropped metric should not appear"
+        );
+    }
+
+    /// The combined-layout labels are prefixed with the metric's trend
+    /// glyph so the compact view still cues the good-news direction.
+    #[test]
+    fn combined_layout_labels_carry_trend_glyph() {
+        const M: &[&str] = &["episode_return_mean", "value_loss", "approx_kl"];
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut state = AppState::default().with_layout(M, MetricsLayout::Combined);
+        for name in M {
+            state.record_metric(*name, 0.5);
+        }
+
+        terminal
+            .draw(|f| draw_dashboard(f, &state))
+            .expect("draw failed");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(Cell::symbol)
+            .collect();
+
+        // One combined "Metrics" block, each metric labelled with its glyph.
+        assert!(text.contains("Metrics"), "combined block title missing");
+        assert!(
+            text.contains('↑'),
+            "higher-is-better glyph missing: {text:?}"
+        );
+        assert!(
+            text.contains('↓'),
+            "lower-is-better glyph missing: {text:?}"
+        );
+        assert!(text.contains('•'), "diagnostic glyph missing: {text:?}");
+        // Labels remain the raw metric names alongside the glyph.
+        assert!(
+            text.contains("value_loss"),
+            "metric label missing: {text:?}"
         );
     }
 

@@ -20,9 +20,13 @@ use crate::tui::panels::reward_sparkline::encode_returns;
 use crate::tui::state::AppState;
 use crate::tui::theme::metric_style;
 
-/// Width of the leftmost label column in cells. Sized for the longest
-/// canonical metric name (`best_fitness_ever`, 17 chars) plus one space.
-const LABEL_WIDTH: u16 = 18;
+/// Width of the leftmost label column in cells. Sized for a one-column
+/// trend glyph, a space, the longest canonical metric name
+/// (`best_fitness_ever`, 17 chars), and one trailing space — the Combined
+/// layout prefixes each label with its [`Trend`] glyph.
+///
+/// [`Trend`]: rlevo_metrics_registry::Trend
+const LABEL_WIDTH: u16 = 20;
 
 /// Renders one named metric as a sparkline.
 ///
@@ -190,7 +194,7 @@ mod tests {
 
         let text = buffer_text(&buf);
         assert!(text.contains("loss "), "expected short label: {text:?}");
-        // The label area is 18 chars; we should still see bars after it.
+        // The label area is LABEL_WIDTH chars; we should still see bars after it.
         let has_bar = text
             .chars()
             .any(|c| matches!(c, '▁' | '▂' | '▃' | '▄' | '▅' | '▆' | '▇' | '█'));
