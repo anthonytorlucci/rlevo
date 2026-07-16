@@ -49,6 +49,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use burn::backend::{Autodiff, Flex};
+use burn::grad_clipping::GradientClippingConfig;
 use burn::module::Module;
 use burn::nn::{Linear, LinearConfig};
 use burn::tensor::Tensor;
@@ -75,9 +76,11 @@ use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig
 use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 use rlevo_reinforcement_learning::algorithms::ppo::train::train_discrete;
 
-// Fewer timesteps than the live demos — enough to surface a clear
-// learning curve in the convergence panel without a long headless wait.
-const TOTAL_TIMESTEPS: usize = 12_000;
+// Enough timesteps for the policy to climb toward the 500-step ceiling
+// rather than plateauing mid-curve. CartPole PPO with `num_steps = 128`
+// typically needs ~25–50k steps to solve; 50k leaves headroom while
+// staying tolerable for a headless `--release` run.
+const TOTAL_TIMESTEPS: usize = 50_000;
 
 const CLIENT_DIST: &str = "crates/rlevo-benchmarks-report-client/dist";
 
@@ -243,6 +246,11 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         .value_coef(0.5)
         .gamma(0.99)
         .gae_lambda(0.95)
+        // Global grad-norm clip of 0.5 (CleanRL default). The optimizer wraps
+        // both policy and value grads with this; without it, PPO can take
+        // destabilizing steps. NOTE: `max_grad_norm` is a separate, currently
+        // inert config field — `clip_grad` is the knob that actually clips.
+        .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
         .build()
         .expect("valid config");
 
