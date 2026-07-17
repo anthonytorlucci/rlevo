@@ -120,18 +120,21 @@ pub type Be = Autodiff<Flex>;
 /// Concrete PPO agent type the examples drive — a categorical policy head
 /// over a two-hidden-layer value MLP.
 ///
+/// ```text
 /// pub struct PpoAgent<B, P, V, O, const DO: usize, const DB: usize>
 /// where
-///     B: AutodiffBackend,  --> Be = Autodiff<Flex>
-///     P: PpoPolicy<B, DB>,  --> CategoricalPolicyHead<Be>
-///     V: PpoValue<B, DB>,  --> ValueMlp<Be>
-///     O: Observation<DO> + TensorConvertible<DO, B>, --> CartPoleObservation
+///     B: AutodiffBackend,                             --> Be = Autodiff<Flex>
+///     P: PpoPolicy<B, DB>,                            --> CategoricalPolicyHead<Be>
+///     V: PpoValue<B, DB>,                             --> ValueMlp<Be>
+///     O: Observation<DO> + TensorConvertible<DO, B>,  --> CartPoleObservation
 /// { /* private fields */ }
+/// ```
 ///
-/// todo! further discuss CategoricalPolicyHead<Be> and CarPoleObservation
+/// todo! further discuss `CategoricalPolicyHead<Be>` and `CartPoleObservation`
+///
 /// links:
-/// - https://docs.rs/rlevo-reinforcement-learning/0.3.0/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html
-/// - https://docs.rs/rlevo-environments/0.3.0/rlevo_environments/classic/cartpole/index.html
+/// - <https://docs.rs/rlevo-reinforcement-learning/0.3.0/rlevo_reinforcement_learning/algorithms/ppo/ppo_agent/struct.PpoAgent.html>
+/// - <https://docs.rs/rlevo-environments/0.3.0/rlevo_environments/classic/cartpole/index.html>
 pub type CartPoleAgent =
     PpoAgent<Be, CategoricalPolicyHead<Be>, ValueMlp<Be>, CartPoleObservation, 1, 2>;
 
@@ -146,7 +149,7 @@ pub type CartPoleAgent =
 ///
 /// Note the policy (actor) is *not* defined here - it's imported as
 /// `CategoricalPolicyHead`. That's a categorical distribution over the 2
-/// actions, which is what you want for discrete actions like CartPole's.
+/// actions, which is what you want for discrete actions like `CartPole`'s.
 #[derive(Module, Debug)]
 pub struct ValueMlp<B: Backend> {
     fc1: Linear<B>,
@@ -188,7 +191,7 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
 /// Builds the base [`CartPole`] wrapped in a [`TimeLimit`]. Each example
 /// then adds its own viz tap(s) on top of this.
 ///
-/// CartPole can theoretically run forever if the agent is perfect, i.e.
+/// `CartPole` can theoretically run forever if the agent is perfect, i.e.
 /// it learns to oscillate back and forth keeping the pole upright, which
 /// would stall training. So it's wrapped in `TimeLimit`, which truncates an
 /// episode after `max_steps` or in this case `EPISODE_TIME_LIMIT = 500` steps.
@@ -198,6 +201,11 @@ impl<B: AutodiffBackend> PpoValue<B, 2> for ValueMlp<B> {
 /// The `seed = 42` makes the run reproducible.
 ///
 /// todo! document the default values here for reference
+///
+/// # Panics
+///
+/// Panics if the hard-coded [`CartPoleConfig`] is rejected as invalid.
+#[must_use]
 pub fn base_env() -> TimeLimit<CartPole> {
     let base = CartPole::with_config(CartPoleConfig {
         seed: SEED,
@@ -233,6 +241,11 @@ pub fn base_env() -> TimeLimit<CartPole> {
 ///
 /// todo! discuss the relationship between `total_timesteps` and
 /// `TimeLimit` wrapper
+///
+/// # Panics
+///
+/// Panics if the hard-coded PPO hyperparameters are rejected as invalid.
+#[must_use]
 pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
     let device = Default::default();
 
@@ -269,7 +282,7 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// `env` is generic over the viz-tier composition: a bare [`TimeLimit`],
 /// a `TuiEnvTap`-wrapped env, a `RecordingTap`-wrapped env, or any nesting
 /// of those — they all forward `CartPole`'s observation / action / reward
-/// associated types. In other words, all those wrappers forward CartPole's
+/// associated types. In other words, all those wrappers forward `CartPole`'s
 /// observation/action/reward types, so a single generic function handles them
 /// all.
 ///
@@ -277,9 +290,13 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
 /// `train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>` encode
 /// type-level facts:
 /// - Reward rank `1`, state rank `1`, action rank `1` (scalar rewards, 1D state tensors)
-/// - `2` actions at the end (CartPole's push-left / push-right)
+/// - `2` actions at the end (`CartPole`'s push-left / push-right)
 ///
 /// The whole `train` function exists mainly to **hide that gnarly turbofish** from each example call site — a small but real ergonomics win.
+///
+/// # Errors
+///
+/// Returns [`PpoAgentError`] if a rollout or policy update fails.
 pub fn train<E>(
     agent: &mut CartPoleAgent,
     env: &mut E,
