@@ -182,20 +182,23 @@ is a contract-only change.
   `Sensor` of any `OR`. CarRacing no longer *needs* to masquerade as
   `Environment<3,3,1>` (the honest compact-state re-model is a separate,
   now-unblocked follow-up, #255).
-- The ADR-0039 cached-sensor hack is retired for world-derived sensors:
-  BipedalWalker lidar and CarRacing pixels are read from the world via
-  `&self = env` at observe time, not stashed on the state first.
-  - *One honest consequence for `is_valid`.* box2d states still hold Rapier
-    *handles*, not value DOFs — the DOF-ownership refactor is the deferred #256.
-    Because the observation cache is gone, ADR 0039's `last_obs`-finiteness clause
-    (which stood in for a genuine DOF check on a handle-only state) is dropped with
-    it. `LunarLanderState` is unaffected — its `is_valid` catches physics
-    divergence through `prev_shaping.is_finite()` (a genuine state field, tested).
-    `BipedalWalkerState`, which owns no float field, is left with a handle-only
-    `is_valid` until #256 moves its DOFs onto the state as values and restores a
-    real finiteness check. This is a transitional, debug-assert-only gap tracked
-    on #256; the locomotion family (whose states retain a small `last_obs` field
-    feeding `is_valid`) is the mirror case the same #256-class cleanup will reach.
+- The ADR-0039 cached-sensor hack is retired **as the emission path**:
+  BipedalWalker lidar and CarRacing pixels are produced by the env-side `Sensor`
+  reading the world via `&self = env`, no longer stashed on the state to be
+  *returned* by `observe()`.
+  - *`is_valid` finiteness is preserved.* box2d states still hold Rapier
+    *handles*, not value DOFs — moving the DOFs onto the state as owned values is
+    the deferred #256. Until then, `is_valid` detects physics divergence
+    (a `NaN`/`inf` pose, velocity, or lidar ray) exactly as before: `LunarLander`
+    through `prev_shaping.is_finite()` (a genuine state field), and
+    `BipedalWalker` through a retained `last_obs.is_finite()` clause — the same
+    role, and the same pattern, as the locomotion states (all of which keep a
+    small `last_obs` field feeding `is_valid`). The one field that *is* removed is
+    `CarRacing`'s cached pixel buffer, whose `u8` frame was never a finiteness
+    target and which `is_valid` never inspected. So `is_valid` is unchanged in
+    behaviour; only the emission stops reading a state cache. Replacing the
+    residual `last_obs` finiteness signal with a check over genuine owned DOFs is
+    the #256 DOF-ownership work.
 - The dual-impl redundancy is gone: `pixel_grid` has one projection
   (`Observable::project`) that the `Sensor` delegates to, not a dead
   `State::observe` beside it.

@@ -62,13 +62,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Every environment now implements `rlevo_core::environment::Sensor` and builds
   its `reset`/`step` snapshots through it instead of `State::observe` (ADR 0047,
-  #329). The box2d states (`BipedalWalker`, `CarRacing`, `LunarLander`) no longer
-  cache a `last_obs` sensor snapshot — the observation is produced by the env-side
-  sensor reading the world. The grid family routes its shared egocentric
-  projection through `GridState: Observable<3>` and the `build_snapshot`
-  chokepoint; `GoToDoorEnv` implements `Sensor` for its goal-conditioned
-  observation. `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to
-  `project()`. Behaviour (observations, rewards, termination) is unchanged.
+  #329). For the box2d family the observation is no longer *produced* from a state
+  cache — the env-side sensor reads the world directly (BipedalWalker lidar,
+  CarRacing pixels). `CarRacing` drops its cached pixel buffer entirely;
+  `BipedalWalker`/`LunarLander` retain only a finiteness signal for `is_valid`
+  (`last_obs`/`prev_shaping` respectively), matching the locomotion states, so
+  `is_valid` is unchanged. The grid family routes its shared egocentric projection
+  through `GridState: Observable<3>` and the `build_snapshot` chokepoint;
+  `GoToDoorEnv` implements `Sensor` for its goal-conditioned observation.
+  `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to `project()`.
+  Behaviour (observations, rewards, termination) is unchanged.
 
 ### `rlevo-reinforcement-learning`
 

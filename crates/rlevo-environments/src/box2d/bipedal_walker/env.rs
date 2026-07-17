@@ -149,6 +149,7 @@ impl BipedalWalker {
                 knee2_joint: ImpulseJointHandle::invalid(),
                 leg1_contact: false,
                 leg2_contact: false,
+                last_obs: BipedalWalkerObservation::default(),
             },
             ground_handle: ColliderHandle::invalid(),
             config,
@@ -530,6 +531,9 @@ impl Environment<1, 1, 1> for BipedalWalker {
         self.state.leg1_contact = false;
         self.state.leg2_contact = false;
         let obs = self.observe_reset(&self.state);
+        // Mirror the observation onto the state so `is_valid` can check its
+        // finiteness (physics-divergence detector); see `BipedalWalkerState`.
+        self.state.last_obs = obs.clone();
         debug_assert!(
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after reset"
@@ -565,6 +569,9 @@ impl Environment<1, 1, 1> for BipedalWalker {
         self.total_reward += reward;
 
         let obs = self.observe(&action, &self.state);
+        // Mirror the observation onto the state so `is_valid` can check its
+        // finiteness (physics-divergence detector); see `BipedalWalkerState`.
+        self.state.last_obs = obs.clone();
         debug_assert!(
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after step"
