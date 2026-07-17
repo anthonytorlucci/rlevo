@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
-use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
+use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
 
@@ -55,7 +55,6 @@ pub struct LinearState {
 }
 
 impl State<1> for LinearState {
-    type Observation = LinearObservation;
     fn shape() -> [usize; 1] {
         [1]
     }
@@ -64,9 +63,6 @@ impl State<1> for LinearState {
     }
     fn is_valid(&self) -> bool {
         self.x.is_finite()
-    }
-    fn observe(&self) -> LinearObservation {
-        LinearObservation { x: self.x }
     }
 }
 
@@ -165,6 +161,20 @@ impl LinearEnv {
     }
 }
 
+impl Sensor<1, 1, 1> for LinearEnv {
+    type Action = LinearAction;
+    type State = LinearState;
+    type Observation = LinearObservation;
+
+    fn observe(&self, _action: &LinearAction, next_state: &LinearState) -> LinearObservation {
+        LinearObservation { x: next_state.x }
+    }
+
+    fn observe_reset(&self, state: &LinearState) -> LinearObservation {
+        LinearObservation { x: state.x }
+    }
+}
+
 impl Environment<1, 1, 1> for LinearEnv {
     type StateType = LinearState;
     type ObservationType = LinearObservation;
@@ -178,7 +188,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             steps: 0,
         };
         Ok(SnapshotBase {
-            observation: self.state.observe(),
+            observation: self.observe_reset(&self.state),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
             metadata: None,
@@ -200,7 +210,7 @@ impl Environment<1, 1, 1> for LinearEnv {
             EpisodeStatus::Running
         };
         Ok(SnapshotBase {
-            observation: self.state.observe(),
+            observation: self.observe(&action, &self.state),
             reward: ScalarReward::new(reward),
             status,
             metadata: None,

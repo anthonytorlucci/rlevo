@@ -9,7 +9,7 @@ use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -278,6 +278,32 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     }
 }
 
+impl Sensor<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
+    type Action = InvertedDoublePendulumAction;
+    type State = InvertedDoublePendulumState;
+    type Observation = InvertedDoublePendulumObservation;
+
+    /// Emission model: reads the 9-element observation directly from the physics
+    /// world through the state's body handles. The action does not enter the
+    /// observation, and `next_state` carries the same handles as `self.state`,
+    /// so both are unused; the world is the source of truth.
+    fn observe(
+        &self,
+        _action: &InvertedDoublePendulumAction,
+        _next_state: &InvertedDoublePendulumState,
+    ) -> InvertedDoublePendulumObservation {
+        self.extract_observation()
+    }
+
+    /// Initial observation at episode start, read from the freshly built world.
+    fn observe_reset(
+        &self,
+        _state: &InvertedDoublePendulumState,
+    ) -> InvertedDoublePendulumObservation {
+        self.extract_observation()
+    }
+}
+
 impl ConstructableEnv for InvertedDoublePendulum<Rapier3DBackend> {
     /// Create an environment with default configuration.
     ///
@@ -315,7 +341,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.extract_observation();
+        let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
 
         let tip = self.tip_position();
@@ -370,7 +396,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
         });
         self.steps += 1;
 
-        let obs = self.extract_observation();
+        let obs = self.observe(&action, &self.state);
         self.state.last_obs = obs;
 
         let tip = self.tip_position();

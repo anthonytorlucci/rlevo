@@ -17,7 +17,7 @@ use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -253,6 +253,26 @@ impl Reacher<Rapier3DBackend> {
     }
 }
 
+impl Sensor<1, 1, 1> for Reacher<Rapier3DBackend> {
+    type Action = ReacherAction;
+    type State = ReacherState;
+    type Observation = ReacherObservation;
+
+    /// Emission model: reads the 10-element observation directly from the
+    /// physics world through the state's body handles and cached target. The
+    /// action does not enter the observation, and `next_state` carries the same
+    /// handles as `self.state`, so both are unused; the world is the source of
+    /// truth.
+    fn observe(&self, _action: &ReacherAction, _next_state: &ReacherState) -> ReacherObservation {
+        self.extract_observation()
+    }
+
+    /// Initial observation at episode start, read from the freshly built world.
+    fn observe_reset(&self, _state: &ReacherState) -> ReacherObservation {
+        self.extract_observation()
+    }
+}
+
 impl ConstructableEnv for Reacher<Rapier3DBackend> {
     fn new(_render: bool) -> Self {
         Self::with_config(ReacherConfig::default()).expect("default config must validate")
@@ -287,7 +307,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.extract_observation();
+        let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
         // Zero-reward initial snapshot; emit both reward components at 0.0 so
         // the Σ-components = reward invariant holds at step 0 (no action taken).
@@ -351,7 +371,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         });
         self.steps += 1;
 
-        let obs = self.extract_observation();
+        let obs = self.observe(&action, &self.state);
         self.state.last_obs = obs;
 
         let [dx, dy] = obs.finger_minus_target_xy();

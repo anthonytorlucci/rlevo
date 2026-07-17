@@ -49,7 +49,7 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
@@ -215,16 +215,8 @@ impl From<TaxiState> for u16 {
 }
 
 impl State<1> for TaxiState {
-    type Observation = TaxiObservation;
-
     fn shape() -> [usize; 1] {
         [500]
-    }
-
-    fn observe(&self) -> TaxiObservation {
-        TaxiObservation {
-            state_id: self.encode(),
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -414,6 +406,28 @@ impl ConstructableEnv for Taxi {
     }
 }
 
+impl Sensor<1, 1, 1> for Taxi {
+    type Action = TaxiAction;
+    type State = TaxiState;
+    type Observation = TaxiObservation;
+
+    /// Projects the resulting state onto its packed 500-state id; the observation
+    /// is a pure function of the taxi/passenger/destination triple and ignores
+    /// which action produced it.
+    fn observe(&self, _action: &TaxiAction, next_state: &TaxiState) -> TaxiObservation {
+        TaxiObservation {
+            state_id: next_state.encode(),
+        }
+    }
+
+    /// Projects the initial sampled state onto its packed state id.
+    fn observe_reset(&self, state: &TaxiState) -> TaxiObservation {
+        TaxiObservation {
+            state_id: state.encode(),
+        }
+    }
+}
+
 impl Environment<1, 1, 1> for Taxi {
     type StateType = TaxiState;
     type ObservationType = TaxiObservation;
@@ -426,7 +440,7 @@ impl Environment<1, 1, 1> for Taxi {
         self.state = self.sample_initial_state();
         self.fickle_armed = false;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -486,7 +500,7 @@ impl Environment<1, 1, 1> for Taxi {
             }
         }
 
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
         let snapshot = if terminated {
             SnapshotBase::terminated(obs, ScalarReward(reward))
         } else {

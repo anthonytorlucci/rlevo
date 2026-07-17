@@ -148,7 +148,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -489,8 +489,6 @@ impl AcrobotState {
 }
 
 impl State<1> for AcrobotState {
-    type Observation = AcrobotObservation;
-
     fn shape() -> [usize; 1] {
         [4]
     }
@@ -503,17 +501,6 @@ impl State<1> for AcrobotState {
             && self.theta2.is_finite()
             && self.theta1_dot.is_finite()
             && self.theta2_dot.is_finite()
-    }
-
-    fn observe(&self) -> AcrobotObservation {
-        AcrobotObservation {
-            cos_theta1: self.theta1.cos(),
-            sin_theta1: self.theta1.sin(),
-            cos_theta2: self.theta2.cos(),
-            sin_theta2: self.theta2.sin(),
-            theta1_dot: self.theta1_dot,
-            theta2_dot: self.theta2_dot,
-        }
     }
 }
 
@@ -755,6 +742,37 @@ impl<D: AcrobotDynamicsFn + Default> ConstructableEnv for Acrobot<D> {
     }
 }
 
+impl<D: AcrobotDynamicsFn> Sensor<1, 1, 1> for Acrobot<D> {
+    type Action = AcrobotAction;
+    type State = AcrobotState;
+    type Observation = AcrobotObservation;
+
+    /// Projects the resulting state to the 6-D `[cos θ, sin θ, θ̇]` observation;
+    /// the observation is a pure trigonometric function of the state and ignores
+    /// the applied torque.
+    fn observe(&self, _action: &AcrobotAction, next_state: &AcrobotState) -> AcrobotObservation {
+        acrobot_observation(next_state)
+    }
+
+    /// Projects the initial state to the 6-D observation.
+    fn observe_reset(&self, state: &AcrobotState) -> AcrobotObservation {
+        acrobot_observation(state)
+    }
+}
+
+/// Builds the 6-D Acrobot observation `[cos θ1, sin θ1, cos θ2, sin θ2, θ̇1, θ̇2]`
+/// from a state.
+fn acrobot_observation(state: &AcrobotState) -> AcrobotObservation {
+    AcrobotObservation {
+        cos_theta1: state.theta1.cos(),
+        sin_theta1: state.theta1.sin(),
+        cos_theta2: state.theta2.cos(),
+        sin_theta2: state.theta2.sin(),
+        theta1_dot: state.theta1_dot,
+        theta2_dot: state.theta2_dot,
+    }
+}
+
 impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     type StateType = AcrobotState;
     type ObservationType = AcrobotObservation;
@@ -776,7 +794,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -808,10 +826,11 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
         self.steps += 1;
 
         let terminated = Self::is_terminal(&self.state, &self.config);
+        let obs = self.observe(&action, &self.state);
         let snap = if terminated {
-            SnapshotBase::terminated(self.state.observe(), ScalarReward(0.0))
+            SnapshotBase::terminated(obs, ScalarReward(0.0))
         } else {
-            SnapshotBase::running(self.state.observe(), ScalarReward(-1.0))
+            SnapshotBase::running(obs, ScalarReward(-1.0))
         };
         Ok(snap)
     }

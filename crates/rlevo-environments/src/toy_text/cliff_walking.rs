@@ -52,7 +52,9 @@ use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Serialize};
@@ -172,16 +174,8 @@ impl From<CliffWalkingState> for u16 {
 }
 
 impl State<1> for CliffWalkingState {
-    type Observation = CliffWalkingObservation;
-
     fn shape() -> [usize; 1] {
         [NROW as usize * NCOL as usize]
-    }
-
-    fn observe(&self) -> CliffWalkingObservation {
-        CliffWalkingObservation {
-            state_id: self.state_id(),
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -345,6 +339,31 @@ impl ConstructableEnv for CliffWalking {
     }
 }
 
+impl Sensor<1, 1, 1> for CliffWalking {
+    type Action = CliffWalkingAction;
+    type State = CliffWalkingState;
+    type Observation = CliffWalkingObservation;
+
+    /// Projects the resulting state onto its linear grid id; the observation is a
+    /// pure function of the `(row, col)` position and ignores the action.
+    fn observe(
+        &self,
+        _action: &CliffWalkingAction,
+        next_state: &CliffWalkingState,
+    ) -> CliffWalkingObservation {
+        CliffWalkingObservation {
+            state_id: next_state.state_id(),
+        }
+    }
+
+    /// Projects the initial (start) state onto its linear grid id.
+    fn observe_reset(&self, state: &CliffWalkingState) -> CliffWalkingObservation {
+        CliffWalkingObservation {
+            state_id: state.state_id(),
+        }
+    }
+}
+
 impl Environment<1, 1, 1> for CliffWalking {
     type StateType = CliffWalkingState;
     type ObservationType = CliffWalkingObservation;
@@ -359,7 +378,7 @@ impl Environment<1, 1, 1> for CliffWalking {
             col: START.1,
         };
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -381,15 +400,15 @@ impl Environment<1, 1, 1> for CliffWalking {
             // keep the episode running.
             self.state.row = START.0;
             self.state.col = START.1;
-            SnapshotBase::running(self.state.observe(), ScalarReward(-100.0))
+            SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(-100.0))
         } else {
             self.state.row = nr;
             self.state.col = nc;
 
             if (nr, nc) == GOAL {
-                SnapshotBase::terminated(self.state.observe(), ScalarReward(-1.0))
+                SnapshotBase::terminated(self.observe(&action, &self.state), ScalarReward(-1.0))
             } else {
-                SnapshotBase::running(self.state.observe(), ScalarReward(-1.0))
+                SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(-1.0))
             }
         };
 

@@ -1,17 +1,18 @@
 //! Cross-crate proof that an [`Environment`] can expose an observation whose
-//! tensor order differs from its state's order (`R != SR`), driven by the
-//! [`Observable`] projection trait (issue #62, ADR 0019).
+//! tensor order differs from its state's order (`R != SR`), driven by an env-side
+//! [`Sensor`] that delegates to the [`Observable`] projection trait (issue #62,
+//! ADR 0019; the seam moved to `Sensor` in ADR 0047, #329).
 //!
 //! The environment holds a compact rank-1 `MockRamState` and builds every
-//! snapshot from `state.project()` — the rank-2 pixel projection — rather than
-//! `state.observe()`. This is the modality-changing POMDP shape (RAM behind
-//! pixels) that `State::observe()` structurally cannot express. The whole point
-//! is that this compiles and round-trips end-to-end with **no** change to the
-//! `Environment`/`Snapshot` contract.
+//! snapshot from its `Sensor<2, 1, 1>` impl, whose body is `state.project()` —
+//! the rank-2 pixel projection. This is the modality-changing POMDP shape (RAM
+//! behind pixels) with `OR(2) != SR(1)`. The whole point is that this compiles
+//! and round-trips end-to-end with **no** change to the `Environment`/`Snapshot`
+//! contract.
 
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
+    Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::Observable;
@@ -30,20 +31,6 @@ impl Observation<2> for MockRamObservation {
     }
 }
 
-/// Rank-1 "full" observation: the raw RAM byte. Required because `State<1>`
-/// pins its own `observe()` output to rank 1; the modality change lives on the
-/// separate `Observable<2>` impl.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct MockRamByte {
-    byte: u8,
-}
-
-impl Observation<1> for MockRamByte {
-    fn shape() -> [usize; 1] {
-        [1]
-    }
-}
-
 /// Compact rank-1 state: one byte of emulator RAM.
 #[derive(Debug, Clone)]
 struct MockRamState {
@@ -51,14 +38,8 @@ struct MockRamState {
 }
 
 impl State<1> for MockRamState {
-    type Observation = MockRamByte;
-
     fn shape() -> [usize; 1] {
         [1]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        MockRamByte { byte: self.byte }
     }
 
     fn is_valid(&self) -> bool {
@@ -116,6 +97,24 @@ impl ModalityEnv {
     }
 }
 
+/// The env-side emission model: a `Sensor` whose observation rank (2) differs
+/// from the state rank (1), implemented by delegating to the state's
+/// `Observable<2>` projection. This is the post-ADR-0047 realization of the
+/// modality change — the seam is the `Sensor`, the projection is the helper.
+impl Sensor<2, 1, 1> for ModalityEnv {
+    type Action = MockAction;
+    type State = MockRamState;
+    type Observation = MockRamObservation;
+
+    fn observe(&self, _action: &MockAction, next_state: &MockRamState) -> MockRamObservation {
+        next_state.project()
+    }
+
+    fn observe_reset(&self, state: &MockRamState) -> MockRamObservation {
+        state.project()
+    }
+}
+
 impl Environment<2, 1, 1> for ModalityEnv {
     type StateType = MockRamState;
     type ObservationType = MockRamObservation;
@@ -126,9 +125,9 @@ impl Environment<2, 1, 1> for ModalityEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = MockRamState { byte: 0b0000 };
         self.steps = 0;
-        // Build the snapshot from the rank-2 projection, NOT `observe()`.
+        // Build the snapshot from the rank-2 projection via the Sensor.
         Ok(SnapshotBase::running(
-            self.state.project(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -140,7 +139,7 @@ impl Environment<2, 1, 1> for ModalityEnv {
         };
         self.steps += 1;
 
-        let obs = self.state.project();
+        let obs = self.observe(&action, &self.state);
         let reward = ScalarReward(1.0);
         let snap = if self.steps >= 4 {
             SnapshotBase::terminated(obs, reward)

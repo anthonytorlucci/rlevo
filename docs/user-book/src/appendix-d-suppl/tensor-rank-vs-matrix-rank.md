@@ -107,30 +107,47 @@ that, is a case the const generics must be allowed to differ for.
 
 ## How `rlevo` handles each case
 
-The three senses map onto three different mechanisms:
+The three senses map onto three different mechanisms. Since
+[ADR 0047](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0047-sensor-relocates-emission-model-to-environment.md)
+(superseding [ADR 0019](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0019-observable-projection-trait.md)),
+the mechanism that turns a state into an observation is the environment's
+[`Sensor<OR, AR, SR>`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html),
+not a method on `State` — but the three-way split below is unchanged by that
+move, because it was always about *which rank is doing the reducing*, not about
+which trait holds the reduction:
 
 - **Dimensionality / stochastic reduction** (Tiger, grid worlds, RockSample, LQG,
-  contact manipulation) is handled by **`State::observe()`** returning a
-  smaller-`shape`, same-order observation. Because `Observation::shape()` is
-  independent of `State::shape()`, no special machinery is needed — this is the
-  flavour of partial observability `rlevo` models directly, and `R == SR` still
-  holds.
+  contact manipulation) is handled by a **`Sensor`** whose `observe`/`observe_reset`
+  return a smaller-`shape`, same-order observation. Because `Observation::shape()`
+  is independent of `State::shape()`, no special machinery is needed — this is
+  the flavour of partial observability `rlevo` models directly, and `R == SR`
+  still holds.
 - **Matrix-rank reduction** is just a *kind* of dimensionality/information loss; it
-  too is expressed inside `observe()` (or inside a learned encoder). It never forces
-  a tensor-order change.
-- **Modality change** (Atari) is the one case `observe()` cannot express, because
-  `State<SR>` welds its observation to the state's *own* order
-  (`type Observation: Observation<SR>`). That is exactly what the
+  too is expressed inside a `Sensor` (or inside a learned encoder). It never
+  forces a tensor-order change.
+- **Modality change** (Atari) is the one case that alters the tensor order, and
+  it is directly expressible by `Sensor` itself: `Sensor<OR, AR, SR>` already
+  carries `OR` as a rank independent of `SR`, so an environment's sensor can
+  return an observation of any order at all — no companion trait is *required*
+  to change tensor order any more. Where that projection happens to be a pure
+  function of state (no world context needed), though, it is common — and DRY —
+  for the sensor's body to delegate to a helper: the
   [`Observable<OR>`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
-  projection trait is for: it lets a state `project()` into an observation of a
-  *different* tensor order $OR \neq SR$. The
-  [Environments chapter](../part-1-foundations/reinforcement-learning/34-environment.md) walks through how
-  an environment wires this up.
+  trait, via `state.project()`. `rlevo`'s `pixel_grid` environment is the
+  reference for that pattern — `PixelGridState: Observable<3>` holds the
+  projection body, and `PixelGridEnv: Sensor<3, 1, 1>` simply forwards to
+  `next_state.project()`. Before ADR 0047, `Observable` was the *only* escape
+  from `State::observe()`'s same-rank binding (ADR 0019); now it is a
+  convenience for keeping a state-pure projection in one place, not the
+  mechanism that makes the rank change possible. The
+  [Environments chapter](../part-1-foundations/reinforcement-learning/34-environment.md)
+  walks through how an environment wires a `Sensor` up.
 
-The one-line takeaway: **partial observability is almost always a dimensionality or
-matrix-rank reduction at constant tensor order — handled by `observe()`. Only a
-modality change alters the tensor order, and that is the niche `Observable<OR>`
-exists to fill.**
+The one-line takeaway: **partial observability is almost always a dimensionality
+or matrix-rank reduction at constant tensor order — handled inside a `Sensor`.
+A modality change is directly expressible by `Sensor`'s own `OR` parameter;
+`Observable<OR>` remains a convenience helper for the case where that projection
+is a pure function of state.**
 
 ---
 

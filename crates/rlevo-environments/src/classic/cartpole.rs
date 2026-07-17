@@ -138,7 +138,7 @@ use rlevo_core::{
     action::DiscreteAction,
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -346,8 +346,6 @@ impl CartPoleState {
 }
 
 impl State<1> for CartPoleState {
-    type Observation = CartPoleObservation;
-
     fn shape() -> [usize; 1] {
         [4]
     }
@@ -360,15 +358,6 @@ impl State<1> for CartPoleState {
             && self.x_dot.is_finite()
             && self.theta.is_finite()
             && self.theta_dot.is_finite()
-    }
-
-    fn observe(&self) -> CartPoleObservation {
-        CartPoleObservation {
-            cart_pos: self.x,
-            cart_vel: self.x_dot,
-            pole_angle: self.theta,
-            pole_ang_vel: self.theta_dot,
-        }
     }
 }
 
@@ -604,6 +593,33 @@ impl ConstructableEnv for CartPole {
     }
 }
 
+impl Sensor<1, 1, 1> for CartPole {
+    type Action = CartPoleAction;
+    type State = CartPoleState;
+    type Observation = CartPoleObservation;
+
+    /// Projects the resulting state directly onto the 4-D observation
+    /// `[x, ẋ, θ, θ̇]`; the observation ignores the applied force.
+    fn observe(&self, _action: &CartPoleAction, next_state: &CartPoleState) -> CartPoleObservation {
+        cartpole_observation(next_state)
+    }
+
+    /// Projects the initial state onto the 4-D observation.
+    fn observe_reset(&self, state: &CartPoleState) -> CartPoleObservation {
+        cartpole_observation(state)
+    }
+}
+
+/// Builds the 4-D CartPole observation `[x, ẋ, θ, θ̇]` from a state.
+fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
+    CartPoleObservation {
+        cart_pos: state.x,
+        cart_vel: state.x_dot,
+        pole_angle: state.theta,
+        pole_ang_vel: state.theta_dot,
+    }
+}
+
 impl Environment<1, 1, 1> for CartPole {
     type StateType = CartPoleState;
     type ObservationType = CartPoleObservation;
@@ -625,7 +641,7 @@ impl Environment<1, 1, 1> for CartPole {
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -655,10 +671,11 @@ impl Environment<1, 1, 1> for CartPole {
             ScalarReward(1.0)
         };
 
+        let obs = self.observe(&action, &self.state);
         let snap = if terminated {
-            SnapshotBase::terminated(self.state.observe(), reward)
+            SnapshotBase::terminated(obs, reward)
         } else {
-            SnapshotBase::running(self.state.observe(), reward)
+            SnapshotBase::running(obs, reward)
         };
         Ok(snap)
     }

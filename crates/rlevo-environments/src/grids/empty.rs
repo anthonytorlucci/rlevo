@@ -58,10 +58,10 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::State;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
+use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -284,9 +284,9 @@ impl EmptyEnv {
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
         if done {
-            SnapshotBase::terminated(self.state.observe(), ScalarReward::new(reward))
+            SnapshotBase::terminated(self.state.project(), ScalarReward::new(reward))
         } else {
-            SnapshotBase::running(self.state.observe(), ScalarReward::new(reward))
+            SnapshotBase::running(self.state.project(), ScalarReward::new(reward))
         }
     }
 }

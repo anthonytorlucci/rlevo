@@ -14,7 +14,7 @@ use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::environment::{
-    Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase,
+    Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
 use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
@@ -62,20 +62,12 @@ struct WalkState {
 }
 
 impl State<1> for WalkState {
-    type Observation = WalkObservation;
-
     fn shape() -> [usize; 1] {
         [1]
     }
 
     fn is_valid(&self) -> bool {
         (0..=6).contains(&self.position)
-    }
-
-    fn observe(&self) -> Self::Observation {
-        WalkObservation {
-            position: self.position,
-        }
     }
 }
 
@@ -196,6 +188,24 @@ impl RandomWalkEnv {
     }
 }
 
+impl Sensor<1, 1, 1> for RandomWalkEnv {
+    type Action = WalkAction;
+    type State = WalkState;
+    type Observation = WalkObservation;
+
+    fn observe(&self, _action: &WalkAction, next_state: &WalkState) -> WalkObservation {
+        WalkObservation {
+            position: next_state.position,
+        }
+    }
+
+    fn observe_reset(&self, state: &WalkState) -> WalkObservation {
+        WalkObservation {
+            position: state.position,
+        }
+    }
+}
+
 impl Environment<1, 1, 1> for RandomWalkEnv {
     type StateType = WalkState;
     type ObservationType = WalkObservation;
@@ -209,7 +219,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
         };
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             WalkReward::zero(),
         ))
     }
@@ -225,7 +235,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
         if next < 0 {
             self.state = WalkState { position: 0 };
             return Ok(SnapshotBase::terminated(
-                self.state.observe(),
+                self.observe(&action, &self.state),
                 WalkReward(-1.0),
             ));
         }
@@ -234,7 +244,7 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
                 position: Self::GOAL,
             };
             return Ok(SnapshotBase::terminated(
-                self.state.observe(),
+                self.observe(&action, &self.state),
                 WalkReward(1.0),
             ));
         }
@@ -243,12 +253,12 @@ impl Environment<1, 1, 1> for RandomWalkEnv {
 
         if self.steps >= Self::MAX_STEPS {
             Ok(SnapshotBase::truncated(
-                self.state.observe(),
+                self.observe(&action, &self.state),
                 WalkReward::zero(),
             ))
         } else {
             Ok(SnapshotBase::running(
-                self.state.observe(),
+                self.observe(&action, &self.state),
                 WalkReward::zero(),
             ))
         }

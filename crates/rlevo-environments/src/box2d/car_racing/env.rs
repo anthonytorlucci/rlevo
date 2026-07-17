@@ -51,7 +51,7 @@ use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -97,7 +97,6 @@ pub struct CarRacing {
     track: Track,
     config: CarRacingConfig,
     rng: StdRng,
-    rasterizer: Rasterizer,
     steps: usize,
 }
 
@@ -122,12 +121,10 @@ impl CarRacing {
                 tiles_visited: 0,
                 total_tiles: track.tiles.len(),
                 lap_complete: false,
-                last_obs: CarRacingObservation::default(),
             },
             track,
             config,
             rng,
-            rasterizer: Rasterizer::new(),
             steps: 0,
         };
         env.build_world();
@@ -266,22 +263,33 @@ impl CarRacing {
         tile_reward
     }
 
-    fn render_frame(&mut self) -> CarRacingObservation {
+    /// Rasterize the 96×96×3 pixel observation for `state` from the live world.
+    ///
+    /// This is the emission model driving the env-side [`Sensor`]: it reads the
+    /// car pose from `state` and the world it indexes into, draws the track
+    /// tiles and the car into a fresh per-frame [`Rasterizer`], and moves the
+    /// buffer out into the observation. It is recomputed on demand each
+    /// `reset()` / `step()`, not cached on the state.
+    fn render_frame(&self, state: &CarRacingState) -> CarRacingObservation {
         let car_pos = self
             .world
             .bodies()
-            .get(self.state.car_handle)
+            .get(state.car_handle)
             .map(|b| [b.translation().x, b.translation().y])
             .unwrap_or([0.0; 2]);
         let car_angle = self
             .world
             .bodies()
-            .get(self.state.car_handle)
+            .get(state.car_handle)
             .map(|b| b.rotation().angle())
             .unwrap_or(0.0);
 
+        // The rasterizer is a per-frame scratch buffer, so it lives as a local
+        // here rather than as env state — this keeps the sensor `&self`.
+        let mut rasterizer = Rasterizer::new();
+
         // Background: green grass
-        self.rasterizer.clear([102, 204, 102]);
+        rasterizer.clear([102, 204, 102]);
 
         let scale = FRAME_SIZE as f32 / VIEWPORT_W;
         let cx = FRAME_SIZE as f32 / 2.0;
@@ -298,7 +306,7 @@ impl CarRacing {
         for tile in &self.track.tiles {
             let px_verts: Vec<[f32; 2]> =
                 tile.vertices.iter().map(|v| to_pixel(v[0], v[1])).collect();
-            self.rasterizer.fill_polygon(&px_verts, tile.color);
+            rasterizer.fill_polygon(&px_verts, tile.color);
         }
 
         // Draw car (white rectangle)
@@ -316,14 +324,13 @@ impl CarRacing {
                 to_pixel(wx, wy)
             })
             .collect();
-        self.rasterizer.fill_polygon(&car_px, [255, 255, 255]);
+        rasterizer.fill_polygon(&car_px, [255, 255, 255]);
 
         // PERF(#115): zero-copy hand-off — move the rasterizer's buffer into the
-        // observation instead of copying it twice. The residual cost is one
-        // Box->Arc header-prepend copy in `from_boxed`; a future Arc-in-rasterizer
-        // design (get_mut on a shared buffer) could retire even that if profiling
-        // ever justifies the added write-path surface.
-        CarRacingObservation::from_boxed(self.rasterizer.take_pixels())
+        // observation instead of copying it. The residual cost is one Box->Arc
+        // header-prepend copy in `from_boxed` (an `Arc` must prepend a refcount
+        // header, so the box allocation cannot be reused).
+        CarRacingObservation::from_boxed(rasterizer.take_pixels())
     }
 
     /// Borrow the internal physics state for in-crate invariant tests.
@@ -350,6 +357,24 @@ impl ConstructableEnv for CarRacing {
     }
 }
 
+impl Sensor<3, 1, 3> for CarRacing {
+    type Action = CarRacingAction;
+    type State = CarRacingState;
+    type Observation = CarRacingObservation;
+
+    /// Emit the 96×96×3 pixel frame for `next_state` by rasterizing the live
+    /// world. The action does not affect the rendered frame; it is accepted to
+    /// satisfy the [`Sensor`] contract.
+    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
+        self.render_frame(next_state)
+    }
+
+    /// Emit the initial pixel frame at episode start from the reset `state`.
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
+        self.render_frame(state)
+    }
+}
+
 impl Environment<3, 3, 1> for CarRacing {
     type StateType = CarRacingState;
     type ObservationType = CarRacingObservation;
@@ -361,8 +386,7 @@ impl Environment<3, 3, 1> for CarRacing {
         self.track = Track::generate(&self.config, &mut self.rng);
         self.state.total_tiles = self.track.tiles.len();
         self.build_world();
-        let obs = self.render_frame();
-        self.state.last_obs = obs.clone();
+        let obs = self.observe_reset(&self.state);
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after reset"
@@ -396,8 +420,7 @@ impl Environment<3, 3, 1> for CarRacing {
             EpisodeStatus::Running
         };
 
-        let obs = self.render_frame();
-        self.state.last_obs = obs.clone();
+        let obs = self.observe(&action, &self.state);
         debug_assert!(
             self.state.is_valid(),
             "CarRacingState invariant violated after step"

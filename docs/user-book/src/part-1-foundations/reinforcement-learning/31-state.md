@@ -13,22 +13,21 @@ falls over in the real world. `rlevo` makes the boundary a type-level wall so
 you have to cross it on purpose.
 
 So the spine of this chapter is that wall, walked from one side to the other:
-the two traits that name each side, the `observe()` seam that crosses it (and
-quietly decides MDP vs POMDP), the `TensorConvertible` bridge that only the
-*visible* side gets, the validation that keeps both sides honest, and finally the
-higher-level traits for the cases where one observation is not enough.
+the two traits that name each side, the [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+seam that crosses it (and quietly decides MDP vs POMDP), the `TensorConvertible`
+bridge that only the *visible* side gets, the validation that keeps both sides
+honest, and finally the higher-level traits for the cases where one observation
+is not enough.
 
-## Two traits, one rank
+## Two traits, two homes
 
 The relevant definitions live in `rlevo::core::base`:
 
 ```rust
 pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     const RANK: usize = R;
-    type Observation: Observation<R>;
 
     fn shape() -> [usize; R];          // cardinality of each axis
-    fn observe(&self) -> Self::Observation;
     fn is_valid(&self) -> bool;
     fn numel(&self) -> usize {         // defaults to the product of shape()
         Self::shape().iter().product()
@@ -43,9 +42,22 @@ pub trait Observation<const R: usize>:
 }
 ```
 
-A `State` *owns* its `Observation` type (`type Observation: Observation<R>`),
-and the two share the same const generic `R`. So before anything else, we have
-to be precise about what `R` is.
+Notice what is missing compared with earlier `rlevo` releases: `State` no longer
+owns a `type Observation` and no longer has an `observe()` method. That is not an
+oversight — it is the point of this chapter. In the POMDP tuple
+\\(\langle \mathcal{S}, \mathcal{A}, T, R, \Omega, O \rangle\\), the emission
+model \\(O\\) that turns a state into an observation is a property of the
+*problem* (the environment), not of a single point \\(s \in \mathcal{S}\\).
+`State<R>` now carries only what genuinely belongs to a point in state space:
+its rank, `shape()`, `numel()`, and `is_valid()`. We come back to where `O` lives
+instead in the next section. (ADR 0047, superseding
+[ADR 0019](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0019-observable-projection-trait.md).)
+
+Before anything else, though, we have to be precise about what `R` is — it
+appears on both traits, but the two `R`s are independent const generics with no
+structural link between them at this level (a state of rank `1` does not imply
+its observation is also rank `1`; that link, when it exists, is made by the
+trait we meet next).
 
 ### `R` is the rank, not the size
 
@@ -79,17 +91,55 @@ be explicit; the default would give the same answer).
 > `Action`, and `TensorConvertible` traits — see the [overview](00-overview.md)
 > for the rationale.
 
-## The state/observation split
+## The state/observation split: the `Sensor` seam
 
-`State::observe()` is the seam. It takes the full state and produces what the
-agent perceives. Whether that is a lossless view or a lossy projection is
-entirely up to your implementation — and that single choice decides whether you
-are modelling an MDP or a POMDP.
+If `State` no longer produces an observation, something has to. That something
+is [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html),
+defined in `rlevo::core::environment` and implemented on the **environment**,
+not on the state:
 
-**Full observability (an MDP).** When `observe()` preserves all the information
-needed for the Markov property, state and observation carry the same content.
-CartPole is the canonical example — its state is four real numbers and its
-observation is the same four numbers:
+```rust
+pub trait Sensor<const OR: usize, const AR: usize, const SR: usize> {
+    type Action: Action<AR>;
+    type State: State<SR>;
+    type Observation: Observation<OR>;
+
+    fn observe(&self, action: &Self::Action, next_state: &Self::State) -> Self::Observation;
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation;
+}
+```
+
+`Sensor` is the seam. It takes an action and the state that resulted from it
+and produces what the agent perceives — `observe(a, s')`, the canonical
+emission model \\(O\\). `reset()` has no preceding action, so a companion
+`observe_reset` produces the very first observation from the initial state
+alone; an environment whose observation ignores the action typically forwards
+both methods to the same body.
+
+Two things about the signature are worth dwelling on:
+
+- **`&self` is the environment.** A bare state value cannot see the simulator
+  world it lives in — no physics geometry to raycast against, no rendered frame
+  to sample. Because `Sensor` is implemented on the environment struct, its
+  methods have direct access to that world context. This is what let `rlevo`
+  retire the old workaround of caching a lidar reading or a rendered frame onto
+  the state purely so a `&self`-only `observe()` could return it.
+- **The observation rank `OR` is a free parameter.** It is not required to equal
+  the state rank `SR`. Most environments' sensors are same-rank projections
+  (`OR == SR`), but a sensor is free to observe a compact state through a
+  higher-rank modality — the pixel-observation case the
+  [Environments chapter](34-environment.md) and
+  [Appendix D](../../appendix-d-suppl/tensor-rank-vs-matrix-rank.md) develop
+  further.
+
+Whether the sensor preserves all the information needed for the Markov property
+or throws some of it away is entirely up to your implementation — and that
+single choice decides whether you are modelling an MDP or a POMDP.
+
+**Full observability (an MDP).** When a sensor's `observe`/`observe_reset`
+preserve all the information a state carries, state and observation carry the
+same content. CartPole is the canonical example — its state is four real numbers
+and its observation is the same four numbers:
 
 ```rust
 pub struct CartPoleState {
@@ -100,8 +150,6 @@ pub struct CartPoleState {
 }
 
 impl State<1> for CartPoleState {
-    type Observation = CartPoleObservation;
-
     fn shape() -> [usize; 1] { [4] }
     fn numel(&self) -> usize { 4 }
 
@@ -109,23 +157,43 @@ impl State<1> for CartPoleState {
         self.x.is_finite() && self.x_dot.is_finite()
             && self.theta.is_finite() && self.theta_dot.is_finite()
     }
+}
 
-    fn observe(&self) -> CartPoleObservation {
-        CartPoleObservation {
-            cart_pos:     self.x,
-            cart_vel:     self.x_dot,
-            pole_angle:   self.theta,
-            pole_ang_vel: self.theta_dot,
-        }
+impl Sensor<1, 1, 1> for CartPole {
+    type Action = CartPoleAction;
+    type State = CartPoleState;
+    type Observation = CartPoleObservation;
+
+    // The observation ignores the action; both methods forward to one
+    // shared free function so their bodies cannot drift apart.
+    fn observe(&self, _action: &CartPoleAction, next_state: &CartPoleState) -> CartPoleObservation {
+        cartpole_observation(next_state)
+    }
+
+    fn observe_reset(&self, state: &CartPoleState) -> CartPoleObservation {
+        cartpole_observation(state)
+    }
+}
+
+fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
+    CartPoleObservation {
+        cart_pos:     state.x,
+        cart_vel:     state.x_dot,
+        pole_angle:   state.theta,
+        pole_ang_vel: state.theta_dot,
     }
 }
 ```
 
-Here `observe()` is essentially a rename — every state field flows into the
+Here the sensor is essentially a rename — every state field flows into the
 observation. The agent sees everything; the Markov property holds; classical
-value-based methods are on solid ground.
+value-based methods are on solid ground. Note the shared free function: since
+the observation ignores the action entirely, both `Sensor` methods forward to
+the same body rather than duplicating it — the pattern the trait's own
+documentation recommends for sensors that do not care which action produced the
+state.
 
-**Partial observability (a POMDP).** Now suppose `observe()` dropped the two
+**Partial observability (a POMDP).** Now suppose the sensor dropped the two
 velocity fields and returned only `cart_pos` and `pole_angle`. The agent can no
 longer tell a pole falling left from one swinging back toward centre — two
 genuinely different states produce an identical observation. A single
@@ -135,8 +203,10 @@ state (more on that below).
 
 > **The takeaway.** The MDP-vs-POMDP question is not a property of the
 > environment in the abstract — it is a property of *what you choose to return
-> from `observe()`*. `rlevo` makes you write that function, so the choice is
-> explicit and reviewable rather than buried in a `gym.make` flag.
+> from your `Sensor`*. `rlevo` makes you write that function, so the choice is
+> explicit and reviewable rather than buried in a `gym.make` flag. This is also
+> why the choice moved off `State`: full/partial observability is a fact about
+> how the *problem* emits observations, not a fact about any one state value.
 
 ### Why only `Observation` is serialisable
 
@@ -258,7 +328,7 @@ that are still on the roadmap.
 | ----- | ------- | ------ |
 | `MarkovState` | Declares whether a representation is Markov (`is_markov() -> bool`, default `true`) | Used as a bound on the RL history representation in `rlevo::rl::experience` |
 | `HiddenState` | Recurrent agent memory (an RNN/GRU/LSTM `h_t`): `update(obs)` / `reset()` | Defined; for recurrent policies |
-| `BeliefState` | A probability distribution over true states, updated by Bayes' rule from `(action, observation)` | Defined; for POMDP belief tracking |
+| `BeliefState` | A probability distribution over true states, updated by Bayes' rule from `(action, observation)`; carries its own `Observation` associated type (independent of any `State`'s rank, mirroring `HiddenState`/`LatentState`) | Defined; for POMDP belief tracking |
 | `LatentState` | A learned compact representation with `encode` / `predict_next` / `decode` | Defined; for world-model agents (DreamerV3-style) |
 | `StateAggregation` | Maps concrete states to abstract representatives for function approximation / hierarchical RL | Defined |
 
@@ -275,9 +345,13 @@ before building on them.
 The mental model to carry into the rest of the book:
 
 - A **`State`** is the environment's full, Markov account of the world. It stays
-  inside the environment.
-- **`observe()`** projects it to an **`Observation`** — the only thing the agent
-  sees, and the only thing that gets serialised into a replay buffer.
+  inside the environment and, since ADR 0047, knows nothing about how it is
+  observed — no `observe()`, no `type Observation`.
+- The environment implements **[`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)**,
+  whose `observe(a, s')` / `observe_reset(s)` project a state into an
+  **`Observation`** — the only thing the agent sees, and the only thing that
+  gets serialised into a replay buffer. `&self` being the environment is what
+  lets a sensor read world context a bare state value never could.
 - **`TensorConvertible`** turns that observation into a Burn tensor for the
   network, with a round-trip guarantee.
 - **`is_valid()`** keeps every value structurally honest, and `StateError`

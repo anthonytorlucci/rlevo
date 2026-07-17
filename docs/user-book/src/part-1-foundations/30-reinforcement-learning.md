@@ -100,9 +100,7 @@ Process** (MDP), the tuple \\((\mathcal{S}, \mathcal{A}, P, R, \gamma)\\):
 >
 > ```rust
 > pub trait State<const R: usize>: Debug + Clone + Send + Sync {
->     type Observation: Observation<R>;
 >     fn shape() -> [usize; R];      // cardinality of each axis
->     fn observe(&self) -> Self::Observation;
 >     fn is_valid(&self) -> bool;
 > }
 >
@@ -115,9 +113,12 @@ Process** (MDP), the tuple \\((\mathcal{S}, \mathcal{A}, P, R, \gamma)\\):
 > We split `State` from `Observation` on purpose, and the reason is exactly the
 > credit-assignment story: a `State` holds the *full* information the Markov
 > property needs, while an `Observation` is only what the agent *actually sees*,
-> which may be partial. Fully observable environments hand back an observation
-> that is just a flattened view of the state; partially observable ones project
-> out only the visible features.
+> which may be partial. Producing one from the other is the environment's job —
+> a dedicated [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+> trait, detailed in [State and Observation Spaces](reinforcement-learning/31-state.md)
+> — not something a `State` value computes for itself. A fully observable
+> environment's sensor hands back an observation that is just a flattened view of
+> the state; a partially observable one projects out only the visible features.
 
 The assumption itself is the **Markov property**: \\(P(s_{t+1} \mid s_t, a_t) =
 P(s_{t+1} \mid s_0, a_0, \ldots, s_t, a_t)\\) — the future depends only on the
@@ -135,10 +136,10 @@ an initial `Snapshot` carrying the first `Observation`, and `step(action)`
 returns a `Snapshot` with the next `Observation`, the `Reward`, and a
 `terminated` flag. The full state — the part that has to satisfy the Markov
 property internally — lives inside the environment struct and is never exposed to
-the agent; only the observation from `State::observe()` crosses the boundary.
-That boundary keeps the agent honest about what it can actually know, so an agent
-you train cannot accidentally cheat by reading state it would not have at
-deployment.
+the agent; only the observation the environment's `Sensor` produces ever crosses
+the boundary. That boundary keeps the agent honest about what it can actually
+know, so an agent you train cannot accidentally cheat by reading state it would
+not have at deployment.
 
 ## Value Functions and the Bellman Equation
 

@@ -84,7 +84,7 @@ use rlevo_core::{
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -169,8 +169,6 @@ pub struct MountainCarState {
 }
 
 impl State<1> for MountainCarState {
-    type Observation = MountainCarObservation;
-
     fn shape() -> [usize; 1] {
         [2]
     }
@@ -180,13 +178,6 @@ impl State<1> for MountainCarState {
 
     fn is_valid(&self) -> bool {
         self.position.is_finite() && self.velocity.is_finite()
-    }
-
-    fn observe(&self) -> MountainCarObservation {
-        MountainCarObservation {
-            position: self.position,
-            velocity: self.velocity,
-        }
     }
 }
 
@@ -377,6 +368,35 @@ impl ConstructableEnv for MountainCar {
     }
 }
 
+impl Sensor<1, 1, 1> for MountainCar {
+    type Action = MountainCarAction;
+    type State = MountainCarState;
+    type Observation = MountainCarObservation;
+
+    /// Projects the resulting state directly onto the 2-D `[position, velocity]`
+    /// observation; the observation ignores the chosen action.
+    fn observe(
+        &self,
+        _action: &MountainCarAction,
+        next_state: &MountainCarState,
+    ) -> MountainCarObservation {
+        mountain_car_observation(next_state)
+    }
+
+    /// Projects the initial state onto the 2-D observation.
+    fn observe_reset(&self, state: &MountainCarState) -> MountainCarObservation {
+        mountain_car_observation(state)
+    }
+}
+
+/// Builds the 2-D MountainCar observation `[position, velocity]` from a state.
+fn mountain_car_observation(state: &MountainCarState) -> MountainCarObservation {
+    MountainCarObservation {
+        position: state.position,
+        velocity: state.velocity,
+    }
+}
+
 impl Environment<1, 1, 1> for MountainCar {
     type StateType = MountainCarState;
     type ObservationType = MountainCarObservation;
@@ -398,7 +418,7 @@ impl Environment<1, 1, 1> for MountainCar {
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -418,10 +438,11 @@ impl Environment<1, 1, 1> for MountainCar {
         self.steps += 1;
 
         let terminated = Self::is_terminal(&self.state, &self.config);
+        let obs = self.observe(&action, &self.state);
         let snap = if terminated {
-            SnapshotBase::terminated(self.state.observe(), ScalarReward(-1.0))
+            SnapshotBase::terminated(obs, ScalarReward(-1.0))
         } else {
-            SnapshotBase::running(self.state.observe(), ScalarReward(-1.0))
+            SnapshotBase::running(obs, ScalarReward(-1.0))
         };
         Ok(snap)
     }

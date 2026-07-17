@@ -24,14 +24,13 @@ pub struct InvertedDoublePendulumState {
     /// Impulse-joint handle connecting pole1 to pole2.
     pub joint2: ImpulseJointHandle,
     /// Most recent observation extracted from the physics world. Populated by
-    /// `extract_observation` after each `reset` or `step`; used by
-    /// `State::observe` and `State::is_valid`.
+    /// the env-side [`Sensor`](rlevo_core::environment::Sensor) after each
+    /// `reset` or `step`; read only by [`State::is_valid`] to detect physics
+    /// divergence (ADR 0047 moved observation production off the state).
     pub last_obs: InvertedDoublePendulumObservation,
 }
 
 impl State<1> for InvertedDoublePendulumState {
-    type Observation = InvertedDoublePendulumObservation;
-
     fn shape() -> [usize; 1] {
         [9]
     }
@@ -41,9 +40,5 @@ impl State<1> for InvertedDoublePendulumState {
     /// an uninitialised state.
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> InvertedDoublePendulumObservation {
-        self.last_obs
     }
 }

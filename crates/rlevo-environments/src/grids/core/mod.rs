@@ -70,10 +70,10 @@ pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 /// needs the episode mission (see the [`GridSnapshot`] docs and ADR 0043).
 #[must_use]
 pub fn build_snapshot(state: &GridState, reward: f32, done: bool) -> GridSnapshot {
-    use rlevo_core::base::State as _;
+    use rlevo_core::state::Observable as _;
     if done {
-        SnapshotBase::terminated(state.observe(), ScalarReward::new(reward))
+        SnapshotBase::terminated(state.project(), ScalarReward::new(reward))
     } else {
-        SnapshotBase::running(state.observe(), ScalarReward::new(reward))
+        SnapshotBase::running(state.project(), ScalarReward::new(reward))
     }
 }

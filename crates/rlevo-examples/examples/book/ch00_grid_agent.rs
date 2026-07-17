@@ -28,6 +28,7 @@ use burn::backend::Flex;
 use burn::tensor::{Tensor, backend::Backend};
 use rlevo_core::action::{DiscreteAction, MultiDiscreteAction};
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 
 /// Concrete backend used for tensor demonstrations in `main`.
@@ -165,7 +166,7 @@ impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
 /// Full environment state: position, facing, and grid bounds.
 ///
 /// `width` and `height` are exclusive upper bounds. They are hidden from
-/// the agent — [`observe`](AgentState::observe) omits them.
+/// the agent — the [`Observable`] projection omits them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentState {
     x: i32,
@@ -178,18 +179,8 @@ struct AgentState {
 }
 
 impl State<1> for AgentState {
-    type Observation = AgentObservation;
-
     fn shape() -> [usize; 1] {
         [3]
-    }
-
-    fn observe(&self) -> AgentObservation {
-        AgentObservation {
-            x: self.x,
-            y: self.y,
-            facing: self.facing,
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -197,6 +188,25 @@ impl State<1> for AgentState {
     }
 }
 // ANCHOR_END: state
+
+// ANCHOR: observable
+// Observation production lives off `State` (ADR 0047): it is the environment's
+// job, exposed through the `Sensor` trait. Where the observation is a pure
+// function of the state — as here, dropping the hidden `width`/`height` bounds —
+// the projection can live on the optional `Observable` helper that a `Sensor`
+// may delegate to.
+impl Observable<1> for AgentState {
+    type Observation = AgentObservation;
+
+    fn project(&self) -> AgentObservation {
+        AgentObservation {
+            x: self.x,
+            y: self.y,
+            facing: self.facing,
+        }
+    }
+}
+// ANCHOR_END: observable
 
 // ─── Discrete action ─────────────────────────────────────────────────────────
 
@@ -377,7 +387,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── 2. Observation + tensor round-trip ──────────────────────────────────
     println!("\n=== Observation + tensor round-trip ===");
-    let obs = state.observe();
+    let obs = state.project();
     println!("obs                          = {obs:?}");
     println!("AgentObservation::RANK       = {}", AgentObservation::RANK);
     println!(
@@ -436,7 +446,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         MoveAction::Forward,   // y: 0→-1  out-of-bounds
     ];
     for action in sequence {
-        let obs_before = s.observe();
+        let obs_before = s.project();
         let next = step(&s, action);
         let valid = next.is_valid();
         println!(

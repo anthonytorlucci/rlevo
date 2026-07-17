@@ -43,7 +43,7 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State};
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Snapshot, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -211,18 +211,8 @@ pub struct BlackjackState {
 }
 
 impl State<1> for BlackjackState {
-    type Observation = BlackjackObservation;
-
     fn shape() -> [usize; 1] {
         [3]
-    }
-
-    fn observe(&self) -> BlackjackObservation {
-        BlackjackObservation {
-            player_sum: self.player_sum,
-            dealer_showing: self.dealer_showing,
-            usable_ace: u8::from(self.usable_ace),
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -371,6 +361,37 @@ impl ConstructableEnv for Blackjack {
     }
 }
 
+impl Sensor<1, 1, 1> for Blackjack {
+    type Action = BlackjackAction;
+    type State = BlackjackState;
+    type Observation = BlackjackObservation;
+
+    /// Projects the resulting state onto the `(player_sum, dealer_showing,
+    /// usable_ace)` observation; the observation ignores which action was taken.
+    fn observe(
+        &self,
+        _action: &BlackjackAction,
+        next_state: &BlackjackState,
+    ) -> BlackjackObservation {
+        blackjack_observation(next_state)
+    }
+
+    /// Projects the initial dealt state onto the observation.
+    fn observe_reset(&self, state: &BlackjackState) -> BlackjackObservation {
+        blackjack_observation(state)
+    }
+}
+
+/// Builds the `(player_sum, dealer_showing, usable_ace)` observation from a
+/// state, encoding `usable_ace` as `1`/`0`.
+fn blackjack_observation(state: &BlackjackState) -> BlackjackObservation {
+    BlackjackObservation {
+        player_sum: state.player_sum,
+        dealer_showing: state.dealer_showing,
+        usable_ace: u8::from(state.usable_ace),
+    }
+}
+
 impl Environment<1, 1, 1> for Blackjack {
     type StateType = BlackjackState;
     type ObservationType = BlackjackObservation;
@@ -382,7 +403,7 @@ impl Environment<1, 1, 1> for Blackjack {
         self.guard.reset();
         self.deal_initial();
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -451,7 +472,7 @@ impl Environment<1, 1, 1> for Blackjack {
 
         self.apply_sab_override(&mut reward, &mut done);
 
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
         // Build the snapshot once and record *its* status, so the guard can never
         // disagree with the snapshot the caller was handed.
         let snapshot = if done {

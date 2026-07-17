@@ -27,8 +27,10 @@ all of the primary traits (`State<R>`, `Observation<R>`, and `Action<R>`).
 Think of `R` as your safety rail. A rank-1 value is a flat vector, a rank-2 value
 a matrix, and so on; the rank is fixed at the type level. If you define a state as
 a flat vector and later try to treat it as a matrix, the compiler stops you before
-a single tensor is ever allocated — a `State<1>` and its `Observation<1>` must
-agree on rank, and any mismatch is a compile error rather than a runtime surprise.
+a single tensor is ever allocated. `State<R>` and `Observation<R>` are separate
+traits with independent rank parameters — nothing forces a `State<1>` to be
+observed at rank `1` — but wherever a network expects a specific rank, feeding it
+the wrong one is a compile error rather than a runtime surprise.
 
 Each trait exposes its rank two ways: the associated constant `RANK`, and a
 `shape()` method that returns the per-axis extents as `[usize; R]`. The grid agent
@@ -87,25 +89,39 @@ conversion logic.
 
 If the observation is what the agent perceives, the
 [`State`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.State.html) is
-what the world *is*. The `State` trait owns the information the agent must not
-see — here, the grid's boundaries.
+what the world *is*. `State` owns the information the agent must not see —
+here, the grid's boundaries:
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_grid_agent.rs:state}}
 ```
 
-We use `State` to tie three responsibilities together:
+`State` on its own does only two things: `shape()` names the tensor layout, and
+`is_valid` enforces the world's invariants — a position is legal only while it
+sits inside the grid's dimensions. It also gives you `numel` for free: a default
+method that multiplies the entries of `shape()` to report the total element
+count — `3` for this state.
 
-1. Its associated type names which `Observation` it projects into.
-2. The `observe()` method performs that projection, deliberately dropping `width`
-   and `height` so the bounds stay hidden.
-3. The `is_valid` method enforces the world's invariants — a position is legal
-   only while it sits inside the grid's dimensions.
+Notice what `AgentState` does *not* do: it says nothing about how an
+`AgentObservation` is produced. Since [ADR 0047](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0047-sensor-relocates-emission-model-to-environment.md),
+`State` carries no `observe()` method — projecting a state down to what the
+agent perceives is the environment's job, through a dedicated
+[`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+trait. Where that projection is a pure function of the state, as it is here, it
+is idiomatic for a `Sensor` to delegate to the optional
+[`Observable`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
+helper rather than duplicate the projection body inline:
 
-The trait also gives you `numel` for free: a default method that multiplies the
-entries of `shape()` to report the total element count — `3` for this state. This
-distinction between full state and partial observation is the primary seam `rlevo`
-uses to model partially observable problems throughout the library.
+```rust,no_run
+{{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_grid_agent.rs:observable}}
+```
+
+`Observable::project` is where the `width`/`height` bounds are deliberately
+dropped — the agent never sees them, only its own `(x, y, facing)`. This
+distinction between full state and partial observation is the primary seam
+`rlevo` uses to model partially observable problems throughout the library; the
+[State and Observation Spaces](part-1-foundations/reinforcement-learning/31-state.md#the-stateobservation-split-the-sensor-seam)
+chapter develops the `Sensor` side of that seam in full.
 
 ## DiscreteAction — one choice from a finite set
 

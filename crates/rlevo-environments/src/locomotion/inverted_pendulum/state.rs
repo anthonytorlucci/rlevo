@@ -21,22 +21,19 @@ pub struct InvertedPendulumState {
     /// about the world-y axis.
     pub joint: ImpulseJointHandle,
     /// Most recently extracted observation; updated after every `step()` and
-    /// after `reset()`. Used by [`State::observe`] without an extra world query.
+    /// after `reset()`. Read by [`State::is_valid`] to detect physics
+    /// divergence without an extra world query. The observation itself is now
+    /// produced by the env-side [`Sensor`](rlevo_core::environment::Sensor)
+    /// (ADR 0047), not by this state.
     pub last_obs: InvertedPendulumObservation,
 }
 
 impl State<1> for InvertedPendulumState {
-    type Observation = InvertedPendulumObservation;
-
     fn shape() -> [usize; 1] {
         [4]
     }
 
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> InvertedPendulumObservation {
-        self.last_obs
     }
 }

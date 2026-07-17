@@ -46,7 +46,9 @@ use burn::tensor::backend::Backend;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::MarkovState;
 use serde::{Deserialize, Serialize};
@@ -281,17 +283,8 @@ impl SantaFeAntState {
 }
 
 impl State<1> for SantaFeAntState {
-    type Observation = SantaFeAntObservation;
-
     fn shape() -> [usize; 1] {
         [1]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        let (ahead_row, ahead_col): (usize, usize) = self.cell_ahead();
-        SantaFeAntObservation {
-            food_ahead: self.food[ahead_row][ahead_col],
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -456,6 +449,37 @@ impl ConstructableEnv for SantaFeAnt {
     }
 }
 
+impl Sensor<1, 1, 1> for SantaFeAnt {
+    type Action = SantaFeAntAction;
+    type State = SantaFeAntState;
+    type Observation = SantaFeAntObservation;
+
+    /// Emits the one-bit food-ahead percept for the cell in front of the ant in
+    /// `next_state`; the percept is a pure function of the resulting state and
+    /// ignores which motor primitive produced it.
+    fn observe(
+        &self,
+        _action: &SantaFeAntAction,
+        next_state: &SantaFeAntState,
+    ) -> SantaFeAntObservation {
+        santa_fe_ant_observation(next_state)
+    }
+
+    /// Emits the initial food-ahead percept from the start state.
+    fn observe_reset(&self, state: &SantaFeAntState) -> SantaFeAntObservation {
+        santa_fe_ant_observation(state)
+    }
+}
+
+/// Builds the one-bit food-ahead observation from a state, reading the cell one
+/// step ahead of the ant's current pose (toroidally wrapped).
+fn santa_fe_ant_observation(state: &SantaFeAntState) -> SantaFeAntObservation {
+    let (ahead_row, ahead_col): (usize, usize) = state.cell_ahead();
+    SantaFeAntObservation {
+        food_ahead: state.food[ahead_row][ahead_col],
+    }
+}
+
 impl Environment<1, 1, 1> for SantaFeAnt {
     type StateType = SantaFeAntState;
     type ObservationType = SantaFeAntObservation;
@@ -467,7 +491,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         self.state = Self::fresh_state();
         self.maybe_render();
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward::new(0.0),
         ))
     }
@@ -498,7 +522,7 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         self.state.steps += 1;
         self.maybe_render();
 
-        let obs: SantaFeAntObservation = self.state.observe();
+        let obs: SantaFeAntObservation = self.observe(&action, &self.state);
         let limit: u32 = u32::try_from(self.config.max_steps).unwrap_or(u32::MAX);
         let snapshot: Self::SnapshotType = if self.state.pellets_remaining == 0 {
             // Goal reached — the whole trail is cleared.
@@ -947,16 +971,16 @@ mod tests {
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        assert!(!e.state().observe().food_ahead); // south, (1,0) empty
+        assert!(!e.observe_reset(e.state()).food_ahead); // south, (1,0) empty
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnRight);
-        assert!(!e.state().observe().food_ahead); // west, (0,31) empty
+        assert!(!e.observe_reset(e.state()).food_ahead); // west, (0,31) empty
 
         let mut e = env();
         let _ = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::TurnLeft);
-        assert!(!e.state().observe().food_ahead); // north, (31,0) empty
+        assert!(!e.observe_reset(e.state()).food_ahead); // north, (31,0) empty
     }
 
     // -- Termination -------------------------------------------------------

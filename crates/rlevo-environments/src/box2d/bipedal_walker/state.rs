@@ -1,8 +1,7 @@
 //! Physics state for the BipedalWalker environment.
 //!
 //! [`BipedalWalkerState`] holds all Rapier2D handles required to read body
-//! kinematics and drive joints each step, plus cached contact flags and the
-//! most recent observation.
+//! kinematics and drive joints each step, plus cached contact flags.
 
 use rapier2d::dynamics::{ImpulseJointHandle, RigidBodyHandle};
 use rlevo_core::base::State;
@@ -12,15 +11,23 @@ use super::observation::BipedalWalkerObservation;
 /// Physics state for BipedalWalker.
 ///
 /// Stores rapier2d handles for all bodies and joints, plus cached
-/// contact flags and the last computed observation.
+/// contact flags.
 ///
 /// # Handle-lifetime caveat
 ///
 /// Every handle field is an *arena index* into the [`RapierWorld`] owned by the
 /// enclosing `BipedalWalker` environment — not an owned value capturing state at
 /// time *t*. The Markov degrees of freedom (hull pose + twist, per-joint
-/// angle/speed, lidar rays) live *behind* these handles or in the cached
-/// [`last_obs`](Self::last_obs) sensor snapshot, not as fields on this struct.
+/// angle/speed, lidar rays) live *behind* these handles in that world; the
+/// observation is produced on demand by the env-side
+/// [`Sensor`](rlevo_core::environment::Sensor) reading the world (raycasting the
+/// lidar against the live physics geometry). The most recent observation is
+/// retained in [`last_obs`](Self::last_obs) purely so
+/// [`is_valid()`](State::is_valid) can detect physics divergence (a non-finite
+/// pose/velocity/lidar ray) without re-querying the world — the same role it
+/// plays on the locomotion states. That field is not the emission path; genuine
+/// DOF-finiteness validation over owned scalar DOFs lands with the #256
+/// DOF-ownership refactor.
 ///
 /// Consequently a [`Clone`] of this state is a **non-portable view**: the cloned
 /// handles are only meaningful alongside the exact world they were taken from and
@@ -54,7 +61,13 @@ pub struct BipedalWalkerState {
     pub(crate) leg1_contact: bool,
     /// Whether leg 2 is in contact with the ground.
     pub(crate) leg2_contact: bool,
-    /// Cached observation from the last `step()` or `reset()`.
+    /// Most recent observation, updated after every `step()` and `reset()`.
+    ///
+    /// Read by [`State::is_valid`] to detect physics divergence (a non-finite
+    /// pose/velocity/lidar ray) without an extra world query. The observation is
+    /// produced by the env-side [`Sensor`](rlevo_core::environment::Sensor)
+    /// (ADR 0047); this field only mirrors the last one so the state can validate
+    /// its own finiteness, matching the locomotion states.
     pub(crate) last_obs: BipedalWalkerObservation,
 }
 
@@ -124,31 +137,24 @@ impl BipedalWalkerState {
     pub fn leg2_contact(&self) -> bool {
         self.leg2_contact
     }
-
-    /// The cached observation from the last `step()` or `reset()`.
-    #[must_use]
-    pub fn last_obs(&self) -> &BipedalWalkerObservation {
-        &self.last_obs
-    }
 }
 
 impl State<1> for BipedalWalkerState {
-    type Observation = BipedalWalkerObservation;
-
     /// Returns `[24]` — the flat observation dimension of the state.
     fn shape() -> [usize; 1] {
         [24]
     }
 
-    /// Returns `true` when every handle is live and the cached observation is
-    /// fully finite.
+    /// Returns `true` when every handle is live and the last observation is
+    /// finite.
     ///
-    /// Specifically, all five [`RigidBodyHandle`]s and all four
-    /// [`ImpulseJointHandle`]s must differ from their `::invalid()` sentinels
-    /// (they are `::invalid()` placeholders during the incremental world build),
-    /// and [`last_obs`](Self::last_obs) must be all-finite. A `false` return
-    /// signals either a partially-assembled state or a physics divergence, and
-    /// the environment should be reset.
+    /// All five [`RigidBodyHandle`]s and all four [`ImpulseJointHandle`]s must
+    /// differ from their `::invalid()` sentinels (they are `::invalid()`
+    /// placeholders during the incremental world build); a `false` here signals a
+    /// partially-assembled state. The final [`last_obs`](Self::last_obs)`.is_finite()`
+    /// clause additionally catches physics divergence — an exploded pose,
+    /// velocity, or lidar ray turning `NaN`/`inf` — mirroring the locomotion
+    /// states. Either failure means the environment should be reset.
     fn is_valid(&self) -> bool {
         self.hull_handle != RigidBodyHandle::invalid()
             && self.leg1_upper_handle != RigidBodyHandle::invalid()
@@ -160,14 +166,6 @@ impl State<1> for BipedalWalkerState {
             && self.hip2_joint != ImpulseJointHandle::invalid()
             && self.knee2_joint != ImpulseJointHandle::invalid()
             && self.last_obs.is_finite()
-    }
-
-    /// Returns a clone of the most recently computed observation.
-    ///
-    /// The cached value is updated by `BipedalWalker::step` and
-    /// `BipedalWalker::reset` before this is called by the environment loop.
-    fn observe(&self) -> BipedalWalkerObservation {
-        self.last_obs.clone()
     }
 }
 
@@ -216,6 +214,7 @@ mod tests {
     #[test]
     fn is_valid_false_on_non_finite_obs() {
         let mut state = reset_state();
+        // Simulate physics divergence: a NaN component in the cached observation.
         state.last_obs = BipedalWalkerObservation::new([f32::NAN; 24]);
         assert!(
             !state.is_valid(),

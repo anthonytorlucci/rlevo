@@ -363,6 +363,135 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError>;
 }
 
+/// The environment-side emission model `O(a, s')` of a POMDP ⟨S, A, T, R, Ω, O⟩.
+///
+/// A `Sensor` produces the agent's [`Observation`] from the last [`Action`] and
+/// the resulting [`State`]. It is implemented on the **environment**, not on the
+/// state: `&self` is the environment, so a sensor may read world / simulator
+/// context — raycasts against physics geometry, a rendered pixel frame — that a
+/// bare `State` value does not own.
+///
+/// # Why O lives here, not on `State`
+///
+/// In the POMDP tuple ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of
+/// the problem, not of a point `s ∈ S` in state space. `State` used to carry a
+/// `fn observe(&self) -> Self::Observation`, which welded the observation's
+/// tensor order to the state's own order and, having only `&self`, forced
+/// world-derived sensors (lidar, pixels) to be cached into the state first.
+/// Relocating `O` to this env-side trait removes both problems: the observation
+/// rank is independent of the state rank (the [`Environment`] contract already
+/// decouples `R` from `SR`), and `&self = env` gives direct world access. (ADR
+/// 0047, superseding ADR 0019 and obsoleting ADR 0039's cached-sensor target.)
+///
+/// # When and how to implement
+///
+/// Every environment builds the observations in its `reset` / `step` snapshots
+/// through a `Sensor` — typically by implementing it on the environment struct
+/// itself and calling [`observe`](Sensor::observe) at each step and
+/// [`observe_reset`](Sensor::observe_reset) at episode start. When the
+/// observation is a pure projection of the state (no world context), the body
+/// may delegate to [`Observable::project`](crate::state::Observable) — see the
+/// `pixel_grid` environment for the reference "sensor delegates to `Observable`"
+/// pattern.
+///
+/// # Type Parameters
+///
+/// - `OR`: tensor order (rank) of the produced [`Observation`].
+/// - `AR`: tensor order (rank) of the [`Action`].
+/// - `SR`: tensor order (rank) of the [`State`].
+///
+/// The three ranks are independent: an environment whose state is rank `SR` may
+/// observe through a sensor of any rank `OR`, which is exactly what lets a
+/// compact physics state be observed as a higher-rank pixel frame without
+/// inflating the state's own rank.
+///
+/// # Examples
+///
+/// A sensor whose observation is a plain function of the resulting state:
+///
+/// ```
+/// use rlevo_core::base::{Action, Observation, State};
+/// use rlevo_core::environment::Sensor;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Clone)]
+/// struct Position {
+///     x: i32,
+/// }
+/// impl State<1> for Position {
+///     fn shape() -> [usize; 1] {
+///         [1]
+///     }
+///     fn is_valid(&self) -> bool {
+///         true
+///     }
+/// }
+///
+/// #[derive(Debug, Clone, Serialize, Deserialize)]
+/// struct PositionObs {
+///     x: i32,
+/// }
+/// impl Observation<1> for PositionObs {
+///     fn shape() -> [usize; 1] {
+///         [1]
+///     }
+/// }
+///
+/// #[derive(Debug, Clone, Copy)]
+/// struct Nudge;
+/// impl Action<1> for Nudge {
+///     fn shape() -> [usize; 1] {
+///         [1]
+///     }
+///     fn is_valid(&self) -> bool {
+///         true
+///     }
+/// }
+///
+/// struct World;
+/// impl Sensor<1, 1, 1> for World {
+///     type Action = Nudge;
+///     type State = Position;
+///     type Observation = PositionObs;
+///
+///     fn observe(&self, _action: &Nudge, next_state: &Position) -> PositionObs {
+///         PositionObs { x: next_state.x }
+///     }
+///     fn observe_reset(&self, state: &Position) -> PositionObs {
+///         PositionObs { x: state.x }
+///     }
+/// }
+///
+/// let obs = World.observe(&Nudge, &Position { x: 7 });
+/// assert_eq!(obs.x, 7);
+/// ```
+pub trait Sensor<const OR: usize, const AR: usize, const SR: usize> {
+    /// The action type consumed by the emission model.
+    type Action: Action<AR>;
+
+    /// The state type the observation is produced from.
+    type State: State<SR>;
+
+    /// The observation type produced for the agent.
+    type Observation: Observation<OR>;
+
+    /// Emission model `O(a, s')`: the observation after taking `action` and
+    /// arriving at `next_state`.
+    ///
+    /// Called once per [`Environment::step`], after the transition has produced
+    /// `next_state`. `&self` is the environment, so the observation may read
+    /// world / simulator context beyond the state value itself.
+    fn observe(&self, action: &Self::Action, next_state: &Self::State) -> Self::Observation;
+
+    /// The initial observation at episode start, before any action exists.
+    ///
+    /// [`Environment::reset`] has no preceding action, so the stepping form
+    /// `O(a, s')` does not apply; this companion produces the first observation
+    /// from the initial `state` alone. Implementations whose observation ignores
+    /// the action typically forward both methods to the same projection.
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation;
+}
+
 /// Default-construction factory for environments, lifted off [`Environment`]
 /// (ADR-0011).
 ///
@@ -426,7 +555,6 @@ mod tests {
     }
 
     impl State<1> for MockState {
-        type Observation = MockObservation;
         fn numel(&self) -> usize {
             7
         }
@@ -437,12 +565,6 @@ mod tests {
 
         fn is_valid(&self) -> bool {
             Self::is_in_bounds(self.position)
-        }
-
-        fn observe(&self) -> Self::Observation {
-            MockObservation {
-                position: self.position,
-            }
         }
     }
 
@@ -512,6 +634,24 @@ mod tests {
         }
     }
 
+    impl Sensor<1, 1, 1> for MockEnvironment {
+        type Action = MockAction;
+        type State = MockState;
+        type Observation = MockObservation;
+
+        fn observe(&self, _action: &MockAction, next_state: &MockState) -> MockObservation {
+            MockObservation {
+                position: next_state.position,
+            }
+        }
+
+        fn observe_reset(&self, state: &MockState) -> MockObservation {
+            MockObservation {
+                position: state.position,
+            }
+        }
+    }
+
     impl Environment<1, 1, 1> for MockEnvironment {
         type StateType = MockState;
         type ObservationType = MockObservation;
@@ -523,7 +663,7 @@ mod tests {
             self.current_state = MockState::new(Self::START_STATE);
             self.step_count = 0;
             Ok(SnapshotBase::running(
-                self.current_state.observe(),
+                self.observe_reset(&self.current_state),
                 ScalarReward(0.0),
             ))
         }
@@ -573,8 +713,9 @@ mod tests {
                 EpisodeStatus::Running
             };
 
+            let observation = self.observe(&action, &new_state);
             Ok(SnapshotBase {
-                observation: new_state.observe(),
+                observation,
                 reward: ScalarReward(reward),
                 status,
                 metadata: None,

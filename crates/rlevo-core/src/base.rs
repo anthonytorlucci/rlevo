@@ -46,7 +46,17 @@ pub trait Observation<const R: usize>:
     fn shape() -> [usize; R];
 }
 
-/// The complete state of an environment (Markov property)
+/// The complete state of an environment (Markov property).
+///
+/// # Observation production has moved off `State`
+///
+/// A `State` no longer produces its own observation. In the POMDP tuple
+/// ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of the *environment*,
+/// not of a state value, so it lives on the env-side
+/// [`Sensor`](crate::environment::Sensor) trait with the canonical signature
+/// `O(a, s')`. `State` retains only what genuinely belongs to a point in state
+/// space: its rank, [`shape`](State::shape), [`numel`](State::numel), and
+/// [`is_valid`](State::is_valid). (ADR 0047, superseding ADR 0019.)
 pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     /// The rank of this state space — i.e. the number of axes (tensor order),
     /// *not* the size of any axis.
@@ -56,17 +66,12 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     /// rank. This is automatically set to match the const generic parameter `R`.
     const RANK: usize = R;
 
-    type Observation: Observation<R>;
-
     /// Returns the size of each axis in this state space.
     ///
     /// The returned array has length `R` (the rank), where each element is the
     /// cardinality of that axis — the number of possible values along it. All
     /// values must be greater than zero.
     fn shape() -> [usize; R];
-
-    /// Generate an observation from this state (may be partial)
-    fn observe(&self) -> Self::Observation;
 
     /// Validates whether this state satisfies all constraints.
     ///
@@ -549,19 +554,6 @@ mod tests {
     /// ========================================================================
     /// GameState example to test the State trait implementation
     /// ========================================================================
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct GameStateObservation {
-        state_id: u8,
-        level: u8,
-        score: u32,
-    }
-
-    impl Observation<1> for GameStateObservation {
-        fn shape() -> [usize; 1] {
-            [3] // 3 features: state_id, level, score
-        }
-    }
-
     #[derive(Debug, Clone, PartialEq)]
     enum GameState {
         Menu,
@@ -570,28 +562,6 @@ mod tests {
     }
 
     impl State<1> for GameState {
-        type Observation = GameStateObservation;
-
-        fn observe(&self) -> Self::Observation {
-            match self {
-                GameState::Menu => GameStateObservation {
-                    state_id: 0,
-                    level: 0,
-                    score: 0,
-                },
-                GameState::Playing { level } => GameStateObservation {
-                    state_id: 1,
-                    level: *level,
-                    score: 0,
-                },
-                GameState::GameOver { score } => GameStateObservation {
-                    state_id: 2,
-                    level: 0,
-                    score: *score,
-                },
-            }
-        }
-
         fn shape() -> [usize; 1] {
             [3] // 3 features: state_id, level, score
         }
@@ -759,70 +729,9 @@ mod tests {
         );
     }
 
-    /// Test that observe() generates correct observations for each state variant
-    #[test]
-    fn test_game_state_observe() {
-        // Test Menu state observation
-        let menu_state = GameState::Menu;
-        let menu_obs = menu_state.observe();
-        assert_eq!(menu_obs.state_id, 0, "Menu state should have state_id 0");
-        assert_eq!(menu_obs.level, 0, "Menu state should have level 0");
-        assert_eq!(menu_obs.score, 0, "Menu state should have score 0");
-
-        // Test Playing state observation
-        let playing_state = GameState::Playing { level: 5 };
-        let playing_obs = playing_state.observe();
-        assert_eq!(
-            playing_obs.state_id, 1,
-            "Playing state should have state_id 1"
-        );
-        assert_eq!(playing_obs.level, 5, "Playing state should preserve level");
-        assert_eq!(playing_obs.score, 0, "Playing state should have score 0");
-
-        // Test GameOver state observation
-        let game_over_state = GameState::GameOver { score: 1000 };
-        let game_over_obs = game_over_state.observe();
-        assert_eq!(
-            game_over_obs.state_id, 2,
-            "GameOver state should have state_id 2"
-        );
-        assert_eq!(game_over_obs.level, 0, "GameOver state should have level 0");
-        assert_eq!(
-            game_over_obs.score, 1000,
-            "GameOver state should preserve score"
-        );
-    }
-
-    /// Test GameStateObservation shape
-    #[test]
-    fn test_game_state_observation_shape() {
-        assert_eq!(
-            GameStateObservation::shape(),
-            [3],
-            "GameStateObservation should have shape [3]"
-        );
-        assert_eq!(
-            GameStateObservation::RANK,
-            1,
-            "GameStateObservation should have rank 1"
-        );
-    }
-
     /// ========================================================================
     /// GridPosition example to test the State trait implementation
     /// ========================================================================
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    struct GridObservation {
-        x: i32,
-        y: i32,
-    }
-
-    impl Observation<1> for GridObservation {
-        fn shape() -> [usize; 1] {
-            [2] // 2 coordinates: x, y
-        }
-    }
-
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct GridPosition {
         x: i32,
@@ -832,15 +741,6 @@ mod tests {
     }
 
     impl State<1> for GridPosition {
-        type Observation = GridObservation;
-
-        fn observe(&self) -> Self::Observation {
-            GridObservation {
-                x: self.x,
-                y: self.y,
-            }
-        }
-
         fn shape() -> [usize; 1] {
             [2] // 2 coordinates: x, y
         }
@@ -917,57 +817,6 @@ mod tests {
         assert_eq!(flat1, vec![3.0, 7.0, 10.0, 10.0]);
         assert_eq!(flat2, vec![0.0, 0.0, 10.0, 10.0]);
         assert_eq!(flat3, vec![9.0, 9.0, 10.0, 10.0]);
-    }
-
-    /// Test that observe() generates correct observations for GridPosition
-    #[test]
-    fn test_grid_position_observe() {
-        let pos = GridPosition {
-            x: 5,
-            y: 3,
-            max_x: 10,
-            max_y: 10,
-        };
-        let obs = pos.observe();
-        assert_eq!(obs.x, 5, "Observation should preserve x coordinate");
-        assert_eq!(obs.y, 3, "Observation should preserve y coordinate");
-
-        // Test with different positions
-        let origin = GridPosition {
-            x: 0,
-            y: 0,
-            max_x: 10,
-            max_y: 10,
-        };
-        let origin_obs = origin.observe();
-        assert_eq!(origin_obs.x, 0, "Origin observation should have x = 0");
-        assert_eq!(origin_obs.y, 0, "Origin observation should have y = 0");
-
-        // Test with edge position
-        let edge = GridPosition {
-            x: 9,
-            y: 9,
-            max_x: 10,
-            max_y: 10,
-        };
-        let edge_obs = edge.observe();
-        assert_eq!(edge_obs.x, 9, "Edge observation should have x = 9");
-        assert_eq!(edge_obs.y, 9, "Edge observation should have y = 9");
-    }
-
-    /// Test GridObservation shape
-    #[test]
-    fn test_grid_observation_shape() {
-        assert_eq!(
-            GridObservation::shape(),
-            [2],
-            "GridObservation should have shape [2]"
-        );
-        assert_eq!(
-            GridObservation::RANK,
-            1,
-            "GridObservation should have rank 1"
-        );
     }
 
     /// Test that GridPosition numel matches shape product

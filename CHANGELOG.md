@@ -9,6 +9,70 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### `rlevo-core`
+
+**Breaking changes**
+
+- **Observation production moved off `State` to a new env-side `Sensor` trait**
+  (ADR 0047, supersedes ADR 0019, resolves #329). In the POMDP tuple
+  ⟨S, A, T, R, Ω, O⟩ the emission model `O` is a property of the environment,
+  not of a state value, so it no longer lives on `State`. `State<R>` **loses**
+  its `type Observation: Observation<R>` associated type and its
+  `fn observe(&self) -> Self::Observation` method; a `State` now carries only
+  `RANK`, `shape()`, `numel()`, and `is_valid()`. Observation production moves to
+  the new `rlevo_core::environment::Sensor<OR, AR, SR>`:
+
+  ```rust
+  pub trait Sensor<const OR: usize, const AR: usize, const SR: usize> {
+      type Action: Action<AR>;
+      type State: State<SR>;
+      type Observation: Observation<OR>;
+      fn observe(&self, action: &Self::Action, next_state: &Self::State) -> Self::Observation;
+      fn observe_reset(&self, state: &Self::State) -> Self::Observation;
+  }
+  ```
+
+  *Migration.* For each environment: delete `type Observation`/`fn observe` from
+  its `State` impl, and implement `Sensor` on the **environment** struct (the
+  same three associated types the env already names for `Environment`, with the
+  ranks from its `Environment<R, SR, AR>` bound). Move the old `observe` body
+  into `Sensor::observe`/`observe_reset`, taking the passed-in `next_state` /
+  `state` instead of `&self`. In `step`, build the snapshot observation with
+  `self.observe(&action, &next_state)`; in `reset`, with
+  `self.observe_reset(&next_state)` (reset has no action). Because `&self` is now
+  the environment, world-derived sensors (physics raycasts, rendered frames) read
+  the simulator directly and no longer need to be cached onto the state — the
+  ADR-0039 cached-sensor pattern is retired. Where an observation is a pure
+  function of the state, the `Sensor` body may delegate to
+  `Observable::project` (see the `pixel_grid` environment).
+- **`Observable<OR>` is demoted, not removed.** It is retained as an optional
+  pure-projection helper a `Sensor` may delegate to; it is no longer the
+  documented home for observation or for modality change. No code change is
+  required for existing `Observable` impls — only the docs changed.
+- **`BeliefState` signature changed.** `BeliefState<SR, AR, S, A>` becomes
+  `BeliefState<OR, SR, AR, S, A>` and gains an associated
+  `type Observation: Observation<OR>`; `update`'s second parameter changes from
+  `&S::Observation` to `&Self::Observation` (mirroring `HiddenState`/
+  `LatentState`). No `BeliefState` implementors exist in the workspace, so this
+  is a contract-only change for downstream callers.
+
+### `rlevo-environments`
+
+**Breaking changes**
+
+- Every environment now implements `rlevo_core::environment::Sensor` and builds
+  its `reset`/`step` snapshots through it instead of `State::observe` (ADR 0047,
+  #329). For the box2d family the observation is no longer *produced* from a state
+  cache — the env-side sensor reads the world directly (BipedalWalker lidar,
+  CarRacing pixels). `CarRacing` drops its cached pixel buffer entirely;
+  `BipedalWalker`/`LunarLander` retain only a finiteness signal for `is_valid`
+  (`last_obs`/`prev_shaping` respectively), matching the locomotion states, so
+  `is_valid` is unchanged. The grid family routes its shared egocentric projection
+  through `GridState: Observable<3>` and the `build_snapshot` chokepoint;
+  `GoToDoorEnv` implements `Sensor` for its goal-conditioned observation.
+  `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to `project()`.
+  Behaviour (observations, rewards, termination) is unchanged.
+
 ### `rlevo-reinforcement-learning`
 
 **Fixed**
