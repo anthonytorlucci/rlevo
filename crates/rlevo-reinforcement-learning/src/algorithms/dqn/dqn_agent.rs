@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 
 use burn::nn::loss::{HuberLossConfig, Reduction};
 use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams, Optimizer};
+use burn::optim::{Adam, GradientsParams};
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
@@ -26,6 +26,7 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
+use crate::algorithms::shared::Slot;
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`DqnAgent`] operations.
@@ -122,9 +123,14 @@ pub struct LearnOutcome {
 ///
 /// # Field notes
 ///
-/// - `policy_net` is wrapped in `Option` only to allow the temporary `take`
-///   inside [`learn_step`](Self::learn_step) while holding a mutable reference
-///   to the optimizer. It is always `Some` outside of that method.
+/// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
+///   Burn's by-value [`Optimizer::step`](burn::optim::Optimizer::step). Every
+///   read goes through `Slot::get`, and the module leaves the field only for the
+///   duration of the `step` call itself inside `Slot::step_with` — the forward
+///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
+///   leaves the agent intact. The one exception is a panic *inside* `step`,
+///   which poisons the slot permanently; that window is irreducible and is
+///   documented on [`Slot`].
 /// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so
 ///   that computing bootstrap targets never builds an autodiff graph.
 pub struct DqnAgent<B, M, O, A, const DO: usize, const DB: usize>
@@ -134,7 +140,7 @@ where
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
-    policy_net: Option<M>,
+    policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
     buffer: VecDeque<Transition<O>>,
@@ -198,7 +204,7 @@ where
         let exploration = EpsilonGreedy::from_config(&config);
         let stats = AgentStats::<DqnMetrics>::new(100);
         Ok(Self {
-            policy_net: Some(policy_net),
+            policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
             buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
@@ -242,9 +248,7 @@ where
     }
 
     fn policy(&self) -> &M {
-        self.policy_net
-            .as_ref()
-            .expect("policy_net not restored — earlier panic in learn_step?")
+        self.policy_net.get()
     }
 
     /// ε-greedy action selection.
@@ -404,11 +408,11 @@ where
             Tensor::from_data(TensorData::new(dones, vec![batch_size]), &device);
 
         // --- Forward ---
-        let policy = self
-            .policy_net
-            .take()
-            .expect("policy_net not restored — earlier panic in learn_step?");
-        let q_all: Tensor<B, 2> = policy.forward(obs_tensor);
+        //
+        // Everything from here to `step_with` runs against a borrow of the
+        // network, so a panic in the forward pass, the target computation, the
+        // loss, or `backward` leaves `policy_net` populated and the agent usable.
+        let q_all: Tensor<B, 2> = self.policy().forward(obs_tensor);
         let q_mean = q_all.clone().mean().into_scalar().elem::<f32>();
         let q_pred: Tensor<B, 2> = q_all.gather(1, action_tensor);
         let q_pred_flat: Tensor<B, 1> = q_pred.squeeze_dim::<1>(1);
@@ -418,7 +422,7 @@ where
             M::forward_inner(&self.target_net, next_tensor_inner.clone());
         let next_q_max_inner: Tensor<B::InnerBackend, 1> = if self.config.double_q {
             let next_q_policy_inner: Tensor<B::InnerBackend, 2> =
-                M::forward_inner(&policy.valid(), next_tensor_inner);
+                M::forward_inner(&self.policy().valid(), next_tensor_inner);
             let next_actions: Tensor<B::InnerBackend, 2, Int> = next_q_policy_inner.argmax(1);
             next_q_target_inner
                 .gather(1, next_actions)
@@ -442,11 +446,12 @@ where
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
-        let grads = GradientsParams::from_grads(grads, &policy);
-        let updated = self
-            .optimizer
-            .step(self.config.learning_rate, policy, grads);
-        self.policy_net = Some(updated);
+        // `from_grads` takes `&M` and returns an owned, lifetime-free value, so
+        // NLL ends the borrow here — the only window in which the module is out
+        // of the slot is the `Optimizer::step` call inside `step_with`.
+        let grads = GradientsParams::from_grads(grads, self.policy());
+        self.policy_net
+            .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
         // Soft update when tau > 0; otherwise rely on hard sync_target().
         if self.config.tau > 0.0 {

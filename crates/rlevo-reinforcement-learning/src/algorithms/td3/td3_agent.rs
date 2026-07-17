@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams, Optimizer};
+use burn::optim::{Adam, GradientsParams};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
@@ -30,6 +30,7 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
+use crate::algorithms::shared::Slot;
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
@@ -137,12 +138,27 @@ pub(crate) fn compute_twin_critic_target<BI: Backend>(
 /// - `DA` — rank of a single action tensor.
 /// - `DAB` — rank of a batched action tensor (= `DA + 1`).
 ///
+/// # Network ownership
+///
+/// Burn's [`Optimizer::step`](burn::optim::Optimizer::step) consumes the module
+/// it updates, so each network must briefly leave the agent to be trained. Every
+/// *fallible* operation — the forward pass, the loss, `backward`, and gradient
+/// reduction — instead runs on a borrow, so a network is out of the agent only
+/// for the duration of the `step` call itself. The actor and the two critics are
+/// stepped in three disjoint windows: a panic while stepping `critic_1` leaves
+/// `critic_2` and the actor fully intact and usable.
+///
 /// # Panics
 ///
-/// `learn_step` stores the actor and critics in `Option` fields and temporarily
-/// takes ownership during each backward pass. If a previous call to
-/// `learn_step` panicked mid-step, the `Option` may be `None` and subsequent
-/// calls will panic with a message indicating which module was not restored.
+/// That residual step window is irreducible: if `Optimizer::step` itself panics
+/// (a shape mismatch, a device error), the network was already moved into `step`
+/// and is dropped during unwinding, so there is nothing left to restore — a drop
+/// guard or `catch_unwind` cannot recover it, and keeping a spare copy would
+/// cost a full clone of every parameter tensor on every step. The agent is then
+/// *poisoned* with respect to that one network: every later read of it —
+/// [`act`](Self::act), [`inference_net`](Self::inference_net),
+/// [`learn_step`](Self::learn_step) — panics with a message naming the cause and
+/// the remedy, which is to rebuild the agent from a fresh network.
 pub struct Td3Agent<
     B,
     Actor,
@@ -160,10 +176,10 @@ pub struct Td3Agent<
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: BoundedAction<DA>,
 {
-    actor: Option<Actor>,
+    actor: Slot<Actor>,
     target_actor: Actor::InnerModule,
-    critic_1: Option<Critic>,
-    critic_2: Option<Critic>,
+    critic_1: Slot<Critic>,
+    critic_2: Slot<Critic>,
     target_critic_1: Critic::InnerModule,
     target_critic_2: Critic::InnerModule,
     actor_opt: OptimizerAdaptor<Adam, Actor, B>,
@@ -257,10 +273,10 @@ where
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<Td3Metrics>::new(100);
         Ok(Self {
-            actor: Some(actor),
+            actor: Slot::new(actor),
             target_actor,
-            critic_1: Some(critic_1),
-            critic_2: Some(critic_2),
+            critic_1: Slot::new(critic_1),
+            critic_2: Slot::new(critic_2),
             target_critic_1,
             target_critic_2,
             actor_opt,
@@ -306,30 +322,18 @@ where
         self.critic_updates
     }
 
-    fn actor_ref(&self) -> &Actor {
-        self.actor
-            .as_ref()
-            .expect("actor not restored — earlier panic in learn_step?")
-    }
-
-    fn critic_1_ref(&self) -> &Critic {
-        self.critic_1
-            .as_ref()
-            .expect("critic_1 not restored — earlier panic in learn_step?")
-    }
-
-    fn critic_2_ref(&self) -> &Critic {
-        self.critic_2
-            .as_ref()
-            .expect("critic_2 not restored — earlier panic in learn_step?")
-    }
-
     /// Samples an action for the current observation.
     ///
     /// Before `learning_starts` steps, draws a uniform random action on
     /// `[low, high]`. Afterwards runs the actor, adds Gaussian exploration
     /// noise, and clips to the action bounds. The unnoised policy mean is
     /// emitted when `training == false`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor slot was poisoned by a panic inside an earlier
+    /// actor optimizer step (see the type-level docs); the agent must then be
+    /// rebuilt.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
             let sample: Vec<f32> = (0..A::RANK)
@@ -340,7 +344,7 @@ where
 
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
-        let raw: Tensor<B, DAB> = self.actor_ref().forward(batched);
+        let raw: Tensor<B, DAB> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let mean: Vec<f32> = slice.iter().take(A::RANK).copied().collect();
@@ -362,8 +366,14 @@ where
     /// [`act_with`](Self::act_with). Snapshot once after training, then reuse
     /// across many steps — the snapshot goes stale if the actor is updated
     /// again.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor slot was poisoned by a panic inside an earlier
+    /// actor optimizer step (see the type-level docs); the agent must then be
+    /// rebuilt.
     pub fn inference_net(&self) -> Actor::InnerModule {
-        self.actor_ref().valid()
+        self.actor.get().valid()
     }
 
     /// Deterministic action against a pre-snapshotted inner actor.
@@ -426,11 +436,18 @@ where
     /// Returns `None` if the agent is still in warm-up
     /// ([`can_learn`](Self::can_learn) returns `false`).
     ///
+    /// Every fallible stage — forward, loss, `backward`, gradient reduction —
+    /// runs on a borrow of the network, so a panic anywhere in this method
+    /// other than inside an optimizer step leaves all three networks intact and
+    /// the agent usable.
+    ///
     /// # Panics
     ///
-    /// Panics if an earlier call to this method left the actor or either critic
-    /// `Option` as `None` (which can happen if the previous call panicked
-    /// during the backward pass).
+    /// Panics if an earlier optimizer step panicked and poisoned the slot of a
+    /// network this call reads. Only the network whose step unwound is lost:
+    /// the three steps run in disjoint windows, so a `critic_1` step panic does
+    /// not affect `critic_2` or the actor. A poisoned agent cannot be recovered
+    /// and must be rebuilt — see the type-level docs.
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;
@@ -521,17 +538,12 @@ where
         let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic updates: two independent backward passes ---
-        let critic_1 = self
-            .critic_1
-            .take()
-            .expect("critic_1 not restored — earlier panic in learn_step?");
-        let critic_2 = self
-            .critic_2
-            .take()
-            .expect("critic_2 not restored — earlier panic in learn_step?");
-
-        let q1_pred: Tensor<B, 1> = critic_1.forward(obs_t.clone(), action_t.clone());
-        let q2_pred: Tensor<B, 1> = critic_2.forward(obs_t.clone(), action_t);
+        // Both critics stay in their slots for the forward / loss / backward
+        // region; each is out of its slot only inside its own `step_with`. The
+        // two windows are therefore disjoint — a panic stepping `critic_1`
+        // leaves `critic_2` intact.
+        let q1_pred: Tensor<B, 1> = self.critic_1.get().forward(obs_t.clone(), action_t.clone());
+        let q2_pred: Tensor<B, 1> = self.critic_2.get().forward(obs_t.clone(), action_t);
 
         let q_mean = q1_pred
             .clone()
@@ -547,19 +559,21 @@ where
         let critic_loss = loss_1 + loss_2;
 
         let grads_1 = loss_1_tensor.backward();
-        let grads_1_params = GradientsParams::from_grads(grads_1, &critic_1);
-        let critic_1 = self
-            .critic_1_opt
-            .step(self.config.critic_lr, critic_1, grads_1_params);
+        let grads_1_params = GradientsParams::from_grads(grads_1, self.critic_1.get());
+        self.critic_1.step_with(
+            &mut self.critic_1_opt,
+            self.config.critic_lr,
+            grads_1_params,
+        );
 
         let grads_2 = loss_2_tensor.backward();
-        let grads_2_params = GradientsParams::from_grads(grads_2, &critic_2);
-        let critic_2 = self
-            .critic_2_opt
-            .step(self.config.critic_lr, critic_2, grads_2_params);
+        let grads_2_params = GradientsParams::from_grads(grads_2, self.critic_2.get());
+        self.critic_2.step_with(
+            &mut self.critic_2_opt,
+            self.config.critic_lr,
+            grads_2_params,
+        );
 
-        self.critic_1 = Some(critic_1);
-        self.critic_2 = Some(critic_2);
         self.critic_updates += 1;
 
         // --- Actor + Polyak update (every policy_frequency-th critic step) ---
@@ -568,38 +582,35 @@ where
             .critic_updates
             .is_multiple_of(self.config.policy_frequency)
         {
-            let actor = self
-                .actor
-                .take()
-                .expect("actor not restored — earlier panic in learn_step?");
-            let predicted_actions: Tensor<B, DAB> = actor.forward(obs_t.clone());
-            let q_actor: Tensor<B, 1> = self.critic_1_ref().forward(obs_t, predicted_actions);
+            // Same shape as the critic block: the actor stays in its slot for
+            // the whole fallible region, and `step_with` is its own isolated
+            // window — independent of both critics'.
+            let predicted_actions: Tensor<B, DAB> = self.actor.get().forward(obs_t.clone());
+            let q_actor: Tensor<B, 1> = self.critic_1.get().forward(obs_t, predicted_actions);
             let actor_loss_tensor = q_actor.mean().neg();
             let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
 
             let grads = actor_loss_tensor.backward();
-            let actor_grads = GradientsParams::from_grads(grads, &actor);
-            let actor = self
-                .actor_opt
-                .step(self.config.actor_lr, actor, actor_grads);
+            let actor_grads = GradientsParams::from_grads(grads, self.actor.get());
+            self.actor
+                .step_with(&mut self.actor_opt, self.config.actor_lr, actor_grads);
 
             let tau = self.config.tau as f64;
 
-            let fresh_target_actor = actor.valid();
+            let fresh_target_actor = self.actor.get().valid();
             let target_actor = std::mem::replace(&mut self.target_actor, fresh_target_actor);
-            self.target_actor = Actor::soft_update(&actor, target_actor, tau);
+            self.target_actor = Actor::soft_update(self.actor.get(), target_actor, tau);
 
-            let fresh_target_critic_1 = self.critic_1_ref().valid();
+            let fresh_target_critic_1 = self.critic_1.get().valid();
             let target_critic_1 =
                 std::mem::replace(&mut self.target_critic_1, fresh_target_critic_1);
-            self.target_critic_1 = Critic::soft_update(self.critic_1_ref(), target_critic_1, tau);
+            self.target_critic_1 = Critic::soft_update(self.critic_1.get(), target_critic_1, tau);
 
-            let fresh_target_critic_2 = self.critic_2_ref().valid();
+            let fresh_target_critic_2 = self.critic_2.get().valid();
             let target_critic_2 =
                 std::mem::replace(&mut self.target_critic_2, fresh_target_critic_2);
-            self.target_critic_2 = Critic::soft_update(self.critic_2_ref(), target_critic_2, tau);
+            self.target_critic_2 = Critic::soft_update(self.critic_2.get(), target_critic_2, tau);
 
-            self.actor = Some(actor);
             self.last_actor_loss = actor_loss_value;
             actor_loss_opt = Some(actor_loss_value);
         }

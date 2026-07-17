@@ -7,6 +7,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### `rlevo-reinforcement-learning`
+
+**Fixed**
+
+- **A panic inside a learn step could permanently brick an agent** (ADR 0046,
+  resolves #167) — all eight gradient-based agents (`dqn`, `c51`, `qrdqn`,
+  `ddpg`, `td3`, `sac`, `ppo`, `ppg`) stored their trainable networks as
+  `Option<M>` and `.take()`d the field for the *entire* learn step: forward
+  pass, loss, `backward()`, and gradient reduction all ran while the field
+  was `None`. Any panic in that window — a malformed batch, a shape
+  mismatch, a device transfer failure — left the field `None` forever.
+  Every subsequent `act()` and learn call hit its own `.expect(...)` on an
+  empty `Option` and re-panicked; only killing the process and rebuilding
+  the agent from scratch recovered it. 17 call sites across the eight
+  agents shared this shape. On TD3 and SAC the blast radius was wider than
+  a single field: both critics were taken out of their fields up front and
+  stepped sequentially from the same wide window, so a panic stepping
+  `critic_1` also destroyed `critic_2` in the same unwind — a single fault
+  bricking two networks. The existing test suite could not see any of this:
+  the in-crate unit tests cover only pure functions, config validation, and
+  metrics bookkeeping and never drive a numeric `learn_step`; the
+  cross-crate integration tests that actually exercise training
+  (`crates/rlevo/tests/*_integration.rs`) are `#[ignore]`d by default; and
+  the reproducibility tests only assert that the *same* seed reproduces the
+  *same* output on a clean run — none of the three drives a panic path at
+  all. All eight agents now hold their networks in a crate-internal
+  `Slot<M>` newtype: `forward`/loss/`backward` run against a borrow, and the
+  module leaves the field only for the single Burn `Optimizer::step` call
+  itself, so `critic_1` and `critic_2` now step through disjoint windows. A
+  panic strictly inside that one `step` call remains unrecoverable **by
+  design** — Burn's `Optimizer::step` consumes the module by value, so
+  neither a drop-guard nor `catch_unwind` can hand it back once `step` has
+  been entered and the module has moved into its frame — but the
+  poisoned-slot panic message now says so plainly and tells you to rebuild
+  the agent, instead of pointing at `learn_step`, a method that does not
+  even exist on PPO or PPG (theirs are `update()` and
+  `policy_phase_update()`). `ppg` was not named in issue #167 but carried
+  the identical defect at 5 call sites and is fixed under the same change.
+
+---
+
 ## [0.3.1] – 2026-07-17
 
 Patch release: no breaking changes since 0.3.0.

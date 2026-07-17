@@ -10,11 +10,12 @@
 //! assembled in [`crate::algorithms::ppo::train`].
 
 use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams, Optimizer};
+use burn::optim::{Adam, GradientsParams};
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
+use crate::algorithms::shared::Slot;
 use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -131,6 +132,17 @@ pub struct PpoUpdateStats {
 ///
 /// - `DO` — rank of a single observation tensor.
 /// - `DB` — rank of a batched observation tensor (`= DO + 1`, typically `2`).
+///
+/// # Network ownership
+///
+/// The policy and value networks live in [`Slot`]s because Burn's
+/// `Optimizer::step` consumes the module by value. Every fallible operation in
+/// [`update`](Self::update) — the forward pass, the losses, `backward`, and
+/// `GradientsParams::from_grads` — runs on a borrow, so a panic there leaves
+/// both networks intact and the agent usable. Only a panic *inside* the
+/// optimizer step itself poisons a slot; that window is irreducible and
+/// terminal for the agent (see the [`shared`](crate::algorithms::shared) module
+/// docs).
 pub struct PpoAgent<B, P, V, O, const DO: usize, const DB: usize>
 where
     B: AutodiffBackend,
@@ -138,8 +150,8 @@ where
     V: PpoValue<B, DB>,
     O: Observation<DO> + TensorConvertible<DO, B>,
 {
-    policy: Option<P>,
-    value: Option<V>,
+    policy: Slot<P>,
+    value: Slot<V>,
     policy_optim: OptimizerAdaptor<Adam, P, B>,
     value_optim: OptimizerAdaptor<Adam, V, B>,
     buffer: RolloutBuffer<B, O>,
@@ -250,8 +262,8 @@ where
         let stats = AgentStats::<PpoMetrics>::new(100);
 
         Ok(Self {
-            policy: Some(policy),
-            value: Some(value),
+            policy: Slot::new(policy),
+            value: Slot::new(value),
             policy_optim,
             value_optim,
             buffer,
@@ -299,16 +311,24 @@ where
         &self.config
     }
 
+    /// Borrows the policy network.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy slot was poisoned by a panic inside a previous
+    /// optimizer step — see [`Slot::get`].
     fn policy(&self) -> &P {
-        self.policy
-            .as_ref()
-            .expect("policy not restored — earlier panic in learn_step?")
+        self.policy.get()
     }
 
+    /// Borrows the value network.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value slot was poisoned by a panic inside a previous
+    /// optimizer step — see [`Slot::get`].
     fn value(&self) -> &V {
-        self.value
-            .as_ref()
-            .expect("value is populated outside of transient step() calls")
+        self.value.get()
     }
 
     /// Current learning rate after annealing.
@@ -457,11 +477,9 @@ where
                 };
 
                 // ----- Policy update -----
-                let policy = self
-                    .policy
-                    .take()
-                    .expect("policy not restored — earlier panic in learn_step?");
-                let eval = policy.evaluate(obs_batch.clone(), actions);
+                // Everything up to `step_with` runs on a borrow, so a panic in
+                // the forward/loss/backward region leaves the slot intact.
+                let eval = self.policy().evaluate(obs_batch.clone(), actions);
                 let pg = clipped_surrogate(
                     eval.log_prob.clone(),
                     old_lp.clone(),
@@ -486,13 +504,12 @@ where
                 kl_count += 1;
 
                 let grads = policy_loss.backward();
-                let grads_params = GradientsParams::from_grads(grads, &policy);
-                let updated_policy = self.policy_optim.step(lr, policy, grads_params);
-                self.policy = Some(updated_policy);
+                let grads_params = GradientsParams::from_grads(grads, self.policy());
+                self.policy
+                    .step_with(&mut self.policy_optim, lr, grads_params);
 
                 // ----- Value update -----
-                let value = self.value.take().expect("value present");
-                let new_v = value.forward(obs_batch);
+                let new_v = self.value().forward(obs_batch);
                 let v_loss = if self.config.clip_value_loss {
                     clipped_value_loss(new_v, old_v, returns, self.config.clip_coef)
                 } else {
@@ -501,9 +518,9 @@ where
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
                 let grads = v_loss_scaled.backward();
-                let grads_params = GradientsParams::from_grads(grads, &value);
-                let updated_value = self.value_optim.step(lr, value, grads_params);
-                self.value = Some(updated_value);
+                let grads_params = GradientsParams::from_grads(grads, self.value());
+                self.value
+                    .step_with(&mut self.value_optim, lr, grads_params);
 
                 // Accumulate.
                 policy_loss_acc += policy_loss_val;
