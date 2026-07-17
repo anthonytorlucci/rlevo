@@ -35,9 +35,11 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
-use rlevo_core::base::{Action, Reward, State};
+use rlevo_core::base::{Action, Reward};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -254,6 +256,23 @@ impl<const K: usize> ConstructableEnv for NonStationaryBandit<K> {
     }
 }
 
+impl<const K: usize> Sensor<1, 1, 1> for NonStationaryBandit<K> {
+    type Action = KArmedBanditAction<K>;
+    type State = KArmedBanditState;
+    type Observation = KArmedBanditObservation;
+
+    /// Emits the (empty) stateless bandit observation; the drifting arm means
+    /// are internal to the environment and not surfaced to the agent.
+    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+
+    /// Emits the initial (empty) stateless bandit observation.
+    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+}
+
 impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
     type StateType = KArmedBanditState;
     type ObservationType = KArmedBanditObservation;
@@ -275,7 +294,7 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
         self.steps = 0;
         self.done = false;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward::zero(),
         ))
     }
@@ -290,7 +309,7 @@ impl<const K: usize> Environment<1, 1, 1> for NonStationaryBandit<K> {
         let reward = ScalarReward(self.sample_reward(action.arm()));
         self.drift_arm_means();
         self.steps += 1;
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
         let snap = if self.steps >= self.config.max_steps {
             self.done = true;
             SnapshotBase::terminated(obs, reward)

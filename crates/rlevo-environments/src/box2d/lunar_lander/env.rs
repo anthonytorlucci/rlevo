@@ -38,7 +38,9 @@ use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, EpisodeStatus};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor,
+};
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
@@ -96,7 +98,6 @@ impl LunarLanderCore {
                 ground_handle: ColliderHandle::invalid(),
                 leg1_contact: false,
                 leg2_contact: false,
-                last_obs: LunarLanderObservation::default(),
                 prev_shaping: 0.0,
             },
             config,
@@ -175,10 +176,9 @@ impl LunarLanderCore {
         self.state.prev_shaping = 0.0;
         let obs = self.compute_obs();
         self.state.prev_shaping = self.shaping(&obs);
-        self.state.last_obs = obs;
 
-        // Handles are now assigned and `last_obs`/`prev_shaping` written; the
-        // state is fully assembled, so the invariant must hold.
+        // Handles are now assigned and `prev_shaping` written; the state is
+        // fully assembled, so the invariant must hold.
         debug_assert!(
             self.state.is_valid(),
             "LunarLanderState invariant violated after reset"
@@ -353,10 +353,8 @@ impl LunarLanderCore {
             EpisodeStatus::Running
         };
 
-        self.state.last_obs = obs.clone();
-
-        // `last_obs`/`prev_shaping` are written and handles remain valid; the
-        // state is fully assembled, so the invariant must hold.
+        // `prev_shaping` is written and handles remain valid; the state is
+        // fully assembled, so the invariant must hold.
         debug_assert!(
             self.state.is_valid(),
             "LunarLanderState invariant violated after step"
@@ -412,6 +410,31 @@ impl ConstructableEnv for LunarLanderDiscrete {
     }
 }
 
+impl Sensor<1, 1, 1> for LunarLanderDiscrete {
+    type Action = LunarLanderDiscreteAction;
+    type State = LunarLanderState;
+    type Observation = LunarLanderObservation;
+
+    /// Emit the 8-dim observation from the live physics world. The action does
+    /// not affect the emission; it is accepted to satisfy the [`Sensor`]
+    /// contract.
+    ///
+    /// Both this method and the internal step path share the single emission
+    /// definition `LunarLanderCore::compute_obs`: `step` computes the same
+    /// observation once inside `LunarLanderCore::step_common` (it needs it for
+    /// reward shaping and termination) and carries it into the snapshot, so the
+    /// snapshot's observation is exactly this method's output — one definition,
+    /// no drift.
+    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
+        self.core.compute_obs()
+    }
+
+    /// Emit the initial observation at episode start.
+    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
+        self.core.compute_obs()
+    }
+}
+
 impl Environment<1, 1, 1> for LunarLanderDiscrete {
     type StateType = LunarLanderState;
     type ObservationType = LunarLanderObservation;
@@ -426,7 +449,7 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     /// `step` call produces a meaningful potential difference.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
-        let obs = self.core.state.last_obs.clone();
+        let obs = self.observe_reset(&self.core.state);
         Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
@@ -509,6 +532,31 @@ impl ConstructableEnv for LunarLanderContinuous {
     }
 }
 
+impl Sensor<1, 1, 1> for LunarLanderContinuous {
+    type Action = LunarLanderContinuousAction;
+    type State = LunarLanderState;
+    type Observation = LunarLanderObservation;
+
+    /// Emit the 8-dim observation from the live physics world. The action does
+    /// not affect the emission; it is accepted to satisfy the [`Sensor`]
+    /// contract.
+    ///
+    /// Both this method and the internal step path share the single emission
+    /// definition `LunarLanderCore::compute_obs`: `step` computes the same
+    /// observation once inside `LunarLanderCore::step_common` (it needs it for
+    /// reward shaping and termination) and carries it into the snapshot, so the
+    /// snapshot's observation is exactly this method's output — one definition,
+    /// no drift.
+    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
+        self.core.compute_obs()
+    }
+
+    /// Emit the initial observation at episode start.
+    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
+        self.core.compute_obs()
+    }
+}
+
 impl Environment<1, 1, 1> for LunarLanderContinuous {
     type StateType = LunarLanderState;
     type ObservationType = LunarLanderObservation;
@@ -522,7 +570,7 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     /// and the shaping potential is initialised from the spawn position.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.core.rebuild();
-        let obs = self.core.state.last_obs.clone();
+        let obs = self.observe_reset(&self.core.state);
         Ok(LunarLanderSnapshot::running(obs, ScalarReward(0.0))
             .with_metadata(shaping_metadata(self.core.shaping_value())))
     }
@@ -860,12 +908,16 @@ mod tests {
         env_no_wind.reset().unwrap();
         env_wind.reset().unwrap();
 
+        let mut obs_no_wind = [0.0f32; 8];
+        let mut obs_wind = [0.0f32; 8];
         for _ in 0..20 {
-            let _ = env_no_wind.step(LunarLanderDiscreteAction::DoNothing);
-            let _ = env_wind.step(LunarLanderDiscreteAction::DoNothing);
+            if let Ok(snap) = env_no_wind.step(LunarLanderDiscreteAction::DoNothing) {
+                obs_no_wind = snap.observation().values;
+            }
+            if let Ok(snap) = env_wind.step(LunarLanderDiscreteAction::DoNothing) {
+                obs_wind = snap.observation().values;
+            }
         }
-        let obs_no_wind = env_no_wind.core.state.last_obs.values;
-        let obs_wind = env_wind.core.state.last_obs.values;
         assert_ne!(
             obs_no_wind, obs_wind,
             "constant wind should cause different trajectory"

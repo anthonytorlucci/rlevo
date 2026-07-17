@@ -99,7 +99,7 @@ use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -265,8 +265,6 @@ pub struct PendulumState {
 }
 
 impl State<1> for PendulumState {
-    type Observation = PendulumObservation;
-
     fn shape() -> [usize; 1] {
         [2]
     }
@@ -275,14 +273,6 @@ impl State<1> for PendulumState {
     }
     fn is_valid(&self) -> bool {
         self.theta.is_finite() && self.theta_dot.is_finite()
-    }
-
-    fn observe(&self) -> PendulumObservation {
-        PendulumObservation {
-            cos_theta: self.theta.cos(),
-            sin_theta: self.theta.sin(),
-            theta_dot: self.theta_dot,
-        }
     }
 }
 
@@ -437,6 +427,32 @@ impl ConstructableEnv for Pendulum {
     }
 }
 
+impl Sensor<1, 1, 1> for Pendulum {
+    type Action = PendulumAction;
+    type State = PendulumState;
+    type Observation = PendulumObservation;
+
+    /// Projects the resulting state to the 3-D `[cos θ, sin θ, θ̇]` observation;
+    /// the observation is a pure function of the state and ignores the torque.
+    fn observe(&self, _action: &PendulumAction, next_state: &PendulumState) -> PendulumObservation {
+        pendulum_observation(next_state)
+    }
+
+    /// Projects the initial state to the 3-D observation.
+    fn observe_reset(&self, state: &PendulumState) -> PendulumObservation {
+        pendulum_observation(state)
+    }
+}
+
+/// Builds the 3-D Pendulum observation `[cos θ, sin θ, θ̇]` from a state.
+fn pendulum_observation(state: &PendulumState) -> PendulumObservation {
+    PendulumObservation {
+        cos_theta: state.theta.cos(),
+        sin_theta: state.theta.sin(),
+        theta_dot: state.theta_dot,
+    }
+}
+
 impl Environment<1, 1, 1> for Pendulum {
     type StateType = PendulumState;
     type ObservationType = PendulumObservation;
@@ -458,7 +474,7 @@ impl Environment<1, 1, 1> for Pendulum {
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -478,7 +494,7 @@ impl Environment<1, 1, 1> for Pendulum {
         self.state = next_state;
         self.steps += 1;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe(&action, &self.state),
             ScalarReward(reward_f),
         ))
     }

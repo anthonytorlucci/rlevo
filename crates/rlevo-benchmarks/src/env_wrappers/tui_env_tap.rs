@@ -217,13 +217,12 @@ mod tests {
         }
     }
 
+    // Fieldless: `StubEnv` builds its `StubObs` snapshots directly, so the state
+    // is only a type-level placeholder for `Environment::StateType`.
     #[derive(Debug, Clone, Copy)]
-    struct StubState {
-        pos: i32,
-    }
+    struct StubState;
 
     impl State<1> for StubState {
-        type Observation = StubObs;
         fn shape() -> [usize; 1] {
             [1]
         }
@@ -232,9 +231,6 @@ mod tests {
         }
         fn numel(&self) -> usize {
             1
-        }
-        fn observe(&self) -> StubObs {
-            StubObs { pos: self.pos }
         }
     }
 

@@ -17,7 +17,7 @@ use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -305,6 +305,25 @@ impl Swimmer<Rapier3DBackend> {
     }
 }
 
+impl Sensor<1, 1, 1> for Swimmer<Rapier3DBackend> {
+    type Action = SwimmerAction;
+    type State = SwimmerState;
+    type Observation = SwimmerObservation;
+
+    /// Emission model: reads the 8-element observation directly from the physics
+    /// world through the state's body handles. The action does not enter the
+    /// observation, and `next_state` carries the same handles as `self.state`,
+    /// so both are unused; the world is the source of truth.
+    fn observe(&self, _action: &SwimmerAction, _next_state: &SwimmerState) -> SwimmerObservation {
+        self.extract_observation()
+    }
+
+    /// Initial observation at episode start, read from the freshly built world.
+    fn observe_reset(&self, _state: &SwimmerState) -> SwimmerObservation {
+        self.extract_observation()
+    }
+}
+
 impl ConstructableEnv for Swimmer<Rapier3DBackend> {
     /// Create a [`Swimmer`] with [`SwimmerConfig::default`].
     ///
@@ -344,7 +363,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.extract_observation();
+        let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
 
         let torso_pos = Rapier3DBackend::get_pose(&self.world, self.state.segment0).position;
@@ -386,7 +405,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
         self.step_physics(torques);
         self.steps += 1;
 
-        let obs = self.extract_observation();
+        let obs = self.observe(&action, &self.state);
         self.state.last_obs = obs;
 
         let forward = self.config.forward_reward_weight * obs.vx_com();

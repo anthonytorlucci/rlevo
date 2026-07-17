@@ -1,13 +1,10 @@
 //! Physics and progress state for the CarRacing environment.
 //!
-//! [`CarRacingState`] holds the Rapier2D body handles for the car and wheels,
-//! tile-visit counters used for lap-completion detection, and the most recent
-//! rendered pixel observation.
+//! [`CarRacingState`] holds the Rapier2D body handles for the car and wheels
+//! and the tile-visit counters used for lap-completion detection.
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rlevo_core::base::State;
-
-use super::observation::CarRacingObservation;
 
 /// Physics and progress state for CarRacing.
 ///
@@ -22,7 +19,9 @@ use super::observation::CarRacingObservation;
 /// non-portable *view*: a clone's handles alias the arena they were taken from
 /// and **dangle** once the world is rebuilt by a `reset()`. The
 /// [`shape()`](State::shape) of `[96, 96, 3]` describes the pixel-observation
-/// modality (the cached [`last_obs`](Self::last_obs)), not the physics state.
+/// modality — a frame rendered on demand by the env-side
+/// [`Sensor`](rlevo_core::environment::Sensor) rasterizing the world, no longer
+/// cached on this struct — not the physics state.
 ///
 /// Making the state genuinely self-contained/Markov (owning its DOFs as values
 /// and re-modelling CarRacing as `Environment<3, 1, 1>` + `Observable<3>`) is
@@ -43,8 +42,6 @@ pub struct CarRacingState {
     pub(crate) total_tiles: usize,
     /// Whether the lap has been completed.
     pub(crate) lap_complete: bool,
-    /// Cached last rendered observation.
-    pub(crate) last_obs: CarRacingObservation,
 }
 
 impl CarRacingState {
@@ -84,17 +81,9 @@ impl CarRacingState {
     pub fn lap_complete(&self) -> bool {
         self.lap_complete
     }
-
-    /// The most recent cached pixel observation.
-    #[must_use]
-    pub fn last_obs(&self) -> &CarRacingObservation {
-        &self.last_obs
-    }
 }
 
 impl State<3> for CarRacingState {
-    type Observation = CarRacingObservation;
-
     fn shape() -> [usize; 3] {
         [96, 96, 3]
     }
@@ -107,10 +96,6 @@ impl State<3> for CarRacingState {
                 .all(|h| *h != RigidBodyHandle::invalid())
             && self.tiles_visited <= self.total_tiles
             && self.current_tile.is_none_or(|i| i < self.total_tiles)
-    }
-
-    fn observe(&self) -> CarRacingObservation {
-        self.last_obs.clone()
     }
 }
 

@@ -1,14 +1,12 @@
 //! Physics state for the LunarLander environments.
 //!
 //! [`LunarLanderState`] holds Rapier2D handles for the lander hull and legs,
-//! cached ground-contact flags, the most recent observation, and the previous
-//! shaping value needed for potential-based reward computation.
+//! cached ground-contact flags, and the previous shaping value needed for
+//! potential-based reward computation.
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rapier2d::geometry::ColliderHandle;
 use rlevo_core::base::State;
-
-use super::observation::LunarLanderObservation;
 
 /// Physics state for LunarLander.
 ///
@@ -41,8 +39,6 @@ pub struct LunarLanderState {
     pub(crate) leg1_contact: bool,
     /// Whether right leg is touching the ground.
     pub(crate) leg2_contact: bool,
-    /// Cached observation from the last step/reset.
-    pub(crate) last_obs: LunarLanderObservation,
     /// Previous shaping value (for reward computation).
     pub(crate) prev_shaping: f32,
 }
@@ -89,17 +85,9 @@ impl LunarLanderState {
     pub fn prev_shaping(&self) -> f32 {
         self.prev_shaping
     }
-
-    /// Cached observation from the last step/reset.
-    #[must_use]
-    pub fn last_obs(&self) -> &LunarLanderObservation {
-        &self.last_obs
-    }
 }
 
 impl State<1> for LunarLanderState {
-    type Observation = LunarLanderObservation;
-
     fn shape() -> [usize; 1] {
         [8]
     }
@@ -109,12 +97,7 @@ impl State<1> for LunarLanderState {
             && self.leg1_handle != RigidBodyHandle::invalid()
             && self.leg2_handle != RigidBodyHandle::invalid()
             && self.ground_handle != ColliderHandle::invalid()
-            && self.last_obs.is_finite()
             && self.prev_shaping.is_finite()
-    }
-
-    fn observe(&self) -> LunarLanderObservation {
-        self.last_obs.clone()
     }
 }
 
@@ -156,18 +139,5 @@ mod tests {
         let state = env.core_state_mut();
         state.prev_shaping = f32::NAN;
         assert!(!state.is_valid(), "NaN prev_shaping must fail is_valid()");
-    }
-
-    /// A non-finite cached observation must fail the invariant.
-    #[test]
-    fn is_valid_false_on_nonfinite_last_obs() {
-        let mut env = LunarLanderContinuous::new(false);
-        env.reset().expect("reset must succeed");
-        let state = env.core_state_mut();
-        state.last_obs = LunarLanderObservation::new([f32::NAN; 8]);
-        assert!(
-            !state.is_valid(),
-            "non-finite last_obs must fail is_valid()"
-        );
     }
 }

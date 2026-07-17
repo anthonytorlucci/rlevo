@@ -7,7 +7,7 @@ use rand::{RngExt, SeedableRng};
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotMetadata,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotMetadata,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -200,6 +200,30 @@ impl InvertedPendulum<Rapier3DBackend> {
     }
 }
 
+impl Sensor<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
+    type Action = InvertedPendulumAction;
+    type State = InvertedPendulumState;
+    type Observation = InvertedPendulumObservation;
+
+    /// Emission model: reads `[cart_x, pole_angle, cart_vx, pole_angvel_y]`
+    /// directly from the physics world through the state's body handles. The
+    /// action does not enter the observation, and `next_state` carries the same
+    /// handles as `self.state`, so both are unused; the world is the source of
+    /// truth.
+    fn observe(
+        &self,
+        _action: &InvertedPendulumAction,
+        _next_state: &InvertedPendulumState,
+    ) -> InvertedPendulumObservation {
+        self.extract_observation()
+    }
+
+    /// Initial observation at episode start, read from the freshly built world.
+    fn observe_reset(&self, _state: &InvertedPendulumState) -> InvertedPendulumObservation {
+        self.extract_observation()
+    }
+}
+
 impl ConstructableEnv for InvertedPendulum<Rapier3DBackend> {
     /// Constructs the environment with [`InvertedPendulumConfig::default`].
     ///
@@ -240,7 +264,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         self.state = state;
         self.steps = 0;
 
-        let obs = self.extract_observation();
+        let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
         let meta = SnapshotMetadata::new().with(METADATA_KEY_ALIVE, 0.0);
         Ok(LocomotionSnapshot::running(obs, ScalarReward(0.0)).with_metadata(meta))
@@ -292,7 +316,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         });
         self.steps += 1;
 
-        let obs = self.extract_observation();
+        let obs = self.observe(&action, &self.state);
         self.state.last_obs = obs;
 
         let healthy = self.config.healthy.is_healthy(

@@ -39,7 +39,7 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
 That is the whole behavioural contract: two methods and five associated types.
 But the type signature is doing a lot of quiet work, so it is worth slowing down.
 
-### Three rank parameters — but only two degrees of freedom
+### Three rank parameters, connected by the environment's `Sensor`
 
 The trait carries *three* const generics — `R`, `SR`, `AR` — one for each tensor
 space:
@@ -50,9 +50,11 @@ space:
 | `SR` | the full state | `State<SR>` |
 | `AR` | the action | `Action<AR>` |
 
-It is tempting to read these as three independent knobs, but in practice `R` and
-`SR` move together. The reason is worth unpacking, because it touches the
-difference between a tensor's *rank* and the *information* it carries.
+It is tempting to read these as three independent knobs, and since ADR 0047 they
+genuinely are — but in most environments `R` and `SR` still move together in
+practice. The reason is worth unpacking, because it touches the difference
+between a tensor's *rank* and the *information* it carries, and it introduces the
+trait that actually connects `R` to `SR`.
 
 **Rank is not information.** Partial observability — the defining feature of a
 POMDP — is about how much of the state the observation reveals, not about how
@@ -62,40 +64,65 @@ still a flat rank-1 vector. The *shape* shrank; the *rank* did not. That is the
 flavour of partial observability `rlevo` models directly: same rank, less
 information.
 
-**Why `R == SR` in every current environment.** Recall from the
-[state chapter](31-state.md) that `State<SR>` welds its observation to its *own*
-rank: `type Observation: Observation<SR>`. A rank-`SR` state can therefore only
-produce a rank-`SR` observation through `observe()`. Since every environment
-builds its snapshots from `state.observe()`, the observation rank equals the
-state rank. The codebase bears this out: every environment is either
-`Environment<1, 1, 1>` (classic-control and toy-text) or `Environment<3, 3, 1>`
-(the MiniGrid-style grids and CarRacing, whose rank-3 *image is itself the
-state*). `R` never diverges from `SR`.
+**Where `R` actually comes from: the environment's `Sensor`.** The `Environment`
+trait itself says nothing about how `ObservationType` is produced from
+`StateType` — it never binds `ObservationType = StateType::Observation`, because
+`State` does not carry an observation type at all (recall from the
+[state chapter](31-state.md) that observation production moved off `State` onto
+the env-side [`Sensor<OR, AR, SR>`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+trait). Every environment builds its snapshots by implementing `Sensor` on
+itself and calling `self.observe(&action, &next_state)` in `step` and
+`self.observe_reset(&next_state)` in `reset`. Because `Sensor`'s observation rank
+`OR` is a free const generic — independent of the state rank `SR` it consumes —
+`R` and `SR` are only coupled by *what a given environment's `Sensor`
+implementation happens to do*, not by the type system.
 
-**So why two parameters?** Because the `Environment` trait does *not* assert the
-equality — it never binds `ObservationType = StateType::Observation`. Those are
-independent associated types, which leaves a deliberate seam: a *modality-changing*
-POMDP, where the observation is a different rank from the state. The textbook
-case is Atari — a low-rank emulator-RAM state behind a rank-2 pixel observation.
-`State::observe()` cannot express that, because the `State` trait pins its
-observation to the state's *own* rank.
+In practice, most sensors are same-rank projections, so `R == SR` remains the
+common case: CartPole and the toy-text family are `Environment<1, 1, 1>`, and
+the MiniGrid-style grids and CarRacing are `Environment<3, 3, 1>` (their rank-3
+egocentric *view is itself the state*). But nothing forces that equality any
+more. The textbook counterexample is a modality-changing POMDP — the low-rank
+state, high-rank observation case. `rlevo`'s reference for this is the
+`pixel_grid` environment: `PixelGridEnv` is `Environment<3, 1, 1>`, a rank-1
+grid-cell state observed through a rank-3 pixel sensor.
 
-That is exactly what the [`Observable`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
-trait is for. `Observable<OR>` is a standalone projection trait
-(`fn project(&self) -> Self::Observation`, where `Self::Observation: Observation<OR>`)
-that lets a state map into an observation of a *different* rank `OR`. A
-modality-changing environment's state implements `State<SR>` for its full
-representation **and** `Observable<OR>` for the projected modality, then builds its
-snapshots from `state.project()` instead of `state.observe()`. Because `Environment`
-already permits `R != SR`, no change to the environment contract is needed — this is
-the typed home for the rank change, resolving
-[issue #62](https://github.com/anthonytorlucci/rlevo/issues/62).
+CarRacing is, in fact, the case this decoupling was built for, and it is worth
+seeing why it *hasn't* moved yet. Its `CarRacingState::shape()` still reports
+`[96, 96, 3]` — a rank-3 state, even though the pixel frame is no longer cached
+on it: `CarRacing`'s `Sensor<3, 1, 3>` rasterizes the world fresh on every
+`observe` call, so the state's declared shape is now purely a leftover of the
+pre-ADR-0047 design, not a value it actually stores. Rank inflation like this is
+exactly the symptom `Sensor` was introduced to retire — CarRacing no longer
+*needs* to masquerade as `Environment<3, 3, 1>`; re-modelling it honestly as
+`Environment<3, 1, 1>` (a compact physics `State<1>` behind the same rank-3
+pixel `Sensor`) is unblocked by this change and tracked as
+[issue #255](https://github.com/anthonytorlucci/rlevo/issues/255).
 
-So the practical rule is precise: **`R == SR` for any environment that observes via
-`State::observe()` (all of them today); an environment that observes via
-`Observable::project()` may have `R != SR`.** The other parameter that genuinely
-varies is **`AR`**: in `Environment<3, 3, 1>` the state and observation are rank-3
-while the action is a single rank-1 discrete choice.
+That reference environment is also the place to meet the
+[`Observable`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
+trait, which is still useful here even though it is no longer where observation
+production lives. `Observable<OR>` is an optional pure-projection helper
+(`fn project(&self) -> Self::Observation`, where `Self::Observation:
+Observation<OR>`) for the case where a sensor's observation happens to be a
+*pure function of the state* — no world context needed. `PixelGridState`
+implements `Observable<3>` to hold the pixel-rendering body, and
+`PixelGridEnv`'s `Sensor<3, 1, 1>` impl simply delegates:
+`next_state.project()`. This is the "sensor delegates to `Observable`" pattern —
+before ADR 0047, `Observable` was the *only* escape from `State::observe()`'s
+same-rank binding (ADR 0019); now that `Sensor` already carries an independent
+`OR`, `Observable` is a convenience for keeping a state-pure projection in one
+place, not the mechanism that makes the rank change possible.
+
+So the practical rule is precise: **`R == SR` is the common case, wherever an
+environment's `Sensor` happens to be a same-rank projection (all classic-control
+and toy-text environments today). An environment whose `Sensor` changes
+modality — typically by delegating to a state's `Observable::project()` — may
+have `R != SR`**, as `pixel_grid` demonstrates
+([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62) is the tracking
+issue that motivated the escape hatch; [ADR 0047](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0047-sensor-relocates-emission-model-to-environment.md)
+is what relocated it onto `Sensor`). The other parameter that genuinely varies
+regardless is **`AR`**: in `Environment<3, 3, 1>` the state and observation are
+rank-3 while the action is a single rank-1 discrete choice.
 
 ### The associated types form a consistent set
 
@@ -125,7 +152,9 @@ EnvironmentError>`), because a real environment can fail to load a level or a
 physics step can blow up — more on errors below.
 
 CartPole's implementation is small enough to read whole, and it shows the shape
-every environment follows:
+every environment follows — including the `Sensor` impl from the
+[state chapter](31-state.md#the-stateobservation-split-the-sensor-seam) that
+supplies the observation each method needs:
 
 ```rust
 impl Environment<1, 1, 1> for CartPole {
@@ -136,10 +165,12 @@ impl Environment<1, 1, 1> for CartPole {
     type SnapshotType    = SnapshotBase<1, CartPoleObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.rng = StdRng::seed_from_u64(self.config.seed);
         self.state = self.sample_init_state();
         self.steps = 0;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+        Ok(SnapshotBase::running(
+            self.observe_reset(&self.state),
+            ScalarReward(0.0),
+        ))
     }
 
     fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -156,10 +187,11 @@ impl Environment<1, 1, 1> for CartPole {
             ScalarReward(1.0)
         };
 
+        let obs = self.observe(&action, &self.state);
         let snap = if terminated {
-            SnapshotBase::terminated(self.state.observe(), reward)
+            SnapshotBase::terminated(obs, reward)
         } else {
-            SnapshotBase::running(self.state.observe(), reward)
+            SnapshotBase::running(obs, reward)
         };
         Ok(snap)
     }
@@ -167,14 +199,16 @@ impl Environment<1, 1, 1> for CartPole {
 ```
 
 A few things connect back to earlier chapters. The full `CartPoleState` lives
-*inside* the struct and only `state.observe()` — the observation — ever crosses
-the boundary into a snapshot, exactly the [state/observation wall](31-state.md)
-from before. The reward is a `ScalarReward`. And `SnapshotBase` (the default
-`Snapshot` implementation) has three constructors — `running`, `terminated`,
-`truncated` — matching the [`EpisodeStatus`](33-reward.md) variants. Each of
-these leaves `SnapshotBase`'s fourth field, `metadata: Option<SnapshotMetadata>`,
-as `None`; CartPole never needs it, but an environment that does chains
-`.with_metadata(..)` onto any of the three constructors, as the
+*inside* the struct, and only the observation the environment's `Sensor`
+produces — via `self.observe_reset(&self.state)` in `reset`,
+`self.observe(&action, &self.state)` in `step` — ever crosses the boundary into
+a snapshot, exactly the [state/observation wall](31-state.md) from before. The
+reward is a `ScalarReward`. And `SnapshotBase` (the default `Snapshot`
+implementation) has three constructors — `running`, `terminated`, `truncated` —
+matching the [`EpisodeStatus`](33-reward.md) variants. Each of these leaves
+`SnapshotBase`'s fourth field, `metadata: Option<SnapshotMetadata>`, as `None`;
+CartPole never needs it, but an environment that does chains `.with_metadata(..)`
+onto any of the three constructors, as the
 [reward chapter](33-reward.md#shaped-and-multi-component-rewards) shows.
 
 Notice what CartPole's `step` *never* produces: `Truncated`. It emits `Running`
@@ -227,7 +261,7 @@ even by accident, until it lands for that family — the rollout is tracked
 family-by-family in
 [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). If you're
 implementing your own environment, [Bring Your Own
-Environment](../../part-2-guided-tour/99-extending-the-environment.md#step-4--guard-the-post-terminal-step)
+Environment](../../part-2-guided-tour/99-extending-the-environment.md#step-5--guard-the-post-terminal-step)
 shows the `EpisodeGuard` helper that gets you this behaviour without hand-rolling
 the state machine.
 
@@ -362,11 +396,16 @@ the crate as a vocabulary anchor more than a workhorse.
 - **`Environment<R, SR, AR>`** is the executable MDP: five associated types
   (state, observation, action, reward, snapshot) welded into a consistent unit,
   plus `reset` and `step`.
-- `R == SR` for every environment that observes via `State::observe()` (all of
-  them today); `AR` is the rank that genuinely varies. A modality-changing POMDP
-  can break that equality by observing through `Observable::project()` instead —
-  the typed home for a state→observation rank change ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)) —
-  and the `SnapshotType` bound forces the noun-set to agree.
+- Every environment builds its snapshots through its own
+  [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+  impl (`self.observe`/`self.observe_reset`), not through the state. `R` and
+  `SR` are independent parameters, coupled only by what a given `Sensor` happens
+  to do: `R == SR` wherever a sensor is a same-rank projection (every
+  environment today except `pixel_grid`); a modality-changing `Sensor` —
+  typically delegating to a state's `Observable::project()` — may have
+  `R != SR` ([issue #62](https://github.com/anthonytorlucci/rlevo/issues/62)
+  is what motivated the escape hatch). The `SnapshotType` bound forces the
+  noun-set to agree regardless.
 - `reset`/`step` return `Result<Snapshot, EnvironmentError>` — fallibility is
   part of the contract, and `EnvironmentError` is `#[non_exhaustive]`.
 - **A `step()` taken after `is_done()` is `true` is an error, not a silent

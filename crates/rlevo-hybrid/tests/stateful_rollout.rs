@@ -56,14 +56,8 @@ fn device() -> Dev {
 struct AltState;
 
 impl State<1> for AltState {
-    type Observation = SantaFeAntObservation;
-
     fn shape() -> [usize; 1] {
         [1]
-    }
-
-    fn observe(&self) -> SantaFeAntObservation {
-        SantaFeAntObservation { food_ahead: false }
     }
 
     fn is_valid(&self) -> bool {

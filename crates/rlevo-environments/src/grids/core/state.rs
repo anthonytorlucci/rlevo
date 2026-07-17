@@ -4,11 +4,12 @@ use super::agent::AgentState;
 use super::grid::{Grid, egocentric_view};
 use super::observation::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
 use rlevo_core::base::State;
+use rlevo_core::state::Observable;
 
 /// The complete state of a grid environment.
 ///
 /// `GridState::shape` reports `[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]` —
-/// the shape of the egocentric observation that `observe()` emits. The
+/// the shape of the egocentric observation that `project()` emits. The
 /// grid itself can be any size at runtime; the static shape is constant
 /// across all grid environments so tensor code doesn't have to branch.
 #[derive(Debug, Clone)]
@@ -28,15 +29,8 @@ impl GridState {
 }
 
 impl State<3> for GridState {
-    type Observation = GridObservation;
-
     fn shape() -> [usize; 3] {
         [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        let view = egocentric_view(&self.grid, &self.agent);
-        GridObservation::from_entity_view(view, self.agent.direction)
     }
 
     /// Returns `true` when the agent's current position falls inside the grid
@@ -44,6 +38,15 @@ impl State<3> for GridState {
     /// by replaying a corrupted action sequence may not be.
     fn is_valid(&self) -> bool {
         self.grid.in_bounds(self.agent.x, self.agent.y)
+    }
+}
+
+impl Observable<3> for GridState {
+    type Observation = GridObservation;
+
+    fn project(&self) -> Self::Observation {
+        let view = egocentric_view(&self.grid, &self.agent);
+        GridObservation::from_entity_view(view, self.agent.direction)
     }
 }
 
@@ -65,7 +68,7 @@ mod tests {
         grid.set(3, 3, Entity::Goal);
         let agent = AgentState::new(1, 1, Direction::East);
         let state = GridState::new(grid, agent);
-        let obs = state.observe();
+        let obs = state.project();
         assert_eq!(obs.agent_direction, Direction::East.to_u8());
     }
 

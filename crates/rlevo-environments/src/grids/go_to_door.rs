@@ -88,7 +88,9 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -658,21 +660,25 @@ impl GoToDoorEnv {
         out
     }
 
-    /// Project the current state into a mission-carrying observation.
-    fn observe(&self) -> GoToDoorObservation {
-        let view = egocentric_view(&self.state.grid, &self.state.agent);
+    /// Project a grid `state` into a mission-carrying observation.
+    ///
+    /// The shared body behind the env-side [`Sensor`] impl: it stamps the
+    /// current [`Mission::target_color`] into the observation's mission channel,
+    /// which is why the emission model lives on the environment rather than on
+    /// [`GridState`] (the mission is env context, not state).
+    fn observe_impl(&self, state: &GridState) -> GoToDoorObservation {
+        let view = egocentric_view(&state.grid, &state.agent);
         GoToDoorObservation::from_entity_view(
             view,
-            self.state.agent.direction,
+            state.agent.direction,
             self.mission.target_color,
         )
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GoToDoorSnapshot {
+    fn emit(&self, observation: GoToDoorObservation, reward: f32, done: bool) -> GoToDoorSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        let observation = self.observe();
         let reward = ScalarReward::new(reward);
         if done {
             SnapshotBase::terminated(observation, reward)
@@ -717,6 +723,23 @@ impl ConstructableEnv for GoToDoorEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for GoToDoorEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GoToDoorObservation;
+
+    /// Emission model `O(a, s')`. The observation ignores the action — it is a
+    /// function of the resulting `next_state` and the episode mission — so this
+    /// forwards to the same projection as [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GoToDoorObservation {
+        self.observe_impl(next_state)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GoToDoorObservation {
+        self.observe_impl(state)
+    }
+}
+
 impl Environment<3, 3, 1> for GoToDoorEnv {
     type StateType = GridState;
     type ObservationType = GoToDoorObservation;
@@ -735,7 +758,8 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         self.doors = doors;
         self.mission = mission;
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -754,7 +778,8 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 
@@ -1006,7 +1031,7 @@ mod tests {
     #[test]
     fn test_observation_entity_channels_match_shared_encoding() {
         let env = env_6x6(2);
-        let obs = env.observe();
+        let obs = env.observe_reset(env.state());
         let view = egocentric_view(&env.state().grid, &env.state().agent);
         for (r, row) in view.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
@@ -1027,7 +1052,7 @@ mod tests {
         // behind the 25% cap asserted below.
         let mut env = env_6x6(8);
         env.reset().expect("reset must succeed");
-        let before = env.observe();
+        let before = env.observe_reset(env.state());
         let other = env
             .doors()
             .iter()
@@ -1035,7 +1060,7 @@ mod tests {
             .find(|&c| c != env.mission().target_color)
             .expect("four distinct colors means an alternative exists");
         env.mission = Mission::new(other);
-        let after = env.observe();
+        let after = env.observe_reset(env.state());
 
         for r in 0..VIEW_SIZE {
             for c in 0..VIEW_SIZE {
@@ -1060,7 +1085,7 @@ mod tests {
         let device = Default::default();
 
         let env = env_6x6(4);
-        let obs = env.observe();
+        let obs = env.observe_reset(env.state());
 
         let tensor =
             <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);

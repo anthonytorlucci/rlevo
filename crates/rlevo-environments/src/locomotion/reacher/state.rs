@@ -37,24 +37,20 @@ pub struct ReacherState {
     /// episode.
     pub target_xy: [f32; 2],
     /// Most recent observation extracted after the last `step` (or `reset`).
-    /// `State::observe` returns this value directly. Set to
+    /// Read only by [`State::is_valid`] to detect physics divergence; the
+    /// observation itself is produced by the env-side
+    /// [`Sensor`](rlevo_core::environment::Sensor) (ADR 0047). Set to
     /// `ReacherObservation::default()` (all zeros) before the first
     /// observation is extracted.
     pub last_obs: ReacherObservation,
 }
 
 impl State<1> for ReacherState {
-    type Observation = ReacherObservation;
-
     fn shape() -> [usize; 1] {
         [10]
     }
 
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()
-    }
-
-    fn observe(&self) -> ReacherObservation {
-        self.last_obs
     }
 }

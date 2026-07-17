@@ -102,7 +102,7 @@ use rlevo_core::{
     base::{Action, Observation, State, TensorConversionError, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
-    environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase},
+    environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
 };
 use serde::{Deserialize, Serialize};
@@ -310,8 +310,6 @@ impl Observation<1> for MountainCarContinuousObservation {
 }
 
 impl State<1> for MountainCarContinuousState {
-    type Observation = MountainCarContinuousObservation;
-
     fn shape() -> [usize; 1] {
         [2]
     }
@@ -320,13 +318,6 @@ impl State<1> for MountainCarContinuousState {
     }
     fn is_valid(&self) -> bool {
         self.position.is_finite() && self.velocity.is_finite()
-    }
-
-    fn observe(&self) -> MountainCarContinuousObservation {
-        MountainCarContinuousObservation {
-            position: self.position,
-            velocity: self.velocity,
-        }
     }
 }
 
@@ -436,6 +427,41 @@ impl ConstructableEnv for MountainCarContinuous {
     }
 }
 
+impl Sensor<1, 1, 1> for MountainCarContinuous {
+    type Action = MountainCarContinuousAction;
+    type State = MountainCarContinuousState;
+    type Observation = MountainCarContinuousObservation;
+
+    /// Projects the resulting state directly onto the 2-D `[position, velocity]`
+    /// observation; the observation ignores the applied force.
+    fn observe(
+        &self,
+        _action: &MountainCarContinuousAction,
+        next_state: &MountainCarContinuousState,
+    ) -> MountainCarContinuousObservation {
+        mountain_car_continuous_observation(next_state)
+    }
+
+    /// Projects the initial state onto the 2-D observation.
+    fn observe_reset(
+        &self,
+        state: &MountainCarContinuousState,
+    ) -> MountainCarContinuousObservation {
+        mountain_car_continuous_observation(state)
+    }
+}
+
+/// Builds the 2-D MountainCarContinuous observation `[position, velocity]` from a
+/// state.
+fn mountain_car_continuous_observation(
+    state: &MountainCarContinuousState,
+) -> MountainCarContinuousObservation {
+    MountainCarContinuousObservation {
+        position: state.position,
+        velocity: state.velocity,
+    }
+}
+
 impl Environment<1, 1, 1> for MountainCarContinuous {
     type StateType = MountainCarContinuousState;
     type ObservationType = MountainCarContinuousObservation;
@@ -457,7 +483,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward(0.0),
         ))
     }
@@ -485,10 +511,11 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         let goal_bonus = if terminated { 100.0 } else { 0.0 };
         let reward = ScalarReward(ctrl_cost + goal_bonus);
 
+        let obs = self.observe(&action, &self.state);
         let snap = if terminated {
-            SnapshotBase::terminated(self.state.observe(), reward)
+            SnapshotBase::terminated(obs, reward)
         } else {
-            SnapshotBase::running(self.state.observe(), reward)
+            SnapshotBase::running(obs, reward)
         };
         Ok(snap)
     }

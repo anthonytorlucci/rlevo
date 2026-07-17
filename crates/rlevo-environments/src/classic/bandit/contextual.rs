@@ -41,7 +41,9 @@ use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::StateError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -92,10 +94,11 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// be validated at construction, and it is out of range for the degenerate
 /// `C == 0`.
 ///
-/// The single in-module struct-literal path, [`State::observe`], copies a
-/// context the environment sampled from `0..C`, so it upholds the invariant by
-/// construction; [`TensorConvertible::write_host_row`] carries a
-/// `debug_assert!` as defence-in-depth against that path ever regressing.
+/// The single in-module struct-literal path, the [`Sensor`] impl on
+/// [`ContextualBandit`], copies a context the environment sampled from `0..C`,
+/// so it upholds the invariant by construction;
+/// [`TensorConvertible::write_host_row`] carries a `debug_assert!` as
+/// defence-in-depth against that path ever regressing.
 ///
 /// # Examples
 ///
@@ -174,16 +177,8 @@ impl<const C: usize> Observation<1> for ContextualBanditObservation<C> {
 }
 
 impl<const C: usize> State<1> for ContextualBanditState<C> {
-    type Observation = ContextualBanditObservation<C>;
-
     fn shape() -> [usize; 1] {
         [C]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        ContextualBanditObservation {
-            context: self.context,
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -213,7 +208,8 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
     /// `debug_assert!` fires if `context >= C`. `context < C` is a construction
     /// invariant of [`ContextualBanditObservation`] — every public constructor
     /// validates it — so the assert only guards the in-module struct-literal
-    /// path in [`State::observe`] against a future regression.
+    /// path in the [`Sensor`] impl on [`ContextualBandit`] against a future
+    /// regression.
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         debug_assert!(
             self.context < C,
@@ -457,6 +453,28 @@ impl<const C: usize, const K: usize> ConstructableEnv for ContextualBandit<C, K>
     }
 }
 
+impl<const C: usize, const K: usize> Sensor<1, 1, 1> for ContextualBandit<C, K> {
+    type Action = KArmedBanditAction<K>;
+    type State = ContextualBanditState<C>;
+    type Observation = ContextualBanditObservation<C>;
+
+    /// Reveals the context carried by `next_state`. The context the environment
+    /// sampled is always in `0..C`, so this upholds the
+    /// `ContextualBanditObservation` `context < C` invariant by construction.
+    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
+        ContextualBanditObservation {
+            context: next_state.context,
+        }
+    }
+
+    /// Reveals the initial context carried by `state`.
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
+        ContextualBanditObservation {
+            context: state.context,
+        }
+    }
+}
+
 impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C, K> {
     type StateType = ContextualBanditState<C>;
     type ObservationType = ContextualBanditObservation<C>;
@@ -477,7 +495,7 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
         self.steps = 0;
         self.done = false;
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward::zero(),
         ))
     }
@@ -494,7 +512,7 @@ impl<const C: usize, const K: usize> Environment<1, 1, 1> for ContextualBandit<C
         self.steps += 1;
         // Reveal the next context after computing reward for the current one.
         self.state.context = self.rng.random_range(0..C);
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
         let snap = if self.steps >= self.config.max_steps {
             self.done = true;
             SnapshotBase::terminated(obs, reward)

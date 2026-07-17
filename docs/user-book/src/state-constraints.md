@@ -50,8 +50,22 @@ Now compare this `is_valid` with the grid agent's. There, validity simply meant
 positional bounds and one angular bound — and it is the single predicate that
 defines the entire admissible state space. Keep that in mind, because everything
 else on this page exists to keep states on the right side of it. And unlike the
-grid agent, `observe` here performs *full* observability: the observation is a
-direct projection of the pose, because this robot perceives its complete state.
+grid agent's `Observable` projection, this one performs *full* observability:
+
+```rust,no_run
+{{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_state_constraints.rs:observable}}
+```
+
+The observation is a direct, lossless copy of the pose, because this robot
+perceives its complete state — contrast that with the grid agent, whose
+projection deliberately drops two fields. Production of an observation from a
+state is not `State`'s job any more (that moved to the environment's
+[`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+trait — see [State and Observation Spaces](part-1-foundations/reinforcement-learning/31-state.md#the-stateobservation-split-the-sensor-seam)),
+but where a sensor's observation genuinely is a pure function of the state, as
+here, it is idiomatic to hold that projection on the optional
+[`Observable`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
+helper and let the sensor delegate to it, rather than duplicate the body inline.
 
 ## Validity enforced at construction
 

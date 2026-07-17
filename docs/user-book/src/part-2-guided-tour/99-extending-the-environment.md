@@ -47,19 +47,27 @@ The three const generics are *ranks*, not sizes:
 | `AR`  | action rank — axes of an action | `1` | `1` |
 
 For the same-modality case (the agent sees the full state) `R == SR`, as in the
-bandit's `Environment<1, 1, 1>`. They are allowed to differ for
-modality-changing POMDPs — see `Observable<OR>` and ADR 0019 — but you can ignore
-that until you need it.
+bandit's `Environment<1, 1, 1>`. `R` and `SR` are independent parameters,
+though: the environment's [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
+— not `State` — is what actually produces the observation, and its own rank
+need not match the state's. `pixel_grid`'s `Environment<3, 1, 1>` is the
+reference case for a modality-changing sensor (ADR 0047, superseding
+[ADR 0019](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0019-observable-projection-trait.md)),
+but you can ignore that until you need it — the bandit, like most environments,
+is same-modality.
 
-So implementing an environment means supplying four types and two methods. We
-take them in order.
+So implementing an environment means supplying four types, a `Sensor` impl, and
+two `Environment` methods. We take them in order.
 
 ## Step 1 — `State` and `Observation`
 
 `State<SR>` is the full ground truth of your world; `Observation<R>` is what the
-agent is allowed to perceive. The bandit is *stateless* — the optimal action
-never depends on history — so both are zero-field marker structs that exist only
-to satisfy the trait bounds:
+agent is allowed to perceive. Since [ADR 0047](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0047-sensor-relocates-emission-model-to-environment.md),
+the two are declared as separate, unconnected traits — `State` carries no
+`type Observation` and no `observe()` method of its own; how one produces the
+other is Step 2's job, not this one. The bandit is *stateless* — the optimal
+action never depends on history — so both types here are zero-field marker
+structs that exist only to satisfy the trait bounds:
 
 ```rust,no_run
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -73,29 +81,80 @@ impl Observation<1> for KArmedBanditObservation {
 }
 
 impl State<1> for KArmedBanditState {
-    type Observation = KArmedBanditObservation;
-
-    fn shape()  -> [usize; 1]        { [1] }
-    fn observe(&self) -> Self::Observation { KArmedBanditObservation }
-    fn is_valid(&self) -> bool       { true }
-    fn numel(&self)  -> usize        { 1 }
+    fn shape()  -> [usize; 1]  { [1] }
+    fn is_valid(&self) -> bool { true }
+    fn numel(&self)  -> usize  { 1 }
 }
 ```
 
-The key method is **`observe`**: it projects the full state down to what the
-agent sees. For the bandit that projection is trivial. For a stateful
-environment — say a gridworld — `State` would carry the agent's `(x, y)` and the
-grid contents, and `observe` would return only the slice the agent can sense
-(its local neighbourhood, or the whole grid for a fully-observable task). The
-`State`/`Observation` split *is* the observability seam: keep ground truth in
-`State`, expose perception through `observe`.
+For a stateful environment — say a gridworld — `State` would carry the agent's
+`(x, y)` and the grid contents, while `Observation` names only the slice the
+agent can sense (its local neighbourhood, or the whole grid for a
+fully-observable task). The `State`/`Observation` split *is* the observability
+seam; Step 2 is where you actually cross it.
 
 To plug into neural-network agents, your observation also implements
 `TensorConvertible<R, B>` (`to_tensor` / `from_tensor`). The bandit encodes its
 empty state as the constant tensor `[0.0]` and validates shape `[1]` on the way
 back.
 
-## Step 2 — `Action`
+## Step 2 — `Sensor`: producing the `Observation`
+
+Nothing yet connects `KArmedBanditState` to `KArmedBanditObservation` — that
+connection is [`Sensor<OR, AR, SR>`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html),
+and it is implemented on the **environment**, not on the state:
+
+```rust,no_run
+pub trait Sensor<const OR: usize, const AR: usize, const SR: usize> {
+    type Action: Action<AR>;
+    type State: State<SR>;
+    type Observation: Observation<OR>;
+
+    fn observe(&self, action: &Self::Action, next_state: &Self::State) -> Self::Observation;
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation;
+}
+```
+
+`observe(a, s')` is the canonical emission model: the observation after taking
+action `a` and arriving at `s'`. `reset()` has no preceding action, so
+`observe_reset` supplies the initial observation from the starting state alone.
+The bandit's `Sensor` impl is as trivial as `State` and `Observation`
+themselves — both methods just hand back the empty marker, because the bandit
+observation carries no information at all:
+
+```rust,no_run
+impl<const K: usize> Sensor<1, 1, 1> for KArmedBandit<K> {
+    type Action = KArmedBanditAction<K>;
+    type State = KArmedBanditState;
+    type Observation = KArmedBanditObservation;
+
+    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+
+    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+}
+```
+
+For a stateful environment this is where the real work happens: `observe`
+projects the resulting state down to what the agent sees — its local
+neighbourhood, say, rather than the whole grid. And because `&self` here is the
+*environment*, not a bare state value, a sensor can also read world context a
+`State` never carries on its own — a rendered pixel frame, a lidar raycast
+against physics geometry. That direct world access is exactly why observation
+production moved off `State` onto `Sensor` in the first place (ADR 0047):
+the emission model \\(O(a, s')\\) is a property of the problem, not of a single
+point in state space. Where the projection genuinely *is* a pure function of
+state — no world context needed — a `Sensor` may delegate to the optional
+[`Observable<OR>`](https://docs.rs/rlevo-core/latest/rlevo_core/state/trait.Observable.html)
+helper (`next_state.project()`) instead of duplicating the body; `pixel_grid` is
+the reference environment for that pattern, and
+[Appendix D](../appendix-d-suppl/tensor-rank-vs-matrix-rank.md) works through
+the modality-changing case that motivates it.
+
+## Step 3 — `Action`
 
 `Action<AR>` is the set of choices the agent can make. The bandit's action is
 *which arm to pull* — a discrete choice in `0..K`, so it also implements
@@ -140,11 +199,12 @@ Two design choices here are worth copying:
 Like observations, actions implement `TensorConvertible<1, B>` — here a one-hot
 of length `K` — so a neural policy can emit and consume them.
 
-## Step 3 — implement `Environment`
+## Step 4 — implement `Environment`
 
 Now the two methods. `reset` starts a fresh episode and returns the first
 snapshot; `step` advances one timestep. Both return a `SnapshotBase`, the stock
-`Snapshot` implementation that bundles `(observation, reward, status)`:
+`Snapshot` implementation that bundles `(observation, reward, status)`, built
+from the observation Step 2's `Sensor` impl produces:
 
 ```rust,no_run
 impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
@@ -161,7 +221,10 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
         self.arm_means = sample_arm_means::<K>(&mut self.rng);
         self.steps = 0;
         self.done = false;
-        Ok(SnapshotBase::running(self.state.observe(), ScalarReward::zero()))
+        Ok(SnapshotBase::running(
+            self.observe_reset(&self.state),
+            ScalarReward::zero(),
+        ))
     }
 
     fn step(&mut self, action: Self::ActionType)
@@ -174,7 +237,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
         }
         let reward = ScalarReward(self.sample_reward(action.arm()));
         self.steps += 1;
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
 
         // Mark the snapshot terminal at the step budget; running otherwise.
         let snap = if self.steps >= self.config.max_steps {
@@ -208,7 +271,7 @@ status queries Chapter 3's training loop used.
 > [Rewards §Shaped and multi-component rewards](../part-1-foundations/reinforcement-learning/33-reward.md#shaped-and-multi-component-rewards)
 > for the full contract.
 
-## Step 4 — guard the post-terminal step
+## Step 5 — guard the post-terminal step
 
 We've covered the happy path — `reset` opens an episode, `step` advances it,
 `SnapshotBase`'s status tells the caller when it ends. One lifecycle edge
@@ -248,7 +311,7 @@ implementation
 fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
     self.guard.reset();                    // only once reset has actually succeeded
     self.state = /* fresh initial state */;
-    Ok(SnapshotBase::running(self.state.observe(), ScalarReward(0.0)))
+    Ok(SnapshotBase::running(self.observe_reset(&self.state), ScalarReward(0.0)))
 }
 
 fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -294,7 +357,7 @@ Three details here are load-bearing, not stylistic:
 > environment doesn't have to wait for that rollout: reach for `EpisodeGuard`
 > the same way `CliffWalking` does, and it conforms from day one.
 
-## Step 5 — construction
+## Step 6 — construction
 
 Construction lives on a *separate* factory trait, `ConstructableEnv`, never on
 `Environment` itself (ADR 0011). That keeps the runtime contract — `reset`/`step`
@@ -332,7 +395,7 @@ algorithm will drive your environment correctly:
   terminal (or truncated) the moment the episode ends. A further `step()` after
   that is a caller error, not a fresh transition, and should be rejected with
   `EnvironmentError::StepAfterEpisodeEnd` rather than silently continuing — see
-  [Step 4](#step-4--guard-the-post-terminal-step) above for the `EpisodeGuard`
+  [Step 5](#step-5--guard-the-post-terminal-step) above for the `EpisodeGuard`
   recipe. (Only the `toy_text` family and `TimeLimit` enforce this today; treat
   it as the target for any environment you write, not yet a workspace-wide
   guarantee.)

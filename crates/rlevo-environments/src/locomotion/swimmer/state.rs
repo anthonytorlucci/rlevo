@@ -25,8 +25,6 @@ pub struct SwimmerState {
 }
 
 impl State<1> for SwimmerState {
-    type Observation = SwimmerObservation;
-
     /// Returns `[8]`, matching the 8-dimensional observation vector.
     fn shape() -> [usize; 1] {
         [8]
@@ -37,11 +35,5 @@ impl State<1> for SwimmerState {
     /// or more of the observation elements).
     fn is_valid(&self) -> bool {
         self.last_obs.is_finite()
-    }
-
-    /// Returns the last observation cached by the environment after the most
-    /// recent `reset` or `step` call.
-    fn observe(&self) -> SwimmerObservation {
-        self.last_obs
     }
 }

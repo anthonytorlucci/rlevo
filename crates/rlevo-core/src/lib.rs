@@ -12,7 +12,7 @@
 //! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`TensorConvertible`], [`UpdateFunction`] — the primitive trait vocabulary |
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
 //! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
-//! | [`environment`] | [`Environment`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
+//! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
 //! | [`reward`] | [`ScalarReward`] — the standard single-value reward concrete type |
 //! | [`evaluation`] | [`BenchEnv`], [`BenchStep`], [`BenchError`] — object-safe environment interface for harnesses |
 //! | [`fitness`] | [`BenchableAgent`], [`FitnessEvaluable`], [`Landscape`], [`Metric`], [`MetricsProvider`] — inference-only agent and fitness evaluation |
@@ -73,6 +73,7 @@
 //! [`StateAggregation`]: crate::state::StateAggregation
 //! [`Observable`]: crate::state::Observable
 //! [`Environment`]: crate::environment::Environment
+//! [`Sensor`]: crate::environment::Sensor
 //! [`Snapshot`]: crate::environment::Snapshot
 //! [`SnapshotBase`]: crate::environment::SnapshotBase
 //! [`EpisodeStatus`]: crate::environment::EpisodeStatus
@@ -152,10 +153,11 @@ pub mod bounds;
 
 /// Agent/environment interaction protocol.
 ///
-/// Defines [`Environment`], [`Snapshot`]/[`SnapshotBase`],
-/// [`EpisodeStatus`], and [`EnvironmentError`].
+/// Defines [`Environment`], the env-side emission model [`Sensor`],
+/// [`Snapshot`]/[`SnapshotBase`], [`EpisodeStatus`], and [`EnvironmentError`].
 ///
 /// [`Environment`]: crate::environment::Environment
+/// [`Sensor`]: crate::environment::Sensor
 /// [`Snapshot`]: crate::environment::Snapshot
 /// [`SnapshotBase`]: crate::environment::SnapshotBase
 /// [`EpisodeStatus`]: crate::environment::EpisodeStatus

@@ -7,7 +7,8 @@
 //! - [`HiddenState`] — recurrent agent memory (e.g., RNN hidden state)
 //! - [`LatentState`] — learned compact representation with encode/predict/decode
 //! - [`StateAggregation`] — maps concrete states to abstract representatives
-//! - [`Observable`] — modality-changing state→observation projection (`OR != SR`)
+//! - [`Observable`] — optional pure-projection helper an env-side
+//!   [`Sensor`](crate::environment::Sensor) may delegate to (e.g. `OR != SR`)
 //!
 //! [`State`]: crate::base::State
 
@@ -72,18 +73,37 @@ pub trait MarkovState {
 /// cannot observe the true state directly. The belief is updated via Bayes'
 /// rule as the most recent action and new observation arrive.
 ///
+/// # Observation type
+///
+/// The belief carries its own [`Observation`] associated type at rank `OR`,
+/// mirroring [`HiddenState::Observation`] and [`LatentState::Observation`].
+/// Before ADR 0047 this was `State::Observation`, but observation production
+/// moved off [`State`] to the env-side [`Sensor`](crate::environment::Sensor),
+/// so the belief now names the observation it is updated from independently of
+/// its state type — and, like the [`Environment`](crate::environment::Environment)
+/// contract, admits an observation rank `OR` decoupled from the state rank `SR`.
+///
 /// # Type Parameters
 ///
+/// - `OR`: Rank of the observation space tensor the belief is updated from.
 /// - `SR`: Rank of the state space tensor (number of axes).
 /// - `AR`: Rank of the action space tensor (number of axes).
 /// - `S`: The underlying environment [`State`] type.
 /// - `A`: The [`Action`] type taken by the agent.
-pub trait BeliefState<const SR: usize, const AR: usize, S: State<SR>, A: Action<AR>>:
-    Clone
+pub trait BeliefState<
+    const OR: usize,
+    const SR: usize,
+    const AR: usize,
+    S: State<SR>,
+    A: Action<AR>,
+>: Clone
 {
+    /// The observation type this belief is updated from, at tensor order `OR`.
+    type Observation: Observation<OR>;
+
     /// Updates the belief distribution given the last action taken and the
     /// newly received observation.
-    fn update(&self, action: &A, observation: &S::Observation) -> Self;
+    fn update(&self, action: &A, observation: &Self::Observation) -> Self;
 
     /// Draws a state sample from the current belief distribution.
     fn sample(&self) -> S;
@@ -158,26 +178,25 @@ pub trait StateAggregation<const SR: usize, S: State<SR>> {
     }
 }
 
-/// Projects a state into an observation whose tensor order may differ from the
-/// state's own.
+/// Optional pure-projection helper: derives an observation directly from a state
+/// value.
 ///
-/// [`State::observe`] welds its observation to the state's tensor order
-/// (`type Observation: Observation<SR>`), so it can never change rank. That is
-/// the right model for *information*-reducing partial observability (e.g.
-/// dropping velocities from CartPole: a smaller-`shape`, same-order
-/// observation). It cannot express a **modality change** — a compact, low-order
-/// latent state observed through a higher-order sensor, such as an
-/// emulator-RAM byte vector (rank 1) presented to the agent as a pixel image
-/// (rank 2 or 3).
+/// `Observable` is a convenience for the case where an observation is a **pure
+/// function of the state** — no world / simulator context is needed. Since ADR
+/// 0047 moved observation production off [`State`] to the env-side
+/// [`Sensor`](crate::environment::Sensor), `Observable` is no longer the home
+/// for observation and is no longer required: it is a helper an environment's
+/// [`Sensor`](crate::environment::Sensor) *may* delegate to when its observation
+/// happens to be a pure projection (`sensor.observe(..) == next_state.project()`).
+/// The `pixel_grid`
+/// environment is the reference for that delegation.
 ///
-/// `Observable` is the typed home for that rank-changing projection. It is a
-/// **standalone** trait (not a supertrait of [`State`]): a modality-changing
-/// environment's state implements [`State<SR>`](State) for its full
-/// representation *and* `Observable<OR>` for the projected observation, then
-/// builds its snapshots from [`project`](Observable::project) instead of
-/// [`observe`](State::observe). [`crate::environment::Environment`] already
-/// permits `R != SR` (its observation and state types are independent), so no
-/// change to the environment contract is required.
+/// It remains useful precisely where the projection is total and state-pure,
+/// including the **modality-changing** case it was introduced for (ADR 0019): a
+/// compact, low-order latent state projected through a higher-order sensor —
+/// e.g. an emulator-RAM byte vector (rank 1) presented as a pixel image (rank 2
+/// or 3). Because the projected order `OR` is a free parameter, `OR == SR`,
+/// `OR < SR`, and `OR > SR` are all permitted.
 ///
 /// # Type Parameters
 ///
@@ -193,10 +212,9 @@ pub trait StateAggregation<const SR: usize, S: State<SR>> {
 ///   environment considers valid, it returns a well-formed observation. The
 ///   output shape is the compile-time constant `Self::Observation::shape()`,
 ///   and the projection performs no I/O, so there is no runtime failure mode.
-///   (A future emulator that can fail to read a framebuffer models that failure
-///   at the [`Environment::step`](crate::environment::Environment::step)
-///   boundary via [`EnvironmentError`](crate::environment::EnvironmentError),
-///   not here.)
+///   (A world-derived sensor that needs simulator access, or that can fail,
+///   belongs on the env-side [`Sensor`](crate::environment::Sensor) reached from
+///   [`Environment::step`](crate::environment::Environment::step), not here.)
 /// - **`OR` is independent of any `State<SR>` order** the type also implements;
 ///   `OR == SR`, `OR < SR`, and `OR > SR` are all permitted.
 ///
@@ -244,10 +262,10 @@ pub trait Observable<const OR: usize> {
     /// Projects `self` into an observation whose order `OR` may differ from any
     /// [`State<SR>`](State) order the type also implements.
     ///
-    /// This is the rank-changing analogue of [`State::observe`]: where `observe`
-    /// reads out a same-order perception, `project` maps the state into a
-    /// possibly different-order observation modality. It is total over valid
-    /// states (see the trait [Invariants](Observable#invariants)).
+    /// The projection is a pure function of the state and is total over valid
+    /// states (see the trait [Invariants](Observable#invariants)). An
+    /// environment whose [`Sensor`](crate::environment::Sensor) observation is
+    /// exactly this projection may delegate to it.
     fn project(&self) -> Self::Observation;
 }
 
@@ -268,35 +286,17 @@ mod tests {
         }
     }
 
-    /// A trivial rank-1 observation: the raw RAM byte, fully observable.
-    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-    struct MockRamByte {
-        byte: u8,
-    }
-
-    impl Observation<1> for MockRamByte {
-        fn shape() -> [usize; 1] {
-            [1]
-        }
-    }
-
-    /// A compact rank-1 state (one byte of emulator RAM) that is observed two
-    /// ways: fully via [`State::observe`] (rank 1), and as a pixel image via
-    /// [`Observable::project`] (rank 2) — the modality change `OR != SR`.
+    /// A compact rank-1 state (one byte of emulator RAM) observed as a rank-2
+    /// pixel image via [`Observable::project`] — the modality change `OR != SR`
+    /// the helper was introduced for (ADR 0019).
     #[derive(Debug, Clone)]
     struct MockRamState {
         byte: u8,
     }
 
     impl State<1> for MockRamState {
-        type Observation = MockRamByte;
-
         fn shape() -> [usize; 1] {
             [1]
-        }
-
-        fn observe(&self) -> Self::Observation {
-            MockRamByte { byte: self.byte }
         }
 
         fn is_valid(&self) -> bool {
@@ -340,18 +340,10 @@ mod tests {
         );
     }
 
-    /// `observe()` and `project()` coexist on one type and produce different
-    /// modalities from the same state.
+    /// `project()` maps a state value into a higher-order observation modality.
     #[test]
-    fn test_observable_coexists_with_observe() {
+    fn test_observable_projects_state_to_pixels() {
         let state = MockRamState { byte: 0b1011 };
-
-        let full: MockRamByte = state.observe();
-        assert_eq!(
-            full,
-            MockRamByte { byte: 0b1011 },
-            "observe is identity here"
-        );
 
         let pixels = state.project();
         assert_eq!(

@@ -5,6 +5,7 @@
 //! (returns `Option`), mirroring the builder pattern used throughout `rlevo-environments`.
 
 use rlevo_core::base::{Observation, State};
+use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 
 /// Observation type for `RobotPose`: the perceived robot state.
@@ -65,13 +66,6 @@ struct RobotPose {
 }
 
 impl State<1> for RobotPose {
-    /// The observation type produced by this state.
-    ///
-    /// Since the agent has full observability, the observation is a direct view
-    /// of the complete state. In more realistic scenarios, this could be a noisy
-    /// or partial observation.
-    type Observation = RobotPoseObservation;
-
     /// Validates that the robot pose satisfies workspace constraints.
     ///
     /// The robot must remain within:
@@ -102,16 +96,32 @@ impl State<1> for RobotPose {
     fn shape() -> [usize; 1] {
         [3] // Single flat array [x, y, theta]
     }
+}
+// ANCHOR_END: state
 
-    /// Generates an observation from this state.
+// ANCHOR: observable
+// Observation production is *not* part of `State` (ADR 0047): the emission model
+// belongs to the environment, exposed through the env-side `Sensor` trait. When
+// the observation is a pure function of the state — as here, full observability —
+// the projection can live on the optional `Observable` helper, which an env's
+// `Sensor` may then delegate to.
+impl Observable<1> for RobotPose {
+    /// The observation type produced by this projection.
     ///
-    /// This method produces the perception that would be available to a learning agent.
-    /// Since we have full observability, the observation contains the complete state.
-    fn observe(&self) -> Self::Observation {
+    /// Since the agent has full observability, the observation is a direct view
+    /// of the complete state. In more realistic scenarios, this could be a noisy
+    /// or partial observation produced by the environment's `Sensor`.
+    type Observation = RobotPoseObservation;
+
+    /// Projects this pose into the agent's observation.
+    ///
+    /// Since we have full observability, the observation contains the complete
+    /// state.
+    fn project(&self) -> Self::Observation {
         RobotPoseObservation::from_pose(self)
     }
 }
-// ANCHOR_END: state
+// ANCHOR_END: observable
 
 impl RobotPose {
     // ANCHOR: construction
@@ -219,8 +229,8 @@ fn main() {
     println!("  - numel(): {}", pose1.numel());
     println!("  - shape(): {:?}", RobotPose::shape());
 
-    // Observation demonstration
-    let obs = pose1.observe();
+    // Observation demonstration (pure projection via the `Observable` helper)
+    let obs = pose1.project();
     println!("\n  Observation from state:");
     println!(
         "    x_mm: {}, y_mm: {}, theta_mdeg: {}",

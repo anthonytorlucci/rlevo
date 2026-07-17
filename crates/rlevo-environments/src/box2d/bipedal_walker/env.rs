@@ -25,7 +25,7 @@ use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 
@@ -149,7 +149,6 @@ impl BipedalWalker {
                 knee2_joint: ImpulseJointHandle::invalid(),
                 leg1_contact: false,
                 leg2_contact: false,
-                last_obs: BipedalWalkerObservation::default(),
             },
             ground_handle: ColliderHandle::invalid(),
             config,
@@ -361,12 +360,19 @@ impl BipedalWalker {
         }
     }
 
-    fn compute_observation(&mut self) -> BipedalWalkerObservation {
+    /// Build the 24-dim observation by reading the live physics world.
+    ///
+    /// This is the emission model driving the env-side [`Sensor`]: hull and
+    /// joint kinematics and the leg-contact flags are read from `state` and the
+    /// world it indexes into, and the 10 lidar rays are cast against the live
+    /// physics geometry via [`cast_lidar`](Self::cast_lidar). It is not cached on
+    /// the state; it is recomputed on demand each `reset()` / `step()`.
+    fn compute_observation(&self, state: &BipedalWalkerState) -> BipedalWalkerObservation {
         let bodies = self.world.bodies();
         let joints_set = self.world.joints();
         let mut v = [0.0f32; 24];
 
-        if let Some(hull) = bodies.get(self.state.hull_handle) {
+        if let Some(hull) = bodies.get(state.hull_handle) {
             v[0] = hull.rotation().angle();
             v[1] = hull.angvel();
             v[2] = (hull.linvel().x / 10.0).clamp(-1.0, 1.0);
@@ -380,10 +386,10 @@ impl BipedalWalker {
         // rotation, so that constant would be an unphysical bias (deliberate,
         // documented deviation).
         let joints = [
-            (self.state.hip1_joint, 4, self.config.speed_hip),
-            (self.state.knee1_joint, 6, self.config.speed_knee),
-            (self.state.hip2_joint, 9, self.config.speed_hip),
-            (self.state.knee2_joint, 11, self.config.speed_knee),
+            (state.hip1_joint, 4, self.config.speed_hip),
+            (state.knee1_joint, 6, self.config.speed_knee),
+            (state.hip2_joint, 9, self.config.speed_hip),
+            (state.knee2_joint, 11, self.config.speed_knee),
         ];
         for (jhandle, base, speed) in joints {
             if let Some(j) = joints_set.get(jhandle)
@@ -393,19 +399,19 @@ impl BipedalWalker {
                 v[base + 1] = (c.angvel() - p.angvel()) / speed;
             }
         }
-        v[8] = f32::from(self.state.leg1_contact);
-        v[13] = f32::from(self.state.leg2_contact);
+        v[8] = f32::from(state.leg1_contact);
+        v[13] = f32::from(state.leg2_contact);
 
         // Lidar rays
-        let lidar = self.cast_lidar();
+        let lidar = self.cast_lidar(state);
         v[14..24].copy_from_slice(&lidar);
 
         BipedalWalkerObservation::new(v)
     }
 
-    fn cast_lidar(&self) -> [f32; 10] {
+    fn cast_lidar(&self, state: &BipedalWalkerState) -> [f32; 10] {
         let mut readings = [1.0f32; 10];
-        if let Some(hull) = self.world.bodies().get(self.state.hull_handle) {
+        if let Some(hull) = self.world.bodies().get(state.hull_handle) {
             let origin = hull.translation();
             for (i, reading) in readings.iter_mut().enumerate() {
                 let angle = std::f32::consts::PI * (i as f32 / 9.0 - 0.5); // −90° to +90°
@@ -484,6 +490,25 @@ impl ConstructableEnv for BipedalWalker {
     }
 }
 
+impl Sensor<1, 1, 1> for BipedalWalker {
+    type Action = BipedalWalkerAction;
+    type State = BipedalWalkerState;
+    type Observation = BipedalWalkerObservation;
+
+    /// Emit the 24-dim observation for `next_state` by reading the live physics
+    /// world (hull/joint kinematics, contact flags, and lidar raycasts). The
+    /// action does not affect the emission; it is accepted to satisfy the
+    /// [`Sensor`] contract.
+    fn observe(&self, _action: &Self::Action, next_state: &Self::State) -> Self::Observation {
+        self.compute_observation(next_state)
+    }
+
+    /// Emit the initial observation at episode start from the reset `state`.
+    fn observe_reset(&self, state: &Self::State) -> Self::Observation {
+        self.compute_observation(state)
+    }
+}
+
 impl Environment<1, 1, 1> for BipedalWalker {
     type StateType = BipedalWalkerState;
     type ObservationType = BipedalWalkerObservation;
@@ -504,8 +529,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         self.total_reward = 0.0;
         self.state.leg1_contact = false;
         self.state.leg2_contact = false;
-        let obs = self.compute_observation();
-        self.state.last_obs = obs.clone();
+        let obs = self.observe_reset(&self.state);
         debug_assert!(
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after reset"
@@ -540,8 +564,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
         let reward = self.compute_reward(&action, vel_x);
         self.total_reward += reward;
 
-        let obs = self.compute_observation();
-        self.state.last_obs = obs.clone();
+        let obs = self.observe(&action, &self.state);
         debug_assert!(
             self.state.is_valid(),
             "BipedalWalkerState invariant violated after step"

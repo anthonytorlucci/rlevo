@@ -41,16 +41,15 @@ impl BipedalWalkerObservation {
 
     /// Returns `true` if every element is finite (not NaN or infinite).
     ///
-    /// Used by `BipedalWalkerState::is_valid` to gate episode
-    /// continuation.
+    /// Used by tests and callers to assert a physics step did not diverge into
+    /// NaN / infinite observations.
     pub fn is_finite(&self) -> bool {
         self.values.iter().all(|v| v.is_finite())
     }
 }
 
 impl Default for BipedalWalkerObservation {
-    /// Returns a zero-filled observation, used as the initial cached value
-    /// before the first `reset()` is called.
+    /// Returns a zero-filled observation, used as a neutral placeholder value.
     fn default() -> Self {
         Self { values: [0.0; 24] }
     }

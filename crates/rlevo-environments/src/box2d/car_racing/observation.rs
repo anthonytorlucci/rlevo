@@ -23,12 +23,12 @@ use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 ///
 /// Pixel values are stored as `u8` in `[0, 255]`, row-major, RGB.
 ///
-/// The buffer is held behind an [`Arc`] so cloning an observation — which the
-/// hot path does for the cached `last_obs` and on every `observe()` — is a
-/// refcount bump rather than a 27 KB deep copy. The `Arc` also makes the
-/// observation `Send + Sync`, which parallel EA rollouts require. Construct one
-/// on the render path with [`from_boxed`](Self::from_boxed), which moves the
-/// rasterizer's owned buffer in.
+/// The buffer is held behind an [`Arc`] so cloning an observation — which
+/// snapshot handling and parallel rollouts may do — is a refcount bump rather
+/// than a 27 KB deep copy. The `Arc` also makes the observation `Send + Sync`,
+/// which parallel EA rollouts require. Construct one on the render path with
+/// [`from_boxed`](Self::from_boxed), which moves the rasterizer's owned buffer
+/// in.
 ///
 /// When converted to tensors via
 /// [`TensorConvertible`], the buffer becomes
@@ -53,8 +53,8 @@ impl CarRacingObservation {
     }
 
     /// Construct by moving an owned boxed buffer in — the zero-copy hand-off from
-    /// the rasterizer. Wraps the buffer in an `Arc` so later clones (the cached
-    /// `last_obs` and every `observe()`) are refcount bumps rather than 27 KB deep
+    /// the rasterizer. Wraps the buffer in an `Arc` so later clones (snapshot
+    /// handling, parallel rollouts) are refcount bumps rather than 27 KB deep
     /// copies. The `Box` → `Arc` conversion is the single residual 27 KB copy on
     /// the render *hot path* (an `Arc` must prepend a refcount header, so the box
     /// allocation cannot be reused). The cold [`Deserialize`](serde::Deserialize)

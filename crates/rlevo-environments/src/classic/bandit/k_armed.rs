@@ -36,7 +36,9 @@ use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -69,14 +71,8 @@ impl Observation<1> for KArmedBanditObservation {
 }
 
 impl State<1> for KArmedBanditState {
-    type Observation = KArmedBanditObservation;
-
     fn shape() -> [usize; 1] {
         [1]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        KArmedBanditObservation
     }
 
     fn is_valid(&self) -> bool {
@@ -528,6 +524,23 @@ impl<const K: usize> ConstructableEnv for KArmedBandit<K> {
     }
 }
 
+impl<const K: usize> Sensor<1, 1, 1> for KArmedBandit<K> {
+    type Action = KArmedBanditAction<K>;
+    type State = KArmedBanditState;
+    type Observation = KArmedBanditObservation;
+
+    /// Emits the (empty) stateless bandit observation; the action and resulting
+    /// state carry no information the observation depends on.
+    fn observe(&self, _action: &Self::Action, _next_state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+
+    /// Emits the initial (empty) stateless bandit observation.
+    fn observe_reset(&self, _state: &Self::State) -> Self::Observation {
+        KArmedBanditObservation
+    }
+}
+
 impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     type StateType = KArmedBanditState;
     type ObservationType = KArmedBanditObservation;
@@ -538,7 +551,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         KArmedBandit::reset(self);
         Ok(SnapshotBase::running(
-            self.state.observe(),
+            self.observe_reset(&self.state),
             ScalarReward::zero(),
         ))
     }
@@ -552,7 +565,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
         }
         let reward = ScalarReward(self.sample_reward(action.arm()));
         self.steps += 1;
-        let obs = self.state.observe();
+        let obs = self.observe(&action, &self.state);
         let snap = if self.steps >= self.config.max_steps {
             self.done = true;
             SnapshotBase::terminated(obs, reward)

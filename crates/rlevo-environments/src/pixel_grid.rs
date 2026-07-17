@@ -4,15 +4,17 @@
 //! indices (agent, goal) on a `5×5` grid, but whose *observation* is a rendered
 //! `20×20×3` RGB image. The agent must recover the latent `(agent, goal)` from
 //! pixels — the modality-changing POMDP shape (a small RAM-like state observed
-//! as an image) that [`State::observe`] structurally cannot express because it
-//! pins the observation to the state's own tensor order.
+//! as an image) in which the observation rank `R(3)` differs from the state
+//! rank `SR(1)`.
 //!
 //! This environment is [`Environment<3, 1, 1>`] — observation rank `3`, state
-//! rank `1`, action rank `1`, so `R(3) != SR(1)`. Every snapshot is built from
-//! [`Observable::project`] (the rank-3 pixel projection), **never** from
-//! [`State::observe`] (the rank-1 latent). It is the production counterpart to
-//! the `MockRam` integration test that proved the [`Observable`] contract
-//! (issue #62, ADR 0019), and resolves issue #65.
+//! rank `1`, action rank `1`, so `R(3) != SR(1)`. The rank-3 pixel projection
+//! lives on [`PixelGridState`]'s [`Observable<3>`] impl, and the environment's
+//! env-side [`Sensor`] delegates to it, so every snapshot is built from
+//! [`Observable::project`] rather than from the state's own rank. It is the
+//! production counterpart to the `MockRam` integration test that proved the
+//! [`Observable`] contract (issue #62, ADR 0019), and resolves issue #65. This
+//! is the reference "sensor delegates to `Observable`" pattern (ADR 0047).
 //!
 //! ## Why not fold into [`grids`](crate::grids)
 //!
@@ -61,7 +63,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::base::{Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
@@ -113,11 +117,11 @@ fn success_reward(step: usize, max_steps: usize) -> f32 {
 /// column `c % GRID_SIDE`). This is the RAM analogue — small, fully known, and
 /// exactly recoverable — that the rank-3 pixel observation is rendered from.
 ///
-/// Implements both [`State<1>`] (the trivial same-order [`observe`](State::observe)
-/// returning the latent indices) and [`Observable<3>`] (the modality-changing
-/// [`project`](Observable::project) returning the pixel image). The dual impl is
-/// the whole point: `observe()` is rank-locked to the state order, so the
-/// rank-3 projection must live on the separate [`Observable`] trait.
+/// Implements [`State<1>`] for the compact rank-1 latent and [`Observable<3>`]
+/// for the modality-changing [`project`](Observable::project) that returns the
+/// pixel image. The rank-3 projection lives on the separate [`Observable`] trait
+/// because the observation order `OR(3)` differs from the state order `SR(1)`;
+/// the environment's env-side [`Sensor`] delegates to that projection.
 ///
 /// # Examples
 ///
@@ -220,17 +224,8 @@ impl PixelGridState {
 }
 
 impl State<1> for PixelGridState {
-    type Observation = LatentObservation;
-
     fn shape() -> [usize; 1] {
         [2]
-    }
-
-    fn observe(&self) -> Self::Observation {
-        LatentObservation {
-            agent: self.agent,
-            goal: self.goal,
-        }
     }
 
     fn is_valid(&self) -> bool {
@@ -269,34 +264,6 @@ fn paint_cell(pixels: &mut [u8], cell: usize, color: [u8; CHANNELS]) {
 // ---------------------------------------------------------------------------
 // Observations
 // ---------------------------------------------------------------------------
-
-/// Rank-1 "full" observation — the latent `(agent, goal)` cell indices.
-///
-/// Required because [`State<1>`] pins [`observe`](State::observe) to rank 1;
-/// the modality change lives on the separate [`Observable<3>`] impl. Useful for
-/// scoring a learned belief against ground truth.
-///
-/// # Examples
-///
-/// ```rust
-/// use rlevo_environments::pixel_grid::LatentObservation;
-/// use rlevo_core::base::Observation;
-///
-/// assert_eq!(<LatentObservation as Observation<1>>::shape(), [2]);
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LatentObservation {
-    /// Agent cell index in `0..CELL_COUNT`.
-    pub agent: u32,
-    /// Goal cell index in `0..CELL_COUNT`.
-    pub goal: u32,
-}
-
-impl Observation<1> for LatentObservation {
-    fn shape() -> [usize; 1] {
-        [2]
-    }
-}
 
 /// Rank-3 pixel observation: the rendered `[IMG_SIDE, IMG_SIDE, CHANNELS]` RGB image.
 ///
@@ -529,10 +496,10 @@ impl Validate for PixelGridConfig {
 
 /// Synthetic pixel-over-grid environment: rank-1 latent, rank-3 pixel observation.
 ///
-/// Implements [`Environment<3, 1, 1>`] — `R(3) != SR(1)`. Every snapshot is
-/// built from [`Observable::project`] (the rank-3 image), never from
-/// [`State::observe`] (the rank-1 latent). Construct via
-/// [`PixelGridEnv::with_config`] for full control or
+/// Implements [`Environment<3, 1, 1>`] — `R(3) != SR(1)`. Its env-side
+/// [`Sensor`] delegates to [`Observable::project`] (the rank-3 image), so every
+/// snapshot is built from the pixel projection rather than the rank-1 state.
+/// Construct via [`PixelGridEnv::with_config`] for full control or
 /// [`ConstructableEnv::new`] for defaults.
 ///
 /// # Examples
@@ -647,10 +614,14 @@ impl PixelGridEnv {
         }
     }
 
-    /// Build a snapshot from the rank-3 projection, emitting an optional ASCII
-    /// debug frame when `render` is set.
+    /// Build a snapshot from a pre-computed `observation`, emitting an optional
+    /// ASCII debug frame when `render` is set.
+    ///
+    /// The caller supplies the observation so `reset` and `step` can route it
+    /// through the correct [`Sensor`] method (`observe_reset` vs `observe`).
     fn snapshot(
         &self,
+        observation: PixelObservation,
         reward: f32,
         status: SnapshotStatus,
     ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
@@ -658,12 +629,11 @@ impl PixelGridEnv {
             // Render is a debug side effect; drop the string when internal.
             let _ = self.state.render_ascii();
         }
-        let obs = self.state.project();
         let reward = ScalarReward::new(reward);
         match status {
-            SnapshotStatus::Running => SnapshotBase::running(obs, reward),
-            SnapshotStatus::Terminated => SnapshotBase::terminated(obs, reward),
-            SnapshotStatus::Truncated => SnapshotBase::truncated(obs, reward),
+            SnapshotStatus::Running => SnapshotBase::running(observation, reward),
+            SnapshotStatus::Terminated => SnapshotBase::terminated(observation, reward),
+            SnapshotStatus::Truncated => SnapshotBase::truncated(observation, reward),
         }
     }
 }
@@ -692,6 +662,26 @@ impl ConstructableEnv for PixelGridEnv {
     }
 }
 
+/// Env-side emission model: the pixel observation is a pure projection of the
+/// latent state, so both methods delegate to
+/// [`Observable::project`](PixelGridState::project). This is the reference
+/// "sensor delegates to `Observable`" pattern (ADR 0047): the rank-3 pixel
+/// observation is produced from the rank-1 latent without inflating the state's
+/// own rank.
+impl Sensor<3, 1, 1> for PixelGridEnv {
+    type Action = PixelGridAction;
+    type State = PixelGridState;
+    type Observation = PixelObservation;
+
+    fn observe(&self, _action: &PixelGridAction, next_state: &PixelGridState) -> PixelObservation {
+        next_state.project()
+    }
+
+    fn observe_reset(&self, state: &PixelGridState) -> PixelObservation {
+        state.project()
+    }
+}
+
 impl Environment<3, 1, 1> for PixelGridEnv {
     type StateType = PixelGridState;
     type ObservationType = PixelObservation;
@@ -702,22 +692,25 @@ impl Environment<3, 1, 1> for PixelGridEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::initial_state(self.config, &mut self.rng);
         self.steps = 0;
-        Ok(self.snapshot(0.0, SnapshotStatus::Running))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.snapshot(observation, 0.0, SnapshotStatus::Running))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         self.steps += 1;
         self.state.apply_move(action);
+        let observation = self.observe(&action, &self.state);
 
         let snap = if self.state.at_goal() {
             self.snapshot(
+                observation,
                 success_reward(self.steps, self.config.max_steps),
                 SnapshotStatus::Terminated,
             )
         } else if self.steps >= self.config.max_steps {
-            self.snapshot(0.0, SnapshotStatus::Truncated)
+            self.snapshot(observation, 0.0, SnapshotStatus::Truncated)
         } else {
-            self.snapshot(0.0, SnapshotStatus::Running)
+            self.snapshot(observation, 0.0, SnapshotStatus::Running)
         };
         Ok(snap)
     }
@@ -762,8 +755,6 @@ mod tests {
     fn observation_ranks_and_shapes() {
         assert_eq!(<PixelObservation as Observation<3>>::shape(), [20, 20, 3]);
         assert_eq!(<PixelObservation as Observation<3>>::RANK, 3);
-        assert_eq!(<LatentObservation as Observation<1>>::shape(), [2]);
-        assert_eq!(<LatentObservation as Observation<1>>::RANK, 1);
     }
 
     #[test]

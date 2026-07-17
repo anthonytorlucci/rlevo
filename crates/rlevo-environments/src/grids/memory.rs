@@ -1031,8 +1031,8 @@ mod tests {
         // Necessary counterpart to Invariant M: the cue has to be *seen* once.
         let env = env_default();
         let obs = {
-            use rlevo_core::base::State as _;
-            env.state().observe()
+            use rlevo_core::state::Observable as _;
+            env.state().project()
         };
         // Facing East from the start cell, the cue one row above it is one cell
         // to the agent's left: view row VIEW_SIZE-1, column VIEW_SIZE/2 - 1.
