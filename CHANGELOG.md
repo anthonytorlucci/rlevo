@@ -7,6 +7,72 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.3.1] – 2026-07-17
+
+Patch release: no breaking changes since 0.3.0.
+
+### `rlevo-metrics-registry`
+
+**Added**
+
+- `Trend` reading (`HigherIsBetter` / `LowerIsBetter` / `Diagnostic`) and a
+  one-line interpretation hint per canonical metric (`trend_for`, `hint_for`),
+  surfaced above each plot in the benchmarks TUI's Separate layout so a
+  reader can tell whether a rising sparkline is good news without leaving the
+  dashboard. `MetricDescriptor` gains two fields with const-default
+  constructors; existing consumers stay source-compatible.
+
+### `rlevo-benchmarks`
+
+**Added**
+
+- Combined-layout TUI metric labels are now prefixed with a trend glyph
+  (↑ / ↓ / •), matching the Separate layout's enriched titles.
+
+### `rlevo-reinforcement-learning`
+
+**Fixed**
+
+- `SacAgent`'s default target entropy now uses `COMPONENTS` instead of
+  `RANK` — the Haarnoja et al. (2018b) heuristic it cites is
+  `-dim(action_space)`, not `-rank`. Behavior-identical today, since every
+  existing `BoundedAction` impl has `RANK == COMPONENTS`; this closes a
+  latent bug for any future multi-component bounded action type (part of
+  the ADR 0038 RANK/COMPONENTS blast radius).
+
+### Docs
+
+**Fixed**
+
+- KaTeX now renders backtick-wrapped inline `` $...$ `` math and fenced
+  ` ```math ` blocks correctly on docs.rs; both forms previously rendered as
+  raw, unprocessed LaTeX text (rustdoc emits them as `<code>` /
+  `<pre class="language-math"><code>`, which the header's original selectors
+  missed).
+- Sub-crate `readme` fields now resolve to each crate's own `README.md`
+  instead of all inheriting the workspace-root `README.md` via
+  `readme.workspace = true` (which does not re-relativize per member).
+- Over 20 misattributed or inaccurate citations corrected across crate
+  READMEs, ADRs 0043 and 0045, and the user-book (reference-verification
+  audit, issue #313).
+
+### Examples & user-book
+
+**Added**
+
+- `backend_sweep_neuroevolution` example and a "Choosing a Backend"
+  user-book chapter, illustrating CPU-vs-GPU backend selection via Burn's
+  backend genericity on a batched neuroevolution fitness function.
+
+### Infrastructure
+
+- Project logo migrated from SVG to PNG for consistent rendering on GitHub
+  and crates.io.
+- `justfile`'s report-client build recipe self-heals a missing
+  `wasm32-unknown-unknown` target after toolchain updates.
+
+---
+
 ## [0.3.0] – 2026-07-13
 
 ### Breaking changes
