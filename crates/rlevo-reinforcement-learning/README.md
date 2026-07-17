@@ -1,5 +1,7 @@
 # rlevo-reinforcement-learning
 
+![Alt Text](rlevo-logo.png)
+
 Deep reinforcement learning algorithms for the `rlevo` workspace.
 
 This crate ports the [CleanRL](https://github.com/vwxyzjn/cleanrl) algorithm set into Rust using the [Burn](https://burn.dev) deep learning framework. The design follows CleanRL's *single-file-per-algorithm* pedagogical model: each algorithm lives under `src/algorithms/<algo>/` and its training loop is a linear, readable `train.rs` function. That being said, `rlevo` embraces the DRY (do not repeat yourself) paradigm and abstracts concepts wherever possible.
@@ -150,7 +152,7 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 | `max_grad_norm` | 0.5 | Huang et al. #11 |
 | Adam `epsilon` | 1e-5 | Huang et al. #3 |
 
-`num_envs` is fixed at `1` in v0.1.0; vectorised rollout is deferred.
+`num_envs` is currently fixed at `1`; vectorised rollout is deferred.
 
 **References**
 
@@ -165,7 +167,7 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 
 **Module:** `algorithms::ppg`
 
-Cobbe et al.'s on-policy algorithm that interleaves a standard PPO policy phase with a periodic auxiliary phase that retrains the value function plus an auxiliary value head on the policy network, distilling the pre-aux-phase policy via a KL penalty. v0.1.0 ships a discrete-only `PpgCategoricalPolicyHead`; continuous support is deferred. CartPole parity with PPO is the v1 target — Procgen-scale gains require vectorised envs and CNN encoders.
+Cobbe et al.'s on-policy algorithm that interleaves a standard PPO policy phase with a periodic auxiliary phase that retrains the value function plus an auxiliary value head on the policy network, distilling the pre-aux-phase policy via a KL penalty. Currently ships a discrete-only `PpgCategoricalPolicyHead`; continuous support is deferred. CartPole parity with PPO is the v1 target — Procgen-scale gains require vectorised envs and CNN encoders.
 
 Key components:
 
@@ -173,7 +175,7 @@ Key components:
 |------|---------|
 | `ppg_config.rs` | `PpgConfig` + `PpgConfigBuilder` (wraps `PpoTrainingConfig`) |
 | `ppg_policy.rs` | `PpgPolicy` trait with auxiliary-value head accessor |
-| `policies/categorical.rs` | `PpgCategoricalPolicyHead` (discrete-only in v0.1.0) |
+| `policies/categorical.rs` | `PpgCategoricalPolicyHead` (currently discrete-only) |
 | `aux_buffer.rs` | `AuxBuffer` accumulating rollouts between auxiliary phases |
 | `losses.rs` | Auxiliary-phase losses (value, behavioural cloning / KL) |
 | `ppg_agent.rs` | `PpgAgent` — policy-phase + auxiliary-phase updates |
@@ -330,6 +332,8 @@ The following algorithms are deferred stubs — scope is parked until prerequisi
 
 `compute_target_q_values` — Bellman target computation shared by DQN variants.
 
+`polyak_update` — soft target-network update (`θ_target ← τθ + (1-τ)θ_target`) shared by DDPG, TD3, and SAC.
+
 ### Experience Replay (`memory`)
 
 Off-policy replay storage shared across the value-based and actor-critic algorithms. Moved here from `rlevo-core` per ADR 0003 (replay/experience/metrics live where they are consumed).
@@ -408,4 +412,4 @@ All config structs are `Clone + Debug`. Serde support is planned.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

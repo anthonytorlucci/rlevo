@@ -12,7 +12,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rlevo = "0.1"
+//! rlevo = "0.3"
 //! ```
 //!
 //! ```rust

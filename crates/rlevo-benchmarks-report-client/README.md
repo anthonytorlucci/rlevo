@@ -1,5 +1,7 @@
 # rlevo-benchmarks-report-client
 
+![Alt Text](rlevo-logo.png)
+
 Leptos/WASM client for the [rlevo-benchmarks](../rlevo-benchmarks/) static-HTML
 report (Milestone 5.1).
 
@@ -84,10 +86,10 @@ pane into a true playback surface:
   - Any future family hits the generic fallback adapter until a
     dedicated one lands.
 
-The umbrella crate ships paired examples for every covered family:
-`record_ppo_cartpole` / `record_grids` / `record_toy_text` produce
-recordings; `report_ppo_cartpole_with_client` / `report_grids_with_client` /
-`report_toy_text_with_client` wrap them into single-file HTML reports.
+The umbrella crate ships one combined example per covered family —
+`report_ppo_cartpole_with_client`, `report_grids_with_client`,
+`report_toy_text_with_client` — each of which records a run and wraps it
+into a single-file HTML report in one binary (see `rlevo-examples`).
 
 ## M7 — per-family SVG adapters for box2d, landscapes, locomotion
 
@@ -134,13 +136,12 @@ every captured frame. Locomotion routes through a new
 `AsciiRenderable` bound; ASCII / styled fields ship as `None` and the
 M7 SVG is the only rendering pathway.
 
-The umbrella crate ships paired M7 examples:
+The umbrella crate ships one combined M7 example per family:
 
-- `record_sphere_landscape` / `report_sphere_landscape_with_client`
-  (writes via `RecordSink` directly — landscapes are pure fitness
-  functions, not Environments).
-- `record_inverted_pendulum` / `report_inverted_pendulum_with_client`.
-- `record_lunar_lander` / `report_lunar_lander_with_client`.
+- `report_sphere_landscape_with_client` (writes via `RecordSink` directly
+  — landscapes are pure fitness functions, not Environments).
+- `report_inverted_pendulum_with_client`.
+- `report_lunar_lander_with_client`.
 
 ## M8 — convergence plots
 
@@ -187,7 +188,7 @@ panel grid.
 
 ### New umbrella example
 
-`record_ppo_cartpole_with_client` runs a headless 12 k-step PPO
+`report_ppo_cartpole_with_client` runs a headless 12 k-step PPO
 training cycle on CartPole, wiring `RecordingTap` for frames and
 `RecordingLayer` for the canonical metric stream, then emits the
 single-file report in one shot — the natural M8 demo because it
@@ -202,7 +203,7 @@ new [`PopulationSample`](../rlevo-benchmarks/src/record/schema.rs) chunk
 (bincode tag 2). v1 and v2 records continue to decode through the v3
 loader because the new chunk tag never appears in older streams.
 
-> The record format has since advanced to **`FORMAT_VERSION = 6`** (ADR
+> The record format has since advanced to **`FORMAT_VERSION = 7`** (ADR
 > 0014 — typed run-provenance fields, expanded canonical metrics,
 > checkpoint refs, `EpisodeKind { Training, Evaluation }`). `src/wire.rs`
 > mirrors the current schema, and the host crate's
@@ -248,16 +249,15 @@ Arc<Mutex<dyn RecordSink>>                          → RecordChunk::Population
 The harness pays the device→host transfer of the fitness tensor only
 when an observer is attached; observerless runs are unchanged.
 
-### New umbrella example
+### Umbrella example coverage
 
-`record_evolution_sphere_with_client` runs a 50-generation GA on
-Sphere-D2 with the `PopulationReporter` observer attached **and**
-`RecordingLayer` capturing the canonical EA metrics (`best_fitness` /
-`mean_fitness` / `worst_fitness` / `best_fitness_ever`). Per generation
-it also emits one Landscape2D frame showing the best-so-far position,
-so the M6/M7 playback surface populates alongside the new Population
-section. End-to-end: 50 frames + 200 metrics + 50 population samples
-per run.
+No shipping example currently wires `PopulationReporter` end-to-end into
+a report-client HTML report; `report_sphere_landscape_with_client`
+exercises the M7 landscape playback surface but does not attach a
+population observer, so its reports have no Population section. Wiring
+a GA-on-Sphere example with `.with_observer(reporter.clone())` plus
+`RecordingLayer` for the canonical EA metrics (`best_fitness` /
+`mean_fitness` / `worst_fitness` / `best_fitness_ever`) is open work.
 
 ### Loading and caching
 

@@ -31,6 +31,7 @@
 - [Overview](part-2-guided-tour/00-overview.md)
 - [Optimising a Function](part-2-guided-tour/10-optimizing-a-function.md)
 - [Classic Control: CartPole with DQN](part-2-guided-tour/20-classic-control.md)
+- [Choosing a Backend: CPU vs GPU](part-2-guided-tour/30-choosing-a-backend.md)
 - [Bring Your Own Environment](part-2-guided-tour/99-extending-the-environment.md)
 
 # Part III — Advanced Evolutionary Methods

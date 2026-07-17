@@ -126,6 +126,11 @@ path = "examples/evolution/santa_fe_ant_deterministic.rs"
 name = "santa_fe_ant_stochastic"
 path = "examples/evolution/santa_fe_ant_stochastic.rs"
 
+# Examples — evolution (backend genericity: same generic run on CPU vs GPU)
+[[example]]
+name = "backend_sweep_neuroevolution"
+path = "examples/evolution/backend_sweep_neuroevolution.rs"
+
 [dev-dependencies]
 # `rlevo-test-support` (ADR 0024) provides the random baseline + `flex_guard`
 # single-thread determinism preamble for the cross-crate neuroevolution test.

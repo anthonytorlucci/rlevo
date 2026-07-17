@@ -1,5 +1,7 @@
 # rlevo-benchmarks
 
+![Alt Text](rlevo-logo.png)
+
 Reproducible benchmarking harness for the `rlevo` workspace.
 
 This crate provides a deterministic, parallelisable evaluation framework for testing reinforcement-learning and evolutionary-optimisation agents across one or more environments. A single `base_seed` fans out to per-trial seeds via splitmix64 so results are reproducible regardless of thread scheduling. Completed trials can be checkpointed and resumed without recomputation.
@@ -158,7 +160,7 @@ runs/<run_id>/index.html
 | `emit_static_html(&run, &out, &cfg)` | Writes the single-file report atomically (tmp + fsync + rename). Returns episode count, bytes written, and a `size_warning` flag. |
 | `export-report` (binary) | CLI front-end: `cargo run -p rlevo-benchmarks --features report --bin export-report -- <run-dir> <out.html>`. |
 
-M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `6`, per ADR 0014); the loader rejects inlined payloads stamped with any other version.
+M5 ships the **data-transport skeleton**: per-family playback adapters and convergence plots land in subsequent milestones. The data contract — the four `<script>` block ids above — is keyed to the record `FORMAT_VERSION` (currently `7`, per ADR 0014); the loader rejects inlined payloads stamped with any other version.
 
 ### Optional Leptos/WASM client (Milestone 5.1)
 
@@ -295,4 +297,4 @@ The following works directly informed the design and algorithms in this crate:
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

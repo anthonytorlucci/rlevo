@@ -1,5 +1,7 @@
 # rlevo-environments
 
+![Alt Text](rlevo-logo.png)
+
 Standard benchmark environments and landscapes for the `rlevo` workspace.
 
 This crate provides a collection of reinforcement learning environments ranging from classic tabular problems through continuous-control physics simulations. All environments implement the `rlevo-core` `Environment` trait — a common `reset` / `step` interface that makes them drop-in compatible with every algorithm in `rlevo-reinforcement-learning` and `rlevo-evolution`.
@@ -19,6 +21,12 @@ Ports of the canonical Gymnasium control tasks implemented in pure Rust.
 | `MountainCar` | `classic::MountainCar` | 2-D continuous | Discrete(3) | Sparse reward; needs exploration |
 | `MountainCarContinuous` | `classic::MountainCarContinuous` | 2-D continuous | Continuous(1) | Dense reward variant |
 | `Pendulum` | `classic::Pendulum` | 3-D continuous | Continuous(1) | Underactuated swing-up |
+| `SantaFeAnt` | `classic::santa_fe_ant` | 1-D | Discrete(3) | POMDP food-foraging trail; not Markov (`MarkovState::is_markov` is `false`) |
+| `TenArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Sutton & Barto §2 k-armed testbed |
+| `KArmedBandit` | `classic::bandit::k_armed` | 1-D | Discrete(K) | Generalized k-armed variant |
+| `ContextualBandit` | `classic::bandit::contextual` | C-D | Discrete(K) | Per-episode context vector determines reward distribution |
+| `NonStationaryBandit` | `classic::bandit::non_stationary` | 1-D | Discrete(K) | Reward distribution drifts over the episode |
+| `AdversarialBandit` | `classic::bandit::adversarial` | 1-D | Discrete(K) | Adversarially chosen reward sequence |
 
 ---
 
@@ -61,6 +69,12 @@ Eleven of the twelve encode that view as the shared 3-channel `GridObservation` 
 Be precise about what that buys, though. The cue is **not** hidden everywhere — because the view reaches 6 cells backward from the cue's fixed column (`x = 1`), an agent standing anywhere in the corridor at `x <= 7` can turn to face West and re-read it. That leak zone is fixed by the view geometry and does not depend on `size`. What Invariant M guarantees is that the cue is unobservable **at the fork**, and that no single observation ever contains the cue *and* a fork object (they are more than a view-width apart) — which is what makes a memoryless policy unable to beat chance.
 
 Since the leak zone is fixed while the corridor grows, the **recall horizon scales with `size`**: the cue-free corridor cells are exactly \[x \in [8, \text{size} - 3 ]\]. At the floor of `size = 11` that is the single gap cell (≈1–2 steps of retention); at the **default `size = 13`** it is three cells; at `17`, seven. The default is deliberately *not* the minimum: `11` is the smallest **correct** size, not a memory benchmark, and shipping it would ship the weakest recall task the layout supports. Use the default (`13`, `max_steps = 845`) for memory research, or `17` for a long-horizon variant; drop to `11` only when step budget matters more than horizon.
+
+---
+
+### Pixel Grid (modality-changing POMDP)
+
+`PixelGridEnv` (`pixel_grid` module) is a synthetic allocentric navigation task whose latent state is a pair of cell indices (agent, goal) on a `5×5` grid, but whose observation is a rendered `20×20×3` RGB image — `Environment<3, 1, 1>` with observation rank `3` and state rank `1`. It is the crate's flagship consumer of `rlevo-core`'s `Observable<OR>` trait (ADR 0019), built from `Observable::project` rather than `State::observe`. Config type: `PixelGridConfig`; observation types: `LatentObservation`, `PixelObservation`.
 
 ---
 
@@ -154,7 +168,7 @@ use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::classic::{CartPole, CartPoleConfig, CartPoleAction};
 use rlevo_environments::wrappers::TimeLimit;
 
-let env = CartPole::with_config(CartPoleConfig::default());
+let env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
 let mut env = TimeLimit::new(env, 500);
 
 let mut snap = env.reset().expect("reset");
@@ -170,7 +184,7 @@ use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::grids::{EmptyEnv, EmptyConfig};
 use rlevo_environments::grids::core::GridAction;
 
-let mut env = EmptyEnv::with_config(EmptyConfig::default(), false);
+let mut env = EmptyEnv::with_config(EmptyConfig::default(), false).expect("valid config");
 let mut snap = env.reset().expect("reset");
 while !snap.is_done() {
     snap = env.step(GridAction::Forward).expect("step");
@@ -211,7 +225,7 @@ let env = CartPole::with_config(
         seed: 42,
         ..CartPoleConfig::default()
     }
-);
+).expect("valid config");
 ```
 
 ### Reproducibility
@@ -263,4 +277,4 @@ cargo test -p rlevo-environments --test grids_solvable
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](../../LICENSE-APACHE) or [MIT License](../../LICENSE-MIT) at your option.

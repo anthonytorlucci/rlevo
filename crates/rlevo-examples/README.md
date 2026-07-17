@@ -1,5 +1,7 @@
 # rlevo-examples
 
+![Alt Text](rlevo-logo.png)
+
 Runnable, application-tier examples for the [`rlevo`](../rlevo/) library:
 benchmarking-harness demos, a live training dashboard, and post-run HTML
 reports with interactive environment playback.
@@ -40,6 +42,30 @@ print results to stdout. The quickest way to see the harness in action.
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
 | `tabular_bandit` | An ε-greedy sample-average agent on `TenArmedBandit`; prints per-trial `return/mean` across the seed sweep.   | `cargo run -p rlevo-examples --example tabular_bandit` |
 | `ga_rastrigin`   | A hand-rolled GA on the Rastrigin landscape; exercises the `FitnessEvaluable` + `BenchEnv` harness contracts. | `cargo run -p rlevo-examples --example ga_rastrigin`   |
+
+### Evolutionary algorithms — no features required
+
+Standalone demos of algorithm families not covered by the harness examples above.
+
+| Example                      | What it demonstrates                                                          | Run                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `eda_showcase`                | Estimation-of-Distribution model variants (Gaussian/Bernoulli/compact-GA/dependency-chain/Bayesian network) on a shared landscape. | `cargo run -p rlevo-examples --example eda_showcase`                |
+| `competitive_predator_prey`   | Competitive coevolution (`CompetitiveCoEA`) between two adversarial populations. | `cargo run -p rlevo-examples --example competitive_predator_prey`   |
+| `cooperative_ccga_rastrigin`  | Cooperative coevolution (`CooperativeCoEA`) decomposing Rastrigin across two subpopulations. | `cargo run -p rlevo-examples --example cooperative_ccga_rastrigin`  |
+| `santa_fe_ant_deterministic`  | `WeightOnly` neuroevolution of a memoryless policy on the deterministic Santa Fe Trail. | `cargo run -p rlevo-examples --example santa_fe_ant_deterministic`  |
+| `santa_fe_ant_stochastic`     | Recurrent-memory neuroevolution on a stochastic variant of the Santa Fe Trail. | `cargo run -p rlevo-examples --example santa_fe_ant_stochastic`     |
+
+### Book examples — no features required
+
+Compiled, test-guarded examples pulled into the user-book via
+`{{#rustdoc_include}}`; each mirrors a specific book chapter.
+
+| Example                   | Chapter                                    | Run                                                          |
+| -------------------------- | ------------------------------------------- | -------------------------------------------------------------- |
+| `ch00_grid_agent`          | Ch. 0 — a minimal grid `Environment`/`Action` implementation | `cargo run -p rlevo-examples --example ch00_grid_agent`          |
+| `ch00_state_constraints`   | Ch. 0 — `State`/`Observation` constraints    | `cargo run -p rlevo-examples --example ch00_state_constraints`   |
+| `ch01_sphere_ga`           | Ch. 1 — real-valued GA on the Sphere landscape | `cargo run -p rlevo-examples --example ch01_sphere_ga`           |
+| `ch03_dqn_cartpole`        | Ch. 3 — DQN on CartPole                      | `cargo run -p rlevo-examples --example ch03_dqn_cartpole`        |
 
 ### Live TUI — `--features viz-tui`
 
@@ -108,8 +134,12 @@ cargo run -p rlevo-examples --example report_lunar_lander_with_client \
 examples/
   common/       shared PPO-on-CartPole model/config, included by the cartpole examples
   harness/      benchmarking-harness demos      (tabular_bandit, ga_rastrigin)
+  book/         user-book chapter examples      (ch00_grid_agent, ch00_state_constraints, ch01_sphere_ga, ch03_dqn_cartpole)
   classic/      PPO on CartPole                 (tui_ppo_cartpole, report_ppo_cartpole_with_client)
-  evolution/    Sphere landscape report          (report_sphere_landscape_with_client)
+  evolution/    landscape report + standalone algorithm demos
+                (report_sphere_landscape_with_client, eda_showcase,
+                 competitive_predator_prey, cooperative_ccga_rastrigin,
+                 santa_fe_ant_deterministic, santa_fe_ant_stochastic)
   grids/        grid environments report         (report_grids_with_client)
   toy_text/     toy-text environments report     (report_toy_text_with_client)
   locomotion/   inverted pendulum report         (report_inverted_pendulum_with_client)
@@ -118,7 +148,9 @@ examples/
 
 `common/ppo_cartpole.rs` is shared scaffolding (model, config, training loop)
 pulled in via `#[path = …] mod` by the cartpole examples — it is not a
-standalone target.
+standalone target. Likewise `evolution/santa_fe_ant_support.rs` is shared
+scaffolding pulled in by `santa_fe_ant_deterministic` and
+`santa_fe_ant_stochastic`.
 
 ## Features
 

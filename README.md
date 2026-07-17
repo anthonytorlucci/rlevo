@@ -1,6 +1,6 @@
 # rlevo
 
-![Alt Text](rlevo-logo.svg)
+![Alt Text](rlevo-logo.png)
 
 **Survival of the fittest, implemented in Rust.**
 
@@ -42,7 +42,8 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 - `MountainCar` / `MountainCarContinuous` — escape a valley with sparse rewards
 - `Pendulum` — swing-up and stabilization
 - `Acrobot` — underactuated double pendulum
-- `TenArmedBandit` — multi-armed bandit testbed
+- `SantaFeAnt` — POMDP grid-foraging benchmark
+- `TenArmedBandit`, `KArmedBandit`, `ContextualBandit`, `NonStationaryBandit`, `AdversarialBandit` — multi-armed bandit testbeds
 
 **Box2D Physics**
 - `BipedalWalker` — bipedal locomotion over varied terrain
@@ -76,26 +77,30 @@ The ERL research community has produced a rich ecosystem of Python implementatio
 ### Evolutionary & Swarm Algorithms
 
 **Classical Algorithms**
-- Genetic Algorithm (GA) with crossover and mutation operators
-- Evolution Strategies (ES), Evolutionary Programming (EP)
-- Differential Evolution (DE), Cartesian Genetic Programming (CGP)
+- Genetic Algorithm (GA), real-valued and binary-encoded, with crossover and mutation operators
+- Evolution Strategies (ES, classical and CMA-ES / CMSA-ES), Evolutionary Programming (EP)
+- Differential Evolution (DE), Cartesian Genetic Programming (CGP), Gene Expression Programming (GEP)
+- Estimation of Distribution Algorithms (EDA): univariate Gaussian/Bernoulli, compact GA, dependency-chain, Bayesian network
+- Memetic wrapper (local search hybridized with any population strategy) and local search (hill climbing, Nelder-Mead, random restart, simulated annealing)
+- Neuroevolution: NEAT, weight-only evolution of fixed topologies, NAS-oriented architecture search
+- Coevolution: competitive and cooperative co-evolutionary algorithms, hall of fame
 
 **Swarm Intelligence**
 - Particle Swarm Optimization (PSO)
-- Ant Colony Optimization (ACO)
+- Ant Colony Optimization (ACO, including a permutation-domain variant)
 - Firefly, Cuckoo Search, Bat Algorithm
 - Grey Wolf Optimizer (GWO), Artificial Bee Colony (ABC)
 - Whale Optimization Algorithm (WOA), Salp Swarm
 
 ### Hybrid RL + Evolution
 
-Hybrid training strategies that combine gradient-based RL with evolutionary search are in active design. See the roadmap for details.
+`rlevo-hybrid` ships an evolution-guided policy pipeline (`PolicyNeuroevolution`, `RolloutFitness`) that evolves policy weights against environment rollout fitness. Gradient-RL-in-the-loop strategies (population-based training, ERL-style actor injection, CEM-RL) are still on the roadmap.
 
 ## Quick Start
 
 ```toml
 [dependencies]
-rlevo = "0.1"
+rlevo = "0.3"
 ```
 
 ```rust
@@ -103,7 +108,7 @@ use rlevo::prelude::*;
 use rlevo::envs::classic::{CartPole, CartPoleAction, CartPoleConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut env = CartPole::with_config(CartPoleConfig::default());
+    let mut env = CartPole::with_config(CartPoleConfig::default()).expect("valid config");
     let snapshot = env.reset()?;
     println!("Initial observation: {:?}", snapshot.observation());
 
@@ -142,7 +147,7 @@ cargo doc --workspace --no-deps --open
 | Deep RL algorithms (8) | Active |
 | Evolutionary & swarm algorithms | Active |
 | Benchmarking harness | Active |
-| Hybrid RL + evolution | Early design |
+| Hybrid RL + evolution | Active (evolution-guided policy init shipped; PBT/ERL/CEM-RL planned) |
 
 ## Dependencies
 
