@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, GradientsParams, Optimizer};
+use burn::optim::{Adam, GradientsParams};
 use burn::tensor::activation;
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
@@ -29,6 +29,7 @@ use crate::algorithms::c51::c51_model::C51Model;
 use crate::algorithms::c51::loss::categorical_cross_entropy;
 use crate::algorithms::c51::projection::project_distribution;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
+use crate::algorithms::shared::Slot;
 
 /// Error variants returned by [`C51Agent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -101,6 +102,19 @@ pub struct LearnOutcome {
 /// - `DO` — rank of a single observation tensor (e.g. `1` for vector
 ///   observations of shape `[features]`).
 /// - `DB` — rank of a batched observation tensor (= `DO + 1`).
+///
+/// # Field notes
+///
+/// - `policy_net` is held in a [`Slot`], the newtype that owns a network across
+///   Burn's by-value [`Optimizer::step`](burn::optim::Optimizer::step). Every
+///   read goes through `Slot::get`, and the module leaves the field only for the
+///   duration of the `step` call itself inside `Slot::step_with` — the forward
+///   pass, loss, and `backward` all run on a borrow, so a panic in any of them
+///   leaves the agent intact. The one exception is a panic *inside* `step`,
+///   which poisons the slot permanently; that window is irreducible and is
+///   documented on [`Slot`].
+/// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so that
+///   computing bootstrap distributions never builds an autodiff graph.
 pub struct C51Agent<B, M, O, A, const DO: usize, const DB: usize>
 where
     B: AutodiffBackend,
@@ -108,7 +122,7 @@ where
     O: Observation<DO> + TensorConvertible<DO, B> + TensorConvertible<DO, B::InnerBackend>,
     A: DiscreteAction<1>,
 {
-    policy_net: Option<M>,
+    policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
     buffer: VecDeque<Transition<O>>,
@@ -172,7 +186,7 @@ where
         );
         let stats = AgentStats::<C51Metrics>::new(100);
         Ok(Self {
-            policy_net: Some(policy_net),
+            policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
             buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
@@ -211,9 +225,7 @@ where
     }
 
     fn policy(&self) -> &M {
-        self.policy_net
-            .as_ref()
-            .expect("policy_net not restored — earlier panic in learn_step?")
+        self.policy_net.get()
     }
 
     /// Builds a fresh support tensor `[z_0, z_1, …, z_{N-1}]` on the
@@ -386,9 +398,12 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `policy_net` is `None`, which can only happen if a previous
-    /// call to `learn_step` panicked after taking ownership of the network but
-    /// before restoring it.
+    /// Panics if the agent was poisoned by a panic *inside* a previous
+    /// optimizer step — the one window in which the network is out of its
+    /// [`Slot`]. Such an agent cannot be recovered and must be rebuilt; see
+    /// [`Slot`] for why. Steps 1–6 above all run against a borrow of the
+    /// network, so a panic in any of them (a shape mismatch, a device error, a
+    /// failed host read) leaves the agent fully usable.
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;
@@ -469,11 +484,11 @@ where
         );
 
         // --- Policy forward (autodiff) ---
-        let policy = self
-            .policy_net
-            .take()
-            .expect("policy_net not restored — earlier panic in learn_step?");
-        let logits: Tensor<B, 3> = policy.forward(obs_tensor); // (B, A, N)
+        //
+        // Everything from here to `step_with` runs against a borrow of the
+        // network, so a panic in the forward pass, the loss, or `backward`
+        // leaves `policy_net` populated and the agent usable.
+        let logits: Tensor<B, 3> = self.policy().forward(obs_tensor); // (B, A, N)
 
         let probs_all: Tensor<B, 3> = activation::softmax(logits.clone(), 2);
         let support_auto: Tensor<B, 1> = self.build_support::<B>(&device);
@@ -509,11 +524,12 @@ where
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
-        let grads = GradientsParams::from_grads(grads, &policy);
-        let updated = self
-            .optimizer
-            .step(self.config.learning_rate, policy, grads);
-        self.policy_net = Some(updated);
+        // `from_grads` takes `&M` and returns an owned, lifetime-free value, so
+        // NLL ends the borrow here — the only window in which the module is out
+        // of the slot is the `Optimizer::step` call inside `step_with`.
+        let grads = GradientsParams::from_grads(grads, self.policy());
+        self.policy_net
+            .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
         if self.config.tau > 0.0 {
             let fresh_valid = self.policy().valid();

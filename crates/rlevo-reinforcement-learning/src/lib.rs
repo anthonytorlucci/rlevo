@@ -33,6 +33,8 @@
 pub mod algorithms {
     //! Reinforcement learning algorithm implementations.
 
+    pub(crate) mod shared;
+
     pub mod dqn {
         //! Deep Q-Network algorithm.
 
