@@ -9,11 +9,11 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-rlevo-core = { path = "../rlevo-core", version = "0.3.0" }
-rlevo-environments = { path = "../rlevo-environments", version = "0.3.0", default-features = false, features = ["bench"] }
-rlevo-evolution = { path = "../rlevo-evolution", version = "0.3.0", default-features = false }
-rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.3.0" }
-rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.3.0", default-features = false }
+rlevo-core = { path = "../rlevo-core", version = "0.3.1" }
+rlevo-environments = { path = "../rlevo-environments", version = "0.3.1", default-features = false, features = ["bench"] }
+rlevo-evolution = { path = "../rlevo-evolution", version = "0.3.1", default-features = false }
+rlevo-reinforcement-learning = { path = "../rlevo-reinforcement-learning", version = "0.3.1" }
+rlevo-benchmarks = { path = "../rlevo-benchmarks", version = "0.3.1", default-features = false }
 burn = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
