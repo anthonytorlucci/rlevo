@@ -311,15 +311,22 @@ filed as its own issue.
   half (six agents' replay masks) is resolved separately; the research note
   refutes #170's premise that the on-policy infrastructure was pre-built.
 - Pardo, Tavakoli, Levdik, Kormushev. *Time Limits in Reinforcement Learning.*
-  ICML 2018, PMLR 80. arXiv:1712.00378v4. (Eq. 5, Eq. 6; §2.4 γ-dependence;
-  §3.1–3.2 magnitude; §3.4 replay interaction.)
+  ICML 2018, PMLR 80. arXiv:1712.00378v4 — <https://arxiv.org/abs/1712.00378>.
+  (Eq. 5, Eq. 6; §2.4 γ-dependence; §3.1–3.2 magnitude; §3.4 replay
+  interaction.) **Primary source for the decision**: Eq. 6 is the PEB target
+  adopted here.
 - Schulman, Moritz, Levine, Jordan, Abbeel. *High-Dimensional Continuous
   Control Using Generalized Advantage Estimation.* ICLR 2016.
-  arXiv:1506.02438v6. (Eq. 16; §2 assumes trajectories run to an absorbing
-  state — rollout-boundary truncation is not addressed.)
+  arXiv:1506.02438v6 — <https://arxiv.org/abs/1506.02438>. (Eq. 16; §2 assumes
+  trajectories run to an absorbing state — rollout-boundary truncation is not
+  addressed.) Defines the estimator being corrected; its silence on truncation
+  is why the two-mask form is a retrofit rather than a restatement.
 - Towers et al. *Gymnasium: A Standardized Interface for Reinforcement Learning
-  Environments.* NeurIPS 2025. arXiv:2407.17032v4. (Eqs. 1–2, mask is
-  `¬terminated`; §4.2 on libraries conflating the two.)
+  Environments.* NeurIPS 2025. arXiv:2407.17032v4 —
+  <https://arxiv.org/abs/2407.17032>. (Eqs. 1–2, mask is `¬terminated`; §4.2 on
+  libraries conflating the two.) Source of the `terminated`/`truncated`
+  vocabulary `EpisodeStatus` mirrors, and of the ecosystem-level statement that
+  conflating them is a defect.
 - Fujimoto, van Hoof, Meger. *Addressing Function Approximation Error in
   Actor-Critic Methods.* ICML 2018. arXiv:1802.09477, **Appendix D** — the
   earliest explicit statement of the rule in the primary literature.
