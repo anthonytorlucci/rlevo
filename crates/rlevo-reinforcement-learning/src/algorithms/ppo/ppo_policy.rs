@@ -105,6 +105,26 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
         raw_row.to_vec()
     }
 
+    /// Smallest `log σ` across action dims, or `None` for policies with no
+    /// `log σ` at all.
+    ///
+    /// Continuous (Gaussian) heads report the minimum of their **clamped**
+    /// `log σ`; discrete categorical heads have no scale parameter and keep the
+    /// `None` default. The value is a health signal: a `log σ` drifting toward
+    /// `log_std_min` is a policy collapsing to a deterministic action, and on a
+    /// state-independent `log_std` reaching the bound freezes the parameter
+    /// permanently (see
+    /// [`TanhGaussianPolicyHead`](crate::algorithms::ppo::policies::gaussian::TanhGaussianPolicyHead)).
+    ///
+    /// # Cost
+    ///
+    /// Implementations read from device to host, so this **must not** be called
+    /// per environment step. [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+    /// calls it exactly once per update, after the epoch loop.
+    fn min_log_std(&self) -> Option<f32> {
+        None
+    }
+
     /// Deterministic (greedy) env-space action for the first row of `obs`,
     /// evaluated on the inner (non-autodiff) backend.
     ///

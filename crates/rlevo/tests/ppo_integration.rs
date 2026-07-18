@@ -243,6 +243,8 @@ fn make_pendulum_agent(
         hidden: 64,
         action_dim: 1,
         log_std_init: 0.0,
+        log_std_min: -20.0,
+        log_std_max: 2.0,
         action_scale: 2.0,
     }
     .init::<Be>(&device);
@@ -292,6 +294,119 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
         avg_score: avg,
         rewards: stats.recent_history.iter().map(|m| m.reward).collect(),
     }
+}
+
+/// Drives one real PPO update and checks that the `log_std` telemetry added
+/// alongside the `log_std` clamp is actually populated end-to-end.
+///
+/// The clamp turns a `NaN` blow-up into a silently frozen σ, so `min_log_std`
+/// is the only signal a user has that the policy is collapsing. A `None` here
+/// on a Gaussian head — or a value outside the head's configured bounds — would
+/// mean the metric is wired up but dead, which is worse than not having it.
+///
+/// Deliberately tiny (64 steps, one update): this asserts plumbing, not
+/// learning, so it runs in CI rather than behind `#[ignore]`.
+#[test]
+fn ppo_pendulum_update_reports_min_log_std() {
+    use rlevo_core::environment::{Environment, Snapshot};
+    use rlevo_reinforcement_learning::algorithms::ppo::policies::gaussian::continuous_action_from_row;
+
+    let _guard = flex_guard();
+    let seed: u64 = 11;
+    let num_steps = 64_usize;
+
+    let mut env = TimeLimit::new(
+        Pendulum::with_config(PendulumConfig {
+            seed,
+            ..PendulumConfig::default()
+        })
+        .expect("valid config"),
+        200,
+    );
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut agent = make_pendulum_agent(seed, num_steps, num_steps);
+
+    let mut snapshot = env.reset().expect("reset");
+    for _ in 0..num_steps {
+        let obs_now = *snapshot.observation();
+        let act = agent.act(&obs_now, &mut rng);
+        let next = env
+            .step(continuous_action_from_row::<1, PendulumAction>(
+                &act.env_row,
+            ))
+            .expect("step");
+        let reward: f32 = (*next.reward()).into();
+        let status = next.status();
+        agent.record_step(obs_now, &act, reward, next.observation(), status);
+        snapshot = if status.is_done() {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
+    }
+    agent.finalize_rollout(snapshot.observation());
+
+    let stats = agent.update(&mut rng);
+    let min_log_std = stats
+        .min_log_std
+        .expect("a Gaussian head must report min_log_std");
+    assert!(
+        min_log_std.is_finite(),
+        "min_log_std must be finite, got {min_log_std}"
+    );
+    // The head was built with log_std_min = -20.0 / log_std_max = 2.0, and the
+    // metric reports the *clamped* value, so it can never leave that interval.
+    assert!(
+        (-20.0..=2.0).contains(&min_log_std),
+        "min_log_std {min_log_std} must lie within the head's configured bounds"
+    );
+    // A single update from log_std_init = 0.0 cannot plausibly reach the floor;
+    // if it has, the clamp is binding immediately and the run is already dead.
+    assert!(
+        min_log_std > -1.0,
+        "log_std collapsed to {min_log_std} after one update; the clamp is binding"
+    );
+}
+
+/// The discrete head has no `log σ`, so the shared `PpoUpdateStats` field must
+/// come back `None` rather than a meaningless number.
+#[test]
+fn ppo_cartpole_update_reports_no_min_log_std() {
+    use rlevo_core::environment::{Environment, Snapshot};
+    use rlevo_reinforcement_learning::algorithms::ppo::policies::categorical::discrete_action_from_row;
+
+    let _guard = flex_guard();
+    let seed: u64 = 11;
+    let num_steps = 64_usize;
+
+    let mut env = TimeLimit::new(cartpole_seeded(seed), 500);
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut agent = make_cart_pole_agent(seed, num_steps, num_steps);
+
+    let mut snapshot = env.reset().expect("reset");
+    for _ in 0..num_steps {
+        let obs_now = *snapshot.observation();
+        let act = agent.act(&obs_now, &mut rng);
+        let next = env
+            .step(discrete_action_from_row::<1, CartPoleAction>(&act.env_row))
+            .expect("step");
+        let reward: f32 = (*next.reward()).into();
+        let status = next.status();
+        agent.record_step(obs_now, &act, reward, next.observation(), status);
+        snapshot = if status.is_done() {
+            env.reset().expect("reset")
+        } else {
+            next
+        };
+    }
+    agent.finalize_rollout(snapshot.observation());
+
+    let stats = agent.update(&mut rng);
+    assert!(
+        stats.min_log_std.is_none(),
+        "a categorical head has no log_std, got {:?}",
+        stats.min_log_std
+    );
 }
 
 /// Mean episode return of a uniform-random torque policy on the `TimeLimit`ed

@@ -194,6 +194,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   trap disarmed before anyone wired PER into an agent, not a bug that was
   corrupting shipped training runs.
 
+- **`TanhGaussianPolicyHeadConfig` gains required `log_std_min` / `log_std_max`
+  fields** (resolves #173, ADR 0049). The bounds live on the policy-head config
+  — the one actually consumed to build the head — rather than on
+  `PpoTrainingConfig`, following the convention #185 names for SAC. The struct
+  has no `Default` and every construction site uses a full struct literal, so
+  there is no partial migration.
+
+  *Migration.* Add `log_std_min: -20.0, log_std_max: 2.0` to every
+  `TanhGaussianPolicyHeadConfig` literal. `validate()` now rejects an inverted
+  interval, a `log_std_min` below `-35`, a span of `40` or more, and a
+  `log_std_init` outside the bounds — all four are construction-time errors,
+  not silent coercions. The floor and the span guard **different** failures and
+  neither implies the other: the span bounds the ratio `σ_old/σ_new`, while the
+  floor bounds `σ` itself, so `(-120, -100)` — ordered, spanning only `20` — is
+  rejected because `exp(-110)` is exactly `0.0` in f32. `-35` is derived from
+  `|z − μ|/σ ≤ sqrt(f32::MAX)`; it sits six orders of magnitude below the
+  default `-20` and constrains no usable configuration. Note the two numerical
+  checks jointly imply `log_std_max < 5`. **Persisted
+  records still load**: the bounds are plain `f32` constants on the head, not
+  `Param`s, so no saved weights are invalidated. Seeded results are unchanged
+  at the default bounds, which never bind on a healthy run (verified: the
+  Pendulum end-to-end run passes unchanged at avg −1167.78).
+
 **Changed**
 
 - **`target_update_frequency` default raised from `100` to `10_000` for DQN,
@@ -219,6 +242,46 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   handful of times (see #337 for per-scale tuning guidance).
 
 **Fixed**
+
+- **PPO's Gaussian `log_std` was unbounded, so a long continuous-control run
+  could collapse it until `σ` underflowed to zero and NaN poisoned every
+  weight** (resolves #173, ADR 0049). The gradient of the Gaussian log-prob
+  w.r.t. `log_std` is `((z − μ)/σ)² − 1`, which is `≈ −1` for a high-advantage
+  action near the mean — exactly the case the surrogate rewards. Every such
+  update pushed `log_std` down, linearly and without limit. Below `≈ −87`,
+  `σ = exp(log_std)` underflows f32 to exactly `0.0`, `centered / σ` becomes
+  `±inf`, and `backward()` corrupts the parameters permanently. At the Pendulum
+  benchmark's `lr = 3e-4` that is on the order of 290k updates — inside a normal
+  training budget, and with no error signal until the run visibly diverges.
+
+  **The entropy bonus does not save it.** Gaussian entropy here is linear in
+  `log σ`, so its restoring force is a constant `entropy_coef · lr` — roughly
+  300× weaker than the drift at the default `entropy_coef = 0.01`, and *zero*
+  in the workspace's only continuous-control benchmark. That zero is correct,
+  not an oversight: it is the published SB3 rl-zoo tuned Pendulum-v1 config, and
+  PPO's own MuJoCo benchmark (Schulman et al. 2017, Table 3) also ran without an
+  entropy bonus. The reference-faithful configuration is precisely the one with
+  no restoring force.
+
+  **Why the tests missed it.** Every existing test evaluated the head at or near
+  `log_std_init = 0.0`, where the arithmetic is unremarkable; nothing exercised a
+  collapsed `log_std`, and nothing ran long enough to reach one. The failure is a
+  slow drift over tens of thousands of updates, which no unit test and no
+  non-`#[ignore]`d integration test covers.
+
+  Note this is a **deliberate deviation from reference PPO**, not a correction of
+  an oversight: CleanRL, Stable-Baselines3 (`DiagGaussianDistribution`) and
+  Spinning Up all leave PPO's `log_std` unclamped, and SB3 clamps only in its
+  SAC path — so the previous PPO-unclamped/SAC-clamped asymmetry *matched* both
+  references. (Issue #173 as filed asserted the asymmetry existed "for no stated
+  reason"; it did have one.) The bound is justified by numerical totality — it
+  makes `log_prob` a total function on f32 — not by a claim that bounding trains
+  better. Andrychowicz et al. 2021 found a minimum std "matters little, if it is
+  not set too large," and separately observed that exponentiating an unbounded
+  `log_std` "occasionally produced NaN values". The default `[-20, 2]` is far
+  below any healthy policy, so the only runs it changes are runs already
+  producing garbage. Issue #173's claim that PPG inherits the defect is also
+  false — PPG is discrete-only in v1 and has no Gaussian head.
 
 - **DQN, C51, QR-DQN, DDPG, TD3 and SAC zeroed the Bellman bootstrap on
   time-limit truncation, biasing Q-values downward on every time-limited
@@ -357,6 +420,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   real per-step cost lives; that is tracked separately as #322.
 
 **Added**
+
+- **`PpoUpdateStats::min_log_std` and a one-shot warning when the `log_std`
+  bound binds** (resolves #173, ADR 0049). Bounding `log_std` trades a *loud*
+  failure for a *quiet* one: before, a collapsing policy produced NaN and the run
+  visibly died; now it can sit silently pinned at `σ ≈ 2·10⁻⁹`, emitting
+  near-deterministic actions with no crash. Worse, because `log_std` is a
+  state-independent `Param` rather than a per-state network output, `clamp`
+  zeroes its gradient **permanently** once it crosses — there is no recovery
+  path, unlike SAC, where the `Linear` layer keeps learning from in-range
+  observations. Shipping the clamp without telemetry would have been a net
+  downgrade in debuggability, so the two land together.
+
+  `PpoPolicy` gains a defaulted `min_log_std() -> Option<f32>`; the categorical
+  head keeps the `None` default, the Gaussian head reports its clamped minimum
+  across action dims. It is read **once per update**, not per forward pass —
+  detecting a bind needs a host-side read, and doing that in the forward pass
+  would force a device→host sync every step on wgpu. Deferring costs nothing:
+  the bound is reported at the end of the update in which it binds, and since
+  the parameter can never leave the bound, no crossing is missed.
+
+  Not yet surfaced in `PpoMetrics`, so the value does not reach the TUI or the
+  recorded metric stream — it is returned from `update()` only. Tracked
+  separately.
 
 - **Contract tests for `polyak_update`** (resolves #336). `utils.rs` had no
   `mod tests` at all, leaving the single arithmetic primitive beneath every
