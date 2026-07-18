@@ -299,6 +299,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **`AgentStats::new(0)` silently degenerated into a one-record window instead
+  of rejecting the argument** (resolves #191). `record` pops the front whenever
+  `recent_history.len() >= window_size`, so with `window_size == 0` the pop
+  fires on every call and the window pins at exactly one entry forever.
+  `avg_score` then divides that single score by one and returns the *latest*
+  episode's score under the name "moving average" — a plausible-looking number
+  with none of the smoothing a caller asked for, and no error to signal it.
+  `new` now asserts `window_size > 0` and documents the panic.
+
+  No call site is affected: all eight agents construct their stats with a
+  hardcoded `100`. The guard matters because `AgentStats` is genuinely wired
+  into every agent, so the first call site that takes a window from user
+  config would otherwise inherit a silent misreport rather than a loud failure.
+  The existing tests missed it because none constructed a zero window, and the
+  degenerate case is invisible from `avg_score`'s return type — `Some(f32)`
+  looks identical whether it averaged one record or a hundred.
+
+  The companion claim filed against this module — that a single `NaN` score
+  permanently poisons `best_score` — was **refuted** and no change was made:
+  `f32::max` is NaN-ignoring, so `best_score` self-heals on the very next
+  record, and the proposed "sanitize `NaN` to −∞" fix would have been a no-op.
+  `avg_score` does propagate a `NaN` through its sum, but only until the value
+  slides out of the window; filtering it there stays out of scope because both
+  upstream NaN origins are already guarded (#184's SAC alpha optimizer, #173's
+  Gaussian `log_std` clamp — both closed), which makes the filter a backstop
+  against sources that no longer produce, not a deferred repair.
+
 - **A non-finite `next_q_max` survived terminal transitions in
   `compute_target_q_values`, defeating the terminal-bootstrap convention**
   (resolves #192). The target was computed by *scaling* the bootstrap term,
