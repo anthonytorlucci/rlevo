@@ -18,8 +18,9 @@
 (`ask`) and receives their scores (`tell`), without owning the evaluation step.
 See [The Ask/Tell Contract](ask-tell-contract.md) for the full treatment.
 
-**Backend.** A Burn trait that abstracts over CPU (`ndarray`), GPU (`wgpu`), and
-other compute targets. Algorithm code is generic over `B: Backend`.
+**Backend.** A Burn trait that abstracts over CPU (`Flex`), GPU (`wgpu`), and
+other compute targets. Algorithm code is generic over `B: Backend`. `rlevo`
+enables `wgpu` and `flex`; other Burn backends exist but are not wired up here.
 
 **Elitism.** Carrying the best \\(k\\) individuals from one generation to the
 next unchanged, guaranteeing that the best fitness never regresses.

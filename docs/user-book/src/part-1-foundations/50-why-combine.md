@@ -95,7 +95,7 @@ apart rather than separate codebases:
 - Reproducible randomness derives from a single root seed through `seed_stream`,
   making a hybrid run — with all its interacting stochastic parts — exactly
   replicable.
-- The same algorithm code runs on CPU (via `ndarray`) and GPU (via `wgpu`)
+- The same algorithm code runs on CPU (via `Flex`) and GPU (via `wgpu`)
   without change.
 
 Part II puts all of this to work, and shows what the combination looks like in

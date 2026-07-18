@@ -376,7 +376,7 @@ Supplementary rules:
 
 | Dependency | Approved Usage | Forbidden |
 |------------|---------------|-----------|
-| `burn` | `TensorConvertible`, neural network models, backends (`wgpu`, `ndarray`) | Importing Burn in `rlevo-core` beyond trait bounds |
+| `burn` | `TensorConvertible`, neural network models, backends (`wgpu`, `flex`) | Importing Burn in `rlevo-core` beyond trait bounds |
 | `rand` | `rand::rng()` for thread-local RNG; `rng.random_range(0..n)` | `rand::thread_rng()` (deprecated) |
 | `rand_distr` | Advanced sampling distributions | Inline manual rejection sampling when a distribution exists |
 | `serde` | Derive `Serialize + Deserialize` on all domain types | Manual `impl Serialize` unless unavoidable |

@@ -81,9 +81,9 @@ inverse: it checks the shape is `[3]`, reads the three values back, and rejects
 any byte that does not name a valid direction. The example exercises this contract
 end to end — it encodes an observation, decodes it, and asserts the result is
 unchanged, the same round-trip a policy depends on every step. Because the trait
-is generic over `B`, that one implementation serves the CPU `ndarray` backend, the
-`wgpu` GPU backend, or the `Flex` backend the example uses, with no change to the
-conversion logic.
+is generic over `B`, that one implementation serves the `Flex` CPU backend the
+example uses, the `wgpu` GPU backend, or any other Burn backend you wire up,
+with no change to the conversion logic.
 
 ## State — the full world
 

@@ -192,7 +192,7 @@ range — more than enough, since \\(\sigma_u\\) only scales the step.
 
 **Backend-parity caveat.** The fractional power \\(\lvert v\rvert^{1/\beta}\\) is
 sensitive to FMA reordering: wgpu reductions can drift \\(\sim 10^{-3}\\) relative
-from the `Flex`/ndarray path on the *same seed*. CS trajectories are therefore
+from the `Flex` CPU path on the *same seed*. CS trajectories are therefore
 not bit-identical across backends, and the backend-parity test relaxes its
 tolerance for CS accordingly. Within a single backend, runs are fully
 reproducible.
@@ -231,7 +231,7 @@ identical trajectories on a fixed backend.
 | Rugged multimodal landscape, exploration over precision | CS's Lévy jumps plus abandonment resist sticking in one basin; pair with a local refiner if you need precision |
 | Need high-precision convergence on a smooth landscape | [CMA-ES](cma-es.md) or [DE](differential-evolution.md) — CS has no gradient-biased update and plateaus early |
 | Strong variable dependencies | [CMA-ES](cma-es.md) — CS perturbs each coordinate independently |
-| Reproducible results across wgpu and ndarray backends | Be aware CS is **not** bit-identical across backends (the fractional-power caveat); use a single backend if exact parity matters |
+| Reproducible results across the `wgpu` and `Flex` backends | Be aware CS is **not** bit-identical across backends (the fractional-power caveat); use a single backend if exact parity matters |
 | Binary / combinatorial search | [Binary GA](binary-encoded-genetic-algorithm.md) — CS is defined over continuous nests |
 
 ---
