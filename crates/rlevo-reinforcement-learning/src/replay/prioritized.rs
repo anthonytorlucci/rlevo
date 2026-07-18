@@ -5,6 +5,7 @@ use rlevo_core::config::{ConfigError, Validate};
 
 use super::config::PrioritizedReplayConfig;
 use super::error::ReplayBufferError;
+use super::importance_exponent::ImportanceExponent;
 use super::priority::{Priority, PriorityError};
 use super::sum_tree::{PriorityIndex, SumTree, stratified_draw};
 use super::{ReplayStrategy, SampledBatch, TransitionId};
@@ -110,7 +111,7 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// use rand::SeedableRng;
 /// use rand::rngs::StdRng;
 /// use rlevo_reinforcement_learning::replay::{
-///     PrioritizedReplay, PrioritizedReplayConfig, ReplayStrategy,
+///     ImportanceExponent, PrioritizedReplay, PrioritizedReplayConfig, ReplayStrategy,
 /// };
 ///
 /// let config = PrioritizedReplayConfig { capacity: 8, ..Default::default() };
@@ -121,7 +122,7 @@ use super::{ReplayStrategy, SampledBatch, TransitionId};
 /// }
 ///
 /// let mut rng = StdRng::seed_from_u64(7);
-/// let batch = buffer.sample(2, 0.4, &mut rng)?;
+/// let batch = buffer.sample(2, ImportanceExponent::new(0.4), &mut rng)?;
 /// assert_eq!(batch.len(), 2);
 ///
 /// // The largest importance weight in a batch is always exactly 1.0.
@@ -485,10 +486,16 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
     /// # β
     ///
     /// `beta` is the *already-evaluated* importance exponent for this step; the
-    /// annealing schedule lives on the agent config (ADR 0050 §11), which is
-    /// also where it is validated. Passing a `beta` outside `[0, 1]` is a
-    /// programming error and trips a debug assertion; it is not a runtime error
-    /// here, because the buffer has no config of its own to report against.
+    /// annealing schedule lives on the agent config (ADR 0050 §11). Its
+    /// `finite && [0, 1]` invariant is **carried by the
+    /// [`ImportanceExponent`] type**, so this method neither re-checks nor can
+    /// be handed a value that would make `powf` produce `NaN`.
+    ///
+    /// That is a correction to ADR 0050 §11, recorded in ADR 0051 §3: the
+    /// caller's schedule cannot be the validation site, because a config holds
+    /// schedule *endpoints* while what reaches `powf` is the *evaluated*
+    /// interpolation — which is `NaN` for a zero-length anneal even when every
+    /// endpoint validates.
     ///
     /// # Errors
     ///
@@ -496,20 +503,12 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
     /// fewer than `batch_size` transitions — matching
     /// [`UniformReplay`](super::UniformReplay), so the two strategies are
     /// interchangeable at an agent's call site.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds when `beta` is non-finite or outside `[0, 1]`.
     fn sample<R: Rng + ?Sized>(
         &self,
         batch_size: usize,
-        beta: f32,
+        beta: ImportanceExponent,
         rng: &mut R,
     ) -> Result<SampledBatch, ReplayBufferError> {
-        debug_assert!(
-            beta.is_finite() && (0.0..=1.0).contains(&beta),
-            "PrioritizedReplay::sample: beta must be finite and in [0, 1], got {beta}"
-        );
         if batch_size > self.items.len() {
             return Err(ReplayBufferError::InsufficientData {
                 requested: batch_size,
@@ -532,7 +531,7 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
             .fold(f64::INFINITY, f64::min)
             .max(f64::MIN_POSITIVE);
 
-        let beta = f64::from(beta);
+        let beta = f64::from(beta.get());
         let weights = masses
             .iter()
             .map(|&m| {
@@ -557,7 +556,7 @@ mod tests {
     use crate::replay::priority::Priority;
     use crate::replay::sum_tree::reference::PrefixScanIndex;
     use crate::replay::sum_tree::{PriorityIndex, stratified_draw};
-    use crate::replay::{ReplayBufferError, ReplayStrategy, TransitionId};
+    use crate::replay::{ImportanceExponent, ReplayBufferError, ReplayStrategy, TransitionId};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
@@ -810,7 +809,9 @@ mod tests {
         let b = filled(6, 0.6, &[1.0; 6]);
         for seed in 0..50u64 {
             let mut rng = StdRng::seed_from_u64(seed);
-            let batch = b.sample(6, 0.4, &mut rng).expect("full buffer");
+            let batch = b
+                .sample(6, ImportanceExponent::new(0.4), &mut rng)
+                .expect("full buffer");
             let mut ids: Vec<u64> = batch.ids().iter().map(|id| id.index()).collect();
             ids.sort_unstable();
             assert_eq!(
@@ -831,7 +832,9 @@ mod tests {
         let b = filled(4, 1.0, &[1.0, 2.0, 3.0, 4.0]);
         for seed in 0..200u64 {
             let mut rng = StdRng::seed_from_u64(seed);
-            let batch = b.sample(2, 0.4, &mut rng).expect("full buffer");
+            let batch = b
+                .sample(2, ImportanceExponent::new(0.4), &mut rng)
+                .expect("full buffer");
             let ids: Vec<u64> = batch.ids().iter().map(|id| id.index()).collect();
             assert!(
                 (0..=2).contains(&ids[0]),
@@ -866,7 +869,7 @@ mod tests {
                 let mut rng_buf = StdRng::seed_from_u64(seed);
                 let mut rng_ref = StdRng::seed_from_u64(seed);
                 let from_buffer: Vec<u64> = b
-                    .sample(batch_size, 0.4, &mut rng_buf)
+                    .sample(batch_size, ImportanceExponent::new(0.4), &mut rng_buf)
                     .expect("full buffer")
                     .ids()
                     .iter()
@@ -893,8 +896,12 @@ mod tests {
         let b = filled(6, 0.6, &[1.0, 5.0, 2.0, 9.0, 0.5, 3.0]);
         let mut a = StdRng::seed_from_u64(1234);
         let mut c = StdRng::seed_from_u64(1234);
-        let first = b.sample(4, 0.7, &mut a).expect("full buffer");
-        let second = b.sample(4, 0.7, &mut c).expect("full buffer");
+        let first = b
+            .sample(4, ImportanceExponent::new(0.7), &mut a)
+            .expect("full buffer");
+        let second = b
+            .sample(4, ImportanceExponent::new(0.7), &mut c)
+            .expect("full buffer");
         assert_eq!(
             first, second,
             "identical seeds must yield identical batches"
@@ -908,7 +915,9 @@ mod tests {
         let b = filled(8, 0.6, &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]);
         for seed in 0..50u64 {
             let mut rng = StdRng::seed_from_u64(seed);
-            let batch = b.sample(4, 1.0, &mut rng).expect("full buffer");
+            let batch = b
+                .sample(4, ImportanceExponent::new(1.0), &mut rng)
+                .expect("full buffer");
             let w = batch.weights().expect("prioritized replay emits weights");
             let max = w.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             assert!(
@@ -929,7 +938,9 @@ mod tests {
     fn test_weight_normalization_is_minibatch_scoped_not_buffer_scoped() {
         let b = filled(5, 1.0, &[1.0, 1.0, 1.0, 1.0, 1000.0]);
         let mut rng = StdRng::seed_from_u64(3);
-        let batch = b.sample(1, 1.0, &mut rng).expect("full buffer");
+        let batch = b
+            .sample(1, ImportanceExponent::new(1.0), &mut rng)
+            .expect("full buffer");
         assert_eq!(
             batch.weights().expect("weights"),
             [1.0],
@@ -941,7 +952,9 @@ mod tests {
     fn test_beta_zero_yields_unit_weights() {
         let b = filled(8, 0.6, &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]);
         let mut rng = StdRng::seed_from_u64(11);
-        let batch = b.sample(4, 0.0, &mut rng).expect("full buffer");
+        let batch = b
+            .sample(4, ImportanceExponent::new(0.0), &mut rng)
+            .expect("full buffer");
         let w = batch.weights().expect("weights");
         assert!(
             w.iter().all(|&x| (x - 1.0).abs() < f32::EPSILON),
@@ -956,7 +969,9 @@ mod tests {
         let b = filled(4, 0.6, &[3.0; 4]);
         for beta in [0.0_f32, 0.4, 0.75, 1.0] {
             let mut rng = StdRng::seed_from_u64(5);
-            let batch = b.sample(4, beta, &mut rng).expect("full buffer");
+            let batch = b
+                .sample(4, ImportanceExponent::new(beta), &mut rng)
+                .expect("full buffer");
             let w = batch.weights().expect("weights");
             assert!(
                 w.iter().all(|&x| (x - 1.0).abs() < f32::EPSILON),
@@ -970,7 +985,7 @@ mod tests {
     #[test]
     fn test_weights_match_the_closed_form() {
         let b = filled(2, 1.0, &[1.0, 4.0]);
-        let beta = 0.5_f32;
+        let beta = ImportanceExponent::new(0.5);
         let mut rng = StdRng::seed_from_u64(0);
         let batch = b.sample(2, beta, &mut rng).expect("full buffer");
         let ids: Vec<usize> = batch
@@ -982,7 +997,7 @@ mod tests {
         let masses = [1.0_f64, 4.0];
         let min = ids.iter().map(|&i| masses[i]).fold(f64::INFINITY, f64::min);
         for (k, &id) in ids.iter().enumerate() {
-            let expected = (min / masses[id]).powf(f64::from(beta));
+            let expected = (min / masses[id]).powf(f64::from(beta.get()));
             assert!(
                 (f64::from(w[k]) - expected).abs() < 1e-6,
                 "w[{k}] must equal (p_min / p_i)^beta = {expected}, got {}",
@@ -1000,7 +1015,7 @@ mod tests {
         b.push(1);
         let mut rng = StdRng::seed_from_u64(0);
         let err = b
-            .sample(4, 0.4, &mut rng)
+            .sample(4, ImportanceExponent::new(0.4), &mut rng)
             .expect_err("only two transitions");
         assert!(
             matches!(
@@ -1034,7 +1049,9 @@ mod tests {
 
         // And the sampler still works — no NaN reached the tree.
         let mut rng = StdRng::seed_from_u64(0);
-        let batch = b.sample(4, 0.4, &mut rng).expect("buffer is still healthy");
+        let batch = b
+            .sample(4, ImportanceExponent::new(0.4), &mut rng)
+            .expect("buffer is still healthy");
         assert!(
             batch
                 .weights()
@@ -1084,7 +1101,10 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(2);
         let hits = (0..200)
-            .map(|_| b.sample(1, 0.4, &mut rng).expect("full buffer"))
+            .map(|_| {
+                b.sample(1, ImportanceExponent::new(0.4), &mut rng)
+                    .expect("full buffer")
+            })
             .filter(|batch| batch.ids()[0] == target)
             .count();
         assert!(
@@ -1103,7 +1123,9 @@ mod tests {
         let (batches, batch_size) = (2_000usize, 4usize);
         let mut counts = [0usize; 4];
         for _ in 0..batches {
-            let batch = b.sample(batch_size, 0.4, &mut rng).expect("full buffer");
+            let batch = b
+                .sample(batch_size, ImportanceExponent::new(0.4), &mut rng)
+                .expect("full buffer");
             for id in batch.ids() {
                 counts[usize::try_from(id.index()).expect("small id")] += 1;
             }

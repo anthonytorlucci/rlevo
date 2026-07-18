@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 
 use rand::{Rng, RngExt};
 
-use super::{ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
+use super::{ImportanceExponent, ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
 
 /// A fixed-capacity FIFO replay buffer sampled uniformly with replacement.
 ///
@@ -37,7 +37,9 @@ use super::{ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
 /// ```
 /// use rand::SeedableRng;
 /// use rand::rngs::StdRng;
-/// use rlevo_reinforcement_learning::replay::{ReplayStrategy, UniformReplay};
+/// use rlevo_reinforcement_learning::replay::{
+///     ImportanceExponent, ReplayStrategy, UniformReplay,
+/// };
 ///
 /// let mut buffer: UniformReplay<u32> = UniformReplay::new(3);
 /// for value in 0..5 {
@@ -47,7 +49,9 @@ use super::{ReplayBufferError, ReplayStrategy, SampledBatch, TransitionId};
 /// assert_eq!(buffer.iter().copied().collect::<Vec<_>>(), vec![2, 3, 4]);
 ///
 /// let mut rng = StdRng::seed_from_u64(1);
-/// let batch = buffer.sample(2, 1.0, &mut rng).expect("enough data");
+/// let batch = buffer
+///     .sample(2, ImportanceExponent::ONE, &mut rng)
+///     .expect("enough data");
 /// assert_eq!(batch.len(), 2);
 /// ```
 #[derive(Debug, Clone)]
@@ -145,7 +149,9 @@ impl<T> ReplayStrategy<T> for UniformReplay<T> {
     ///
     /// `beta` is ignored — uniform replay emits no importance-sampling
     /// weights, so the returned [`SampledBatch`] always has
-    /// [`weights()`](SampledBatch::weights) of `None`.
+    /// [`weights()`](SampledBatch::weights) of `None`. It stays on the
+    /// signature so that adding a weighted strategy does not break this
+    /// implementor.
     ///
     /// See the [type-level draw-order contract](UniformReplay#draw-order-contract):
     /// exactly `batch_size` calls to `rng.random_range(0..len)`, in order.
@@ -157,7 +163,7 @@ impl<T> ReplayStrategy<T> for UniformReplay<T> {
     fn sample<R: Rng + ?Sized>(
         &self,
         batch_size: usize,
-        _beta: f32,
+        _beta: ImportanceExponent,
         rng: &mut R,
     ) -> Result<SampledBatch, ReplayBufferError> {
         let len = self.buffer.len();
@@ -296,7 +302,7 @@ mod tests {
             let mut rng_reference = StdRng::seed_from_u64(0x0050_ADD0);
 
             let batch = buffer
-                .sample(batch_size, 1.0, &mut rng_actual)
+                .sample(batch_size, ImportanceExponent::ONE, &mut rng_actual)
                 .expect("batch_size never exceeds len in this table");
             let reference = pinned_reference_draw(batch_size, len, &mut rng_reference);
 
@@ -325,13 +331,15 @@ mod tests {
     fn test_uniform_replay_sample_ids_all_resolve() {
         let buffer = filled(4, 9);
         let mut rng = StdRng::seed_from_u64(11);
-        let batch = buffer.sample(16, 1.0, &mut rng);
+        let batch = buffer.sample(16, ImportanceExponent::ONE, &mut rng);
         assert!(
             batch.is_err(),
             "requesting more than len must be InsufficientData"
         );
 
-        let batch = buffer.sample(4, 1.0, &mut rng).expect("exactly len");
+        let batch = buffer
+            .sample(4, ImportanceExponent::ONE, &mut rng)
+            .expect("exactly len");
         assert!(
             batch.weights().is_none(),
             "uniform replay must not emit importance-sampling weights"
@@ -349,12 +357,16 @@ mod tests {
         // A single-element buffer can only be drawn with replacement.
         let buffer = filled(1, 1);
         let mut rng = StdRng::seed_from_u64(3);
-        let batch = buffer.sample(1, 1.0, &mut rng).expect("one element");
+        let batch = buffer
+            .sample(1, ImportanceExponent::ONE, &mut rng)
+            .expect("one element");
         assert_eq!(batch.len(), 1, "one draw requested, one returned");
 
         let buffer = filled(2, 2);
         let mut rng = StdRng::seed_from_u64(3);
-        let batch = buffer.sample(2, 1.0, &mut rng).expect("two elements");
+        let batch = buffer
+            .sample(2, ImportanceExponent::ONE, &mut rng)
+            .expect("two elements");
         assert_eq!(
             batch.len(),
             2,
@@ -367,7 +379,7 @@ mod tests {
         let buffer = filled(8, 3);
         let mut rng = StdRng::seed_from_u64(5);
         let err = buffer
-            .sample(4, 1.0, &mut rng)
+            .sample(4, ImportanceExponent::ONE, &mut rng)
             .expect_err("4 > 3 stored transitions");
         match err {
             ReplayBufferError::InsufficientData {
@@ -386,11 +398,11 @@ mod tests {
         let buffer: UniformReplay<u32> = UniformReplay::new(4);
         let mut rng = StdRng::seed_from_u64(5);
         assert!(
-            buffer.sample(1, 1.0, &mut rng).is_err(),
+            buffer.sample(1, ImportanceExponent::ONE, &mut rng).is_err(),
             "an empty buffer cannot serve a draw"
         );
         let batch = buffer
-            .sample(0, 1.0, &mut rng)
+            .sample(0, ImportanceExponent::ONE, &mut rng)
             .expect("a zero-size batch needs no data");
         assert!(batch.is_empty(), "zero draws requested, zero returned");
     }

@@ -62,6 +62,8 @@ use burn::module::AutodiffModule;
 use burn::optim::{GradientsParams, LearningRate, Optimizer};
 use burn::tensor::backend::AutodiffBackend;
 
+use crate::replay::ImportanceExponent;
+
 /// Panic message for a read against a poisoned slot.
 ///
 /// Deliberately names the *cause* (a panic inside the optimizer step, the one
@@ -124,16 +126,22 @@ pub(crate) struct Slot<M>(Option<M>);
 /// [`ReplayStrategy::sample`].
 ///
 /// Every agent draws from a [`UniformReplay`], which emits no IS weights and
-/// therefore ignores β entirely (ADR 0050 §3). The value is `1.0` — the
-/// no-correction end of Schaul's annealing schedule — so that it stays correct
-/// as a fallback rather than merely inert. When prioritized replay is wired in
-/// (ADR 0050 step 4) the agents that adopt it replace this constant with
-/// `beta(self.step)` off their own config schedule; the ones that keep uniform
-/// replay keep this.
+/// therefore ignores β entirely (ADR 0050 §3). The value is
+/// [`ImportanceExponent::ONE`] — the fully-annealed, no-correction end of
+/// Schaul's schedule — so that it stays correct as a fallback rather than merely
+/// inert. When prioritized replay is wired in (ADR 0050 step 4) the agents that
+/// adopt it replace this constant with `beta(self.step)` off their own config
+/// schedule; the ones that keep uniform replay keep this.
+///
+/// The type is [`ImportanceExponent`], not `f32`: β is `finite && [0, 1]` by
+/// construction so that a bad value cannot reach `powf` and poison a batch's
+/// importance weights (ADR 0051 §3).
 ///
 /// [`ReplayStrategy::sample`]: crate::replay::ReplayStrategy::sample
 /// [`UniformReplay`]: crate::replay::UniformReplay
-pub(crate) const UNIFORM_REPLAY_BETA: f32 = 1.0;
+/// [`ImportanceExponent`]: crate::replay::ImportanceExponent
+/// [`ImportanceExponent::ONE`]: crate::replay::ImportanceExponent::ONE
+pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::ONE;
 
 // A network's `Debug` would dump every parameter tensor, so report the slot's
 // state and the module's type instead. This also keeps `Slot<M>: Debug` free of

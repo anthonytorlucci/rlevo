@@ -19,6 +19,10 @@
 //!   max-normalized over the sampled minibatch, and the `update_priorities`
 //!   feedback edge. Its priorities are [`Priority`] values, finite and strictly
 //!   positive by construction, configured by [`PrioritizedReplayConfig`].
+//! - [`ImportanceExponent`] — the β passed to [`ReplayStrategy::sample`],
+//!   `finite && [0, 1]` by construction so a non-finite exponent cannot reach
+//!   `powf` and turn the importance weights — and then the loss, and then every
+//!   gradient — into `NaN` (ADR 0051 §3).
 //! - [`ReplayBufferError`] — the error domain for all of the above.
 //!
 //! # Choosing a strategy
@@ -59,7 +63,7 @@
 //! use rand::SeedableRng;
 //! use rand::rngs::StdRng;
 //! use rlevo_reinforcement_learning::replay::{
-//!     DiscreteTransition, ReplayStrategy, UniformReplay,
+//!     DiscreteTransition, ImportanceExponent, ReplayStrategy, UniformReplay,
 //! };
 //!
 //! let mut buffer: UniformReplay<DiscreteTransition<f32>> = UniformReplay::new(4);
@@ -76,7 +80,9 @@
 //! assert_eq!(buffer.len(), 4);
 //!
 //! let mut rng = StdRng::seed_from_u64(7);
-//! let batch = buffer.sample(4, 1.0, &mut rng).expect("four transitions stored");
+//! let batch = buffer
+//!     .sample(4, ImportanceExponent::ONE, &mut rng)
+//!     .expect("four transitions stored");
 //! assert_eq!(batch.ids().len(), 4, "one id per requested draw");
 //! assert!(batch.weights().is_none(), "uniform emits no IS weights");
 //! for &id in batch.ids() {
@@ -86,6 +92,7 @@
 
 mod config;
 mod error;
+mod importance_exponent;
 mod prioritized;
 mod priority;
 mod sum_tree;
@@ -94,6 +101,7 @@ mod uniform;
 
 pub use config::{DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig};
 pub use error::ReplayBufferError;
+pub use importance_exponent::{ImportanceExponent, ImportanceExponentError};
 pub use prioritized::PrioritizedReplay;
 pub use priority::{Priority, PriorityError};
 pub use transition::{ContinuousTransition, DiscreteTransition, Transition};
@@ -272,20 +280,24 @@ pub trait ReplayStrategy<T> {
     /// - `batch_size` — number of ids to draw. Whether draws are independent,
     ///   with replacement, or stratified is the strategy's choice; see the
     ///   implementation's own docs.
-    /// - `beta` — the current importance-sampling exponent. Ignored entirely by
-    ///   strategies that emit no weights, including [`UniformReplay`]. It is on
-    ///   the signature so that adding a weighted strategy does not break this
-    ///   trait's other implementors.
+    /// - `beta` — the current importance-sampling exponent, already evaluated
+    ///   for this step. Its `finite && [0, 1]` invariant is carried by
+    ///   [`ImportanceExponent`], so no implementation needs to re-check it.
+    ///   Ignored entirely by strategies that emit no weights, including
+    ///   [`UniformReplay`]. It is on the signature so that adding a weighted
+    ///   strategy does not break this trait's other implementors.
     /// - `rng` — the caller's RNG. All randomness comes from here.
     ///
     /// # Errors
     ///
     /// Returns [`ReplayBufferError::InsufficientData`] when the buffer holds
-    /// fewer than `batch_size` transitions.
+    /// fewer than `batch_size` transitions. Note that this is *not* the place a
+    /// bad β is reported: β cannot be bad here, so [`UniformReplay`] is not made
+    /// to carry an error variant it could never produce (ADR 0051 §2).
     fn sample<R: rand::Rng + ?Sized>(
         &self,
         batch_size: usize,
-        beta: f32,
+        beta: ImportanceExponent,
         rng: &mut R,
     ) -> Result<SampledBatch, ReplayBufferError>;
 }
