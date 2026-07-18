@@ -669,16 +669,14 @@ where
             .critic_updates
             .is_multiple_of(self.config.target_update_frequency)
         {
+            // Clone rather than move out: each target field stays intact if
+            // `soft_update` panics, so a failure can't silently hard-sync the
+            // target onto its live critic.
             let tau = self.config.tau as f64;
-            let fresh_target_critic_1 = self.critic_1.get().valid();
-            let target_critic_1 =
-                std::mem::replace(&mut self.target_critic_1, fresh_target_critic_1);
-            self.target_critic_1 = Critic::soft_update(self.critic_1.get(), target_critic_1, tau);
-
-            let fresh_target_critic_2 = self.critic_2.get().valid();
-            let target_critic_2 =
-                std::mem::replace(&mut self.target_critic_2, fresh_target_critic_2);
-            self.target_critic_2 = Critic::soft_update(self.critic_2.get(), target_critic_2, tau);
+            self.target_critic_1 =
+                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau);
+            self.target_critic_2 =
+                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau);
         }
 
         Some(LearnOutcome {
