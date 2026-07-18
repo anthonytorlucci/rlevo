@@ -191,7 +191,7 @@ If you encounter dimension mismatch errors, verify:
 ## Dependencies and Workspace Configuration
 
 The workspace uses shared dependencies defined in root `Cargo.toml`:
-- **burn**: Version 0.21.0 with features `["wgpu", "train", "tui", "metrics", "ndarray"]`
+- **burn**: Version 0.21.0 with features `["wgpu", "train", "tui", "metrics", "flex"]`
 - **rand**: 0.9.2 for randomness
 - **serde**: 1.0 with `["derive", "rc"]` for serialization
 - **tracing**: 0.1 for logging

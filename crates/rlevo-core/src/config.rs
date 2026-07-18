@@ -405,6 +405,43 @@ mod tests {
         assert!(in_range(C, "gamma", 0.0, 1.0, f64::NAN).is_err());
     }
 
+    /// `NaN` compares false against *both* bounds, so `got >= lo && got <= hi`
+    /// is false and `NaN` lands in the `Err` branch — the behaviour promised by
+    /// `in_range`'s rustdoc. This test pins the **kind**, not merely `is_err()`:
+    /// a refactor to the superficially equivalent `!(got < lo || got > hi)`
+    /// would start silently *accepting* `NaN`, and only a kind-level assertion
+    /// distinguishes "rejected as out of range" from "rejected for some other
+    /// reason".
+    #[test]
+    fn in_range_rejects_nan_as_out_of_range() {
+        let err = in_range(C, "tau", 0.0, 1.0, f64::NAN).unwrap_err();
+        assert_eq!(err.config, C, "NaN rejection must name the config");
+        assert_eq!(err.field, "tau", "NaN rejection must name the field");
+        match err.kind {
+            ConstraintKind::OutOfRange { got, .. } => assert!(
+                got.is_nan(),
+                "OutOfRange must carry the offending NaN verbatim, got {got}"
+            ),
+            other => panic!("NaN must be rejected as OutOfRange, got {other:?}"),
+        }
+    }
+
+    /// Both infinities sit outside every finite `[lo, hi]`; each is an
+    /// otherwise-untested branch of the same comparison chain that handles NaN.
+    #[test]
+    fn in_range_rejects_infinities() {
+        for got in [f64::INFINITY, f64::NEG_INFINITY] {
+            let err = in_range(C, "tau", 0.0, 1.0, got).unwrap_err();
+            match err.kind {
+                ConstraintKind::OutOfRange { got: reported, .. } => assert!(
+                    reported.is_infinite(),
+                    "OutOfRange must carry the offending infinity verbatim, got {reported}"
+                ),
+                other => panic!("{got} must be rejected as OutOfRange, got {other:?}"),
+            }
+        }
+    }
+
     #[test]
     fn ordered_requires_strict() {
         assert!(ordered(C, "clip", -1.0, 1.0).is_ok());
