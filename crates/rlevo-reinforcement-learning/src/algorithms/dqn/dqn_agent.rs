@@ -57,10 +57,11 @@ pub struct DqnMetrics {
     pub reward: f32,
     /// Number of environment steps taken.
     pub steps: usize,
-    /// Most recent policy (Q-network) loss value.
+    /// Most recent TD (Q-network) loss value.
+    ///
+    /// DQN has a single TD loss — unlike actor-critic algorithms there is no
+    /// separate policy/value pair, so only this field is reported.
     pub policy_loss: f32,
-    /// Mirror of `policy_loss` kept for parity with actor-critic algorithms.
-    pub value_loss: f32,
     /// Exploration rate at the end of the episode.
     pub epsilon: f32,
     /// Mean predicted Q-value across the most recent learn step.
@@ -479,7 +480,6 @@ mod tests {
             reward: 42.0,
             steps: 7,
             policy_loss: 0.5,
-            value_loss: 0.5,
             epsilon: 0.1,
             q_mean: 1.0,
         };

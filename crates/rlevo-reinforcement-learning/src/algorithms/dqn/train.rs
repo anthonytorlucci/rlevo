@@ -114,7 +114,6 @@ where
                 reward: episode_reward,
                 steps: episode_steps,
                 policy_loss: last_loss,
-                value_loss: last_loss,
                 epsilon: agent.epsilon() as f32,
                 q_mean: last_q_mean,
             };
