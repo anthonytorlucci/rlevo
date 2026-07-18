@@ -801,3 +801,129 @@ where
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::backend::{Autodiff, Flex};
+    use burn::grad_clipping::GradientClippingConfig;
+    use burn::module::Module;
+    use burn::nn::{Linear, LinearConfig};
+    use burn::tensor::backend::Backend;
+    use rlevo_core::base::TensorConversionError;
+    use serde::{Deserialize, Serialize};
+
+    use crate::algorithms::ppg::policies::{
+        PpgCategoricalPolicyHead, PpgCategoricalPolicyHeadConfig,
+    };
+    use crate::algorithms::ppg::ppg_config::PpgConfigBuilder;
+    use crate::algorithms::ppo::ppo_config::PpoTrainingConfig;
+
+    type TestBackend = Autodiff<Flex>;
+    type TestAgent = PpgAgent<
+        TestBackend,
+        PpgCategoricalPolicyHead<TestBackend>,
+        TestValue<TestBackend>,
+        TestObs,
+        1,
+        2,
+    >;
+
+    /// Minimal scalar main-value head: `PpgAgent` requires a `PpoValue`
+    /// implementation and the crate ships no built-in one.
+    #[derive(Module, Debug)]
+    struct TestValue<B: Backend> {
+        head: Linear<B>,
+    }
+
+    impl<B: Backend> TestValue<B> {
+        fn init(device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+            Self {
+                head: LinearConfig::new(2, 1).init(device),
+            }
+        }
+    }
+
+    impl<B: AutodiffBackend> PpoValue<B, 2> for TestValue<B> {
+        fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 1> {
+            self.head.forward(obs).squeeze_dim(1)
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestObs([f32; 2]);
+
+    impl Observation<1> for TestObs {
+        fn shape() -> [usize; 1] {
+            [2]
+        }
+    }
+
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {
+        fn row_shape() -> [usize; 1] {
+            [2]
+        }
+
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&self.0);
+        }
+
+        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            let data = tensor.into_data().convert::<f32>();
+            let v = data.as_slice::<f32>().map_err(|_| TensorConversionError {
+                message: "non-float tensor".into(),
+            })?;
+            Ok(Self([v[0], v[1]]))
+        }
+    }
+
+    /// Builds an agent whose `config.ppo.clip_grad` is exactly `clip_grad`,
+    /// leaving every other knob at its default.
+    fn agent_with_clip_grad(clip_grad: Option<GradientClippingConfig>) -> TestAgent {
+        let device = Default::default();
+        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .init::<TestBackend>(&device);
+        let value = TestValue::<TestBackend>::init(&device);
+        let config = PpgConfigBuilder::new()
+            .with_ppo(|p| PpoTrainingConfig {
+                clip_grad: clip_grad.clone(),
+                ..p
+            })
+            .build()
+            .expect("valid config");
+        TestAgent::new(policy, value, config, device, 1).expect("valid config")
+    }
+
+    /// Regression (issue #183): PPG builds its optimizers from
+    /// `config.ppo.clip_grad` itself rather than delegating to `PpoAgent`, so
+    /// this wiring can rot independently of the PPO copy — assert it here too.
+    #[test]
+    fn clip_grad_none_leaves_both_optimizers_unclipped() {
+        let agent = agent_with_clip_grad(None);
+        assert!(
+            !agent.policy_optim.has_gradient_clipping(),
+            "clip_grad: None must leave the policy optimizer unclipped"
+        );
+        assert!(
+            !agent.value_optim.has_gradient_clipping(),
+            "clip_grad: None must leave the value optimizer unclipped"
+        );
+    }
+
+    #[test]
+    fn clip_grad_some_reaches_both_optimizers() {
+        let agent = agent_with_clip_grad(Some(GradientClippingConfig::Norm(0.5)));
+        assert!(
+            agent.policy_optim.has_gradient_clipping(),
+            "clip_grad: Some(..) must configure the policy optimizer"
+        );
+        assert!(
+            agent.value_optim.has_gradient_clipping(),
+            "clip_grad: Some(..) must configure the value optimizer"
+        );
+    }
+}

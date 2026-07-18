@@ -100,6 +100,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Breaking changes**
 
+- **`PpoTrainingConfig::max_grad_norm` removed — it was dead state advertising a
+  feature the crate does not have** (resolves #183). The field defaulted to
+  `0.5`, was validated as positive, and had a public builder setter, but nothing
+  in the workspace ever read it: `PpoAgent::update` and `PpgAgent` build their
+  optimizers from `clip_grad` alone. A user reading `max_grad_norm: 0.5` in the
+  default config reasonably concluded gradient clipping was on. It never was —
+  `clip_grad` is the only functional knob and it defaults to `None`, so **stock
+  PPO and PPG perform no gradient clipping whatsoever**.
+
+  PPG inherited the defect verbatim through `PpgConfig::ppo`, and the deletion
+  propagates to it automatically.
+
+  Setting `clip_grad` is *not* an equivalent substitute for what the field
+  claimed. Burn's `GradientClipping::Norm` rescales **each parameter tensor
+  independently** (`burn-optim`'s `clip_by_norm` takes the L2 norm of one
+  tensor; `SimpleOptimizerMapper` applies it per-parameter), whereas Huang et
+  al. detail #10 clips the **global** norm across the whole flattened parameter
+  vector. The per-tensor form neither bounds the global norm nor preserves the
+  gradient's direction, so wiring the old field into the optimizer would have
+  been a different algorithm wearing the documented name. True global-norm
+  clipping needs a reduction over `GradientsParams` before `step_with` and is
+  tracked separately in #328.
+
+  *Migration.* Delete any `.max_grad_norm(..)` builder call or struct-literal
+  field — the call sites fail to compile, which is the point, since they were
+  silently no-ops. To opt into per-tensor clipping, set `clip_grad`, but do not
+  record it as detail #10. No persisted data is affected.
+
+  Four doc sites that asserted the missing behavior were corrected: the crate
+  README's defaults table (which also miscited the detail as #11), both
+  `max_grad_norm` and `clip_grad` doc-comments in `ppo_config.rs`, and the
+  `ppo/README.md` implementation-details table, where #10 moves from
+  "Implemented" to the documented-gaps list. The tests missed this because no
+  test asserted that a configured clip actually changes a gradient — the field
+  was only ever exercised through its own validator.
+
 - **GAE read episode done-ness one step late, mis-timing the bootstrap cut for
   *every* PPO/PPG run** (resolves #170, part 1). `RolloutBuffer::push_step`
   stores `obs[t]` alongside the status of the transition *out of* `obs[t]`, so

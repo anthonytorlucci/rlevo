@@ -46,18 +46,21 @@ pub struct PpoTrainingConfig {
     /// number of iterations.
     pub anneal_lr: bool,
 
-    /// Global gradient-norm clip applied to each loss.backward() result.
-    ///
-    /// CleanRL uses `0.5`.
-    pub max_grad_norm: f32,
-
     /// Underlying optimizer config. Adam epsilon defaults to `1e-5` when the
     /// agent is constructed.
     pub optimizer: AdamConfig,
 
-    /// Optional gradient-clipping config. When set, the Burn optimizer wraps
-    /// the grads with this clip. Independent of `max_grad_norm`, which is
-    /// applied manually in the agent loop.
+    /// Optional gradient-clipping config — the *only* gradient-clipping knob
+    /// on this config. Defaults to `None`, so **no clipping is applied unless
+    /// you set it**.
+    ///
+    /// When set, the Burn optimizer applies the clip during its update step.
+    /// Note that Burn's [`GradientClippingConfig::Norm`] clips **per tensor**:
+    /// each parameter's gradient is rescaled against its own L2 norm. It does
+    /// *not* rescale against the global norm of the flattened parameter
+    /// vector, so it does **not** reproduce Huang et al. detail #10
+    /// (global-norm clipping at `0.5`, as in CleanRL). True global-norm
+    /// clipping is tracked in issue #328.
     pub clip_grad: Option<GradientClippingConfig>,
 
     // ----- objective -----
@@ -128,7 +131,6 @@ impl Default for PpoTrainingConfig {
             update_epochs: 4,
             learning_rate: 2.5e-4,
             anneal_lr: true,
-            max_grad_norm: 0.5,
             optimizer: adam,
             clip_grad: None,
             gamma: 0.99,
@@ -159,7 +161,6 @@ impl Validate for PpoTrainingConfig {
         config::nonzero(C, "num_minibatches", self.num_minibatches)?;
         config::nonzero(C, "update_epochs", self.update_epochs)?;
         config::positive(C, "learning_rate", self.learning_rate)?;
-        config::positive(C, "max_grad_norm", f64::from(self.max_grad_norm))?;
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "gae_lambda", 0.0, 1.0, f64::from(self.gae_lambda))?;
         config::positive(C, "clip_coef", f64::from(self.clip_coef))?;
@@ -240,12 +241,6 @@ impl PpoTrainingConfigBuilder {
     /// Enables or disables linear learning-rate annealing to zero.
     pub fn anneal_lr(mut self, anneal_lr: bool) -> Self {
         self.config.anneal_lr = anneal_lr;
-        self
-    }
-
-    /// Sets [`PpoTrainingConfig::max_grad_norm`] (global gradient-norm clip).
-    pub fn max_grad_norm(mut self, max_grad_norm: f32) -> Self {
-        self.config.max_grad_norm = max_grad_norm;
         self
     }
 
@@ -367,6 +362,11 @@ mod tests {
         assert_eq!(cfg.clip_coef, 0.2);
         assert_eq!(cfg.gae_lambda, 0.95);
         assert_eq!(cfg.gamma, 0.99);
+        // CleanRL clips at norm 0.5, but rlevo ships clipping *off* by
+        // default; the docs must keep saying so. Asserted because the
+        // neighbouring dead `max_grad_norm` field (issue #183) made the
+        // default look like it was 0.5.
+        assert!(cfg.clip_grad.is_none());
     }
 
     #[test]
@@ -401,12 +401,18 @@ mod tests {
             .clip_coef(0.1)
             .entropy_coef(0.0)
             .action_scale(2.0)
+            .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
             .build()
             .expect("valid config");
         assert_eq!(cfg.num_steps, 256);
         assert_eq!(cfg.clip_coef, 0.1);
         assert_eq!(cfg.entropy_coef, 0.0);
         assert_eq!(cfg.action_scale, 2.0);
+        // `GradientClippingConfig` is not `PartialEq`, so match on the variant.
+        match cfg.clip_grad {
+            Some(GradientClippingConfig::Norm(n)) => assert!((n - 0.5).abs() < 1e-6),
+            other => panic!("clip_grad did not round-trip through the builder: {other:?}"),
+        }
     }
 
     #[test]

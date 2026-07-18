@@ -41,7 +41,6 @@ critical subset):
 | 7 | Clipped surrogate objective | `losses::clipped_surrogate` |
 | 8 | Clipped value loss | `losses::clipped_value_loss` |
 | 9 | Entropy bonus | `ppo_agent::PpoAgent::update` |
-| 10 | Global grad clip via optimizer | `PpoTrainingConfig::clip_grad` (optional) |
 | 12 | Separate policy / value networks | `PpoAgent` fields |
 | — | Early stop on target_kl | `PpoAgent::update` (threshold `1.5 · target_kl`) |
 | — | Gaussian log-prob summed across action dims | `gaussian::log_prob_entropy` |
@@ -51,6 +50,12 @@ critical subset):
 
 - #1 Vectorised architecture — sequential `num_envs = 1` in v1; vec-envs are
   a follow-up.
+- #10 Global gradient-norm clipping — **not implemented**.
+  `PpoTrainingConfig::clip_grad` is `None` by default (no clipping at all), and
+  when set, Burn's `GradientClippingConfig::Norm` rescales each parameter
+  tensor against its *own* L2 norm. Detail #10 requires rescaling against the
+  norm of the entire flattened parameter vector, which Burn's optimizer hook
+  cannot express. Tracked in issue #328.
 - #11 Vectorised reset handling — N/A while sequential.
 - Running observation normalization / returns-based reward scaling — a
   follow-up. Pendulum reward targets note the expected gap.
