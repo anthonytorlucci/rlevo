@@ -110,7 +110,15 @@ where
             let status = next_snapshot.status();
             let done = status.is_done();
 
-            agent.record_step(obs_now, &act, reward_f32, status);
+            // Continuation state, read *before* the `env.reset()` below — on a
+            // truncation the agent bootstraps V from it (ADR 0048).
+            agent.record_step(
+                obs_now,
+                &act,
+                reward_f32,
+                next_snapshot.observation(),
+                status,
+            );
             global_step += 1;
 
             episode_reward += reward_f32;

@@ -28,7 +28,7 @@ use crate::algorithms::ppo::losses::{
 use crate::algorithms::ppo::ppo_config::{PpoTrainingConfig, annealed_learning_rate};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
-use crate::algorithms::ppo::rollout::RolloutBuffer;
+use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 
 /// Error variants returned by [`PpoAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -376,16 +376,48 @@ where
 
     /// Pushes one step into the rollout buffer. Callers typically pair this
     /// with [`PpoAgent::act`] and the env step that consumed `action.env_row`.
-    pub fn record_step(&mut self, obs: O, action: &ActOutcome, reward: f32, status: EpisodeStatus) {
+    ///
+    /// `next_obs` is the observation the environment just produced — the
+    /// continuation state of this transition. It is only *used* when `status`
+    /// is [`EpisodeStatus::Truncated`], where partial-episode bootstrapping
+    /// needs `V(s_continuation)` (ADR 0048); the agent runs that one extra
+    /// value forward itself, so the caller can never forget to supply it and
+    /// pays nothing on ordinary steps.
+    ///
+    /// The caller must pass the **pre-reset** observation: the one carried by
+    /// the snapshot `env.step` returned, not the one a subsequent `env.reset`
+    /// produces.
+    pub fn record_step(
+        &mut self,
+        obs: O,
+        action: &ActOutcome,
+        reward: f32,
+        next_obs: &O,
+        status: EpisodeStatus,
+    ) {
+        let end = match status {
+            EpisodeStatus::Truncated => StepEnd::Truncated {
+                bootstrap_value: self.value_of(next_obs),
+            },
+            EpisodeStatus::Terminated => StepEnd::Terminated,
+            EpisodeStatus::Running => StepEnd::Running,
+        };
         self.buffer.push_step(
             obs,
             &action.raw_row,
             action.log_prob,
             action.value,
             reward,
-            status,
+            end,
         );
         self.step += 1;
+    }
+
+    /// One value-network forward on a single observation.
+    fn value_of(&self, obs: &O) -> f32 {
+        let t: Tensor<B, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, DB> = t.unsqueeze::<DB>();
+        self.value().forward(batched).into_scalar().elem::<f32>()
     }
 
     /// Finalises the current rollout: computes GAE advantages and bootstrap
@@ -401,12 +433,7 @@ where
         let last_value = if self.buffer.last_step_ended() {
             0.0
         } else {
-            let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
-            let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
-            self.value()
-                .forward(last_batched)
-                .into_scalar()
-                .elem::<f32>()
+            self.value_of(last_obs)
         };
         self.buffer
             .finish(last_value, self.config.gamma, self.config.gae_lambda);

@@ -44,7 +44,7 @@ use crate::algorithms::ppo::ppo_agent::{ActOutcome, PpoUpdateStats};
 use crate::algorithms::ppo::ppo_config::annealed_learning_rate;
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
-use crate::algorithms::ppo::rollout::RolloutBuffer;
+use crate::algorithms::ppo::rollout::{RolloutBuffer, StepEnd};
 
 /// Error variants returned by [`PpgAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -435,31 +435,57 @@ where
     }
 
     /// Pushes one step into the rollout buffer.
-    pub fn record_step(&mut self, obs: O, action: &ActOutcome, reward: f32, status: EpisodeStatus) {
+    ///
+    /// `next_obs` is the transition's continuation observation, used only on a
+    /// [`EpisodeStatus::Truncated`] step to compute the `V(s_continuation)`
+    /// bootstrap for partial-episode bootstrapping (ADR 0048). It must be the
+    /// **pre-reset** observation from the snapshot `env.step` returned. See
+    /// [`PpoAgent::record_step`](crate::algorithms::ppo::ppo_agent::PpoAgent::record_step).
+    pub fn record_step(
+        &mut self,
+        obs: O,
+        action: &ActOutcome,
+        reward: f32,
+        next_obs: &O,
+        status: EpisodeStatus,
+    ) {
+        let end = match status {
+            EpisodeStatus::Truncated => StepEnd::Truncated {
+                bootstrap_value: self.value_of(next_obs),
+            },
+            EpisodeStatus::Terminated => StepEnd::Terminated,
+            EpisodeStatus::Running => StepEnd::Running,
+        };
         self.buffer.push_step(
             obs,
             &action.raw_row,
             action.log_prob,
             action.value,
             reward,
-            status,
+            end,
         );
         self.step += 1;
     }
 
+    /// One main-value-network forward on a single observation.
+    fn value_of(&self, obs: &O) -> f32 {
+        let t: Tensor<B, DO> = obs.to_tensor(&self.device);
+        let batched: Tensor<B, DB> = t.unsqueeze::<DB>();
+        self.value().forward(batched).into_scalar().elem::<f32>()
+    }
+
     /// Computes GAE advantages/returns from `last_obs`. Identical to PPO's
-    /// finalize step, including the gate: `last_obs` is only read when the
-    /// rollout's final step left the episode `Running`.
+    /// finalize step.
+    ///
+    /// As in
+    /// [`PpoAgent::finalize_rollout`](crate::algorithms::ppo::ppo_agent::PpoAgent::finalize_rollout),
+    /// `last_obs` is consulted only when the rollout's final step left the
+    /// episode `Running`; otherwise the value forward is skipped.
     pub fn finalize_rollout(&mut self, last_obs: &O) {
         let last_value = if self.buffer.last_step_ended() {
             0.0
         } else {
-            let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
-            let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
-            self.value()
-                .forward(last_batched)
-                .into_scalar()
-                .elem::<f32>()
+            self.value_of(last_obs)
         };
         self.buffer.finish(
             last_value,

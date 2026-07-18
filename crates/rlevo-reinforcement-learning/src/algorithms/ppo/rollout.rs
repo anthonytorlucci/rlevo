@@ -9,10 +9,11 @@
 //!
 //! # GAE
 //!
-//! [`compute_gae`] follows Schulman et al. 2016 with CleanRL's convention that
-//! a single `done` flag (terminated OR truncated) zeros the bootstrap at
-//! reset boundaries within the rollout. See the doc-comment on that function
-//! for caveats on truncation.
+//! [`compute_gae`] follows Schulman et al. 2016 with **partial-episode
+//! bootstrapping** (Pardo et al. 2018, Eq. 6) at truncations, per ADR 0048.
+//! A truncated step bootstraps its delta from `V(s_continuation)` while its
+//! λ-recursion is cut; a terminated step does neither. This deliberately
+//! diverges from CleanRL's default PPO, which ORs the two flags.
 //!
 //! # Indexing convention
 //!
@@ -26,7 +27,32 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use std::marker::PhantomData;
 
-use rlevo_core::environment::EpisodeStatus;
+/// How a recorded transition left its episode, carrying whatever datum GAE
+/// needs to treat it correctly.
+///
+/// This is the buffer's replacement for a bare
+/// [`EpisodeStatus`](rlevo_core::environment::EpisodeStatus) at push time. A
+/// truncated step *requires* a bootstrap value (ADR 0048) and there is no way
+/// to record one without it — the flag and its value cannot skew apart, and
+/// there is no "unset" float that silently reads as a legitimate zero.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StepEnd {
+    /// The episode continues past this transition.
+    Running,
+    /// The environment reported an intrinsic terminal state. The MDP genuinely
+    /// ends here, so there is no future to bootstrap: the target is just `r`.
+    Terminated,
+    /// An extrinsic cutoff (typically a `TimeLimit` wrapper) ended the episode
+    /// while the MDP itself continued.
+    ///
+    /// Carries `V(s_continuation)` — the value network's estimate on the
+    /// observation the environment produced *before* it was reset. Per Pardo
+    /// et al. Eq. 6 the target is `r + γ·V(s_continuation)`, not `r`.
+    Truncated {
+        /// `V(s_continuation)`, the bootstrap for this step's delta.
+        bootstrap_value: f32,
+    },
+}
 
 /// Fixed-capacity on-policy rollout buffer.
 ///
@@ -43,7 +69,9 @@ pub struct RolloutBuffer<B: Backend, O> {
     values: Vec<f32>,
     rewards: Vec<f32>,
     terminated: Vec<bool>,
-    truncated: Vec<bool>,
+    /// `Some(V(s_continuation))` at a truncated step, `None` otherwise — so
+    /// "was truncated" is `truncation_value[t].is_some()` by construction.
+    truncation_value: Vec<Option<f32>>,
     advantages: Vec<f32>,
     returns: Vec<f32>,
     _marker: PhantomData<B>,
@@ -62,7 +90,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
             values: Vec::with_capacity(capacity),
             rewards: Vec::with_capacity(capacity),
             terminated: Vec::with_capacity(capacity),
-            truncated: Vec::with_capacity(capacity),
+            truncation_value: Vec::with_capacity(capacity),
             advantages: Vec::new(),
             returns: Vec::new(),
             _marker: PhantomData,
@@ -71,8 +99,10 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 
     /// Appends one step. `action_row.len()` must equal `action_dim`.
     ///
-    /// `status` describes how the transition *out of* `obs` left the episode;
-    /// see the module's indexing note.
+    /// `end` describes how the transition *out of* `obs` left the episode; see
+    /// the module's indexing note. A [`StepEnd::Truncated`] must carry its
+    /// `V(s_continuation)` bootstrap, which is why this takes a [`StepEnd`]
+    /// rather than a bare `EpisodeStatus`.
     ///
     /// # Panics
     ///
@@ -84,7 +114,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
         log_prob: f32,
         value: f32,
         reward: f32,
-        status: EpisodeStatus,
+        end: StepEnd,
     ) {
         assert_eq!(
             action_row.len(),
@@ -98,8 +128,11 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
         self.log_probs.push(log_prob);
         self.values.push(value);
         self.rewards.push(reward);
-        self.terminated.push(status.is_terminated());
-        self.truncated.push(status.is_truncated());
+        self.terminated.push(end == StepEnd::Terminated);
+        self.truncation_value.push(match end {
+            StepEnd::Truncated { bootstrap_value } => Some(bootstrap_value),
+            StepEnd::Running | StepEnd::Terminated => None,
+        });
     }
 
     /// Finalises the rollout: computes GAE advantages and returns.
@@ -115,7 +148,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
             &self.rewards,
             &self.values,
             &self.terminated,
-            &self.truncated,
+            &self.truncation_value,
             last_value,
             gamma,
             gae_lambda,
@@ -131,7 +164,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     /// An empty buffer reports `false`.
     pub fn last_step_ended(&self) -> bool {
         let n = self.len();
-        n > 0 && (self.terminated[n - 1] || self.truncated[n - 1])
+        n > 0 && (self.terminated[n - 1] || self.truncation_value[n - 1].is_some())
     }
 
     /// Current number of stored steps.
@@ -226,7 +259,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
         self.values.clear();
         self.rewards.clear();
         self.terminated.clear();
-        self.truncated.clear();
+        self.truncation_value.clear();
         self.advantages.clear();
         self.returns.clear();
     }
@@ -239,28 +272,38 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 /// # Indexing
 ///
 /// `terminated[t]` / `truncated[t]` describe the transition *out of* step `t`
-/// (see the module docs), so the done-ness that gates step `t`'s bootstrap is
-/// read at `[t]`, not `[t + 1]`. `last_value` supplies the bootstrap for the
-/// final step only when that step left the episode `Running`; when it ended,
-/// its own flag zeroes the bootstrap and `last_value` is unused.
+/// (see the module docs), so both the bootstrap mask and the λ-recursion mask
+/// read index `[t]`. `last_value` supplies the bootstrap for the final step
+/// only when that step left the episode `Running`; when it ended, its own flag
+/// zeroes the bootstrap and `last_value` is unused.
 ///
-/// # Done-handling caveat
+/// # Truncation: two masks, not one
 ///
-/// Within the rollout a step's `done` flag is `terminated || truncated`; both
-/// zero the bootstrap at reset boundaries. Strictly, a *truncated* step should
-/// bootstrap from `V(s_continuation)`, which isn't available once the env has
-/// reset. Matching CleanRL's default PPO, we accept this small bias on
-/// truncation-heavy envs. The terminated/truncated arrays are kept separate
-/// so a future revision can rework this without changing the buffer API.
+/// A truncated step is **not** a terminated one (Pardo et al. 2018, Eq. 6;
+/// Towers et al. 2025 — the bootstrap mask is `¬terminated`, never `¬done`).
+/// `rlevo`'s `TimeLimit` is an opt-in wrapper, never intrinsic to an
+/// environment's MDP, so every environment here is Pardo's *time-unlimited*
+/// case, where a timeout must bootstrap rather than terminate. The two effects
+/// are distinct and a single `next_nonterminal` factor cannot express both:
+///
+/// - the **delta bootstraps** from `V(s_continuation)`, carried in
+///   `truncation_value[t]` — the agent's future is real, only the clock
+///   stopped;
+/// - the **λ-recursion is cut** — the trajectory genuinely ended, so advantage
+///   must not propagate across the boundary.
+///
+/// This deliberately diverges from CleanRL's default PPO, which ORs the flags.
+/// See ADR 0048.
 ///
 /// # Panics
 ///
-/// If `values`, `terminated`, or `truncated` differ in length from `rewards`.
+/// If `values`, `terminated`, or `truncation_value` differ in length from
+/// `rewards`.
 pub fn compute_gae(
     rewards: &[f32],
     values: &[f32],
     terminated: &[bool],
-    truncated: &[bool],
+    truncation_value: &[Option<f32>],
     last_value: f32,
     gamma: f32,
     gae_lambda: f32,
@@ -268,7 +311,7 @@ pub fn compute_gae(
     let n = rewards.len();
     assert_eq!(values.len(), n);
     assert_eq!(terminated.len(), n);
-    assert_eq!(truncated.len(), n);
+    assert_eq!(truncation_value.len(), n);
     let mut advantages = vec![0.0_f32; n];
     let mut returns = vec![0.0_f32; n];
 
@@ -279,13 +322,17 @@ pub fn compute_gae(
         } else {
             values[t + 1]
         };
-        // Done-ness is read at `[t]`: `terminated[t]` describes the transition
-        // *out of* step `t`, which is what decides whether `next_value` is a
-        // valid continuation of this trajectory.
-        let ended = terminated[t] || truncated[t];
-        let next_nonterminal = f32::from(!ended);
-        let delta = rewards[t] + gamma * next_value * next_nonterminal - values[t];
-        last_gae_lam = delta + gamma * gae_lambda * next_nonterminal * last_gae_lam;
+        // Mask 1: the episode boundary, which cuts the λ-recursion.
+        let ended = terminated[t] || truncation_value[t].is_some();
+        // Mask 2: the delta's bootstrap. Zero only at a true termination —
+        // a truncation bootstraps V(s_continuation) instead (PEB).
+        let boot = if terminated[t] {
+            0.0
+        } else {
+            truncation_value[t].unwrap_or(next_value)
+        };
+        let delta = rewards[t] + gamma * boot - values[t];
+        last_gae_lam = delta + gamma * gae_lambda * f32::from(!ended) * last_gae_lam;
         advantages[t] = last_gae_lam;
         returns[t] = advantages[t] + values[t];
     }
@@ -302,7 +349,7 @@ mod tests {
         let rewards = vec![1.0, 1.0, 1.0, 1.0, 1.0];
         let values = vec![0.5, 0.5, 0.5, 0.5, 0.5];
         let term = vec![false; 5];
-        let trunc = vec![false; 5];
+        let trunc = vec![None; 5];
         let last_value = 0.5_f32;
         let gamma = 0.99_f32;
         let lam = 0.95_f32;
@@ -336,7 +383,7 @@ mod tests {
         let rewards = vec![1.0, 1.0, 1.0];
         let values = vec![0.5, 0.5, 0.5];
         let term = vec![false, true, false];
-        let trunc = vec![false, false, false];
+        let trunc = vec![None, None, None];
         let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, 0.5, 0.99, 0.95);
 
         // Hand-computed, γ = 0.99, λ = 0.95, γλ = 0.9405:
@@ -377,6 +424,98 @@ mod tests {
     }
 
     #[test]
+    fn gae_bootstraps_truncation_value_mid_rollout() {
+        // Same 3-step rollout as `gae_handles_terminated_mid_rollout`, but the
+        // transition out of step 1 was *truncated* (a time limit fired) with
+        // V(s_continuation) = 2.0. Partial-episode bootstrapping splits the
+        // two masks: step 1's delta bootstraps 2.0, while its λ-recursion is
+        // still cut. Contrast with the terminated case, where the delta gets
+        // nothing — that difference is the whole point of ADR 0048.
+        let rewards = vec![1.0, 1.0, 1.0];
+        let values = vec![0.5, 0.5, 0.5];
+        let term = vec![false, false, false];
+        let trunc = vec![None, Some(2.0), None];
+        let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, 0.5, 0.99, 0.95);
+
+        // Hand-computed, γ = 0.99, λ = 0.95, γλ = 0.9405:
+        //   t=2: not ended → V' = last_value = 0.5
+        //        δ₂ = 1 + 0.99·0.5 − 0.5 = 0.995
+        //        A₂ = 0.995
+        //   t=1: truncated → boot = 2.0 (NOT 0.0), but ended = true
+        //        δ₁ = 1 + 0.99·2.0 − 0.5 = 1 + 1.98 − 0.5 = 2.48
+        //        A₁ = 2.48 + 0.9405·0·A₂ = 2.48
+        //   t=0: not ended → V' = values[1] = 0.5
+        //        δ₀ = 1 + 0.99·0.5 − 0.5 = 0.995
+        //        A₀ = 0.995 + 0.9405·2.48 = 0.995 + 2.33244 = 3.32744
+        let a2 = 0.995_f32;
+        let a1 = 2.48_f32;
+        let a0 = 3.327_44_f32;
+        assert!(
+            (advs[2] - a2).abs() < 1e-5,
+            "A₂ is unaffected by the earlier truncation: {} vs {a2}",
+            advs[2]
+        );
+        assert!(
+            (advs[1] - a1).abs() < 1e-5,
+            "A₁'s delta must bootstrap V(s_continuation) = 2.0, not 0.0: {} vs {a1}",
+            advs[1]
+        );
+        assert!(
+            (advs[0] - a0).abs() < 1e-4,
+            "A₀ receives no λ-propagation across the truncation boundary, but \
+             A₁ itself is larger because its delta bootstrapped: {} vs {a0}",
+            advs[0]
+        );
+        for (t, (a, v)) in advs.iter().zip(values.iter()).enumerate() {
+            assert!(
+                (rets[t] - (a + v)).abs() < 1e-6,
+                "returns[{t}] must equal advantage + value"
+            );
+        }
+    }
+
+    #[test]
+    fn gae_truncation_differs_from_termination() {
+        // The same boundary at the same index, differing only in *why* the
+        // episode ended, must produce different advantages. Under the old
+        // `terminated || truncated` collapse these were identical.
+        let rewards = vec![1.0, 1.0, 1.0];
+        let values = vec![0.5, 0.5, 0.5];
+        let (term_advs, _) = compute_gae(
+            &rewards,
+            &values,
+            &[false, true, false],
+            &[None, None, None],
+            0.5,
+            0.99,
+            0.95,
+        );
+        let (trunc_advs, _) = compute_gae(
+            &rewards,
+            &values,
+            &[false, false, false],
+            &[None, Some(2.0), None],
+            0.5,
+            0.99,
+            0.95,
+        );
+        assert!(
+            (trunc_advs[1] - term_advs[1]).abs() > 1.0,
+            "truncation must not be treated as termination: {} vs {}",
+            trunc_advs[1],
+            term_advs[1]
+        );
+        // The λ-recursion is cut identically in both cases, so the *only*
+        // difference at t=0 is the one that propagated in via A₁.
+        assert!(
+            trunc_advs[0] > term_advs[0],
+            "the truncation bootstrap must raise the preceding advantage: {} vs {}",
+            trunc_advs[0],
+            term_advs[0]
+        );
+    }
+
+    #[test]
     fn gae_terminal_final_step_zeros_bootstrap() {
         // Single-step rollout whose one transition terminated. The final step's
         // own stored status — not a separate `last_done` argument — is what
@@ -385,7 +524,7 @@ mod tests {
             &[1.0],
             &[0.5],
             &[true],
-            &[false],
+            &[None],
             10.0, // would-be bootstrap; must not be used
             0.99,
             0.95,
@@ -402,7 +541,7 @@ mod tests {
     fn gae_running_final_step_uses_last_value() {
         // Same rollout, but the episode is still `Running`, so `last_value`
         // *is* the bootstrap: δ₀ = 1 + 0.99·10 − 0.5 = 10.4
-        let (advs, _) = compute_gae(&[1.0], &[0.5], &[false], &[false], 10.0, 0.99, 0.95);
+        let (advs, _) = compute_gae(&[1.0], &[0.5], &[false], &[None], 10.0, 0.99, 0.95);
         assert!(
             (advs[0] - 10.4).abs() < 1e-4,
             "running final step must bootstrap last_value: {} vs 10.4",
@@ -415,11 +554,20 @@ mod tests {
         type B = burn::backend::Flex;
         let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 1);
         assert!(!buf.last_step_ended(), "empty buffer has no final step");
-        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
+        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, StepEnd::Running);
         assert!(!buf.last_step_ended(), "running final step has not ended");
-        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Truncated);
+        buf.push_step(
+            [0.0],
+            &[0.0],
+            0.0,
+            0.0,
+            0.0,
+            StepEnd::Truncated {
+                bootstrap_value: 1.0,
+            },
+        );
         assert!(buf.last_step_ended(), "truncated final step has ended");
-        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Terminated);
+        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, StepEnd::Terminated);
         assert!(buf.last_step_ended(), "terminated final step has ended");
     }
 
@@ -427,16 +575,9 @@ mod tests {
     fn buffer_push_and_indices() {
         type B = burn::backend::Flex;
         let mut buf: RolloutBuffer<B, [f32; 2]> = RolloutBuffer::new(4, 1);
-        buf.push_step([0.0, 0.0], &[0.0], 0.0, 0.0, 1.0, EpisodeStatus::Running);
-        buf.push_step([1.0, 1.0], &[1.0], -0.1, 0.1, 1.0, EpisodeStatus::Running);
-        buf.push_step(
-            [2.0, 2.0],
-            &[2.0],
-            -0.2,
-            0.2,
-            1.0,
-            EpisodeStatus::Terminated,
-        );
+        buf.push_step([0.0, 0.0], &[0.0], 0.0, 0.0, 1.0, StepEnd::Running);
+        buf.push_step([1.0, 1.0], &[1.0], -0.1, 0.1, 1.0, StepEnd::Running);
+        buf.push_step([2.0, 2.0], &[2.0], -0.2, 0.2, 1.0, StepEnd::Terminated);
         assert_eq!(buf.len(), 3);
         assert_eq!(buf.action_flat().len(), 3);
         buf.finish(0.0, 0.99, 0.95);
@@ -450,9 +591,9 @@ mod tests {
     fn gather_action_flat_rows_concatenate() {
         type B = burn::backend::Flex;
         let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 2);
-        buf.push_step([0.0], &[1.0, 2.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
-        buf.push_step([0.0], &[3.0, 4.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
-        buf.push_step([0.0], &[5.0, 6.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
+        buf.push_step([0.0], &[1.0, 2.0], 0.0, 0.0, 0.0, StepEnd::Running);
+        buf.push_step([0.0], &[3.0, 4.0], 0.0, 0.0, 0.0, StepEnd::Running);
+        buf.push_step([0.0], &[5.0, 6.0], 0.0, 0.0, 0.0, StepEnd::Running);
         let flat = buf.gather_action_flat(&[0, 2]);
         assert_eq!(flat, vec![1.0, 2.0, 5.0, 6.0]);
     }

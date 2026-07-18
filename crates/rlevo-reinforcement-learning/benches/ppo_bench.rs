@@ -13,16 +13,16 @@ use std::hint::black_box;
 
 type B = Flex;
 
-fn synthetic_trajectory(n: usize) -> (Vec<f32>, Vec<f32>, Vec<bool>, Vec<bool>) {
+fn synthetic_trajectory(n: usize) -> (Vec<f32>, Vec<f32>, Vec<bool>, Vec<Option<f32>>) {
     let mut rewards = Vec::with_capacity(n);
     let mut values = Vec::with_capacity(n);
     let terminated = vec![false; n];
-    let truncated = vec![false; n];
+    let truncation_value = vec![None; n];
     for i in 0..n {
         rewards.push((i as f32 % 7.0) * 0.3 - 1.0);
         values.push(((i as f32) * 0.05).sin() * 0.5);
     }
-    (rewards, values, terminated, truncated)
+    (rewards, values, terminated, truncation_value)
 }
 
 fn bench_compute_gae(c: &mut Criterion) {
