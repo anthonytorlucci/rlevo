@@ -246,8 +246,10 @@ Act as a Senior Software Engineer writing professional Git commits.
 2. Separate subject from body with a blank line
 3. Body (optional): explain *why*, not what; wrap at 72 characters; omit if not useful
 4. Append a `CRITICAL:` line flagging the most complex or risky part of the diff (e.g., a lifetime adjustment, unsafe block, lock ordering, or a subtle invariant)
-5. End with `Co-Authored-By: <model> <noreply@anthropic.com>`, where
-   `<model>` is the Claude model that authored the change — one of
-   `Claude Fable 5`, `Claude Opus 4.8`, or `Claude Sonnet 4.6`
+5. End with a `Claude-Session:` trailer linking the session that authored the
+   change — e.g. `Claude-Session: https://claude.ai/code/session_<id>`. The
+   session link is the useful provenance: it reaches the reasoning behind the
+   diff, which a model name alone does not. Omit the trailer entirely for
+   commits authored without Claude.
 
 **Output**: raw commit message text only — no markdown fences, no preamble, no meta-commentary.
