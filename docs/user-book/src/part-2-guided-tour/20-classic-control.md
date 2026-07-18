@@ -112,9 +112,10 @@ for _step in 0..50_000 {
 
     let next = env.step(action)?;
     let reward: f32 = (*next.reward()).into();
-    let done = next.is_done();
+    let done = next.is_done();               // episode bookkeeping, reset()
+    let terminated = next.is_terminated();    // Bellman bootstrap mask
 
-    agent.remember(obs, &action, reward, next.observation().clone(), done);
+    agent.remember(obs, &action, reward, next.observation().clone(), terminated);
     agent.on_env_step();
 
     if agent.should_train() {
@@ -126,6 +127,15 @@ for _step in 0..50_000 {
     snapshot = if done { env.reset()? } else { next };
 }
 ```
+
+Notice the loop reads *two* different flags off the same snapshot: `done`
+drives episode bookkeeping (when to call `reset()`), while `remember` wants
+`terminated`, not `done` — CartPole's `TimeLimit`-wrapped variants would
+otherwise have every timeout zero the Bellman bootstrap as if the episode had
+truly ended. See [Terminated vs. truncated](../part-1-foundations/reinforcement-learning/33-reward.md#terminated-vs-truncated-a-reward-subtlety)
+for why that distinction matters. The provided `train` helper below makes this
+same distinction internally, so you only need to reproduce it if you write
+your own loop.
 
 A provided `train(&mut agent, &mut env, &mut rng, total_steps, log_every)` helper
 wraps exactly this loop — ε-greedy acting, replay storage, periodic learning,

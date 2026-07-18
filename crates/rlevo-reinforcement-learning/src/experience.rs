@@ -2,7 +2,7 @@
 //!
 //! This module provides the building blocks for storing and reasoning over
 //! sequences of agent–environment interactions:
-//! - [`ExperienceTuple`] — a single `(obs, action, reward, next_obs, done)` transition
+//! - [`ExperienceTuple`] — a single `(obs, action, reward, next_obs, terminated)` transition
 //! - [`History`] — a fixed-capacity FIFO buffer of transitions
 //! - [`HistoryRepresentation`] — trait for constructing state summaries from history
 //! - [`SufficientStatistic`] — history summary that satisfies the Markov property
@@ -12,7 +12,7 @@ use rlevo_core::state::MarkovState;
 use std::collections::VecDeque;
 use std::ops::Index;
 
-/// A single `(obs, action, reward, next_obs, done)` transition tuple.
+/// A single `(obs, action, reward, next_obs, terminated)` transition tuple.
 ///
 /// All five fields are required to compute the Bellman target for off-policy
 /// algorithms such as DQN and SAC.
@@ -32,8 +32,21 @@ pub struct ExperienceTuple<
     pub reward: R,
     /// Observation at time *t+1*.
     pub next_observation: O,
-    /// `true` when the episode ended after this transition.
-    pub is_done: bool,
+    /// `true` when this transition ended in an **environmental termination**
+    /// — the MDP reached an absorbing state.
+    ///
+    /// This is the Bellman bootstrap mask, so it must carry
+    /// [`Snapshot::is_terminated`], **not** [`Snapshot::is_done`]. A truncation
+    /// (time-limit cutoff, [`EpisodeStatus::Truncated`]) ends the *episode* but
+    /// not the *MDP*: the continuation state still has a well-defined value, so
+    /// it must be recorded as `false` here or the bootstrap is wrongly zeroed
+    /// and every Q-value is biased downward. See Pardo et al., "Time Limits in
+    /// Reinforcement Learning", ICML 2018, Eq. 6.
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    /// [`EpisodeStatus::Truncated`]: rlevo_core::environment::EpisodeStatus::Truncated
+    pub terminated: bool,
 }
 
 /// Fixed-capacity FIFO buffer of experience tuples.
@@ -94,13 +107,20 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Appends an experience, evicting the oldest entry when at capacity.
+    ///
+    /// `terminated` is the Bellman bootstrap mask: pass
+    /// [`Snapshot::is_terminated`], **not** [`Snapshot::is_done`]. See
+    /// [`ExperienceTuple::terminated`].
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn add(
         &mut self,
         observation: O,
         action: A,
         reward: R,
         next_observation: O,
-        is_done: bool,
+        terminated: bool,
     ) {
         // `VecDeque::with_capacity(n)` may allocate more than `n` slots, so we
         // compare against the caller-requested capacity rather than the
@@ -113,7 +133,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
             action,
             reward,
             next_observation,
-            is_done,
+            terminated,
         });
     }
 
@@ -259,11 +279,11 @@ mod tests {
             action: TestAct,
             reward: TestReward(50.0),
             next_observation: TestObs,
-            is_done: false,
+            terminated: false,
         };
 
         assert_eq!(experience.reward, TestReward(50.0));
-        assert!(!experience.is_done)
+        assert!(!experience.terminated)
     }
 
     /// Test that ExperienceTuple preserves reward through cloning
@@ -274,7 +294,7 @@ mod tests {
             action: TestAct,
             reward: TestReward(75.0),
             next_observation: TestObs,
-            is_done: false,
+            terminated: false,
         };
 
         let cloned = original.clone();
@@ -291,21 +311,21 @@ mod tests {
                 action: TestAct,
                 reward: TestReward(5.0),
                 next_observation: TestObs,
-                is_done: false,
+                terminated: false,
             },
             ExperienceTuple {
                 observation: TestObs,
                 action: TestAct,
                 reward: TestReward(10.0),
                 next_observation: TestObs,
-                is_done: false,
+                terminated: false,
             },
             ExperienceTuple {
                 observation: TestObs,
                 action: TestAct,
                 reward: TestReward(15.0),
                 next_observation: TestObs,
-                is_done: false,
+                terminated: false,
             },
         ];
 

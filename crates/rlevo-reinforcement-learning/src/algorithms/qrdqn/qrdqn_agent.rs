@@ -82,7 +82,15 @@ struct Transition<O: Clone> {
     action_idx: usize,
     reward: f32,
     next_obs: O,
-    done: bool,
+    /// `true` **only** for an environmental termination — the MDP reached an
+    /// absorbing state, so the return beyond `next_obs` is zero by definition.
+    ///
+    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
+    /// the episode without ending the MDP, and `next_obs` is then a genuine
+    /// continuation state. Zeroing the bootstrap there biases every Q-value
+    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
+    /// Reinforcement Learning", ICML 2018, Eq. 6.
+    terminated: bool,
 }
 
 /// Summary values returned by a single [`QrDqnAgent::learn_step`].
@@ -281,7 +289,18 @@ where
 
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, done: bool) {
+    ///
+    /// # Arguments
+    ///
+    /// - `terminated` — pass [`Snapshot::is_terminated`], **not**
+    ///   [`Snapshot::is_done`]. Only a true environmental termination may zero
+    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
+    ///   is a genuine continuation state whose value must still be
+    ///   bootstrapped. See [`Transition::terminated`].
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if self.buffer.len() >= self.config.replay_buffer_capacity {
             self.buffer.pop_front();
         }
@@ -290,8 +309,19 @@ where
             action_idx: action.to_index(),
             reward,
             next_obs,
-            done,
+            terminated,
         });
+    }
+
+    /// Test-only view of the Bellman bootstrap masks currently held in the
+    /// replay buffer, oldest first.
+    ///
+    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// recorded with `terminated = false` — the invariant that separates a
+    /// time-limit cutoff from a real MDP termination.
+    #[cfg(test)]
+    pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
+        self.buffer.iter().map(|t| t.terminated).collect()
     }
 
     /// Decays ε by one step.
@@ -395,7 +425,7 @@ where
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * numel_per_obs);
         let mut action_idxs: Vec<i64> = Vec::with_capacity(batch_size);
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
-        let mut dones: Vec<f32> = Vec::with_capacity(batch_size);
+        let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
         for idx in &indices {
             let t = &self.buffer[*idx];
@@ -407,7 +437,7 @@ where
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
             action_idxs.push(t.action_idx as i64);
             rewards.push(t.reward);
-            dones.push(if t.done { 1.0 } else { 0.0 });
+            terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
         let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
@@ -425,8 +455,8 @@ where
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let dones_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(dones, vec![batch_size]), &device);
+        let terminated_inner: Tensor<B::InnerBackend, 1> =
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target quantiles (inner backend, no autodiff) ---
         let next_quantiles_all: Tensor<B::InnerBackend, 3> =
@@ -441,10 +471,10 @@ where
         let next_quantiles_chosen: Tensor<B::InnerBackend, 2> =
             next_quantiles_all.gather(1, a_star_3).squeeze_dim::<2>(1); // (B, N)
 
-        // Bellman backup (no projection): T θ_j = r + γ (1 − done) · θ_target_j.
+        // Bellman backup (no projection): T θ_j = r + γ (1 − terminated) · θ_target_j.
         let rewards_bn: Tensor<B::InnerBackend, 2> = rewards_inner.unsqueeze_dim::<2>(1); // (B, 1)
-        let dones_bn: Tensor<B::InnerBackend, 2> = dones_inner.unsqueeze_dim::<2>(1); // (B, 1)
-        let keep = dones_bn.neg().add_scalar(1.0); // 1 − done  (B, 1)
+        let terminated_bn: Tensor<B::InnerBackend, 2> = terminated_inner.unsqueeze_dim::<2>(1); // (B, 1)
+        let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated  (B, 1)
         let gamma = self.config.gamma as f32;
         let target_inner: Tensor<B::InnerBackend, 2> =
             rewards_bn + keep * next_quantiles_chosen.mul_scalar(gamma);

@@ -97,7 +97,6 @@ where
         explained_variance: 0.0,
         epochs_run: 0,
     };
-    let mut last_done_in_rollout = false;
     let mut global_step = 0_usize;
 
     while global_step < total_timesteps {
@@ -111,14 +110,21 @@ where
             let status = next_snapshot.status();
             let done = status.is_done();
 
-            agent.record_step(obs_now, &act, reward_f32, status);
+            // Continuation state, read *before* the `env.reset()` below — on a
+            // truncation the agent bootstraps V from it (ADR 0048).
+            agent.record_step(
+                obs_now,
+                &act,
+                reward_f32,
+                next_snapshot.observation(),
+                status,
+            );
             global_step += 1;
 
             episode_reward += reward_f32;
             episode_steps += 1;
 
             if done {
-                last_done_in_rollout = true;
                 let aux_last = agent.last_aux_phase();
                 let metrics = PpgMetrics {
                     reward: episode_reward,
@@ -140,13 +146,13 @@ where
                 // on the *final* done opens a fresh episode that we never step
                 // to completion — for recording envs that leaves a phantom
                 // episode file the manifest's count omits, tripping
-                // `EpisodeCountMismatch`. The stale `snapshot` is safe here:
-                // `last_done_in_rollout == true` zeroes the terminal bootstrap.
+                // `EpisodeCountMismatch`. Leaving `snapshot` stale is safe:
+                // the rollout's final step is recorded as done, so
+                // `finalize_rollout` never reads the observation at all.
                 if global_step < total_timesteps {
                     snapshot = env.reset().map_err(io_from_env)?;
                 }
             } else {
-                last_done_in_rollout = false;
                 snapshot = next_snapshot;
             }
 
@@ -155,8 +161,10 @@ where
             }
         }
 
-        let last_obs_for_bootstrap = snapshot.observation().clone();
-        agent.finalize_rollout(&last_obs_for_bootstrap, last_done_in_rollout);
+        // Borrowed, not cloned: `finalize_rollout` only reads this when the
+        // rollout's final step left the episode `Running`, which is exactly
+        // when `snapshot` is the genuine continuation state.
+        agent.finalize_rollout(snapshot.observation());
         agent.snapshot_into_aux_buffer();
         last_update_stats = agent.policy_phase_update(rng);
         let aux = agent.maybe_aux_phase(rng);

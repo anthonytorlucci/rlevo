@@ -65,8 +65,14 @@ pub struct TrainingBatch<const BD: usize, const BAD: usize, B: Backend> {
     pub rewards: Tensor<B, 1>,
     /// Stacked observations at time *t+1* with shape `[batch, ...obs_shape]`.
     pub next_observations: Tensor<B, BD>,
-    /// Episode-done flags encoded as `0.0`/`1.0` with shape `[batch]`.
-    pub dones: Tensor<B, 1>,
+    /// Bellman bootstrap mask encoded as `0.0`/`1.0` with shape `[batch]`.
+    ///
+    /// Carries [`ExperienceTuple::terminated`]: `1.0` where the transition
+    /// **terminated** — true environmental termination only — and `0.0`
+    /// otherwise. A truncation (time-limit cutoff) contributes `0.0`, because
+    /// its continuation state still has a well-defined value and must be
+    /// bootstrapped. Consume it as `(1 - terminated) * γ * V(s')`.
+    pub terminated: Tensor<B, 1>,
 }
 
 /// Off-policy replay buffer with priority-weighted sampling.
@@ -216,20 +222,28 @@ where
     /// This ensures new transitions are sampled at least once before their
     /// TD error is known. Pass `Some(p)` to assign an explicit priority
     /// instead.
+    ///
+    /// `terminated` is the Bellman bootstrap mask and must be
+    /// [`Snapshot::is_terminated`], **not** [`Snapshot::is_done`]: a truncation
+    /// ends the episode but not the MDP, so its continuation state must still
+    /// be bootstrapped. See [`ExperienceTuple::terminated`].
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn add(
         &mut self,
         observation: O,
         action: A,
         reward: R,
         next_observation: O,
-        is_done: bool,
+        terminated: bool,
         priority: Option<f32>,
     ) {
         if self.buffer.len() >= self.capacity {
             self.priorities.pop_front();
         }
         self.buffer
-            .add(observation, action, reward, next_observation, is_done);
+            .add(observation, action, reward, next_observation, terminated);
         let p = priority.unwrap_or_else(|| self.priorities.iter().copied().fold(1.0_f32, f32::max));
         self.priorities.push_back(p);
     }
@@ -368,7 +382,7 @@ where
         let mut actions_vec = Vec::with_capacity(batch_size);
         let mut rewards_vec = Vec::with_capacity(batch_size);
         let mut next_observations_vec = Vec::with_capacity(batch_size);
-        let mut dones_vec = Vec::with_capacity(batch_size);
+        let mut terminated_vec = Vec::with_capacity(batch_size);
 
         // Collect data from sampled experiences
         for &idx in &indices {
@@ -377,7 +391,7 @@ where
             actions_vec.push(exp.action.clone());
             rewards_vec.push(exp.reward.clone());
             next_observations_vec.push(exp.next_observation.clone());
-            dones_vec.push(if exp.is_done { 1.0 } else { 0.0 });
+            terminated_vec.push(if exp.terminated { 1.0 } else { 0.0 });
         }
 
         // Stage each field host-side and upload it in a single
@@ -397,14 +411,14 @@ where
 
         let next_observations: Tensor<B, BD> =
             stack_to_tensor::<D, BD, _, B>(&next_observations_vec, device);
-        let dones: Tensor<B, 1> = Tensor::from_floats(dones_vec.as_slice(), device);
+        let terminated: Tensor<B, 1> = Tensor::from_floats(terminated_vec.as_slice(), device);
 
         Ok(TrainingBatch {
             observations,
             actions,
             rewards,
             next_observations,
-            dones,
+            terminated,
         })
     }
 }
@@ -978,7 +992,7 @@ mod sample_batch_tests {
         assert_eq!(batch.next_observations.dims(), [8, 3]);
         assert_eq!(batch.actions.dims(), [8, 2]);
         assert_eq!(batch.rewards.dims(), [8]);
-        assert_eq!(batch.dones.dims(), [8]);
+        assert_eq!(batch.terminated.dims(), [8]);
     }
 
     #[test]
@@ -1083,7 +1097,7 @@ mod sample_batch_tests {
         assert_eq!(batch.observations.dims(), [batch_size, 3]);
         assert_eq!(batch.actions.dims(), [batch_size, 2]);
         assert_eq!(batch.rewards.dims(), [batch_size]);
-        assert_eq!(batch.dones.dims(), [batch_size]);
+        assert_eq!(batch.terminated.dims(), [batch_size]);
 
         // Byte-identical data vs the pre-migration path.
         assert_eq!(

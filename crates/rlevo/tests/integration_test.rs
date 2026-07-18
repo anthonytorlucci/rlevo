@@ -323,7 +323,7 @@ fn replay_buffer_sample_batch_tensor_shapes() {
             action,
             *next.reward(),
             *next.observation(),
-            next.is_done(),
+            next.is_terminated(),
             Some(1.0),
         );
         snapshot = if next.is_done() {
@@ -341,7 +341,7 @@ fn replay_buffer_sample_batch_tensor_shapes() {
     assert_eq!(batch.actions.dims(), [8, 1]);
     assert_eq!(batch.rewards.dims(), [8]);
     assert_eq!(batch.next_observations.dims(), [8, 1]);
-    assert_eq!(batch.dones.dims(), [8]);
+    assert_eq!(batch.terminated.dims(), [8]);
 }
 
 /// Minimal `PerformanceRecord` implementation used to exercise `AgentStats` in isolation.

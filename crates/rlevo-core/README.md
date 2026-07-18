@@ -232,7 +232,7 @@ let mut buffer = PrioritizedExperienceReplayBuilder::default()
     .with_alpha(0.6)
     .build();
 
-// buffer.add(obs, action, reward, next_obs, is_done, priority);
+// buffer.add(obs, action, reward, next_obs, terminated, priority);
 // let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
 ```
 

@@ -13,15 +13,26 @@ use burn::tensor::{Tensor, TensorData};
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///
 /// Applies the standard one-step TD target:
-/// `target = reward + γ · max_next_Q · (1 − done)`.
-/// The `dones` mask zeros out the bootstrap term for terminal transitions.
+/// `target = reward + γ · max_next_Q · (1 − terminated)`.
+///
+/// # Arguments
+///
+/// - `terminated` — per-sample mask in `{0.0, 1.0}` that is `1.0` **only** for
+///   an *environmental termination* (the MDP itself reached an absorbing
+///   state). It must **not** be set for a *truncation* (a time-limit cutoff).
+///   A truncated transition still has a well-defined continuation value, so the
+///   bootstrap term must survive; zeroing it there biases every Q-value
+///   downward on any time-limited environment. See Pardo et al., "Time Limits
+///   in Reinforcement Learning", ICML 2018, Eq. 6 (partial-episode
+///   bootstrapping), and Gymnasium's
+///   `Q(s,a) = r + γ · ¬terminated · max_a' Q(s′,a')`.
 pub fn compute_target_q_values<B: Backend>(
     rewards: Tensor<B, 1>,
     next_q_max: Tensor<B, 1>,
-    dones: Tensor<B, 1>,
+    terminated: Tensor<B, 1>,
     gamma: f32,
 ) -> Tensor<B, 1> {
-    rewards.clone() + gamma * next_q_max * (1.0 - dones)
+    rewards.clone() + gamma * next_q_max * (1.0 - terminated)
 }
 
 // ---------------------------------------------------------------------------
