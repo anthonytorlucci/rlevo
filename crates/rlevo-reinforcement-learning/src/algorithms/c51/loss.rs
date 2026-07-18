@@ -3,8 +3,12 @@
 //! Given the target distribution (see
 //! [`crate::algorithms::c51::projection::project_distribution`]) and the
 //! policy network's **log-probabilities** for the taken action, this returns
-//! the scalar cross-entropy `−Σ_i target_i · log p_i`, meaned across the
-//! batch.
+//! the **per-sample** cross-entropy `−Σ_i target_i · log p_i`, one value per
+//! batch element. Reduction is the caller's job.
+//!
+//! Leaving the batch axis unreduced is what lets a caller multiply by a
+//! per-sample importance-sampling weight *before* reducing (ADR 0050 §14);
+//! at `w ≡ 1` the caller's `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so it can be reused from benchmarks
 //! and unit-tested independently.
@@ -12,22 +16,32 @@
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 
-/// Mean cross-entropy between `target_probs` and `predicted_log_probs`.
+/// Per-sample cross-entropy between `target_probs` and `predicted_log_probs`.
 ///
-/// Both tensors have shape `(batch, num_atoms)`.
+/// # Shapes
+/// - `target_probs`:        `(batch, num_atoms)`
+/// - `predicted_log_probs`: `(batch, num_atoms)`
+/// - **returns**:           `(batch,)`
+///
+/// # Returns
+///
+/// An **unreduced** `Tensor<B, 1>` of shape `[batch]` — element `n` is
+/// `−Σ_i target_probs[n, i] · predicted_log_probs[n, i]`. This is *not* a
+/// scalar: a caller that wants the usual training loss must apply its own
+/// reduction (`.mean()`), and a caller that omits it will either hit a shape
+/// error or silently backpropagate a summed-over-batch gradient.
 ///
 /// `predicted_log_probs` must already be log-probabilities along the atom
 /// axis (typically produced via `tensor.log_softmax(atom_axis)`); no
 /// normalisation is done internally.
-pub fn categorical_cross_entropy<B: Backend>(
+pub fn categorical_cross_entropy_per_sample<B: Backend>(
     target_probs: Tensor<B, 2>,
     predicted_log_probs: Tensor<B, 2>,
 ) -> Tensor<B, 1> {
-    let per_sample: Tensor<B, 1> = (target_probs * predicted_log_probs)
+    (target_probs * predicted_log_probs)
         .sum_dim(1)
         .squeeze_dim::<1>(1)
-        .neg();
-    per_sample.mean()
+        .neg()
 }
 
 #[cfg(test)]
@@ -50,12 +64,64 @@ mod tests {
         let target = tensor_2d(vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0], 2, 3);
         let logits = tensor_2d(vec![10.0, -10.0, -10.0, -10.0, 10.0, -10.0], 2, 3);
         let log_p = activation::log_softmax(logits, 1);
-        let loss = categorical_cross_entropy(target, log_p)
+        let loss = categorical_cross_entropy_per_sample(target, log_p)
             .into_data()
             .convert::<f32>()
             .into_vec::<f32>()
             .expect("f32 loss");
-        assert!(loss[0].abs() < 1e-4, "expected ~0 loss, got {}", loss[0]);
+        assert_eq!(
+            loss.len(),
+            2,
+            "loss must be unreduced, one value per sample"
+        );
+        for (n, l) in loss.iter().enumerate() {
+            assert!(l.abs() < 1e-4, "expected ~0 loss at sample {n}, got {l}");
+        }
+    }
+
+    #[test]
+    fn cross_entropy_is_unreduced_over_batch() {
+        // The return must carry the batch axis: a 4-row input yields 4 values,
+        // and their mean must equal the pre-ADR-0050 reduced-in-callee value.
+        let batch = 4;
+        let target = tensor_2d(
+            vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.5, 0.5, 0.0],
+            batch,
+            3,
+        );
+        let logits = tensor_2d(
+            vec![
+                0.3, -0.1, 0.7, -0.4, 1.2, 0.0, 0.9, 0.2, -0.6, 0.1, 0.5, -0.2,
+            ],
+            batch,
+            3,
+        );
+        let log_p = activation::log_softmax(logits, 1);
+        let per_sample = categorical_cross_entropy_per_sample(target, log_p);
+        assert_eq!(
+            per_sample.dims(),
+            [batch],
+            "per-sample loss must have shape [batch]"
+        );
+
+        let values = per_sample
+            .clone()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 loss");
+        #[allow(clippy::cast_precision_loss)]
+        let manual_mean = values.iter().sum::<f32>() / batch as f32;
+        let reduced = per_sample
+            .mean()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 loss")[0];
+        assert!(
+            (manual_mean - reduced).abs() < 1e-6,
+            "caller-side mean {reduced} must match the manual mean {manual_mean}"
+        );
     }
 
     #[test]
@@ -72,15 +138,18 @@ mod tests {
             n,
         );
         let log_p = activation::log_softmax(logits, 1);
-        let loss = categorical_cross_entropy(target, log_p)
+        let losses = categorical_cross_entropy_per_sample(target, log_p)
             .into_data()
             .convert::<f32>()
             .into_vec::<f32>()
-            .expect("f32 loss")[0];
-        assert!(
-            loss >= 0.0,
-            "cross-entropy must be non-negative, got {loss}"
-        );
-        assert!(loss.is_finite());
+            .expect("f32 loss");
+        assert_eq!(losses.len(), batch, "one loss value per batch element");
+        for loss in losses {
+            assert!(
+                loss >= 0.0,
+                "cross-entropy must be non-negative, got {loss}"
+            );
+            assert!(loss.is_finite());
+        }
     }
 }

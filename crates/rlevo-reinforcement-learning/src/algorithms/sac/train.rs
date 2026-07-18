@@ -215,7 +215,7 @@ mod tests {
         let device = Default::default();
         let config = SacTrainingConfig {
             learning_starts: 1_000_000,
-            buffer_capacity: 64,
+            replay_buffer_capacity: 64,
             ..SacTrainingConfig::default()
         };
         let actor = TinySacActor::<TestBackend>::new(&device);

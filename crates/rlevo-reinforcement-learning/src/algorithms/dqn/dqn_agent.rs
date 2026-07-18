@@ -7,18 +7,17 @@
 //! The end-to-end training loop is assembled in
 //! [`crate::algorithms::dqn::train`].
 
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 
-use burn::nn::loss::{HuberLossConfig, Reduction};
+use burn::nn::loss::HuberLossConfig;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::{Adam, GradientsParams};
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
+use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayStrategy, UniformReplay};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -26,7 +25,7 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::Slot;
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`DqnAgent`] operations.
@@ -78,33 +77,6 @@ impl PerformanceRecord for DqnMetrics {
     }
 }
 
-/// A single `(s, a, r, s', terminated)` experience tuple stored in the replay
-/// buffer.
-///
-/// Observations are stored in their original typed form and converted to
-/// tensors lazily inside [`DqnAgent::learn_step`], which avoids keeping
-/// a large flat tensor buffer in memory.
-#[derive(Debug, Clone)]
-struct Transition<O: Clone> {
-    /// Observation at time `t`.
-    obs: O,
-    /// Index into the discrete action space (see [`DiscreteAction::to_index`]).
-    action_idx: usize,
-    /// Scalar reward received after taking the action.
-    reward: f32,
-    /// Observation at time `t + 1`.
-    next_obs: O,
-    /// `true` **only** for an environmental termination — the MDP reached an
-    /// absorbing state, so the return beyond `next_obs` is zero by definition.
-    ///
-    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
-    /// the episode without ending the MDP, and `next_obs` is then a genuine
-    /// continuation state. Zeroing the bootstrap there biases every Q-value
-    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
-    /// Reinforcement Learning", ICML 2018, Eq. 6.
-    terminated: bool,
-}
-
 /// Summary values returned by a single [`DqnAgent::learn_step`].
 #[derive(Debug, Clone, Copy)]
 pub struct LearnOutcome {
@@ -152,7 +124,7 @@ where
     policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
-    buffer: VecDeque<Transition<O>>,
+    buffer: UniformReplay<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: DqnTrainingConfig,
     device: B::Device,
@@ -216,7 +188,7 @@ where
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
-            buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
+            buffer: UniformReplay::new(config.replay_buffer_capacity),
             exploration,
             config,
             device,
@@ -321,15 +293,14 @@ where
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
+    /// [`Transition::terminated`]: crate::replay::Transition::terminated
+    ///
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
-        if self.buffer.len() >= self.config.replay_buffer_capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(Transition {
+        self.buffer.push(DiscreteTransition {
             obs,
-            action_idx: action.to_index(),
+            action: action.to_index(),
             reward,
             next_obs,
             terminated,
@@ -417,9 +388,12 @@ where
             return None;
         }
         let batch_size = self.config.batch_size;
-        let indices: Vec<usize> = (0..batch_size)
-            .map(|_| rng.random_range(0..self.buffer.len()))
-            .collect();
+        // `can_learn()` above already established `buffer.len() >= batch_size`,
+        // so the only variant `sample` can return here is unreachable.
+        let batch = self
+            .buffer
+            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
+            .ok()?;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -430,15 +404,15 @@ where
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
         let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
-        for idx in &indices {
-            let t = &self.buffer[*idx];
+        for &id in batch.ids() {
+            let t = self.buffer.get(id).expect("a freshly sampled id is live");
             let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&self.device);
             let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&self.device);
             let obs_data = obs_tensor.into_data().convert::<f32>();
             let next_data = next_tensor.into_data().convert::<f32>();
             obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
-            action_idxs.push(t.action_idx as i64);
+            action_idxs.push(t.action as i64);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
@@ -494,10 +468,15 @@ where
         );
         let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
-        let loss_tensor =
-            HuberLossConfig::new(1.0)
-                .init()
-                .forward(q_pred_flat, target, Reduction::Mean);
+        // Per-sample `[batch]` Huber residual, reduced here rather than inside
+        // `forward`, so a future importance-sampling weight can scale each
+        // sample first (ADR 0050 §14). This is bit-identical to
+        // `forward(.., Reduction::Mean)`, which burn-nn 0.21.0 implements as
+        // literally `forward_no_reduction(..).mean()` (`loss/huber.rs:92-94`).
+        let per_sample_loss = HuberLossConfig::new(1.0)
+            .init()
+            .forward_no_reduction(q_pred_flat, target);
+        let loss_tensor = per_sample_loss.mean();
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();

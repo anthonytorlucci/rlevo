@@ -133,7 +133,7 @@ fn build_agent() -> Agent {
     let actor: ActorMlp<Be> = ActorMlp::new(3, 256, 1, 2.0, &device);
     let critic: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
     let config = DdpgTrainingConfigBuilder::new()
-        .buffer_capacity(10_000)
+        .replay_buffer_capacity(10_000)
         .batch_size(256)
         .learning_starts(0)
         .policy_frequency(2)

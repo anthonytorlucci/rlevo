@@ -64,7 +64,7 @@ Key components:
 | `c51_model.rs` | `C51Model` Burn `Module` trait |
 | `c51_agent.rs` | `C51Agent` — act / remember / learn |
 | `projection.rs` | `project_distribution` — Bellman projection onto atom support |
-| `loss.rs` | `categorical_cross_entropy` loss |
+| `loss.rs` | `categorical_cross_entropy_per_sample` loss |
 | `train.rs` | End-to-end training loop |
 
 Distributional-specific hyperparameters:
@@ -97,7 +97,7 @@ Key components:
 | `qrdqn_config.rs` | `QrDqnTrainingConfig` + `QrDqnTrainingConfigBuilder` |
 | `qrdqn_model.rs` | `QrDqnModel` Burn `Module` trait |
 | `qrdqn_agent.rs` | `QrDqnAgent` — act / remember / learn |
-| `quantile_loss.rs` | `quantile_huber_loss` |
+| `quantile_loss.rs` | `quantile_huber_loss_per_sample` |
 | `train.rs` | End-to-end training loop |
 
 Distributional-specific hyperparameters:
@@ -222,7 +222,7 @@ Default hyperparameters follow CleanRL:
 
 | Hyperparameter | Default | Source |
 |----------------|---------|--------|
-| `buffer_capacity` | 1 000 000 | CleanRL |
+| `replay_buffer_capacity` | 1 000 000 | CleanRL |
 | `batch_size` | 256 | CleanRL |
 | `learning_starts` | 25 000 | CleanRL |
 | `actor_lr` | 3e-4 | CleanRL |
@@ -291,7 +291,7 @@ Default hyperparameters follow CleanRL:
 
 | Hyperparameter | Default | Source |
 |----------------|---------|--------|
-| `buffer_capacity` | 1 000 000 | CleanRL |
+| `replay_buffer_capacity` | 1 000 000 | CleanRL |
 | `batch_size` | 256 | CleanRL |
 | `learning_starts` | 5 000 | CleanRL |
 | `actor_lr` | 3e-4 | CleanRL |

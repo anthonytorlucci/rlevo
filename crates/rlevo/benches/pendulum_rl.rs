@@ -227,7 +227,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
     let actor: ActorMlp<Backend_> = ActorMlp::new(OBS_RANK, HIDDEN, ACTION_RANK, &device);
     let critic: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = DdpgTrainingConfigBuilder::new()
-        .buffer_capacity(100_000)
+        .replay_buffer_capacity(100_000)
         .batch_size(256)
         .learning_starts(5_000)
         .actor_lr(1e-4)
@@ -260,7 +260,7 @@ fn train_td3_agent() -> Td3Agent_ {
     let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(100_000)
+        .replay_buffer_capacity(100_000)
         .batch_size(256)
         .learning_starts(5_000)
         .actor_lr(1e-4)
@@ -296,7 +296,7 @@ fn train_sac_agent() -> SacAgent_ {
     let critic_1: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let critic_2: CriticMlp<Backend_> = CriticMlp::new(OBS_RANK, ACTION_RANK, HIDDEN, &device);
     let config = SacTrainingConfigBuilder::new()
-        .buffer_capacity(100_000)
+        .replay_buffer_capacity(100_000)
         .batch_size(256)
         .learning_starts(5_000)
         .actor_lr(3e-4)

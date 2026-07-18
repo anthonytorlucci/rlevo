@@ -120,6 +120,21 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///   case is irreducible.
 pub(crate) struct Slot<M>(Option<M>);
 
+/// The importance-sampling exponent (β) the off-policy agents pass to
+/// [`ReplayStrategy::sample`].
+///
+/// Every agent draws from a [`UniformReplay`], which emits no IS weights and
+/// therefore ignores β entirely (ADR 0050 §3). The value is `1.0` — the
+/// no-correction end of Schaul's annealing schedule — so that it stays correct
+/// as a fallback rather than merely inert. When prioritized replay is wired in
+/// (ADR 0050 step 4) the agents that adopt it replace this constant with
+/// `beta(self.step)` off their own config schedule; the ones that keep uniform
+/// replay keep this.
+///
+/// [`ReplayStrategy::sample`]: crate::replay::ReplayStrategy::sample
+/// [`UniformReplay`]: crate::replay::UniformReplay
+pub(crate) const UNIFORM_REPLAY_BETA: f32 = 1.0;
+
 // A network's `Debug` would dump every parameter tensor, so report the slot's
 // state and the module's type instead. This also keeps `Slot<M>: Debug` free of
 // an `M: Debug` bound, mirroring the hand-written `DqnAgent` impl's summary

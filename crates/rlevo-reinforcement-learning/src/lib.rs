@@ -28,6 +28,9 @@
 //! - [`algorithms::sac`] — Soft Actor-Critic (off-policy, continuous actions):
 //!   stochastic squashed-Gaussian actor + twin critics with entropy-augmented
 //!   Bellman backup and auto-tuned temperature α per Haarnoja et al. 2018.
+//! - [`replay`] — The replay-strategy seam (ADR 0050): [`replay::Transition`],
+//!   the [`replay::ReplayStrategy`] trait, and [`replay::UniformReplay`], the
+//!   FIFO uniform buffer every off-policy agent above draws its batches from.
 //! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
 
 pub mod algorithms {
@@ -168,4 +171,5 @@ pub mod algorithms {
 pub mod experience;
 pub mod memory;
 pub mod metrics;
+pub mod replay;
 pub mod utils;

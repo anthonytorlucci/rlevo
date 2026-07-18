@@ -13,7 +13,6 @@
 //!
 //! Drive the full loop with [`super::train::train`].
 
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
@@ -23,14 +22,14 @@ use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 use rand::RngExt;
 
-use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
+use crate::replay::{ContinuousTransition, ReplayBufferError, ReplayStrategy, UniformReplay};
 use rlevo_core::action::BoundedAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
-use crate::algorithms::shared::Slot;
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
@@ -94,23 +93,6 @@ pub struct LearnOutcome {
     pub actor_loss: Option<f32>,
     /// Mean of `min(q1, q2)` across the batch.
     pub q_mean: f32,
-}
-
-#[derive(Debug, Clone)]
-struct Transition<O: Clone> {
-    obs: O,
-    action: Vec<f32>,
-    reward: f32,
-    next_obs: O,
-    /// `true` **only** for an environmental termination — the MDP reached an
-    /// absorbing state, so the return beyond `next_obs` is zero by definition.
-    ///
-    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
-    /// the episode without ending the MDP, and `next_obs` is then a genuine
-    /// continuation state. Zeroing the bootstrap there biases every Q-value
-    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
-    /// Reinforcement Learning", ICML 2018, Eq. 6.
-    terminated: bool,
 }
 
 /// Computes the twin-critic TD target:
@@ -193,7 +175,7 @@ pub struct Td3Agent<
     actor_opt: OptimizerAdaptor<Adam, Actor, B>,
     critic_1_opt: OptimizerAdaptor<Adam, Critic, B>,
     critic_2_opt: OptimizerAdaptor<Adam, Critic, B>,
-    buffer: VecDeque<Transition<O>>,
+    buffer: UniformReplay<ContinuousTransition<O>>,
     exploration: GaussianNoise,
     low: [f32; DA],
     high: [f32; DA],
@@ -290,7 +272,7 @@ where
             actor_opt,
             critic_1_opt,
             critic_2_opt,
-            buffer: VecDeque::with_capacity(config.buffer_capacity),
+            buffer: UniformReplay::new(config.replay_buffer_capacity),
             exploration,
             low: A::low(),
             high: A::high(),
@@ -413,13 +395,11 @@ where
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
+    /// [`Transition::terminated`]: crate::replay::Transition::terminated
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
-        if self.buffer.len() >= self.config.buffer_capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(Transition {
+        self.buffer.push(ContinuousTransition {
             obs,
             action: action.as_slice().to_vec(),
             reward,
@@ -486,9 +466,12 @@ where
         let device = self.device.clone();
 
         // --- Sample batch ---
-        let indices: Vec<usize> = (0..batch_size)
-            .map(|_| rng.random_range(0..self.buffer.len()))
-            .collect();
+        // `can_learn()` above already established `buffer.len() >= batch_size`,
+        // so the only variant `sample` can return here is unreachable.
+        let batch = self
+            .buffer
+            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
+            .ok()?;
 
         let obs_shape = O::shape();
         let obs_numel: usize = obs_shape.iter().product();
@@ -501,8 +484,8 @@ where
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
         let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
-        for idx in &indices {
-            let t = &self.buffer[*idx];
+        for &id in batch.ids() {
+            let t = self.buffer.get(id).expect("a freshly sampled id is live");
             let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&device);
             let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&device);
             let obs_data = obs_tensor.into_data().convert::<f32>();

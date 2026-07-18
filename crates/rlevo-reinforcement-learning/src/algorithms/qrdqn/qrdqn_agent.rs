@@ -9,7 +9,6 @@
 //! minimises the quantile Huber loss (see
 //! [`crate::algorithms::qrdqn::quantile_loss`]).
 
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
@@ -18,8 +17,8 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
+use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayStrategy, UniformReplay};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -27,8 +26,8 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
-use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss;
-use crate::algorithms::shared::Slot;
+use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
 
 /// Error variants returned by [`QrDqnAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -76,23 +75,6 @@ impl PerformanceRecord for QrDqnMetrics {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Transition<O: Clone> {
-    obs: O,
-    action_idx: usize,
-    reward: f32,
-    next_obs: O,
-    /// `true` **only** for an environmental termination — the MDP reached an
-    /// absorbing state, so the return beyond `next_obs` is zero by definition.
-    ///
-    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
-    /// the episode without ending the MDP, and `next_obs` is then a genuine
-    /// continuation state. Zeroing the bootstrap there biases every Q-value
-    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
-    /// Reinforcement Learning", ICML 2018, Eq. 6.
-    terminated: bool,
-}
-
 /// Summary values returned by a single [`QrDqnAgent::learn_step`].
 #[derive(Debug, Clone, Copy)]
 pub struct LearnOutcome {
@@ -135,7 +117,7 @@ where
     policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
-    buffer: VecDeque<Transition<O>>,
+    buffer: UniformReplay<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: QrDqnTrainingConfig,
     device: B::Device,
@@ -198,7 +180,7 @@ where
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
-            buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
+            buffer: UniformReplay::new(config.replay_buffer_capacity),
             exploration,
             config,
             device,
@@ -298,15 +280,13 @@ where
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
+    /// [`Transition::terminated`]: crate::replay::Transition::terminated
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
-        if self.buffer.len() >= self.config.replay_buffer_capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(Transition {
+        self.buffer.push(DiscreteTransition {
             obs,
-            action_idx: action.to_index(),
+            action: action.to_index(),
             reward,
             next_obs,
             terminated,
@@ -414,9 +394,12 @@ where
         let batch_size = self.config.batch_size;
         let num_quantiles = self.config.num_quantiles;
 
-        let indices: Vec<usize> = (0..batch_size)
-            .map(|_| rng.random_range(0..self.buffer.len()))
-            .collect();
+        // `can_learn()` above already established `buffer.len() >= batch_size`,
+        // so the only variant `sample` can return here is unreachable.
+        let batch = self
+            .buffer
+            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
+            .ok()?;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -427,15 +410,15 @@ where
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
         let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
-        for idx in &indices {
-            let t = &self.buffer[*idx];
+        for &id in batch.ids() {
+            let t = self.buffer.get(id).expect("a freshly sampled id is live");
             let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&self.device);
             let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&self.device);
             let obs_data = obs_tensor.into_data().convert::<f32>();
             let next_data = next_tensor.into_data().convert::<f32>();
             obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
-            action_idxs.push(t.action_idx as i64);
+            action_idxs.push(t.action as i64);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
@@ -508,8 +491,15 @@ where
         let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
 
         let taus: Tensor<B, 1> = self.config.quantile_taus::<B>(&device);
-        let loss_tensor =
-            quantile_huber_loss(pred_quantiles, target_autodiff, taus, self.config.kappa);
+        // Per-sample `[batch]`; the agent owns the reduction so a future
+        // importance-sampling weight can scale each sample first (ADR 0050 §14).
+        let loss_tensor = quantile_huber_loss_per_sample(
+            pred_quantiles,
+            target_autodiff,
+            taus,
+            self.config.kappa,
+        )
+        .mean();
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();

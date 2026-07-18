@@ -157,7 +157,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let critic_1: Critic<Be> = Critic::new(1, 1, 32, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 32, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(20_000)
+        .replay_buffer_capacity(20_000)
         .batch_size(32)
         .learning_starts(500)
         .actor_lr(1e-3)
@@ -257,7 +257,7 @@ fn td3_act_with_matches_deterministic_act() {
     let critic_1: Critic<Be> = Critic::new(1, 1, 32, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 32, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(20_000)
+        .replay_buffer_capacity(20_000)
         .batch_size(32)
         .learning_starts(500)
         .actor_lr(1e-3)
@@ -302,7 +302,7 @@ fn td3_delayed_update_skips_actor_step() {
     let critic_1: Critic<Be> = Critic::new(1, 1, 16, &device);
     let critic_2: Critic<Be> = Critic::new(1, 1, 16, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(1_024)
+        .replay_buffer_capacity(1_024)
         .batch_size(8)
         .learning_starts(32)
         .policy_frequency(2)
@@ -373,7 +373,7 @@ fn td3_pendulum_improves_over_random() {
     let critic_1: Critic<Be> = Critic::new(3, 1, 256, &device);
     let critic_2: Critic<Be> = Critic::new(3, 1, 256, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(200_000)
+        .replay_buffer_capacity(200_000)
         .batch_size(256)
         .learning_starts(10_000)
         .actor_lr(1e-4)
