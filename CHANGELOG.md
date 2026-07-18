@@ -56,6 +56,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `LatentState`). No `BeliefState` implementors exist in the workspace, so this
   is a contract-only change for downstream callers.
 
+**Added**
+
+- **Kind-level tests for `config::in_range`'s rejection of non-finite values**
+  (resolves #335). `in_range` is written as `got >= lo && got <= hi`, so `NaN`
+  fails both comparisons and lands in the `Err` branch — behaviour its rustdoc
+  already promised. A refactor to the superficially equivalent
+  `!(got < lo || got > hi)` would silently start *accepting* `NaN`.
+
+  The issue as filed overstated the gap, and the correction is worth recording:
+  `in_range_boundaries_are_inclusive` **did** already pass a `NaN`, but only
+  through an `is_err()` assertion. What was genuinely missing was a
+  **kind-level** assertion distinguishing "rejected as `OutOfRange`" from
+  "rejected for some other reason", coverage of the infinity branches, and a
+  test pinning the construction path: config fields are `pub`, so
+  `DqnTrainingConfig { tau: f64::NAN, ..Default::default() }` is constructible,
+  and only `DqnAgent::new`'s `validate()?` stops it from reaching an agent.
+  That constructor was confirmed to be the sole entry point — there is no
+  `config_mut()` and the `config` field is private — so a `NaN` `tau` remains
+  unreachable in practice. This matters more since #182 made `tau` a
+  control-flow switch rather than a plain coefficient: `NaN > 0.0` is `false`,
+  so a `NaN` `tau` would silently select pure hard-sync mode instead of
+  erroring.
+
 ### `rlevo-environments`
 
 **Breaking changes**
@@ -205,6 +228,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   size. The device→host→device round-trip in `polyak_update` is where the
   real per-step cost lives; that is tracked separately as #322.
 
+**Added**
+
+- **Contract tests for `polyak_update`** (resolves #336). `utils.rs` had no
+  `mod tests` at all, leaving the single arithmetic primitive beneath every
+  off-policy agent's target update — `dqn`, `c51`, `qrdqn`, `ddpg`, `sac`,
+  `td3` — entirely unexercised. The `soft_update` impls in the integration
+  fixtures merely delegate to it and assert nothing about it, and the tests
+  that use them check only finite rewards and seeded reproducibility, both of
+  which hold for any deterministic update rule, correct or not. An
+  implementation returning `target` unchanged — or returning `active` outright,
+  which is the #182 defect expressed one layer down — passed the entire suite.
+
+  Five tests now pin the contract on constant-weight fixtures with
+  hand-computed expected values: `tau = 0.0` is identity, `tau = 1.0` is an
+  exact hard copy (a promise `utils.rs`'s own rustdoc already made and nothing
+  checked), fractional `tau` is the exact convex combination, shapes and
+  parameter counts are preserved, and repeated application converges
+  monotonically toward `active` without overshoot. Each test asserts that
+  `active` and `target` genuinely differ *before* the update, so none can go
+  vacuous — without that precondition a do-nothing implementation satisfies the
+  `tau = 0`, `tau = 1` and blend cases simultaneously. Both mutations above
+  were confirmed to fail three tests each.
+
+  One non-obvious constraint surfaced while writing the fixtures, recorded here
+  because it is easy to trip over: `PolyakMapper` looks parameters up by
+  `ParamId` and panics on a miss, so a target net built independently of the
+  active net does not blend — it aborts. Real agents get the matching IDs for
+  free by cloning the policy net; hand-built fixtures must reuse the active
+  net's `ParamId`s explicitly.
   A second qualification, added when #182 landed: the phrase "the exact
   failure mode τ exists to avoid" above overstates the practical exposure on
   `dqn`, `c51` and `qrdqn` specifically. Until #182, those three hard-synced

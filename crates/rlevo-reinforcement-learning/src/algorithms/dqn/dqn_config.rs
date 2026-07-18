@@ -356,4 +356,22 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.field, "gamma");
     }
+
+    /// `tau` is a `pub` field, so struct-update syntax (and `Deserialize`)
+    /// bypasses the guarded builder entirely and can hand an agent a `NaN`
+    /// Polyak coefficient, which would poison every target-net weight on the
+    /// first soft update. `DqnAgent::new` is the sole constructor and calls
+    /// `config.validate()?`, so pinning the rejection here proves the `NaN`
+    /// can never reach an agent.
+    #[test]
+    fn rejects_nan_tau_from_struct_update_syntax() {
+        let config = DqnTrainingConfig {
+            tau: f64::NAN,
+            ..Default::default()
+        };
+        let err = config
+            .validate()
+            .expect_err("NaN tau must be rejected before it can reach DqnAgent::new");
+        assert_eq!(err.field, "tau", "NaN tau must be reported against `tau`");
+    }
 }
