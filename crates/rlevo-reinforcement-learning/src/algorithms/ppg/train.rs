@@ -19,11 +19,12 @@ use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, Reward, TensorConvertible};
 use rlevo_core::environment::{Environment, Snapshot};
 
-use crate::algorithms::ppg::ppg_agent::{PpgAgent, PpgAgentError, PpgMetrics};
+use crate::algorithms::ppg::ppg_agent::{AuxPhaseStats, PpgAgent, PpgAgentError, PpgMetrics};
 use crate::algorithms::ppg::ppg_policy::PpgAuxValueHead;
 use crate::algorithms::ppo::ppo_agent::PpoUpdateStats;
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
+use crate::algorithms::shared::LogWatermark;
 
 /// Run the PPG training loop against a **discrete** action environment.
 ///
@@ -45,7 +46,11 @@ use crate::algorithms::ppo::ppo_value::PpoValue;
 ///   shuffling.
 /// - `total_timesteps` — total environment steps to collect before returning.
 /// - `log_every` — emit a `tracing::info!` log line every this many global
-///   steps; pass `0` to disable logging.
+///   steps; pass `0` to disable logging. Progress can only be emitted at a
+///   rollout boundary (the payload reads the policy-phase and auxiliary-phase
+///   statistics), so a line lands at the first boundary at or after each
+///   `log_every` steps have elapsed — never less often, and at most once per
+///   rollout.
 ///
 /// # Errors
 ///
@@ -99,6 +104,16 @@ where
         min_log_std: None,
     };
     let mut global_step = 0_usize;
+    // Hoisted out of the loop so the terminal progress line can report the
+    // final iteration's auxiliary phase. Left loop-local it would be out of
+    // scope after the loop, and the closing line would claim `aux_ran = false`
+    // for a rollout that may well have run one.
+    let mut last_aux: Option<AuxPhaseStats> = None;
+    // Watermark, not `global_step % log_every`: the step counter is only
+    // sampled at rollout boundaries (multiples of `num_steps`), so a
+    // divisibility test would fire on `lcm(num_steps, log_every)` — see
+    // `LogWatermark` and issue #321.
+    let mut log_watermark = LogWatermark::new(log_every);
 
     while global_step < total_timesteps {
         for _ in 0..rollout_len {
@@ -168,33 +183,78 @@ where
         agent.finalize_rollout(snapshot.observation());
         agent.snapshot_into_aux_buffer();
         last_update_stats = agent.policy_phase_update(rng);
-        let aux = agent.maybe_aux_phase(rng);
+        last_aux = agent.maybe_aux_phase(rng);
 
-        if log_every > 0 && global_step.is_multiple_of(log_every) {
-            let avg = agent
-                .stats()
-                .avg_score()
-                .map(|v| format!("{v:.2}"))
-                .unwrap_or_else(|| "n/a".to_string());
-            tracing::info!(
-                step = global_step,
-                total_steps = total_timesteps,
-                iteration = agent.iteration(),
-                avg_reward = %avg,
-                policy_loss = last_update_stats.policy_loss,
-                value_loss = last_update_stats.value_loss,
-                entropy = last_update_stats.entropy,
-                approx_kl = last_update_stats.approx_kl,
-                clip_frac = last_update_stats.clip_frac,
-                aux_ran = aux.is_some(),
-                aux_value_loss = aux.map(|a| a.aux_value_loss).unwrap_or(0.0),
-                aux_policy_kl = aux.map(|a| a.policy_kl).unwrap_or(0.0),
-                "ppg training progress"
+        if log_watermark.should_log(global_step) {
+            emit_progress(
+                agent,
+                &last_update_stats,
+                last_aux,
+                global_step,
+                total_timesteps,
             );
         }
     }
 
+    // The final rollout is usually partial, so the last boundary can fall short
+    // of `log_every` past the watermark and never fire — which would drop the
+    // run's final policy- and auxiliary-phase stats. Report the terminal step
+    // unless it was already logged above.
+    if log_watermark.should_log_final(global_step) {
+        emit_progress(
+            agent,
+            &last_update_stats,
+            last_aux,
+            global_step,
+            total_timesteps,
+        );
+    }
+
     Ok(())
+}
+
+/// Emits one PPG progress event.
+///
+/// Factored out so the periodic in-loop line and the terminal line are
+/// literally the same event rather than two copies that drift apart. Kept as a
+/// free function rather than a closure because the loop needs `agent` mutably
+/// between calls, which an `agent`-capturing closure would forbid.
+///
+/// `aux` is the *most recent* iteration's auxiliary-phase result: `None` means
+/// the auxiliary buffer was not yet full on that iteration, which is the normal
+/// case for `n_iteration - 1` out of every `n_iteration` rollouts.
+fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
+    agent: &PpgAgent<B, P, V, O, DO, DB>,
+    stats: &PpoUpdateStats,
+    aux: Option<AuxPhaseStats>,
+    global_step: usize,
+    total_timesteps: usize,
+) where
+    B: AutodiffBackend,
+    P: PpoPolicy<B, DB> + PpgAuxValueHead<B, DB>,
+    V: PpoValue<B, DB>,
+    O: Observation<DO> + TensorConvertible<DO, B>,
+{
+    let avg = agent
+        .stats()
+        .avg_score()
+        .map(|v| format!("{v:.2}"))
+        .unwrap_or_else(|| "n/a".to_string());
+    tracing::info!(
+        step = global_step,
+        total_steps = total_timesteps,
+        iteration = agent.iteration(),
+        avg_reward = %avg,
+        policy_loss = stats.policy_loss,
+        value_loss = stats.value_loss,
+        entropy = stats.entropy,
+        approx_kl = stats.approx_kl,
+        clip_frac = stats.clip_frac,
+        aux_ran = aux.is_some(),
+        aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
+        aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),
+        "ppg training progress"
+    );
 }
 
 /// Maps an [`EnvironmentError`](rlevo_core::environment::EnvironmentError)

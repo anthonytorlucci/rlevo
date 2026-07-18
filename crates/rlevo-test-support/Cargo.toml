@@ -13,6 +13,11 @@ burn = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+# Backing for the `capture` module, which lets integration tests assert on the
+# `tracing` events a training loop emits (issue #321). Dev-only reach: this
+# crate is `publish = false` and consumed solely through `[dev-dependencies]`.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 rlevo-core = { path = "../rlevo-core", version = "0.3.1" }
 rlevo-environments = { path = "../rlevo-environments", version = "0.3.1", default-features = false }
 

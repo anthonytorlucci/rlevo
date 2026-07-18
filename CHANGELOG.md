@@ -299,6 +299,48 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **PPO/PPG progress logging fired at `lcm(num_steps, log_every)`, not
+  `log_every` — and not at all for plausible configs** (resolves #321). Both
+  loops gated on `global_step.is_multiple_of(log_every)`, but the check sits
+  *after* the inner rollout `for` loop, so `global_step` was only ever observed
+  at multiples of `num_steps` (default `128`). Logging therefore required
+  `log_every` to divide the rollout stride. With `log_every = 100` the first
+  line landed at step 3200 instead of 100 — 32× too sparse — and with
+  `log_every = 500` at step 16000, so any run shorter than that emitted
+  **nothing at all**, silently, while the rustdoc promised "a progress line
+  every this many global steps". The six off-policy loops were never affected:
+  they check `(step + 1) % log_every == 0` *inside* the step loop.
+
+  The trigger is now a last-logged watermark
+  (`global_step − last ≥ log_every`), which is robust to the stride instead of
+  depending on divisibility. It stays at the rollout boundary by necessity —
+  the log payload reports `PpoUpdateStats` from `update()`, which does not
+  exist mid-rollout — so the realised cadence is bounded by
+  `[log_every, log_every + num_steps)` rather than being exactly `log_every`.
+  Rounding *up* to the next boundary is the deliberate choice: advancing the
+  watermark by `log_every` instead of to `global_step` would let it fall behind
+  and then fire on consecutive boundaries to catch up, which is burstier.
+
+  A second defect surfaced while fixing the first: because the final rollout is
+  usually partial, the terminal boundary can sit less than `log_every` past the
+  watermark and never fire, dropping the last `update()`'s statistics
+  (`total_timesteps = 10000, log_every = 500` logged last at 9728 and reported
+  nothing for 10000). Both loops now emit a final progress line when the run
+  ends, unless the boundary already logged it.
+
+  Existing tests missed all of this because nothing anywhere observed a log
+  line: there was no log-capture test in the workspace, and every integration
+  call site passed `log_every = 0`, so the trigger was pure control flow that
+  no assertion touched. Both halves are now closed. The decision itself moved
+  into a `LogWatermark` helper in `algorithms::shared` with direct unit tests,
+  and `crates/rlevo/tests/` gained `tracing`-subscriber capture tests for PPO
+  and PPG that run the real training loops with logging on and assert a line is
+  emitted, that the last one reports `total_timesteps`, and that spacing stays
+  within `[log_every, log_every + num_steps)`. Those tests were verified to
+  fail against the old gate — the first draft used a 700-step budget, which the
+  old divisibility check satisfied by coincidence at the terminal boundary, so
+  the run length is deliberately 650 (no boundary of which is a multiple of
+  `log_every = 100`). `log_every == 0` still disables logging.
 - **One non-finite gradient permanently bricked SAC's temperature controller for
   the rest of the run** (resolves #184). `LogAlpha::adam_step` folded
   `g = −(log π̄ + H̄)` straight into its hand-rolled Adam moments with no
