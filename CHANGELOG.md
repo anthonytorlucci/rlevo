@@ -299,6 +299,82 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **One non-finite gradient permanently bricked SAC's temperature controller for
+  the rest of the run** (resolves #184). `LogAlpha::adam_step` folded
+  `g = −(log π̄ + H̄)` straight into its hand-rolled Adam moments with no
+  finiteness check. Those moments are exponential moving averages, so
+  `β₁ · NaN = NaN`: a single pathological batch poisoned `m` and `v`
+  **permanently**, and every subsequent α was NaN no matter how healthy later
+  gradients were. The actor and critic optimizers rebuild from fresh gradients
+  each step and self-heal; `m`/`v` carry state across steps and never recover.
+
+  A collapsed squashed-Gaussian policy legitimately emits `log π → −Inf` on
+  out-of-distribution actions and a diverging critic can feed NaN back through
+  the reparameterised actor, so this needed no exotic configuration to fire —
+  and it fired on the *first* bad gradient. From there the NaN α propagated into
+  both critic losses via the Bellman target and into the actor loss, taking down
+  the rest of the agent with it. The run kept reporting finite-looking
+  bookkeeping throughout.
+
+  `adam_step` now skips the update in full when `g` is not finite — `m`, `v`,
+  `t` and `log α` are all left untouched — and emits a one-shot `tracing::warn!`
+  naming the likely cause. A separate backstop clamps `log α` to `[−88, 88]` so
+  `α = exp(log α)` cannot overflow to `+Inf` down the *other* path into those
+  same losses. The two are independent: clamping the parameter does nothing for
+  already-poisoned moments, which is why the guard is the actual fix.
+
+  **A finite gradient is not enough**, and review of the first guard turned up a
+  second route to the same permanent corruption. `(1 − β₂) · g · g` is
+  left-associative, so it overflows to `+Inf` from about `|g| ≳ 1e21` while `g`
+  itself is still an ordinary finite float and the finiteness check passes.
+  `v = +Inf` is absorbing under the moving average, so `v̂.sqrt()` is `Inf` and
+  every later step size is exactly `0`: the controller freezes **silently** —
+  no NaN, no odd-looking `log α`, nothing to notice — which is strictly harder
+  to diagnose than the NaN it replaces. This is reachable rather than
+  adversarial: the policy's `log σ` is clamped but its Gaussian *mean* is an
+  unclamped `Linear` output, so a mean that has run away against a near-floor σ
+  makes `((a − μ)/σ)²` huge but finite and `log π` follows. Both moments are
+  now computed into locals and committed only once known finite, under their own
+  one-shot warning — a separate latch, so whichever failure fires first cannot
+  silence the other.
+
+  A non-finite `alpha_lr` is rejected by the same guard. The `[−88, 88]` clamp
+  appears to cover it, but only for `g ≠ 0`: at `g = 0` the step is `Inf · 0 =
+  NaN`, and `NaN.clamp(..)` propagates rather than rescuing. (Such a value
+  reaches the optimizer at all because `config::positive` treats `+Inf` as
+  positive — tracked separately in #353.)
+
+  A third variant sits one level further down, in the **bias-corrected** values:
+  `v̂ = v / (1 − β₂ᵗ)` can overflow to `+Inf` while `g`, `lr` and both raw
+  moments are finite, because the divisor is only ~`0.001` at `t = 1`. Same
+  silent-freeze signature. This one is *bounded* rather than permanent — the
+  divisor grows and the controller recovers on its own — but the reachable band
+  `|g| ∈ (1.84e19, 5.83e20)` drops between 27 and 686 consecutive updates, and
+  the band's lower edge moves with `t`. Guarded by rolling the whole step back;
+  keeping the raw moment update and skipping only the parameter subtraction was
+  measured to be bit-for-bit identical to no guard at all, since the freeze is
+  caused by the committed finite-but-large `v` rather than by the skipped
+  subtraction.
+
+  Each of the three failures carries its own warning latch, so whichever fires
+  first cannot silence the others — they point at different subsystems and only
+  the second indicates a NaN source.
+
+  Both hardenings are deliberate `rlevo` deviations — softlearning (the SAC
+  authors' own code), rlkit, CleanRL and Stable-Baselines3 all leave `log α`
+  unbounded and none guards the α optimizer against a non-finite gradient. The
+  bounds are wide enough to be provably non-binding in a healthy run (SAC's
+  legitimate α range is ~`[0, 10]`, i.e. `log α ≤ 2.3`), so no converging run's
+  numbers change. The module docs record the deviation against Haarnoja et al.
+  (arXiv:1812.05905) Eq. 18 rather than presenting it as standard practice.
+
+  The three existing tests only ever drove `adam_step` with finite log-probs and
+  asserted the *direction* α moved, so nothing exercised the failure path at
+  all. The new coverage asserts that the controller still **moves** after a
+  poisoned step, not merely that its state is finite — a frozen controller is
+  perfectly finite, which is exactly how the overflow variant would have slipped
+  past a finiteness-only assertion.
+
 - **C51 crashed on roughly 4% of valid atom supports — f32 rounding pushed the
   projection's atom index one past the end of the support** (resolves #180).
   `project_distribution` clamps the Bellman shift `Tz` to `[v_min, v_max]`, so
