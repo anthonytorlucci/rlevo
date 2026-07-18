@@ -124,6 +124,19 @@ pub struct PpoUpdateStats {
     pub explained_variance: f32,
     /// Number of update epochs actually completed (≤ `config.update_epochs`).
     pub epochs_run: usize,
+    /// Smallest clamped `log σ` across action dims after this update, or
+    /// `None` for discrete (categorical) policies, which have no `log σ`.
+    ///
+    /// Watch this on continuous runs: a value drifting down toward the head's
+    /// `log_std_min` is the policy collapsing to a deterministic action, and
+    /// because PPO's `log_std` is a single state-independent parameter,
+    /// *reaching* the bound freezes it permanently — see
+    /// [`TanhGaussianPolicyHead`](crate::algorithms::ppo::policies::gaussian::TanhGaussianPolicyHead).
+    /// The head also emits a one-shot `tracing::warn!` when that happens.
+    ///
+    /// Read once per update via [`PpoPolicy::min_log_std`], which costs one
+    /// device→host sync.
+    pub min_log_std: Option<f32>,
 }
 
 /// Proximal Policy Optimization agent.
@@ -581,6 +594,12 @@ where
         // already holds, so this adds no forward pass.
         let ev = explained_variance(self.buffer.returns(), self.buffer.values());
 
+        // Policy-scale telemetry: one device→host sync per *update* (not per
+        // step). This is also where the Gaussian head evaluates its one-shot
+        // "the log_std clamp has bound" warning — deliberately here rather than
+        // in the forward pass, which would sync on every rollout step.
+        let min_log_std = self.policy().min_log_std();
+
         self.buffer.clear();
         self.iteration += 1;
 
@@ -594,6 +613,7 @@ where
             clip_frac: clip_frac_acc / denom,
             explained_variance: ev,
             epochs_run,
+            min_log_std,
         }
     }
 }

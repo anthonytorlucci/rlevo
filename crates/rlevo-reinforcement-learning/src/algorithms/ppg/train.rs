@@ -96,6 +96,7 @@ where
         clip_frac: 0.0,
         explained_variance: 0.0,
         epochs_run: 0,
+        min_log_std: None,
     };
     let mut global_step = 0_usize;
 

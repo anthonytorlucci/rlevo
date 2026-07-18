@@ -184,6 +184,8 @@ fn train_ppo_agent() -> PpoAgent_ {
         hidden: 64,
         action_dim: ACTION_RANK,
         log_std_init: 0.0,
+        log_std_min: -20.0,
+        log_std_max: 2.0,
         action_scale: 2.0,
     }
     .init::<Backend_>(&device);

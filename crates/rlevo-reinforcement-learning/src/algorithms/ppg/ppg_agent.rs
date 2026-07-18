@@ -637,6 +637,12 @@ where
             }
         }
 
+        // Wired only because PPG reports through PPO's `PpoUpdateStats`; PPG has
+        // no continuous head in v1, so this is always `None`. A future Gaussian
+        // PPG head would reuse `TanhGaussianPolicyHead` and would then inherit
+        // its log_std bound and one-shot clamp warning here.
+        let min_log_std = self.policy().min_log_std();
+
         self.buffer.clear();
         self.iteration += 1;
 
@@ -652,6 +658,7 @@ where
             clip_frac: clip_frac_acc / denom,
             explained_variance: 0.0,
             epochs_run,
+            min_log_std,
         }
     }
 

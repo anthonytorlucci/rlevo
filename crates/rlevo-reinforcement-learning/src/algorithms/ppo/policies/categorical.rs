@@ -251,6 +251,24 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
+    /// A categorical policy has no scale parameter, so it must take
+    /// [`PpoPolicy::min_log_std`]'s `None` default rather than inventing a
+    /// value — the field is shared with the Gaussian head via `PpoUpdateStats`.
+    #[test]
+    fn categorical_head_reports_no_min_log_std() {
+        let device = Default::default();
+        let head: CategoricalPolicyHead<B> = CategoricalPolicyHeadConfig {
+            obs_dim: 4,
+            hidden: 8,
+            num_actions: 3,
+        }
+        .init::<B>(&device);
+        assert!(
+            <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::min_log_std(&head).is_none(),
+            "a categorical head has no log_std"
+        );
+    }
+
     #[test]
     fn categorical_logprob_consistency() {
         let device = Default::default();

@@ -19,6 +19,94 @@
 //! Returns the Gaussian entropy `Σ (log σ + ½ log(2πe))`, summed across
 //! action dims. This matches CleanRL's `probs.entropy().sum(1)` — the tanh
 //! Jacobian's entropy contribution is omitted, consistent with PPO practice.
+//!
+//! # Bounding `log_std`: a precondition for `log_prob` being total
+//!
+//! `log_std` is clamped to `[log_std_min, log_std_max]` everywhere it is read.
+//! The justification is **f32 totality**, not parity with SAC.
+//!
+//! `log_prob` evaluates `((z − μ)/σ)²` with `σ = exp(log σ)`. As `log σ`
+//! drifts down, `σ` underflows toward zero and the squared, normalized
+//! residual grows without bound: for a `k`-sigma sample drawn under `σ_old`
+//! and evaluated under `σ_new`, the magnitude is `O(k · σ_old/σ_new)`, so
+//! `scaled²` leaves f32 range once
+//! `2·(log σ_old − log σ_new) + 2·ln k > ln(3.4e38) ≈ 88.7`. Past that the
+//! ratio, the surrogate loss, and every gradient downstream are `inf`/`NaN`.
+//! Clamping makes the domain of `log_prob` finite by construction, so the
+//! function is total on f32.
+//!
+//! The bound is deliberately **non-binding for healthy runs**. A converging
+//! continuous-control policy lives around `log σ ∈ [−3, 1]`; the floor used
+//! throughout this repo, `−20`, is `σ ≈ 2·10⁻⁹`. The only runs whose numbers
+//! change are runs that were already producing garbage.
+//!
+//! ## Deliberate deviation from reference PPO
+//!
+//! Reference implementations leave PPO's `log_std` **unclamped**: CleanRL's
+//! `ppo_continuous_action.py`, Stable-Baselines3's `DiagGaussianDistribution`,
+//! and OpenAI Spinning Up all do. SB3 clamps only in
+//! `SquashedDiagGaussianDistribution` (its SAC path). Schulman et al. (2017)
+//! specifies no bound. We diverge knowingly.
+//!
+//! The empirical cover comes from Andrychowicz et al. (2021), *What Matters In
+//! On-Policy Reinforcement Learning?*: "the minimum action standard deviation
+//! seems to matter little, if it is not set too large" — which is exactly why a
+//! non-binding floor is safe — and the same study observed that exponentiating
+//! an unbounded parameter "occasionally produced NaN values", which is the
+//! precise defect this bound removes.
+//!
+//! ## Trap door: this is *not* the SAC behaviour
+//!
+//! The SAC analogy actively misleads here, so do not reason from it.
+//! [SAC's head](crate::algorithms::sac::sac_policy) clamps a per-step
+//! **network output**: its `log_std` `Linear` keeps receiving gradient from
+//! every in-range observation in the batch, so a saturated policy still has a
+//! path back.
+//!
+//! Here `log_std` is a state-independent [`Param`] shared by all states. Once
+//! it crosses a bound, `clamp` zeroes its gradient — **permanently**, and that
+//! includes the entropy bonus's restoring force, which would otherwise push
+//! `log σ` back up. The parameter is stuck at the bound for the remainder of
+//! training with no route back. The clamp therefore converts a run-destroying
+//! `NaN` into a silently frozen `σ`: a strictly better failure mode, but still
+//! a failure mode, and one worth watching for.
+//!
+//! # Telemetry: making the trap door audible
+//!
+//! A silent failure is worse than a loud one. Before the clamp existed, a
+//! collapsing `log_std` announced itself with a `NaN`; with the clamp it would
+//! otherwise present as flat returns and no signal at all. Two mechanisms
+//! restore observability, and both are driven from
+//! [`min_log_std`](PpoPolicy::min_log_std):
+//!
+//! 1. **A one-shot `tracing::warn!`** the first time the raw parameter leaves
+//!    `[log_std_min, log_std_max]`, naming the bound and the fact that the
+//!    parameter is now permanently frozen.
+//! 2. **A per-update metric** — the minimum clamped `log σ` across action
+//!    dims — surfaced on
+//!    [`PpoUpdateStats`](crate::algorithms::ppo::ppo_agent::PpoUpdateStats) so
+//!    the drift toward the floor is visible *before* it pins.
+//!
+//! ## Why the check is not in the forward pass
+//!
+//! Deciding "did the clamp bind" means comparing the raw parameter against the
+//! bounds, which is inherently a **host-side** predicate: on a GPU backend
+//! (wgpu) it costs a device→host sync. Putting that in
+//! [`clamped_log_std`](TanhGaussianPolicyHead::clamped_log_std) would pay a
+//! sync on *every* forward pass — and gating it behind "stop checking once it
+//! fires" does not help, because the healthy runs we care most about never
+//! fire and would sync forever.
+//!
+//! So the check is deliberately *not* in the hot path. It rides along with the
+//! stats read in [`min_log_std`](PpoPolicy::min_log_std), which
+//! [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+//! calls **once per update** — a cost the metric already pays. A bound that
+//! binds will be reported at the end of the very update in which it binds, and
+//! since the parameter can never leave the bound again, no crossing is ever
+//! missed.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use burn::module::{Module, Param};
 use burn::nn::{Linear, LinearConfig};
@@ -27,7 +115,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, StandardNormal};
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::algorithms::ppo::ppo_policy::{LogProbEntropy, PolicyOutput, PpoPolicy};
 
@@ -41,10 +129,62 @@ pub struct TanhGaussianPolicyHeadConfig {
     /// Number of continuous action dimensions.
     pub action_dim: usize,
     /// Initial value for every entry of the state-independent `log_std`.
+    ///
+    /// Must lie within `[log_std_min, log_std_max]`; otherwise the head starts
+    /// out already clamped (and, being state-independent, immediately gradient
+    /// -frozen), which is always a configuration mistake.
     pub log_std_init: f32,
+    /// Lower clamp applied to the learned `log σ` parameter. `-20` is the
+    /// value used throughout this repo: `σ ≈ 2·10⁻⁹`, far below any healthy
+    /// policy, so the bound never binds on a run that is working.
+    ///
+    /// Unlike SAC's clamp this bound is a **trap door** — see the
+    /// [module docs](self) — because `log_std` here is a single shared
+    /// parameter rather than a per-step network output.
+    pub log_std_min: f32,
+    /// Upper clamp applied to the learned `log σ` parameter. `2` (`σ ≈ 7.4`)
+    /// matches the SAC head's ceiling and sits well above any converged
+    /// continuous-control policy.
+    pub log_std_max: f32,
     /// Multiplier applied to `tanh(z)` before the env sees the action.
     pub action_scale: f32,
 }
+
+/// Smallest permitted `log_std_min`, bounding `σ` itself in absolute terms.
+///
+/// This guards a **different** failure from [`MAX_LOG_STD_SPAN`]: that one
+/// bounds the *ratio* `σ_old/σ_new`, this one bounds `σ` on its own. Neither
+/// implies the other — `(-120, -100)` is correctly ordered and spans only
+/// `20`, yet `exp(-110)` is exactly `0.0` in f32, so `(z − μ)/σ` is `±inf`
+/// (or `0/0 = NaN`) and the `NaN` reaches `backward()`.
+///
+/// `scaled_sq = ((z − μ)/σ)²` leaves f32 range once
+/// `|scaled| > √f32::MAX ≈ 1.8447·10¹⁹`, so the admissible floor scales with
+/// the residual that must stay representable:
+/// `log_std_min ≥ ln|z − μ| − 44.36`. Over a worst-case residual sweep of
+/// `10⁻³ … 10²` the binding case is `|z − μ| = 10²`, which requires
+/// `≥ −39.75`; `-35` is that rounded up with margin. At `-35` the admissible
+/// residual is `√f32::MAX · exp(-35) ≈ 1.16·10⁴` — two decades beyond what the
+/// derivation assumes.
+///
+/// The floor constrains no usable configuration: `σ = exp(-35) ≈ 6.3·10⁻¹⁶`,
+/// six orders of magnitude below this repo's default floor of `-20`. (For
+/// scale: `exp` leaves f32's **normal** range around `-87` but does not reach
+/// exactly `0.0` until `≈ -104`.)
+///
+/// Together with [`MAX_LOG_STD_SPAN`] this also bounds `log_std_max` from
+/// above, to `< 5`. That is intended and free — a converged
+/// continuous-control policy sits near `log σ ∈ [−3, 1]`.
+const MIN_LOG_STD_FLOOR: f32 = -35.0;
+
+/// Largest permitted `log_std_max − log_std_min`.
+///
+/// `log_prob` evaluates `scaled = (z − μ)/σ_new` where `z` was sampled under
+/// `σ_old`; for a `k`-sigma sample the magnitude is `O(k · σ_old/σ_new)`, so
+/// `scaled²` overflows f32 once
+/// `2·(log_std_max − log_std_min) + 2·ln k > ln(3.4e38) ≈ 88.7`. A span below
+/// `40` keeps `((z − μ)/σ)²` inside f32 range with headroom for large `k`.
+const MAX_LOG_STD_SPAN: f32 = 40.0;
 
 impl TanhGaussianPolicyHeadConfig {
     /// Constructs the module on `device`.
@@ -61,7 +201,10 @@ impl TanhGaussianPolicyHeadConfig {
             mean: LinearConfig::new(self.hidden, self.action_dim).init(device),
             log_std: Param::from_tensor(log_std),
             action_dim: self.action_dim,
+            log_std_min: self.log_std_min,
+            log_std_max: self.log_std_max,
             action_scale: self.action_scale,
+            clamp_warned: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -72,6 +215,59 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
+        config::ordered(
+            C,
+            "log_std_max",
+            f64::from(self.log_std_min),
+            f64::from(self.log_std_max),
+        )?;
+        // The *absolute* floor, checked before the span because the span check
+        // says nothing about either bound's magnitude: `(-120, -100)` is
+        // ordered and spans only 20, yet `exp(-110)` is exactly 0.0 in f32, so
+        // `(z - mu)/sigma` is +-inf and NaN reaches `backward()`. No
+        // `config::` helper fits — `in_range` is a two-sided closed interval
+        // and there is no float `at_least` — so the error is built here to
+        // carry the derivation.
+        if self.log_std_min < MIN_LOG_STD_FLOOR {
+            return Err(ConfigError {
+                config: C,
+                field: "log_std_min",
+                kind: ConstraintKind::Custom(
+                    "log_std_min must be >= -35: sigma = exp(log_std_min) must not \
+                     underflow, since ((z-mu)/sigma)^2 overflows f32 once \
+                     |z-mu|/sigma exceeds sqrt(f32::MAX) = 1.8447e19, i.e. \
+                     log_std_min >= ln|z-mu| - 44.36; -35 admits |z-mu| up to \
+                     1.16e4 and is six orders below the default floor of -20",
+                ),
+            });
+        }
+        // Beyond `config::ordered` (which SAC also applies), the *span* is
+        // bounded: `scaled = (z − μ)/σ_new` with `z` drawn under `σ_old` has
+        // magnitude `O(k · σ_old/σ_new)` for a k-sigma sample, so `scaled²`
+        // overflows f32 once `2·(log_std_max − log_std_min) + 2·ln k >
+        // ln(3.4e38) ≈ 88.7`. `config::ordered` cannot express this and no
+        // range helper carries the derivation, so the error is built here.
+        if self.log_std_max - self.log_std_min >= MAX_LOG_STD_SPAN {
+            return Err(ConfigError {
+                config: C,
+                field: "log_std_max",
+                kind: ConstraintKind::Custom(
+                    "log_std_max - log_std_min must be < 40: ((z-mu)/sigma)^2 \
+                     overflows f32 once 2*(log_std_max - log_std_min) + 2*ln(k) \
+                     exceeds ln(3.4e38) = 88.7 for a k-sigma sample",
+                ),
+            });
+        }
+        // A `log_std_init` outside the bounds would start the head already
+        // clamped; because `log_std` is state-independent, its gradient would
+        // be zero from step 0 with no path back (see the module docs).
+        config::in_range(
+            C,
+            "log_std_init",
+            f64::from(self.log_std_min),
+            f64::from(self.log_std_max),
+            f64::from(self.log_std_init),
+        )?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
     }
@@ -79,6 +275,15 @@ impl Validate for TanhGaussianPolicyHeadConfig {
 
 /// MLP → Gaussian mean, with state-independent `log_std`, squashed via
 /// `scale · tanh(z)` at the env boundary.
+///
+/// `log_std_min` / `log_std_max` / `action_scale` are constants captured at
+/// construction time. They are **not** learnable and travel with the module
+/// only because Burn's `#[derive(Module)]` requires fields to be either
+/// `Param`s, sub-modules, or plain data.
+///
+/// The `log_std` bounds are applied on every read (see
+/// [`clamped_log_std`](Self::clamped_log_std)); the [module docs](self)
+/// explain why the bound exists and why it is *not* the same as SAC's.
 #[derive(Module, Debug)]
 pub struct TanhGaussianPolicyHead<B: Backend> {
     fc1: Linear<B>,
@@ -86,7 +291,39 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     mean: Linear<B>,
     log_std: Param<Tensor<B, 1>>,
     action_dim: usize,
+    log_std_min: f32,
+    log_std_max: f32,
     action_scale: f32,
+    /// One-shot latch for the "clamp has bound" warning (see the
+    /// [module docs](self)).
+    ///
+    /// # Why `Arc<AtomicBool>` and not `Once` / a module-level `static`
+    ///
+    /// [`min_log_std`](PpoPolicy::min_log_std) takes `&self`, so the latch
+    /// needs interior mutability. Burn's `#[derive(Module)]` classifies a field
+    /// as a sub-module only if its type mentions the backend `B`, is a `Param`,
+    /// or is a `Tensor`; everything else — including this one — is carried as
+    /// plain constant data, cloned by the generated `map`/`valid` code and
+    /// excluded from the record. `Arc<AtomicBool>` satisfies the
+    /// `Clone + Debug + Send + Sync` that entails, whereas a bare `AtomicBool`
+    /// is not `Clone` and `std::sync::Once` is neither `Clone` nor `Debug`.
+    ///
+    /// A module-level `static` was rejected: it would latch **process-wide**,
+    /// so a second head (a fresh run in the same process, an evolutionary
+    /// population of policies, or simply another test in the same binary)
+    /// would be silenced by the first one's warning. Per-head state is the
+    /// correct granularity.
+    ///
+    /// Two consequences follow from `Arc` being *shared* on clone, and both are
+    /// wanted: [`valid()`](burn::module::AutodiffModule::valid) snapshots share
+    /// the autodiff head's latch, so the inner module cannot re-warn; and
+    /// because the field is not persisted, a head restored from a record starts
+    /// unlatched and will warn once more if the bound still binds — which is
+    /// the right behaviour for a fresh process reading a fresh log.
+    ///
+    /// [`Ordering::Relaxed`] is sufficient: the flag guards nothing but itself,
+    /// and the only requirement is that exactly one `swap` observes `false`.
+    clamp_warned: Arc<AtomicBool>,
 }
 
 impl<B: Backend> TanhGaussianPolicyHead<B> {
@@ -97,7 +334,13 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         self.mean.forward(h)
     }
 
-    /// The current `log σ` vector of length `action_dim`.
+    /// The current **raw** `log σ` parameter vector of length `action_dim`.
+    ///
+    /// Deliberately unclamped: this is the learnable parameter as stored, so
+    /// callers can observe drift past the bounds. The values actually used by
+    /// [`sample_with_logprob`](PpoPolicy::sample_with_logprob) and
+    /// [`evaluate`](PpoPolicy::evaluate) come from
+    /// [`clamped_log_std`](Self::clamped_log_std).
     pub fn log_std_vec(&self) -> Tensor<B, 1> {
         self.log_std.val()
     }
@@ -112,14 +355,101 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
         self.action_scale
     }
 
+    /// Clamp lower bound applied to `log σ`.
+    pub fn log_std_min(&self) -> f32 {
+        self.log_std_min
+    }
+
+    /// Clamp upper bound applied to `log σ`.
+    pub fn log_std_max(&self) -> f32 {
+        self.log_std_max
+    }
+
+    /// The `log σ` used by *every* density computation: the learned parameter
+    /// clamped to `[log_std_min, log_std_max]` and broadcast from `(A,)` to
+    /// `(batch, A)`.
+    ///
+    /// Sampling and log-prob evaluation must both go through this. If one path
+    /// clamped and the other did not, the sample's stored log-probability and
+    /// its re-evaluation under the same weights would disagree, silently
+    /// biasing the PPO importance ratio from the very first minibatch.
+    fn clamped_log_std(&self, batch: usize) -> Tensor<B, 2> {
+        let row: Tensor<B, 2> = self.log_std.val().unsqueeze_dim::<2>(0);
+        row.repeat_dim(0, batch)
+            .clamp(self.log_std_min, self.log_std_max)
+    }
+
+    /// Reads the raw `log σ` vector to the host, warns **once** if it has left
+    /// the bounds, and returns the minimum *clamped* `log σ` across action
+    /// dims.
+    ///
+    /// This is the single place that pays a device→host sync for `log_std`,
+    /// and it is called once per PPO update — never from the forward pass. See
+    /// the [module docs](self) for why the check cannot live in
+    /// [`clamped_log_std`](Self::clamped_log_std).
+    ///
+    /// Clamping commutes with the minimum (`clamp` is monotone
+    /// non-decreasing), so `min(clamp(x)) == clamp(min(x))` and one pass over
+    /// the host slice yields both the metric and the bound check.
+    fn read_min_log_std_and_warn(&self) -> f32 {
+        let data = self.log_std.val().into_data().convert::<f32>();
+        let raw = data.as_slice::<f32>().expect("log_std is f32");
+
+        let mut raw_min = f32::INFINITY;
+        let mut raw_max = f32::NEG_INFINITY;
+        for &v in raw {
+            raw_min = raw_min.min(v);
+            raw_max = raw_max.max(v);
+        }
+
+        // `swap` is the latch: exactly one caller observes `false`, so the
+        // warning is emitted once per head no matter how many updates bind.
+        // Checking the bounds first keeps the common (non-binding) path to a
+        // pair of float comparisons.
+        let below = raw_min < self.log_std_min;
+        let above = raw_max > self.log_std_max;
+        if (below || above) && !self.clamp_warned.swap(true, Ordering::Relaxed) {
+            let (bound_name, bound_value, observed) = if below {
+                ("log_std_min", self.log_std_min, raw_min)
+            } else {
+                ("log_std_max", self.log_std_max, raw_max)
+            };
+            tracing::warn!(
+                bound = bound_name,
+                configured = bound_value,
+                observed = observed,
+                sigma = observed.exp(),
+                "PPO Gaussian log_std has hit its {bound_name} clamp (configured \
+                 {bound_value}, raw parameter reached {observed}). This log_std is a \
+                 single state-independent parameter, so the clamp now zeroes its \
+                 gradient PERMANENTLY — including the entropy bonus that would \
+                 otherwise push it back. sigma is frozen at exp({bound_value}) = {} \
+                 for the rest of training and there is no path back: this run will \
+                 not recover, and flat returns from here on are the symptom, not \
+                 noise. Restart with a smaller learning rate, a larger \
+                 entropy_coef, or a corrected reward scale.",
+                bound_value.exp(),
+            );
+        }
+
+        raw_min.clamp(self.log_std_min, self.log_std_max)
+    }
+
+    /// Whether the one-shot clamp warning has already fired for this head.
+    ///
+    /// Exposed for tests: the crate has no `tracing` capture dependency, so the
+    /// once-only latch is asserted directly rather than by scraping log output.
+    #[cfg(test)]
+    pub(crate) fn clamp_warning_fired(&self) -> bool {
+        self.clamp_warned.load(Ordering::Relaxed)
+    }
+
     /// Computes per-row Gaussian log-prob and entropy of `z` under the
     /// current policy (no tanh Jacobian; it cancels in the PPO ratio).
     fn log_prob_entropy(&self, obs: Tensor<B, 2>, z: Tensor<B, 2>) -> LogProbEntropy<B> {
         let [batch, _] = z.dims();
         let mean = self.mean(obs);
-        // Broadcast log_std of shape (A,) to (batch, A) via repeat_dim.
-        let log_std_row: Tensor<B, 2> = self.log_std.val().unsqueeze_dim::<2>(0);
-        let log_std: Tensor<B, 2> = log_std_row.repeat_dim(0, batch);
+        let log_std = self.clamped_log_std(batch);
         let std = log_std.clone().exp();
 
         // log N(z | μ, σ) = -0.5·((z-μ)/σ)² - log σ - 0.5 log 2π
@@ -174,9 +504,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             Tensor::from_data(TensorData::new(eps_vec, vec![batch, action_dim]), &device);
 
         let mean = self.mean(obs.clone());
-        let log_std_row: Tensor<B, 2> = self.log_std.val().unsqueeze_dim::<2>(0);
-        let log_std: Tensor<B, 2> = log_std_row.repeat_dim(0, batch);
-        let std = log_std.exp();
+        let std = self.clamped_log_std(batch).exp();
         // z = μ + σ·ε
         let z = mean + std * eps;
 
@@ -233,6 +561,14 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             .collect()
     }
 
+    /// Minimum **clamped** `log σ` across action dims, and the point at which
+    /// the one-shot clamp warning is evaluated.
+    ///
+    /// Costs one device→host sync; call once per update, never per step.
+    fn min_log_std(&self) -> Option<f32> {
+        Some(self.read_min_log_std_and_warn())
+    }
+
     /// Returns `scale · tanh(μ(obs))` as the deterministic (noise-free) action
     /// for the first batch row, evaluated on the frozen inner backend.
     ///
@@ -281,6 +617,8 @@ mod tests {
             hidden: 64,
             action_dim: 1,
             log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 2.0,
         };
         assert!(cfg.validate().is_ok());
@@ -294,6 +632,8 @@ mod tests {
             hidden: 8,
             action_dim: 1,
             log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 2.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
@@ -318,6 +658,8 @@ mod tests {
             hidden: 2,
             action_dim: 2,
             log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 1.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
@@ -348,6 +690,8 @@ mod tests {
             hidden: 8,
             action_dim: 1,
             log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 2.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
@@ -382,6 +726,8 @@ mod tests {
             hidden: 2,
             action_dim: 1,
             log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 2.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
@@ -398,6 +744,8 @@ mod tests {
             hidden: 2,
             action_dim: 2,
             log_std_init: 0.0, // σ = 1
+            log_std_min: -20.0,
+            log_std_max: 2.0,
             action_scale: 1.0,
         };
         let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
@@ -411,6 +759,495 @@ mod tests {
         assert!(
             (got - expected).abs() < 1e-5,
             "expected {expected}, got {got}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // log_std bounds: validation
+    // -----------------------------------------------------------------
+
+    /// A config template with valid bounds; individual tests perturb one field.
+    fn bounded_cfg() -> TanhGaussianPolicyHeadConfig {
+        TanhGaussianPolicyHeadConfig {
+            obs_dim: 3,
+            hidden: 8,
+            action_dim: 1,
+            log_std_init: 0.0,
+            log_std_min: -20.0,
+            log_std_max: 2.0,
+            action_scale: 2.0,
+        }
+    }
+
+    #[test]
+    fn validate_rejects_inverted_log_std_bounds() {
+        let cfg = TanhGaussianPolicyHeadConfig {
+            log_std_min: 2.0,
+            log_std_max: -20.0,
+            log_std_init: 0.0,
+            ..bounded_cfg()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "log_std_max");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::NotOrdered {
+                low: 2.0,
+                high: -20.0
+            }
+        );
+    }
+
+    /// Equal bounds are degenerate under `config::ordered`'s strict `<`.
+    #[test]
+    fn validate_rejects_equal_log_std_bounds() {
+        let cfg = TanhGaussianPolicyHeadConfig {
+            log_std_min: 0.0,
+            log_std_max: 0.0,
+            ..bounded_cfg()
+        };
+        assert_eq!(cfg.validate().unwrap_err().field, "log_std_max");
+    }
+
+    /// A span of 40 or more lets `((z−μ)/σ)²` leave f32 range even though the
+    /// bounds are correctly ordered — `config::ordered` alone would accept it.
+    ///
+    /// Both bounds are pinned to the absolute floor `−35` so that the *span* is
+    /// the only invariant in play: a `log_std_min` of `−38` would trip
+    /// [`MIN_LOG_STD_FLOOR`] first and this test would silently assert the
+    /// wrong guard.
+    #[test]
+    fn validate_rejects_log_std_span_of_forty_or_more() {
+        let cfg = TanhGaussianPolicyHeadConfig {
+            log_std_min: -35.0,
+            log_std_max: 5.0, // span == 40.0, exactly at the rejection boundary
+            ..bounded_cfg()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "log_std_max");
+        match err.kind {
+            ConstraintKind::Custom(msg) => {
+                assert!(msg.contains("f32"), "message must state the reason: {msg}");
+                assert!(
+                    msg.contains("log_std_max - log_std_min"),
+                    "the span guard must be the one that fired, not the floor: {msg}"
+                );
+            }
+            other => panic!("expected a Custom span violation, got {other:?}"),
+        }
+
+        // Just inside the limit is accepted.
+        let ok = TanhGaussianPolicyHeadConfig {
+            log_std_min: -35.0,
+            log_std_max: 4.0, // span == 39.0
+            ..bounded_cfg()
+        };
+        assert!(ok.validate().is_ok());
+    }
+
+    /// The absolute floor is **not** implied by the other three invariants.
+    ///
+    /// `(-120, -100)` with `log_std_init = -110` is correctly ordered, spans
+    /// only `20`, and initializes inside its own bounds — so ordering, span and
+    /// range all pass — yet `exp(-110)` is exactly `0.0` in f32. The test
+    /// asserts the other three genuinely pass first so that it pins *which*
+    /// guard fires, rather than accidentally re-testing the span.
+    #[test]
+    fn validate_rejects_log_std_min_below_the_absolute_floor() {
+        let (min, max, init) = (-120.0_f32, -100.0_f32, -110.0_f32);
+
+        // The three pre-existing invariants are all satisfied by this triple.
+        assert!(min < max, "ordering holds");
+        assert!(max - min < MAX_LOG_STD_SPAN, "span {} < 40", max - min);
+        assert!(min <= init && init <= max, "init lies within the bounds");
+        // And yet sigma is exactly zero, which is the whole point.
+        assert_eq!(init.exp(), 0.0, "exp(-110) must be exactly 0.0 in f32");
+
+        let cfg = TanhGaussianPolicyHeadConfig {
+            log_std_min: min,
+            log_std_max: max,
+            log_std_init: init,
+            ..bounded_cfg()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "log_std_min");
+        match err.kind {
+            ConstraintKind::Custom(msg) => {
+                assert!(
+                    msg.contains("log_std_min must be >= -35"),
+                    "message must pin the floor: {msg}"
+                );
+            }
+            other => panic!("expected a Custom floor violation, got {other:?}"),
+        }
+
+        // One ulp below the floor is still rejected; the floor itself is not.
+        let just_below = TanhGaussianPolicyHeadConfig {
+            log_std_min: -35.000_004,
+            log_std_max: 2.0,
+            ..bounded_cfg()
+        };
+        assert_eq!(
+            just_below.validate().unwrap_err().field,
+            "log_std_min",
+            "the floor is closed on -35 and rejects anything below it"
+        );
+    }
+
+    /// The floor is non-binding: every configuration a user would plausibly
+    /// write — including the repo default `[-20, 2]` — still validates.
+    #[test]
+    fn validate_accepts_sane_log_std_bounds_including_the_default() {
+        for (min, max, init) in [
+            (-20.0_f32, 2.0_f32, 0.0_f32), // the repo-wide default
+            (-35.0, 2.0, 0.0),             // exactly at the floor: accepted
+            (-35.0, 4.0, -0.5),            // widest usable interval (span 39)
+            (-10.0, 2.0, 0.0),
+            (-5.0, 1.0, -0.5),
+            (-3.0, 1.0, 0.0),
+        ] {
+            let cfg = TanhGaussianPolicyHeadConfig {
+                log_std_min: min,
+                log_std_max: max,
+                log_std_init: init,
+                ..bounded_cfg()
+            };
+            assert!(
+                cfg.validate().is_ok(),
+                "({min}, {max}, {init}) must be accepted: {:?}",
+                cfg.validate().unwrap_err()
+            );
+        }
+    }
+
+    /// The numerical property the floor exists to buy, and the proof that
+    /// rejecting the config is what prevents the `NaN`.
+    ///
+    /// [`init`](TanhGaussianPolicyHeadConfig::init) does not re-run
+    /// `validate()`, so the rejected `-110` head can still be built directly —
+    /// and when it is, `log_prob` is non-finite exactly as the ADR predicts.
+    /// At the floor (`-35`) with the same residual it is finite.
+    #[test]
+    fn log_prob_is_finite_at_the_floor_and_not_below_it() {
+        let device = Default::default();
+        let obs_vals = vec![0.1_f32, -0.2, 0.3];
+
+        // `max` is passed explicitly rather than derived: the below-floor case
+        // must keep its span under 40 so that the *floor* is the only invariant
+        // it violates. Deriving `max` from `init` would widen the span to 122
+        // and the span guard, not the floor, would be the thing under test.
+        let floor_cfg = |min: f32, max: f32, init: f32| TanhGaussianPolicyHeadConfig {
+            log_std_min: min,
+            log_std_max: max,
+            log_std_init: init,
+            ..bounded_cfg()
+        };
+
+        let eval_at = |min: f32, max: f32, init: f32| -> f32 {
+            let cfg = floor_cfg(min, max, init);
+            let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+            let obs: Tensor<B, 2> =
+                Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
+            // A residual of order 1 — far inside the 1.16e4 budget the floor buys.
+            let z = head.mean(obs.clone()).add_scalar(1.0);
+            head.evaluate(obs, z).log_prob.into_scalar().elem::<f32>()
+        };
+
+        // At the floor the log-prob is finite, and the config validates — the
+        // floor is admissible, not merely small.
+        let at_floor = eval_at(MIN_LOG_STD_FLOOR, 2.0, MIN_LOG_STD_FLOOR);
+        assert!(
+            at_floor.is_finite(),
+            "log_prob at the floor must be finite, got {at_floor}"
+        );
+        assert!(
+            floor_cfg(MIN_LOG_STD_FLOOR, 2.0, MIN_LOG_STD_FLOOR)
+                .validate()
+                .is_ok(),
+            "the floor itself must be an accepted configuration"
+        );
+
+        // Below it — reachable only by bypassing `validate()` — it is not.
+        let below = eval_at(-120.0, -100.0, -110.0);
+        assert!(
+            !below.is_finite(),
+            "log_prob below the floor must blow up; if this is finite the floor \
+             is no longer load-bearing, got {below}"
+        );
+        // ...and *that* is why the guard must reject it. This assertion is what
+        // ties the numerical fact above to the validation rule: without it the
+        // test would still pass with the guard deleted, since `init` never
+        // consults `validate`.
+        assert!(
+            floor_cfg(-120.0, -100.0, -110.0).validate().is_err(),
+            "a config whose log_prob is non-finite must be rejected at construction"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_log_std_init_outside_bounds() {
+        for init in [-25.0_f32, 5.0] {
+            let cfg = TanhGaussianPolicyHeadConfig {
+                log_std_init: init,
+                ..bounded_cfg()
+            };
+            let err = cfg.validate().unwrap_err();
+            assert_eq!(err.field, "log_std_init", "init {init} must be rejected");
+            assert_eq!(
+                err.kind,
+                ConstraintKind::OutOfRange {
+                    lo: -20.0,
+                    hi: 2.0,
+                    got: f64::from(init),
+                }
+            );
+        }
+    }
+
+    /// The bounds are inclusive: initializing exactly at a bound is legal.
+    #[test]
+    fn validate_accepts_log_std_init_on_the_bounds() {
+        for init in [-20.0_f32, 2.0] {
+            let cfg = TanhGaussianPolicyHeadConfig {
+                log_std_init: init,
+                ..bounded_cfg()
+            };
+            assert!(cfg.validate().is_ok(), "init {init} must be accepted");
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // log_std bounds: the clamp actually binds
+    // -----------------------------------------------------------------
+
+    /// Regression test for the NaN defect: a `log_std` that has drifted far
+    /// below the floor must still yield a finite `log_prob`.
+    ///
+    /// Without the clamp, `σ = exp(−60) ≈ 8.8·10⁻²⁷`, so `((z−μ)/σ)²` for a
+    /// residual of order 1 is ~`10⁵²` — well past f32's `3.4·10³⁸` — and the
+    /// log-prob comes back `-inf`, which poisons the ratio and every gradient
+    /// downstream. With the clamp, `σ = exp(−20) ≈ 2·10⁻⁹` and the square stays
+    /// around `2.5·10¹⁷`, comfortably inside range.
+    #[test]
+    fn clamp_keeps_log_prob_finite_when_log_std_collapses() {
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+
+        // Force the learned parameter far below the floor.
+        let collapsed: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![-60.0_f32], vec![1]), &device);
+        head.log_std = Param::from_tensor(collapsed);
+
+        let obs: Tensor<B, 2> = Tensor::from_data(
+            TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
+            &device,
+        );
+        // A residual of order 1 away from the mean is what blows up.
+        let z = head.mean(obs.clone()).add_scalar(1.0);
+        let eval = head.evaluate(obs, z);
+
+        let lp = eval.log_prob.into_scalar().elem::<f32>();
+        assert!(lp.is_finite(), "log_prob must stay finite, got {lp}");
+        let ent = eval.entropy.into_scalar().elem::<f32>();
+        assert!(ent.is_finite(), "entropy must stay finite, got {ent}");
+    }
+
+    /// The sampling path must draw `z = μ + σ·ε` from the **clamped** `σ`, not
+    /// the raw parameter.
+    ///
+    /// Log-prob agreement alone cannot catch a one-sided clamp here, because
+    /// `sample_with_logprob` scores its own sample through `log_prob_entropy` —
+    /// the same function `evaluate` uses — so the two always agree by
+    /// construction. What a one-sided clamp *does* corrupt is the sample's
+    /// spread: with `log_std` forced to `−60`, an unclamped draw would sit
+    /// `exp(−60) ≈ 9·10⁻²⁷` from the mean while every density downstream scored
+    /// it under `exp(−20) ≈ 2·10⁻⁹` — an on-policy rollout collecting samples
+    /// from a distribution the loss does not believe in. So this test pins the
+    /// realized `|z − μ|` to the clamped scale, and checks agreement on top.
+    #[test]
+    fn clamped_sample_draws_at_the_floor_scale_and_agrees_with_evaluate() {
+        let device = Default::default();
+        // A floor of −10 (σ ≈ 4.5·10⁻⁵) rather than the usual −20: at −20 the
+        // increment σ·ε is below one f32 ulp of a mean of order 0.1, so `z − μ`
+        // would round to exactly zero and the assertion could not distinguish
+        // the two cases. The clamp under test is identical either way.
+        let cfg = TanhGaussianPolicyHeadConfig {
+            log_std_min: -10.0,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let collapsed: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![-60.0_f32], vec![1]), &device);
+        head.log_std = Param::from_tensor(collapsed);
+
+        let obs: Tensor<B, 2> = Tensor::from_data(
+            TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
+            &device,
+        );
+        let mu = head.mean(obs.clone()).into_scalar().elem::<f32>();
+
+        let mut rng = StdRng::seed_from_u64(23);
+        let out = head.sample_with_logprob(obs.clone(), &mut rng);
+        let z = out.action.clone().into_scalar().elem::<f32>();
+
+        // |z − μ| = σ·|ε| with σ = exp(log_std_min); a fixed seed keeps |ε| in a
+        // sane band, so a two-decade window around σ is a generous bound that
+        // still rules out the exp(−60) draw by ~22 orders of magnitude.
+        let sigma_floor = head.log_std_min().exp();
+        let dev = (z - mu).abs();
+        assert!(
+            dev > sigma_floor * 0.01 && dev < sigma_floor * 100.0,
+            "|z − μ| = {dev} must sit at the clamped scale σ = {sigma_floor}"
+        );
+
+        let eval = head.evaluate(obs, out.action.clone());
+        let a = out.log_prob.into_scalar().elem::<f32>();
+        let b = eval.log_prob.into_scalar().elem::<f32>();
+        assert!(a.is_finite(), "sampled log_prob must be finite, got {a}");
+        assert!((a - b).abs() < 1e-3, "sample {a} vs evaluate {b}");
+    }
+
+    /// The bounds survive the `Module` round-trip through `.valid()` — they are
+    /// plain-data constants, not `Param`s, so the derive must carry them.
+    #[test]
+    fn log_std_bounds_survive_valid_roundtrip() {
+        use burn::module::AutodiffModule;
+
+        let device = Default::default();
+        let head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        assert!((head.log_std_min() - (-20.0)).abs() < f32::EPSILON);
+        assert!((head.log_std_max() - 2.0).abs() < f32::EPSILON);
+
+        let inner = head.valid();
+        assert!((inner.log_std_min() - (-20.0)).abs() < f32::EPSILON);
+        assert!((inner.log_std_max() - 2.0).abs() < f32::EPSILON);
+    }
+
+    // -----------------------------------------------------------------
+    // log_std telemetry: the one-shot warning and the min_log_std metric
+    // -----------------------------------------------------------------
+
+    /// Overwrites `log_std` with a single-dim value, preserving the head's
+    /// bounds and its warning latch.
+    fn set_log_std(head: &mut TanhGaussianPolicyHead<B>, value: f32) {
+        let device = Default::default();
+        let t: Tensor<B, 1> = Tensor::from_data(TensorData::new(vec![value], vec![1]), &device);
+        head.log_std = Param::from_tensor(t);
+    }
+
+    /// The crate carries no `tracing` capture dependency, so the once-only
+    /// property is asserted on the latch itself: after the first binding call
+    /// it is set, and no later call can un-set or re-trigger it. `swap` is what
+    /// makes this exactly-once, and the latch is the sole gate on `warn!`.
+    #[test]
+    fn clamp_warning_latches_after_first_binding_call() {
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        assert!(
+            !head.clamp_warning_fired(),
+            "a freshly built head must not have warned"
+        );
+
+        set_log_std(&mut head, -60.0);
+        assert_eq!(head.min_log_std(), Some(-20.0));
+        assert!(
+            head.clamp_warning_fired(),
+            "the first binding read must latch the warning"
+        );
+
+        // Many further binding reads must not re-arm the latch: it is already
+        // `true`, so `swap` never again observes `false` and `warn!` is
+        // unreachable for the rest of this head's life.
+        for _ in 0..64 {
+            assert_eq!(head.min_log_std(), Some(-20.0));
+            assert!(head.clamp_warning_fired());
+        }
+    }
+
+    /// A `log_std` inside the bounds must stay silent — the warning is reserved
+    /// for the run-is-dead case, so a false positive would train users to
+    /// ignore it.
+    #[test]
+    fn clamp_warning_does_not_fire_while_log_std_is_in_bounds() {
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+
+        // Interior values, plus both bounds exactly: the clamp is inclusive, so
+        // sitting *on* a bound is not "outside" it and must not warn.
+        for v in [0.0_f32, -5.0, -19.9, 1.9, -20.0, 2.0] {
+            set_log_std(&mut head, v);
+            let got = head.min_log_std().expect("gaussian head reports log_std");
+            assert!(
+                (got - v).abs() < 1e-6,
+                "in-bounds log_std {v} must pass through unclamped, got {got}"
+            );
+            assert!(
+                !head.clamp_warning_fired(),
+                "in-bounds log_std {v} must not warn"
+            );
+        }
+    }
+
+    /// Drifting *above* `log_std_max` is the other trap door and must warn too.
+    #[test]
+    fn clamp_warning_fires_on_the_upper_bound() {
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        set_log_std(&mut head, 9.0);
+        assert_eq!(head.min_log_std(), Some(2.0));
+        assert!(head.clamp_warning_fired());
+    }
+
+    /// `min_log_std` is a minimum across action dims, and it reports the
+    /// **clamped** value — the σ actually used by every density computation,
+    /// not the raw parameter.
+    #[test]
+    fn min_log_std_is_the_clamped_minimum_across_action_dims() {
+        let device = Default::default();
+        let cfg = TanhGaussianPolicyHeadConfig {
+            action_dim: 3,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+
+        // Mixed dims, all in bounds: the smallest wins.
+        let mixed: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![1.5_f32, -3.25, 0.0], vec![3]), &device);
+        head.log_std = Param::from_tensor(mixed);
+        let got = head.min_log_std().expect("gaussian head reports log_std");
+        assert!((got - (-3.25)).abs() < 1e-6, "expected -3.25, got {got}");
+        assert!(!head.clamp_warning_fired());
+
+        // One dim collapsed below the floor: the metric saturates at the floor
+        // rather than reporting the raw value, because the floor is the σ the
+        // policy is actually sampling and scoring with.
+        let collapsed: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![1.5_f32, -60.0, 0.0], vec![3]), &device);
+        head.log_std = Param::from_tensor(collapsed);
+        let got = head.min_log_std().expect("gaussian head reports log_std");
+        assert!((got - (-20.0)).abs() < 1e-6, "expected -20.0, got {got}");
+        assert!(head.clamp_warning_fired());
+    }
+
+    /// `.valid()` shares the latch rather than copying it, so an inner snapshot
+    /// taken after the warning cannot emit a duplicate. This is a property of
+    /// `Arc` being cloned by the `Module` derive's plain-data path; a bare
+    /// `AtomicBool` would not even compile there, and a copied one would
+    /// double-warn.
+    #[test]
+    fn clamp_warning_latch_is_shared_across_valid_snapshots() {
+        use burn::module::AutodiffModule;
+
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        set_log_std(&mut head, -60.0);
+        let _ = head.min_log_std();
+        assert!(head.clamp_warning_fired());
+
+        let inner = head.valid();
+        assert!(
+            inner.clamp_warning_fired(),
+            "the inner snapshot must inherit the already-fired latch"
         );
     }
 }
