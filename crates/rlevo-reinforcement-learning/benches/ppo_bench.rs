@@ -37,7 +37,6 @@ fn bench_compute_gae(c: &mut Criterion) {
                     black_box(&t),
                     black_box(&tr),
                     black_box(0.0),
-                    black_box(false),
                     0.99,
                     0.95,
                 );

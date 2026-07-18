@@ -391,20 +391,25 @@ where
     /// Finalises the current rollout: computes GAE advantages and bootstrap
     /// returns from `last_obs`, which is the next observation the env would
     /// have produced had the rollout continued.
-    pub fn finalize_rollout(&mut self, last_obs: &O, last_done: bool) {
-        let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
-        let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
-        let last_value = self
-            .value()
-            .forward(last_batched)
-            .into_scalar()
-            .elem::<f32>();
-        self.buffer.finish(
-            last_value,
-            last_done,
-            self.config.gamma,
-            self.config.gae_lambda,
-        );
+    ///
+    /// `last_obs` is consulted **only** when the rollout's final step left the
+    /// episode `Running`. When that step ended the episode, its own stored
+    /// status supplies the bootstrap and the value forward is skipped entirely
+    /// — so a caller holding a stale or post-`reset` observation on that path
+    /// cannot contaminate the advantages, and the forward is not wasted.
+    pub fn finalize_rollout(&mut self, last_obs: &O) {
+        let last_value = if self.buffer.last_step_ended() {
+            0.0
+        } else {
+            let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
+            let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
+            self.value()
+                .forward(last_batched)
+                .into_scalar()
+                .elem::<f32>()
+        };
+        self.buffer
+            .finish(last_value, self.config.gamma, self.config.gae_lambda);
     }
 
     /// Runs `update_epochs × num_minibatches` gradient updates on the current

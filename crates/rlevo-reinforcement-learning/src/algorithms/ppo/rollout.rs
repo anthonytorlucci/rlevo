@@ -13,6 +13,14 @@
 //! a single `done` flag (terminated OR truncated) zeros the bootstrap at
 //! reset boundaries within the rollout. See the doc-comment on that function
 //! for caveats on truncation.
+//!
+//! # Indexing convention
+//!
+//! [`RolloutBuffer::push_step`] stores `obs[t]` together with the status of the
+//! transition *out of* `obs[t]`. So `terminated[t]` means "transition `t` ended
+//! the episode", which is exactly what decides whether the bootstrap after step
+//! `t` is valid. Every done-ness read in [`compute_gae`] is therefore at index
+//! `[t]` — never `[t + 1]`.
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
@@ -62,6 +70,13 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     }
 
     /// Appends one step. `action_row.len()` must equal `action_dim`.
+    ///
+    /// `status` describes how the transition *out of* `obs` left the episode;
+    /// see the module's indexing note.
+    ///
+    /// # Panics
+    ///
+    /// If `action_row.len() != action_dim`.
     pub fn push_step(
         &mut self,
         obs: O,
@@ -89,22 +104,34 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 
     /// Finalises the rollout: computes GAE advantages and returns.
     ///
-    /// `last_value` is `V(s_final)` bootstrap (typically the value-network's
-    /// prediction on the last observation); `last_done` is whether the final
-    /// step's snapshot was done.
-    pub fn finish(&mut self, last_value: f32, last_done: bool, gamma: f32, gae_lambda: f32) {
+    /// `last_value` is the `V(s_final)` bootstrap (typically the value
+    /// network's prediction on the observation the rollout stopped at). It is
+    /// consulted **only** when the final step left the episode `Running` — see
+    /// [`Self::last_step_ended`]; on any other path the final step's own stored
+    /// status supplies the bootstrap, so `last_value` is ignored and callers
+    /// may pass any value.
+    pub fn finish(&mut self, last_value: f32, gamma: f32, gae_lambda: f32) {
         let (advs, rets) = compute_gae(
             &self.rewards,
             &self.values,
             &self.terminated,
             &self.truncated,
             last_value,
-            last_done,
             gamma,
             gae_lambda,
         );
         self.advantages = advs;
         self.returns = rets;
+    }
+
+    /// Whether the most recently pushed step ended its episode.
+    ///
+    /// `true` when the final stored transition was terminated or truncated,
+    /// i.e. exactly when [`Self::finish`]'s `last_value` argument is unused.
+    /// An empty buffer reports `false`.
+    pub fn last_step_ended(&self) -> bool {
+        let n = self.len();
+        n > 0 && (self.terminated[n - 1] || self.truncated[n - 1])
     }
 
     /// Current number of stored steps.
@@ -209,6 +236,14 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 ///
 /// Returns `(advantages, returns)` where `returns[t] = advantages[t] + values[t]`.
 ///
+/// # Indexing
+///
+/// `terminated[t]` / `truncated[t]` describe the transition *out of* step `t`
+/// (see the module docs), so the done-ness that gates step `t`'s bootstrap is
+/// read at `[t]`, not `[t + 1]`. `last_value` supplies the bootstrap for the
+/// final step only when that step left the episode `Running`; when it ended,
+/// its own flag zeroes the bootstrap and `last_value` is unused.
+///
 /// # Done-handling caveat
 ///
 /// Within the rollout a step's `done` flag is `terminated || truncated`; both
@@ -217,14 +252,16 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 /// reset. Matching CleanRL's default PPO, we accept this small bias on
 /// truncation-heavy envs. The terminated/truncated arrays are kept separate
 /// so a future revision can rework this without changing the buffer API.
-#[allow(clippy::too_many_arguments)]
+///
+/// # Panics
+///
+/// If `values`, `terminated`, or `truncated` differ in length from `rewards`.
 pub fn compute_gae(
     rewards: &[f32],
     values: &[f32],
     terminated: &[bool],
     truncated: &[bool],
     last_value: f32,
-    last_done: bool,
     gamma: f32,
     gae_lambda: f32,
 ) -> (Vec<f32>, Vec<f32>) {
@@ -237,12 +274,16 @@ pub fn compute_gae(
 
     let mut last_gae_lam = 0.0_f32;
     for t in (0..n).rev() {
-        let (next_nonterminal, next_value) = if t == n - 1 {
-            (if last_done { 0.0 } else { 1.0 }, last_value)
+        let next_value = if t == n - 1 {
+            last_value
         } else {
-            let done_next = terminated[t + 1] || truncated[t + 1];
-            (if done_next { 0.0 } else { 1.0 }, values[t + 1])
+            values[t + 1]
         };
+        // Done-ness is read at `[t]`: `terminated[t]` describes the transition
+        // *out of* step `t`, which is what decides whether `next_value` is a
+        // valid continuation of this trajectory.
+        let ended = terminated[t] || truncated[t];
+        let next_nonterminal = f32::from(!ended);
         let delta = rewards[t] + gamma * next_value * next_nonterminal - values[t];
         last_gae_lam = delta + gamma * gae_lambda * next_nonterminal * last_gae_lam;
         advantages[t] = last_gae_lam;
@@ -263,12 +304,9 @@ mod tests {
         let term = vec![false; 5];
         let trunc = vec![false; 5];
         let last_value = 0.5_f32;
-        let last_done = false;
         let gamma = 0.99_f32;
         let lam = 0.95_f32;
-        let (advs, rets) = compute_gae(
-            &rewards, &values, &term, &trunc, last_value, last_done, gamma, lam,
-        );
+        let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, last_value, gamma, lam);
 
         // Hand-compute: delta = r + γ · V' · nonterm − V = 1 + 0.99·0.5·1 − 0.5 = 0.995
         // A[4] = delta[4] = 0.995
@@ -292,44 +330,97 @@ mod tests {
 
     #[test]
     fn gae_handles_terminated_mid_rollout() {
-        // 3-step rollout, episode terminates after step 1.
+        // 3-step rollout. `term[1] == true` means the transition *out of* step 1
+        // terminated the episode, so the bootstrap is cut after step 1 — not
+        // after step 0.
         let rewards = vec![1.0, 1.0, 1.0];
         let values = vec![0.5, 0.5, 0.5];
         let term = vec![false, true, false];
         let trunc = vec![false, false, false];
-        let (advs, _) = compute_gae(&rewards, &values, &term, &trunc, 0.5, false, 0.99, 0.95);
-        // At t=0: next is t=1 which is NOT marked done-at-next (done_next looks at term[1]||trunc[1] = true).
-        // Wait — the convention is: done_next means t+1 is the reset boundary. We look at term[t+1].
-        // So at t=0, term[1] = true → next_nonterminal = 0 → δ_0 = 1.0 + 0 − 0.5 = 0.5
-        // A[0] = δ_0 + γλ·0·A[1] = 0.5
-        // At t=1, not the last step — look at term[2] = false → nonterminal=1 → δ_1 = 1 + 0.99·0.5 − 0.5 = 0.995
-        //                    A[1] = δ_1 + γλ·1·A[2]
-        // At t=2, last_done=false so next_nonterminal=1, next_value=0.5 → δ_2 = 0.995, A[2]=0.995
-        // A[1] = 0.995 + 0.99·0.95·0.995
-        // A[0] = 0.5 (no propagation past terminal)
-        assert!((advs[0] - 0.5).abs() < 1e-6);
-        let a2_expected = 0.995_f32;
-        let a1_expected = 0.995_f32 + 0.99 * 0.95 * a2_expected;
-        assert!((advs[1] - a1_expected).abs() < 1e-5);
-        assert!((advs[2] - a2_expected).abs() < 1e-5);
+        let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, 0.5, 0.99, 0.95);
+
+        // Hand-computed, γ = 0.99, λ = 0.95, γλ = 0.9405:
+        //   t=2: ended = term[2] = false → V' = last_value = 0.5
+        //        δ₂ = 1 + 0.99·0.5 − 0.5 = 0.995
+        //        A₂ = 0.995
+        //   t=1: ended = term[1] = true → bootstrap and recursion both cut
+        //        δ₁ = 1 + 0 − 0.5 = 0.5
+        //        A₁ = 0.5 + 0.9405·0·A₂ = 0.5
+        //   t=0: ended = term[0] = false → V' = values[1] = 0.5
+        //        δ₀ = 1 + 0.99·0.5 − 0.5 = 0.995
+        //        A₀ = 0.995 + 0.9405·0.5 = 0.995 + 0.47025 = 1.46525
+        let a2 = 0.995_f32;
+        let a1 = 0.5_f32;
+        let a0 = 1.465_25_f32;
+        assert!(
+            (advs[2] - a2).abs() < 1e-5,
+            "A₂ bootstraps last_value: {} vs {a2}",
+            advs[2]
+        );
+        assert!(
+            (advs[1] - a1).abs() < 1e-5,
+            "A₁ is the terminal step: bootstrap zeroed, no propagation in: {} vs {a1}",
+            advs[1]
+        );
+        assert!(
+            (advs[0] - a0).abs() < 1e-5,
+            "A₀ precedes the terminal step, so it bootstraps values[1] and \
+             receives no λ-propagation from across the boundary: {} vs {a0}",
+            advs[0]
+        );
+        for (t, (a, v)) in advs.iter().zip(values.iter()).enumerate() {
+            assert!(
+                (rets[t] - (a + v)).abs() < 1e-6,
+                "returns[{t}] must equal advantage + value"
+            );
+        }
     }
 
     #[test]
-    fn gae_last_done_zeros_final_bootstrap() {
-        let rewards = vec![1.0];
-        let values = vec![0.5];
+    fn gae_terminal_final_step_zeros_bootstrap() {
+        // Single-step rollout whose one transition terminated. The final step's
+        // own stored status — not a separate `last_done` argument — is what
+        // zeroes the bootstrap, so the supplied `last_value` is ignored.
         let (advs, _) = compute_gae(
-            &rewards,
-            &values,
+            &[1.0],
+            &[0.5],
+            &[true],
             &[false],
-            &[false],
-            10.0, // would-be bootstrap
-            true, // but last_done zeros it
+            10.0, // would-be bootstrap; must not be used
             0.99,
             0.95,
         );
-        // δ_0 = 1 + γ·10·0 − 0.5 = 0.5
-        assert!((advs[0] - 0.5).abs() < 1e-6);
+        // δ₀ = 1 + 0.99·10·0 − 0.5 = 0.5
+        assert!(
+            (advs[0] - 0.5).abs() < 1e-6,
+            "terminated final step must ignore last_value: {} vs 0.5",
+            advs[0]
+        );
+    }
+
+    #[test]
+    fn gae_running_final_step_uses_last_value() {
+        // Same rollout, but the episode is still `Running`, so `last_value`
+        // *is* the bootstrap: δ₀ = 1 + 0.99·10 − 0.5 = 10.4
+        let (advs, _) = compute_gae(&[1.0], &[0.5], &[false], &[false], 10.0, 0.99, 0.95);
+        assert!(
+            (advs[0] - 10.4).abs() < 1e-4,
+            "running final step must bootstrap last_value: {} vs 10.4",
+            advs[0]
+        );
+    }
+
+    #[test]
+    fn last_step_ended_tracks_final_status() {
+        type B = burn::backend::Flex;
+        let mut buf: RolloutBuffer<B, [f32; 1]> = RolloutBuffer::new(4, 1);
+        assert!(!buf.last_step_ended(), "empty buffer has no final step");
+        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Running);
+        assert!(!buf.last_step_ended(), "running final step has not ended");
+        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Truncated);
+        assert!(buf.last_step_ended(), "truncated final step has ended");
+        buf.push_step([0.0], &[0.0], 0.0, 0.0, 0.0, EpisodeStatus::Terminated);
+        assert!(buf.last_step_ended(), "terminated final step has ended");
     }
 
     #[test]
@@ -348,7 +439,7 @@ mod tests {
         );
         assert_eq!(buf.len(), 3);
         assert_eq!(buf.action_flat().len(), 3);
-        buf.finish(0.0, true, 0.99, 0.95);
+        buf.finish(0.0, 0.99, 0.95);
         assert_eq!(buf.advantages().len(), 3);
         assert_eq!(buf.returns().len(), 3);
         buf.clear();

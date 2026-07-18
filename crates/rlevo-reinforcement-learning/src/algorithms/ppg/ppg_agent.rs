@@ -448,18 +448,21 @@ where
     }
 
     /// Computes GAE advantages/returns from `last_obs`. Identical to PPO's
-    /// finalize step.
-    pub fn finalize_rollout(&mut self, last_obs: &O, last_done: bool) {
-        let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
-        let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
-        let last_value = self
-            .value()
-            .forward(last_batched)
-            .into_scalar()
-            .elem::<f32>();
+    /// finalize step, including the gate: `last_obs` is only read when the
+    /// rollout's final step left the episode `Running`.
+    pub fn finalize_rollout(&mut self, last_obs: &O) {
+        let last_value = if self.buffer.last_step_ended() {
+            0.0
+        } else {
+            let last_t: Tensor<B, DO> = last_obs.to_tensor(&self.device);
+            let last_batched: Tensor<B, DB> = last_t.unsqueeze::<DB>();
+            self.value()
+                .forward(last_batched)
+                .into_scalar()
+                .elem::<f32>()
+        };
         self.buffer.finish(
             last_value,
-            last_done,
             self.config.ppo.gamma,
             self.config.ppo.gae_lambda,
         );
