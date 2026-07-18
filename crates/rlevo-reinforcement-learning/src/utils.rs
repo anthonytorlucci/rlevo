@@ -26,13 +26,27 @@ use burn::tensor::{Tensor, TensorData};
 ///   in Reinforcement Learning", ICML 2018, Eq. 6 (partial-episode
 ///   bootstrapping), and Gymnasium's
 ///   `Q(s,a) = r + γ · ¬terminated · max_a' Q(s′,a')`.
+///
+/// # Non-finite hardening
+///
+/// The bootstrap term is **masked**, not scaled by `(1 − terminated)`. The two
+/// agree exactly for finite inputs, but scaling propagates poison: IEEE-754
+/// gives `NaN · 0.0 == NaN` and `inf · 0.0 == NaN`, so a single non-finite
+/// entry in `next_q_max` would survive a terminal transition and contaminate
+/// the target — the one place the algorithm has a guaranteed-correct value
+/// (the reward alone). Selecting on the terminal mask forces the bootstrap to
+/// be exactly `0` wherever `terminated == 1.0`, whatever `next_q_max` holds
+/// there. This is defensive only; it does not alter any target computed from
+/// finite inputs.
 pub fn compute_target_q_values<B: Backend>(
     rewards: Tensor<B, 1>,
     next_q_max: Tensor<B, 1>,
     terminated: Tensor<B, 1>,
     gamma: f32,
 ) -> Tensor<B, 1> {
-    rewards.clone() + gamma * next_q_max * (1.0 - terminated)
+    let is_terminal = terminated.equal_elem(1.0);
+    let bootstrap = next_q_max.mul_scalar(gamma).mask_fill(is_terminal, 0.0);
+    rewards + bootstrap
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +90,20 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
 ///
 /// Used by every off-policy algorithm that maintains a target network (DQN,
 /// C51, QR-DQN, DDPG, TD3, SAC). Pass `tau = 1.0` for a hard copy.
+///
+/// Parameters are paired by [`ParamId`], not by position or name, so `target`
+/// must carry the *same* `ParamId`s as `active`.
+///
+/// # Panics
+///
+/// Panics if `target` holds a parameter whose [`ParamId`] is absent from
+/// `active` — that is, if the two modules were built independently rather than
+/// `target` being derived from `active`.
+///
+/// A fresh `init` mints new `ParamId`s, so two separately initialised networks
+/// never match even when their architecture and weights are identical. Build
+/// the target network by cloning the active one (`let target = active.clone();`)
+/// and it holds by construction; every in-tree agent does this.
 pub fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
@@ -107,6 +135,120 @@ mod tests {
     /// this module is representable in binary floating point (the taus are
     /// dyadic), so this only absorbs backend reduction noise.
     const EPS: f32 = 1e-6;
+
+    // -----------------------------------------------------------------------
+    // compute_target_q_values
+    // -----------------------------------------------------------------------
+
+    /// Builds a rank-1 `f32` tensor on the default test device.
+    fn floats(values: &[f32]) -> Tensor<TestBackend, 1> {
+        Tensor::from_floats(values, &TestDevice::default())
+    }
+
+    /// Reads a rank-1 tensor back to host floats.
+    fn host(tensor: Tensor<TestBackend, 1>) -> Vec<f32> {
+        tensor
+            .to_data()
+            .to_vec::<f32>()
+            .expect("target tensor is f32 by construction")
+    }
+
+    /// The pre-hardening formula, kept verbatim as the reference oracle for
+    /// the "finite inputs are unchanged" test.
+    fn scaled_reference(
+        rewards: Tensor<TestBackend, 1>,
+        next_q_max: Tensor<TestBackend, 1>,
+        terminated: Tensor<TestBackend, 1>,
+        gamma: f32,
+    ) -> Tensor<TestBackend, 1> {
+        rewards + gamma * next_q_max * (1.0 - terminated)
+    }
+
+    #[test]
+    fn test_compute_target_q_values_masks_non_finite_bootstrap_on_terminal() {
+        // Sample 0 is terminal with a NaN continuation value, sample 1 is
+        // terminal with +inf, sample 2 with -inf. Under the old
+        // `* (1.0 - terminated)` scaling all three produced NaN, because
+        // `NaN * 0.0` and `inf * 0.0` are both NaN.
+        let rewards = floats(&[1.5, -2.0, 0.25]);
+        let next_q_max = floats(&[f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
+        let terminated = floats(&[1.0, 1.0, 1.0]);
+
+        let got = host(compute_target_q_values(
+            rewards, next_q_max, terminated, 0.99,
+        ));
+        let want = [1.5_f32, -2.0, 0.25];
+
+        for (i, (&g, &w)) in got.iter().zip(want.iter()).enumerate() {
+            assert!(
+                g.is_finite(),
+                "a terminal transition must never inherit a non-finite bootstrap; \
+                 sample {i} got {g}"
+            );
+            assert_abs_diff_eq!(g, w, epsilon = EPS);
+        }
+    }
+
+    #[test]
+    fn test_compute_target_q_values_bootstraps_when_not_terminated() {
+        // Masking must not disturb the non-terminal path: every sample here
+        // keeps the full `reward + gamma * next_q_max` target.
+        let gamma = 0.9_f32;
+        const REWARDS: [f32; 3] = [1.0, -0.5, 0.0];
+        // 1.0 + 0.9*2.0 = 2.8 ; -0.5 + 0.9*4.0 = 3.1 ; 0.0 + 0.9*(-3.0) = -2.7
+        const WANT: [f32; 3] = [2.8, 3.1, -2.7];
+
+        let got = host(compute_target_q_values(
+            floats(&REWARDS),
+            floats(&[2.0, 4.0, -3.0]),
+            floats(&[0.0, 0.0, 0.0]),
+            gamma,
+        ));
+
+        for (i, (&g, &w)) in got.iter().zip(WANT.iter()).enumerate() {
+            assert_abs_diff_eq!(g, w, epsilon = EPS);
+            assert!(
+                (g - REWARDS[i]).abs() > EPS,
+                "sample {i} must actually bootstrap, not collapse to the reward; got {g}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_target_q_values_matches_scaled_formula_on_finite_inputs() {
+        // Mixed terminal / non-terminal batch, all finite: the masked form must
+        // reproduce the old `* (1.0 - terminated)` result exactly.
+        let gamma = 0.97_f32;
+        let rewards = [0.0_f32, 1.25, -3.5, 2.0, -0.75, 10.0];
+        let next_q_max = [5.0_f32, -5.0, 0.0, 123.5, -0.125, 1.0];
+        let terminated = [0.0_f32, 1.0, 0.0, 1.0, 0.0, 1.0];
+
+        let want = host(scaled_reference(
+            floats(&rewards),
+            floats(&next_q_max),
+            floats(&terminated),
+            gamma,
+        ));
+        let got = host(compute_target_q_values(
+            floats(&rewards),
+            floats(&next_q_max),
+            floats(&terminated),
+            gamma,
+        ));
+
+        assert_eq!(
+            got.len(),
+            want.len(),
+            "masking must preserve the batch length"
+        );
+        for (i, (&g, &w)) in got.iter().zip(want.iter()).enumerate() {
+            assert_abs_diff_eq!(g, w, epsilon = EPS);
+            assert!(
+                g.is_finite(),
+                "finite inputs must give a finite target; sample {i} got {g}"
+            );
+        }
+    }
 
     // Hand-set constant weights. `active` and `target` differ in *every*
     // element, which is what lets the tau = 0 and tau = 0.25 tests distinguish
