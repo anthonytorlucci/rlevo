@@ -198,9 +198,12 @@ fn prime_buffer(agent: &mut LinearAgent, env: &mut LinearEnv, rng: &mut StdRng, 
         let action = agent.act(&obs, true, rng);
         let next = env.step(action).expect("step");
         let reward: f32 = (*next.reward()).into();
+        // `done` drives the episode reset; `terminated` is the Bellman
+        // bootstrap mask. `LinearEnv` only ever truncates, so these differ.
         let done = next.is_done();
+        let terminated = next.is_terminated();
         let next_obs = *next.observation();
-        agent.remember(obs, &action, reward, next_obs, done);
+        agent.remember(obs, &action, reward, next_obs, terminated);
         agent.on_env_step();
         snap = if done {
             env.reset().expect("reset")

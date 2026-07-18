@@ -161,14 +161,51 @@ downward. The correct target still bootstraps:
 Conflate the two and you systematically under-value states near your time limit.
 `rlevo` refuses to let you conflate them: `Terminated` and `Truncated` are
 separate enum variants, and `Snapshot` exposes `is_terminated()` and
-`is_truncated()` as distinct predicates (`is_done()` is just their `or`). The
-distinction is carried, not collapsed — `rlevo`'s PPO rollout buffer, for
-instance, records `terminated` and `truncated` as separate per-step flags so its
-advantage estimation can treat them correctly.
+`is_truncated()` as distinct predicates (`is_done()` is just their `or`).
 
 > **In `rlevo`.** The lesson the type encodes: "the episode is over" is not one
 > boolean. Reaching for a single `done` flag is the bug; the three-variant
 > `EpisodeStatus` makes the safe path the default one.
+
+### GAE and truncation: two masks, not one
+
+`rlevo`'s PPO/PPG rollout buffer carries this distinction all the way to the
+advantage estimate, and it takes *two* masks to do it correctly at a truncated
+step. The **delta** still bootstraps, from \\(V(s_{\text{cont}})\\) — the value
+of the state the episode was cut at — because the agent's future is real and
+only the clock stopped. The recursion that GAE's own trace-decay
+\\(\lambda\\) drives — unrelated to the population-size \\(\lambda\\) on the
+[Notation](../../notation.md) page; only the letter is shared —
+**is nonetheless still cut** at that step, because the *trajectory* the
+exponentially-weighted sum runs over really did end.
+Pardo, Tavakoli, Levdik, and Kormushev give this rule as Eq. 6 of their paper,
+under the name **partial-episode bootstrapping (PEB)**: bootstrap at every
+ending except an environmental termination, timeouts included
+[Pardo et al., 2018].
+
+This is worth naming explicitly, because it is a **deliberate divergence** from
+the most widely read reference PPO implementation. CleanRL's default PPO ORs
+`terminated` and `truncated` into one flag before the recursion runs, so a
+timeout zeroes the bootstrap exactly like a real termination — a simplification
+its own maintainers describe as intentional for a single-file, pedagogical
+reference. `rlevo` instead follows Stable-Baselines3 and Pardo et al.'s Eq. 6.
+**If you diff `rlevo`'s numbers against a CleanRL run on a `TimeLimit`-wrapped
+environment, this is why they will not match** — it is a fidelity choice, not a
+bug in either implementation. See
+[ADR 0048](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0048-partial-episode-bootstrapping-in-gae.md)
+for the full derivation, including the entangled GAE-indexing fix that shipped
+alongside it and which moves every seeded PPO/PPG baseline — re-measure rather
+than re-fit thresholds if you are updating from an older `rlevo`.
+
+> **Out of scope: a residual bias PEB does not fix.** Correct terminal
+> bootstrapping is not the last word on GAE at an episode boundary. Doering et
+> al. identify a separate, deeper issue: the geometric weighting scheme inside
+> GAE's exponential sum [Schulman et al., 2016] collapses its mass onto the
+> longest available k-step estimator right at a boundary, independent of
+> whether that boundary's bootstrap is correct [Doering et al., 2026]. `rlevo`
+> still carries this residual bias, as does every GAE implementation that has
+> not adopted an unreplicated weight correction — it is a live research
+> question, not an oversight in this fix.
 
 ## Shaped and multi-component rewards
 
@@ -231,6 +268,11 @@ impl.
   type pins the abstract trait to a concrete one.
 - **`EpisodeStatus`** keeps `Terminated` and `Truncated` separate so value
   targets bootstrap correctly — a type-level guard against a classic RL bug.
+- **PEB in GAE.** A truncation bootstraps the delta but still cuts the
+  \\(\lambda\\)-recursion (Pardo et al., 2018, Eq. 6) — a deliberate divergence from
+  CleanRL's default that a researcher comparing numbers across the two needs to
+  know about; a residual GAE-weighting bias at episode boundaries remains, and
+  is a live research question rather than a defect.
 - **`SnapshotMetadata`** logs shaped-reward components without polluting the
   optimised scalar. `SnapshotBase` carries it natively — attach with
   `.with_metadata(..)` — so custom `Reward` impls are only needed for genuinely

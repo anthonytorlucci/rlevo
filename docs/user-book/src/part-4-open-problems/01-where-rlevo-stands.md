@@ -58,8 +58,8 @@ All eight agents have integration tests and benchmark harnesses.
 | DQN | Stable | Discrete actions; experience replay, target network, optional Double-DQN (`double_q`) |
 | C51 | Stable | Categorical (distributional) DQN; discrete actions |
 | QR-DQN | Stable | Quantile-regression (distributional) DQN; discrete actions |
-| PPO | Stable | On-policy; clipped surrogate, GAE, tanh-Gaussian + categorical heads |
-| PPG | Stable | Phasic Policy Gradient; auxiliary value phase with KL distillation (v1 discrete-only) |
+| PPO | Stable | On-policy; clipped surrogate, GAE with partial-episode bootstrapping (PEB) on truncation, tanh-Gaussian + categorical heads |
+| PPG | Stable | Phasic Policy Gradient; shares PPO's PEB-corrected GAE; auxiliary value phase with KL distillation (v1 discrete-only) |
 | DDPG | Stable | Off-policy, continuous actions; deterministic actor + Q-critic, Polyak targets |
 | TD3 | Stable | Off-policy, continuous; twin critics, target-policy smoothing, delayed updates |
 | SAC | Stable | Off-policy, continuous; squashed-Gaussian actor, twin critics, auto-tuned temperature α |
@@ -94,6 +94,16 @@ with strong variable dependencies, this is the most-missed strategy.
 **Distributed evaluation.** Population evaluation is parallelised locally via
 `rayon`. There is no built-in support for distributing evaluation across
 machines.
+
+**Residual GAE weighting bias at episode boundaries.** Partial-episode
+bootstrapping ([ADR 0048](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0048-partial-episode-bootstrapping-in-gae.md))
+corrects the terminal *bootstrap value* for a truncated episode, but GAE's
+geometric weighting still collapses its mass onto the longest available k-step
+estimator right at any episode boundary — a separate issue Doering et al.
+(2026) identify and partially correct on environments with strong terminal
+signal, such as Lunar Lander. This is a **live research question, not a defect
+in `rlevo`'s PEB fix**; see [Rewards](../part-1-foundations/reinforcement-learning/33-reward.md#gae-and-truncation-two-masks-not-one)
+for where it is discussed alongside the fix it does not replace.
 
 **Reproducibility with GPU backends.** The `wgpu` backend uses GPU kernels whose
 non-determinism can break exact reproducibility even with a fixed seed.

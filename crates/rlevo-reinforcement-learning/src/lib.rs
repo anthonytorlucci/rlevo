@@ -35,6 +35,11 @@ pub mod algorithms {
 
     pub(crate) mod shared;
 
+    /// Shared test scaffolding for the truncation-vs-termination bootstrap
+    /// guard in the six off-policy `train` loops.
+    #[cfg(test)]
+    pub(crate) mod bootstrap_mask;
+
     pub mod dqn {
         //! Deep Q-Network algorithm.
 

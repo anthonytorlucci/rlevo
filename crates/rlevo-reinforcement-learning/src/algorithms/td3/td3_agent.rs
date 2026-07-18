@@ -102,11 +102,19 @@ struct Transition<O: Clone> {
     action: Vec<f32>,
     reward: f32,
     next_obs: O,
-    done: bool,
+    /// `true` **only** for an environmental termination — the MDP reached an
+    /// absorbing state, so the return beyond `next_obs` is zero by definition.
+    ///
+    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
+    /// the episode without ending the MDP, and `next_obs` is then a genuine
+    /// continuation state. Zeroing the bootstrap there biases every Q-value
+    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
+    /// Reinforcement Learning", ICML 2018, Eq. 6.
+    terminated: bool,
 }
 
 /// Computes the twin-critic TD target:
-/// `y = r + γ · (1 − done) · min(next_q1, next_q2)`.
+/// `y = r + γ · (1 − terminated) · min(next_q1, next_q2)`.
 ///
 /// Exposed at crate visibility so the unit tests can cover the core TD3
 /// invariant without standing up a full agent.
@@ -114,11 +122,11 @@ pub(crate) fn compute_twin_critic_target<BI: Backend>(
     rewards: Tensor<BI, 1>,
     next_q1: Tensor<BI, 1>,
     next_q2: Tensor<BI, 1>,
-    dones: Tensor<BI, 1>,
+    terminated: Tensor<BI, 1>,
     gamma: f32,
 ) -> Tensor<BI, 1> {
     let min_q = next_q1.min_pair(next_q2);
-    compute_target_q_values(rewards, min_q, dones, gamma)
+    compute_target_q_values(rewards, min_q, terminated, gamma)
 }
 
 /// Twin Delayed DDPG (TD3) agent.
@@ -396,7 +404,18 @@ where
 
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, done: bool) {
+    ///
+    /// # Arguments
+    ///
+    /// - `terminated` — pass [`Snapshot::is_terminated`], **not**
+    ///   [`Snapshot::is_done`]. Only a true environmental termination may zero
+    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
+    ///   is a genuine continuation state whose value must still be
+    ///   bootstrapped. See [`Transition::terminated`].
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if self.buffer.len() >= self.config.buffer_capacity {
             self.buffer.pop_front();
         }
@@ -405,8 +424,19 @@ where
             action: action.as_slice().to_vec(),
             reward,
             next_obs,
-            done,
+            terminated,
         });
+    }
+
+    /// Test-only view of the Bellman bootstrap masks currently held in the
+    /// replay buffer, oldest first.
+    ///
+    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// recorded with `terminated = false` — the invariant that separates a
+    /// time-limit cutoff from a real MDP termination.
+    #[cfg(test)]
+    pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
+        self.buffer.iter().map(|t| t.terminated).collect()
     }
 
     /// Advances the global env-step counter. Called once per env step.
@@ -469,7 +499,7 @@ where
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
         let mut action_flat: Vec<f32> = Vec::with_capacity(batch_size * action_numel);
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
-        let mut dones: Vec<f32> = Vec::with_capacity(batch_size);
+        let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
         for idx in &indices {
             let t = &self.buffer[*idx];
@@ -481,7 +511,7 @@ where
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
-            dones.push(if t.done { 1.0 } else { 0.0 });
+            terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
         let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(DB);
@@ -502,8 +532,8 @@ where
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let dones_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(dones, vec![batch_size]), &device);
+        let terminated_inner: Tensor<B::InnerBackend, 1> =
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target computation (no autodiff) ---
         // Convention matches DDPG and CleanRL: clip to `low[0]`/`high[0]`.
@@ -532,7 +562,7 @@ where
             rewards_inner,
             next_q1,
             next_q2,
-            dones_inner,
+            terminated_inner,
             self.config.gamma,
         );
         let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
@@ -655,7 +685,7 @@ mod tests {
     fn td3_target_is_min_of_twin_critics() {
         // `next_q1 = [2.0, 1.0, 5.0]` and `next_q2 = [3.0, 0.5, 4.0]` →
         // element-wise min is `[2.0, 0.5, 4.0]`. With γ = 0.9, non-terminal
-        // rewards `[0.1, 0.2, 0.3]` and dones `[0, 0, 1]`, the target is
+        // rewards `[0.1, 0.2, 0.3]` and terminated `[0, 0, 1]`, the target is
         // `[0.1 + 0.9*2.0, 0.2 + 0.9*0.5, 0.3 + 0.9*4.0*0]`
         // `= [1.9, 0.65, 0.3]`.
         let device = Default::default();
@@ -665,10 +695,10 @@ mod tests {
             Tensor::<BI, 1>::from_data(TensorData::new(vec![2.0_f32, 1.0, 5.0], vec![3]), &device);
         let next_q2 =
             Tensor::<BI, 1>::from_data(TensorData::new(vec![3.0_f32, 0.5, 4.0], vec![3]), &device);
-        let dones =
+        let terminated =
             Tensor::<BI, 1>::from_data(TensorData::new(vec![0.0_f32, 0.0, 1.0], vec![3]), &device);
 
-        let target = compute_twin_critic_target(rewards, next_q1, next_q2, dones, 0.9);
+        let target = compute_twin_critic_target(rewards, next_q1, next_q2, terminated, 0.9);
         let data = target.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().unwrap();
         assert!((slice[0] - 1.9).abs() < 1e-6, "row 0: {}", slice[0]);

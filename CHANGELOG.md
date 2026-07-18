@@ -98,6 +98,102 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-reinforcement-learning`
 
+**Breaking changes**
+
+- **GAE read episode done-ness one step late, mis-timing the bootstrap cut for
+  *every* PPO/PPG run** (resolves #170, part 1). `RolloutBuffer::push_step`
+  stores `obs[t]` alongside the status of the transition *out of* `obs[t]`, so
+  `terminated[t]` means "transition `t` ended the episode" — which is exactly
+  what decides whether `values[t + 1]` belongs to the same episode.
+  `compute_gae` instead consulted `terminated[t + 1] || truncated[t + 1]`, while
+  its own final-step branch used `last_done` on the *correct* `[t]` convention.
+  Two conventions in one loop; only `[t]` is right. Every episode boundary
+  zeroed the bootstrap one step early and the true terminal step kept a
+  bootstrap it should not have had.
+
+  This is **not** confined to time-limited environments — it mis-weights
+  genuinely *terminated* episodes too, so it affects every PPO and PPG user.
+
+  `compute_gae` and `RolloutBuffer::finish` **lose their `last_done`
+  parameter**. Once each step's status is read at `[t]`, the final step's
+  done-ness is already recorded in the buffer; the parameter existed only to
+  paper over `[t + 1]` running off the end, and was the precise site where the
+  two conventions collided. `RolloutBuffer::last_step_ended()` replaces it.
+
+  *Migration.* Drop the `last_done` argument from any `compute_gae` or
+  `finish` call. **All seeded PPO/PPG results change — re-measure baselines
+  rather than re-fitting thresholds to them.**
+
+  The existing `gae_handles_terminated_mid_rollout` test asserted the wrong
+  values and its comment recorded the author reasoning toward them ("Wait — the
+  convention is…"), which is why the defect survived review; it has been
+  rewritten from a fresh hand-computed expectation rather than adjusted.
+
+- **Truncated steps now bootstrap `V(s_continuation)` instead of being treated
+  as terminations** (ADR 0048, resolves #170, part 2). Per Pardo et al.,
+  "Time Limits in Reinforcement Learning" (ICML 2018) Eq. 6, a time-limit
+  cutoff ends the *trajectory*, not the *task*: the GAE delta must bootstrap
+  from the value of the state the episode was cut at, while the λ-recursion is
+  still cut at the boundary. These are two distinct masks, and the single
+  `next_nonterminal` term could not express both — which is why the previous
+  code could not be fixed by reworking the existing flags alone.
+
+  This is a **deliberate divergence from CleanRL's default PPO**, which ORs
+  `terminations` and `truncations` before the recursion; `rlevo` now follows
+  Stable-Baselines3 and the source literature instead. Results on
+  `TimeLimit`-wrapped environments are no longer directly comparable to
+  CleanRL's. The prior behaviour was a documented, accepted tradeoff rather
+  than an oversight — ADR 0048 records the reversal and its justification.
+
+  `RolloutBuffer` replaces `truncated: Vec<bool>` with
+  `truncation_value: Vec<Option<f32>>`, so "is truncated" and "has a bootstrap
+  value" cannot disagree by construction — a parallel `Vec<f32>` would make an
+  unset `0.0` indistinguishable from a legitimate zero bootstrap, reproducing
+  the very bug being fixed. `push_step` correspondingly takes a new
+  `StepEnd { Running, Terminated, Truncated { bootstrap_value } }` rather than a
+  `(EpisodeStatus, Option<f32>)` pair, which would still admit `Truncated` with
+  no value. `compute_gae`'s `truncated: &[bool]` becomes
+  `truncation_value: &[Option<f32>]`.
+
+  *Migration.* `PpoAgent::record_step` and `PpgAgent::record_step` gain a
+  trailing `next_obs: &O`. Pass the observation from the snapshot the
+  environment just returned — **not** the observation from a subsequent
+  `reset()`. The agent computes the continuation value itself, and only when
+  the status is `Truncated`, so a hand-written loop cannot forget to: it never
+  computes a value at all. Cost is one extra value forward per truncation and
+  none per ordinary step.
+
+- **`ExperienceTuple.is_done` renamed to `terminated`** (resolves #170, part 4).
+  The field is the Bellman bootstrap mask, so it may only ever hold
+  `Snapshot::is_terminated` — but it was named after `is_done`, and its one
+  caller obligingly passed `is_done()`. Parts 1–3 corrected the semantics and
+  the rustdoc; leaving the name behind would have left the module `CLAUDE.md`
+  cites as *the* RL replay buffer telling the next reader two different things
+  at once, with the name winning at the call site every time. A bootstrap mask
+  that says "done" collects truncations, and every Q-value learned through it is
+  biased toward the pessimistic assumption that time running out is the same as
+  the task ending.
+
+  `PrioritizedExperienceReplay::add` and `History::add` rename their
+  corresponding `is_done` parameter to `terminated`, and `TrainingBatch.dones`
+  becomes `TrainingBatch.terminated` — the sampled tensor is the same mask one
+  hop downstream, and a bundle whose field still said "done" would hand the
+  learning algorithms back the misreading the rest of this entry removes.
+
+  *Migration.* Rename both fields in any `ExperienceTuple` or `TrainingBatch`
+  struct literal or field read, and — this is the part that changes results,
+  not just compilation — pass
+  `snapshot.is_terminated()` rather than `snapshot.is_done()` at every `add`
+  call site. The parameters are positional `bool`s, so a call site left
+  unexamined still compiles and still trains, just wrongly.
+
+  **No production agent used PER**, so the blast radius was latent rather than
+  live: each of the six off-policy agents carries its own private `Transition` +
+  `VecDeque`, all six corrected in part 3. The only caller was an integration
+  test asserting batch tensor shapes, which never read the flag back. This is a
+  trap disarmed before anyone wired PER into an agent, not a bug that was
+  corrupting shipped training runs.
+
 **Changed**
 
 - **`target_update_frequency` default raised from `100` to `10_000` for DQN,
@@ -123,6 +219,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   handful of times (see #337 for per-scale tuning guidance).
 
 **Fixed**
+
+- **DQN, C51, QR-DQN, DDPG, TD3 and SAC zeroed the Bellman bootstrap on
+  time-limit truncation, biasing Q-values downward on every time-limited
+  environment** (resolves #170, part 3). All six training loops masked the
+  target with `snapshot.is_done()`, which is true for `Truncated` as well as
+  `Terminated`. Zeroing on truncation tells the agent the trajectory genuinely
+  ended with no future value; the error is systematic, always downward, and
+  compounds silently over long runs. The canonical target is
+  `r + γ · ¬terminated · max_a Q(s′, a)` (Pardo et al. 2018 Eq. 6; Gymnasium
+  Eq. 2) — the mask is `¬terminated`, never `¬done`. TD3's own paper specified
+  this in 2018 (Fujimoto et al., Appendix D), so the implementation diverged
+  from its own primary source.
+
+  The loops now bind `terminated` for the replay mask and keep `done` for
+  episode bookkeeping and `env.reset()`. The private `Transition.done` field is
+  renamed `terminated` throughout the batch path, so nothing downstream still
+  calls a terminated-mask "dones".
+
+  **No signature or storage change was required.** Each loop already cloned
+  `next_snapshot.observation()` *before* the `env.reset()` inside its `if done`
+  branch, so the replay buffer was already storing the true continuation state
+  — `max_a Q(next_obs, a)` was already `V(s_continuation)`. Only the mask was
+  wrong. (Issue #170 as filed asserted the opposite, claiming the fix required
+  plumbing a continuation observation through `remember` and `Transition`;
+  triage refuted that.)
+
+  Nothing caught this because none of the six training loops had a
+  `#[cfg(test)]` module at all, and every replay-level test used an environment
+  that terminates rather than truncates — so no test could distinguish the two
+  masks. The new coverage pins the episode-end *cadence* alongside the mask, so
+  a truncation assertion cannot pass vacuously by the episode simply never
+  ending.
 
 - **The default DQN, C51 and QR-DQN config ran two target-update mechanisms at
   once, and the hard one erased the soft one** (resolves #182) — `sync_target`

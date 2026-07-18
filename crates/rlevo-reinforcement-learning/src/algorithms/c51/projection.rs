@@ -11,7 +11,7 @@
 //! distribution is shifted by the Bellman backup:
 //!
 //! ```text
-//! Tz_i = clamp(r + γ · (1 − done) · z_i, v_min, v_max)
+//! Tz_i = clamp(r + γ · (1 − terminated) · z_i, v_min, v_max)
 //! ```
 //!
 //! `Tz_i` generally falls between two atoms of the *fixed* support. The
@@ -31,7 +31,7 @@ use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 /// - `next_probs`: target-network probability mass for the bootstrap action,
 ///   shape `(batch, num_atoms)`. Must sum to ≈1 along the atom axis.
 /// - `rewards`: per-sample reward `r`, shape `(batch,)`.
-/// - `dones`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch,)`.
+/// - `terminated`: per-sample terminal mask in `{0.0, 1.0}`, shape `(batch,)`.
 /// - `support`: atom values `z_0 … z_{N-1}`, shape `(num_atoms,)`, assumed
 ///   uniformly spaced between `v_min` and `v_max`.
 /// - `gamma`: discount factor.
@@ -45,7 +45,7 @@ use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 pub fn project_distribution<B: Backend>(
     next_probs: Tensor<B, 2>,
     rewards: Tensor<B, 1>,
-    dones: Tensor<B, 1>,
+    terminated: Tensor<B, 1>,
     support: Tensor<B, 1>,
     gamma: f32,
     v_min: f32,
@@ -63,11 +63,11 @@ pub fn project_distribution<B: Backend>(
 
     // Broadcast each argument to (B, N).
     let rewards_bn: Tensor<B, 2> = rewards.unsqueeze_dim::<2>(1); // (B, 1)
-    let dones_bn: Tensor<B, 2> = dones.unsqueeze_dim::<2>(1); // (B, 1)
+    let terminated_bn: Tensor<B, 2> = terminated.unsqueeze_dim::<2>(1); // (B, 1)
     let support_bn: Tensor<B, 2> = support.unsqueeze_dim::<2>(0); // (1, N)
 
-    // Bellman shift: Tz = clamp(r + γ · (1 − done) · z, v_min, v_max).
-    let keep = dones_bn.neg().add_scalar(1.0); // 1 − done
+    // Bellman shift: Tz = clamp(r + γ · (1 − terminated) · z, v_min, v_max).
+    let keep = terminated_bn.neg().add_scalar(1.0); // 1 − terminated
     let tz = rewards_bn + keep * support_bn * gamma;
     let tz = tz.clamp(v_min, v_max);
 
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn projection_identity_when_support_aligned() {
-        // With reward = 0, γ = 1, done = 0 and a support that passes through
+        // With reward = 0, γ = 1, terminated = 0 and a support that passes through
         // every atom, each atom maps to itself — the projection is the
         // identity on the input probabilities.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -130,10 +130,11 @@ mod tests {
             &device,
         );
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let dones = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let terminated =
+            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, &device);
 
-        let out = project_distribution(next_probs, rewards, dones, support, 1.0, -1.0, 1.0, 3);
+        let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
         assert!((v[0] - 0.5).abs() < 1e-6);
         assert!((v[1] - 0.3).abs() < 1e-6);
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn projection_terminal_reward_half_splits_between_atoms_one_and_two() {
         // Hand-computed Bellemare-style reference on a 3-atom support:
-        //   support = [-1, 0, 1], reward = 0.5, done = 1 → Tz ≡ 0.5 ∀ z_i
+        //   support = [-1, 0, 1], reward = 0.5, terminated = 1 → Tz ≡ 0.5 ∀ z_i
         //   b = 1.5 → mass evenly split between atoms 1 and 2, independent of
         //   next_probs.
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
@@ -152,10 +153,12 @@ mod tests {
             &device,
         );
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.5_f32], vec![1]), &device);
-        let dones = Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
+        let terminated =
+            Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, &device);
 
-        let out = project_distribution(next_probs, rewards, dones, support, 0.99, -1.0, 1.0, 3);
+        let out =
+            project_distribution(next_probs, rewards, terminated, support, 0.99, -1.0, 1.0, 3);
         let v = into_vec(out);
         assert!(v[0].abs() < 1e-6, "atom 0 should be empty, got {}", v[0]);
         assert!(
@@ -178,10 +181,11 @@ mod tests {
         let next_probs =
             Tensor::<B, 2>::from_data(TensorData::new(vec![1.0_f32 / 3.0; 3], vec![1, 3]), &device);
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
-        let dones = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
+        let terminated =
+            Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let support = make_support(-1.0, 1.0, 3, &device);
 
-        let out = project_distribution(next_probs, rewards, dones, support, 1.0, -1.0, 1.0, 3);
+        let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
         assert!(v[0].abs() < 1e-6);
         assert!(v[1].abs() < 1e-6);
@@ -207,13 +211,13 @@ mod tests {
             TensorData::new(vec![0.3_f32, -0.5, 1.2, 0.0], vec![batch]),
             &device,
         );
-        let dones = Tensor::<B, 1>::from_data(
+        let terminated = Tensor::<B, 1>::from_data(
             TensorData::new(vec![0.0_f32, 1.0, 0.0, 0.0], vec![batch]),
             &device,
         );
         let support = make_support(-2.0, 2.0, n, &device);
 
-        let out = project_distribution(next_probs, rewards, dones, support, 0.9, -2.0, 2.0, n);
+        let out = project_distribution(next_probs, rewards, terminated, support, 0.9, -2.0, 2.0, n);
         let v = into_vec(out);
         for row in v.chunks(n) {
             let s: f32 = row.iter().sum();

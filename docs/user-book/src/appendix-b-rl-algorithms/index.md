@@ -12,7 +12,10 @@ for the conceptual overview.
 - DQN — full pseudocode, experience replay details, target network update schedule
 - Double DQN — decoupled action selection and evaluation
 - Dueling DQN — value / advantage decomposition
-- PPO — clipped surrogate objective, advantage estimation (GAE)
+- PPO — clipped surrogate objective, advantage estimation (GAE) with
+  partial-episode bootstrapping on truncation, deliberately diverging from
+  CleanRL's default
+  ([ADR 0048](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0048-partial-episode-bootstrapping-in-gae.md))
 - SAC — entropy-regularised objective, twin critics, automatic temperature tuning
 
 ---

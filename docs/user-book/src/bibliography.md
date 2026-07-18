@@ -49,6 +49,9 @@ Class of Genetic Adaptive Systems* (PhD thesis). University of Michigan.
 whale optimization algorithm and its validation method. *Expert Systems with
 Applications*, 237, 121544.
 
+**[Doering et al., 2026]** Doering et al. (2026). An approximate ascent approach
+to prove convergence of PPO. arXiv.
+
 **[Eiben and Smith, 2015]** Eiben, A. E., & Smith, J. E. (2015). *Introduction to
 Evolutionary Computing* (2nd ed.). Springer.
 
@@ -134,6 +137,10 @@ Concurrent Computation Program, Tech. Report 826.
 **[Nocedal and Wright, 2006]** Nocedal, J., & Wright, S. J. (2006). *Numerical
 Optimization* (2nd ed.). Springer.
 
+**[Pardo et al., 2018]** Pardo, F., Tavakoli, A., Levdik, V., & Kormushev, P.
+(2018). Time limits in reinforcement learning. *Proceedings of ICML* (PMLR 80).
+arXiv:1712.00378.
+
 **[Pareto, 1896]** Pareto, V. (1896). *Cours d'économie politique*. F. Rouge,
 Lausanne.
 
@@ -158,6 +165,10 @@ reinforcement learning. arXiv:1703.03864.
 **[Schulman et al., 2015]** Schulman, J., Levine, S., Abbeel, P., Jordan, M. I.,
 & Moritz, P. (2015). Trust region policy optimization. *Proceedings of ICML*
 (PMLR 37), 1889–1897. arXiv:1502.05477.
+
+**[Schulman et al., 2016]** Schulman, J., Moritz, P., Levine, S., Jordan, M., &
+Abbeel, P. (2016). High-dimensional continuous control using generalized
+advantage estimation. *Proceedings of ICLR*. arXiv:1506.02438.
 
 **[Schulman et al., 2017]** Schulman, J., Wolski, F., Dhariwal, P., Radford, A.,
 & Klimov, O. (2017). Proximal policy optimization algorithms. arXiv:1707.06347.
@@ -189,6 +200,10 @@ function approximation. *Advances in Neural Information Processing Systems*, 12.
 **[Sutton and Barto, 2018]** Sutton, R. S., & Barto, A. G. (2018). *Reinforcement
 Learning: An Introduction* (2nd ed.). MIT Press. Available free at
 [incompleteideas.net](http://incompleteideas.net/book/the-book-2nd.html).
+
+**[Towers et al., 2025]** Towers, M., et al. (2025). Gymnasium: A standardized
+interface for reinforcement learning environments. *Advances in Neural
+Information Processing Systems*, 38. arXiv:2407.17032.
 
 **[van Hasselt et al., 2016]** van Hasselt, H., Guez, A., & Silver, D. (2016).
 Deep reinforcement learning with double Q-learning. *Proceedings of AAAI*, 30(1).

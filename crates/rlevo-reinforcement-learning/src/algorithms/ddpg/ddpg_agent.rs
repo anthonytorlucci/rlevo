@@ -93,7 +93,15 @@ struct Transition<O: Clone> {
     action: Vec<f32>,
     reward: f32,
     next_obs: O,
-    done: bool,
+    /// `true` **only** for an environmental termination — the MDP reached an
+    /// absorbing state, so the return beyond `next_obs` is zero by definition.
+    ///
+    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
+    /// the episode without ending the MDP, and `next_obs` is then a genuine
+    /// continuation state. Zeroing the bootstrap there biases every Q-value
+    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
+    /// Reinforcement Learning", ICML 2018, Eq. 6.
+    terminated: bool,
 }
 
 /// Deep Deterministic Policy Gradient agent.
@@ -354,7 +362,18 @@ where
 
     /// Appends a transition to the replay buffer, evicting the oldest entry
     /// when the buffer is at capacity.
-    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, done: bool) {
+    ///
+    /// # Arguments
+    ///
+    /// - `terminated` — pass [`Snapshot::is_terminated`], **not**
+    ///   [`Snapshot::is_done`]. Only a true environmental termination may zero
+    ///   the Bellman bootstrap; on a truncation (time-limit cutoff) `next_obs`
+    ///   is a genuine continuation state whose value must still be
+    ///   bootstrapped. See [`Transition::terminated`].
+    ///
+    /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
+    /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
         if self.buffer.len() >= self.config.buffer_capacity {
             self.buffer.pop_front();
         }
@@ -363,8 +382,19 @@ where
             action: action.as_slice().to_vec(),
             reward,
             next_obs,
-            done,
+            terminated,
         });
+    }
+
+    /// Test-only view of the Bellman bootstrap masks currently held in the
+    /// replay buffer, oldest first.
+    ///
+    /// Exists so the `train`-loop tests can assert that a *truncated* step was
+    /// recorded with `terminated = false` — the invariant that separates a
+    /// time-limit cutoff from a real MDP termination.
+    #[cfg(test)]
+    pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
+        self.buffer.iter().map(|t| t.terminated).collect()
     }
 
     /// Advances the global env-step counter. Called once per env step.
@@ -420,7 +450,7 @@ where
         let mut next_flat: Vec<f32> = Vec::with_capacity(batch_size * obs_numel);
         let mut action_flat: Vec<f32> = Vec::with_capacity(batch_size * action_numel);
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
-        let mut dones: Vec<f32> = Vec::with_capacity(batch_size);
+        let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
         for idx in &indices {
             let t = &self.buffer[*idx];
@@ -432,7 +462,7 @@ where
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
-            dones.push(if t.done { 1.0 } else { 0.0 });
+            terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
 
         let mut batched_obs_shape: Vec<usize> = Vec::with_capacity(DB);
@@ -453,8 +483,8 @@ where
 
         let rewards_inner: Tensor<B::InnerBackend, 1> =
             Tensor::from_data(TensorData::new(rewards, vec![batch_size]), &device);
-        let dones_inner: Tensor<B::InnerBackend, 1> =
-            Tensor::from_data(TensorData::new(dones, vec![batch_size]), &device);
+        let terminated_inner: Tensor<B::InnerBackend, 1> =
+            Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target computation (no autodiff) ---
         // CleanRL uses low[0]/high[0] as a scalar clip on the target action;
@@ -467,7 +497,7 @@ where
         let next_q: Tensor<B::InnerBackend, 1> =
             Critic::forward_inner(&self.target_critic, next_t_inner, next_actions);
         let target_inner: Tensor<B::InnerBackend, 1> =
-            compute_target_q_values(rewards_inner, next_q, dones_inner, self.config.gamma);
+            compute_target_q_values(rewards_inner, next_q, terminated_inner, self.config.gamma);
         let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
         // --- Critic update ---

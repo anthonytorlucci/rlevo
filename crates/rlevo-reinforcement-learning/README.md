@@ -342,7 +342,7 @@ Off-policy replay storage shared across the value-based and actor-critic algorit
 |------|-------------|
 | `PrioritizedExperienceReplay<D, AD, O, A, R>` | Off-policy replay buffer with priority-weighted sampling. Priorities are raised to power `alpha` before normalization. FIFO eviction at capacity. |
 | `PrioritizedExperienceReplayBuilder<D, AD, O, A, R>` | Fluent builder: `.with_capacity(n).with_alpha(0.6).build()` |
-| `TrainingBatch<BD, BAD, B>` | GPU-ready tensor bundle (`observations`, `actions`, `rewards`, `next_observations`, `dones`) consumed by learning algorithms |
+| `TrainingBatch<BD, BAD, B>` | GPU-ready tensor bundle (`observations`, `actions`, `rewards`, `next_observations`, `terminated`) consumed by learning algorithms |
 
 ```rust
 use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
@@ -352,7 +352,7 @@ let mut buffer = PrioritizedExperienceReplayBuilder::default()
     .with_alpha(0.6)
     .build();
 
-// buffer.add(obs, action, reward, next_obs, is_done, priority);
+// buffer.add(obs, action, reward, next_obs, terminated, priority);
 // let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
 ```
 
