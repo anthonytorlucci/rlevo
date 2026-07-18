@@ -259,10 +259,11 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         .value_coef(0.5)
         .gamma(0.99)
         .gae_lambda(0.95)
-        // Global grad-norm clip of 0.5 (CleanRL default). The optimizer wraps
-        // both policy and value grads with this; without it, PPO can take
-        // destabilizing steps. NOTE: `max_grad_norm` is a separate, currently
-        // inert config field — `clip_grad` is the knob that actually clips.
+        // Gradient-norm clip at 0.5. `clip_grad` is the only clipping knob and
+        // is `None` (off) by default; without it PPO can take destabilizing
+        // steps. NOTE: Burn clips this **per tensor**, not across the global
+        // flattened parameter vector, so it is not CleanRL's detail #10
+        // global-norm clip. See issue #328.
         .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
         .build()
         .expect("valid config");

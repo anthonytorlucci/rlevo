@@ -149,10 +149,15 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 | `clip_value_loss` | true | Huang et al. #9 |
 | `entropy_coef` | 0.01 | CleanRL |
 | `value_coef` | 0.5 | CleanRL |
-| `max_grad_norm` | 0.5 | Huang et al. #11 |
+| `clip_grad` | `None` (no clipping) | — |
 | Adam `epsilon` | 1e-5 | Huang et al. #3 |
 
 `num_envs` is currently fixed at `1`; vectorised rollout is deferred.
+
+`clip_grad` is the only gradient-clipping knob and is **off by default**. Burn's
+`GradientClippingConfig::Norm` clips per tensor, not across the global flattened
+parameter vector, so setting it does not reproduce Huang et al. #10
+(global-norm clipping). True global-norm clipping is tracked in issue #328.
 
 **References**
 
