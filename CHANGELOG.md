@@ -98,8 +98,78 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### `rlevo-reinforcement-learning`
 
+**Changed**
+
+- **`target_update_frequency` default raised from `100` to `10_000` for DQN,
+  C51 and QR-DQN.** The old value had no basis in the literature or in any
+  reference implementation. The new one matches Stable-Baselines3's
+  `target_update_interval`, which — like our `step` counter — is measured in
+  **environment steps**, so the two are directly comparable.
+
+  This is deliberately *not* a literal match to Nature DQN, and the field docs
+  now say so. Mnih et al. 2015 specify `C = 10,000` measured in **parameter
+  updates** (Extended Data Table 1); at our `train_frequency: 4` that would be
+  ≈40,000 env steps. Our 10,000 env steps is ≈2,500 parameter updates — 4×
+  more frequent than Nature, and exactly SB3's convention. The field rustdocs
+  now state the unit explicitly, since "target update frequency" is measured
+  differently by different sources and the ambiguity is a live trap.
+
+  **No behavioral change under the shipped defaults**, which keep `tau = 0.005`
+  — after the #182 fix below, `target_update_frequency` is inert whenever
+  `tau > 0.0`. This affects only runs that explicitly opt into hard-sync mode
+  with `tau = 0.0`. Such runs will now sync the target 100× less often; if you
+  had been relying on the old `100` implicitly, set it explicitly. Note the new
+  default is Atari-scaled: on a short classic-control run it may sync only a
+  handful of times (see #337 for per-scale tuning guidance).
+
 **Fixed**
 
+- **The default DQN, C51 and QR-DQN config ran two target-update mechanisms at
+  once, and the hard one erased the soft one** (resolves #182) — `sync_target`
+  gated its full `target ← policy` copy on `target_update_frequency` alone and
+  never read `tau`, despite every config doc promising the opposite ("When
+  `tau > 0.0` … this field is ignored"). Because the `Default` shipped at the
+  time set **both** `tau = 0.005` and `target_update_frequency = 100` (that
+  frequency is now `10_000`, see **Changed** above), and each `train`
+  loop calls `sync_target()` unconditionally, a default run performed a Polyak
+  soft update every learn step *and* slammed the target onto the policy every
+  100 steps — destroying the target lag that Polyak exists to provide, which is
+  the whole mechanism these algorithms rely on for bootstrap stability. This
+  was not a config-exotic edge case; it was the default path for all three
+  agents. `sync_target` now returns early whenever `tau > 0.0`, so the hard
+  sync fires only under `tau == 0.0`, exactly as documented.
+
+  No published algorithm runs both schemes on one target network: Mnih et al.
+  2015 (DQN), Bellemare et al. 2017 (C51) and Dabney et al. 2018 (QR-DQN) all
+  specify a *pure* periodic hard copy, while Lillicrap et al. 2015 (DDPG)
+  specifies pure Polyak explicitly as a **replacement** for it — the point of
+  soft updates being that targets are "constrained to change slowly". Stable-
+  Baselines3 and CleanRL expose both knobs but as a *single* gated mechanism
+  (frequency says when, `tau` says how far), never as two independent schedules.
+
+  The tests could not catch it, for a sharper reason than #167/#168: nothing in
+  the workspace ever reads `target_net` — there is no accessor and never was
+  one. The three integration tests set **both** knobs (e.g. `.tau(0.005)` with
+  `.target_update_frequency(500)`), thereby *encoding the defective config*,
+  then assert only that rewards are finite and that two seeded runs agree. A
+  scheduled hard copy is both finite and perfectly deterministic, so those
+  assertions hold identically under either regime. Each agent now carries two
+  in-source unit tests asserting on the target's **parameter tensors** — one
+  pinning that `sync_target` is a no-op under `tau > 0.0`, one covering the
+  `tau == 0.0` hard-sync branch, which the fix would otherwise leave entirely
+  untested since no in-tree config sets it. Assertions deliberately avoid
+  Q-values and greedy actions: argmax is a lossy hash of the weights, so a
+  0.005 Polyak step and a full hard copy frequently yield the same action, and
+  such a test would have passed against the unfixed code.
+
+  Also fixed: `tau == 0.0` together with `target_update_frequency == 0` meant
+  the target network never updated at all — silently trainable against a frozen
+  random bootstrap. All three configs now reject it in `validate()`. The
+  converse (both set) remains legal, since the library `Default` relies on it.
+
+  Note that `target_update_frequency` still means *soft* cadence in SAC and
+  *hard* cadence in these three; that cross-family divergence is tracked
+  separately as #334.
 - **A panic inside a learn step could permanently brick an agent** (ADR 0046,
   resolves #167) — all eight gradient-based agents (`dqn`, `c51`, `qrdqn`,
   `ddpg`, `td3`, `sac`, `ppo`, `ppg`) stored their trainable networks as
@@ -187,6 +257,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   active net does not blend — it aborts. Real agents get the matching IDs for
   free by cloning the policy net; hand-built fixtures must reuse the active
   net's `ParamId`s explicitly.
+  A second qualification, added when #182 landed: the phrase "the exact
+  failure mode τ exists to avoid" above overstates the practical exposure on
+  `dqn`, `c51` and `qrdqn` specifically. Until #182, those three hard-synced
+  the target on schedule anyway under any `target_update_frequency > 0`, so
+  under the shipped `Default` the panic-path residue was byte-identical to
+  what `sync_target` was about to do regardless, and was re-applied within at
+  most `target_update_frequency` env steps. The fix was nonetheless fully
+  load-bearing on `ddpg`, `sac` and `td3` — which have no hard-sync path at
+  all, so nothing would ever have overwritten the residue — and on
+  pure-Polyak configs (`target_update_frequency == 0`) of all six agents.
 
 ---
 

@@ -2,7 +2,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Configuration structure for training a Deep Q-Network (DQN).
 ///
@@ -51,7 +51,20 @@ pub struct DqnTrainingConfig {
     /// copying the policy network weights wholesale every
     /// `target_update_frequency` steps. When `tau > 0.0`, soft Polyak
     /// averaging is used inside every [`DqnAgent::learn_step`] call and this
-    /// field is ignored. Set to `0` to disable hard syncing entirely.
+    /// field is ignored. Set to `0` to disable hard syncing entirely — but note
+    /// that `tau == 0.0` together with `target_update_frequency == 0` is
+    /// rejected by [`validate`](Validate::validate), since the target network
+    /// would then never update at all.
+    ///
+    /// The unit is **environment steps** — not parameter updates and not
+    /// gradient updates. The default of `10_000` matches Stable-Baselines3's
+    /// `target_update_interval`, which is counted in the same unit. It is
+    /// deliberately *not* the Nature-DQN figure: Mnih et al. (2015) specify
+    /// `C = 10,000` **parameter updates** (Extended Data Table 1), which under
+    /// the default [`train_frequency`](Self::train_frequency) of `4` would be
+    /// 40,000 environment steps. So 10,000 env steps is roughly 2,500
+    /// parameter updates — four times more frequent than Nature's `C`, and an
+    /// exact match to the SB3 convention.
     ///
     /// [`DqnAgent::learn_step`]: crate::algorithms::dqn::dqn_agent::DqnAgent::learn_step
     pub target_update_frequency: usize,
@@ -99,8 +112,10 @@ impl Default for DqnTrainingConfig {
     /// Key values: `batch_size = 32`, `gamma = 0.99`, `tau = 0.005`
     /// (soft updates active), `learning_rate = 1e-3`, `epsilon_start = 1.0`
     /// decaying to `0.01` at rate `0.995`, `replay_buffer_capacity = 10_000`,
-    /// `learning_starts = 1_000`, `train_frequency = 4`, `double_q = false`,
-    /// gradient clipping at norm 100.
+    /// `learning_starts = 1_000`, `train_frequency = 4`,
+    /// `target_update_frequency = 10_000` env steps (SB3's
+    /// `target_update_interval`), `double_q = false`, gradient clipping at
+    /// norm 100.
     ///
     /// Because `tau > 0.0`, `target_update_frequency` is ignored by the
     /// default configuration — soft updates run every learn step.
@@ -113,7 +128,7 @@ impl Default for DqnTrainingConfig {
             epsilon_start: 1.0,
             epsilon_end: 0.01,
             epsilon_decay: 0.995,
-            target_update_frequency: 100,
+            target_update_frequency: 10_000,
             steps_per_episode: 1000,
             replay_buffer_capacity: 10000,
             learning_starts: 1000,
@@ -138,6 +153,21 @@ impl Validate for DqnTrainingConfig {
         config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
         config::nonzero(C, "train_frequency", self.train_frequency)?;
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
+        // Cross-field: `tau == 0.0` disables the Polyak soft update and
+        // `target_update_frequency == 0` disables the periodic hard sync, so
+        // together they freeze the target network for the whole run. Note the
+        // converse (both set) is legal: `tau` is then the live mechanism and
+        // the frequency is inert — the library `Default` relies on this.
+        if self.tau <= 0.0 && self.target_update_frequency == 0 {
+            return Err(ConfigError {
+                config: C,
+                field: "target_update_frequency",
+                kind: ConstraintKind::Custom(
+                    "target network would never update: set tau > 0.0 for soft \
+                     updates, or target_update_frequency > 0 for hard syncs",
+                ),
+            });
+        }
         Ok(())
     }
 }
@@ -290,6 +320,32 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(DqnTrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_frozen_target_network() {
+        let err = DqnTrainingConfigBuilder::new()
+            .tau(0.0)
+            .target_update_frequency(0)
+            .build()
+            .unwrap_err();
+        assert_eq!(
+            err.field, "target_update_frequency",
+            "tau == 0 with no hard sync leaves the target network frozen forever"
+        );
+    }
+
+    #[test]
+    fn accepts_soft_updates_with_inert_hard_sync_frequency() {
+        let cfg = DqnTrainingConfigBuilder::new()
+            .tau(0.005)
+            .target_update_frequency(100)
+            .build();
+        assert!(
+            cfg.is_ok(),
+            "tau > 0 alongside a non-zero frequency is legal: tau is the live \
+             mechanism and the frequency is an inert fallback (this is Default)"
+        );
     }
 
     #[test]

@@ -315,9 +315,38 @@ where
         self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
-    /// Hard-syncs the target network with the policy network when
-    /// `self.step` is a multiple of `config.target_update_frequency`.
+    /// Periodically **hard**-syncs the target network with the policy network.
+    ///
+    /// This method only ever performs the hard path — a full copy of the policy
+    /// weights into the target. The Polyak soft update
+    /// `target ← (1 − τ) · target + τ · policy` is *not* performed here; it runs
+    /// once per gradient update inside [`learn_step`](Self::learn_step).
+    ///
+    /// The two mechanisms are mutually exclusive:
+    ///
+    /// - When [`QrDqnTrainingConfig::tau`] is greater than zero, soft updates
+    ///   are the live mechanism and **this method is a no-op**, regardless of
+    ///   `target_update_frequency`. A hard copy here would discard the
+    ///   deliberate lag the soft update maintains, which is exactly what
+    ///   `tau` exists to create. Because the shipped
+    ///   [`Default`](QrDqnTrainingConfig::default) sets `tau = 0.005`, the hard
+    ///   path is unreachable for the default configuration.
+    /// - When `tau` is zero, this method copies the policy weights into the
+    ///   target on every step that is a positive multiple of
+    ///   `config.target_update_frequency`. A `target_update_frequency` of `0`
+    ///   disables hard syncs entirely.
+    ///
+    /// Setting both `tau` and `target_update_frequency` to zero would freeze the
+    /// target network forever and is rejected by
+    /// [`QrDqnTrainingConfig::validate`](rlevo_core::config::Validate::validate),
+    /// so this method can never be a silent no-op on both paths.
     pub fn sync_target(&mut self) {
+        // Soft updates own the target network; the hard copy would erase the
+        // Polyak lag. `tau` is validated into `[0, 1]`, so `> 0.0` is exactly
+        // "soft updates enabled".
+        if self.config.tau > 0.0 {
+            return;
+        }
         if self.config.target_update_frequency == 0 {
             return;
         }
@@ -480,6 +509,195 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use burn::backend::{Autodiff, Flex};
+    use burn::module::{AutodiffModule, Module, Param};
+    use burn::tensor::backend::Backend;
+
+    use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
+
+    use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+    use crate::utils::polyak_update;
+
+    type TestBackend = Autodiff<Flex>;
+    type TestInnerBackend = <TestBackend as AutodiffBackend>::InnerBackend;
+
+    const TEST_OBS_FEATURES: usize = 4; // CartPoleObservation is [4].
+    const TEST_ACTIONS: usize = 2;
+    const TEST_QUANTILES: usize = 4;
+
+    /// Minimal QR-DQN network: one weight matrix, no RNG.
+    ///
+    /// Every parameter is built from explicit [`TensorData`], so two nets with
+    /// different `fill` values are guaranteed to differ elementwise — the
+    /// target-sync tests below need a deterministic, backend-RNG-free way to
+    /// put the policy and target networks provably out of sync.
+    #[derive(Module, Debug)]
+    struct TestQrDqnNet<B: Backend> {
+        w: Param<Tensor<B, 2>>,
+    }
+
+    impl<B: Backend> TestQrDqnNet<B> {
+        fn new(fill: f32, device: &<B as burn::tensor::backend::BackendTypes>::Device) -> Self {
+            let cols = TEST_ACTIONS * TEST_QUANTILES;
+            let data = vec![fill; TEST_OBS_FEATURES * cols];
+            let w: Tensor<B, 2> =
+                Tensor::from_data(TensorData::new(data, vec![TEST_OBS_FEATURES, cols]), device);
+            Self {
+                w: Param::from_tensor(w),
+            }
+        }
+
+        fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+            let [batch_size, _] = observations.dims();
+            observations
+                .matmul(self.w.val())
+                .reshape([batch_size, TEST_ACTIONS, TEST_QUANTILES])
+        }
+    }
+
+    impl<B: AutodiffBackend> QrDqnModel<B, 2> for TestQrDqnNet<B> {
+        fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+            self.forward_impl(observations)
+        }
+        fn forward_inner(
+            inner: &Self::InnerModule,
+            observations: Tensor<B::InnerBackend, 2>,
+        ) -> Tensor<B::InnerBackend, 3> {
+            inner.forward_impl(observations)
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+            polyak_update::<B::InnerBackend, TestQrDqnNet<B::InnerBackend>>(
+                &active.valid(),
+                target,
+                tau as f32,
+            )
+        }
+    }
+
+    type TestAgent = QrDqnAgent<
+        TestBackend,
+        TestQrDqnNet<TestBackend>,
+        CartPoleObservation,
+        CartPoleAction,
+        1,
+        2,
+    >;
+
+    /// Reads a network's single parameter matrix back to the host.
+    fn weights_of<B: Backend>(net: &TestQrDqnNet<B>) -> Vec<f32> {
+        net.w
+            .val()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 host read of a parameter this test just built")
+    }
+
+    fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "parameter vectors must be the same length"
+        );
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0_f32, f32::max)
+    }
+
+    /// Builds an agent whose policy and target networks are *deliberately* out
+    /// of sync: the policy is filled with `1.0`, the target with `2.0`.
+    ///
+    /// This stands in for "the policy has drifted away from the target during
+    /// training" without running a training loop — driving real gradient steps
+    /// would couple the test to `learning_starts`, buffer fill and the ε
+    /// schedule, none of which the target-sync gate depends on.
+    fn diverged_agent(tau: f64, target_update_frequency: usize) -> TestAgent {
+        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+            Default::default();
+        let config = QrDqnTrainingConfigBuilder::new()
+            .tau(tau)
+            .target_update_frequency(target_update_frequency)
+            .num_quantiles(TEST_QUANTILES)
+            .build()
+            .expect("valid config");
+        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(1.0, &device);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        // In-source unit tests may touch private fields (rules.md §5); this is
+        // the seam that makes the gate testable without a public accessor.
+        agent.target_net = TestQrDqnNet::<TestInnerBackend>::new(2.0, &device);
+        agent
+    }
+
+    #[test]
+    fn test_qrdqn_agent_sync_target_is_noop_when_tau_is_positive() {
+        // Regression test for #182: with the default `tau = 0.005`, the
+        // periodic hard copy used to fire anyway and erase the Polyak lag.
+        let mut agent = diverged_agent(0.005, 100);
+
+        let policy_before = weights_of(&agent.policy().valid());
+        let target_before = weights_of(&agent.target_net);
+        // Precondition — without this the assertion below would be vacuous.
+        assert!(
+            max_abs_diff(&policy_before, &target_before) > 1e-3,
+            "precondition: policy and target must already differ before sync_target"
+        );
+
+        // Land exactly on a hard-sync boundary.
+        agent.step = 100;
+        agent.sync_target();
+
+        let target_after = weights_of(&agent.target_net);
+        assert!(
+            max_abs_diff(&target_after, &target_before) < 1e-6,
+            "target network must be untouched by sync_target when tau > 0"
+        );
+        assert!(
+            max_abs_diff(&target_after, &policy_before) > 1e-3,
+            "sync_target must not hard-copy the policy into the target while \
+             Polyak soft updates (tau > 0) own the target network"
+        );
+    }
+
+    #[test]
+    fn test_qrdqn_agent_sync_target_hard_copies_when_tau_is_zero() {
+        // Mirror of the regression test: with soft updates disabled, the hard
+        // sync is the only mechanism and must still fire on schedule.
+        let mut agent = diverged_agent(0.0, 100);
+
+        let policy_before = weights_of(&agent.policy().valid());
+        let target_before = weights_of(&agent.target_net);
+        assert!(
+            max_abs_diff(&policy_before, &target_before) > 1e-3,
+            "precondition: policy and target must already differ before sync_target"
+        );
+
+        agent.step = 100;
+        agent.sync_target();
+
+        let target_after = weights_of(&agent.target_net);
+        assert!(
+            max_abs_diff(&target_after, &policy_before) < 1e-6,
+            "with tau = 0 the target must become an exact copy of the policy at \
+             a multiple of target_update_frequency"
+        );
+    }
+
+    #[test]
+    fn test_qrdqn_agent_sync_target_skips_non_multiple_steps_when_tau_is_zero() {
+        let mut agent = diverged_agent(0.0, 100);
+        let target_before = weights_of(&agent.target_net);
+
+        agent.step = 99;
+        agent.sync_target();
+
+        assert!(
+            max_abs_diff(&weights_of(&agent.target_net), &target_before) < 1e-6,
+            "hard sync must only fire on multiples of target_update_frequency"
+        );
+    }
 
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {

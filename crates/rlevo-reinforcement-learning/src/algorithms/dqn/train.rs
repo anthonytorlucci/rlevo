@@ -27,8 +27,11 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 ///    replay buffer with [`DqnAgent::remember`].
 /// 3. Calls [`DqnAgent::learn_step`] when `agent.should_train()` returns
 ///    `true` (controlled by [`DqnTrainingConfig::train_frequency`]).
-/// 4. Syncs the target network with [`DqnAgent::sync_target`] (hard or soft
-///    depending on [`DqnTrainingConfig::tau`]).
+/// 4. Calls [`DqnAgent::sync_target`], which performs a **hard** target-network
+///    copy every [`DqnTrainingConfig::target_update_frequency`] steps — and
+///    only when [`DqnTrainingConfig::tau`] is `0.0`. With `tau > 0.0` (the
+///    default) this call is a no-op: the target is instead maintained by the
+///    Polyak soft update inside [`DqnAgent::learn_step`].
 /// 5. Decays ε with [`DqnAgent::decay_exploration`].
 ///
 /// When an episode ends the collected [`DqnMetrics`] are recorded via
@@ -61,6 +64,7 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 ///
 /// [`DqnTrainingConfig::train_frequency`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::train_frequency
 /// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
+/// [`DqnTrainingConfig::target_update_frequency`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update_frequency
 /// [`EnvironmentError`]: rlevo_core::environment::EnvironmentError
 pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut DqnAgent<B, M, O, A, DO, DB>,
@@ -114,7 +118,6 @@ where
                 reward: episode_reward,
                 steps: episode_steps,
                 policy_loss: last_loss,
-                value_loss: last_loss,
                 epsilon: agent.epsilon() as f32,
                 q_mean: last_q_mean,
             };
