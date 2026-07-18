@@ -25,12 +25,16 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// The loop runs one environment step per iteration. After collecting each
 /// transition, it calls [`C51Agent::learn_step`] whenever
-/// [`C51Agent::should_train`] returns `true`, synchronises the target network
-/// via [`C51Agent::sync_target`], and decays ε via
-/// [`C51Agent::decay_exploration`]. On episode termination the loop records
+/// [`C51Agent::should_train`] returns `true`, calls [`C51Agent::sync_target`],
+/// and decays ε via [`C51Agent::decay_exploration`]. On episode termination the loop records
 /// per-episode [`C51Metrics`] into the agent's rolling statistics window and
 /// calls [`Environment::reset`] to begin a new episode, except on the very
 /// last step (to avoid recording a phantom episode in recording environments).
+///
+/// `sync_target` is called unconditionally and self-gates: it is the **hard
+/// sync only**, and does nothing unless `tau == 0`. With the default `tau =
+/// 0.005` the target is maintained solely by the Polyak update inside
+/// [`C51Agent::learn_step`].
 ///
 /// # Const generics
 ///
