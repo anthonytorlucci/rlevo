@@ -111,6 +111,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   even exist on PPO or PPG (theirs are `update()` and
   `policy_phase_update()`). `ppg` was not named in issue #167 but carried
   the identical defect at 5 call sites and is fixed under the same change.
+- **A panic during a target soft update silently hard-synced the target onto
+  its live network** (resolves #168) — the six off-policy agents (`dqn`,
+  `c51`, `qrdqn`, `ddpg`, `sac`, `td3`) built a throwaway `.valid()` snapshot
+  of the *active* network and `std::mem::replace`d it into the target field
+  purely to keep the field populated while `soft_update` consumed the target
+  by value. On the happy path the placeholder was overwritten on the very next
+  line and cost nothing observable. On a panic inside `soft_update` it was
+  never overwritten, so the agent unwound with the target field holding a full
+  copy of the policy — a hard sync the caller never asked for, and the exact
+  failure mode τ exists to avoid. On TD3 the window spanned three fields, so
+  one fault could corrupt the target actor and both target critics. The tests
+  could not catch it for the same reason they missed #167: nothing in the
+  suite drives a panic through a learn step. `M::InnerModule` is `Clone`
+  (`Module<B>: Clone` is a supertrait in Burn 0.21), so all 10 call sites now
+  pass `self.<target>.clone()` and leave the field untouched until
+  `soft_update` returns. Numerics are unchanged — the discarded snapshot never
+  reached the Polyak average.
+
+  Note that the *performance* premise in the original text of #168 was wrong
+  and has been retracted: `.valid()` is not a deep copy (it moves refcounted
+  backend primitives), so its cost scales with `Param` count, not network
+  size. The device→host→device round-trip in `polyak_update` is where the
+  real per-step cost lives; that is tracked separately as #322.
 
 ---
 

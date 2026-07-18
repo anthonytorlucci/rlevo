@@ -532,9 +532,11 @@ where
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
         if self.config.tau > 0.0 {
-            let fresh_valid = self.policy().valid();
-            let target = std::mem::replace(&mut self.target_net, fresh_valid);
-            self.target_net = M::soft_update(self.policy(), target, self.config.tau);
+            // Clone rather than move out: the field stays intact if
+            // `soft_update` panics, so a failure can't silently hard-sync
+            // the target onto the policy.
+            self.target_net =
+                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
         }
 
         Some(LearnOutcome {

@@ -501,14 +501,14 @@ where
             self.actor
                 .step_with(&mut self.actor_opt, self.config.actor_lr, actor_grads);
 
+            // Clone rather than move out: each target field stays intact if
+            // `soft_update` panics, so a failure can't silently hard-sync the
+            // target onto its live network.
             let tau = self.config.tau as f64;
-            let fresh_target_actor = self.actor.get().valid();
-            let target_actor = std::mem::replace(&mut self.target_actor, fresh_target_actor);
-            self.target_actor = Actor::soft_update(self.actor.get(), target_actor, tau);
-
-            let fresh_target_critic = self.critic.get().valid();
-            let target_critic = std::mem::replace(&mut self.target_critic, fresh_target_critic);
-            self.target_critic = Critic::soft_update(self.critic.get(), target_critic, tau);
+            self.target_actor =
+                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
+            self.target_critic =
+                Critic::soft_update(self.critic.get(), self.target_critic.clone(), tau);
 
             self.last_actor_loss = actor_loss_value;
             actor_loss_opt = Some(actor_loss_value);
