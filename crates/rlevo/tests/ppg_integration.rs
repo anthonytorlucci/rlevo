@@ -31,6 +31,7 @@ use rlevo_reinforcement_learning::algorithms::ppo::ppo_value::PpoValue;
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::baseline::{random_return, uniform_discrete};
+use rlevo_test_support::capture::FieldCapture;
 use rlevo_test_support::env::cartpole_seeded;
 use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
 use rlevo_test_support::{TrainOutcome, rl_learning_test, rl_reproducibility_test};
@@ -286,54 +287,15 @@ rl_learning_test! {
 //
 // PPG shares the PPO watermark, so this is the twin of
 // `ppo_progress_logs_when_log_every_does_not_divide_num_steps` in
-// `ppo_integration.rs`. It is duplicated rather than shared because the two
-// live in separate test binaries and the capture layer is ~30 lines of
-// single-purpose scaffolding; promoting it to `rlevo-test-support` would mean
-// adding `tracing` deps there for two call sites.
+// `ppo_integration.rs`. The event-capture plumbing is shared via
+// `rlevo_test_support::capture::FieldCapture`.
 //
 // PPG is worth covering separately: its progress payload also reads the
 // auxiliary-phase result, which is loop-local and had to be hoisted so the
 // terminal line reports it rather than claiming `aux_ran = false`.
 
-/// Collects the `step` field of every captured `tracing` event.
-#[derive(Default)]
-struct StepVisitor {
-    step: Option<u64>,
-}
-
-impl tracing::field::Visit for StepVisitor {
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        if field.name() == "step" {
-            self.step = Some(value);
-        }
-    }
-
-    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
-}
-
-/// `tracing` layer that appends each event's `step` to a shared vector.
-struct StepCapture {
-    steps: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
-}
-
-impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for StepCapture {
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let mut visitor = StepVisitor::default();
-        event.record(&mut visitor);
-        if let Some(step) = visitor.step {
-            self.steps.lock().expect("capture mutex").push(step);
-        }
-    }
-}
-
 #[test]
 fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
-    use tracing_subscriber::layer::SubscriberExt;
-
     // The canonical #321 configuration: `lcm(128, 100) = 3200`, so the old
     // divisibility gate emitted ZERO lines for a run this short.
     const NUM_STEPS: usize = 128;
@@ -350,12 +312,8 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
 
     let _guard = flex_guard();
 
-    let steps = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u64>::new()));
-    let subscriber = tracing_subscriber::registry().with(StepCapture {
-        steps: std::sync::Arc::clone(&steps),
-    });
-
-    tracing::subscriber::with_default(subscriber, || {
+    let capture = FieldCapture::new("step");
+    capture.record(|| {
         let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
         let mut rng = StdRng::seed_from_u64(SEED);
         let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
@@ -365,7 +323,7 @@ fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
         .expect("training");
     });
 
-    let steps = steps.lock().expect("capture mutex").clone();
+    let steps = capture.values();
 
     // (1) The literal #321 regression: zero lines under the old gate.
     assert!(

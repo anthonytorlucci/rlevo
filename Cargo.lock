@@ -6382,7 +6382,6 @@ dependencies = [
  "rlevo-test-support",
  "serde",
  "tempfile",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -6543,6 +6542,8 @@ dependencies = [
  "rlevo-core",
  "rlevo-environments",
  "serde",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

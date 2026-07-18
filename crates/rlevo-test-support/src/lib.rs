@@ -27,9 +27,13 @@
 //!   baseline a learning test must beat, instead of hard-coding it.
 //! - [`mod@assert`] — reward-finiteness, baseline, and reproducibility assertions
 //!   that standardise the per-algorithm acceptance checks.
+//! - [`capture`] — [`FieldCapture`](capture::FieldCapture), for tests that
+//!   assert on the `tracing` events a training loop emits rather than on the
+//!   values it returns.
 
 pub mod assert;
 pub mod baseline;
+pub mod capture;
 pub mod env;
 pub mod flex;
 mod macros;

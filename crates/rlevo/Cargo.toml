@@ -31,10 +31,6 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 tempfile = "3"
-# `tracing` is needed alongside the subscriber for the PPO/PPG progress-logging
-# capture tests (issue #321), which implement a minimal `Layer` over the crate's
-# own event types. Dev-only: no shipped crate here logs.
-tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
