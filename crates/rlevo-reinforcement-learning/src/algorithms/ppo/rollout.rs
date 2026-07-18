@@ -346,8 +346,14 @@ mod tests {
     #[test]
     fn gae_matches_reference_trajectory_no_termination() {
         // 5-step rollout, no mid-rollout episode boundary.
+        //
+        // `values` is deliberately non-constant: a flat critic makes both the
+        // advantage check and the `returns = A + V` check permutation-blind,
+        // since every index carries the same V and any misalignment still
+        // matches. Distinct per-step values let the positional assertions
+        // below actually pin the ordering.
         let rewards = vec![1.0, 1.0, 1.0, 1.0, 1.0];
-        let values = vec![0.5, 0.5, 0.5, 0.5, 0.5];
+        let values = vec![0.1, 0.4, 0.2, 0.7, 0.5];
         let term = vec![false; 5];
         let trunc = vec![None; 5];
         let last_value = 0.5_f32;
@@ -355,23 +361,42 @@ mod tests {
         let lam = 0.95_f32;
         let (advs, rets) = compute_gae(&rewards, &values, &term, &trunc, last_value, gamma, lam);
 
-        // Hand-compute: delta = r + γ · V' · nonterm − V = 1 + 0.99·0.5·1 − 0.5 = 0.995
-        // A[4] = delta[4] = 0.995
-        // A[3] = delta[3] + γλ·A[4]·1 = 0.995 + 0.99·0.95·0.995 = 0.995 + 0.9356..
-        let delta = 1.0 + gamma * 0.5 * 1.0 - 0.5;
+        // Independent reference recursion, general per-step form. With no
+        // termination and no truncation every mask is 1, so
+        //   δ[t] = r[t] + γ·V'[t] − V[t],  V'[t] = V[t+1] (V' = last_value at t = 4)
+        //   A[t] = δ[t] + γλ·A[t+1],       A[5] ≡ 0,  γλ = 0.9405
+        // Spot values for the tail:
+        //   t=4: δ = 1 + 0.99·0.5 − 0.5 = 0.995        → A[4] = 0.995
+        //   t=3: δ = 1 + 0.99·0.5 − 0.7 = 0.795        → A[3] = 0.795 + 0.9405·0.995
+        //                                                     = 1.730_797_5
+        let n = rewards.len();
         let mut expected = [0.0_f32; 5];
         let mut last = 0.0_f32;
-        for t in (0..5).rev() {
-            last = delta + gamma * lam * 1.0 * last;
+        for t in (0..n).rev() {
+            let next_value = if t == n - 1 {
+                last_value
+            } else {
+                values[t + 1]
+            };
+            let delta = rewards[t] + gamma * next_value - values[t];
+            last = delta + gamma * lam * last;
             expected[t] = last;
         }
         for (i, (a, e)) in advs.iter().zip(expected.iter()).enumerate() {
             assert!((a - e).abs() < 1e-6, "step {i}: {a} vs {e}");
         }
-        for (a, v) in advs.iter().zip(values.iter()) {
-            // returns = adv + V
-            let r = a + v;
-            assert!(rets.contains(&r) || (rets[0] - r).abs() < 1e-5);
+        // Positional — not set-membership — check of the returns identity.
+        // `rets[t]` must equal `advs[t] + values[t]` at the *same* index t, so
+        // a reversed or otherwise misaligned `returns` vector fails here.
+        for t in 0..n {
+            let want = advs[t] + values[t];
+            assert!(
+                (rets[t] - want).abs() < 1e-6,
+                "step {t}: returns {} != advantage {} + value {} = {want}",
+                rets[t],
+                advs[t],
+                values[t]
+            );
         }
     }
 
