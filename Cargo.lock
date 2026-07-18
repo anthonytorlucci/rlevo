@@ -6382,6 +6382,7 @@ dependencies = [
  "rlevo-test-support",
  "serde",
  "tempfile",
+ "tracing",
  "tracing-subscriber",
 ]
 

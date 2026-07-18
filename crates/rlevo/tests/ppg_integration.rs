@@ -279,3 +279,127 @@ rl_learning_test! {
     run = run_cartpole,
     random = random_cartpole,
 }
+
+// ---------------------------------------------------------------------------
+// Progress-logging cadence (issue #321)
+// ---------------------------------------------------------------------------
+//
+// PPG shares the PPO watermark, so this is the twin of
+// `ppo_progress_logs_when_log_every_does_not_divide_num_steps` in
+// `ppo_integration.rs`. It is duplicated rather than shared because the two
+// live in separate test binaries and the capture layer is ~30 lines of
+// single-purpose scaffolding; promoting it to `rlevo-test-support` would mean
+// adding `tracing` deps there for two call sites.
+//
+// PPG is worth covering separately: its progress payload also reads the
+// auxiliary-phase result, which is loop-local and had to be hoisted so the
+// terminal line reports it rather than claiming `aux_ran = false`.
+
+/// Collects the `step` field of every captured `tracing` event.
+#[derive(Default)]
+struct StepVisitor {
+    step: Option<u64>,
+}
+
+impl tracing::field::Visit for StepVisitor {
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        if field.name() == "step" {
+            self.step = Some(value);
+        }
+    }
+
+    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
+}
+
+/// `tracing` layer that appends each event's `step` to a shared vector.
+struct StepCapture {
+    steps: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
+}
+
+impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for StepCapture {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = StepVisitor::default();
+        event.record(&mut visitor);
+        if let Some(step) = visitor.step {
+            self.steps.lock().expect("capture mutex").push(step);
+        }
+    }
+}
+
+#[test]
+fn ppg_progress_logs_when_log_every_does_not_divide_num_steps() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    // The canonical #321 configuration: `lcm(128, 100) = 3200`, so the old
+    // divisibility gate emitted ZERO lines for a run this short.
+    const NUM_STEPS: usize = 128;
+    const LOG_EVERY: usize = 100;
+    // Chosen so that no boundary of the run -- 128, 256, 384, 512, 640, 650 --
+    // is a multiple of `LOG_EVERY`. A total that happened to be a multiple of
+    // 100 would let the old gate fire on the terminal boundary by coincidence,
+    // making this test pass against the bug it exists to catch.
+    const TOTAL: usize = 650;
+    const SEED: u64 = 7;
+    // Small enough that the auxiliary phase actually fires during the run, so
+    // the hoisted `aux` is exercised rather than being `None` throughout.
+    const N_ITERATION: usize = 2;
+
+    let _guard = flex_guard();
+
+    let steps = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u64>::new()));
+    let subscriber = tracing_subscriber::registry().with(StepCapture {
+        steps: std::sync::Arc::clone(&steps),
+    });
+
+    tracing::subscriber::with_default(subscriber, || {
+        let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
+        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+            &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
+        )
+        .expect("training");
+    });
+
+    let steps = steps.lock().expect("capture mutex").clone();
+
+    // (1) The literal #321 regression: zero lines under the old gate.
+    assert!(
+        !steps.is_empty(),
+        "a {TOTAL}-step PPG run with log_every = {LOG_EVERY} must emit at least one progress \
+         line, but emitted none (the old divisibility gate fired only on multiples of \
+         lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
+    );
+
+    // (2) The terminal line: the run's final policy-phase stats must be
+    // reported even though the closing rollout is partial.
+    assert_eq!(
+        steps.last().copied(),
+        Some(TOTAL as u64),
+        "the final progress line must report the terminal step {TOTAL}, got {steps:?}"
+    );
+
+    // (3) Cadence: a boundary-gated logger cannot hit `log_every` exactly, but
+    // it must never fall a whole extra rollout behind it. The terminal line is
+    // exempt — it is deliberately early, by design.
+    let mut previous = 0_u64;
+    for &step in &steps[..steps.len() - 1] {
+        let gap = step - previous;
+        assert!(
+            gap >= LOG_EVERY as u64,
+            "progress lines must be at least log_every = {LOG_EVERY} steps apart, \
+             got a gap of {gap} at step {step} in {steps:?}"
+        );
+        assert!(
+            gap < (LOG_EVERY + NUM_STEPS) as u64,
+            "progress lines must never lag more than one rollout past log_every \
+             (< {}), got a gap of {gap} at step {step} in {steps:?}",
+            LOG_EVERY + NUM_STEPS
+        );
+        previous = step;
+    }
+}

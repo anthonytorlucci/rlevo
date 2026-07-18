@@ -26,11 +26,15 @@ use rlevo_core::environment::{Environment, Snapshot};
 use crate::algorithms::ppo::ppo_agent::{PpoAgent, PpoAgentError, PpoMetrics, PpoUpdateStats};
 use crate::algorithms::ppo::ppo_policy::PpoPolicy;
 use crate::algorithms::ppo::ppo_value::PpoValue;
+use crate::algorithms::shared::LogWatermark;
 
 /// PPO training loop against a **discrete** action environment.
 ///
 /// Pass `log_every > 0` to enable periodic `tracing::info!` progress; set
-/// `log_every == 0` to suppress logging.
+/// `log_every == 0` to suppress logging. Progress can only be emitted at a
+/// rollout boundary (the payload reads the update statistics), so a line lands
+/// at the first boundary at or after each `log_every` steps have elapsed —
+/// never less often, and at most once per rollout.
 pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut PpoAgent<B, P, V, O, DO, DB>,
     env: &mut E,
@@ -61,7 +65,8 @@ where
 /// [`PpoPolicy::raw_to_env_row`]) via [`ContinuousAction::from_slice`].
 ///
 /// Pass `log_every > 0` to enable periodic `tracing::info!` progress; set
-/// `log_every == 0` to suppress logging.
+/// `log_every == 0` to suppress logging. The cadence is the rollout-boundary
+/// one described on [`train_discrete`].
 pub fn train_continuous<
     B,
     P,
@@ -141,6 +146,11 @@ where
         min_log_std: None,
     };
     let mut global_step = 0_usize;
+    // Watermark, not `global_step % log_every`: the step counter is only
+    // sampled at rollout boundaries (multiples of `num_steps`), so a
+    // divisibility test would fire on `lcm(num_steps, log_every)` — see
+    // `LogWatermark` and issue #321.
+    let mut log_watermark = LogWatermark::new(log_every);
     let loop_start = Instant::now();
 
     while global_step < total_timesteps {
@@ -211,48 +221,90 @@ where
         agent.finalize_rollout(snapshot.observation());
         last_update_stats = agent.update(rng);
 
-        if log_every > 0 && global_step.is_multiple_of(log_every) {
-            let avg = agent
-                .stats()
-                .avg_score()
-                .map(|v| format!("{v:.2}"))
-                .unwrap_or_else(|| "n/a".to_string());
-            // Per-iteration episode-return statistics over the recent-episode
-            // window. Cheap: a handful of arithmetic ops on a bounded VecDeque,
-            // gated behind the periodic-log guard so the hot path is untouched.
-            let ret_stats = EpisodeReturnStats::from_window(&agent.stats().recent_history);
-            let elapsed = loop_start.elapsed().as_secs_f64();
-            let steps_per_sec = if elapsed > 0.0 {
-                global_step as f64 / elapsed
-            } else {
-                0.0
-            };
-            tracing::info!(
-                step = global_step,
-                total_steps = total_timesteps,
-                iteration = agent.iteration(),
-                avg_reward = %avg,
-                policy_loss = last_update_stats.policy_loss,
-                value_loss = last_update_stats.value_loss,
-                entropy = last_update_stats.entropy,
-                approx_kl = last_update_stats.approx_kl,
-                old_approx_kl = last_update_stats.old_approx_kl,
-                clip_frac = last_update_stats.clip_frac,
-                explained_variance = last_update_stats.explained_variance,
-                episode_return_mean = ret_stats.mean,
-                episode_return_std = ret_stats.std,
-                episode_return_min = ret_stats.min,
-                episode_return_max = ret_stats.max,
-                episode_length_mean = ret_stats.length_mean,
-                env_steps_sampled = global_step,
-                steps_per_sec = steps_per_sec,
-                learning_rate = agent.current_learning_rate(),
-                "ppo training progress"
+        if log_watermark.should_log(global_step) {
+            emit_progress(
+                agent,
+                &last_update_stats,
+                global_step,
+                total_timesteps,
+                loop_start,
             );
         }
     }
 
+    // The final rollout is usually partial, so the last boundary can fall short
+    // of `log_every` past the watermark and never fire — which would drop the
+    // run's final update stats. Report the terminal step unless it was already
+    // logged above.
+    if log_watermark.should_log_final(global_step) {
+        emit_progress(
+            agent,
+            &last_update_stats,
+            global_step,
+            total_timesteps,
+            loop_start,
+        );
+    }
+
     Ok(())
+}
+
+/// Emits one PPO progress event.
+///
+/// Factored out so the periodic in-loop line and the terminal line are
+/// literally the same event: with ~18 fields, two copies of the
+/// `tracing::info!` would drift the moment either is edited. Kept as a free
+/// function rather than a closure because the loop needs `agent` mutably
+/// between calls, which an `agent`-capturing closure would forbid.
+fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
+    agent: &PpoAgent<B, P, V, O, DO, DB>,
+    stats: &PpoUpdateStats,
+    global_step: usize,
+    total_timesteps: usize,
+    loop_start: Instant,
+) where
+    B: AutodiffBackend,
+    P: PpoPolicy<B, DB>,
+    V: PpoValue<B, DB>,
+    O: Observation<DO> + TensorConvertible<DO, B>,
+{
+    let avg = agent
+        .stats()
+        .avg_score()
+        .map(|v| format!("{v:.2}"))
+        .unwrap_or_else(|| "n/a".to_string());
+    // Per-iteration episode-return statistics over the recent-episode window.
+    // Cheap: a handful of arithmetic ops on a bounded VecDeque, and only ever
+    // reached behind the periodic-log guard so the hot path is untouched.
+    let ret_stats = EpisodeReturnStats::from_window(&agent.stats().recent_history);
+    let elapsed = loop_start.elapsed().as_secs_f64();
+    let steps_per_sec = if elapsed > 0.0 {
+        global_step as f64 / elapsed
+    } else {
+        0.0
+    };
+    tracing::info!(
+        step = global_step,
+        total_steps = total_timesteps,
+        iteration = agent.iteration(),
+        avg_reward = %avg,
+        policy_loss = stats.policy_loss,
+        value_loss = stats.value_loss,
+        entropy = stats.entropy,
+        approx_kl = stats.approx_kl,
+        old_approx_kl = stats.old_approx_kl,
+        clip_frac = stats.clip_frac,
+        explained_variance = stats.explained_variance,
+        episode_return_mean = ret_stats.mean,
+        episode_return_std = ret_stats.std,
+        episode_return_min = ret_stats.min,
+        episode_return_max = ret_stats.max,
+        episode_length_mean = ret_stats.length_mean,
+        env_steps_sampled = global_step,
+        steps_per_sec = steps_per_sec,
+        learning_rate = agent.current_learning_rate(),
+        "ppo training progress"
+    );
 }
 
 /// Summary statistics over a window of recently completed episodes.

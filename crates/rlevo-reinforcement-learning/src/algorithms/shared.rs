@@ -1,7 +1,8 @@
 //! Shared infrastructure for the algorithm implementations in this module.
 //!
-//! Currently hosts [`Slot`], the network-ownership newtype every agent uses to
-//! hold a trainable network across a Burn optimizer step.
+//! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
+//! trainable network across a Burn optimizer step, and [`LogWatermark`], the
+//! progress-logging trigger shared by the on-policy training loops.
 //!
 //! # Why a `Slot` exists
 //!
@@ -217,6 +218,101 @@ impl<M> Slot<M> {
     {
         let module = self.0.take().expect(POISONED);
         self.0 = Some(opt.step(lr, module, grads));
+    }
+}
+
+/// Periodic progress-logging trigger for a loop that advances in strides.
+///
+/// Decides whether a training loop should emit its periodic `tracing` progress
+/// event at the current `global_step`, using a **last-logged watermark** rather
+/// than a divisibility test.
+///
+/// # Why a watermark and not `global_step % log_every == 0`
+///
+/// The on-policy loops (PPO, PPG) can only log at a **rollout boundary**: the
+/// payload reads the update statistics, which do not exist until after
+/// `update` / `policy_phase_update` has run at the end of an iteration. So the
+/// step counter is never observed at every value — it is only ever observed at
+/// multiples of `num_steps` (128 by default).
+///
+/// A divisibility test against a counter sampled on a stride fires on the
+/// *intersection* of the two schedules, i.e. every `lcm(num_steps, log_every)`
+/// steps — not every `log_every` steps. With `num_steps = 128` that silently
+/// turned `log_every = 100` into an effective cadence of 3200 (32× too sparse)
+/// and `log_every = 500` into 16 000 — so a 10 000-step run emitted **zero**
+/// progress lines despite asking for 20 (issue #321).
+///
+/// The watermark form has no such coupling: it fires as soon as at least
+/// `log_every` steps have elapsed since the previous log, whatever the stride,
+/// and then re-anchors on the step it actually fired at. The cadence degrades
+/// gracefully to "once per rollout" when `log_every` is smaller than the
+/// stride, which is the best any boundary-gated logger can do.
+///
+/// # Contract
+///
+/// - `every == 0` disables logging entirely — [`should_log`](Self::should_log)
+///   always returns `false`. This is documented public API on the `log_every`
+///   parameter of the training entry points (issue #174).
+/// - The watermark is monotonic: a given `global_step` fires at most once, so
+///   re-querying the same step (or a step that went backwards) cannot produce a
+///   duplicate log line.
+#[derive(Debug)]
+pub(crate) struct LogWatermark {
+    /// Requested cadence in global steps; `0` disables logging.
+    every: usize,
+    /// Global step at which the last log fired (`0` before the first).
+    last: usize,
+}
+
+impl LogWatermark {
+    /// Creates a watermark for a cadence of `every` global steps.
+    ///
+    /// Pass `0` to disable logging; see the type-level contract.
+    pub(crate) const fn new(every: usize) -> Self {
+        Self { every, last: 0 }
+    }
+
+    /// Returns `true` if a progress line is due at `global_step`, and if so
+    /// re-anchors the watermark on that step.
+    ///
+    /// Fires when at least `every` steps have elapsed since the previous log
+    /// (or since the start of the run). Uses a saturating difference so a
+    /// non-monotonic `global_step` can only under-fire, never panic.
+    pub(crate) fn should_log(&mut self, global_step: usize) -> bool {
+        if self.every == 0 {
+            return false;
+        }
+        if global_step.saturating_sub(self.last) >= self.every {
+            self.last = global_step;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns `true` if the run's terminal step still owes a progress line,
+    /// and if so re-anchors the watermark so it cannot fire again.
+    ///
+    /// The final rollout is usually **partial** — the collection loop breaks as
+    /// soon as `global_step >= total_timesteps`, so the last boundary lands on
+    /// an arbitrary step rather than a multiple of the stride. That boundary
+    /// can therefore sit less than `every` past the watermark and never trigger
+    /// [`should_log`](Self::should_log), silently dropping the final update's
+    /// statistics — the most interesting line of the run.
+    ///
+    /// Concretely, with `num_steps = 128` and `log_every = 500`, a
+    /// 10 000-step run logs at 9728 and then finishes at 10 000 with nothing
+    /// reported. Call this once after the loop to close that gap.
+    ///
+    /// Returns `false` when logging is disabled (`every == 0`) and when
+    /// `global_step` was already logged by the in-loop trigger, so the terminal
+    /// line is never a duplicate.
+    pub(crate) fn should_log_final(&mut self, global_step: usize) -> bool {
+        if self.every == 0 || global_step == self.last {
+            return false;
+        }
+        self.last = global_step;
+        true
     }
 }
 
@@ -504,6 +600,217 @@ mod tests {
         assert!(
             rendered.contains("TestNet"),
             "Debug must name the module type, got: {rendered}"
+        );
+    }
+
+    // -------- LogWatermark --------
+
+    /// Global steps a PPO/PPG loop actually observes: one sample per rollout
+    /// boundary, i.e. multiples of `stride`, up to and including `total`.
+    fn boundaries(stride: usize, total: usize) -> impl Iterator<Item = usize> {
+        (stride..=total).step_by(stride)
+    }
+
+    /// Global steps at which `watermark` fires over a strided run.
+    fn fire_steps(log_every: usize, stride: usize, total: usize) -> Vec<usize> {
+        let mut wm = LogWatermark::new(log_every);
+        boundaries(stride, total)
+            .filter(|&step| wm.should_log(step))
+            .collect()
+    }
+
+    #[test]
+    fn test_log_watermark_zero_never_fires() {
+        let fired = fire_steps(0, 128, 10_000);
+        assert!(
+            fired.is_empty(),
+            "log_every == 0 must disable logging entirely, but fired at {fired:?}"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_fires_when_every_is_coprime_with_stride() {
+        // Regression for #321: with the old `global_step % log_every == 0`
+        // test this fired only at lcm(128, 100) = 3200, 6400, ... — 32x too
+        // sparse. The watermark must fire at the first boundary at or past
+        // each 100-step mark.
+        let fired = fire_steps(100, 128, 1000);
+        assert_eq!(
+            fired,
+            vec![128, 256, 384, 512, 640, 768, 896],
+            "log_every = 100 on a 128 stride must fire once per rollout boundary"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_fires_within_ten_thousand_steps() {
+        // Regression for #321: log_every = 500 with a 128 stride produced ZERO
+        // lines in a 10k run under divisibility (first hit at lcm = 16 000).
+        let fired = fire_steps(500, 128, 10_000);
+        assert_eq!(
+            fired.first().copied(),
+            Some(512),
+            "the first log must land at the first boundary at or past step 500"
+        );
+        // 500 rounds up to the next boundary, so the realised spacing is 512
+        // and a 10 000-step run yields floor(10_000 / 512) = 19 lines — the
+        // requested ~20, versus zero before the fix.
+        assert_eq!(
+            fired.len(),
+            19,
+            "a 10k-step run at log_every = 500 must emit ~20 lines, got {fired:?}"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_smaller_than_stride_fires_once_per_boundary() {
+        // `log_every` below the rollout length cannot log more often than the
+        // loop reaches a boundary; it must not fire twice for one boundary.
+        let fired = fire_steps(10, 128, 640);
+        assert_eq!(
+            fired,
+            vec![128, 256, 384, 512, 640],
+            "a sub-stride cadence must saturate at one line per rollout boundary"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_divisor_of_stride_preserves_old_cadence() {
+        // `log_every` dividing the stride is the one case the old divisibility
+        // test got right; the watermark must not change it.
+        let fired = fire_steps(64, 128, 640);
+        let old_behaviour: Vec<usize> = boundaries(128, 640)
+            .filter(|step| step.is_multiple_of(64))
+            .collect();
+        assert_eq!(
+            fired, old_behaviour,
+            "an exact divisor of the stride must keep its pre-fix cadence"
+        );
+    }
+
+    /// Boundaries a loop actually reaches, including the **partial** final
+    /// rollout: collection breaks at `global_step >= total`, so the run always
+    /// ends exactly on `total`.
+    fn boundaries_with_partial_tail(stride: usize, total: usize) -> Vec<usize> {
+        let mut steps: Vec<usize> = boundaries(stride, total).collect();
+        if steps.last() != Some(&total) {
+            steps.push(total);
+        }
+        steps
+    }
+
+    /// Replays a whole run — in-loop triggers plus the one terminal check —
+    /// and returns every step that emitted a line.
+    fn fire_steps_full_run(log_every: usize, stride: usize, total: usize) -> Vec<usize> {
+        let mut wm = LogWatermark::new(log_every);
+        let steps = boundaries_with_partial_tail(stride, total);
+        let mut fired: Vec<usize> = steps
+            .iter()
+            .copied()
+            .filter(|&step| wm.should_log(step))
+            .collect();
+        if wm.should_log_final(total) {
+            fired.push(total);
+        }
+        fired
+    }
+
+    #[test]
+    fn test_log_watermark_final_zero_never_fires() {
+        let mut wm = LogWatermark::new(0);
+        assert!(
+            !wm.should_log_final(10_000),
+            "log_every == 0 must disable the terminal line too"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_final_skips_already_logged_terminal_step() {
+        let mut wm = LogWatermark::new(100);
+        assert!(wm.should_log(128), "the in-loop trigger must fire first");
+        assert!(
+            !wm.should_log_final(128),
+            "a terminal step the loop already logged must not be logged twice"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_final_recovers_dropped_terminal_line() {
+        // Both regressions from the follow-up review: the partial final
+        // rollout lands short of `every` past the watermark, so `should_log`
+        // declines and the run's last update stats would vanish.
+        let mut wm = LogWatermark::new(500);
+        for step in boundaries_with_partial_tail(128, 10_000) {
+            wm.should_log(step);
+        }
+        assert!(
+            wm.should_log_final(10_000),
+            "tt=10000 / le=500 must still report the terminal step (last in-loop line was 9728)"
+        );
+
+        let mut wm = LogWatermark::new(100);
+        for step in boundaries_with_partial_tail(128, 300) {
+            wm.should_log(step);
+        }
+        assert!(
+            wm.should_log_final(300),
+            "tt=300 / le=100 must still report the terminal step (last in-loop line was 256)"
+        );
+    }
+
+    #[test]
+    fn test_log_watermark_full_run_adds_at_most_one_final_line() {
+        // A full run emits floor(total / realised_spacing) in-loop lines plus
+        // at most one terminal line — never two for the same step.
+        for &(log_every, stride, total) in &[
+            (500_usize, 128_usize, 10_000_usize),
+            (100, 128, 300),
+            (128, 128, 1024), // `every` == stride: terminal step already logged
+            (64, 128, 640),   // exact divisor of the stride
+            (10, 128, 1000),  // sub-stride cadence
+        ] {
+            let fired = fire_steps_full_run(log_every, stride, total);
+            let mut deduped = fired.clone();
+            deduped.dedup();
+            assert_eq!(
+                fired, deduped,
+                "no step may be logged twice (le={log_every}, stride={stride}, tt={total})"
+            );
+            assert_eq!(
+                fired.last().copied(),
+                Some(total),
+                "every run must report its terminal step \
+                 (le={log_every}, stride={stride}, tt={total}), got {fired:?}"
+            );
+
+            let in_loop_only = fire_steps(log_every, stride, total).len();
+            assert!(
+                fired.len() <= in_loop_only + 1,
+                "the terminal line may add at most one entry \
+                 (le={log_every}, stride={stride}, tt={total}), got {fired:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_log_watermark_never_fires_twice_for_same_step() {
+        // `every` deliberately *divides* the boundary so this test isolates the
+        // dedup/monotonicity property. With a non-dividing `every` the opening
+        // `should_log` would already be exercising the #321 cadence bug, and a
+        // failure here would not tell us which property broke.
+        let mut wm = LogWatermark::new(64);
+        assert!(wm.should_log(128), "the first qualifying step must fire");
+        assert!(
+            !wm.should_log(128),
+            "re-querying the same global step must not emit a duplicate line"
+        );
+        assert!(
+            !wm.should_log(64),
+            "a step behind the watermark must not fire"
+        );
+        assert!(
+            wm.should_log(192),
+            "the watermark must re-arm once `every` steps have elapsed"
         );
     }
 }

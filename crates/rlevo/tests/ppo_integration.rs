@@ -443,3 +443,134 @@ rl_learning_test! {
     run = run_pendulum,
     random = random_pendulum,
 }
+
+// ---------------------------------------------------------------------------
+// Progress-logging cadence (issue #321)
+// ---------------------------------------------------------------------------
+//
+// The PPO loop can only log at a rollout boundary, so `global_step` is sampled
+// on a `num_steps` stride. The original gate was
+// `global_step % log_every == 0`, which fires on the *intersection* of the two
+// schedules — `lcm(num_steps, log_every)` — so any `log_every` that does not
+// divide `num_steps` silently logged far too rarely or (for a short run) never
+// at all. The fix is a last-logged watermark plus a terminal line.
+//
+// This test pins the wiring, not just the helper: that the watermark is
+// constructed from `log_every`, consulted at the rollout boundary, that
+// `emit_progress` is actually reached, and that the run's final step is
+// reported. Everything else in this suite passes `log_every = 0`, so without
+// it the whole logging path is unexercised.
+
+/// Collects the `step` field of every captured `tracing` event.
+///
+/// Deliberately minimal — not a general capture harness. `usize` fields arrive
+/// through `record_u64`; the other visit methods are no-ops because the ~18
+/// remaining fields of the progress event are irrelevant here.
+#[derive(Default)]
+struct StepVisitor {
+    step: Option<u64>,
+}
+
+impl tracing::field::Visit for StepVisitor {
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        if field.name() == "step" {
+            self.step = Some(value);
+        }
+    }
+
+    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
+}
+
+/// `tracing` layer that appends each event's `step` to a shared vector.
+struct StepCapture {
+    steps: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
+}
+
+impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for StepCapture {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = StepVisitor::default();
+        event.record(&mut visitor);
+        if let Some(step) = visitor.step {
+            self.steps.lock().expect("capture mutex").push(step);
+        }
+    }
+}
+
+#[test]
+fn ppo_progress_logs_when_log_every_does_not_divide_num_steps() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    // The canonical #321 configuration: a 128-step rollout stride with
+    // `log_every = 100`, which shares no useful factor with it. `lcm(128, 100)`
+    // is 3200, so the old gate emitted ZERO lines for this run.
+    const NUM_STEPS: usize = 128;
+    const LOG_EVERY: usize = 100;
+    // Not a multiple of the stride, so the final rollout is partial (boundaries
+    // at 128..640, then a 10-step tail) — which is exactly the case where the
+    // watermark alone would drop the closing line.
+    //
+    // It must also not be a multiple of `LOG_EVERY`: at 700 the old gate would
+    // fire on the terminal boundary by coincidence and this test would pass
+    // against the very bug it exists to catch. No boundary of this run --
+    // 128, 256, 384, 512, 640, 650 -- is a multiple of 100.
+    const TOTAL: usize = 650;
+    const SEED: u64 = 7;
+
+    let _guard = flex_guard();
+
+    let steps = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u64>::new()));
+    let subscriber = tracing_subscriber::registry().with(StepCapture {
+        steps: std::sync::Arc::clone(&steps),
+    });
+
+    tracing::subscriber::with_default(subscriber, || {
+        let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL);
+        train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+            &mut agent, &mut env, &mut rng, TOTAL, LOG_EVERY,
+        )
+        .expect("training");
+    });
+
+    let steps = steps.lock().expect("capture mutex").clone();
+
+    // (1) The literal #321 regression: zero lines under the old gate.
+    assert!(
+        !steps.is_empty(),
+        "a {TOTAL}-step run with log_every = {LOG_EVERY} must emit at least one progress line, \
+         but emitted none (this is the #321 regression: the old divisibility gate fired only on \
+         multiples of lcm({NUM_STEPS}, {LOG_EVERY}) = 3200)"
+    );
+
+    // (2) The terminal line: the run's final update stats must be reported.
+    assert_eq!(
+        steps.last().copied(),
+        Some(TOTAL as u64),
+        "the final progress line must report the terminal step {TOTAL}, got {steps:?}"
+    );
+
+    // (3) Cadence: a boundary-gated logger cannot hit `log_every` exactly, but
+    // it must never fall a whole extra rollout behind it. The terminal line is
+    // exempt — it is deliberately early, by design.
+    let mut previous = 0_u64;
+    for &step in &steps[..steps.len() - 1] {
+        let gap = step - previous;
+        assert!(
+            gap >= LOG_EVERY as u64,
+            "progress lines must be at least log_every = {LOG_EVERY} steps apart, \
+             got a gap of {gap} at step {step} in {steps:?}"
+        );
+        assert!(
+            gap < (LOG_EVERY + NUM_STEPS) as u64,
+            "progress lines must never lag more than one rollout past log_every \
+             (< {}), got a gap of {gap} at step {step} in {steps:?}",
+            LOG_EVERY + NUM_STEPS
+        );
+        previous = step;
+    }
+}
