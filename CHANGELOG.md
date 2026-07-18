@@ -299,6 +299,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A non-finite `next_q_max` survived terminal transitions in
+  `compute_target_q_values`, defeating the terminal-bootstrap convention**
+  (resolves #192). The target was computed by *scaling* the bootstrap term,
+  `rewards + gamma * next_q_max * (1.0 - terminated)`, and because
+  `NaN * 0.0 == NaN` (as does `Inf * 0.0`), a poisoned `next_q_max` propagated
+  into the target on exactly the samples where the convention says the
+  bootstrap must vanish. The term is now genuinely masked to `0` wherever
+  `terminated == 1.0`, so a terminal target is the reward regardless of what
+  the next-state estimate holds.
+
+  This is hardening, not a repair of live divergence: the expression cannot
+  *originate* a NaN, and for all-finite inputs the new form is numerically
+  identical, so no algorithm's behaviour changes. It amplified a defect whose
+  only known trigger — SAC's alpha optimizer poisoning itself on a single
+  non-finite gradient — was fixed in #184. The existing tests missed it because
+  they only ever fed finite Q-values, where the two formulations agree
+  exactly. The four affected call sites are DQN, DDPG, TD3, and SAC; C51 and
+  QR-DQN never used this helper (they mask in their own projection step).
+
 - **PPO/PPG progress logging fired at `lcm(num_steps, log_every)`, not
   `log_every` — and not at all for plausible configs** (resolves #321). Both
   loops gated on `global_step.is_multiple_of(log_every)`, but the check sits
