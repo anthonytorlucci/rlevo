@@ -350,15 +350,31 @@ where
 
     /// Synchronises the target network with the current policy network.
     ///
-    /// When [`C51TrainingConfig::tau`] is greater than zero, a per-call
-    /// Polyak soft update `target ← (1 − τ) · target + τ · policy` is
-    /// performed inside [`learn_step`](Self::learn_step) and this method is a
-    /// no-op unless `target_update_frequency` is also set.
+    /// This method is **only ever the hard-sync path**: a full copy of the
+    /// policy weights into the target. The soft (Polyak) path lives inside
+    /// [`learn_step`](Self::learn_step), not here.
     ///
-    /// When `tau` is zero, this method performs a hard sync — a full copy of
-    /// the policy weights into the target — every `target_update_frequency`
-    /// steps. If `target_update_frequency` is `0`, hard sync is disabled.
+    /// The two mechanisms are mutually exclusive and selected by
+    /// [`C51TrainingConfig::tau`]:
+    ///
+    /// - `tau > 0` — Polyak soft updates `target ← (1 − τ) · target + τ ·
+    ///   policy` run per learn step inside [`learn_step`](Self::learn_step),
+    ///   and this method is a **no-op**, whatever `target_update_frequency`
+    ///   says. A hard copy here would erase the very lag `tau` exists to
+    ///   maintain.
+    /// - `tau == 0` — soft updates are disabled and this method performs the
+    ///   hard sync every `target_update_frequency` steps. If
+    ///   `target_update_frequency` is `0`, hard sync is disabled too; that
+    ///   combination leaves the target frozen forever and is rejected by
+    ///   [`C51TrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    ///
+    /// Safe to call unconditionally once per env step — the gating lives here.
     pub fn sync_target(&mut self) {
+        // `tau > 0` means the soft update in `learn_step` owns the target;
+        // `target_update_frequency` is an inert fallback in that mode.
+        if self.config.tau > 0.0 {
+            return;
+        }
         if self.config.target_update_frequency == 0 {
             return;
         }
@@ -550,6 +566,254 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use burn::backend::{Autodiff, Flex};
+    use burn::module::{AutodiffModule, Module};
+    use burn::nn::{Linear, LinearConfig};
+    use burn::tensor::backend::Backend;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use serde::{Deserialize, Serialize};
+
+    use crate::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+    use crate::utils::polyak_update;
+    use rlevo_core::base::{Action as ActionTrait, TensorConversionError};
+
+    type Be = Autodiff<Flex>;
+
+    const TEST_ACTIONS: usize = 2;
+    const TEST_ATOMS: usize = 5;
+
+    /// Two-feature observation — the smallest thing the agent will accept.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestObs([f32; 2]);
+
+    impl Observation<1> for TestObs {
+        fn shape() -> [usize; 1] {
+            [2]
+        }
+    }
+
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {
+        fn row_shape() -> [usize; 1] {
+            [2]
+        }
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&self.0);
+        }
+        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            let v = tensor
+                .into_data()
+                .convert::<f32>()
+                .to_vec::<f32>()
+                .map_err(|e| TensorConversionError {
+                    message: format!("host read failed: {e:?}"),
+                })?;
+            Ok(Self([v[0], v[1]]))
+        }
+    }
+
+    /// Binary discrete action.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct TestAction(usize);
+
+    impl ActionTrait<1> for TestAction {
+        fn shape() -> [usize; 1] {
+            [TEST_ACTIONS]
+        }
+        fn is_valid(&self) -> bool {
+            self.0 < TEST_ACTIONS
+        }
+    }
+
+    impl DiscreteAction<1> for TestAction {
+        const ACTION_COUNT: usize = TEST_ACTIONS;
+        fn from_index(index: usize) -> Self {
+            assert!(index < TEST_ACTIONS, "action index out of bounds");
+            Self(index)
+        }
+        fn to_index(&self) -> usize {
+            self.0
+        }
+    }
+
+    /// Minimal trainable C51 network.
+    ///
+    /// The backend generic **must** be named `B`: Burn's `Module` derive keys
+    /// off the identifier, and any other name makes the derive treat the struct
+    /// as parameter-free — the optimizer would then step nothing and every
+    /// "weights moved" assertion below would pass vacuously.
+    #[derive(Module, Debug)]
+    struct TestNet<B: Backend> {
+        linear: Linear<B>,
+    }
+
+    impl<B: Backend> TestNet<B> {
+        fn init(device: &B::Device) -> Self {
+            Self {
+                linear: LinearConfig::new(2, TEST_ACTIONS * TEST_ATOMS).init(device),
+            }
+        }
+
+        fn forward_impl(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+            let [batch, _] = observations.dims();
+            self.linear
+                .forward(observations)
+                .reshape([batch, TEST_ACTIONS, TEST_ATOMS])
+        }
+    }
+
+    impl<B: AutodiffBackend> C51Model<B, 2> for TestNet<B> {
+        fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 3> {
+            self.forward_impl(observations)
+        }
+        fn forward_inner(
+            inner: &Self::InnerModule,
+            observations: Tensor<B::InnerBackend, 2>,
+        ) -> Tensor<B::InnerBackend, 3> {
+            inner.forward_impl(observations)
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+            polyak_update::<B::InnerBackend, TestNet<B::InnerBackend>>(
+                &active.valid(),
+                target,
+                tau as f32,
+            )
+        }
+    }
+
+    type TestAgent = C51Agent<Be, TestNet<Be>, TestObs, TestAction, 1, 2>;
+
+    /// Reads the linear layer's weights back to the host, element-wise.
+    ///
+    /// Deliberately not a `sum()` proxy: per-element optimizer steps very
+    /// nearly cancel in a sum, which would make "did the target change" a
+    /// coin flip rather than a measurement.
+    fn weights(net: &TestNet<Flex>) -> Vec<f32> {
+        net.linear
+            .weight
+            .val()
+            .into_data()
+            .convert::<f32>()
+            .to_vec::<f32>()
+            .expect("weight tensor host read")
+    }
+
+    fn policy_weights(agent: &TestAgent) -> Vec<f32> {
+        weights(&agent.policy().valid())
+    }
+
+    fn target_weights(agent: &TestAgent) -> Vec<f32> {
+        weights(&agent.target_net)
+    }
+
+    fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
+        assert_eq!(a.len(), b.len(), "weight snapshots must have equal length");
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0_f32, f32::max)
+    }
+
+    /// Builds an agent whose buffer is primed and whose `learning_starts` is
+    /// `0`, so a single [`C51Agent::learn_step`] can be driven directly
+    /// without a training loop (and thus without coupling to ε decay or the
+    /// buffer-fill schedule).
+    fn primed_agent(tau: f64, target_update_frequency: usize) -> TestAgent {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let config = C51TrainingConfigBuilder::new()
+            .tau(tau)
+            .target_update_frequency(target_update_frequency)
+            .batch_size(2)
+            .learning_starts(0)
+            .learning_rate(0.01)
+            .num_atoms(TEST_ATOMS)
+            .v_min(-1.0)
+            .v_max(1.0)
+            .build()
+            .expect("valid test config");
+
+        let mut agent: TestAgent =
+            C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs");
+        for i in 0..4 {
+            let x = i as f32;
+            agent.remember(
+                TestObs([x, -x]),
+                &TestAction(i % TEST_ACTIONS),
+                1.0,
+                TestObs([x + 1.0, -x]),
+                false,
+            );
+        }
+        agent
+    }
+
+    /// Regression for #182: with `tau > 0` the Polyak-lagged target must
+    /// survive a `sync_target()` landing on a multiple of
+    /// `target_update_frequency`. The old code hard-copied the policy here,
+    /// erasing the lag every 100 steps under the *default* config.
+    #[test]
+    fn sync_target_is_noop_when_tau_is_positive() {
+        let mut agent = primed_agent(0.005, 100);
+        let mut rng = StdRng::seed_from_u64(42);
+        agent
+            .learn_step(&mut rng)
+            .expect("learn_step runs with a primed buffer and learning_starts = 0");
+
+        // Precondition: without divergence the assertion below is vacuous.
+        let diverged = max_abs_diff(&policy_weights(&agent), &target_weights(&agent));
+        assert!(
+            diverged > 1e-5,
+            "precondition failed: policy and target must differ before sync_target \
+             (max |Δw| = {diverged:e}); the regression assertion would be vacuous"
+        );
+
+        // Land exactly on a hard-sync boundary.
+        agent.step = 100;
+        agent.sync_target();
+
+        let after = max_abs_diff(&policy_weights(&agent), &target_weights(&agent));
+        assert!(
+            after > 1e-5,
+            "tau = 0.005 must leave the target Polyak-lagged, but sync_target \
+             hard-copied the policy onto it (max |Δw| = {after:e})"
+        );
+        assert!(
+            (after - diverged).abs() < 1e-9,
+            "sync_target must be a pure no-op when tau > 0: max |Δw| moved from \
+             {diverged:e} to {after:e}"
+        );
+    }
+
+    /// The other branch of the gate: with `tau == 0` the hard sync is the only
+    /// target-update mechanism, and must still fire on a multiple of
+    /// `target_update_frequency`.
+    #[test]
+    fn sync_target_hard_copies_when_tau_is_zero() {
+        let mut agent = primed_agent(0.0, 100);
+        let mut rng = StdRng::seed_from_u64(42);
+        agent
+            .learn_step(&mut rng)
+            .expect("learn_step runs with a primed buffer and learning_starts = 0");
+
+        let diverged = max_abs_diff(&policy_weights(&agent), &target_weights(&agent));
+        assert!(
+            diverged > 1e-5,
+            "precondition failed: policy and target must differ before sync_target \
+             (max |Δw| = {diverged:e})"
+        );
+
+        agent.step = 100;
+        agent.sync_target();
+
+        let after = max_abs_diff(&policy_weights(&agent), &target_weights(&agent));
+        assert!(
+            after < 1e-9,
+            "tau = 0 must hard-sync the target onto the policy at a multiple of \
+             target_update_frequency (max |Δw| = {after:e})"
+        );
+    }
 
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {

@@ -14,7 +14,7 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Configuration for training a Quantile Regression DQN (QR-DQN) agent.
 ///
@@ -51,7 +51,25 @@ pub struct QrDqnTrainingConfig {
 
     /// Period, in env steps, between hard syncs of the target network.
     ///
-    /// Only meaningful when [`tau`](Self::tau) is `0`.
+    /// Only meaningful when [`tau`](Self::tau) is `0`. When `tau > 0` the
+    /// Polyak soft update is the live mechanism and this field is an inert
+    /// fallback —
+    /// [`QrDqnAgent::sync_target`](crate::algorithms::qrdqn::qrdqn_agent::QrDqnAgent::sync_target)
+    /// is a no-op, so the hard copy can never erase the soft-update lag.
+    ///
+    /// Setting both this field and `tau` to `0` is rejected by
+    /// [`validate`](Validate::validate): the target network would never update
+    /// at all.
+    ///
+    /// The unit is **environment steps** — not parameter updates and not
+    /// gradient updates. The default of `10_000` matches
+    /// Stable-Baselines3's `target_update_interval`, which is counted in the
+    /// same unit. It is *not* the Nature-DQN figure: Mnih et al. (2015)
+    /// specify `C = 10,000` **parameter updates** (Extended Data Table 1),
+    /// which under the default [`train_frequency`](Self::train_frequency) of
+    /// `4` would be 40,000 environment steps. So 10,000 env steps is roughly
+    /// 2,500 parameter updates — four times more frequent than Nature's `C`,
+    /// and an exact match to the SB3 convention.
     pub target_update_frequency: usize,
 
     /// Upper bound on steps allowed per episode (for bookkeeping only —
@@ -100,6 +118,11 @@ impl QrDqnTrainingConfig {
 impl Default for QrDqnTrainingConfig {
     /// Returns defaults consistent with Dabney et al. 2018 QR-DQN
     /// reference hyperparameters.
+    ///
+    /// [`target_update_frequency`](Self::target_update_frequency) is
+    /// `10_000` environment steps, matching Stable-Baselines3's
+    /// `target_update_interval`. It is inert under these defaults because
+    /// `tau = 0.005 > 0` selects the Polyak soft update.
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -109,7 +132,7 @@ impl Default for QrDqnTrainingConfig {
             epsilon_start: 1.0,
             epsilon_end: 0.01,
             epsilon_decay: 0.995,
-            target_update_frequency: 100,
+            target_update_frequency: 10_000,
             steps_per_episode: 1000,
             replay_buffer_capacity: 10_000,
             learning_starts: 1_000,
@@ -137,6 +160,18 @@ impl Validate for QrDqnTrainingConfig {
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
         config::nonzero(C, "num_quantiles", self.num_quantiles)?;
         config::in_range(C, "kappa", 0.0, f64::INFINITY, f64::from(self.kappa))?;
+        // `tau` is already range-checked to `[0, 1]` above, so `<= 0.0` is
+        // exactly "soft updates disabled" (and avoids a float `==`).
+        if self.tau <= 0.0 && self.target_update_frequency == 0 {
+            return Err(ConfigError {
+                config: C,
+                field: "target_update_frequency",
+                kind: ConstraintKind::Custom(
+                    "target network would never update: set tau > 0 for Polyak soft updates, \
+                     or target_update_frequency > 0 for periodic hard syncs",
+                ),
+            });
+        }
         Ok(())
     }
 }
@@ -212,6 +247,11 @@ impl QrDqnTrainingConfigBuilder {
     /// Sets [`QrDqnTrainingConfig::target_update_frequency`].
     ///
     /// Only meaningful when [`tau`](Self::tau) is `0.0`; ignored otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`build`](Self::build) rejects `frequency == 0` combined with
+    /// `tau == 0.0`, since that leaves the target network frozen forever.
     pub fn target_update_frequency(mut self, frequency: usize) -> Self {
         self.config.target_update_frequency = frequency;
         self
@@ -319,6 +359,52 @@ mod tests {
             .build()
             .unwrap_err();
         assert_eq!(err.field, "num_quantiles");
+    }
+
+    #[test]
+    fn rejects_frozen_target_when_tau_and_frequency_are_both_zero() {
+        let err = QrDqnTrainingConfigBuilder::new()
+            .tau(0.0)
+            .target_update_frequency(0)
+            .build()
+            .unwrap_err();
+        assert_eq!(
+            err.field, "target_update_frequency",
+            "a config in which the target network never updates must be rejected"
+        );
+    }
+
+    #[test]
+    fn accepts_soft_updates_with_an_inert_hard_sync_frequency() {
+        // The workspace default sets both; under the `sync_target` gate the
+        // frequency is simply inert, so this must stay a legal config
+        // (ADR 0026: a library default must pass its own `validate`).
+        let cfg = QrDqnTrainingConfigBuilder::new()
+            .tau(0.005)
+            .target_update_frequency(100)
+            .build();
+        assert!(
+            cfg.is_ok(),
+            "tau > 0 alongside a nonzero target_update_frequency is legal"
+        );
+    }
+
+    #[test]
+    fn accepts_hard_sync_only_configuration() {
+        let cfg = QrDqnTrainingConfigBuilder::new()
+            .tau(0.0)
+            .target_update_frequency(500)
+            .build();
+        assert!(cfg.is_ok(), "tau = 0 with periodic hard syncs is legal");
+    }
+
+    #[test]
+    fn accepts_soft_update_only_configuration() {
+        let cfg = QrDqnTrainingConfigBuilder::new()
+            .tau(0.01)
+            .target_update_frequency(0)
+            .build();
+        assert!(cfg.is_ok(), "tau > 0 with hard sync disabled is legal");
     }
 
     #[test]

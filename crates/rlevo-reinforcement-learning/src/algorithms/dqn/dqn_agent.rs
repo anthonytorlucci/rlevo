@@ -337,9 +337,33 @@ where
         self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
-    /// Hard-syncs the target network with the policy network when
-    /// `self.step` is a multiple of `config.target_update_frequency`.
+    /// Periodically hard-syncs the target network with the policy network.
+    ///
+    /// This method is **only ever the hard path** — a wholesale copy of the
+    /// policy weights into the target. The soft (Polyak) path lives inside
+    /// [`learn_step`](Self::learn_step), not here.
+    ///
+    /// When [`DqnTrainingConfig::tau`] is greater than zero this method is a
+    /// **no-op**: the target is maintained exclusively by the per-learn-step
+    /// Polyak update `target ← (1 − τ) · target + τ · policy`, and a hard copy
+    /// would erase precisely the target lag that soft updates exist to
+    /// create. Because the default config sets `tau = 0.005`, the hard path is
+    /// unreachable for a default agent regardless of
+    /// `target_update_frequency`.
+    ///
+    /// When `tau` is zero, a hard sync is performed every
+    /// `target_update_frequency` steps. If `target_update_frequency` is `0`,
+    /// hard syncing is disabled entirely — a combination rejected by
+    /// [`DqnTrainingConfig::validate`](rlevo_core::config::Validate::validate)
+    /// when `tau` is also zero, since the target would then never update.
+    ///
+    /// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
     pub fn sync_target(&mut self) {
+        // Soft updates own the target network when tau > 0; hard-copying here
+        // would wipe out the Polyak lag every `target_update_frequency` steps.
+        if self.config.tau > 0.0 {
+            return;
+        }
         if self.config.target_update_frequency == 0 {
             return;
         }
@@ -473,6 +497,145 @@ where
 mod tests {
     use super::*;
 
+    use burn::backend::{Autodiff, Flex};
+    use burn::module::{AutodiffModule, Module, Param};
+    use burn::nn::{Linear, LinearConfig};
+    use burn::tensor::backend::Backend;
+    use rlevo_core::base::Action;
+    use rlevo_core::base::TensorConversionError;
+    use serde::{Deserialize, Serialize};
+
+    use crate::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+    use crate::utils::polyak_update;
+
+    type TestBackend = Autodiff<Flex>;
+    type TestInner = <TestBackend as AutodiffBackend>::InnerBackend;
+    type TestAgent = DqnAgent<TestBackend, TestNet<TestBackend>, TestObs, TestAction, 1, 2>;
+
+    /// Minimal two-in/two-out linear Q-network used by the target-sync tests.
+    ///
+    /// Weights are set to a caller-chosen constant so "policy differs from
+    /// target" is provable by inspection rather than by luck of the seed.
+    #[derive(Module, Debug)]
+    struct TestNet<B: Backend> {
+        linear: Linear<B>,
+    }
+
+    impl<B: Backend> TestNet<B> {
+        /// Builds a bias-free 2x2 linear layer whose every weight equals `value`.
+        fn constant(
+            device: &<B as burn::tensor::backend::BackendTypes>::Device,
+            value: f32,
+        ) -> Self {
+            let linear: Linear<B> = LinearConfig::new(2, 2).with_bias(false).init(device);
+            let weight: Tensor<B, 2> =
+                Tensor::from_data(TensorData::new(vec![value; 4], vec![2, 2]), device);
+            Self {
+                linear: Linear {
+                    weight: Param::from_tensor(weight),
+                    ..linear
+                },
+            }
+        }
+    }
+
+    /// Reads a network's weight tensor back to the host for exact comparison.
+    fn weights<B: Backend>(net: &TestNet<B>) -> Vec<f32> {
+        net.linear
+            .weight
+            .val()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("weight tensor is float data")
+    }
+
+    impl<B: AutodiffBackend> DqnModel<B, 2> for TestNet<B> {
+        fn forward(&self, observations: Tensor<B, 2>) -> Tensor<B, 2> {
+            self.linear.forward(observations)
+        }
+
+        fn forward_inner(
+            inner: &Self::InnerModule,
+            observations: Tensor<B::InnerBackend, 2>,
+        ) -> Tensor<B::InnerBackend, 2> {
+            inner.linear.forward(observations)
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+            polyak_update::<B::InnerBackend, TestNet<B::InnerBackend>>(
+                &active.valid(),
+                target,
+                tau as f32,
+            )
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestObs([f32; 2]);
+
+    impl Observation<1> for TestObs {
+        fn shape() -> [usize; 1] {
+            [2]
+        }
+    }
+
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {
+        fn row_shape() -> [usize; 1] {
+            [2]
+        }
+
+        fn write_host_row(&self, buf: &mut Vec<f32>) {
+            buf.extend_from_slice(&self.0);
+        }
+
+        fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
+            let data = tensor.into_data().convert::<f32>();
+            let v = data.as_slice::<f32>().map_err(|_| TensorConversionError {
+                message: "non-float tensor".into(),
+            })?;
+            Ok(Self([v[0], v[1]]))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct TestAction(usize);
+
+    impl Action<1> for TestAction {
+        fn shape() -> [usize; 1] {
+            [2]
+        }
+
+        fn is_valid(&self) -> bool {
+            self.0 < 2
+        }
+    }
+
+    impl DiscreteAction<1> for TestAction {
+        const ACTION_COUNT: usize = 2;
+
+        fn from_index(index: usize) -> Self {
+            assert!(index < Self::ACTION_COUNT, "action index out of range");
+            Self(index)
+        }
+
+        fn to_index(&self) -> usize {
+            self.0
+        }
+    }
+
+    /// Builds an agent whose policy weights are all `1.0` and whose target
+    /// weights are all `2.0`, i.e. provably diverged before any sync.
+    fn diverged_agent(config: DqnTrainingConfig) -> TestAgent {
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let policy: TestNet<TestBackend> = TestNet::constant(&device, 1.0);
+        let target: TestNet<TestInner> = TestNet::constant(&device, 2.0);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        agent.target_net = target;
+        agent
+    }
+
     #[test]
     fn metrics_performance_record_returns_reward_and_steps() {
         let m = DqnMetrics {
@@ -491,5 +654,72 @@ mod tests {
     fn error_display_uses_thiserror_messages() {
         let err = DqnAgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
+    }
+
+    /// Regression (issue #182): with soft updates enabled, `sync_target` must
+    /// not hard-copy the policy over the target — doing so erases the Polyak
+    /// lag every `target_update_frequency` steps.
+    ///
+    /// Asserts on parameter tensors, not Q-values: a greedy action is a lossy
+    /// argmax of the weights and would agree under both behaviours.
+    #[test]
+    fn test_dqn_agent_sync_target_is_noop_when_tau_positive() {
+        let config = DqnTrainingConfig::default();
+        assert!(config.tau > 0.0, "default config must enable soft updates");
+        let freq = config.target_update_frequency;
+        assert!(freq > 0, "default config must set a hard-sync frequency");
+
+        let mut agent = diverged_agent(config);
+        // Precondition: without this, the test below would be vacuous.
+        let policy_w = weights(agent.policy());
+        let target_w = weights(&agent.target_net);
+        assert_ne!(
+            policy_w, target_w,
+            "precondition: policy and target must differ before the sync"
+        );
+
+        // Land exactly on a hard-sync boundary — the branch the bug fired on.
+        agent.step = freq;
+        agent.sync_target();
+
+        let after = weights(&agent.target_net);
+        assert_ne!(
+            after,
+            weights(agent.policy()),
+            "sync_target must not hard-copy the policy while tau > 0"
+        );
+        assert_eq!(
+            after, target_w,
+            "target weights must be left completely untouched when tau > 0"
+        );
+    }
+
+    /// Mirror of the regression test: with `tau == 0.0` the hard path is the
+    /// only target-update mechanism, so it must still fire on a boundary step.
+    #[test]
+    fn test_dqn_agent_sync_target_hard_copies_when_tau_zero() {
+        let config = DqnTrainingConfigBuilder::new()
+            .tau(0.0)
+            .target_update_frequency(100)
+            .build()
+            .expect("valid config");
+
+        let mut agent = diverged_agent(config);
+        let policy_w = weights(agent.policy());
+        assert_ne!(
+            policy_w,
+            weights(&agent.target_net),
+            "precondition: policy and target must differ before the sync"
+        );
+
+        agent.step = 100;
+        agent.sync_target();
+
+        assert_eq!(
+            weights(&agent.target_net),
+            policy_w,
+            "with tau == 0 the target must be hard-copied from the policy at a \
+             multiple of target_update_frequency"
+        );
     }
 }

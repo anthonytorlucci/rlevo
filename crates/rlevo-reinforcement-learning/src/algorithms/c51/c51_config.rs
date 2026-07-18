@@ -7,7 +7,7 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Configuration for training a Categorical DQN (C51) agent.
 ///
@@ -44,7 +44,18 @@ pub struct C51TrainingConfig {
 
     /// Period, in env steps, between hard syncs of the target network.
     ///
-    /// Only meaningful when [`tau`](Self::tau) is `0`.
+    /// Only meaningful when [`tau`](Self::tau) is `0`; while `tau > 0` the
+    /// Polyak soft update is the live mechanism and this field is inert.
+    ///
+    /// The unit is **environment steps** — not parameter updates and not
+    /// gradient updates. The default of `10_000` matches
+    /// Stable-Baselines3's `target_update_interval`, which is counted in the
+    /// same unit. It is *not* the Nature-DQN figure: Mnih et al. (2015)
+    /// specify `C = 10,000` **parameter updates** (Extended Data Table 1),
+    /// which under the default [`train_frequency`](Self::train_frequency) of
+    /// `4` would be 40,000 environment steps. So 10,000 env steps is roughly
+    /// 2,500 parameter updates — four times more frequent than Nature's `C`,
+    /// and an exact match to the SB3 convention.
     pub target_update_frequency: usize,
 
     /// Upper bound on steps allowed per episode (for bookkeeping only —
@@ -89,6 +100,11 @@ impl C51TrainingConfig {
 
 impl Default for C51TrainingConfig {
     /// Returns defaults consistent with CleanRL's reference C51 hyperparameters.
+    ///
+    /// [`target_update_frequency`](Self::target_update_frequency) is
+    /// `10_000` environment steps, matching Stable-Baselines3's
+    /// `target_update_interval`. It is inert under these defaults because
+    /// `tau = 0.005 > 0` selects the Polyak soft update.
     fn default() -> Self {
         Self {
             batch_size: 32,
@@ -98,7 +114,7 @@ impl Default for C51TrainingConfig {
             epsilon_start: 1.0,
             epsilon_end: 0.01,
             epsilon_decay: 0.995,
-            target_update_frequency: 100,
+            target_update_frequency: 10_000,
             steps_per_episode: 1000,
             replay_buffer_capacity: 10_000,
             learning_starts: 1_000,
@@ -128,6 +144,22 @@ impl Validate for C51TrainingConfig {
         config::at_least(C, "num_atoms", self.num_atoms, 2)?;
         config::distinct(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
         config::ordered(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
+        // The target network has exactly two update mechanisms — Polyak soft
+        // updates (`tau > 0`) and periodic hard syncs
+        // (`target_update_frequency > 0`). Disabling both leaves the target
+        // frozen at its initial weights for the whole run, which silently
+        // trains against a random bootstrap. `tau` is already range-checked
+        // to `[0, 1]` above, so `<= 0.0` here is exactly "τ is zero".
+        if self.tau <= 0.0 && self.target_update_frequency == 0 {
+            return Err(ConfigError {
+                config: C,
+                field: "target_update_frequency",
+                kind: ConstraintKind::Custom(
+                    "target network would never update: set tau > 0 for Polyak \
+                     soft updates, or target_update_frequency > 0 for hard syncs",
+                ),
+            });
+        }
         Ok(())
     }
 }
@@ -320,6 +352,47 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(C51TrainingConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_config_where_target_never_updates() {
+        let err = C51TrainingConfigBuilder::new()
+            .tau(0.0)
+            .target_update_frequency(0)
+            .build()
+            .unwrap_err();
+        assert_eq!(
+            err.field, "target_update_frequency",
+            "tau == 0 with no hard-sync period must be rejected: the target would never update"
+        );
+    }
+
+    #[test]
+    fn accepts_either_target_update_mechanism_alone() {
+        assert!(
+            C51TrainingConfigBuilder::new()
+                .tau(0.0)
+                .target_update_frequency(100)
+                .build()
+                .is_ok(),
+            "hard sync alone is a valid target-update mechanism"
+        );
+        assert!(
+            C51TrainingConfigBuilder::new()
+                .tau(0.005)
+                .target_update_frequency(0)
+                .build()
+                .is_ok(),
+            "Polyak soft update alone is a valid target-update mechanism"
+        );
+        assert!(
+            C51TrainingConfigBuilder::new()
+                .tau(0.005)
+                .target_update_frequency(100)
+                .build()
+                .is_ok(),
+            "both set is legal: tau wins and the frequency is an inert fallback (this is Default)"
+        );
     }
 
     #[test]
