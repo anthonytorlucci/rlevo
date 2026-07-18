@@ -217,7 +217,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   at the default bounds, which never bind on a healthy run (verified: the
   Pendulum end-to-end run passes unchanged at avg −1167.78).
 
+**Added**
+
+- **`algorithms::c51::projection::atom_spacing`** — the single source of truth
+  for the atom spacing `Δz = (v_max − v_min) / (N − 1)` (Bellemare et al. 2017,
+  §4.1). `C51TrainingConfig::delta_z()` now delegates to it, so the support
+  tensor built in `C51Agent` and the index scale used by the projection can no
+  longer drift apart. Exposed as a free function taking scalars rather than a
+  `C51TrainingConfig` method, so a future Rainbow agent can call
+  `project_distribution` without depending on C51's config type.
+
 **Changed**
+
+- **`C51TrainingConfig::delta_z()` returns `f32::NAN` for `num_atoms < 2`,
+  where it previously returned `±inf`.** The old body divided by
+  `num_atoms.saturating_sub(1)`, i.e. by zero. Both values are degenerate and
+  the builder's `validate()` rejects `num_atoms < 2` before either can be
+  observed, but `NaN` propagates visibly through downstream arithmetic whereas
+  `inf` silently yields a `b` coordinate of `0`. Reachable only by constructing
+  the config through a struct literal, which bypasses `validate()` — the
+  general problem tracked as #326. The signature and `#[must_use]` are
+  unchanged.
 
 - **`target_update_frequency` default raised from `100` to `10_000` for DQN,
   C51 and QR-DQN.** The old value had no basis in the literature or in any
@@ -242,6 +262,56 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   handful of times (see #337 for per-scale tuning guidance).
 
 **Fixed**
+
+- **C51 crashed on roughly 4% of valid atom supports — f32 rounding pushed the
+  projection's atom index one past the end of the support** (resolves #180).
+  `project_distribution` clamps the Bellman shift `Tz` to `[v_min, v_max]`, so
+  the continuous atom coordinate `b = (Tz − v_min) / Δz` is *mathematically*
+  confined to `[0, N−1]`. Bellemare et al. 2017 assert exactly that, as an
+  inline comment in Algorithm 1 — and it is exact in ℝ. It is not exact in
+  IEEE-754. When `Tz` saturates at `v_max`, the division can round `b` a few
+  ULPs **above** `N−1`, `ceil` then yields `N`, and the `scatter` indexes off
+  the end of a size-`N` axis and panics.
+
+  With `v_min = −10, v_max = 0.1, N = 8`, `b = 7.000000477` and any reward
+  `≥ 0.1` panics with `index 8 out of bounds for dimension of size 8`. A sweep
+  over `v_min ∈ [−20, 0)`, `v_max ∈ (v_min, 20]` and `N ∈ [2, 64]` found
+  **165,092 of 3,786,300 supports** affected. Every one of them passes
+  `validate()`; none is exotic. `b` is now clamped to `[0, N−1]` before
+  `floor`/`ceil` — a no-op in real arithmetic, and the same guard CleanRL's
+  `c51.py` carries.
+
+  **Why the tests missed it.** The default support `(−10, 10, 51)` lands on
+  `b = 50.0` exactly, and so do every unit test's `(−1, 1, 3)` and `(−2, 2, n)`
+  and every benchmark's `(−10, 10, {21, 51, 101})`. The suite contained a
+  `projection_clamps_above_support` test aimed squarely at this boundary, but on
+  an exactly-landing support it cannot observe the defect no matter how it is
+  written. The regression tests added here use non-default supports chosen
+  *because* they round badly.
+
+  Note this is distinct from the exact-atom-landing case (`l == u`, where both
+  distance weights are zero and mass would be dropped), which the existing
+  `l_eq_u_mask` already handled correctly and which is unchanged.
+
+- **`project_distribution` silently returned a corrupted target distribution
+  for a degenerate support, instead of failing** (found while fixing #180).
+  With `v_min == v_max` the spacing `Δz` is `0`, so `b = (Tz − v_min)/0` is
+  `NaN`. `f32::clamp` **propagates** `NaN` rather than rescuing it, and Rust's
+  saturating float→int cast maps `NaN` to `0` — so every index collapsed to
+  atom 0 and the function returned a plausible-looking distribution with all
+  mass on the bottom atom. No panic, and no `NaN` in the output to signal it.
+  Silent corruption is a worse failure than the out-of-bounds panic above.
+
+  The pre-existing `assert!(num_atoms >= 2)` does not cover this: `num_atoms`
+  can be perfectly valid while `v_max − v_min == 0`. `project_distribution` now
+  asserts that the spacing is finite and strictly positive, and documents both
+  panic conditions under `# Panics`.
+
+  This is guarded in the projection operator rather than only in config
+  validation because `project_distribution` is public, re-exported, and takes
+  **raw `f32` scalars** — it is reachable with no `C51TrainingConfig` involved,
+  so it has to defend its own contract. The related gap where a config struct
+  literal bypasses `validate()` entirely is tracked as #326.
 
 - **PPO's Gaussian `log_std` was unbounded, so a long continuous-control run
   could collapse it until `σ` underflowed to zero and NaN poisoned every

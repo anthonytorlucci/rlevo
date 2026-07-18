@@ -22,7 +22,7 @@
 //!
 //! - [`eda`] — [`EdaStrategy`](eda::EdaStrategy) over a
 //!   [`ProbabilityModel`](crate::ProbabilityModel): UMDA, PBIL, compact-GA,
-//!   and a dependency-chain MIMIC model.
+//!   a dependency-chain MIMIC model, and a BIC-scored Bayesian network (BOA).
 //!
 //! # Hybrid / composite strategies
 //!

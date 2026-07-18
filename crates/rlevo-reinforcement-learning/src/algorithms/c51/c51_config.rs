@@ -9,6 +9,8 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::algorithms::c51::projection::atom_spacing;
+
 /// Configuration for training a Categorical DQN (C51) agent.
 ///
 /// Holds all hyperparameters required to initialise and train a
@@ -92,9 +94,20 @@ pub struct C51TrainingConfig {
 
 impl C51TrainingConfig {
     /// Spacing between adjacent atoms: `(v_max − v_min) / (num_atoms − 1)`.
+    ///
+    /// Delegates to [`atom_spacing`] so the support this config builds and the
+    /// bin indices the categorical projection computes share one definition of
+    /// `Δz` — an ULP of disagreement between the two is enough to push a
+    /// scatter index off the end of the support.
+    ///
+    /// # Returns
+    /// The uniform atom spacing, or [`f32::NAN`] for a degenerate
+    /// `num_atoms < 2` (a spacing is undefined with fewer than two atoms).
+    /// [`Validate`] rejects such a config, but a struct literal can bypass the
+    /// builder, so this stays total rather than panicking (see issue #326).
     #[must_use]
     pub fn delta_z(&self) -> f32 {
-        (self.v_max - self.v_min) / (self.num_atoms.saturating_sub(1) as f32)
+        atom_spacing(self.v_min, self.v_max, self.num_atoms)
     }
 }
 
