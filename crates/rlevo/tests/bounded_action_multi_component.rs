@@ -22,11 +22,13 @@
 //! one of the three bounds — so the trait half of the fix is a compile-time
 //! prerequisite for the fixture existing at all.)
 
-use burn::module::{AutodiffModule, Module};
+use std::sync::{Arc, Mutex};
+
+use burn::module::{AutodiffModule, Module, Param};
 use burn::nn::{Linear, LinearConfig};
-use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Tensor, TensorData};
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -37,6 +39,11 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_agent::DdpgAgent;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_config::DdpgTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
+};
+use rlevo_reinforcement_learning::algorithms::sac::sac_agent::SacAgent;
+use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfigBuilder;
+use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
+    SampleOutput, SquashedGaussianPolicy,
 };
 use rlevo_reinforcement_learning::utils::polyak_update;
 
@@ -331,4 +338,403 @@ fn noisy_action_stays_within_per_component_bounds() {
         let action = agent.act(&LinearObservation { x: 1.0 }, true, &mut rng);
         assert_within_per_component_bounds(&action);
     }
+}
+
+// ===========================================================================
+// SAC — the same fixture through the squashed-Gaussian agent.
+//
+// `sac_agent.rs` has two `COMPONENTS`-keyed action sites: the warm-up uniform
+// sampler and the per-component clamp on the policy path. Both were `A::RANK`
+// before ADR 0053 §5. Every `BoundedAction` impl reachable from
+// `sac_integration.rs` is 1/1, so nothing there can tell the two apart; this
+// fixture (rank 1, 3 components, asymmetric bounds) can.
+// ===========================================================================
+
+/// Test-local SAC actor with a **controllable saturation direction**.
+///
+/// `mean = obs · gain` with a large `gain`, so a negative observation drives
+/// every pre-squash logit far negative and `tanh` pins the whole row at `≈ -1`
+/// — outside the `gas`/`brake` lower bound of `0`, which is what makes the
+/// per-component clamp observable rather than incidental.
+///
+/// The returned `log_prob` is a differentiable placeholder, **not** the true
+/// squashed-Gaussian density. That is sound here because these tests exercise
+/// only [`SacAgent::act`], which never reads it; `sac_integration.rs` owns the
+/// correctness of the real density.
+#[derive(Module, Debug)]
+struct SquashedActor<B: Backend> {
+    gain: Param<Tensor<B, 2>>,
+    action_dim: usize,
+}
+
+impl<B: Backend> SquashedActor<B> {
+    /// σ on the reparameterized sample. Small enough that a `gain`-saturated
+    /// mean stays saturated for any plausible ε.
+    const SIGMA: f32 = 0.1;
+
+    fn new(
+        action_dim: usize,
+        gain: f32,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
+        let data = TensorData::new(vec![gain; action_dim], vec![1, action_dim]);
+        Self {
+            gain: Param::from_tensor(Tensor::from_data(data, device)),
+            action_dim,
+        }
+    }
+
+    /// `[batch, 1] × [1, action_dim]` broadcasts to `[batch, action_dim]`.
+    fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
+        let z = obs * self.gain.val() + eps.mul_scalar(Self::SIGMA);
+        let log_prob = z
+            .clone()
+            .powi_scalar(2)
+            .sum_dim(1)
+            .squeeze_dim::<1>(1)
+            .neg();
+        (tanh(z), log_prob)
+    }
+}
+
+impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedActor<B> {
+    fn action_dim(&self) -> usize {
+        self.action_dim
+    }
+
+    fn forward_sample(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> SampleOutput<B, 2> {
+        let (action, log_prob) = self.sample_impl(obs, eps);
+        SampleOutput { action, log_prob }
+    }
+
+    fn forward_sample_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+        eps: Tensor<B::InnerBackend, 2>,
+    ) -> SampleOutput<B::InnerBackend, 2> {
+        let (action, log_prob) = inner.sample_impl(obs, eps);
+        SampleOutput { action, log_prob }
+    }
+
+    fn deterministic_action(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+        tanh(obs * self.gain.val())
+    }
+}
+
+type CarSacAgent =
+    SacAgent<Be, SquashedActor<Be>, Critic<Be>, LinearObservation, CarLikeAction, 1, 2, 1, 2>;
+
+/// Builds a SAC agent over the 3-component fixture. `gain` sets how hard the
+/// policy saturates; the sign of the observation then picks the direction.
+fn build_sac_agent(learning_starts: usize, gain: f32) -> CarSacAgent {
+    let device = seeded_device::<Be>(0x5AC);
+    let actor = SquashedActor::<Be>::new(CarLikeAction::COMPONENTS, gain, &device);
+    let critic_1 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
+    let critic_2 = Critic::<Be>::new(1, CarLikeAction::COMPONENTS, &device);
+    let config = SacTrainingConfigBuilder::default()
+        .learning_starts(learning_starts)
+        .batch_size(4)
+        .replay_buffer_capacity(64)
+        .build()
+        .expect("valid SAC config");
+    CarSacAgent::new(actor, critic_1, critic_2, config, device).expect("agent construction")
+}
+
+/// SAC warm-up path: `act(.., training = true)` below `learning_starts` draws
+/// a uniform sample per component (`sac_agent.rs:378`).
+///
+/// Reverting that loop to `0..A::RANK` yields a 1-element `Vec` where
+/// `CarLikeAction::from_slice` demands 3, so the fix is load-bearing for this
+/// test to run at all — and the per-component bound assertion below then pins
+/// that each sampled component used *its own* range rather than component 0's.
+#[test]
+fn sac_warmup_sample_produces_all_components_within_bounds() {
+    let _guard = flex_guard();
+    let agent = build_sac_agent(1_000, 10.0);
+    let mut rng = StdRng::seed_from_u64(0x5AC0_0001);
+
+    for _ in 0..32 {
+        let action = agent.act(&LinearObservation { x: 0.25 }, true, &mut rng);
+        assert_within_per_component_bounds(&action);
+    }
+}
+
+/// SAC policy path: `act` clamps the squashed actor output against
+/// `low[i]`/`high[i]` (`sac_agent.rs:410`).
+///
+/// The actor is driven to saturate at `≈ -1` on **every** component, so `gas`
+/// and `brake` arrive genuinely below their own lower bound of `0`. The
+/// expected row is therefore `[-1, 0, 0]`, which no `low[0]`-keyed clamp can
+/// produce, and which the pre-fix `0..A::RANK` loop cannot even reach — it
+/// hands 1 value to a `from_slice` that requires 3.
+#[test]
+fn sac_policy_action_clamps_each_component_against_its_own_bound() {
+    let _guard = flex_guard();
+    let agent = build_sac_agent(0, 10.0);
+    let mut rng = StdRng::seed_from_u64(0x5AC0_0002);
+
+    // `training = false` ⇒ ε = 0 ⇒ the deterministic squashed mean.
+    let action = agent.act(&LinearObservation { x: -1.0 }, false, &mut rng);
+    assert_within_per_component_bounds(&action);
+    let values = action.as_slice();
+    for (i, want) in [-1.0_f32, 0.0, 0.0].iter().enumerate() {
+        assert!(
+            (values[i] - want).abs() < 1e-5,
+            "a fully-negative squashed action must clamp to each component's own \
+             lower bound: wanted {want} at component {i}, got {} (full row: {values:?})",
+            values[i]
+        );
+    }
+
+    // The noisy branch takes the same clamp.
+    for _ in 0..16 {
+        let noisy = agent.act(&LinearObservation { x: -1.0 }, true, &mut rng);
+        assert_within_per_component_bounds(&noisy);
+    }
+}
+
+// ===========================================================================
+// DDPG `learn_step` — the target-action clip, end to end.
+//
+// `clip_to_action_bounds` is unit-tested in `shared.rs`, but in isolation:
+// nothing there exercises DDPG's *wiring* of `low_t`/`high_t` through
+// `action_bound_tensors::<B::InnerBackend, A, DA, DAB>` at construction. A
+// swapped pair, or a wrong generic at that call site, would pass every
+// existing test. These two tests observe the tensor the target critic is
+// actually handed.
+// ===========================================================================
+
+/// Actions the **target** critic was evaluated on, one flat `[batch × C]` row
+/// per `forward_inner` call.
+type RecordedActions = Arc<Mutex<Vec<Vec<f32>>>>;
+
+/// Critic that records every action batch reaching its no-autodiff path.
+///
+/// In DDPG's `learn_step`, `forward_inner` is called exactly once — on the
+/// target critic, with the clipped target action (`ddpg_agent.rs:499-505`).
+/// The live critic's `forward` is a different method and is not recorded, so
+/// the capture is unambiguous.
+///
+/// `recorded` is `#[module(skip)]`, so the derive treats it as a plain cloned
+/// field rather than a submodule; `AutodiffModule::valid()` clones the `Arc`,
+/// which is what lets the target twin write into the same buffer the test
+/// reads.
+#[derive(Module, Debug)]
+struct RecordingCritic<B: Backend> {
+    head: Linear<B>,
+    #[module(skip)]
+    recorded: RecordedActions,
+}
+
+impl<B: Backend> RecordingCritic<B> {
+    fn new(
+        obs_dim: usize,
+        action_dim: usize,
+        recorded: RecordedActions,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
+        Self {
+            head: LinearConfig::new(obs_dim + action_dim, 1).init(device),
+            recorded,
+        }
+    }
+
+    fn forward_impl(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+        let x = Tensor::cat(vec![obs, act], 1);
+        relu(self.head.forward(x)).squeeze_dim::<1>(1)
+    }
+}
+
+impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for RecordingCritic<B> {
+    fn forward(&self, obs: Tensor<B, 2>, act: Tensor<B, 2>) -> Tensor<B, 1> {
+        self.forward_impl(obs, act)
+    }
+    fn forward_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+        act: Tensor<B::InnerBackend, 2>,
+    ) -> Tensor<B::InnerBackend, 1> {
+        let row = act
+            .clone()
+            .into_data()
+            .convert::<f32>()
+            .to_vec::<f32>()
+            .expect("target action host read");
+        inner.recorded.lock().expect("recorder mutex").push(row);
+        inner.forward_impl(obs, act)
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+        polyak_update::<B::InnerBackend, RecordingCritic<B::InnerBackend>>(
+            &active.valid(),
+            target,
+            tau as f32,
+        )
+    }
+}
+
+/// Actor whose output saturates at `±1` on **every** component, with the sign
+/// chosen by the sign of the observation.
+///
+/// The target actor is a `valid()` snapshot taken at construction and is only
+/// Polyak-nudged *after* the target computation, so the single `learn_step`
+/// below sees exactly this mapping.
+#[derive(Module, Debug)]
+struct SaturatingActor<B: Backend> {
+    gain: Param<Tensor<B, 2>>,
+}
+
+impl<B: Backend> SaturatingActor<B> {
+    fn new(
+        action_dim: usize,
+        gain: f32,
+        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+    ) -> Self {
+        let data = TensorData::new(vec![gain; action_dim], vec![1, action_dim]);
+        Self {
+            gain: Param::from_tensor(Tensor::from_data(data, device)),
+        }
+    }
+
+    fn forward_impl(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+        tanh(obs * self.gain.val())
+    }
+}
+
+impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for SaturatingActor<B> {
+    fn forward(&self, obs: Tensor<B, 2>) -> Tensor<B, 2> {
+        self.forward_impl(obs)
+    }
+    fn forward_inner(
+        inner: &Self::InnerModule,
+        obs: Tensor<B::InnerBackend, 2>,
+    ) -> Tensor<B::InnerBackend, 2> {
+        inner.forward_impl(obs)
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+        polyak_update::<B::InnerBackend, SaturatingActor<B::InnerBackend>>(
+            &active.valid(),
+            target,
+            tau as f32,
+        )
+    }
+}
+
+type SaturatingAgent = DdpgAgent<
+    Be,
+    SaturatingActor<Be>,
+    RecordingCritic<Be>,
+    LinearObservation,
+    CarLikeAction,
+    1,
+    2,
+    1,
+    2,
+>;
+
+const LEARN_BATCH: usize = 4;
+
+/// Runs one DDPG `learn_step` whose every `next_obs` is `next_obs_x`, and
+/// returns the target-action rows the target critic was handed, one `Vec` of
+/// `COMPONENTS` values per batch element.
+fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
+    let device = seeded_device::<Be>(0xD06);
+    let recorded: RecordedActions = Arc::new(Mutex::new(Vec::new()));
+    let actor = SaturatingActor::<Be>::new(CarLikeAction::COMPONENTS, 10.0, &device);
+    let critic =
+        RecordingCritic::<Be>::new(1, CarLikeAction::COMPONENTS, Arc::clone(&recorded), &device);
+    let config = DdpgTrainingConfigBuilder::default()
+        .learning_starts(0)
+        .batch_size(LEARN_BATCH)
+        .replay_buffer_capacity(64)
+        .build()
+        .expect("valid DDPG config");
+    let mut agent =
+        SaturatingAgent::new(actor, critic, config, device).expect("agent construction");
+
+    let mut rng = StdRng::seed_from_u64(0xD06_0001);
+    for _ in 0..(LEARN_BATCH * 2) {
+        agent.remember(
+            LinearObservation { x: 0.1 },
+            &CarLikeAction([0.0, 0.5, 0.5]),
+            1.0,
+            LinearObservation { x: next_obs_x },
+            false,
+        );
+    }
+    agent
+        .learn_step(&mut rng)
+        .expect("learn_step must run: learning_starts is 0 and the buffer is full");
+
+    let calls = recorded.lock().expect("recorder mutex").clone();
+    assert_eq!(
+        calls.len(),
+        1,
+        "DDPG's learn_step evaluates the target critic exactly once"
+    );
+    calls[0]
+        .chunks(CarLikeAction::COMPONENTS)
+        .map(<[f32]>::to_vec)
+        .collect()
+}
+
+/// Asserts every recorded target-action row equals `expected`.
+fn assert_every_target_row(rows: &[Vec<f32>], expected: [f32; 3], why: &str) {
+    assert_eq!(
+        rows.len(),
+        LEARN_BATCH,
+        "one target action per batch element"
+    );
+    for (r, row) in rows.iter().enumerate() {
+        for (i, want) in expected.iter().enumerate() {
+            assert!(
+                (row[i] - want).abs() < 1e-5,
+                "{why}: row {r} component {i} should be {want}, got {} (full row: {row:?})",
+                row[i]
+            );
+        }
+    }
+}
+
+/// Guards `d1bdbb5`'s replacement of DDPG's scalar
+/// `.clamp(self.low[0], self.high[0])` with the per-component
+/// `clip_to_action_bounds(.., self.low_t, self.high_t)`.
+///
+/// The target actor saturates at `≈ [-1, -1, -1]`. Per component that clips to
+/// `[-1, 0, 0]`; the scalar collapse uses `low[0]/high[0]` = `-1`/`1` for all
+/// three and yields `[-1, -1, -1]` — negative gas and negative brake, the
+/// "values of impossible actions" TD3 Eq. 14's clip exists to suppress.
+///
+/// Unlike the `shared.rs` unit tests, this observes the tensor DDPG actually
+/// builds, so it also covers `action_bound_tensors::<B::InnerBackend, A, DA,
+/// DAB>` being called with the right generics at the right place.
+#[test]
+fn ddpg_learn_step_clips_the_target_action_per_component() {
+    let _guard = flex_guard();
+    let rows = target_actions_after_one_learn_step(-1.0);
+    assert_every_target_row(
+        &rows,
+        [-1.0, 0.0, 0.0],
+        "a saturated-low target action must be floored at each component's own low()",
+    );
+}
+
+/// The companion direction, which is what makes a swapped `low_t`/`high_t`
+/// detectable.
+///
+/// Swapping the pair computes `max_pair(high).min_pair(low)`. On a
+/// saturated-**low** action that happens to reproduce the correct
+/// `[-1, 0, 0]`, so the test above cannot see it. On a saturated-**high**
+/// action the two disagree maximally: correct gives `[1, 1, 1]`, swapped gives
+/// `[-1, 0, 0]`.
+#[test]
+fn ddpg_learn_step_target_clip_does_not_swap_low_and_high() {
+    let _guard = flex_guard();
+    let rows = target_actions_after_one_learn_step(1.0);
+    assert_every_target_row(
+        &rows,
+        [1.0, 1.0, 1.0],
+        "a saturated-high target action must be capped at high(), not floored at low()",
+    );
 }
