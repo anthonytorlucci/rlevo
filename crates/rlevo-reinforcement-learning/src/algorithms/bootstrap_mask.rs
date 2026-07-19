@@ -152,11 +152,11 @@ impl ContinuousAction<1> for MaskContinuousAction {
 }
 
 impl BoundedAction<1> for MaskContinuousAction {
-    fn low() -> [f32; 1] {
-        [-1.0]
+    fn low() -> &'static [f32] {
+        &[-1.0]
     }
-    fn high() -> [f32; 1] {
-        [1.0]
+    fn high() -> &'static [f32] {
+        &[1.0]
     }
 }
 

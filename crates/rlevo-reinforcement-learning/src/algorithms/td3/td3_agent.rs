@@ -177,8 +177,8 @@ pub struct Td3Agent<
     critic_2_opt: OptimizerAdaptor<Adam, Critic, B>,
     buffer: UniformReplay<ContinuousTransition<O>>,
     exploration: GaussianNoise,
-    low: [f32; DA],
-    high: [f32; DA],
+    low: &'static [f32],
+    high: &'static [f32],
     config: Td3TrainingConfig,
     device: B::Device,
     step: usize,
@@ -339,7 +339,7 @@ where
         let slice = data.as_slice::<f32>().expect("actor output is f32");
         let mean: Vec<f32> = slice.iter().take(A::RANK).copied().collect();
         let out = if training {
-            self.exploration.apply(&mean, &self.low, &self.high, rng)
+            self.exploration.apply(&mean, self.low, self.high, rng)
         } else {
             mean.iter()
                 .enumerate()

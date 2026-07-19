@@ -38,7 +38,12 @@ pub fn uniform_discrete<const AR: usize, A: DiscreteAction<AR>>(rng: &mut StdRng
 pub fn uniform_bounded<const AR: usize, A: BoundedAction<AR>>(rng: &mut StdRng) -> A {
     let low = A::low();
     let high = A::high();
-    let values: Vec<f32> = (0..AR).map(|i| rng.random_range(low[i]..high[i])).collect();
+    // Keyed on COMPONENTS (flattened scalar count), not the rank `AR` — see
+    // ADR 0053. `from_slice` asserts on `COMPONENTS`, so an `AR`-length sample
+    // would panic for any multi-component rank-1 action.
+    let values: Vec<f32> = (0..A::COMPONENTS)
+        .map(|i| rng.random_range(low[i]..high[i]))
+        .collect();
     A::from_slice(&values)
 }
 

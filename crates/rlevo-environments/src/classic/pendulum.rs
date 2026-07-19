@@ -242,12 +242,12 @@ impl ContinuousAction<1> for PendulumAction {
 }
 
 impl BoundedAction<1> for PendulumAction {
-    fn low() -> [f32; 1] {
-        [-2.0]
+    fn low() -> &'static [f32] {
+        &[-2.0]
     }
 
-    fn high() -> [f32; 1] {
-        [2.0]
+    fn high() -> &'static [f32] {
+        &[2.0]
     }
 }
 
