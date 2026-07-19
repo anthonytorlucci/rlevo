@@ -130,6 +130,19 @@ impl<T> ReplayKind<T> {
     /// production case being a diverging network — having written nothing, so a
     /// single `NaN` leaves the buffer unmodified rather than half-updated.
     ///
+    /// Every in-crate caller — each agent's `learn_step` — logs this `Err` with
+    /// `tracing::warn!` and skips the writeback rather than propagating it, for
+    /// three reasons. First, `learn_step` returns `Option<LearnOutcome>` with no
+    /// error channel; threading one through for this event would be a breaking
+    /// signature change out of all proportion to it. Second, a diverging network
+    /// that poisons the TD errors with `NaN` poisons the loss the same step —
+    /// both are functions of the same prediction/target tensors — so
+    /// `LearnOutcome.loss` already surfaces the divergence to the caller; the
+    /// skip declines to report it twice, it hides nothing. Third, the all-or-
+    /// nothing validation above leaves the buffer untouched, so a skipped
+    /// writeback costs only one stale priority per sampled id — never a
+    /// corrupted total.
+    ///
     /// # Panics
     ///
     /// Panics when `ids.len() != signals.len()` on the prioritized path; both
