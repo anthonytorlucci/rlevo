@@ -10,10 +10,10 @@ the crate boundary defined by ADR-0003.
 
 ## Crate boundary (ADR-0003)
 
-`rlevo-reinforcement-learning` owns: replay buffers (`PrioritizedExperienceReplay`,
-`TrainingBatch`), experience storage (`ExperienceTuple`, `History`), and episode
-metrics (`AgentStats`, `PerformanceRecord`). These types must **not** live in
-`rlevo-core`.
+`rlevo-reinforcement-learning` owns: the replay-strategy seam (`ReplayStrategy`,
+`UniformReplay`, `PrioritizedReplay`; ADR 0050), experience storage
+(`ExperienceTuple`, `History`), and episode metrics (`AgentStats`,
+`PerformanceRecord`). These types must **not** live in `rlevo-core`.
 
 ## Burn module conventions
 
@@ -38,6 +38,9 @@ metrics (`AgentStats`, `PerformanceRecord`). These types must **not** live in
 
 1. Anatomy of a DQN implementation — config, model, agent.
 2. The `AutodiffBackend` bound — where it appears and why.
-3. Replay buffer integration — `PrioritizedExperienceReplay` API.
+3. Replay buffer integration — the `ReplayStrategy` seam (ADR 0050). Store an
+   agent-owned buffer, `UniformReplay` by default; hold an
+   `Option<PrioritizedReplaySettings>` config field and select `PrioritizedReplay`
+   via `ReplayKind` only when it is `Some`, exactly as DQN/C51/QR-DQN do.
 4. Episode metrics — emitting to `AgentStats`.
 5. Testing — smoke test pattern from `crates/rlevo/tests/dqn_integration.rs`.

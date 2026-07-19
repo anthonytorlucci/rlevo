@@ -157,7 +157,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
     let config = DdpgTrainingConfigBuilder::new()
-        .buffer_capacity(20_000)
+        .replay_buffer_capacity(20_000)
         .batch_size(32)
         .learning_starts(500)
         .actor_lr(1e-3)
@@ -244,7 +244,7 @@ fn ddpg_act_with_matches_deterministic_act() {
     let actor: Actor<Be> = Actor::new(1, 32, 1, 1.0, &device);
     let critic: Critic<Be> = Critic::new(1, 1, 32, &device);
     let config = DdpgTrainingConfigBuilder::new()
-        .buffer_capacity(20_000)
+        .replay_buffer_capacity(20_000)
         .batch_size(32)
         .learning_starts(500)
         .actor_lr(1e-3)
@@ -299,7 +299,7 @@ fn ddpg_pendulum_improves_over_random() {
     let actor: Actor<Be> = Actor::new(3, 64, 1, 2.0, &device);
     let critic: Critic<Be> = Critic::new(3, 1, 64, &device);
     let config = DdpgTrainingConfigBuilder::new()
-        .buffer_capacity(20_000)
+        .replay_buffer_capacity(20_000)
         .batch_size(64)
         .learning_starts(1_000)
         .actor_lr(1e-4)

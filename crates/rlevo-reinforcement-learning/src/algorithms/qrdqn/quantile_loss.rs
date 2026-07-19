@@ -4,9 +4,13 @@
 //! distributional counterpart of the Huber TD loss used by DQN. Given the
 //! network's predicted quantile values for the taken action together with
 //! the target quantile values (produced by the Bellman backup on the
-//! bootstrap action's quantile vector), this returns the scalar loss
-//! aggregated as: mean over the target axis, sum over the predicted
-//! axis, mean over the batch.
+//! bootstrap action's quantile vector), this returns the **per-sample** loss
+//! aggregated as: mean over the target axis, sum over the predicted axis.
+//! The batch axis is left unreduced — reduction is the caller's job.
+//!
+//! Leaving the batch axis unreduced is what lets a caller multiply by a
+//! per-sample importance-sampling weight *before* reducing (ADR 0050 §14);
+//! at `w ≡ 1` the caller's `.mean()` is bit-identical to reducing here.
 //!
 //! Kept separate from the agent struct so the math can be reused from
 //! benchmarks and unit-tested independently.
@@ -39,7 +43,8 @@ pub fn huber<B: Backend, const D: usize>(u: Tensor<B, D>, kappa: f32) -> Tensor<
 /// Apple-Silicon L2. The math is identical; only peak allocation changes.
 const QUANTILE_CHUNK_SIZE: usize = 32;
 
-/// Quantile Huber loss between `pred_quantiles` and `target_quantiles`.
+/// Per-sample quantile Huber loss between `pred_quantiles` and
+/// `target_quantiles`.
 ///
 /// # Shapes
 /// - `pred_quantiles`:   `(batch, num_quantiles)` — policy network's quantile
@@ -49,15 +54,29 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 /// - `taus`:             `(num_quantiles,)` — midpoint quantile levels
 ///   `τ_i = (i + 0.5) / N`.
 /// - `kappa`: Huber threshold.
+/// - **returns**:        `(batch,)`
 ///
 /// # Aggregation
 /// `u_ij = target_j − pred_i`, then `ρ_κ_{τ_i}(u_ij) = |τ_i − 𝟙{u_ij < 0}| ·
-/// L_κ(u_ij) / κ`. Aggregated as `mean_j → sum_i → mean_batch` following
-/// Dabney Eq. 10.
+/// L_κ(u_ij) / κ`. Aggregated as `mean_j → sum_i` following Dabney Eq. 10,
+/// **stopping before the batch mean**.
+///
+/// # Returns
+///
+/// An **unreduced** `Tensor<B, 1>` of shape `[batch]`, one loss per batch
+/// element. This is *not* a scalar: a caller that wants the usual training
+/// loss must apply its own reduction (`.mean()`), and a caller that omits it
+/// will either hit a shape error or silently backpropagate a summed-over-batch
+/// gradient.
 ///
 /// The pred axis is processed in chunks of `QUANTILE_CHUNK_SIZE` to avoid
 /// materialising the full `(B, N, N)` tensor at once.
-pub fn quantile_huber_loss<B: Backend>(
+///
+/// # Panics
+///
+/// Panics if `pred_quantiles` has zero quantiles (`num_quantiles == 0`), which
+/// leaves the chunk accumulator empty.
+pub fn quantile_huber_loss_per_sample<B: Backend>(
     pred_quantiles: Tensor<B, 2>,
     target_quantiles: Tensor<B, 2>,
     taus: Tensor<B, 1>,
@@ -108,8 +127,7 @@ pub fn quantile_huber_loss<B: Backend>(
     }
 
     per_sample_acc
-        .expect("quantile_huber_loss: pred_quantiles must have at least one quantile")
-        .mean()
+        .expect("quantile_huber_loss_per_sample: pred_quantiles must have at least one quantile")
 }
 
 #[cfg(test)]
@@ -136,6 +154,44 @@ mod tests {
             .convert::<f32>()
             .into_vec::<f32>()
             .expect("f32 host read of a tensor this test just built")[0]
+    }
+
+    #[test]
+    fn loss_is_unreduced_over_batch() {
+        // The return must carry the batch axis: a 3-row input yields 3 values,
+        // and their mean must equal the pre-ADR-0050 reduced-in-callee value.
+        let batch = 3;
+        let pred = tensor_2d(
+            vec![0.3_f32, -0.5, 1.1, 0.4, -0.2, 0.9, 1.5, 0.0, -0.8],
+            batch,
+            3,
+        );
+        let target = tensor_2d(
+            vec![0.1_f32, 0.2, 0.8, -0.3, 0.5, 1.0, 0.7, -0.4, 0.6],
+            batch,
+            3,
+        );
+        let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
+        let per_sample = quantile_huber_loss_per_sample(pred, target, taus, 1.0);
+        assert_eq!(
+            per_sample.dims(),
+            [batch],
+            "per-sample loss must have shape [batch]"
+        );
+
+        let values: Vec<f32> = per_sample
+            .clone()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 host read of a tensor this test just built");
+        #[allow(clippy::cast_precision_loss)]
+        let manual_mean = values.iter().sum::<f32>() / batch as f32;
+        let reduced = scalar(per_sample.mean());
+        assert!(
+            (manual_mean - reduced).abs() < 1e-6,
+            "caller-side mean {reduced} must match the manual mean {manual_mean}"
+        );
     }
 
     #[test]
@@ -194,7 +250,7 @@ mod tests {
         let pred = tensor_2d(vec![1.0_f32; 6], 2, 3);
         let target = pred.clone();
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
-        let loss = scalar(quantile_huber_loss(pred, target, taus, 1.0));
+        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
         assert!(loss.abs() < 1e-6, "loss should be ~0, got {loss}");
     }
 
@@ -204,7 +260,7 @@ mod tests {
         let pred = tensor_2d(vec![0.3_f32, -0.5, 1.1, 0.4, -0.2, 0.9], 2, 3);
         let target = tensor_2d(vec![0.1_f32, 0.2, 0.8, -0.3, 0.5, 1.0], 2, 3);
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
-        let loss = scalar(quantile_huber_loss(pred, target, taus, 1.0));
+        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
         assert!(loss >= 0.0, "loss must be non-negative, got {loss}");
         assert!(loss.is_finite());
     }
@@ -218,7 +274,7 @@ mod tests {
         let pred = tensor_2d(vec![1.0_f32], 1, 1);
         let target = tensor_2d(vec![0.5_f32], 1, 1);
         let taus = tensor_1d(vec![0.5_f32]);
-        let loss = scalar(quantile_huber_loss(pred, target, taus, 1.0));
+        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
         assert!((loss - 0.0625).abs() < 1e-6, "got {loss}, want 0.0625");
     }
 }

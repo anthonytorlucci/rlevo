@@ -9,7 +9,7 @@ use burn::tensor::{Tensor, TensorData};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-use rlevo_reinforcement_learning::algorithms::qrdqn::quantile_loss::quantile_huber_loss;
+use rlevo_reinforcement_learning::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
 
 type Be = Flex;
 
@@ -42,10 +42,20 @@ fn bench_quantile_huber_loss(c: &mut Criterion) {
             let pred = make_quantile_batch(batch, num_quantiles, &device);
             let target = make_quantile_batch(batch, num_quantiles, &device);
 
+            // Criterion benchmark IDs are the key for historical comparison, so
+            // the label keeps its pre-ADR-0050 spelling even though the callee
+            // was renamed. The `.mean()` reproduces the reduction the function
+            // used to perform internally, so the measured work is unchanged.
             let label = format!("quantile_huber_loss/quantiles={num_quantiles}/batch={batch}");
             c.bench_function(&label, |b| {
                 b.iter(|| {
-                    let out = quantile_huber_loss(pred.clone(), target.clone(), taus.clone(), 1.0);
+                    let out = quantile_huber_loss_per_sample(
+                        pred.clone(),
+                        target.clone(),
+                        taus.clone(),
+                        1.0,
+                    )
+                    .mean();
                     let _ = out.into_data();
                 });
             });

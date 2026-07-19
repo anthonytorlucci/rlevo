@@ -17,7 +17,7 @@ use rlevo_core::config::{self, ConfigError, Validate};
 #[derive(Clone, Debug)]
 pub struct SacTrainingConfig {
     /// Maximum number of transitions stored in the replay buffer.
-    pub buffer_capacity: usize,
+    pub replay_buffer_capacity: usize,
     /// Mini-batch size drawn from the replay buffer each learn step.
     pub batch_size: usize,
     /// Warm-up env steps before the first gradient update. During warm-up
@@ -65,7 +65,7 @@ impl Default for SacTrainingConfig {
     /// CleanRL's default hyperparameters for `sac_continuous_action.py`.
     fn default() -> Self {
         Self {
-            buffer_capacity: 1_000_000,
+            replay_buffer_capacity: 1_000_000,
             batch_size: 256,
             learning_starts: 5_000,
             actor_lr: 3e-4,
@@ -89,7 +89,7 @@ impl Default for SacTrainingConfig {
 impl Validate for SacTrainingConfig {
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "SacTrainingConfig";
-        config::nonzero(C, "buffer_capacity", self.buffer_capacity)?;
+        config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
         config::nonzero(C, "batch_size", self.batch_size)?;
         config::positive(C, "actor_lr", self.actor_lr)?;
         config::positive(C, "critic_lr", self.critic_lr)?;
@@ -148,8 +148,8 @@ impl SacTrainingConfigBuilder {
     }
 
     /// Sets the replay-buffer capacity.
-    pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        self.config.buffer_capacity = capacity;
+    pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
+        self.config.replay_buffer_capacity = capacity;
         self
     }
 
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn defaults_match_cleanrl() {
         let cfg = SacTrainingConfig::default();
-        assert_eq!(cfg.buffer_capacity, 1_000_000);
+        assert_eq!(cfg.replay_buffer_capacity, 1_000_000);
         assert_eq!(cfg.batch_size, 256);
         assert_eq!(cfg.learning_starts, 5_000);
         assert!((cfg.actor_lr - 3e-4).abs() < 1e-12);

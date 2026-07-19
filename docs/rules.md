@@ -51,7 +51,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Types and traits: `PascalCase` (e.g., `ScalarReward`, `SnapshotBase`, `DiscreteAction`).
 - Error types: `PascalCase` enum or struct ending in `Error` (e.g., `StateError`, `EnvironmentError`, `TensorConversionError`).
 - Config types: `PascalCase` ending in `Config` (e.g., `FrozenLakeConfig`).
-- Builder types: `PascalCase` ending in `Builder` (e.g., `PrioritizedExperienceReplayBuilder`).
+- Builder types: `PascalCase` ending in `Builder` (e.g., `DqnTrainingConfigBuilder`).
 
 ### Functions and Methods
 - All functions and methods: `snake_case`.
@@ -117,7 +117,7 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 | `TensorConvertible<D, B>` | `from_tensor(x.to_tensor(device)) == Ok(x)` for all valid `x` |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
-| `PrioritizedExperienceReplay` | `priorities.len() == buffer.len()` at all times |
+| `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |
 
 ### Optimisation direction — maximise-native (ADR 0023)
 

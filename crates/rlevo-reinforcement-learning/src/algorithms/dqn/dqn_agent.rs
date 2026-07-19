@@ -7,18 +7,17 @@
 //! The end-to-end training loop is assembled in
 //! [`crate::algorithms::dqn::train`].
 
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 
-use burn::nn::loss::{HuberLossConfig, Reduction};
+use burn::nn::loss::HuberLossConfig;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::{Adam, GradientsParams};
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
+use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayKind, ReplayStrategy};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -26,7 +25,7 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::Slot;
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`DqnAgent`] operations.
@@ -78,33 +77,6 @@ impl PerformanceRecord for DqnMetrics {
     }
 }
 
-/// A single `(s, a, r, s', terminated)` experience tuple stored in the replay
-/// buffer.
-///
-/// Observations are stored in their original typed form and converted to
-/// tensors lazily inside [`DqnAgent::learn_step`], which avoids keeping
-/// a large flat tensor buffer in memory.
-#[derive(Debug, Clone)]
-struct Transition<O: Clone> {
-    /// Observation at time `t`.
-    obs: O,
-    /// Index into the discrete action space (see [`DiscreteAction::to_index`]).
-    action_idx: usize,
-    /// Scalar reward received after taking the action.
-    reward: f32,
-    /// Observation at time `t + 1`.
-    next_obs: O,
-    /// `true` **only** for an environmental termination — the MDP reached an
-    /// absorbing state, so the return beyond `next_obs` is zero by definition.
-    ///
-    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
-    /// the episode without ending the MDP, and `next_obs` is then a genuine
-    /// continuation state. Zeroing the bootstrap there biases every Q-value
-    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
-    /// Reinforcement Learning", ICML 2018, Eq. 6.
-    terminated: bool,
-}
-
 /// Summary values returned by a single [`DqnAgent::learn_step`].
 #[derive(Debug, Clone, Copy)]
 pub struct LearnOutcome {
@@ -152,7 +124,7 @@ where
     policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
-    buffer: VecDeque<Transition<O>>,
+    buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: DqnTrainingConfig,
     device: B::Device,
@@ -212,11 +184,15 @@ where
         };
         let exploration = EpsilonGreedy::from_config(&config);
         let stats = AgentStats::<DqnMetrics>::new(100);
+        let buffer = match &config.prioritized_replay {
+            None => ReplayKind::uniform(config.replay_buffer_capacity),
+            Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
+        };
         Ok(Self {
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
-            buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
+            buffer,
             exploration,
             config,
             device,
@@ -321,15 +297,14 @@ where
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
+    /// [`Transition::terminated`]: crate::replay::Transition::terminated
+    ///
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
-        if self.buffer.len() >= self.config.replay_buffer_capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(Transition {
+        self.buffer.push(DiscreteTransition {
             obs,
-            action_idx: action.to_index(),
+            action: action.to_index(),
             reward,
             next_obs,
             terminated,
@@ -417,9 +392,16 @@ where
             return None;
         }
         let batch_size = self.config.batch_size;
-        let indices: Vec<usize> = (0..batch_size)
-            .map(|_| rng.random_range(0..self.buffer.len()))
-            .collect();
+        // β is only consulted by prioritized replay; uniform ignores it. When
+        // PER is enabled, evaluate the annealing schedule at the current step.
+        let beta = self
+            .config
+            .prioritized_replay
+            .as_ref()
+            .map_or(UNIFORM_REPLAY_BETA, |per| per.beta(self.step));
+        // `can_learn()` above already established `buffer.len() >= batch_size`,
+        // so the only variant `sample` can return here is unreachable.
+        let batch = self.buffer.sample(batch_size, beta, rng).ok()?;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -430,15 +412,15 @@ where
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
         let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
-        for idx in &indices {
-            let t = &self.buffer[*idx];
+        for &id in batch.ids() {
+            let t = self.buffer.get(id).expect("a freshly sampled id is live");
             let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&self.device);
             let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&self.device);
             let obs_data = obs_tensor.into_data().convert::<f32>();
             let next_data = next_tensor.into_data().convert::<f32>();
             obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
-            action_idxs.push(t.action_idx as i64);
+            action_idxs.push(t.action as i64);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
@@ -494,10 +476,16 @@ where
         );
         let target: Tensor<B, 1> = Tensor::from_data(target_inner.into_data(), &device);
 
-        let loss_tensor =
-            HuberLossConfig::new(1.0)
-                .init()
-                .forward(q_pred_flat, target, Reduction::Mean);
+        // Per-sample `[batch]` Huber residual, reduced here rather than inside
+        // `forward`, so an importance-sampling weight scales each sample before
+        // the mean (ADR 0050 §14). At `w ≡ 1` (uniform replay) this is
+        // bit-identical to `forward(.., Reduction::Mean)`, which burn-nn 0.21.0
+        // implements as literally `forward_no_reduction(..).mean()`
+        // (`loss/huber.rs:92-94`).
+        let per_sample_loss = HuberLossConfig::new(1.0)
+            .init()
+            .forward_no_reduction(q_pred_flat.clone(), target.clone());
+        let loss_tensor = reduce_weighted_loss(per_sample_loss, &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
@@ -517,6 +505,29 @@ where
                 M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
         }
 
+        // PER priority writeback (Schaul Alg. 1 lines 11-12): the DQN priority
+        // signal is the per-sample TD error `δ = q_pred − target`; the buffer
+        // applies `p = |δ| + ε`. A no-op for uniform replay, so gate on the
+        // strategy to avoid an unnecessary host read. The writeback never enters
+        // the target computation — `δ` is read here only after the gradient step.
+        if self.buffer.is_prioritized() {
+            let td = q_pred_flat - target;
+            let td_host: Vec<f32> = td
+                .into_data()
+                .convert::<f32>()
+                .into_vec::<f32>()
+                .expect("finite TD errors read to host");
+            if let Err(err) = self
+                .buffer
+                .update_priorities_from_td_errors(batch.ids(), &td_host)
+            {
+                tracing::warn!(
+                    ?err,
+                    "skipping PER priority writeback: non-finite TD error (diverging network)"
+                );
+            }
+        }
+
         Some(LearnOutcome {
             loss: loss_value,
             q_mean,
@@ -532,11 +543,14 @@ mod tests {
     use burn::module::{AutodiffModule, Module, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::base::Action;
     use rlevo_core::base::TensorConversionError;
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+    use crate::replay::PrioritizedReplaySettings;
     use crate::utils::polyak_update;
 
     type TestBackend = Autodiff<Flex>;
@@ -665,6 +679,85 @@ mod tests {
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         agent.target_net = target;
         agent
+    }
+
+    /// Builds a prioritized-replay agent primed with four transitions and
+    /// `learning_starts = 0`, so a single `learn_step` runs immediately.
+    fn primed_prioritized_agent() -> TestAgent {
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let config = DqnTrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .learning_rate(0.05)
+            .prioritized_replay(PrioritizedReplaySettings {
+                beta_anneal_steps: 100,
+                ..PrioritizedReplaySettings::default()
+            })
+            .build()
+            .expect("valid prioritized config");
+        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        for i in 0..4usize {
+            let x = i as f32;
+            agent.remember(
+                TestObs([x, -x]),
+                &TestAction(i % 2),
+                1.0,
+                TestObs([x + 1.0, -x]),
+                false,
+            );
+        }
+        agent
+    }
+
+    #[test]
+    fn test_dqn_defaults_to_uniform_replay() {
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let agent = TestAgent::new(
+            TestNet::constant(&device, 0.5),
+            DqnTrainingConfig::default(),
+            device,
+        )
+        .expect("default config is valid");
+        assert!(
+            !agent.buffer.is_prioritized(),
+            "the default config must keep uniform replay (PER is opt-in)"
+        );
+    }
+
+    #[test]
+    fn test_dqn_prioritized_opt_in_selects_prioritized_replay() {
+        let agent = primed_prioritized_agent();
+        assert!(
+            agent.buffer.is_prioritized(),
+            "a Some(prioritized_replay) config must select the prioritized buffer"
+        );
+    }
+
+    /// The feedback edge: after a learn step, the sampled transitions' priorities
+    /// have been rewritten from the initial running-max seed, so the total
+    /// sampling mass moves. A uniform buffer's `learn_step` cannot do this.
+    #[test]
+    fn test_dqn_priority_writeback_runs_after_learn_step() {
+        let mut agent = primed_prioritized_agent();
+        let before = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        let mut rng = StdRng::seed_from_u64(7);
+        agent
+            .learn_step(&mut rng)
+            .expect("a primed agent with learning_starts = 0 learns");
+        let after = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        assert!(
+            (after - before).abs() > 1e-9,
+            "the |δ| priority writeback must change the sampling mass: {before} -> {after}"
+        );
     }
 
     #[test]

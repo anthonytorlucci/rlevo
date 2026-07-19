@@ -60,7 +60,10 @@
 
 use burn::module::AutodiffModule;
 use burn::optim::{GradientsParams, LearningRate, Optimizer};
-use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::backend::{AutodiffBackend, Backend};
+use burn::tensor::{Tensor, TensorData};
+
+use crate::replay::{ImportanceExponent, SampledBatch};
 
 /// Panic message for a read against a poisoned slot.
 ///
@@ -119,6 +122,61 @@ const POISONED: &str = "network slot is empty: the agent was poisoned by a panic
 ///   [`step_with`](Self::step_with) unwound. See the module docs for why this
 ///   case is irreducible.
 pub(crate) struct Slot<M>(Option<M>);
+
+/// The importance-sampling exponent (β) the off-policy agents pass to
+/// [`ReplayStrategy::sample`].
+///
+/// Every agent draws from a [`UniformReplay`], which emits no IS weights and
+/// therefore ignores β entirely (ADR 0050 §3). The value is
+/// [`ImportanceExponent::ONE`] — the fully-annealed, no-correction end of
+/// Schaul's schedule — so that it stays correct as a fallback rather than merely
+/// inert. When prioritized replay is wired in (ADR 0050 step 4) the agents that
+/// adopt it replace this constant with `beta(self.step)` off their own config
+/// schedule; the ones that keep uniform replay keep this.
+///
+/// The type is [`ImportanceExponent`], not `f32`: β is `finite && [0, 1]` by
+/// construction so that a bad value cannot reach `powf` and poison a batch's
+/// importance weights (ADR 0051 §3).
+///
+/// [`ReplayStrategy::sample`]: crate::replay::ReplayStrategy::sample
+/// [`UniformReplay`]: crate::replay::UniformReplay
+/// [`ImportanceExponent`]: crate::replay::ImportanceExponent
+/// [`ImportanceExponent::ONE`]: crate::replay::ImportanceExponent::ONE
+pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::ONE;
+
+/// Reduces a per-sample `[batch]` loss to a scalar, first scaling each sample by
+/// its importance-sampling weight when the batch carries any.
+///
+/// This is where Schaul Algorithm 1 line 13's `w_j · δ_j` enters an autodiff
+/// framework: multiplying the per-sample **loss** by `w_j` before reduction
+/// scales that sample's gradient contribution by `w_j`, exactly as the paper
+/// scales the per-sample update. The weight touches only the loss — never the
+/// TD-target computation and never `δ` itself (ADR 0050 §10, §14).
+///
+/// - **Uniform replay** emits [`SampledBatch::weights`] of `None`, so this is a
+///   plain `.mean()` — **bit-identical** to the pre-PER reduction, which is what
+///   keeps the uniform path a behavioural no-op.
+/// - **Prioritized replay** emits max-normalized weights in `(0, 1]`; a weight of
+///   `0` (unreachable under Schaul's construction, but well-defined here) zeroes
+///   that sample's contribution to both loss and gradient.
+///
+/// The largest weight in a prioritized batch is exactly `1.0`, so a batch drawn
+/// with `β = 0` (all weights `1.0`) also reduces to a plain mean.
+pub(crate) fn reduce_weighted_loss<B: Backend>(
+    per_sample: Tensor<B, 1>,
+    batch: &SampledBatch,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    match batch.weights() {
+        None => per_sample.mean(),
+        Some(weights) => {
+            let n = weights.len();
+            let w: Tensor<B, 1> =
+                Tensor::from_data(TensorData::new(weights.to_vec(), vec![n]), device);
+            (per_sample * w).mean()
+        }
+    }
+}
 
 // A network's `Debug` would dump every parameter tensor, so report the slot's
 // state and the module's type instead. This also keeps `Slot<M>: Debug` free of
@@ -600,6 +658,63 @@ mod tests {
         assert!(
             rendered.contains("TestNet"),
             "Debug must name the module type, got: {rendered}"
+        );
+    }
+
+    // -------- reduce_weighted_loss --------
+
+    use crate::replay::{SampledBatch, TransitionId};
+
+    fn per_sample(values: Vec<f32>) -> Tensor<Flex, 1> {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let n = values.len();
+        Tensor::from_data(TensorData::new(values, vec![n]), &device)
+    }
+
+    fn scalar(t: Tensor<Flex, 1>) -> f32 {
+        t.into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 host read")[0]
+    }
+
+    #[test]
+    fn test_reduce_weighted_loss_unweighted_is_a_plain_mean() {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let batch = SampledBatch::unweighted(vec![TransitionId::new(0); 4]);
+        let reduced =
+            reduce_weighted_loss::<Flex>(per_sample(vec![1.0, 2.0, 3.0, 4.0]), &batch, &device);
+        assert!(
+            (scalar(reduced) - 2.5).abs() < 1e-6,
+            "an unweighted batch must reduce to the plain mean, preserving the uniform path"
+        );
+    }
+
+    #[test]
+    fn test_reduce_weighted_loss_zero_weight_zeroes_that_sample() {
+        // Schaul Alg. 1 line 13: w_j scales sample j's contribution. A weight of
+        // 0 must remove that sample from both loss and gradient — the mean is
+        // taken over the batch size, so the zeroed sample drags the mean down.
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let batch = SampledBatch::weighted(vec![TransitionId::new(0); 4], vec![1.0, 0.0, 1.0, 1.0]);
+        let reduced =
+            reduce_weighted_loss::<Flex>(per_sample(vec![1.0, 1.0, 1.0, 1.0]), &batch, &device);
+        assert!(
+            (scalar(reduced) - 0.75).abs() < 1e-6,
+            "a zero weight must zero that sample's loss contribution: (1+0+1+1)/4 = 0.75"
+        );
+    }
+
+    #[test]
+    fn test_reduce_weighted_loss_scales_before_reducing() {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let batch = SampledBatch::weighted(vec![TransitionId::new(0); 3], vec![1.0, 0.5, 0.25]);
+        // (2*1.0 + 4*0.5 + 8*0.25) / 3 = (2 + 2 + 2) / 3 = 2.0
+        let reduced =
+            reduce_weighted_loss::<Flex>(per_sample(vec![2.0, 4.0, 8.0]), &batch, &device);
+        assert!(
+            (scalar(reduced) - 2.0).abs() < 1e-6,
+            "each sample must be scaled by its own weight before the batch mean"
         );
     }
 

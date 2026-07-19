@@ -20,7 +20,7 @@ optimizer) and adds:
   tensor of atom logits `(batch, num_actions, num_atoms)`.
 - [`projection`](projection.rs) — `project_distribution` (Algorithm 1,
   Bellemare et al. 2017) implemented via Burn's `scatter`.
-- [`loss`](loss.rs) — `categorical_cross_entropy` free function.
+- [`loss`](loss.rs) — `categorical_cross_entropy_per_sample` free function.
 - [`train`](train.rs) — end-to-end collect-learn-sync loop.
 
 ## Implementing `C51Model`

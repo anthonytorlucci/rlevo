@@ -75,7 +75,10 @@ a one-shot score; `Environment::step` is score-per-timestep inside an episode.
 
 A **Deep Q-Network** approximates the action-value function \\(Q(s, a; \theta)\\)
 with a neural network and stabilises training with experience replay and a
-target network (see the foundations chapter for the derivation).
+target network (see the foundations chapter for the derivation). Replay is
+uniform by default; the config's `prioritized_replay` setter opts into
+prioritised experience replay (Schaul et al. 2016) for the value-based agents
+— DQN, C51, and QR-DQN.
 
 Two things differ from the evolutionary side:
 

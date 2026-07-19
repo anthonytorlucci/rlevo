@@ -220,21 +220,11 @@ impl ConstructableEnv for MyEnv {
 
 ### Replay Buffer
 
-The prioritized replay buffer lives in `rlevo-reinforcement-learning`, not `rlevo-core`
-(per ADR 0003 — replay/experience/metrics moved to where they are
-consumed):
-
-```rust
-use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
-
-let mut buffer = PrioritizedExperienceReplayBuilder::default()
-    .with_capacity(100_000)
-    .with_alpha(0.6)
-    .build();
-
-// buffer.add(obs, action, reward, next_obs, terminated, priority);
-// let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
-```
+Replay lives in `rlevo-reinforcement-learning`, not `rlevo-core` (per ADR 0003 —
+replay/experience/metrics moved to where they are consumed). The replay-strategy
+seam is `rlevo_reinforcement_learning::replay` (ADR 0050): `ReplayStrategy`, the
+default `UniformReplay`, and the opt-in `PrioritizedReplay`. See that crate's
+README for the API and the config-level PER opt-in.
 
 ## Academic References
 

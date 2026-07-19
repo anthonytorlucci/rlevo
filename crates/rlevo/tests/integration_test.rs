@@ -7,8 +7,9 @@
 //! test that the public surface is sufficient to build a working training
 //! loop scaffold.
 
-use burn::backend::Flex;
 use burn::tensor::Tensor;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
     Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
@@ -16,8 +17,10 @@ use rlevo_core::base::{
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
 };
-use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
 use rlevo_reinforcement_learning::metrics::{AgentStats, PerformanceRecord};
+use rlevo_reinforcement_learning::replay::{
+    DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
+};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -294,17 +297,21 @@ fn full_episode_loop_reaches_goal() {
     assert_eq!(last.observation().position, RandomWalkEnv::GOAL);
 }
 
-/// Confirms sampled training batches have the correct tensor rank and shape for the observation/action dimensions.
+/// Exercises the opt-in prioritized-replay path (ADR 0050) end to end through
+/// the public seam: build [`PrioritizedReplaySettings`], construct a
+/// [`PrioritizedReplay`], fill it from the toy env, then draw a stratified
+/// prioritized minibatch and confirm it carries one importance-sampling weight
+/// per drawn id and that every drawn id resolves back to a stored transition.
+///
+/// This is the cross-crate smoke test that the public replay surface is
+/// sufficient to scaffold a value-based training loop; it replaces the
+/// pre-ADR-0050 `PrioritizedExperienceReplay::sample_batch` shape test, whose
+/// type no longer exists.
 #[test]
-fn replay_buffer_sample_batch_tensor_shapes() {
-    type B = Flex;
-    let device = Default::default();
-
-    let mut buffer =
-        PrioritizedExperienceReplayBuilder::<1, 1, WalkObservation, WalkAction, WalkReward>::new()
-            .with_capacity(32)
-            .with_alpha(0.6)
-            .build();
+fn prioritized_replay_samples_a_weighted_minibatch() {
+    let settings = PrioritizedReplaySettings::default();
+    let mut buffer: PrioritizedReplay<DiscreteTransition<i32>> =
+        PrioritizedReplay::new(settings.buffer_config(32)).expect("valid replay config");
 
     let mut env = RandomWalkEnv::new(false);
     let mut snapshot = env.reset().expect("reset");
@@ -316,16 +323,15 @@ fn replay_buffer_sample_batch_tensor_shapes() {
         } else {
             WalkAction::Left
         };
-        let obs_before = *snapshot.observation();
+        let obs_before = snapshot.observation().position;
         let next = env.step(action).expect("step");
-        buffer.add(
-            obs_before,
-            action,
-            *next.reward(),
-            *next.observation(),
-            next.is_terminated(),
-            Some(1.0),
-        );
+        buffer.push(DiscreteTransition {
+            obs: obs_before,
+            action: i % 2,
+            reward: f32::from(*next.reward()),
+            next_obs: next.observation().position,
+            terminated: next.is_terminated(),
+        });
         snapshot = if next.is_done() {
             env.reset().expect("reset after done")
         } else {
@@ -333,15 +339,35 @@ fn replay_buffer_sample_batch_tensor_shapes() {
         };
     }
 
-    let batch = buffer
-        .sample_batch::<2, 2, B>(8, &device)
-        .expect("sample_batch");
+    assert_eq!(
+        buffer.len(),
+        20,
+        "twenty pushes under capacity 32: no eviction"
+    );
 
-    assert_eq!(batch.observations.dims(), [8, 1]);
-    assert_eq!(batch.actions.dims(), [8, 1]);
-    assert_eq!(batch.rewards.dims(), [8]);
-    assert_eq!(batch.next_observations.dims(), [8, 1]);
-    assert_eq!(batch.terminated.dims(), [8]);
+    let mut rng = StdRng::seed_from_u64(42);
+    // beta(0) is the schedule start; the caller owns the RNG (ADR 0029).
+    let batch = buffer
+        .sample(8, settings.beta(0), &mut rng)
+        .expect("twenty transitions stored, eight requested");
+
+    assert_eq!(batch.ids().len(), 8, "one id per requested draw");
+    let weights = batch
+        .weights()
+        .expect("prioritized replay emits importance-sampling weights");
+    assert_eq!(weights.len(), 8, "one importance weight per drawn id");
+    assert!(
+        weights
+            .iter()
+            .all(|w| w.is_finite() && *w > 0.0 && *w <= 1.0),
+        "max-normalized IS weights lie in (0, 1]"
+    );
+    for &id in batch.ids() {
+        assert!(
+            buffer.get(id).is_some(),
+            "a freshly drawn id always resolves to a stored transition"
+        );
+    }
 }
 
 /// Minimal `PerformanceRecord` implementation used to exercise `AgentStats` in isolation.

@@ -9,7 +9,6 @@
 //! minimises the quantile Huber loss (see
 //! [`crate::algorithms::qrdqn::quantile_loss`]).
 
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use burn::optim::adaptor::OptimizerAdaptor;
@@ -18,8 +17,8 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
-use crate::memory::ReplayBufferError;
 use crate::metrics::{AgentStats, PerformanceRecord};
+use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayKind, ReplayStrategy};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -27,8 +26,8 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
-use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss;
-use crate::algorithms::shared::Slot;
+use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
 
 /// Error variants returned by [`QrDqnAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -76,23 +75,6 @@ impl PerformanceRecord for QrDqnMetrics {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Transition<O: Clone> {
-    obs: O,
-    action_idx: usize,
-    reward: f32,
-    next_obs: O,
-    /// `true` **only** for an environmental termination — the MDP reached an
-    /// absorbing state, so the return beyond `next_obs` is zero by definition.
-    ///
-    /// Deliberately *not* `is_done()`: a truncation (time-limit cutoff) ends
-    /// the episode without ending the MDP, and `next_obs` is then a genuine
-    /// continuation state. Zeroing the bootstrap there biases every Q-value
-    /// downward. Partial-episode bootstrapping: Pardo et al., "Time Limits in
-    /// Reinforcement Learning", ICML 2018, Eq. 6.
-    terminated: bool,
-}
-
 /// Summary values returned by a single [`QrDqnAgent::learn_step`].
 #[derive(Debug, Clone, Copy)]
 pub struct LearnOutcome {
@@ -135,7 +117,7 @@ where
     policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
-    buffer: VecDeque<Transition<O>>,
+    buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: QrDqnTrainingConfig,
     device: B::Device,
@@ -194,11 +176,15 @@ where
             config.epsilon_decay,
         );
         let stats = AgentStats::<QrDqnMetrics>::new(100);
+        let buffer = match &config.prioritized_replay {
+            None => ReplayKind::uniform(config.replay_buffer_capacity),
+            Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
+        };
         Ok(Self {
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
-            buffer: VecDeque::with_capacity(config.replay_buffer_capacity),
+            buffer,
             exploration,
             config,
             device,
@@ -298,15 +284,13 @@ where
     ///   is a genuine continuation state whose value must still be
     ///   bootstrapped. See [`Transition::terminated`].
     ///
+    /// [`Transition::terminated`]: crate::replay::Transition::terminated
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
-        if self.buffer.len() >= self.config.replay_buffer_capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(Transition {
+        self.buffer.push(DiscreteTransition {
             obs,
-            action_idx: action.to_index(),
+            action: action.to_index(),
             reward,
             next_obs,
             terminated,
@@ -414,9 +398,15 @@ where
         let batch_size = self.config.batch_size;
         let num_quantiles = self.config.num_quantiles;
 
-        let indices: Vec<usize> = (0..batch_size)
-            .map(|_| rng.random_range(0..self.buffer.len()))
-            .collect();
+        // β is only consulted by prioritized replay; uniform ignores it.
+        let beta = self
+            .config
+            .prioritized_replay
+            .as_ref()
+            .map_or(UNIFORM_REPLAY_BETA, |per| per.beta(self.step));
+        // `can_learn()` above already established `buffer.len() >= batch_size`,
+        // so the only variant `sample` can return here is unreachable.
+        let batch = self.buffer.sample(batch_size, beta, rng).ok()?;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -427,15 +417,15 @@ where
         let mut rewards: Vec<f32> = Vec::with_capacity(batch_size);
         let mut terminated: Vec<f32> = Vec::with_capacity(batch_size);
 
-        for idx in &indices {
-            let t = &self.buffer[*idx];
+        for &id in batch.ids() {
+            let t = self.buffer.get(id).expect("a freshly sampled id is live");
             let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&self.device);
             let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&self.device);
             let obs_data = obs_tensor.into_data().convert::<f32>();
             let next_data = next_tensor.into_data().convert::<f32>();
             obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
             next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
-            action_idxs.push(t.action_idx as i64);
+            action_idxs.push(t.action as i64);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
         }
@@ -508,8 +498,15 @@ where
         let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
 
         let taus: Tensor<B, 1> = self.config.quantile_taus::<B>(&device);
-        let loss_tensor =
-            quantile_huber_loss(pred_quantiles, target_autodiff, taus, self.config.kappa);
+        // Per-sample `[batch]` quantile Huber loss, scaled by importance weights
+        // before the mean (ADR 0050 §14). Kept for the priority writeback below.
+        let per_sample_qh = quantile_huber_loss_per_sample(
+            pred_quantiles,
+            target_autodiff,
+            taus,
+            self.config.kappa,
+        );
+        let loss_tensor = reduce_weighted_loss(per_sample_qh.clone(), &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
@@ -528,6 +525,30 @@ where
                 M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
         }
 
+        // PER priority writeback (Schaul Alg. 1 lines 11-12): the QR-DQN priority
+        // signal is the per-sample quantile Huber loss magnitude. This
+        // combination is UNCITED — Dabney et al. (2018) explicitly compare the
+        // pure C51/QR-DQN "without these additions"; it is an extrapolation by
+        // analogy from Rainbow's "prioritize by what the algorithm is minimizing"
+        // principle, documented as such on `QrDqnTrainingConfig::prioritized_replay`,
+        // and is not a literature result. A no-op for uniform replay.
+        if self.buffer.is_prioritized() {
+            let qh_host: Vec<f32> = per_sample_qh
+                .into_data()
+                .convert::<f32>()
+                .into_vec::<f32>()
+                .expect("finite quantile-Huber priorities read to host");
+            if let Err(err) = self
+                .buffer
+                .update_priorities_from_td_errors(batch.ids(), &qh_host)
+            {
+                tracing::warn!(
+                    ?err,
+                    "skipping PER priority writeback: non-finite quantile loss (diverging network)"
+                );
+            }
+        }
+
         Some(LearnOutcome {
             loss: loss_value,
             q_mean,
@@ -543,10 +564,13 @@ mod tests {
     use burn::backend::{Autodiff, Flex};
     use burn::module::{AutodiffModule, Module, Param};
     use burn::tensor::backend::Backend;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 
     use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+    use crate::replay::PrioritizedReplaySettings;
     use crate::utils::polyak_update;
 
     type TestBackend = Autodiff<Flex>;
@@ -659,6 +683,87 @@ mod tests {
         // the seam that makes the gate testable without a public accessor.
         agent.target_net = TestQrDqnNet::<TestInnerBackend>::new(2.0, &device);
         agent
+    }
+
+    /// A CartPole observation with all four features set to `v`.
+    fn obs(v: f32) -> CartPoleObservation {
+        CartPoleObservation {
+            cart_pos: v,
+            cart_vel: v,
+            pole_angle: v,
+            pole_ang_vel: v,
+        }
+    }
+
+    /// Builds a prioritized-replay agent primed with four transitions and
+    /// `learning_starts = 0`, so a single `learn_step` runs the quantile-Huber
+    /// priority writeback.
+    fn primed_prioritized_agent() -> TestAgent {
+        let device: <TestBackend as burn::tensor::backend::BackendTypes>::Device =
+            Default::default();
+        let config = QrDqnTrainingConfigBuilder::new()
+            .tau(0.005)
+            .batch_size(2)
+            .learning_starts(0)
+            .learning_rate(0.01)
+            .num_quantiles(TEST_QUANTILES)
+            .prioritized_replay(PrioritizedReplaySettings {
+                beta_anneal_steps: 100,
+                ..PrioritizedReplaySettings::default()
+            })
+            .build()
+            .expect("valid prioritized config");
+        let policy: TestQrDqnNet<TestBackend> = TestQrDqnNet::new(0.1, &device);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        for i in 0..4 {
+            let x = i as f32;
+            let action = if i % 2 == 0 {
+                CartPoleAction::Left
+            } else {
+                CartPoleAction::Right
+            };
+            agent.remember(obs(x), &action, 1.0, obs(x + 1.0), false);
+        }
+        agent
+    }
+
+    #[test]
+    fn qrdqn_defaults_to_uniform_replay() {
+        let agent = diverged_agent(0.005, 100);
+        assert!(
+            !agent.buffer.is_prioritized(),
+            "the default config must keep uniform replay (PER is opt-in)"
+        );
+    }
+
+    /// The quantile-Huber priority feedback edge (an uncited extrapolation, see
+    /// the config rustdoc): a learn step rewrites the sampled transitions'
+    /// priorities off the running-max seed, moving the total mass.
+    #[test]
+    fn qrdqn_priority_writeback_runs_after_learn_step() {
+        let mut agent = primed_prioritized_agent();
+        assert!(
+            agent.buffer.is_prioritized(),
+            "the opt-in config must select prioritized replay"
+        );
+        let before = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        let mut rng = StdRng::seed_from_u64(7);
+        agent
+            .learn_step(&mut rng)
+            .expect("primed agent with learning_starts = 0 learns");
+        let after = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        assert!(
+            (after - before).abs() > 1e-9,
+            "the quantile-Huber priority writeback must change the sampling mass: {before} -> {after}"
+        );
     }
 
     #[test]

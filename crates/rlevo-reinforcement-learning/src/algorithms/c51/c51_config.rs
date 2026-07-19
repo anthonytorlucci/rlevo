@@ -10,6 +10,7 @@ use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::algorithms::c51::projection::atom_spacing;
+use crate::replay::PrioritizedReplaySettings;
 
 /// Configuration for training a Categorical DQN (C51) agent.
 ///
@@ -90,6 +91,24 @@ pub struct C51TrainingConfig {
 
     /// Optimizer configuration (Adam β's, ε, etc.).
     pub optimizer: AdamConfig,
+
+    /// Opt-in prioritized experience replay (Schaul et al. 2016), `None` by
+    /// default (uniform replay).
+    ///
+    /// The priority signal for C51 is the **KL divergence**
+    /// `D_KL(target ‖ pred)`, *not* the cross-entropy the gradient uses — the
+    /// two differ by the per-sample target entropy `H(target)` (Rainbow,
+    /// "prioritize transitions by the KL loss, since this is what the algorithm
+    /// is minimizing"; see
+    /// [`categorical_kl_per_sample`](crate::algorithms::c51::loss::categorical_kl_per_sample)).
+    ///
+    /// **Literature-recommended exponent.** Rainbow pairs the KL priority with
+    /// `ω = 0.5` (its `priority_exponent` here), and reports performance is "very
+    /// robust to the choice of ω" under the KL priority. The shipped default is
+    /// Schaul's `0.6`; set `priority_exponent` to `0.5` on
+    /// [`PrioritizedReplaySettings`] to match Rainbow. Buffer capacity comes from
+    /// [`replay_buffer_capacity`](Self::replay_buffer_capacity).
+    pub prioritized_replay: Option<PrioritizedReplaySettings>,
 }
 
 impl C51TrainingConfig {
@@ -137,6 +156,7 @@ impl Default for C51TrainingConfig {
             v_max: 10.0,
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
+            prioritized_replay: None,
         }
     }
 }
@@ -157,6 +177,9 @@ impl Validate for C51TrainingConfig {
         config::at_least(C, "num_atoms", self.num_atoms, 2)?;
         config::distinct(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
         config::ordered(C, "v_max", f64::from(self.v_min), f64::from(self.v_max))?;
+        if let Some(per) = &self.prioritized_replay {
+            per.validate()?;
+        }
         // The target network has exactly two update mechanisms — Polyak soft
         // updates (`tau > 0`) and periodic hard syncs
         // (`target_update_frequency > 0`). Disabling both leaves the target
@@ -306,6 +329,16 @@ impl C51TrainingConfigBuilder {
     /// Sets [`C51TrainingConfig::optimizer`].
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
+        self
+    }
+
+    /// Enables prioritized experience replay with the given settings.
+    ///
+    /// C51 prioritizes by the KL loss (Rainbow); see
+    /// [`C51TrainingConfig::prioritized_replay`] for the literature-recommended
+    /// `ω = 0.5`. Leave unset for uniform replay.
+    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
+        self.config.prioritized_replay = Some(settings);
         self
     }
 

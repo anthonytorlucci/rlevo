@@ -203,7 +203,7 @@ mod tests {
         let device = Default::default();
         let config = DdpgTrainingConfig {
             learning_starts: 1_000_000,
-            buffer_capacity: 64,
+            replay_buffer_capacity: 64,
             ..DdpgTrainingConfig::default()
         };
         let actor = TinyActor::<TestBackend>::new(&device);

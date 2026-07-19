@@ -133,7 +133,7 @@ fn build_agent() -> Agent {
     let critic_1: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
     let critic_2: CriticMlp<Be> = CriticMlp::new(3, 1, 256, &device);
     let config = Td3TrainingConfigBuilder::new()
-        .buffer_capacity(10_000)
+        .replay_buffer_capacity(10_000)
         .batch_size(256)
         .learning_starts(0)
         .policy_frequency(2)
