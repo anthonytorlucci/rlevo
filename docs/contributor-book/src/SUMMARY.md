@@ -14,6 +14,7 @@
 - [Linting and CI](ch10-linting-and-ci.md)
 - [Documentation standards](ch11-documentation-standards.md)
 - [User-book style](ch12-user-book-style.md)
+- [Glossary: rank vs components, space vs value, type-level vs runtime](ch13-glossary.md)
 
 ---
 
