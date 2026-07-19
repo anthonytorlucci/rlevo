@@ -20,7 +20,7 @@
 //! # This checkout's actual state
 //!
 //! `dqn_agent.rs::learn_step` in this checkout already uses
-//! `write_host_row` (commit `797d18c`, resolving #187/#362) -- see the
+//! `write_host_row` (commit `57dd565`, resolving #187/#362) -- see the
 //! [`Staging::HostRow`] arm below, which reproduces that production code
 //! path. [`Staging::Roundtrip`] reintroduces the pre-fix per-row
 //! `to_tensor` + `into_data()` round trip **inside this bench only**, for
@@ -179,9 +179,9 @@ const PIXEL_ACTIONS: usize = 4;
 enum Staging {
     /// Per-row `to_tensor(device)` then `.into_data()` -- upload-then-
     /// download-unchanged, one wgpu sync point per row. The pre-#187/#362
-    /// behaviour, reproduced verbatim from `797d18c`'s parent.
+    /// behaviour, reproduced verbatim from `57dd565`'s parent.
     Roundtrip,
-    /// `TensorConvertible::write_host_row` -- pure host staging, one batched
+    /// `HostRow::write_host_row` -- pure host staging, one batched
     /// upload. The strategy `dqn_agent.rs::learn_step` uses today.
     HostRow,
 }
