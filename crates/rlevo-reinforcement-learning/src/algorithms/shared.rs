@@ -146,24 +146,32 @@ pub(crate) struct Slot<M>(Option<M>);
 /// [`ImportanceExponent::ONE`]: crate::replay::ImportanceExponent::ONE
 pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::ONE;
 
-/// Asserts that `A`'s action bounds are keyed on `COMPONENTS`, as
-/// [`BoundedAction`] requires.
+/// Asserts that `A`'s action bounds satisfy the whole [`BoundedAction`]
+/// contract: `low().len() == high().len() == COMPONENTS`, and
+/// `low()[i] < high()[i]` for every component.
 ///
 /// [`BoundedAction::low`] and [`BoundedAction::high`] return `&'static [f32]`,
-/// which cannot encode its own length, so the contract
-/// `low().len() == high().len() == COMPONENTS` is an obligation on the
-/// implementor rather than a compile-time guarantee (ADR 0053 §4). The three
-/// continuous-control agents index those slices per component on every `act`,
-/// so a short slice would surface as an out-of-bounds panic mid-episode,
-/// pointing at the agent rather than at the offending impl.
+/// which cannot encode its own length, so neither half of that contract is a
+/// compile-time guarantee — both are obligations on the implementor
+/// (ADR 0053 §4). The three continuous-control agents index those slices per
+/// component on every `act`, so a short slice would surface as an
+/// out-of-bounds panic mid-episode, pointing at the agent rather than at the
+/// offending impl.
 ///
-/// Calling this once in each agent constructor converts that into a loud,
-/// early failure that names the real culprit.
+/// The **ordering** half fails more quietly still. Both DDPG's and SAC's
+/// warm-up samplers build `self.low[i]..=self.high[i]` and hand it to
+/// [`Rng::random_range`](rand::Rng::random_range), which panics on an empty
+/// range — but only for `low > high`; an *equal* pair yields a degenerate
+/// action space that samples one value forever and never reports anything.
+/// The per-component `clamp` on the policy path is worse: `f32::clamp` panics
+/// on `min > max`, again mid-episode and again naming the agent. Checking here
+/// means a nonconforming impl is rejected at agent-build time, by a message
+/// that names the component.
 ///
 /// # Panics
 ///
 /// Panics if `A::low().len()` or `A::high().len()` differs from
-/// `A::COMPONENTS`.
+/// `A::COMPONENTS`, or if `A::low()[i] >= A::high()[i]` for any component `i`.
 pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<DA>>() {
     assert_eq!(
         A::low().len(),
@@ -179,6 +187,13 @@ pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<D
         A::high().len(),
         A::COMPONENTS,
     );
+    for (i, (low, high)) in A::low().iter().zip(A::high()).enumerate() {
+        assert!(
+            low < high,
+            "BoundedAction contract violated: component {i} has low() = {low} but \
+             high() = {high}; every component needs low < high",
+        );
+    }
 }
 
 /// Builds the `[1, ..action_shape]` per-component lower/upper bound tensors used
@@ -766,6 +781,91 @@ mod tests {
             rendered.contains("TestNet"),
             "Debug must name the module type, got: {rendered}"
         );
+    }
+
+    // -------- assert_bounds_match_components --------
+
+    use rlevo_core::action::ContinuousAction;
+    use rlevo_core::base::Action;
+
+    /// Declares a two-component [`BoundedAction`] fixture with the given
+    /// bounds, so each way the contract can break has a witness.
+    ///
+    /// Hand-written types rather than one const-generic fixture: `low`/`high`
+    /// return `&'static [f32]`, so every variant needs its own literal anyway.
+    macro_rules! bounds_fixture {
+        ($name:ident, $low:expr, $high:expr) => {
+            #[derive(Debug, Clone, Copy)]
+            struct $name([f32; 2]);
+
+            impl Action<1> for $name {
+                fn shape() -> [usize; 1] {
+                    [2]
+                }
+                fn is_valid(&self) -> bool {
+                    self.0.iter().all(|v| v.is_finite())
+                }
+            }
+
+            impl ContinuousAction<1> for $name {
+                const COMPONENTS: usize = 2;
+
+                fn as_slice(&self) -> &[f32] {
+                    &self.0
+                }
+                fn clip(&self, min: f32, max: f32) -> Self {
+                    Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
+                }
+                fn from_slice(values: &[f32]) -> Self {
+                    assert_eq!(values.len(), Self::COMPONENTS);
+                    Self([values[0], values[1]])
+                }
+            }
+
+            impl BoundedAction<1> for $name {
+                fn low() -> &'static [f32] {
+                    $low
+                }
+                fn high() -> &'static [f32] {
+                    $high
+                }
+            }
+        };
+    }
+
+    bounds_fixture!(ConformingBounds, &[-1.0, 0.0], &[1.0, 1.0]);
+    bounds_fixture!(OverLongLowBounds, &[-1.0, 0.0, 0.0], &[1.0, 1.0]);
+    bounds_fixture!(InvertedBounds, &[1.0, 0.0], &[-1.0, 1.0]);
+    bounds_fixture!(DegenerateBounds, &[1.0, 0.0], &[1.0, 1.0]);
+
+    #[test]
+    fn test_assert_bounds_match_components_accepts_a_conforming_impl() {
+        assert_bounds_match_components::<1, ConformingBounds>();
+    }
+
+    #[test]
+    #[should_panic(expected = "low() has 3 elements but COMPONENTS is 2")]
+    fn test_assert_bounds_match_components_rejects_a_wrong_length() {
+        assert_bounds_match_components::<1, OverLongLowBounds>();
+    }
+
+    #[test]
+    #[should_panic(expected = "component 0 has low() = 1 but high() = -1")]
+    fn test_assert_bounds_match_components_rejects_inverted_bounds() {
+        // ADR 0053's trait docs and docs/rules.md §3 both state
+        // `low()[i] < high()[i]`. Left unchecked, an inverted pair reaches
+        // `rng.random_range(low..=high)` (empty-range panic) and `f32::clamp`
+        // (`min > max` panic) mid-episode, naming the agent instead of the impl.
+        assert_bounds_match_components::<1, InvertedBounds>();
+    }
+
+    #[test]
+    #[should_panic(expected = "component 0 has low() = 1 but high() = 1")]
+    fn test_assert_bounds_match_components_rejects_a_degenerate_component() {
+        // `low == high` is the quieter half: `random_range` is happy with a
+        // one-point inclusive range, so a degenerate action space would train
+        // silently forever rather than reporting anything.
+        assert_bounds_match_components::<1, DegenerateBounds>();
     }
 
     // -------- reduce_weighted_loss --------
