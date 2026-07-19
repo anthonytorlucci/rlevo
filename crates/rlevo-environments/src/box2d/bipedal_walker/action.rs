@@ -55,15 +55,21 @@ impl ContinuousAction<1> for BipedalWalkerAction {
         Self(self.0.map(|v| v.clamp(min, max)))
     }
 
-    /// Constructs an action from the first four elements of `values`.
+    /// Constructs an action from exactly `COMPONENTS` motor targets.
     ///
     /// # Panics
     ///
-    /// Panics if `values.len() < 4`.
+    /// Panics if `values.len() != Self::COMPONENTS`.
     fn from_slice(values: &[f32]) -> Self {
-        assert!(values.len() >= 4, "BipedalWalkerAction needs 4 values");
+        assert_eq!(
+            values.len(),
+            Self::COMPONENTS,
+            "BipedalWalkerAction needs exactly {} components, got {}",
+            Self::COMPONENTS,
+            values.len(),
+        );
         let mut arr = [0.0f32; 4];
-        arr.copy_from_slice(&values[..4]);
+        arr.copy_from_slice(values);
         Self(arr)
     }
 }
@@ -149,6 +155,20 @@ mod tests {
     fn test_from_slice() {
         let a = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3, 0.4]);
         assert_eq!(a.0, [0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 4 components, got 5")]
+    fn test_from_slice_rejects_an_over_long_slice() {
+        // `ContinuousAction::from_slice` accepts *exactly* `COMPONENTS` values
+        // (docs/rules.md §3); the previous `>= 4` check silently truncated.
+        let _ = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3, 0.4, 0.5]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 4 components, got 3")]
+    fn test_from_slice_rejects_a_short_slice() {
+        let _ = BipedalWalkerAction::from_slice(&[0.1, 0.2, 0.3]);
     }
 
     #[test]

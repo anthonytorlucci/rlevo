@@ -34,7 +34,7 @@ use rand::rngs::StdRng;
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
-use rlevo_core::environment::{ConstructableEnv, Environment, Snapshot};
+use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_environments::box2d::car_racing::{
     CarRacing, CarRacingAction, CarRacingConfig, CarRacingObservation,
 };
@@ -179,7 +179,11 @@ fn build_env() -> CarRacing {
         max_steps: 64,
         ..CarRacingConfig::default()
     };
-    CarRacing::with_config(config).unwrap_or_else(|_| CarRacing::new(false))
+    // Not `unwrap_or_else(|_| CarRacing::new(false))`: that fallback silently
+    // substitutes a *differently* configured env (the default `max_steps`, not
+    // 64), so a config regression would turn into a slower test rather than a
+    // failing one.
+    CarRacing::with_config(config).expect("valid CarRacing config")
 }
 
 /// Asserts an action sits inside its own per-component bound.

@@ -436,6 +436,70 @@ mod tests {
         assert_eq!(ReacherObservation::shape(), [10]);
     }
 
+    /// A **narrowed** `action_clip` must still accept a boundary action of the
+    /// static [`BoundedAction`] space, and must saturate it at the narrower
+    /// limit.
+    ///
+    /// This is the direction that matters for ADR 0053 §3's argument that
+    /// `low()`/`high()` may be `&'static` even though `action_clip` is a
+    /// runtime field. `step` gates only on finiteness — it never consults
+    /// `is_valid()` or `action_clip` for admission — and `ReacherConfig::validate`
+    /// does not bound `action_clip` at all, so a narrowed clip can never turn
+    /// an in-space action into an error. It only saturates earlier, which is
+    /// what the three assertions below pin: accepted, equal to the
+    /// hand-saturated command, and genuinely different from the default clip.
+    ///
+    /// The pre-existing `bounds_agree_with_the_default_action_clip` test pins
+    /// only the *default* config, where the two intervals coincide and nothing
+    /// can be distinguished.
+    #[test]
+    fn narrowed_action_clip_accepts_a_boundary_action_and_saturates_early() {
+        fn cfg_with(action_clip: rlevo_core::bounds::Bounds) -> ReacherConfig {
+            ReacherConfig {
+                seed: 11,
+                reset_noise_scale: 0.0,
+                action_clip,
+                ..Default::default()
+            }
+        }
+        let narrow = rlevo_core::bounds::Bounds::new(-0.5, 0.5);
+
+        fn rollout(config: ReacherConfig, action: ReacherAction) -> [f32; 10] {
+            let mut env = ReacherRapier::with_config(config).expect("valid config");
+            env.reset().expect("reset");
+            env.step(action)
+                .expect("a boundary action of the static space must be accepted")
+                .observation()
+                .0
+        }
+
+        // The static space's corner, under the narrowed clip.
+        let at_boundary = rollout(cfg_with(narrow), ReacherAction::new(-1.0, 1.0));
+        // The same command already saturated by hand.
+        let hand_saturated = rollout(cfg_with(narrow), ReacherAction::new(-0.5, 0.5));
+        // The same corner under the default (wider) clip.
+        let unclipped = rollout(
+            cfg_with(ReacherConfig::default().action_clip),
+            ReacherAction::new(-1.0, 1.0),
+        );
+
+        for (i, (a, b)) in at_boundary.iter().zip(&hand_saturated).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "a narrowed action_clip must saturate the boundary action: \
+                 observation[{i}] was {a} but hand-saturating gave {b}"
+            );
+        }
+        assert!(
+            at_boundary
+                .iter()
+                .zip(&unclipped)
+                .any(|(a, b)| (a - b).abs() > 1e-4),
+            "the narrowed clip must actually bind: it produced the same physics \
+             as the default clip ({at_boundary:?} vs {unclipped:?})"
+        );
+    }
+
     #[test]
     fn reset_returns_running() {
         let mut env = ReacherRapier::with_config(cfg(7)).expect("valid config");

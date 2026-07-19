@@ -183,6 +183,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   under the old signature. `CarRacingAction` is the workspace's only action whose
   components disagree — steering ∈ [-1, 1] but gas and brake ∈ [0, 1].
 
+**Fixed**
+
+- **`ContinuousAction::from_slice` now accepts exactly `COMPONENTS` values on all
+  five multi-component continuous actions**, matching what the trait and
+  `docs/rules.md` §3 have always documented. `ReacherAction` and `SwimmerAction`
+  had **no** length check at all — a short slice panicked with a bare
+  index-out-of-bounds and a long one was silently truncated — while
+  `CarRacingAction`, `BipedalWalkerAction` and `LunarLanderContinuousAction`
+  asserted only `len() >= COMPONENTS` and so accepted (and truncated) a long
+  slice. All five now `assert_eq!` and carry a matching `# Panics` line. No
+  in-workspace caller passed a non-exact slice, so nothing else changes.
+
 ### `rlevo-reinforcement-learning`
 
 **Breaking changes**
@@ -455,6 +467,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **The `BoundedAction` construction-time check now enforces the ordering half of
+  the contract too**, not just the length half. `low()[i] < high()[i]` is stated
+  in the trait docs and in `docs/rules.md` §3, but only the lengths were verified
+  at agent construction; an inverted pair surfaced mid-episode as an empty-range
+  panic inside `Rng::random_range` or a `min > max` panic inside `f32::clamp`,
+  naming the agent rather than the offending impl, and an *equal* pair produced a
+  degenerate action space that reported nothing at all.
 - **DDPG, TD3 and SAC truncated every action to its tensor rank** (ADR 0053,
   resolves #253). The `act`/`act_with` paths looped `0..A::RANK` and
   `.take(A::RANK)` over the actor's output — the rank is the number of *axes*,
