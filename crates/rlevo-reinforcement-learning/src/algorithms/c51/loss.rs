@@ -44,6 +44,58 @@ pub fn categorical_cross_entropy_per_sample<B: Backend>(
         .neg()
 }
 
+/// Clamp floor for `log(target)` so that an exact-zero atom contributes
+/// `0 · log(TINY) = 0` to the entropy term rather than `0 · (−∞) = NaN`.
+///
+/// A projected C51 target routinely has exact-zero atoms outside the two bins a
+/// backed-up value lands in, so this guard is load-bearing, not defensive.
+const KL_LOG_FLOOR: f32 = 1e-30;
+
+/// Per-sample KL divergence `D_KL(target ‖ pred)` — C51's **priority** signal
+/// for prioritized replay (Rainbow), which is deliberately *not* the
+/// cross-entropy the gradient uses.
+///
+/// # Why KL and not the cross-entropy
+///
+/// `categorical_cross_entropy_per_sample` returns `CE = −Σ_i t_i · log p_i`,
+/// which is what C51 minimises and therefore what the gradient sees. Rainbow
+/// prioritizes transitions by the **KL loss** instead ("since this is what the
+/// algorithm is minimizing", verbatim), and
+///
+/// ```text
+/// D_KL(t ‖ p) = Σ_i t_i · log(t_i / p_i) = CE − H(t),   H(t) = −Σ_i t_i · log t_i
+/// ```
+///
+/// The two differ by the **target entropy** `H(t)`. `H(t)` is constant with
+/// respect to the network parameters θ, so it vanishes from the gradient — the
+/// loss can stay CE with no change to training. But `H(t)` **varies from sample
+/// to sample**, so using CE as the replay priority ranks transitions
+/// differently from KL. This function subtracts `H(t)` explicitly, computing
+/// `CE + Σ_i t_i · log t_i`, so the priority is the KL Rainbow specifies rather
+/// than the CE that happens to be lying around.
+///
+/// # Shapes
+/// - `target_probs`:        `(batch, num_atoms)`
+/// - `predicted_log_probs`: `(batch, num_atoms)`
+/// - **returns**:           `(batch,)`
+///
+/// The result is the non-negative KL per batch element. `predicted_log_probs`
+/// must already be log-probabilities along the atom axis.
+pub fn categorical_kl_per_sample<B: Backend>(
+    target_probs: Tensor<B, 2>,
+    predicted_log_probs: Tensor<B, 2>,
+) -> Tensor<B, 1> {
+    // CE = −Σ t·log p.
+    let ce = categorical_cross_entropy_per_sample(target_probs.clone(), predicted_log_probs);
+    // Σ t·log t  (= −H(t), ≤ 0). The clamp floors log(0) so a zero atom's
+    // `t·log t` is `0·log(TINY) = 0` rather than `0·(−∞) = NaN`.
+    let neg_entropy = (target_probs.clone() * target_probs.clamp_min(KL_LOG_FLOOR).log())
+        .sum_dim(1)
+        .squeeze_dim::<1>(1);
+    // KL = CE − H(t) = CE + Σ t·log t.
+    ce + neg_entropy
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +174,117 @@ mod tests {
             (manual_mean - reduced).abs() < 1e-6,
             "caller-side mean {reduced} must match the manual mean {manual_mean}"
         );
+    }
+
+    /// Reads a `[batch]` loss tensor to a host `Vec<f32>`.
+    fn to_vec(t: Tensor<B, 1>) -> Vec<f32> {
+        t.into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 loss")
+    }
+
+    /// Builds `predicted_log_probs` from explicit probabilities by taking their
+    /// natural log — the exact log-probs the KL formula expects.
+    fn log_of(probs: Vec<f32>, rows: usize, cols: usize) -> Tensor<B, 2> {
+        tensor_2d(probs, rows, cols).log()
+    }
+
+    #[test]
+    fn kl_matches_hand_computed_values() {
+        // Sample A: t = [0.5, 0.5], p = [0.6, 0.4].
+        //   CE_A = −(0.5·ln0.6 + 0.5·ln0.4) = 0.71355818
+        //   H_A  = ln 2 = 0.69314718
+        //   KL_A = CE_A − H_A = 0.02041100
+        // Sample B: t = [0.9, 0.1], p = [0.7, 0.3].
+        //   CE_B = −(0.9·ln0.7 + 0.1·ln0.3) = 0.44140473
+        //   H_B  = −(0.9·ln0.9 + 0.1·ln0.1) = 0.32508297
+        //   KL_B = CE_B − H_B = 0.11632176
+        let target = tensor_2d(vec![0.5, 0.5, 0.9, 0.1], 2, 2);
+        let log_p = log_of(vec![0.6, 0.4, 0.7, 0.3], 2, 2);
+        let kl = to_vec(categorical_kl_per_sample(target, log_p));
+        assert!(
+            (kl[0] - 0.020_411_0).abs() < 1e-4,
+            "KL_A must equal the hand-computed 0.0204110, got {}",
+            kl[0]
+        );
+        assert!(
+            (kl[1] - 0.116_321_76).abs() < 1e-4,
+            "KL_B must equal the hand-computed 0.1163218, got {}",
+            kl[1]
+        );
+    }
+
+    /// The load-bearing test: CE and KL must **rank the two transitions in
+    /// opposite order**, so a future "simplification" back to CE-as-priority
+    /// changes replay ranking and fails here.
+    ///
+    /// With the samples above, `CE_A (0.714) > CE_B (0.441)` but
+    /// `KL_A (0.020) < KL_B (0.116)`: cross-entropy would prioritize A, the KL
+    /// Rainbow specifies prioritizes B. The inversion is driven entirely by the
+    /// per-sample target entropy `H(t)`, which CE ignores.
+    #[test]
+    fn kl_and_ce_rank_transitions_in_opposite_order() {
+        let target = tensor_2d(vec![0.5, 0.5, 0.9, 0.1], 2, 2);
+        let log_p = log_of(vec![0.6, 0.4, 0.7, 0.3], 2, 2);
+        let ce = to_vec(categorical_cross_entropy_per_sample(
+            target.clone(),
+            log_p.clone(),
+        ));
+        let kl = to_vec(categorical_kl_per_sample(target, log_p));
+        assert!(
+            ce[0] > ce[1],
+            "cross-entropy ranks sample A above B: {} vs {}",
+            ce[0],
+            ce[1]
+        );
+        assert!(
+            kl[0] < kl[1],
+            "KL ranks sample B above A — the opposite order: {} vs {}",
+            kl[0],
+            kl[1]
+        );
+    }
+
+    #[test]
+    fn kl_equals_ce_for_a_one_hot_target() {
+        // A one-hot target has H(t) = 0, so KL = CE exactly — and the exact-zero
+        // atom must contribute 0, not NaN, to the entropy term.
+        let target = tensor_2d(vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0], 2, 3);
+        let log_p = log_of(vec![0.8, 0.1, 0.1, 0.2, 0.5, 0.3], 2, 3);
+        let ce = to_vec(categorical_cross_entropy_per_sample(
+            target.clone(),
+            log_p.clone(),
+        ));
+        let kl = to_vec(categorical_kl_per_sample(target, log_p));
+        for (n, (k, c)) in kl.iter().zip(&ce).enumerate() {
+            assert!(
+                k.is_finite(),
+                "KL must be finite despite zero atoms (sample {n})"
+            );
+            assert!(
+                (k - c).abs() < 1e-5,
+                "one-hot target ⇒ H(t) = 0 ⇒ KL == CE (sample {n}): {k} vs {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn kl_is_nonnegative_and_zero_on_identity() {
+        // D_KL(t ‖ t) = 0, and KL ≥ 0 for any distributions.
+        let target = tensor_2d(vec![0.2, 0.3, 0.5, 0.6, 0.1, 0.3], 2, 3);
+        let identical = to_vec(categorical_kl_per_sample(
+            target.clone(),
+            target.clone().log(),
+        ));
+        for (n, k) in identical.iter().enumerate() {
+            assert!(k.abs() < 1e-5, "KL(t ‖ t) must be ~0 (sample {n}), got {k}");
+        }
+        let log_p = log_of(vec![0.3, 0.3, 0.4, 0.2, 0.5, 0.3], 2, 3);
+        let kl = to_vec(categorical_kl_per_sample(target, log_p));
+        for (n, k) in kl.iter().enumerate() {
+            assert!(*k >= -1e-6, "KL must be non-negative (sample {n}), got {k}");
+        }
     }
 
     #[test]

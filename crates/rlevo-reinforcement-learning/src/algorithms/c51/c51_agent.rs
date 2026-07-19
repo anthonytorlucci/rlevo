@@ -18,17 +18,19 @@ use burn::tensor::{ElementConversion, Int, Tensor, TensorData};
 use rand::{Rng, RngExt};
 
 use crate::metrics::{AgentStats, PerformanceRecord};
-use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayStrategy, UniformReplay};
+use crate::replay::{DiscreteTransition, ReplayBufferError, ReplayKind, ReplayStrategy};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::c51::c51_config::C51TrainingConfig;
 use crate::algorithms::c51::c51_model::C51Model;
-use crate::algorithms::c51::loss::categorical_cross_entropy_per_sample;
+use crate::algorithms::c51::loss::{
+    categorical_cross_entropy_per_sample, categorical_kl_per_sample,
+};
 use crate::algorithms::c51::projection::project_distribution;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
 
 /// Error variants returned by [`C51Agent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -115,7 +117,7 @@ where
     policy_net: Slot<M>,
     target_net: M::InnerModule,
     optimizer: OptimizerAdaptor<Adam, M, B>,
-    buffer: UniformReplay<DiscreteTransition<O>>,
+    buffer: ReplayKind<DiscreteTransition<O>>,
     exploration: EpsilonGreedy,
     config: C51TrainingConfig,
     device: B::Device,
@@ -175,11 +177,15 @@ where
             config.epsilon_decay,
         );
         let stats = AgentStats::<C51Metrics>::new(100);
+        let buffer = match &config.prioritized_replay {
+            None => ReplayKind::uniform(config.replay_buffer_capacity),
+            Some(per) => ReplayKind::prioritized(per.buffer_config(config.replay_buffer_capacity))?,
+        };
         Ok(Self {
             policy_net: Slot::new(policy_net),
             target_net,
             optimizer,
-            buffer: UniformReplay::new(config.replay_buffer_capacity),
+            buffer,
             exploration,
             config,
             device,
@@ -437,12 +443,15 @@ where
         let batch_size = self.config.batch_size;
         let num_atoms = self.config.num_atoms;
 
+        // β is only consulted by prioritized replay; uniform ignores it.
+        let beta = self
+            .config
+            .prioritized_replay
+            .as_ref()
+            .map_or(UNIFORM_REPLAY_BETA, |per| per.beta(self.step));
         // `can_learn()` above already established `buffer.len() >= batch_size`,
         // so the only variant `sample` can return here is unreachable.
-        let batch = self
-            .buffer
-            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
-            .ok()?;
+        let batch = self.buffer.sample(batch_size, beta, rng).ok()?;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -549,9 +558,12 @@ where
         // Upload the target distribution onto the autodiff backend and
         // compute the cross-entropy loss.
         let target_autodiff: Tensor<B, 2> = Tensor::from_data(target_inner.into_data(), &device);
-        // Per-sample `[batch]`; the agent owns the reduction so a future
-        // importance-sampling weight can scale each sample first (ADR 0050 §14).
-        let loss_tensor = categorical_cross_entropy_per_sample(target_autodiff, pred_log_p).mean();
+        // Per-sample `[batch]` cross-entropy, scaled by importance weights before
+        // the mean (ADR 0050 §14). The **loss** stays CE — the KL correction is
+        // only the priority signal below.
+        let per_sample_ce =
+            categorical_cross_entropy_per_sample(target_autodiff.clone(), pred_log_p.clone());
+        let loss_tensor = reduce_weighted_loss(per_sample_ce, &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
         let grads = loss_tensor.backward();
@@ -568,6 +580,30 @@ where
             // the target onto the policy.
             self.target_net =
                 M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
+        }
+
+        // PER priority writeback (Schaul Alg. 1 lines 11-12): the C51 priority
+        // signal is the **KL divergence** `D_KL(target ‖ pred)`, not the
+        // cross-entropy above. They differ by the per-sample target entropy
+        // `H(target)` — constant in θ (so the gradient is unchanged) but varying
+        // per sample (so replay ranking differs). Rainbow prioritizes by KL "since
+        // this is what the algorithm is minimizing". A no-op for uniform replay.
+        if self.buffer.is_prioritized() {
+            let kl = categorical_kl_per_sample(target_autodiff, pred_log_p);
+            let kl_host: Vec<f32> = kl
+                .into_data()
+                .convert::<f32>()
+                .into_vec::<f32>()
+                .expect("finite KL priorities read to host");
+            if let Err(err) = self
+                .buffer
+                .update_priorities_from_td_errors(batch.ids(), &kl_host)
+            {
+                tracing::warn!(
+                    ?err,
+                    "skipping PER priority writeback: non-finite KL priority (diverging network)"
+                );
+            }
         }
 
         Some(LearnOutcome {
@@ -591,6 +627,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+    use crate::replay::PrioritizedReplaySettings;
     use crate::utils::polyak_update;
     use rlevo_core::base::{Action as ActionTrait, TensorConversionError};
 
@@ -762,6 +799,78 @@ mod tests {
             );
         }
         agent
+    }
+
+    /// Same as [`primed_agent`] but with prioritized replay opted in, so a
+    /// single `learn_step` exercises the KL-priority writeback.
+    fn primed_prioritized_agent() -> TestAgent {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let config = C51TrainingConfigBuilder::new()
+            .tau(0.005)
+            .batch_size(2)
+            .learning_starts(0)
+            .learning_rate(0.01)
+            .num_atoms(TEST_ATOMS)
+            .v_min(-1.0)
+            .v_max(1.0)
+            .prioritized_replay(PrioritizedReplaySettings {
+                beta_anneal_steps: 100,
+                ..PrioritizedReplaySettings::default()
+            })
+            .build()
+            .expect("valid prioritized test config");
+
+        let mut agent: TestAgent =
+            C51Agent::new(TestNet::<Be>::init(&device), config, device).expect("agent constructs");
+        for i in 0..4 {
+            let x = i as f32;
+            agent.remember(
+                TestObs([x, -x]),
+                &TestAction(i % TEST_ACTIONS),
+                1.0,
+                TestObs([x + 1.0, -x]),
+                false,
+            );
+        }
+        agent
+    }
+
+    #[test]
+    fn c51_defaults_to_uniform_replay() {
+        let agent = primed_agent(0.005, 100);
+        assert!(
+            !agent.buffer.is_prioritized(),
+            "the default config must keep uniform replay (PER is opt-in)"
+        );
+    }
+
+    /// The KL-priority feedback edge: a learn step rewrites the sampled
+    /// transitions' priorities off the running-max seed, moving the total mass.
+    #[test]
+    fn c51_priority_writeback_runs_after_learn_step() {
+        let mut agent = primed_prioritized_agent();
+        assert!(
+            agent.buffer.is_prioritized(),
+            "the opt-in config must select prioritized replay"
+        );
+        let before = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        let mut rng = StdRng::seed_from_u64(7);
+        agent
+            .learn_step(&mut rng)
+            .expect("primed agent with learning_starts = 0 learns");
+        let after = agent
+            .buffer
+            .as_prioritized()
+            .expect("prioritized")
+            .total_priority();
+        assert!(
+            (after - before).abs() > 1e-9,
+            "the KL priority writeback must change the sampling mass: {before} -> {after}"
+        );
     }
 
     /// Regression for #182: with `tau > 0` the Polyak-lagged target must

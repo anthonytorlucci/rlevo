@@ -4,6 +4,8 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::replay::PrioritizedReplaySettings;
+
 /// Configuration structure for training a Deep Q-Network (DQN).
 ///
 /// This struct holds all hyperparameters and configuration settings required
@@ -104,6 +106,21 @@ pub struct DqnTrainingConfig {
     ///
     /// This defines the optimization algorithm used to update the network weights.
     pub optimizer: AdamConfig,
+
+    /// Opt-in prioritized experience replay (Schaul et al. 2016).
+    ///
+    /// `None` (the default) uses uniform replay — the pre-PER behaviour, byte
+    /// for byte. `Some` enables PER: transitions are drawn in proportion to
+    /// `(|δ| + ε)^α`, and the per-sample loss is scaled by max-normalized
+    /// importance weights annealed over `beta_anneal_steps`. The priority signal
+    /// is the absolute Huber TD error `|δ|` (Schaul §3.3, direct).
+    ///
+    /// Buffer capacity comes from [`replay_buffer_capacity`](Self::replay_buffer_capacity);
+    /// the remaining knobs (α, ε, β schedule) live on
+    /// [`PrioritizedReplaySettings`]. Rainbow's ablation puts prioritized replay
+    /// among the two most crucial of its seven components on the value-based
+    /// side, which is why it is offered here (ADR 0050 §Context).
+    pub prioritized_replay: Option<PrioritizedReplaySettings>,
 }
 
 impl Default for DqnTrainingConfig {
@@ -136,6 +153,7 @@ impl Default for DqnTrainingConfig {
             double_q: false,
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
+            prioritized_replay: None,
         }
     }
 }
@@ -153,6 +171,9 @@ impl Validate for DqnTrainingConfig {
         config::nonzero(C, "replay_buffer_capacity", self.replay_buffer_capacity)?;
         config::nonzero(C, "train_frequency", self.train_frequency)?;
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
+        if let Some(per) = &self.prioritized_replay {
+            per.validate()?;
+        }
         // Cross-field: `tau == 0.0` disables the Polyak soft update and
         // `target_update_frequency == 0` disables the periodic hard sync, so
         // together they freeze the target network for the whole run. Note the
@@ -297,6 +318,15 @@ impl DqnTrainingConfigBuilder {
     /// Sets the optimizer configuration (e.g., specific Adam beta values).
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
+        self
+    }
+
+    /// Enables prioritized experience replay with the given settings.
+    ///
+    /// Pass [`PrioritizedReplaySettings::default`] for Schaul's proportional
+    /// defaults (α = 0.6, β 0.4 → 1.0). Leave unset for uniform replay.
+    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
+        self.config.prioritized_replay = Some(settings);
         self
     }
 

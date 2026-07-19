@@ -93,8 +93,10 @@
 mod config;
 mod error;
 mod importance_exponent;
+mod kind;
 mod prioritized;
 mod priority;
+mod settings;
 mod sum_tree;
 mod transition;
 mod uniform;
@@ -102,8 +104,12 @@ mod uniform;
 pub use config::{DEFAULT_PRIORITY_EPSILON, DEFAULT_PRIORITY_EXPONENT, PrioritizedReplayConfig};
 pub use error::ReplayBufferError;
 pub use importance_exponent::{ImportanceExponent, ImportanceExponentError};
+pub use kind::{KindIter, ReplayKind};
 pub use prioritized::PrioritizedReplay;
 pub use priority::{Priority, PriorityError};
+pub use settings::{
+    DEFAULT_BETA_ANNEAL_STEPS, DEFAULT_BETA_END, DEFAULT_BETA_START, PrioritizedReplaySettings,
+};
 pub use transition::{ContinuousTransition, DiscreteTransition, Transition};
 pub use uniform::UniformReplay;
 

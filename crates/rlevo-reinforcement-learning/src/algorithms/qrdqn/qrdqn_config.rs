@@ -16,6 +16,8 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
+use crate::replay::PrioritizedReplaySettings;
+
 /// Configuration for training a Quantile Regression DQN (QR-DQN) agent.
 ///
 /// Holds all hyperparameters required to initialise and train a
@@ -100,6 +102,26 @@ pub struct QrDqnTrainingConfig {
 
     /// Optimizer configuration (Adam β's, ε, etc.).
     pub optimizer: AdamConfig,
+
+    /// Opt-in prioritized experience replay (Schaul et al. 2016), `None` by
+    /// default (uniform replay).
+    ///
+    /// The priority signal for QR-DQN is the per-sample **quantile Huber loss
+    /// magnitude**.
+    ///
+    /// # This combination is uncited — a design choice by analogy, not a result
+    ///
+    /// Dabney et al. (2018) explicitly **decline** to combine QR-DQN with
+    /// prioritized replay: "we expect both to benefit from … prioritized replay
+    /// (Schaul et al. 2016). However, in our evaluations we compare the pure
+    /// versions of C51 and QR-DQN **without these additions**." Using the
+    /// quantile Huber loss as the priority signal extrapolates Rainbow's stated
+    /// *principle* — prioritize transitions "by what the algorithm is
+    /// minimizing" — to a case **no primary source ablates**. It is offered
+    /// here as an opt-in, and this note is the whole of its provenance: there is
+    /// no citation for it, and none should be added. Buffer capacity comes from
+    /// [`replay_buffer_capacity`](Self::replay_buffer_capacity).
+    pub prioritized_replay: Option<PrioritizedReplaySettings>,
 }
 
 impl QrDqnTrainingConfig {
@@ -141,6 +163,7 @@ impl Default for QrDqnTrainingConfig {
             kappa: 1.0,
             clip_grad: Some(GradientClippingConfig::Value(100.0)),
             optimizer: AdamConfig::new(),
+            prioritized_replay: None,
         }
     }
 }
@@ -160,6 +183,9 @@ impl Validate for QrDqnTrainingConfig {
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
         config::nonzero(C, "num_quantiles", self.num_quantiles)?;
         config::in_range(C, "kappa", 0.0, f64::INFINITY, f64::from(self.kappa))?;
+        if let Some(per) = &self.prioritized_replay {
+            per.validate()?;
+        }
         // `tau` is already range-checked to `[0, 1]` above, so `<= 0.0` is
         // exactly "soft updates disabled" (and avoids a float `==`).
         if self.tau <= 0.0 && self.target_update_frequency == 0 {
@@ -304,6 +330,16 @@ impl QrDqnTrainingConfigBuilder {
     /// Replaces the default [`AdamConfig`] with a custom optimizer configuration.
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
+        self
+    }
+
+    /// Enables prioritized experience replay with the given settings.
+    ///
+    /// The QR-DQN priority (quantile Huber loss) is an uncited extrapolation —
+    /// see [`QrDqnTrainingConfig::prioritized_replay`]. Leave unset for uniform
+    /// replay.
+    pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
+        self.config.prioritized_replay = Some(settings);
         self
     }
 
