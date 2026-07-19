@@ -9,7 +9,7 @@
 //!
 //! | Module | What it provides |
 //! |---|---|
-//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`TensorConvertible`], [`UpdateFunction`] — the primitive trait vocabulary |
+//! | [`base`] | [`Reward`], [`Observation`], [`State`], [`Action`], [`HostRow`], [`TensorConvertible`], [`UpdateFunction`] — the primitive trait vocabulary |
 //! | [`action`] | [`DiscreteAction`], [`MultiDiscreteAction`], [`ContinuousAction`] — layered action-space extensions |
 //! | [`state`] | [`MarkovState`], [`BeliefState`], [`HiddenState`], [`LatentState`], [`StateAggregation`], [`Observable`] — POMDP and latent-space extensions |
 //! | [`environment`] | [`Environment`], [`Sensor`], [`Snapshot`], [`SnapshotBase`], [`EpisodeStatus`], [`EnvironmentError`] — the agent/environment protocol |
@@ -61,6 +61,7 @@
 //! [`Observation`]: crate::base::Observation
 //! [`State`]: crate::base::State
 //! [`Action`]: crate::base::Action
+//! [`HostRow`]: crate::base::HostRow
 //! [`TensorConvertible`]: crate::base::TensorConvertible
 //! [`UpdateFunction`]: crate::base::UpdateFunction
 //! [`DiscreteAction`]: crate::action::DiscreteAction
@@ -99,7 +100,7 @@
 //! [`Renderer`]: crate::render::Renderer
 
 /// Primitive trait vocabulary: [`Reward`], [`Observation`], [`State`],
-/// [`Action`], [`TensorConvertible`], and [`UpdateFunction`].
+/// [`Action`], [`HostRow`], [`TensorConvertible`], and [`UpdateFunction`].
 ///
 /// All other modules in this crate depend on the types defined here.
 ///
@@ -107,6 +108,7 @@
 /// [`Observation`]: crate::base::Observation
 /// [`State`]: crate::base::State
 /// [`Action`]: crate::base::Action
+/// [`HostRow`]: crate::base::HostRow
 /// [`TensorConvertible`]: crate::base::TensorConvertible
 /// [`UpdateFunction`]: crate::base::UpdateFunction
 pub mod base;

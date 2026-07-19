@@ -61,7 +61,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::base::{Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
@@ -301,7 +301,7 @@ impl Observation<3> for PixelObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
+impl HostRow<3> for PixelObservation {
     fn row_shape() -> [usize; 3] {
         [IMG_SIDE, IMG_SIDE, CHANNELS]
     }
@@ -310,7 +310,9 @@ impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
     }
+}
 
+impl<B: Backend> TensorConvertible<3, B> for PixelObservation {
     /// Reconstructs the image from a normalized `[IMG_SIDE, IMG_SIDE, CHANNELS]`
     /// tensor by scaling back to `0..=255` and rounding.
     ///

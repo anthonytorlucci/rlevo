@@ -17,7 +17,9 @@ use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{
+    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
+};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 use rlevo_environments::classic::cartpole::{CartPole, CartPoleConfig};
@@ -79,13 +81,16 @@ impl Observation<1> for LinearObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
+impl HostRow<1> for LinearObservation {
     fn row_shape() -> [usize; 1] {
         [1]
     }
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.x);
     }
+}
+
+impl<B: Backend> TensorConvertible<1, B> for LinearObservation {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let v = tensor.into_data().convert::<f32>();
         Ok(Self {

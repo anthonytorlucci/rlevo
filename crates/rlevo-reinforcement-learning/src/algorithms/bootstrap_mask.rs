@@ -26,7 +26,9 @@ use burn::tensor::{Tensor, activation};
 use serde::{Deserialize, Serialize};
 
 use rlevo_core::action::{BoundedAction, ContinuousAction, DiscreteAction};
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{
+    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
+};
 use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, Sensor, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
 
@@ -75,13 +77,16 @@ impl Observation<1> for MaskObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for MaskObservation {
+impl HostRow<1> for MaskObservation {
     fn row_shape() -> [usize; 1] {
         [OBS_DIM]
     }
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
     }
+}
+
+impl<B: Backend> TensorConvertible<1, B> for MaskObservation {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let data = tensor.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {

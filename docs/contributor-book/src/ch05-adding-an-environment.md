@@ -17,7 +17,9 @@ before merging.
 - [ ] `Environment<R, SR, AR>` with `reset` and `step` returning
       `Result<SnapshotType, EnvironmentError>`.
 - [ ] `ConstructableEnv::new(render: bool)` factory (ADR-0011).
-- [ ] `TensorConvertible<R, B>` for the observation (required for neural paths).
+- [ ] `HostRow<R>` + `TensorConvertible<R, B>` for the observation (required
+      for neural paths; `TensorConvertible` requires `HostRow` as a
+      supertrait).
 - [ ] Unit tests: happy path, invalid action, terminal state, `render = false`.
 - [ ] `shape()` length matches const generic rank — verified in a test.
 
@@ -42,6 +44,7 @@ subdirectory:
 1. Step-by-step walk-through using `KArmedBandit` as the reference.
 2. The const-generic trap — how to get `R`, `SR`, `AR` wrong and what the
    compiler error looks like.
-3. `TensorConvertible` — host↔tensor round-trip and precision caveats.
+3. `HostRow` / `TensorConvertible` — host-row layout, the device round-trip
+   built on top of it, and precision caveats.
 4. Test harness — the `MockEnvironment` pattern from `rlevo-core`.
 5. Feature-gating optional backends (`box2d`, `locomotion`).

@@ -10,7 +10,7 @@
 use super::entity::Entity;
 use crate::direction::Direction;
 use burn::tensor::{Tensor, backend::Backend};
-use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// Side length (height and width) of the agent's local view window in cells.
@@ -79,7 +79,7 @@ impl Observation<3> for GridObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for GridObservation {
+impl HostRow<3> for GridObservation {
     fn row_shape() -> [usize; 3] {
         [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]
     }
@@ -93,7 +93,9 @@ impl<B: Backend> TensorConvertible<3, B> for GridObservation {
             }
         }
     }
+}
 
+impl<B: Backend> TensorConvertible<3, B> for GridObservation {
     /// Reconstructs the 7×7×3 view from a tensor.
     ///
     /// The tensor contains only the view channels. `agent_direction` is not

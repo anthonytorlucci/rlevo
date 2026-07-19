@@ -94,9 +94,10 @@ fully-observable task). The `State`/`Observation` split *is* the observability
 seam; Step 2 is where you actually cross it.
 
 To plug into neural-network agents, your observation also implements
-`TensorConvertible<R, B>` (`to_tensor` / `from_tensor`). The bandit encodes its
-empty state as the constant tensor `[0.0]` and validates shape `[1]` on the way
-back.
+`HostRow<R>` (`row_shape` / `write_host_row`, the backend-independent row
+layout) and `TensorConvertible<R, B>` (`to_tensor` / `from_tensor`, which
+requires `HostRow<R>` as a supertrait). The bandit encodes its empty state as
+the constant tensor `[0.0]` and validates shape `[1]` on the way back.
 
 ## Step 2 — `Sensor`: producing the `Observation`
 
@@ -196,8 +197,8 @@ Two design choices here are worth copying:
   outside (config, RPC, an unmasked policy head). Offer both doors and let the
   caller pick.
 
-Like observations, actions implement `TensorConvertible<1, B>` — here a one-hot
-of length `K` — so a neural policy can emit and consume them.
+Like observations, actions implement `HostRow<1>` + `TensorConvertible<1, B>`
+— here a one-hot of length `K` — so a neural policy can emit and consume them.
 
 ## Step 4 — implement `Environment`
 

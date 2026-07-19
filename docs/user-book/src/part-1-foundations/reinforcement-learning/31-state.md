@@ -14,7 +14,7 @@ you have to cross it on purpose.
 
 So the spine of this chapter is that wall, walked from one side to the other:
 the two traits that name each side, the [`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)
-seam that crosses it (and quietly decides MDP vs POMDP), the `TensorConvertible`
+seam that crosses it (and quietly decides MDP vs POMDP), the `HostRow`/`TensorConvertible`
 bridge that only the *visible* side gets, the validation that keeps both sides
 honest, and finally the higher-level traits for the cases where one observation
 is not enough.
@@ -88,7 +88,7 @@ be explicit; the default would give the same answer).
 > for rank-1 observations cannot be silently fed a rank-2 image. The mismatch is
 > a compile error, not a runtime shape panic three hours into training. This is
 > the same const-generic-dimensions discipline used across `rlevo`'s `Environment`,
-> `Action`, and `TensorConvertible` traits — see the [overview](00-overview.md)
+> `Action`, `HostRow`, and `TensorConvertible` traits — see the [overview](00-overview.md)
 > for the rationale.
 
 ## The state/observation split: the `Sensor` seam
@@ -217,19 +217,28 @@ later; they need to round-trip through `serde`. The full state never leaves the
 environment, so it carries no serialisation tax. The type system encodes which
 side of the wall each value lives on.
 
-## Crossing into tensor land: `TensorConvertible`
+## Crossing into tensor land: `HostRow` and `TensorConvertible`
 
 Traits like `State` and `Observation` are deliberately framework-agnostic —
 they say nothing about Burn. The bridge to actual tensors (and therefore to
-neural networks) is a separate trait, `TensorConvertible`:
+neural networks) is two traits, split along exactly the line you'd expect: the
+[`HostRow`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.HostRow.html)
+row layout, which never touches a backend, and the device-facing
+[`TensorConvertible`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.TensorConvertible.html)
+conversion, which does.
 
 ```rust
-pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
+/// Backend-independent row layout. No `B` parameter — row_shape/write_host_row
+/// never touch a backend element type.
+pub trait HostRow<const R: usize> {
     /// Per-item shape, e.g. `[4]` for CartPole.
     fn row_shape() -> [usize; R];
     /// Append this value's row-major `f32` payload to a host buffer.
     fn write_host_row(&self, buf: &mut Vec<f32>);
-    /// Provided: derived from the two methods above. Do not override.
+}
+
+pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
+    /// Provided: derived from `HostRow`. Do not override.
     fn to_tensor(&self, device: &B::Device) -> Tensor<B, R> { /* ... */ }
     fn from_tensor(tensor: Tensor<B, R>) -> Result<Self, TensorConversionError>;
 }
@@ -237,21 +246,26 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 
 Three things worth noticing.
 
-First, it is implemented on the **observation** (and the action), not on the
-state. That is the whole point of the split paying off: the only values that
-ever become network inputs are the ones the agent is allowed to see. You
-literally cannot `to_tensor()` the hidden state, because nobody implemented it
-for the state type.
+First, both are implemented on the **observation** (and the action), not on
+the state. That is the whole point of the split paying off: the only values
+that ever become network inputs are the ones the agent is allowed to see. You
+literally cannot `to_tensor()` the hidden state, because nobody implemented
+either trait for the state type.
 
-Second, you implement the **host-side row**, not the tensor. `write_host_row`
-appends your value's flat `f32` payload to a plain `Vec<f32>`, and `row_shape`
-says how to fold that row back into a rank-`R` tensor. `to_tensor` is a
-*provided* method derived from those two — one row, one upload — and
+Second, you implement the **host-side row** on `HostRow`, not the tensor
+itself. `write_host_row` appends your value's flat `f32` payload to a plain
+`Vec<f32>`, and `row_shape` says how to fold that row back into a rank-`R`
+tensor. Neither answer depends on which Burn backend the row eventually
+uploads to, which is exactly why `HostRow` carries no `B` parameter — a fact
+that used to live only in the docs of a single combined trait, and now the
+compiler enforces it. `TensorConvertible::to_tensor` is a *provided* method
+derived from those two `HostRow` methods — one row, one upload — and
 implementations should never override it. The payoff is batching: the free
 function `stack_to_tensor` writes N rows into a single host buffer and uploads
-the whole `[N, ...]` batch to the device in **one** transfer, and because the
-single-item and batch paths share the same row-writer, their layouts cannot
-drift apart (this is ADR 0028).
+the whole `[N, ...]` batch to the device in **one** transfer. It needs only the
+`HostRow` bound, not the full `TensorConvertible` — staging is host-only and
+never touches a device — and because the single-item and batch paths share the
+same row-writer, their layouts cannot drift apart (this is ADR 0028).
 
 Third, the contract is a **round-trip invariant**:
 `from_tensor(x.to_tensor(device))` must equal `Ok(x)` for any valid `x`. Replay
@@ -260,7 +274,7 @@ back must be the same transition. CartPole's implementation is about as simple
 as it gets:
 
 ```rust
-impl<B: Backend> TensorConvertible<1, B> for CartPoleObservation {
+impl HostRow<1> for CartPoleObservation {
     fn row_shape() -> [usize; 1] {
         [4]
     }
@@ -268,7 +282,9 @@ impl<B: Backend> TensorConvertible<1, B> for CartPoleObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());   // [pos, vel, angle, ang_vel]
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for CartPoleObservation {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [4] {
@@ -352,8 +368,9 @@ The mental model to carry into the rest of the book:
   **`Observation`** — the only thing the agent sees, and the only thing that
   gets serialised into a replay buffer. `&self` being the environment is what
   lets a sensor read world context a bare state value never could.
-- **`TensorConvertible`** turns that observation into a Burn tensor for the
-  network, with a round-trip guarantee.
+- **`HostRow`** owns the backend-independent row layout (`row_shape`,
+  `write_host_row`); **`TensorConvertible`** builds on it to turn that
+  observation into a Burn tensor for the network, with a round-trip guarantee.
 - **`is_valid()`** keeps every value structurally honest, and `StateError`
   reports the failures.
 

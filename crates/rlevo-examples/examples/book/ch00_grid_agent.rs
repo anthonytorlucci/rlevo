@@ -27,7 +27,9 @@
 use burn::backend::Flex;
 use burn::tensor::{Tensor, backend::Backend};
 use rlevo_core::action::{DiscreteAction, MultiDiscreteAction};
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{
+    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
+};
 use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 
@@ -121,7 +123,7 @@ impl Observation<1> for AgentObservation {
 // ANCHOR_END: observation
 
 // ANCHOR: tensor
-impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
+impl HostRow<1> for AgentObservation {
     fn row_shape() -> [usize; 1] {
         [3]
     }
@@ -132,7 +134,9 @@ impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
         buf.push(self.y as f32);
         buf.push(f32::from(self.facing.to_u8()));
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for AgentObservation {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();

@@ -44,7 +44,9 @@
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use rlevo_core::action::DiscreteAction;
-use rlevo_core::base::{Action, Observation, State, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{
+    Action, HostRow, Observation, State, TensorConversionError, TensorConvertible,
+};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
@@ -124,7 +126,7 @@ impl DiscreteAction<1> for SantaFeAntAction {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {
+impl HostRow<1> for SantaFeAntAction {
     /// Row shape of the one-hot action encoding: `[ACTION_COUNT]`.
     fn row_shape() -> [usize; 1] {
         [ACTION_COUNT]
@@ -136,7 +138,9 @@ impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {
         one_hot[self.to_index()] = 1.0;
         buf.extend_from_slice(&one_hot);
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for SantaFeAntAction {
     /// Reconstruct an action from a one-hot tensor by argmax.
     ///
     /// # Errors
@@ -181,7 +185,7 @@ impl Observation<1> for SantaFeAntObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
+impl HostRow<1> for SantaFeAntObservation {
     /// Row shape of the food-ahead bit: `[1]`.
     fn row_shape() -> [usize; 1] {
         [1]
@@ -192,7 +196,9 @@ impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
         let value: f32 = if self.food_ahead { 1.0 } else { 0.0 };
         buf.push(value);
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for SantaFeAntObservation {
     /// Decode the food-ahead bit, thresholding the single element at `0.5`.
     ///
     /// # Errors

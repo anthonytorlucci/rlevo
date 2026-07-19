@@ -114,7 +114,8 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 | `DiscreteAction<D>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
 | `ContinuousAction<D>` | `as_slice().len() == DIM` always |
 | `BoundedAction<D>` | `low()[i] < high()[i]` for all `i` |
-| `TensorConvertible<D, B>` | `from_tensor(x.to_tensor(device)) == Ok(x)` for all valid `x` |
+| `HostRow<D>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `D` |
+| `TensorConvertible<D, B>` | `from_tensor(x.to_tensor(device)) == Ok(x)` for all valid `x`. The row-writer half of the contract lives on the backend-independent `HostRow<D>` supertrait; `to_tensor` is derived from it and must not be overridden |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |
 | `History` | `buffer.len()` never exceeds `capacity` field; use explicit eviction |
 | `ReplayStrategy<T>` | `len()` never exceeds capacity; every freshly sampled id resolves via `get()` until evicted (ADR 0050) |

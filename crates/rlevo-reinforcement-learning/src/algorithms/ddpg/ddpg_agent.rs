@@ -438,13 +438,9 @@ where
         for &id in batch.ids() {
             let t = self.buffer.get(id).expect("a freshly sampled id is live");
             // Stage host-side: `to_tensor` would upload each row only to read it
-            // straight back -- one wgpu sync point per row, no op in between. The
-            // turbofish is required: `O`'s dual `TensorConvertible` bound is ambiguous.
-            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(&t.obs, &mut obs_flat);
-            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(
-                &t.next_obs,
-                &mut next_flat,
-            );
+            // straight back -- one wgpu sync point per row, no op in between.
+            t.obs.write_host_row(&mut obs_flat);
+            t.next_obs.write_host_row(&mut next_flat);
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });

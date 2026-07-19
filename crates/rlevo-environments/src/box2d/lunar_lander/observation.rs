@@ -1,6 +1,6 @@
 //! Observation type for LunarLander.
 
-use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// 8-dimensional observation for LunarLander.
@@ -84,7 +84,7 @@ impl Observation<1> for LunarLanderObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderObservation {
+impl HostRow<1> for LunarLanderObservation {
     fn row_shape() -> [usize; 1] {
         [8]
     }
@@ -92,7 +92,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderO
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.values);
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for LunarLanderObservation {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [8] {
