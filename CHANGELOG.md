@@ -109,6 +109,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   type implements `HostRow` at exactly **one** rank (two ranks makes unqualified
   calls ambiguous again, E0283). **No persisted data format changes** — nothing in
   this path derives serde, and no record schema is affected.
+- **`BoundedAction::low()`/`high()` return `&'static [f32]` instead of
+  `[f32; R]`** (ADR 0053, resolves #253). The bounds were keyed on the tensor
+  **rank** `R`, not on `ContinuousAction::COMPONENTS` — the same rank-vs-component
+  conflation as #100, one layer up. A rank-1 action with `C > 1` components could
+  therefore express only a *single* bound for all `C` of them, which is not
+  representable for an asymmetric space such as CarRacing's
+  `Box([-1,0,0], [1,1,1])`. Keying on `COMPONENTS` needs `[f32; Self::COMPONENTS]`,
+  which requires unstable `generic_const_exprs`, so the length moves to the slice
+  instead; the trait keeps its single const generic parameter.
+
+  *Migration.* Change each impl's return type and wrap the array literal in a
+  borrow — `fn low() -> [f32; 1] { [-2.0] }` becomes
+  `fn low() -> &'static [f32] { &[-2.0] }`. Impls that must compute bounds can
+  use a `OnceLock` or `Box::leak`. Generic code bounded as `A: BoundedAction<AR>`
+  is **unaffected** — the trait arity is unchanged, so no downstream signature
+  moves. New documented invariants: `low().len() == high().len() ==
+  Self::COMPONENTS`, and `low()[i] < high()[i]` for every `i`. **No persisted data
+  format changes.**
+- The trait's doc claim that bounds may be derived from "a runtime env config
+  (e.g. a `max_torque` field)" is **removed as false** — `low()`/`high()` are
+  static methods with no `self` and cannot reach instance state. `from_slice`'s
+  docs (and the matching row in `docs/rules.md`) said the slice must have exactly
+  `RANK` elements; the contract has been `COMPONENTS` since ADR 0038.
 
 **Added**
 
@@ -149,6 +172,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GoToDoorEnv` implements `Sensor` for its goal-conditioned observation.
   `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to `project()`.
   Behaviour (observations, rewards, termination) is unchanged.
+
+**Added**
+
+- **`BoundedAction<1>` for the five multi-component continuous actions**
+  (`BipedalWalkerAction`, `CarRacingAction`, `LunarLanderContinuousAction`,
+  `ReacherAction`, `SwimmerAction`; ADR 0053, #253). These were the environments
+  the rank-keyed bounds representation had kept out of DDPG/TD3/SAC: each is
+  rank-1 with more than one component, so it could not state its bounds at all
+  under the old signature. `CarRacingAction` is the workspace's only action whose
+  components disagree — steering ∈ [-1, 1] but gas and brake ∈ [0, 1].
 
 ### `rlevo-reinforcement-learning`
 
@@ -422,6 +455,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **DDPG, TD3 and SAC truncated every action to its tensor rank** (ADR 0053,
+  resolves #253). The `act`/`act_with` paths looped `0..A::RANK` and
+  `.take(A::RANK)` over the actor's output — the rank is the number of *axes*,
+  not the number of scalar components — so for any rank-1 action with `C > 1`
+  components the warm-up sample, the policy mean, and the greedy action were each
+  cut to a single value before `from_slice` asserted the true length and panicked.
+  This is #100's panic resurfacing inside three algorithms. All eight sites now
+  key on `A::COMPONENTS`, and the three constructors assert
+  `A::low().len() == A::COMPONENTS` so a mis-declared impl fails at construction
+  rather than mid-episode.
+
+  No shipped configuration could reach it: every `BoundedAction` impl that existed
+  had `RANK == COMPONENTS`, which is also why the tests missed it — the fixtures
+  were rank-1/1-component and rank-3/3-component, so rank and component count were
+  numerically equal in every case exercised. The regression test is now a
+  deliberately rank-1, 3-component fixture, the one shape that distinguishes them.
+- **DDPG and TD3 clipped target actions against a single scalar bound** (ADR
+  0053, #253). Both collapsed the bound vector to `low[0]`/`high[0]`, citing
+  CleanRL convention. That is correct only while every component shares a bound;
+  for an asymmetric space such as CarRacing's `Box([-1,0,0], [1,1,1])` it admits
+  negative gas and brake into the target action — precisely the "values of
+  impossible actions" that TD3's clip exists to exclude (Fujimoto et al. 2018,
+  arXiv:1802.09477, Eq. 14). Clipping is now per-component via `max_pair`/
+  `min_pair` against `[1, C]` bound tensors cached at construction. TD3's
+  `noise_clip` stays scalar by design: it bounds noise *magnitude*, which is a
+  property of the smoothing rather than of the action space.
 - **`AgentStats::new(0)` silently degenerated into a one-record window instead
   of rejecting the argument** (resolves #191). `record` pops the front whenever
   `recent_history.len() >= window_size`, so with `window_size == 0` the pop
