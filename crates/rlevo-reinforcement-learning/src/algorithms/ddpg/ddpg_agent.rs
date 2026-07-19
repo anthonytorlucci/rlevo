@@ -437,12 +437,14 @@ where
 
         for &id in batch.ids() {
             let t = self.buffer.get(id).expect("a freshly sampled id is live");
-            let obs_tensor: Tensor<B::InnerBackend, DO> = t.obs.to_tensor(&device);
-            let next_tensor: Tensor<B::InnerBackend, DO> = t.next_obs.to_tensor(&device);
-            let obs_data = obs_tensor.into_data().convert::<f32>();
-            let next_data = next_tensor.into_data().convert::<f32>();
-            obs_flat.extend_from_slice(obs_data.as_slice::<f32>().expect("float data"));
-            next_flat.extend_from_slice(next_data.as_slice::<f32>().expect("float data"));
+            // Stage host-side: `to_tensor` would upload each row only to read it
+            // straight back -- one wgpu sync point per row, no op in between. The
+            // turbofish is required: `O`'s dual `TensorConvertible` bound is ambiguous.
+            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(&t.obs, &mut obs_flat);
+            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(
+                &t.next_obs,
+                &mut next_flat,
+            );
             action_flat.extend_from_slice(&t.action);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });

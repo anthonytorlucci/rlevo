@@ -550,9 +550,7 @@ where
 
                 let mut obs_flat: Vec<f32> = Vec::with_capacity(n * numel_per_obs);
                 for &i in chunk {
-                    let t: Tensor<B, DO> = self.buffer.obs()[i].to_tensor(&self.device);
-                    let data = t.into_data().convert::<f32>();
-                    obs_flat.extend_from_slice(data.as_slice::<f32>().expect("f32 obs"));
+                    self.buffer.obs()[i].write_host_row(&mut obs_flat);
                 }
                 let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
                 batched_shape.push(n);
@@ -784,9 +782,7 @@ where
             let n = end - start;
             let mut obs_flat: Vec<f32> = Vec::with_capacity(n * numel_per_obs);
             for g in start..end {
-                let t: Tensor<B, DO> = self.aux_buffer.obs_at(g).to_tensor(&self.device);
-                let data = t.into_data().convert::<f32>();
-                obs_flat.extend_from_slice(data.as_slice::<f32>().expect("f32 obs"));
+                self.aux_buffer.obs_at(g).write_host_row(&mut obs_flat);
             }
             let mut batched_shape: Vec<usize> = Vec::with_capacity(DB);
             batched_shape.push(n);

@@ -758,6 +758,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   size. The device→host→device round-trip in `polyak_update` is where the
   real per-step cost lives; that is tracked separately as #322.
 
+- **Every agent's minibatch staging round-tripped each observation through the
+  device before ever using it** (resolves #362, completing the #187 sweep).
+  `stack_to_tensor` was added in #195 as the single batched host→device upload
+  path, nominally consumed by `memory.rs::sample_batch` — but no agent ever
+  called `sample_batch` (the dead-`PrioritizedExperienceReplay` defect tracked
+  as #188), so the helper had no live caller from the day it landed. ADR 0050
+  retired that consumer deliberately, leaving staging to each agent because
+  "each agent stages differently". Eight agents — `dqn`, `c51`, `qrdqn`,
+  `ddpg`, `td3`, `sac`, `ppo`, and `ppg` — had always kept a hand-rolled
+  staging loop that called
+  `TensorConvertible::to_tensor` on one sampled transition, immediately called
+  `.into_data()` on the result, and copied the floats back into a host `Vec`.
+  The observation was already on the host: the loop uploaded it to the
+  accelerator and downloaded it unchanged, then dropped the tensor without a
+  single operation ever running on it. The staging loops now write straight
+  into the preallocated flat buffer with `write_host_row` — the same primitive
+  `to_tensor` and `stack_to_tensor` are both built on — and the one batched
+  `Tensor::from_data` upload per minibatch is unchanged.
+
+  The cost is worst on `wgpu`, where `into_data()` is a synchronization point:
+  a `learn_step` at `batch_size = 64` stalled the pipeline 128 times (state and
+  next-state) before any real work began, on top of 128 discarded buffer
+  allocations. The `.expect("float data")` panic each read carried is gone from
+  the hot loop with it.
+
+  No test caught this because there was nothing to catch: `write_host_row` is
+  the primitive `to_tensor` itself uses, so the staged bytes are bit-identical
+  either way. The defect was pure throughput, invisible to any correctness
+  assertion, and the existing tests pass unmodified — which is the acceptance
+  criterion here rather than evidence of a gap.
+
 **Added**
 
 - **`PpoUpdateStats::min_log_std` and a one-shot warning when the `log_std`
