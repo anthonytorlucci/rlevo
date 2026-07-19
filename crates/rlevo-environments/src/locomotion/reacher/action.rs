@@ -50,9 +50,20 @@ impl ContinuousAction<1> for ReacherAction {
         Self([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
     }
 
-    /// Construct from a slice. The slice must contain at least two elements;
-    /// only `values[0]` (shoulder) and `values[1]` (elbow) are read.
+    /// Construct from a slice of exactly `COMPONENTS` values
+    /// `[shoulder, elbow]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values.len() != Self::COMPONENTS`.
     fn from_slice(values: &[f32]) -> Self {
+        assert_eq!(
+            values.len(),
+            Self::COMPONENTS,
+            "ReacherAction needs exactly {} components, got {}",
+            Self::COMPONENTS,
+            values.len(),
+        );
         Self([values[0], values[1]])
     }
 
@@ -136,6 +147,22 @@ mod tests {
         assert!(ReacherAction::from_slice(high).is_valid());
         assert!(!ReacherAction::new(1.1, 0.0).is_valid());
         assert!(!ReacherAction::new(0.0, -1.1).is_valid());
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 2 components, got 3")]
+    fn from_slice_rejects_an_over_long_slice() {
+        // `ContinuousAction::from_slice` accepts *exactly* `COMPONENTS` values
+        // (docs/rules.md §3). Before ADR 0053's follow-up there was no length
+        // check at all here: a long slice was silently truncated and a short
+        // one panicked with a bare index-out-of-bounds.
+        let _ = ReacherAction::from_slice(&[0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 2 components, got 1")]
+    fn from_slice_rejects_a_short_slice() {
+        let _ = ReacherAction::from_slice(&[0.1]);
     }
 
     #[test]

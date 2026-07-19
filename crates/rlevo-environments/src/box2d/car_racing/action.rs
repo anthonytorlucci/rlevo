@@ -113,13 +113,20 @@ impl ContinuousAction<1> for CarRacingAction {
         }
     }
 
-    /// Construct from a slice of at least 3 values `[steer, gas, brake]`.
+    /// Construct from a slice of exactly `COMPONENTS` values
+    /// `[steer, gas, brake]`.
     ///
     /// # Panics
     ///
-    /// Panics if `values.len() < 3`.
+    /// Panics if `values.len() != Self::COMPONENTS`.
     fn from_slice(values: &[f32]) -> Self {
-        assert!(values.len() >= 3, "CarRacingAction needs 3 values");
+        assert_eq!(
+            values.len(),
+            Self::COMPONENTS,
+            "CarRacingAction needs exactly {} components, got {}",
+            Self::COMPONENTS,
+            values.len(),
+        );
         Self::new(values[0], values[1], values[2])
     }
 
@@ -232,6 +239,21 @@ mod tests {
         assert!((a.steer() - 0.1).abs() < 1e-6);
         assert!((a.gas() - 0.5).abs() < 1e-6);
         assert!((a.brake() - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 3 components, got 4")]
+    fn test_from_slice_rejects_an_over_long_slice() {
+        // `ContinuousAction::from_slice` accepts *exactly* `COMPONENTS` values
+        // (docs/rules.md §3). A `>=` check would silently truncate the extra
+        // value, hiding a caller that disagreed with this action's width.
+        let _ = CarRacingAction::from_slice(&[0.1, 0.5, 0.2, 0.9]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 3 components, got 2")]
+    fn test_from_slice_rejects_a_short_slice() {
+        let _ = CarRacingAction::from_slice(&[0.1, 0.5]);
     }
 
     #[test]

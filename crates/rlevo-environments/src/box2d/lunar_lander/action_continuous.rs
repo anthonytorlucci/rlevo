@@ -43,15 +43,18 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
         Self(self.0.map(|v| v.clamp(min, max)))
     }
 
-    /// Construct from a slice, taking the first two elements.
+    /// Construct from a slice of exactly `COMPONENTS` values.
     ///
     /// # Panics
     ///
-    /// Panics if `values.len() < 2`.
+    /// Panics if `values.len() != Self::COMPONENTS`.
     fn from_slice(values: &[f32]) -> Self {
-        assert!(
-            values.len() >= 2,
-            "LunarLanderContinuousAction needs 2 values"
+        assert_eq!(
+            values.len(),
+            Self::COMPONENTS,
+            "LunarLanderContinuousAction needs exactly {} components, got {}",
+            Self::COMPONENTS,
+            values.len(),
         );
         Self([values[0], values[1]])
     }
@@ -121,6 +124,20 @@ mod tests {
         let a = LunarLanderContinuousAction([2.0, -2.0]);
         let c = a.clip(-1.0, 1.0);
         assert_eq!(c.0, [1.0, -1.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 2 components, got 3")]
+    fn test_from_slice_rejects_an_over_long_slice() {
+        // `ContinuousAction::from_slice` accepts *exactly* `COMPONENTS` values
+        // (docs/rules.md §3); the previous `>= 2` check silently truncated.
+        let _ = LunarLanderContinuousAction::from_slice(&[0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs exactly 2 components, got 1")]
+    fn test_from_slice_rejects_a_short_slice() {
+        let _ = LunarLanderContinuousAction::from_slice(&[0.1]);
     }
 
     #[test]

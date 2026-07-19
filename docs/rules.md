@@ -202,7 +202,7 @@ single internal convention across the whole library (RL, evolutionary, NEAT).
 | Site | Condition |
 |------|-----------|
 | `DiscreteAction::from_index(i)` | `i >= ACTION_COUNT` |
-| `ContinuousAction::from_slice(v)` | `v.len() != D` |
+| `ContinuousAction::from_slice(v)` | `v.len() != COMPONENTS` (**not** `D`, the tensor rank — ADR 0038/0053) |
 | `MultiDiscreteAction::from_indices(arr)` | any `arr[i] >= space[i]` |
 | Builder `with_capacity(n)` | `n == 0` |
 | Builder `with_alpha(x)` | `x ∉ [0.0, 1.0]` |
