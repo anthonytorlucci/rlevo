@@ -1,35 +1,35 @@
 //! A/B micro-bench of the minibatch observation-staging seam: the device
 //! round trip (`obs.to_tensor(device)` then immediately `.into_data()`,
-//! upload-then-download-unchanged) vs. `TensorConvertible::write_host_row`
+//! upload-then-download-unchanged) vs. `HostRow::write_host_row`
 //! (pure host staging, one batched upload). Answers #187 / #362's open
 //! measurement question (issue #365 step 1): both strategies are implemented
 //! **inline, in this file**, so a single `cargo bench` run yields the delta.
 //!
-//! # A note on this checkout's actual state
+//! # This checkout's actual state
 //!
-//! Commit `797d18c` ("Stage minibatch observations host-side") is *not* an
-//! ancestor of this worktree's HEAD — `git merge-base --is-ancestor 797d18c
-//! HEAD` returns false, and `797d18c`'s parent is this same HEAD commit. It
-//! sits on a sibling branch reachable in the shared object store, not in this
-//! branch's history. Concretely: `dqn_agent.rs::learn_step` in *this*
-//! checkout still round-trips (`t.obs.to_tensor(&self.device)` then
-//! `.into_data().convert::<f32>()`, lines ~417-422) — the fix has not been
-//! wired into any agent here. What *does* already exist here is the
-//! `TensorConvertible::write_host_row` primitive itself (`rlevo-core`), which
-//! is enough to build this A/B independently of whether any agent calls it
-//! yet. Treat this bench as answering "is the not-yet-applied fix worth
-//! applying", not "did the applied fix help".
+//! The fix is applied. Commit `57dd565` ("Stage minibatch observations
+//! host-side") is an ancestor of HEAD, and all nine minibatch staging sites
+//! use the host-side path: the six off-policy agents (`dqn`, `c51`, `qrdqn`,
+//! `ddpg`, `td3`, `sac`) plus `ppo_agent.rs:492`, `ppg_agent.rs:553,785`, and
+//! `ppg/aux_buffer.rs:152`. Concretely, `dqn_agent.rs:419-420` now calls
+//! `t.obs.write_host_row(&mut obs_flat)` / `t.next_obs.write_host_row(&mut
+//! next_flat)` where it previously round-tripped through the device.
+//!
+//! So this bench answers "did the applied fix help", and going forward "what
+//! is the standing cost of the strategy the agents use" — [`stage_roundtrip`]
+//! survives here as the retired baseline, kept so the delta stays measurable
+//! and regressions in [`stage_host_row`] stay visible.
 //!
 //! # Design
 //!
-//! - `stage_roundtrip` — the round-trip path, reproduced verbatim from the
-//!   minibatch loop live in this checkout's `dqn_agent.rs::learn_step`: per
-//!   row, `to_tensor(device)`, then `.into_data().convert::<f32>()`, then
-//!   `extend_from_slice` into the flat host buffer; one batched
-//!   `Tensor::from_data` at the end.
-//! - `stage_host_row` — the candidate replacement: per row,
-//!   `TensorConvertible::write_host_row(&mut flat)` (no device touched), then
-//!   the same batched `Tensor::from_data`.
+//! - `stage_roundtrip` — the retired round-trip path, reproduced verbatim from
+//!   the minibatch loop in `57dd565`'s parent `dqn_agent.rs::learn_step`
+//!   (lines ~417-422 there): per row, `to_tensor(device)`, then
+//!   `.into_data().convert::<f32>()`, then `extend_from_slice` into the flat
+//!   host buffer; one batched `Tensor::from_data` at the end.
+//! - `stage_host_row` — the strategy the agents use today: per row,
+//!   `HostRow::write_host_row(&mut flat)` (no device touched), then the same
+//!   batched `Tensor::from_data`.
 //!
 //! Both are generic over the row type `T: TensorConvertible<R, B>` and the
 //! backend `B`, so one implementation covers `CartPoleObservation` (`R = 1`,
@@ -109,11 +109,11 @@ const BATCH_SIZES: [usize; 3] = [32, 64, 256];
 // The two staging strategies under test
 // ---------------------------------------------------------------------------
 
-/// The round-trip path: per row, upload then immediately read back, purely
-/// to obtain a host `f32` slice to append. Reproduced verbatim from the
-/// minibatch loop currently live in this checkout's
-/// `dqn_agent.rs::learn_step` (`obs_tensor.into_data().convert::<f32>()` +
-/// `extend_from_slice(..as_slice::<f32>()..)`).
+/// The retired round-trip path: per row, upload then immediately read back,
+/// purely to obtain a host `f32` slice to append. Reproduced verbatim from the
+/// minibatch loop in `57dd565`'s parent `dqn_agent.rs::learn_step`
+/// (`obs_tensor.into_data().convert::<f32>()` +
+/// `extend_from_slice(..as_slice::<f32>()..)`), which no agent runs any more.
 fn stage_roundtrip<const R: usize, const BR: usize, T, B>(
     items: &[T],
     device: &DeviceOf<B>,
@@ -137,11 +137,10 @@ where
     Tensor::from_data(TensorData::new(flat, shape), device)
 }
 
-/// The candidate replacement: write straight into the host buffer, one
+/// The strategy in production: write straight into the host buffer, one
 /// batched upload, zero per-row device round trips. Uses the
-/// `TensorConvertible::write_host_row` primitive that already exists in
-/// `rlevo-core` but is not yet wired into any agent's minibatch loop in this
-/// checkout (see the module-level note on `797d18c`).
+/// `HostRow::write_host_row` primitive from `rlevo-core`, which every agent's
+/// minibatch loop calls since `57dd565` (see the module-level note).
 fn stage_host_row<const R: usize, const BR: usize, T, B>(
     items: &[T],
     device: &DeviceOf<B>,

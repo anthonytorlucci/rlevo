@@ -326,6 +326,18 @@ pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
 /// `shape[1..].copy_from_slice(&row)` sound (it would panic on a length
 /// mismatch otherwise).
 ///
+/// # Note
+///
+/// That this helper has no in-tree call sites is deliberate, not neglect. The
+/// six off-policy agents (`dqn`, `c51`, `qrdqn`, `ddpg`, `td3`, `sac`) fill five
+/// buffers — observations, next-observations, actions, rewards, terminated
+/// flags — in a *single* pass over the sampled ids; routing observations through
+/// this function would first require materializing an intermediate `Vec` of
+/// those rows, splitting that pass in two. They call [`write_host_row`] directly
+/// instead — the same primitive used here — and keep the one batched upload.
+/// This remains the recommended primitive for the common case: batching a
+/// homogeneous slice of [`HostRow`] rows into a single upload.
+///
 /// # Panics
 ///
 /// Panics if `BR != R + 1`.
