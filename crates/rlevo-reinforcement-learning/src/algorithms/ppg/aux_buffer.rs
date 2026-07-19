@@ -179,7 +179,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rlevo_core::base::TensorConversionError;
+    use rlevo_core::base::{HostRow, TensorConversionError};
     type Be = burn::backend::Flex;
 
     #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -191,13 +191,16 @@ mod tests {
         }
     }
 
-    impl<Bk: burn::tensor::backend::Backend> TensorConvertible<1, Bk> for TestObs {
+    impl HostRow<1> for TestObs {
         fn row_shape() -> [usize; 1] {
             [2]
         }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
+    }
+
+    impl<Bk: burn::tensor::backend::Backend> TensorConvertible<1, Bk> for TestObs {
         fn from_tensor(_t: Tensor<Bk, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by this test")
         }

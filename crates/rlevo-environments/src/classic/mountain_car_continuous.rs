@@ -99,7 +99,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -525,9 +525,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
 // TensorConvertible
 // ---------------------------------------------------------------------------
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
-    for MountainCarContinuousObservation
-{
+impl HostRow<1> for MountainCarContinuousObservation {
     fn row_shape() -> [usize; 1] {
         [2]
     }
@@ -535,7 +533,11 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
+    for MountainCarContinuousObservation
+{
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [2] {
@@ -556,7 +558,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B>
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {
+impl HostRow<1> for MountainCarContinuousAction {
     fn row_shape() -> [usize; 1] {
         [1]
     }
@@ -564,7 +566,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarC
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.0);
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarContinuousAction {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [1] {

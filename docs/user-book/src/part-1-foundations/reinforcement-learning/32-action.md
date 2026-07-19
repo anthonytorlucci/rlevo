@@ -215,18 +215,21 @@ impl BoundedAction<1> for PendulumAction {
 }
 ```
 
-## From policy output to action: `TensorConvertible`
+## From policy output to action: `HostRow` and `TensorConvertible`
 
 Just as observations cross into tensor land, actions cross back out of it via
-the same `TensorConvertible<R, B>` trait — and the encoding differs by flavour.
+the same `HostRow<R>` / `TensorConvertible<R, B>` pair from the
+[state chapter](31-state.md#crossing-into-tensor-land-hostrow-and-tensorconvertible)
+— and the encoding differs by flavour.
 
 **Discrete actions** become a one-hot row on the way in, and decode by
 `argmax` on the way out. As in the state chapter, you write the host-side
-`f32` row (`row_shape` + `write_host_row`) and the provided `to_tensor`
-derives the tensor from it. CartPole's action does exactly this:
+`f32` row on `HostRow` (`row_shape` + `write_host_row`), and the
+`TensorConvertible`-provided `to_tensor` derives the tensor from it. CartPole's
+action does exactly this:
 
 ```rust
-impl<B: Backend> TensorConvertible<1, B> for CartPoleAction {
+impl HostRow<1> for CartPoleAction {
     fn row_shape() -> [usize; 1] {
         [2]
     }
@@ -235,6 +238,9 @@ impl<B: Backend> TensorConvertible<1, B> for CartPoleAction {
         one_hot[self.to_index()] = 1.0;          // index drives the hot slot
         buf.extend_from_slice(&one_hot);
     }
+}
+
+impl<B: Backend> TensorConvertible<1, B> for CartPoleAction {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         // shape-check elided; recover the index via argmax, then from_index
         // ...
@@ -282,9 +288,9 @@ The action side mirrors the state side, with the data flowing the other way:
   **`ContinuousAction`** (plus optional **`BoundedAction`**), which tells an
   algorithm how to *produce* it — an index, a tuple of indices, or a float
   vector.
-- **`TensorConvertible`** bridges policy outputs and typed actions — one-hot /
-  `argmax` for discrete, the component slice for continuous — with the same
-  round-trip guarantee.
+- **`HostRow`/`TensorConvertible`** bridge policy outputs and typed actions —
+  one-hot / `argmax` for discrete, the component slice for continuous — with
+  the same round-trip guarantee.
 - **`is_valid()`** and **`InvalidActionError`** keep actions structurally honest.
 
 With states and actions in hand, we have both halves of the agent's interface.

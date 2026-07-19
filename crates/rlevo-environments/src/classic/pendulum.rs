@@ -97,7 +97,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::{BoundedAction, ContinuousAction, InvalidActionError},
-    base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
     reward::ScalarReward,
@@ -549,7 +549,7 @@ fn style_pendulum_line(line: &str) -> crate::render::StyledLine {
 // TensorConvertible
 // ---------------------------------------------------------------------------
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObservation {
+impl HostRow<1> for PendulumObservation {
     fn row_shape() -> [usize; 1] {
         [3]
     }
@@ -557,7 +557,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObse
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObservation {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [3] {
@@ -579,7 +581,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumObse
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumAction {
+impl HostRow<1> for PendulumAction {
     fn row_shape() -> [usize; 1] {
         [1]
     }
@@ -587,7 +589,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumActi
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.0);
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for PendulumAction {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [1] {

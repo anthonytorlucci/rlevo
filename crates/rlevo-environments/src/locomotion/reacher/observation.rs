@@ -5,7 +5,7 @@
 //! index layout. The full layout is documented on the struct itself.
 
 use burn::prelude::{Backend, Tensor};
-use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// 10-dim observation. Layout:
@@ -89,7 +89,7 @@ impl Observation<1> for ReacherObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {
+impl HostRow<1> for ReacherObservation {
     fn row_shape() -> [usize; 1] {
         [10]
     }
@@ -97,7 +97,9 @@ impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for ReacherObservation {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let data = tensor.into_data();
         let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {

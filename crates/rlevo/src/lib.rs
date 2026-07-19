@@ -68,7 +68,7 @@ pub use rlevo_reinforcement_learning as rl;
 /// [`Population`](evo::population::Population)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, Observation, Reward, State, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
 
     // Environment protocol
     pub use rlevo_core::environment::{

@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 
 use burn::tensor::{Tensor, backend::Backend};
 
@@ -130,7 +130,7 @@ impl Observation<3> for CarRacingObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
+impl HostRow<3> for CarRacingObservation {
     fn row_shape() -> [usize; 3] {
         [FRAME_SIZE, FRAME_SIZE, 3]
     }
@@ -139,7 +139,9 @@ impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
         // Normalize bytes to [0, 1] so a Burn policy can consume the frame directly.
         buf.extend(self.pixels.iter().map(|&b| f32::from(b) / 255.0));
     }
+}
 
+impl<B: Backend> TensorConvertible<3, B> for CarRacingObservation {
     /// Reconstructs the frame from a normalized `[FRAME_SIZE, FRAME_SIZE, 3]`
     /// tensor by scaling back to `0..=255` and rounding.
     ///

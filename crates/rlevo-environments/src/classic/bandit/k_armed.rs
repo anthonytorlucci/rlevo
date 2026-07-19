@@ -33,7 +33,7 @@ use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
-    Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
+    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
@@ -90,7 +90,7 @@ impl Display for KArmedBanditState {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
+impl HostRow<1> for KArmedBanditState {
     /// Row shape of the stateless bandit state: `[1]`.
     fn row_shape() -> [usize; 1] {
         [1]
@@ -100,7 +100,9 @@ impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(0.0_f32);
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for KArmedBanditState {
     /// Accepts any rank-1 tensor of shape `[1]`; contents are ignored because
     /// the state carries no data.
     ///
@@ -226,7 +228,7 @@ impl<const K: usize> DiscreteAction<1> for KArmedBanditAction<K> {
     }
 }
 
-impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
+impl<const K: usize> HostRow<1> for KArmedBanditAction<K> {
     /// Row shape of the one-hot arm encoding: `[K]`.
     fn row_shape() -> [usize; 1] {
         [K]
@@ -238,7 +240,9 @@ impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<
         one_hot[self.selected_arm] = 1.0;
         buf.extend_from_slice(&one_hot);
     }
+}
 
+impl<const K: usize, B: Backend> TensorConvertible<1, B> for KArmedBanditAction<K> {
     /// Reconstructs an action from a one-hot tensor by argmax.
     ///
     /// # Errors
