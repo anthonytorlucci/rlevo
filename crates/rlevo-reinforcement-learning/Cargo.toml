@@ -72,3 +72,8 @@ harness = false
 name = "sac_bench"
 path = "benches/sac_bench.rs"
 harness = false
+
+[[bench]]
+name = "staging_bench"
+path = "benches/staging_bench.rs"
+harness = false
