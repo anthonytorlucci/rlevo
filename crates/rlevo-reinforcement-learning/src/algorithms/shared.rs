@@ -63,6 +63,8 @@ use burn::optim::{GradientsParams, LearningRate, Optimizer};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
 
+use rlevo_core::action::BoundedAction;
+
 use crate::replay::{ImportanceExponent, SampledBatch};
 
 /// Panic message for a read against a poisoned slot.
@@ -143,6 +145,41 @@ pub(crate) struct Slot<M>(Option<M>);
 /// [`ImportanceExponent`]: crate::replay::ImportanceExponent
 /// [`ImportanceExponent::ONE`]: crate::replay::ImportanceExponent::ONE
 pub(crate) const UNIFORM_REPLAY_BETA: ImportanceExponent = ImportanceExponent::ONE;
+
+/// Asserts that `A`'s action bounds are keyed on `COMPONENTS`, as
+/// [`BoundedAction`] requires.
+///
+/// [`BoundedAction::low`] and [`BoundedAction::high`] return `&'static [f32]`,
+/// which cannot encode its own length, so the contract
+/// `low().len() == high().len() == COMPONENTS` is an obligation on the
+/// implementor rather than a compile-time guarantee (ADR 0053 §4). The three
+/// continuous-control agents index those slices per component on every `act`,
+/// so a short slice would surface as an out-of-bounds panic mid-episode,
+/// pointing at the agent rather than at the offending impl.
+///
+/// Calling this once in each agent constructor converts that into a loud,
+/// early failure that names the real culprit.
+///
+/// # Panics
+///
+/// Panics if `A::low().len()` or `A::high().len()` differs from
+/// `A::COMPONENTS`.
+pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<DA>>() {
+    assert_eq!(
+        A::low().len(),
+        A::COMPONENTS,
+        "BoundedAction contract violated: low() has {} elements but COMPONENTS is {}",
+        A::low().len(),
+        A::COMPONENTS,
+    );
+    assert_eq!(
+        A::high().len(),
+        A::COMPONENTS,
+        "BoundedAction contract violated: high() has {} elements but COMPONENTS is {}",
+        A::high().len(),
+        A::COMPONENTS,
+    );
+}
 
 /// Reduces a per-sample `[batch]` loss to a scalar, first scaling each sample by
 /// its importance-sampling weight when the batch carries any.

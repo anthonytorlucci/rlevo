@@ -29,7 +29,7 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components};
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
@@ -230,6 +230,14 @@ where
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
     /// fails [`Td3TrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `A`'s [`BoundedAction`] impl violates its length contract —
+    /// i.e. if `A::low().len()` or `A::high().len()` differs from
+    /// `A::COMPONENTS`. `&'static [f32]` cannot carry that guarantee in the
+    /// type system (ADR 0053), so it is checked once here rather than being
+    /// discovered as an out-of-bounds index mid-episode.
     pub fn new(
         actor: Actor,
         critic_1: Critic,
@@ -238,6 +246,7 @@ where
         device: B::Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_bounds_match_components::<DA, A>();
         let target_actor = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
@@ -326,7 +335,7 @@ where
     /// rebuilt.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
-            let sample: Vec<f32> = (0..A::RANK)
+            let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
                 .collect();
             return A::from_slice(&sample);
@@ -337,7 +346,7 @@ where
         let raw: Tensor<B, DAB> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let mean: Vec<f32> = slice.iter().take(A::RANK).copied().collect();
+        let mean: Vec<f32> = slice.iter().take(A::COMPONENTS).copied().collect();
         let out = if training {
             self.exploration.apply(&mean, self.low, self.high, rng)
         } else {
@@ -378,7 +387,7 @@ where
         let raw: Tensor<B::InnerBackend, DAB> = Actor::forward_inner(net, batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let out: Vec<f32> = (0..A::RANK)
+        let out: Vec<f32> = (0..A::COMPONENTS)
             .map(|i| slice[i].clamp(self.low[i], self.high[i]))
             .collect();
         A::from_slice(&out)
