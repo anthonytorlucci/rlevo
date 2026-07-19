@@ -5,7 +5,7 @@
 //! constants (`speed_hip`, `speed_knee`) inside `apply_motors` before being
 //! passed to the Rapier2D impulse-joint motor.
 
-use rlevo_core::action::ContinuousAction;
+use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +68,26 @@ impl ContinuousAction<1> for BipedalWalkerAction {
     }
 }
 
+/// Per-component bounds `[-1; 4] .. [1; 4]`.
+///
+/// Source: Gymnasium `BipedalWalker-v3` declares
+/// `Box(-1.0, 1.0, (4,), float32)`, and this crate's
+/// [`all_valid`](BipedalWalkerAction::all_valid) rejects any component with
+/// `abs() > BOUND` where `BOUND == 1.0`. Spec and in-repo dynamics agree.
+///
+/// The bound is on the **pre-gear** motor target: `apply_motors` scales each
+/// component by `speed_hip` / `speed_knee` afterwards, so the torque limits
+/// live in the environment config, not here.
+impl BoundedAction<1> for BipedalWalkerAction {
+    fn low() -> &'static [f32] {
+        &[-1.0, -1.0, -1.0, -1.0]
+    }
+
+    fn high() -> &'static [f32] {
+        &[1.0, 1.0, 1.0, 1.0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +95,29 @@ mod tests {
     #[test]
     fn test_shape() {
         assert_eq!(BipedalWalkerAction::shape(), [4]);
+    }
+
+    #[test]
+    fn test_bounds_match_components_and_is_valid() {
+        assert_eq!(
+            BipedalWalkerAction::low().len(),
+            BipedalWalkerAction::COMPONENTS
+        );
+        assert_eq!(
+            BipedalWalkerAction::high().len(),
+            BipedalWalkerAction::COMPONENTS
+        );
+        for i in 0..BipedalWalkerAction::COMPONENTS {
+            assert!(BipedalWalkerAction::low()[i] < BipedalWalkerAction::high()[i]);
+            assert!(
+                (BipedalWalkerAction::low()[i] + BipedalWalkerAction::BOUND).abs() < f32::EPSILON
+            );
+            assert!(
+                (BipedalWalkerAction::high()[i] - BipedalWalkerAction::BOUND).abs() < f32::EPSILON
+            );
+        }
+        assert!(BipedalWalkerAction::from_slice(BipedalWalkerAction::low()).is_valid());
+        assert!(BipedalWalkerAction::from_slice(BipedalWalkerAction::high()).is_valid());
     }
 
     #[test]

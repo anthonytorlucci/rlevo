@@ -1,6 +1,6 @@
 //! Action type for CarRacing.
 
-use rlevo_core::action::ContinuousAction;
+use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
@@ -131,6 +131,30 @@ impl ContinuousAction<1> for CarRacingAction {
     }
 }
 
+/// Per-component bounds `[-1, 0, 0] .. [1, 1, 1]`.
+///
+/// Source: Gymnasium `CarRacing-v3` declares
+/// `Box([-1, 0, 0], [1, 1, 1], (3,), float32)`, and this crate's own
+/// [`components_valid`](CarRacingAction::components_valid) enforces exactly the
+/// same ranges (`steer.abs() <= 1`, `(0.0..=1.0).contains(gas)`,
+/// `(0.0..=1.0).contains(brake)`), as does
+/// [`random_valid`](CarRacingAction::random_valid). Spec and in-repo dynamics
+/// agree; nothing here is inferred.
+///
+/// This is the **only** action in the workspace whose components disagree on
+/// their bounds, which makes it the regression witness for the per-component
+/// target clip in DDPG/TD3 (ADR 0053 §6/§7): under a scalar `low[0]`/`high[0]`
+/// collapse, gas and brake would inherit steering's `-1` floor.
+impl BoundedAction<1> for CarRacingAction {
+    fn low() -> &'static [f32] {
+        &[-1.0, 0.0, 0.0]
+    }
+
+    fn high() -> &'static [f32] {
+        &[1.0, 1.0, 1.0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +162,48 @@ mod tests {
     #[test]
     fn test_shape() {
         assert_eq!(CarRacingAction::shape(), [3]);
+    }
+
+    #[test]
+    fn test_bounds_are_per_component_and_asymmetric() {
+        assert_eq!(CarRacingAction::low(), &[-1.0, 0.0, 0.0]);
+        assert_eq!(CarRacingAction::high(), &[1.0, 1.0, 1.0]);
+        assert_eq!(CarRacingAction::low().len(), CarRacingAction::COMPONENTS);
+        assert_eq!(CarRacingAction::high().len(), CarRacingAction::COMPONENTS);
+        for i in 0..CarRacingAction::COMPONENTS {
+            assert!(CarRacingAction::low()[i] < CarRacingAction::high()[i]);
+        }
+        // The asymmetry is load-bearing, not incidental: it is what lets this
+        // type witness a scalar `low[0]` collapse.
+        assert!(
+            CarRacingAction::low()[1] > CarRacingAction::low()[0],
+            "gas must not inherit steering's lower bound"
+        );
+    }
+
+    #[test]
+    fn test_bounds_agree_with_is_valid() {
+        // The bounds and the validity predicate are two statements of the same
+        // contract; a corner action must be valid, and one step outside any
+        // bound must not be.
+        let low = CarRacingAction::low();
+        let high = CarRacingAction::high();
+        assert!(CarRacingAction::from_slice(low).is_valid());
+        assert!(CarRacingAction::from_slice(high).is_valid());
+        for i in 0..CarRacingAction::COMPONENTS {
+            let mut below = low.to_vec();
+            below[i] -= 0.1;
+            assert!(
+                !CarRacingAction::from_slice(&below).is_valid(),
+                "component {i} below its lower bound must be invalid"
+            );
+            let mut above = high.to_vec();
+            above[i] += 0.1;
+            assert!(
+                !CarRacingAction::from_slice(&above).is_valid(),
+                "component {i} above its upper bound must be invalid"
+            );
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! resulting torques to the Rapier rigid bodies.
 
 use burn::prelude::{Backend, Tensor};
-use rlevo_core::action::ContinuousAction;
+use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::{Action, HostRow, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,34 @@ impl ContinuousAction<1> for ReacherAction {
     }
 }
 
+/// Per-component bounds `[-1, -1] .. [1, 1]`, in pre-gear units.
+///
+/// Source: Gymnasium `Reacher-v5` declares `Box(-1, 1, (2,), float32)`, and
+/// this type's own [`is_valid`](Action::is_valid) rejects any element with
+/// `abs() > 1.0`. Spec and in-repo action contract agree.
+///
+/// # These are the *type's* bounds, not the environment instance's
+///
+/// [`ReacherConfig::action_clip`] is a runtime field that defaults to
+/// `[-1.0, 1.0]` — matching these bounds — but a caller may narrow it. A
+/// narrowed `action_clip` does not change what this type accepts (`is_valid`
+/// is unconditionally `abs() <= 1.0`); it only means the environment squeezes
+/// the command further before applying the gear ratio, so an agent driven by
+/// these bounds stays within the declared space and merely saturates earlier.
+/// `low()`/`high()` take no `self` and cannot observe a config (ADR 0053 §3);
+/// per-instance bounds are a separate seam that would need its own ADR.
+///
+/// [`ReacherConfig::action_clip`]: super::config::ReacherConfig::action_clip
+impl BoundedAction<1> for ReacherAction {
+    fn low() -> &'static [f32] {
+        &[-1.0, -1.0]
+    }
+
+    fn high() -> &'static [f32] {
+        &[1.0, 1.0]
+    }
+}
+
 impl HostRow<1> for ReacherAction {
     fn row_shape() -> [usize; 1] {
         [2]
@@ -88,5 +116,37 @@ impl<B: Backend> TensorConvertible<1, B> for ReacherAction {
             });
         }
         Ok(Self([slice[0], slice[1]]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounds_match_components_and_is_valid() {
+        let low = ReacherAction::low();
+        let high = ReacherAction::high();
+        assert_eq!(low.len(), ReacherAction::COMPONENTS);
+        assert_eq!(high.len(), ReacherAction::COMPONENTS);
+        for i in 0..ReacherAction::COMPONENTS {
+            assert!(low[i] < high[i], "component {i} must have low < high");
+        }
+        assert!(ReacherAction::from_slice(low).is_valid());
+        assert!(ReacherAction::from_slice(high).is_valid());
+        assert!(!ReacherAction::new(1.1, 0.0).is_valid());
+        assert!(!ReacherAction::new(0.0, -1.1).is_valid());
+    }
+
+    #[test]
+    fn bounds_agree_with_the_default_action_clip() {
+        // The static bounds are the *type's* declared space; the environment's
+        // default `action_clip` is the same interval, so the default
+        // configuration cannot narrow an agent's reachable actions.
+        let (lo, hi): (f32, f32) = super::super::config::ReacherConfig::default()
+            .action_clip
+            .into();
+        assert!((lo - ReacherAction::low()[0]).abs() < f32::EPSILON);
+        assert!((hi - ReacherAction::high()[0]).abs() < f32::EPSILON);
     }
 }

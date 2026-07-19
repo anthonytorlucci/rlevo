@@ -1,6 +1,6 @@
 //! Continuous action type for LunarLander (design decision D1).
 
-use rlevo_core::action::ContinuousAction;
+use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +57,28 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
     }
 }
 
+/// Per-component bounds `[-1, -1] .. [1, 1]`.
+///
+/// Source: Gymnasium `LunarLander-v3` with `continuous=True` declares
+/// `Box(-1, +1, (2,), float32)`, and this crate's
+/// [`is_valid`](Action::is_valid) rejects any component with
+/// `abs() > BOUND` where `BOUND == 1.0`. Spec and in-repo dynamics agree.
+///
+/// The main engine's `−1..0` dead band is a property of how the environment
+/// *interprets* component 0, not of the action space: `-1` is a legal
+/// (engine-off) command, so the lower bound is `-1`, not `0`. This is why the
+/// space is symmetric despite one component behaving one-sidedly — unlike
+/// CarRacing, whose gas and brake are genuinely floored at `0`.
+impl BoundedAction<1> for LunarLanderContinuousAction {
+    fn low() -> &'static [f32] {
+        &[-1.0, -1.0]
+    }
+
+    fn high() -> &'static [f32] {
+        &[1.0, 1.0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +86,22 @@ mod tests {
     #[test]
     fn test_shape() {
         assert_eq!(LunarLanderContinuousAction::shape(), [2]);
+    }
+
+    #[test]
+    fn test_bounds_match_components_and_is_valid() {
+        let low = LunarLanderContinuousAction::low();
+        let high = LunarLanderContinuousAction::high();
+        assert_eq!(low.len(), LunarLanderContinuousAction::COMPONENTS);
+        assert_eq!(high.len(), LunarLanderContinuousAction::COMPONENTS);
+        for i in 0..LunarLanderContinuousAction::COMPONENTS {
+            assert!(low[i] < high[i]);
+        }
+        // `-1` on the main engine is "off", a legal command — the lower bound
+        // is not 0.
+        assert!(LunarLanderContinuousAction::from_slice(low).is_valid());
+        assert!(LunarLanderContinuousAction::from_slice(high).is_valid());
+        assert!(!LunarLanderContinuousAction([-1.1, 0.0]).is_valid());
     }
 
     #[test]
