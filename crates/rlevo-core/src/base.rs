@@ -139,6 +139,17 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
     /// The returned array has length `R` (the rank), where each element is the
     /// cardinality of that axis — the number of possible values along it. All
     /// values must be greater than zero.
+    ///
+    /// # Not a component count
+    ///
+    /// `shape()` describes **axis cardinality only**. It is *never* a source of
+    /// the flattened scalar component count of a continuous action: neither
+    /// `shape().iter().product()` nor `R` is universally correct, because the
+    /// workspace permits both a rank-1 action with `shape() == [C]` and a
+    /// rank-`C` action with `shape() == [1; C]`. Use
+    /// [`ContinuousAction::COMPONENTS`](crate::action::ContinuousAction::COMPONENTS),
+    /// which is the single authority for that quantity. See ADR 0038 and
+    /// ADR 0053 §8.
     fn shape() -> [usize; R];
 
     /// Validates whether this action satisfies all constraints.

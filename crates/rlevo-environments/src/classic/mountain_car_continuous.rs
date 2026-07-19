@@ -267,12 +267,12 @@ impl ContinuousAction<1> for MountainCarContinuousAction {
 }
 
 impl BoundedAction<1> for MountainCarContinuousAction {
-    fn low() -> [f32; 1] {
-        [-1.0]
+    fn low() -> &'static [f32] {
+        &[-1.0]
     }
 
-    fn high() -> [f32; 1] {
-        [1.0]
+    fn high() -> &'static [f32] {
+        &[1.0]
     }
 }
 

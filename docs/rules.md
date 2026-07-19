@@ -112,8 +112,8 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 | `State<D>` | `shape().iter().product::<usize>() == numel()` |
 | `Observation<D>` | `shape().iter().product::<usize>() == DIM` |
 | `DiscreteAction<D>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
-| `ContinuousAction<D>` | `as_slice().len() == DIM` always |
-| `BoundedAction<D>` | `low()[i] < high()[i]` for all `i` |
+| `ContinuousAction<D>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `D` is the tensor rank, never the component count (ADR 0038) |
+| `BoundedAction<D>` | `low().len() == high().len() == COMPONENTS` (**not** `D`), and `low()[i] < high()[i]` for all `i` (ADR 0053) |
 | `HostRow<D>` | `write_host_row` pushes exactly `row_shape().iter().product()` plain `f32` values, appended (never clearing `buf`); a type implements `HostRow` at exactly **one** rank `D` |
 | `TensorConvertible<D, B>` | `from_tensor(x.to_tensor(device)) == Ok(x)` for all valid `x`. The row-writer half of the contract lives on the backend-independent `HostRow<D>` supertrait; `to_tensor` is derived from it and must not be overridden |
 | `Reward` | `zero()` is the additive identity: `r + zero() == r` |

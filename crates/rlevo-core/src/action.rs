@@ -355,40 +355,117 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
 
     /// Constructs an action from a slice of component values.
     ///
-    /// The input slice must have exactly `RANK` elements. This is the inverse
-    /// operation of [`as_slice()`](ContinuousAction::as_slice).
+    /// The input slice must have exactly
+    /// [`COMPONENTS`](ContinuousAction::COMPONENTS) elements — the flattened
+    /// scalar count, *not* the tensor rank `R`. This is the inverse operation
+    /// of [`as_slice()`](ContinuousAction::as_slice).
     ///
     /// # Panics
     ///
-    /// Implementations should panic if `values.len() != RANK`.
+    /// Implementations should panic if `values.len() != Self::COMPONENTS`.
     fn from_slice(values: &[f32]) -> Self;
 }
 
-/// A [`ContinuousAction`] with statically-known `[low, high]` component bounds.
+/// A [`ContinuousAction`] with statically-known per-component `[low, high]` bounds.
 ///
-/// DDPG and other continuous-control algorithms need the per-component action
-/// bounds to scale/shift neural-network outputs and to sample uniform warm-up
-/// actions. Expose them via associated static methods rather than associated
-/// constants so implementors can still derive bounds from a runtime env config
-/// (e.g. a `max_torque` field) while presenting a uniform API.
+/// DDPG, TD3, SAC and other continuous-control algorithms need the
+/// per-component action bounds to scale/shift neural-network outputs, to clip
+/// target actions, and to sample uniform warm-up actions.
+///
+/// Bounds are keyed on [`ContinuousAction::COMPONENTS`] — the flattened scalar
+/// count — **not** on the const generic `R`, which is the tensor rank. `R` is
+/// retained only to name the [`ContinuousAction<R>`] supertrait; it does not
+/// appear in any signature. See ADR 0053.
 ///
 /// # Invariants
 ///
+/// - `low().len() == high().len() == Self::COMPONENTS`.
 /// - `low()[i] < high()[i]` for every component `i`.
 /// - [`ContinuousAction::clip`] must be a no-op on an action whose components
 ///   already lie in `[low, high]`.
+///
+/// These are contract obligations on the implementor, not compile-time
+/// guarantees: `&'static [f32]` cannot encode its own length. Consumers that
+/// index the bounds should `assert_eq!` the lengths against `Self::COMPONENTS`
+/// once, at construction, so a nonconforming impl fails loudly and early.
+///
+/// # Implementing
+///
+/// Bounds are almost always compile-time literals, so the usual impl returns a
+/// slice literal directly and allocates nothing:
+///
+/// ```
+/// use rlevo_core::action::{BoundedAction, ContinuousAction};
+/// use rlevo_core::base::Action;
+/// # #[derive(Debug, Clone)]
+/// # struct Throttle([f32; 2]);
+/// # impl Action<1> for Throttle {
+/// #     fn shape() -> [usize; 1] { [2] }
+/// #     fn is_valid(&self) -> bool { self.0.iter().all(|v| v.is_finite()) }
+/// # }
+/// # impl ContinuousAction<1> for Throttle {
+/// #     const COMPONENTS: usize = 2;
+/// #     fn as_slice(&self) -> &[f32] { &self.0 }
+/// #     fn clip(&self, min: f32, max: f32) -> Self {
+/// #         Throttle([self.0[0].clamp(min, max), self.0[1].clamp(min, max)])
+/// #     }
+/// #     fn from_slice(values: &[f32]) -> Self {
+/// #         assert_eq!(values.len(), Self::COMPONENTS);
+/// #         Throttle([values[0], values[1]])
+/// #     }
+/// # }
+/// impl BoundedAction<1> for Throttle {
+///     fn low() -> &'static [f32] {
+///         &[-1.0, 0.0]
+///     }
+///
+///     fn high() -> &'static [f32] {
+///         &[1.0, 1.0]
+///     }
+/// }
+/// # assert_eq!(Throttle::low().len(), Throttle::COMPONENTS);
+/// ```
+///
+/// If bounds genuinely must be *computed* (rather than written as literals),
+/// use a [`OnceLock`](std::sync::OnceLock) plus [`Box::leak`] to promote the
+/// computed values to `&'static`:
+///
+/// ```
+/// use std::sync::OnceLock;
+///
+/// fn low() -> &'static [f32] {
+///     static LOW: OnceLock<&'static [f32]> = OnceLock::new();
+///     LOW.get_or_init(|| {
+///         let computed: Vec<f32> = (0..4).map(|i| -1.0 - i as f32).collect();
+///         &*Box::leak(computed.into_boxed_slice())
+///     })
+/// }
+/// assert_eq!(low().len(), 4);
+/// ```
+///
+/// The leak is bounded — it happens at most once per type — but it is a leak,
+/// so prefer literals. Note that these are *static* methods taking no `self`:
+/// they cannot observe any instance and therefore cannot derive bounds from a
+/// runtime environment configuration. Per-instance bounds would be a different
+/// seam entirely (ADR 0053 §3).
 pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
     /// Returns the per-component lower bounds of this action space.
     ///
-    /// The returned array must satisfy `low()[i] < high()[i]` for every component
-    /// `i`. See the trait-level invariants for the full contract.
-    fn low() -> [f32; R];
+    /// The returned slice must have exactly [`Self::COMPONENTS`] elements and
+    /// satisfy `low()[i] < high()[i]` for every component `i`. See the
+    /// trait-level invariants for the full contract.
+    ///
+    /// [`Self::COMPONENTS`]: ContinuousAction::COMPONENTS
+    fn low() -> &'static [f32];
 
     /// Returns the per-component upper bounds of this action space.
     ///
-    /// The returned array must satisfy `low()[i] < high()[i]` for every component
-    /// `i`. See the trait-level invariants for the full contract.
-    fn high() -> [f32; R];
+    /// The returned slice must have exactly [`Self::COMPONENTS`] elements and
+    /// satisfy `low()[i] < high()[i]` for every component `i`. See the
+    /// trait-level invariants for the full contract.
+    ///
+    /// [`Self::COMPONENTS`]: ContinuousAction::COMPONENTS
+    fn high() -> &'static [f32];
 }
 
 /// Error indicating an action violated its type's constraints.
@@ -545,12 +622,12 @@ mod tests {
     }
 
     impl BoundedAction<3> for ContinuousActionTest {
-        fn low() -> [f32; 3] {
-            [-1.0, -1.0, -1.0]
+        fn low() -> &'static [f32] {
+            &[-1.0, -1.0, -1.0]
         }
 
-        fn high() -> [f32; 3] {
-            [1.0, 1.0, 1.0]
+        fn high() -> &'static [f32] {
+            &[1.0, 1.0, 1.0]
         }
     }
 
@@ -1076,10 +1153,30 @@ mod tests {
     // ========================================================================
 
     #[test]
+    fn test_bounded_action_bounds_are_component_keyed() {
+        // ADR 0053: bound slices are keyed on COMPONENTS (the flattened scalar
+        // count), not on RANK. For `ContinuousActionTest` these happen to agree
+        // (Convention B: rank 3, 3 components), so assert against COMPONENTS
+        // explicitly — that is the contract a multi-component rank-1 impl must
+        // also satisfy.
+        assert_eq!(
+            ContinuousActionTest::low().len(),
+            ContinuousActionTest::COMPONENTS,
+            "low() length must equal COMPONENTS"
+        );
+        assert_eq!(
+            ContinuousActionTest::high().len(),
+            ContinuousActionTest::COMPONENTS,
+            "high() length must equal COMPONENTS"
+        );
+    }
+
+    #[test]
     fn test_bounded_action_low_strictly_below_high() {
         let low = ContinuousActionTest::low();
         let high = ContinuousActionTest::high();
-        for i in 0..3 {
+        assert_eq!(low.len(), high.len(), "low()/high() lengths must agree");
+        for i in 0..ContinuousActionTest::COMPONENTS {
             assert!(low[i] < high[i], "bound {i}: low >= high");
         }
     }
@@ -1090,9 +1187,9 @@ mod tests {
         // return the same components.
         let low = ContinuousActionTest::low();
         let high = ContinuousActionTest::high();
-        let at_low = ContinuousActionTest::from_slice(&low);
-        let at_high = ContinuousActionTest::from_slice(&high);
-        assert_eq!(at_low.clip(low[0], high[0]).as_slice(), &low);
-        assert_eq!(at_high.clip(low[0], high[0]).as_slice(), &high);
+        let at_low = ContinuousActionTest::from_slice(low);
+        let at_high = ContinuousActionTest::from_slice(high);
+        assert_eq!(at_low.clip(low[0], high[0]).as_slice(), low);
+        assert_eq!(at_high.clip(low[0], high[0]).as_slice(), high);
     }
 }
