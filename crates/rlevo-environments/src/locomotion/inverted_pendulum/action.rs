@@ -2,7 +2,7 @@
 
 use burn::prelude::{Backend, Tensor};
 use rlevo_core::action::ContinuousAction;
-use rlevo_core::base::{Action, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{Action, HostRow, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
 /// 1D continuous action — horizontal force target on the cart, in Gymnasium's
@@ -58,7 +58,7 @@ impl ContinuousAction<1> for InvertedPendulumAction {
     }
 }
 
-impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {
+impl HostRow<1> for InvertedPendulumAction {
     fn row_shape() -> [usize; 1] {
         [1]
     }
@@ -66,7 +66,9 @@ impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.0);
     }
+}
 
+impl<B: Backend> TensorConvertible<1, B> for InvertedPendulumAction {
     fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let data = tensor.into_data();
         let slice = data.as_slice::<f32>().map_err(|e| TensorConversionError {

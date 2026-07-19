@@ -55,6 +55,60 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `&S::Observation` to `&Self::Observation` (mirroring `HiddenState`/
   `LatentState`). No `BeliefState` implementors exist in the workspace, so this
   is a contract-only change for downstream callers.
+- **`TensorConvertible` splits its row-writer onto a new backend-independent
+  `HostRow<R>` supertrait** (ADR 0052, extends ADR 0028). `row_shape()` and
+  `write_host_row()` move to `HostRow<R>`; `TensorConvertible<R, B>` becomes
+  `TensorConvertible<R, B>: HostRow<R> + Sized` and keeps only `to_tensor` (still
+  derived, still not to be overridden) and `from_tensor`. ADR 0028's decisions are
+  unchanged — this moves the two methods, it does not redefine them.
+
+  *Why.* ADR 0028 required `write_host_row` to push **plain `f32`** and never
+  pre-convert to a backend element type, but the method sat on a `B`-parameterised
+  trait, so that contract was prose the compiler could not check — a
+  backend-specialised row-writer was permitted by the signature. Under the
+  off-policy agents' `TensorConvertible<DO, B> + TensorConvertible<DO,
+  B::InnerBackend>` bound, an unqualified call was ambiguous (E0284), so six
+  staging sites named a backend that provably could not affect the result. Had
+  anyone ever specialised a row-writer on `B`, the two qualified spellings would
+  have staged **different bytes** silently: 0028's `debug_assert` checks a row's
+  length, not its contents. `HostRow` has no `B`, so that divergence is now
+  unrepresentable — the same invariants-in-types move as `Bounds` (ADR 0027), the
+  rate newtypes (ADR 0031), and `Slot` (ADR 0046). `stack_to_tensor`'s bound
+  relaxes to `T: HostRow<R>` accordingly: host-side staging never touches a
+  device, so it should never have demanded a decode impl. There is **no
+  performance change** — no byte moves differently and no upload count changes.
+
+  *Migration.* Split each existing impl in two, dropping `B` from the `HostRow`
+  half:
+
+  ```rust
+  // Before
+  impl<B: Backend> TensorConvertible<1, B> for MyObservation {
+      fn row_shape() -> [usize; 1] { [4] }
+      fn write_host_row(&self, buf: &mut Vec<f32>) { /* ... */ }
+      fn from_tensor(t: Tensor<B, 1>) -> Result<Self, TensorConversionError> { /* ... */ }
+  }
+
+  // After
+  impl HostRow<1> for MyObservation {
+      fn row_shape() -> [usize; 1] { [4] }
+      fn write_host_row(&self, buf: &mut Vec<f32>) { /* ... */ }
+  }
+
+  impl<B: Backend> TensorConvertible<1, B> for MyObservation {
+      fn from_tensor(t: Tensor<B, 1>) -> Result<Self, TensorConversionError> { /* ... */ }
+  }
+  ```
+
+  Method bodies are unchanged; only the impl blocks move. Writing
+  `impl<B: Backend> HostRow<1> for MyObservation` fails with **E0207** (`B` is
+  unconstrained, since `HostRow` never mentions it) — the `HostRow` half must not
+  carry a backend parameter at all. Any turbofish previously needed to
+  disambiguate `write_host_row` across two backends can be deleted. `HostRow` is
+  re-exported from `rlevo::prelude`. Note the new documented invariant: a domain
+  type implements `HostRow` at exactly **one** rank (two ranks makes unqualified
+  calls ambiguous again, E0283). **No persisted data format changes** — nothing in
+  this path derives serde, and no record schema is affected.
 
 **Added**
 

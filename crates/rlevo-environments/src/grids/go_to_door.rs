@@ -86,7 +86,7 @@ use super::core::{
 use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rlevo_core::base::{Observation, TensorConversionError, TensorConvertible};
+use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
     ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
@@ -270,7 +270,7 @@ impl Observation<3> for GoToDoorObservation {
     }
 }
 
-impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
+impl HostRow<3> for GoToDoorObservation {
     fn row_shape() -> [usize; 3] {
         [VIEW_SIZE, VIEW_SIZE, GO_TO_DOOR_OBS_CHANNELS]
     }
@@ -284,7 +284,9 @@ impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
             }
         }
     }
+}
 
+impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
     /// Reconstructs the `7 × 7 × 4` view from a tensor.
     ///
     /// The tensor contains only the view channels (including the mission

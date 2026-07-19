@@ -81,7 +81,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
     action::DiscreteAction,
-    base::{Action, Observation, State, TensorConversionError, TensorConvertible},
+    base::{Action, HostRow, Observation, State, TensorConversionError, TensorConvertible},
     bounds::Bounds,
     config::{self, ConfigError, Validate},
     environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase},
@@ -519,7 +519,7 @@ fn style_mountain_car_line(line: &str) -> crate::render::StyledLine {
 // TensorConvertible
 // ---------------------------------------------------------------------------
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {
+impl HostRow<1> for MountainCarObservation {
     fn row_shape() -> [usize; 1] {
         [2]
     }
@@ -527,7 +527,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarO
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.extend_from_slice(&self.to_array());
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarObservation {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [2] {
@@ -548,7 +550,7 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarO
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {
+impl HostRow<1> for MountainCarAction {
     fn row_shape() -> [usize; 1] {
         [3]
     }
@@ -558,7 +560,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarA
         one_hot[self.to_index()] = 1.0;
         buf.extend_from_slice(&one_hot);
     }
+}
 
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for MountainCarAction {
     fn from_tensor(tensor: burn::tensor::Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         let dims = tensor.dims();
         if dims.as_slice() != [3] {

@@ -12,7 +12,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::{
-    Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
+    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::environment::{
     Environment, EnvironmentError, EpisodeStatus, Sensor, Snapshot, SnapshotBase,
@@ -42,7 +42,7 @@ impl Observation<1> for WalkObservation {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
+impl HostRow<1> for WalkObservation {
     fn row_shape() -> [usize; 1] {
         [1]
     }
@@ -50,6 +50,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservat
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.position as f32);
     }
+}
+
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkObservation {
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         // Not exercised by these tests; included only for trait completeness.
         Err(TensorConversionError {
@@ -109,7 +112,7 @@ impl DiscreteAction<1> for WalkAction {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
+impl HostRow<1> for WalkAction {
     fn row_shape() -> [usize; 1] {
         [1]
     }
@@ -117,6 +120,9 @@ impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.to_index() as f32);
     }
+}
+
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkAction {
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         Err(TensorConversionError {
             message: "from_tensor not implemented for WalkAction".into(),
@@ -149,13 +155,16 @@ impl From<WalkReward> for f32 {
     }
 }
 
-impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
+impl HostRow<1> for WalkReward {
     fn row_shape() -> [usize; 1] {
         [1]
     }
     fn write_host_row(&self, buf: &mut Vec<f32>) {
         buf.push(self.0);
     }
+}
+
+impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for WalkReward {
     fn from_tensor(_t: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
         Err(TensorConversionError {
             message: "from_tensor not implemented for WalkReward".into(),

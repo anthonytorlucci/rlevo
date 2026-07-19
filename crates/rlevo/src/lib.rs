@@ -40,6 +40,7 @@ pub use rlevo_reinforcement_learning as rl;
 /// **Core base traits** (`rlevo::core::base`):
 /// [`State`](core::base::State), [`Observation`](core::base::Observation),
 /// [`Action`](core::base::Action), [`Reward`](core::base::Reward),
+/// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
 ///
 /// **Environment** (`rlevo::core::environment`):
@@ -68,7 +69,7 @@ pub use rlevo_reinforcement_learning as rl;
 /// [`Population`](evo::population::Population)
 pub mod prelude {
     // Base traits
-    pub use rlevo_core::base::{Action, Observation, Reward, State, TensorConvertible};
+    pub use rlevo_core::base::{Action, HostRow, Observation, Reward, State, TensorConvertible};
 
     // Environment protocol
     pub use rlevo_core::environment::{

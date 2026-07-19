@@ -806,7 +806,7 @@ mod tests {
     use burn::module::Module;
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
-    use rlevo_core::base::TensorConversionError;
+    use rlevo_core::base::{HostRow, TensorConversionError};
     use serde::{Deserialize, Serialize};
 
     use crate::algorithms::ppg::policies::{
@@ -855,7 +855,7 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {
+    impl HostRow<1> for TestObs {
         fn row_shape() -> [usize; 1] {
             [2]
         }
@@ -863,7 +863,9 @@ mod tests {
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
+    }
 
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {
         fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             let data = tensor.into_data().convert::<f32>();
             let v = data.as_slice::<f32>().map_err(|_| TensorConversionError {

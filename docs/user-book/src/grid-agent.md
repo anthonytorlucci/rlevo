@@ -59,17 +59,21 @@ perception, so they belong on the state instead. Keeping the observation lean is
 what lets us scale to richer environments later, where an agent's view might be
 limited to a handful of sensors.
 
-## TensorConvertible — the bridge to a network
+## HostRow and TensorConvertible — the bridge to a network
 
-An observation is only useful to a neural policy once it becomes a tensor. The
+An observation is only useful to a neural policy once it becomes a tensor. Two
+traits form that bridge, split along a backend boundary:
+[`HostRow`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.HostRow.html)
+owns the backend-independent encoding — `row_shape` names your value's tensor
+shape, and `write_host_row` appends its flat `f32` payload to a buffer, neither
+of which ever needs to know which Burn backend the row is headed for — while
 [`TensorConvertible`](https://docs.rs/rlevo-core/latest/rlevo_core/base/trait.TensorConvertible.html)
-trait is that bridge. You implement the host side of the encoding —
-`row_shape` names your value's tensor shape, and `write_host_row` appends its
-flat `f32` payload to a buffer — and the trait's provided `to_tensor` method
-derives the device tensor from that row (batch helpers reuse the same row to
-upload many values in one transfer). `from_tensor` is the decode direction: it
-turns a tensor back into your custom type, returning a `TensorConversionError`
-if the shape or contents are invalid.
+requires `HostRow` as a supertrait and adds the device-facing half: its
+provided `to_tensor` method derives the device tensor from that row (batch
+helpers reuse the same row to upload many values in one transfer), and
+`from_tensor` is the decode direction, turning a tensor back into your custom
+type and returning a `TensorConversionError` if the shape or contents are
+invalid.
 
 ```rust,no_run
 {{#rustdoc_include ../../../crates/rlevo-examples/examples/book/ch00_grid_agent.rs:tensor}}
@@ -80,10 +84,12 @@ enum into a single byte index on the way out. `from_tensor` is the deliberate
 inverse: it checks the shape is `[3]`, reads the three values back, and rejects
 any byte that does not name a valid direction. The example exercises this contract
 end to end — it encodes an observation, decodes it, and asserts the result is
-unchanged, the same round-trip a policy depends on every step. Because the trait
-is generic over `B`, that one implementation serves the `Flex` CPU backend the
-example uses, the `wgpu` GPU backend, or any other Burn backend you wire up,
-with no change to the conversion logic.
+unchanged, the same round-trip a policy depends on every step. Because
+`TensorConvertible` is generic over `B`, that one implementation serves the
+`Flex` CPU backend the example uses, the `wgpu` GPU backend, or any other Burn
+backend you wire up, with no change to the conversion logic — and because
+`HostRow` carries no `B` at all, the row-writing logic in that same `impl`
+block never had a backend to be generic over in the first place.
 
 ## State — the full world
 

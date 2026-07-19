@@ -176,23 +176,32 @@ pub struct TensorConversionError {
     pub message: String,
 }
 
-/// Bidirectional conversion between a domain type and a Burn tensor.
+/// Host-side, backend-independent row serialization.
 ///
-/// Implementors must round-trip: `from_tensor(x.to_tensor(device))` equals
-/// `Ok(x)` for any valid `x`. Strategies and replay buffers rely on this
-/// invariant.
+/// This is the layout half of tensor conversion: how a value flattens into a
+/// row-major `f32` row, and what shape that row has. Neither answer depends on
+/// which Burn backend the row is eventually uploaded to, so this trait carries
+/// **no** `B` parameter — a fact the pre-split [`TensorConvertible`] could only
+/// state in prose.
+///
+/// Implement this alongside [`TensorConvertible`], which requires it as a
+/// supertrait and derives [`TensorConvertible::to_tensor`] from it. The
+/// whole-batch staging helper [`stack_to_tensor`] needs *only* this trait,
+/// because staging never touches a device.
 ///
 /// # Type Parameters
 ///
-/// - `R`: Rank of the tensor produced.
-/// - `B`: Burn backend.
+/// - `R`: Rank of a single row.
 ///
-/// # Errors
+/// # Invariants
 ///
-/// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
-/// dtype, or contents violate the domain type's invariants (see
-/// [`State::is_valid`] / [`Action::is_valid`]).
-pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
+/// - A type implements `HostRow` at exactly **one** rank `R`. Implementing it at
+///   two ranks makes every unqualified `write_host_row` / `row_shape` call on a
+///   concrete value of that type ambiguous (E0283).
+/// - `write_host_row` pushes exactly `row_shape().iter().product()` values.
+///
+/// [`stack_to_tensor`]: crate::base::stack_to_tensor
+pub trait HostRow<const R: usize> {
     /// Returns the per-item ("row") shape of the tensor this type serializes to.
     ///
     /// This is the shape of a **single** value — rank `R`, with each axis size
@@ -204,7 +213,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
     /// row occupies, which is exactly how many values [`write_host_row`] must
     /// push.
     ///
-    /// [`write_host_row`]: TensorConvertible::write_host_row
+    /// [`write_host_row`]: HostRow::write_host_row
     /// [`to_tensor`]: TensorConvertible::to_tensor
     fn row_shape() -> [usize; R];
 
@@ -218,16 +227,38 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
     ///
     /// - Push **exactly** `row_shape().iter().product()` values, in **row-major**
     ///   order matching [`row_shape`].
-    /// - Push **plain `f32`** — do *not* pre-convert to `B::FloatElem`.
+    /// - Push **plain `f32`** — do *not* pre-convert to a backend element type.
     ///   [`TensorData::new`] performs the element-type conversion at upload time.
+    ///   This trait has no backend parameter, so there is nothing to convert to.
     /// - **Append**; never clear or truncate `buf`. Batch staging relies on
     ///   successive rows being concatenated into one contiguous buffer.
     ///
-    /// [`row_shape`]: TensorConvertible::row_shape
+    /// [`row_shape`]: HostRow::row_shape
     /// [`to_tensor`]: TensorConvertible::to_tensor
     /// [`stack_to_tensor`]: crate::base::stack_to_tensor
     fn write_host_row(&self, buf: &mut Vec<f32>);
+}
 
+/// Bidirectional conversion between a domain type and a Burn tensor.
+///
+/// Implementors must round-trip: `from_tensor(x.to_tensor(device))` equals
+/// `Ok(x)` for any valid `x`. Strategies and replay buffers rely on this
+/// invariant.
+///
+/// The backend-independent half of the conversion — the row layout — lives on
+/// the [`HostRow`] supertrait; this trait adds only the device-facing half.
+///
+/// # Type Parameters
+///
+/// - `R`: Rank of the tensor produced.
+/// - `B`: Burn backend.
+///
+/// # Errors
+///
+/// `from_tensor` returns [`TensorConversionError`] when the tensor's shape,
+/// dtype, or contents violate the domain type's invariants (see
+/// [`State::is_valid`] / [`Action::is_valid`]).
+pub trait TensorConvertible<const R: usize, B: Backend>: HostRow<R> + Sized {
     /// Converts `self` into a tensor on `device`.
     ///
     /// # Do not override
@@ -239,8 +270,8 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
     /// from the batched layout produced by [`stack_to_tensor`], defeating the
     /// whole point of the shared row-writer primitive.
     ///
-    /// [`row_shape`]: TensorConvertible::row_shape
-    /// [`write_host_row`]: TensorConvertible::write_host_row
+    /// [`row_shape`]: HostRow::row_shape
+    /// [`write_host_row`]: HostRow::write_host_row
     /// [`stack_to_tensor`]: crate::base::stack_to_tensor
     fn to_tensor(
         &self,
@@ -281,8 +312,10 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 ///
 /// - `R`: rank of a single row.
 /// - `BR`: rank of the batched tensor; must equal `R + 1`.
-/// - `T`: the row type, [`TensorConvertible<R, B>`].
-/// - `B`: Burn backend.
+/// - `T`: the row type, [`HostRow<R>`]. Note the bound is [`HostRow`], not
+///   [`TensorConvertible`]: staging is host-only, so the row type need not name
+///   a backend at all.
+/// - `B`: Burn backend the assembled buffer is uploaded to.
 ///
 /// # The `BR = R + 1` contract
 ///
@@ -302,7 +335,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 /// ```
 /// use burn::backend::Flex;
 /// use burn::tensor::Tensor;
-/// use rlevo_core::base::{stack_to_tensor, TensorConversionError, TensorConvertible};
+/// use rlevo_core::base::{stack_to_tensor, HostRow, TensorConversionError, TensorConvertible};
 ///
 /// #[derive(Clone)]
 /// struct Point {
@@ -310,7 +343,7 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 ///     y: f32,
 /// }
 ///
-/// impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Point {
+/// impl HostRow<1> for Point {
 ///     fn row_shape() -> [usize; 1] {
 ///         [2]
 ///     }
@@ -318,6 +351,9 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 ///         buf.push(self.x);
 ///         buf.push(self.y);
 ///     }
+/// }
+///
+/// impl<B: burn::tensor::backend::Backend> TensorConvertible<1, B> for Point {
 ///     fn from_tensor(_tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
 ///         unimplemented!()
 ///     }
@@ -330,14 +366,14 @@ pub trait TensorConvertible<const R: usize, B: Backend>: Sized {
 /// assert_eq!(batched.dims(), [2, 2]);
 /// ```
 ///
-/// [`write_host_row`]: TensorConvertible::write_host_row
-/// [`row_shape`]: TensorConvertible::row_shape
+/// [`write_host_row`]: HostRow::write_host_row
+/// [`row_shape`]: HostRow::row_shape
 pub fn stack_to_tensor<const R: usize, const BR: usize, T, B>(
     items: &[T],
     device: &<B as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<B, BR>
 where
-    T: TensorConvertible<R, B>,
+    T: HostRow<R>,
     B: Backend,
 {
     assert_eq!(BR, R + 1, "batched rank BR must equal row rank R + 1");
@@ -865,13 +901,16 @@ mod tests {
     #[derive(Clone, Debug)]
     struct Vec3(f32, f32, f32);
 
-    impl<B: Backend> TensorConvertible<1, B> for Vec3 {
+    impl HostRow<1> for Vec3 {
         fn row_shape() -> [usize; 1] {
             [3]
         }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&[self.0, self.1, self.2]);
         }
+    }
+
+    impl<B: Backend> TensorConvertible<1, B> for Vec3 {
         fn from_tensor(_tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by these tests")
         }
@@ -881,13 +920,16 @@ mod tests {
     #[derive(Clone, Debug)]
     struct Img([f32; 4]);
 
-    impl<B: Backend> TensorConvertible<3, B> for Img {
+    impl HostRow<3> for Img {
         fn row_shape() -> [usize; 3] {
             [2, 2, 1]
         }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
+    }
+
+    impl<B: Backend> TensorConvertible<3, B> for Img {
         fn from_tensor(_tensor: Tensor<B, 3>) -> Result<Self, TensorConversionError> {
             unimplemented!("not exercised by these tests")
         }

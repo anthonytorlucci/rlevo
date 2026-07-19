@@ -465,13 +465,9 @@ where
         for &id in batch.ids() {
             let t = self.buffer.get(id).expect("a freshly sampled id is live");
             // Stage host-side: `to_tensor` would upload each row only to read it
-            // straight back -- one wgpu sync point per row, no op in between. The
-            // turbofish is required: `O`'s dual `TensorConvertible` bound is ambiguous.
-            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(&t.obs, &mut obs_flat);
-            <O as TensorConvertible<DO, B::InnerBackend>>::write_host_row(
-                &t.next_obs,
-                &mut next_flat,
-            );
+            // straight back -- one wgpu sync point per row, no op in between.
+            t.obs.write_host_row(&mut obs_flat);
+            t.next_obs.write_host_row(&mut next_flat);
             action_idxs.push(t.action as i64);
             rewards.push(t.reward);
             terminated.push(if t.terminated { 1.0 } else { 0.0 });
@@ -631,7 +627,7 @@ mod tests {
     use crate::algorithms::c51::c51_config::C51TrainingConfigBuilder;
     use crate::replay::PrioritizedReplaySettings;
     use crate::utils::polyak_update;
-    use rlevo_core::base::{Action as ActionTrait, TensorConversionError};
+    use rlevo_core::base::{Action as ActionTrait, HostRow, TensorConversionError};
 
     type Be = Autodiff<Flex>;
 
@@ -648,13 +644,16 @@ mod tests {
         }
     }
 
-    impl<B: Backend> TensorConvertible<1, B> for TestObs {
+    impl HostRow<1> for TestObs {
         fn row_shape() -> [usize; 1] {
             [2]
         }
         fn write_host_row(&self, buf: &mut Vec<f32>) {
             buf.extend_from_slice(&self.0);
         }
+    }
+
+    impl<B: Backend> TensorConvertible<1, B> for TestObs {
         fn from_tensor(tensor: Tensor<B, 1>) -> Result<Self, TensorConversionError> {
             let v = tensor
                 .into_data()

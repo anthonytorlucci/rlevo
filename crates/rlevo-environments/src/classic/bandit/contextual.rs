@@ -38,7 +38,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::{Distribution, Normal};
 use rlevo_core::base::{
-    Action, Observation, Reward, State, TensorConversionError, TensorConvertible,
+    Action, HostRow, Observation, Reward, State, TensorConversionError, TensorConvertible,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
@@ -97,7 +97,7 @@ impl<const C: usize> Display for ContextualBanditState<C> {
 /// The single in-module struct-literal path, the [`Sensor`] impl on
 /// [`ContextualBandit`], copies a context the environment sampled from `0..C`,
 /// so it upholds the invariant by construction;
-/// [`TensorConvertible::write_host_row`] carries a `debug_assert!` as
+/// [`HostRow::write_host_row`] carries a `debug_assert!` as
 /// defence-in-depth against that path ever regressing.
 ///
 /// # Examples
@@ -148,7 +148,7 @@ impl<const C: usize> ContextualBanditObservation<C> {
     /// Constructs an observation revealing `context`.
     ///
     /// This is the only public construction path; it upholds the `context < C`
-    /// invariant that [`TensorConvertible::write_host_row`] relies on.
+    /// invariant that [`HostRow::write_host_row`] relies on.
     ///
     /// # Errors
     ///
@@ -190,7 +190,7 @@ impl<const C: usize> State<1> for ContextualBanditState<C> {
     }
 }
 
-impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {
+impl<const C: usize> HostRow<1> for ContextualBanditObservation<C> {
     /// Row shape of the one-hot context encoding: `[C]`.
     fn row_shape() -> [usize; 1] {
         [C]
@@ -222,7 +222,9 @@ impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObs
         }
         buf.extend_from_slice(&one_hot);
     }
+}
 
+impl<const C: usize, B: Backend> TensorConvertible<1, B> for ContextualBanditObservation<C> {
     /// Reconstructs an observation from a one-hot tensor by argmax.
     ///
     /// # Errors
