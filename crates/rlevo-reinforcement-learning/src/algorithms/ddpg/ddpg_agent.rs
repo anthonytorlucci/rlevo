@@ -26,7 +26,10 @@ use rlevo_core::config::Validate;
 use crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use crate::algorithms::ddpg::exploration::GaussianNoise;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
+use crate::algorithms::shared::{
+    Slot, UNIFORM_REPLAY_BETA, action_bound_tensors, assert_bounds_match_components,
+    clip_to_action_bounds,
+};
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`DdpgAgent`] operations.
@@ -151,6 +154,10 @@ pub struct DdpgAgent<
     exploration: GaussianNoise,
     low: &'static [f32],
     high: &'static [f32],
+    /// `[1, ..action_shape]` per-component bounds for the target-action clip,
+    /// built once at construction — see [`action_bound_tensors`].
+    low_t: Tensor<B::InnerBackend, DAB>,
+    high_t: Tensor<B::InnerBackend, DAB>,
     config: DdpgTrainingConfig,
     device: B::Device,
     step: usize,
@@ -203,6 +210,14 @@ where
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
     /// fails [`DdpgTrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `A`'s [`BoundedAction`] impl violates its length contract —
+    /// i.e. if `A::low().len()` or `A::high().len()` differs from
+    /// `A::COMPONENTS`. `&'static [f32]` cannot carry that guarantee in the
+    /// type system (ADR 0053), so it is checked once here rather than being
+    /// discovered as an out-of-bounds index mid-episode.
     pub fn new(
         actor: Actor,
         critic: Critic,
@@ -210,6 +225,7 @@ where
         device: B::Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_bounds_match_components::<DA, A>();
         let target_actor = actor.valid();
         let target_critic = critic.valid();
         let adam = config.optimizer.clone();
@@ -229,6 +245,7 @@ where
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<DdpgMetrics>::new(100);
+        let (low_t, high_t) = action_bound_tensors::<B::InnerBackend, A, DA, DAB>(&device);
         Ok(Self {
             actor: Slot::new(actor),
             target_actor,
@@ -240,6 +257,8 @@ where
             exploration,
             low: A::low(),
             high: A::high(),
+            low_t,
+            high_t,
             config,
             device,
             step: 0,
@@ -285,7 +304,7 @@ where
     /// in [`learn_step`](Self::learn_step) leaves this method working.
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
-            let sample: Vec<f32> = (0..A::RANK)
+            let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
                 .collect();
             return A::from_slice(&sample);
@@ -296,7 +315,7 @@ where
         let raw: Tensor<B, DAB> = self.actor.get().forward(batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let mean: Vec<f32> = slice.iter().take(A::RANK).copied().collect();
+        let mean: Vec<f32> = slice.iter().take(A::COMPONENTS).copied().collect();
         let out = if training {
             self.exploration.apply(&mean, self.low, self.high, rng)
         } else {
@@ -336,7 +355,7 @@ where
         let raw: Tensor<B::InnerBackend, DAB> = Actor::forward_inner(net, batched);
         let data = raw.into_data().convert::<f32>();
         let slice = data.as_slice::<f32>().expect("actor output is f32");
-        let out: Vec<f32> = (0..A::RANK)
+        let out: Vec<f32> = (0..A::COMPONENTS)
             .map(|i| slice[i].clamp(self.low[i], self.high[i]))
             .collect();
         A::from_slice(&out)
@@ -468,13 +487,20 @@ where
             Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target computation (no autodiff) ---
-        // CleanRL uses low[0]/high[0] as a scalar clip on the target action;
-        // adopt the same convention (documented in BoundedAction).
-        let low_scalar = self.low[0];
-        let high_scalar = self.high[0];
-        let next_actions: Tensor<B::InnerBackend, DAB> =
-            Actor::forward_inner(&self.target_actor, next_t_inner.clone())
-                .clamp(low_scalar, high_scalar);
+        // Clip the target action per component, against the `Box(low, high)`
+        // vectors — TD3 Eq. 14 (Fujimoto et al. 2018, arXiv:1802.09477), whose
+        // clip DDPG's target path shares. A scalar `low[0]`/`high[0]` collapse
+        // is only equivalent when every component shares a bound; for an
+        // asymmetric space such as CarRacing's `Box([-1,0,0], [1,1,1])` it would
+        // admit negative gas and brake into the target — precisely the "values
+        // of impossible actions" the clip exists to suppress. Burn's `clamp` is
+        // scalar-only, so this goes through `max_pair`/`min_pair` against the
+        // `[1, ..action_shape]` bound tensors, broadcast over the batch.
+        let next_actions: Tensor<B::InnerBackend, DAB> = clip_to_action_bounds(
+            Actor::forward_inner(&self.target_actor, next_t_inner.clone()),
+            self.low_t.clone(),
+            self.high_t.clone(),
+        );
         let next_q: Tensor<B::InnerBackend, 1> =
             Critic::forward_inner(&self.target_critic, next_t_inner, next_actions);
         let target_inner: Tensor<B::InnerBackend, 1> =

@@ -32,7 +32,7 @@ use rlevo_core::config::Validate;
 use crate::algorithms::sac::sac_alpha::LogAlpha;
 use crate::algorithms::sac::sac_config::SacTrainingConfig;
 use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA};
+use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components};
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`SacAgent`] operations.
@@ -242,6 +242,14 @@ where
     ///
     /// Returns a [`ConfigError`](rlevo_core::config::ConfigError) if `config`
     /// fails [`SacTrainingConfig::validate`](rlevo_core::config::Validate::validate).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `A`'s [`BoundedAction`] impl violates its length contract —
+    /// i.e. if `A::low().len()` or `A::high().len()` differs from
+    /// `A::COMPONENTS`. `&'static [f32]` cannot carry that guarantee in the
+    /// type system (ADR 0053), so it is checked once here rather than being
+    /// discovered as an out-of-bounds index mid-episode.
     pub fn new(
         actor: Actor,
         critic_1: Critic,
@@ -250,6 +258,7 @@ where
         device: B::Device,
     ) -> Result<Self, rlevo_core::config::ConfigError> {
         config.validate()?;
+        assert_bounds_match_components::<DA, A>();
         let actor_snapshot = actor.valid();
         let target_critic_1 = critic_1.valid();
         let target_critic_2 = critic_2.valid();
@@ -366,7 +375,7 @@ where
     /// [`Slot`](crate::algorithms::shared::Slot).
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, training: bool, rng: &mut R) -> A {
         if training && self.step < self.config.learning_starts {
-            let sample: Vec<f32> = (0..A::RANK)
+            let sample: Vec<f32> = (0..A::COMPONENTS)
                 .map(|i| rng.random_range(self.low[i]..=self.high[i]))
                 .collect();
             return A::from_slice(&sample);
@@ -398,7 +407,7 @@ where
         // Actions are already squashed into `[bias - scale, bias + scale]`
         // by the policy; still clip against `low/high` to be robust to users
         // whose scale/bias disagree with the action type's bounds.
-        let out: Vec<f32> = (0..A::RANK)
+        let out: Vec<f32> = (0..A::COMPONENTS)
             .map(|i| slice[i].clamp(self.low[i], self.high[i]))
             .collect();
         A::from_slice(&out)
