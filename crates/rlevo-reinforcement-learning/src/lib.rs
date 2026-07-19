@@ -169,7 +169,6 @@ pub mod algorithms {
 }
 
 pub mod experience;
-pub mod memory;
 pub mod metrics;
 pub mod replay;
 pub mod utils;

@@ -1,8 +1,8 @@
 //! Error type for replay-buffer operations.
 //!
 //! [`ReplayBufferError`] is the single error domain for everything under
-//! [`crate::replay`]. It is re-exported from [`crate::memory`] so the pre-ADR
-//! 0050 import path keeps compiling until `memory.rs` is deleted.
+//! [`crate::replay`]. Every fallible replay-strategy method returns it (ADR
+//! 0050 §8); it superseded the error type of the deleted `memory` module.
 
 /// Errors that can occur during replay buffer operations.
 ///

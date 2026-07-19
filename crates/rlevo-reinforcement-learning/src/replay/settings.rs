@@ -63,6 +63,47 @@ pub const DEFAULT_BETA_ANNEAL_STEPS: usize = 100_000;
 /// close. Validation kills the `0/0` at its source; [`beta`](Self::beta) clamps
 /// so an in-range value is produced by construction; and
 /// [`ImportanceExponent`] is the loud-panic backstop for any residual bug.
+///
+/// # Examples
+///
+/// The opt-in prioritized-replay path, end to end: these settings build a
+/// [`PrioritizedReplay`](super::PrioritizedReplay), which then draws a
+/// stratified minibatch carrying one importance-sampling weight per id.
+///
+/// ```
+/// use rand::SeedableRng;
+/// use rand::rngs::StdRng;
+/// use rlevo_reinforcement_learning::replay::{
+///     DiscreteTransition, PrioritizedReplay, PrioritizedReplaySettings, ReplayStrategy,
+/// };
+///
+/// // Schaul's proportional defaults: alpha = 0.6, beta annealing 0.4 -> 1.0.
+/// let settings = PrioritizedReplaySettings::default();
+///
+/// // Thread the agent's capacity into the buffer-side config, then construct.
+/// let mut buffer: PrioritizedReplay<DiscreteTransition<f32>> =
+///     PrioritizedReplay::new(settings.buffer_config(64)).expect("valid config");
+///
+/// for step in 0..16 {
+///     buffer.push(DiscreteTransition {
+///         obs: step as f32,
+///         action: step % 2,
+///         reward: 1.0,
+///         next_obs: step as f32 + 1.0,
+///         terminated: false,
+///     });
+/// }
+///
+/// // beta(0) is the schedule's start; sample with the caller's RNG (ADR 0029).
+/// let mut rng = StdRng::seed_from_u64(7);
+/// let batch = buffer
+///     .sample(8, settings.beta(0), &mut rng)
+///     .expect("sixteen transitions stored");
+///
+/// let weights = batch.weights().expect("prioritized replay emits IS weights");
+/// assert_eq!(weights.len(), 8, "one importance weight per drawn id");
+/// assert!(weights.iter().all(|w| w.is_finite() && *w > 0.0 && *w <= 1.0));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PrioritizedReplaySettings {
     /// Schaul Eq. 1's α. Must lie in `[0, 1]`; `0.0` is the uniform case.

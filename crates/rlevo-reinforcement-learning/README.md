@@ -339,26 +339,33 @@ The following algorithms are deferred stubs — scope is parked until prerequisi
 
 `polyak_update` — soft target-network update (`θ_target ← τθ + (1-τ)θ_target`) shared by DDPG, TD3, and SAC.
 
-### Experience Replay (`memory`)
+### Experience Replay (`replay`)
 
-Off-policy replay storage shared across the value-based and actor-critic algorithms. Moved here from `rlevo-core` per ADR 0003 (replay/experience/metrics live where they are consumed).
+The replay-strategy seam (ADR 0050): off-policy transition storage shared across the value-based and actor-critic algorithms. The `replay` module lives here rather than in `rlevo-core` per ADR 0003 (replay/experience/metrics live where they are consumed). The seam decides *which stored transitions come back*; it never touches a `Tensor`, `Backend`, or device — staging into tensors stays in each agent.
 
 | Item | Description |
 |------|-------------|
-| `PrioritizedExperienceReplay<D, AD, O, A, R>` | Off-policy replay buffer with priority-weighted sampling. Priorities are raised to power `alpha` before normalization. FIFO eviction at capacity. |
-| `PrioritizedExperienceReplayBuilder<D, AD, O, A, R>` | Fluent builder: `.with_capacity(n).with_alpha(0.6).build()` |
-| `TrainingBatch<BD, BAD, B>` | GPU-ready tensor bundle (`observations`, `actions`, `rewards`, `next_observations`, `terminated`) consumed by learning algorithms |
+| `ReplayStrategy<T>` | The seam trait: `push` / `sample` / `get` over a stored item `T`. Pure host-side bookkeeping, testable without a Burn backend. |
+| `UniformReplay<T>` | FIFO, i.i.d.-with-replacement buffer. The **default** every agent uses. Emits no importance weights. |
+| `PrioritizedReplay<T>` | Schaul et al. (2016) proportional PER over a sum-tree: `P(i) ∝ p_i^α`, stratified draw, max-normalized importance weights, and a `update_priorities` writeback. **Opt-in**, value-based agents only. |
+| `ReplayKind<T>` | Enum dispatch over the two strategies; `ReplayKind::uniform(cap)` / `ReplayKind::prioritized(config)`. What DQN/C51/QR-DQN actually store. |
+| `PrioritizedReplaySettings` | Agent-config opt-in (`Option<…>`): Schaul's α/ε plus the β importance-sampling schedule. `Some` selects `PrioritizedReplay`; `None` selects `UniformReplay`. |
+
+PER is enabled through the agent config, not by hand-constructing a buffer:
 
 ```rust
-use rlevo_reinforcement_learning::memory::PrioritizedExperienceReplayBuilder;
+use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
+use rlevo_reinforcement_learning::replay::PrioritizedReplaySettings;
 
-let mut buffer = PrioritizedExperienceReplayBuilder::default()
-    .with_capacity(100_000)
-    .with_alpha(0.6)
-    .build();
+// Uniform replay is the default; opt into PER with Schaul's proportional
+// defaults (α = 0.6, β: 0.4 → 1.0).
+let cfg = DqnTrainingConfigBuilder::new()
+    .replay_buffer_capacity(100_000)
+    .prioritized_replay(PrioritizedReplaySettings::default())
+    .build()
+    .expect("valid config");
 
-// buffer.add(obs, action, reward, next_obs, terminated, priority);
-// let batch = buffer.sample_batch::<2, 2, MyBackend>(32, &device)?;
+assert!(cfg.prioritized_replay.is_some());
 ```
 
 Prioritized Experience Replay follows the algorithm of Schaul et al.:
@@ -367,14 +374,16 @@ Prioritized Experience Replay follows the algorithm of Schaul et al.:
 
 ### Trajectory Storage (`experience`)
 
-Per-transition records and the FIFO trajectory buffer the replay buffer is built on. Moved here from `rlevo-core` per ADR 0003.
+Per-transition records and a FIFO trajectory buffer. Moved here from `rlevo-core` per ADR 0003.
+
+> **Not used by any algorithm.** No shipped agent consumes these types; the off-policy agents store transitions through the [`replay`](#experience-replay-replay) seam instead. `experience` survives only as a POMDP roadmap seam — `HistoryRepresentation` and `SufficientStatistic` take `&History` in their signatures. Keep-or-delete is a POMDP-milestone decision.
 
 | Item | Description |
 |------|-------------|
 | `ExperienceTuple<D, AD, O, A, R>` | Single `(s, a, r, s′, done)` transition |
 | `History<D, AD, O, A, R>` | Fixed-capacity FIFO buffer (`VecDeque`); indexable, iterable |
-| `HistoryRepresentation` | Trait for summaries built from a `History` |
-| `SufficientStatistic` | Extends `HistoryRepresentation + MarkovState`; checks whether a history summary is Markov-sufficient |
+| `HistoryRepresentation` | Trait for summaries built from a `History` (POMDP roadmap seam) |
+| `SufficientStatistic` | Extends `HistoryRepresentation + MarkovState`; checks whether a history summary is Markov-sufficient (POMDP roadmap seam) |
 
 ### Performance Tracking (`metrics`)
 
