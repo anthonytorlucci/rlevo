@@ -253,7 +253,76 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   at the default bounds, which never bind on a healthy run (verified: the
   Pendulum end-to-end run passes unchanged at avg −1167.78).
 
+- **The `memory` module — `PrioritizedExperienceReplay`, its builder, and
+  `TrainingBatch` — is removed outright, with no deprecation shim** (ADR 0050,
+  resolves #188). The docs advertised the module as the sanctioned
+  replay-integration path, but nothing in the workspace constructed it beyond
+  one shape-assertion test, and it carried four independent defects: no
+  `update_priorities`, so priorities were insert-time constants never fed back
+  from TD error — alpha-weighted sampling over static values, not PER; an
+  internal `rand::rng()` no seed could reach; a one-hot `Float` action tensor
+  that cannot express DQN's `Int` gather index; and without-replacement
+  sampling where every agent draws with replacement. A `#[deprecated]` shim
+  would assert "this works, prefer the new thing" — it did not work. The gap
+  survived because the only usage example was an ```` ```ignore ```` doctest
+  that nothing ever compiled; its replacement on `PrioritizedReplaySettings`
+  is a real, running doctest.
+
+  *Migration.* The `replay` module is the integration path: `UniformReplay`
+  is what every agent already does by default, and prioritization is enabled
+  per agent via the DQN/C51/QR-DQN config builders'
+  `prioritized_replay(PrioritizedReplaySettings)`. `crate::memory::ReplayBufferError`
+  is gone with the module — import it from `crate::replay` instead. No
+  persisted data is affected; the removed types never serialized anything.
+
+- **`buffer_capacity` is renamed `replay_buffer_capacity` on the DDPG, TD3,
+  and SAC configs and their builder setters** (ADR 0050). The discrete three
+  already spelled the same knob `replay_buffer_capacity`; six agents feeding
+  one replay seam should not name it two ways. *Migration.* Rename the field
+  or setter call — capacity semantics are unchanged.
+
+- **`categorical_cross_entropy` and `quantile_huber_loss` are renamed
+  `categorical_cross_entropy_per_sample` and `quantile_huber_loss_per_sample`
+  and return the unreduced `[batch]` loss** (ADR 0050). Callers reduce with
+  `.mean()` — or with an importance-weighted mean, which is the point: a
+  per-sample loss is what an IS weight can scale. The rename is load-bearing,
+  not cosmetic. The signature is `Tensor<B, 1>` before and after, so a stale
+  caller would compile clean and silently backpropagate a different gradient;
+  the new name turns that into a compile error. *Migration.* Append `.mean()`
+  to restore the previous value bit-for-bit.
+
 **Added**
+
+- **A replay-strategy seam — `replay::ReplayStrategy<T>` — with uniform and
+  prioritized implementations, and opt-in prioritized replay for the
+  value-based agents** (ADR 0050, ADR 0051, resolves #188). `UniformReplay`
+  absorbs the six agents' hand-rolled `VecDeque` buffers bit-identically —
+  the guarantee is a pinned contract test asserting the sampler leaves the
+  RNG in the same state as the verbatim pre-seam expression, so seeded
+  baselines did not move. `PrioritizedReplay` is a paper-faithful rebuild of
+  Schaul et al. 2016's proportional variant: sum-tree storage, stratified
+  one-draw-per-equal-mass-segment sampling (not k i.i.d. draws — the paper
+  presents the balancing as deliberate variance reduction), running-max
+  insert priority, IS weights max-normalized over the sampled minibatch, and
+  `Priority`/`ImportanceExponent` newtypes that make the old
+  NaN-into-`powf` path unrepresentable.
+
+  Enable it per agent with the DQN/C51/QR-DQN builders'
+  `.prioritized_replay(PrioritizedReplaySettings::default())` — defaults
+  `priority_exponent 0.6`, β annealing `0.4 → 1.0` (Schaul Table 3,
+  proportional). Two fidelity notes are encoded in code and rustdoc rather
+  than left to convention: C51 prioritizes by the **KL divergence** — what
+  the algorithm minimizes, per Rainbow — not by its cross-entropy loss (they
+  differ by the target entropy, which is theta-constant but varies per
+  sample, so it changes replay ranking; a test pins a case where CE and KL
+  rank two transitions in opposite order). QR-DQN's quantile-Huber priority
+  is an **uncited extrapolation** of Rainbow's principle — Dabney et al.
+  explicitly evaluated QR-DQN without prioritization — and its rustdoc says
+  so instead of inventing a citation. DDPG/TD3/SAC deliberately keep uniform
+  replay: Panahi et al. (RLJ 2024) find no prioritized variant consistently
+  beats uniform in control, and Saglam et al. (JAIR 2022) give the
+  actor-gradient mechanism, so prioritization there would be a fidelity
+  defect, not a feature.
 
 - **`algorithms::c51::projection::atom_spacing`** — the single source of truth
   for the atom spacing `Δz = (v_max − v_min) / (N − 1)` (Bellemare et al. 2017,

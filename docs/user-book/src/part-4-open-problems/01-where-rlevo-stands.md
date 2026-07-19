@@ -70,9 +70,9 @@ All eight agents have integration tests and benchmark harnesses.
 
 | Algorithm | Status | Notes |
 | --------- | ------ | ----- |
-| DQN | Stable | Discrete actions; experience replay, target network, optional Double-DQN (`double_q`) |
-| C51 | Stable | Categorical (distributional) DQN; discrete actions |
-| QR-DQN | Stable | Quantile-regression (distributional) DQN; discrete actions |
+| DQN | Stable | Discrete actions; experience replay (uniform default, opt-in prioritised via `prioritized_replay`), target network, optional Double-DQN (`double_q`) |
+| C51 | Stable | Categorical (distributional) DQN; discrete actions; opt-in prioritised replay (prioritises by KL, per Rainbow) |
+| QR-DQN | Stable | Quantile-regression (distributional) DQN; discrete actions; opt-in prioritised replay |
 | PPO | Stable | On-policy; clipped surrogate, GAE with partial-episode bootstrapping (PEB) on truncation, tanh-Gaussian + categorical heads |
 | PPG | Stable | Phasic Policy Gradient; shares PPO's PEB-corrected GAE; auxiliary value phase with KL distillation (v1 discrete-only) |
 | DDPG | Stable | Off-policy, continuous actions; deterministic actor + Q-critic, Polyak targets |
