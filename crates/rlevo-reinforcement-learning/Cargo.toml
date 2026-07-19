@@ -77,3 +77,8 @@ harness = false
 name = "staging_bench"
 path = "benches/staging_bench.rs"
 harness = false
+
+[[bench]]
+name = "learn_step_bench"
+path = "benches/learn_step_bench.rs"
+harness = false
