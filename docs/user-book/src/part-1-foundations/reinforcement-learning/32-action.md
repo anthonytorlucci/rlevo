@@ -182,18 +182,34 @@ When the bounds are known, layer on `BoundedAction`:
 
 ```rust
 pub trait BoundedAction<const R: usize>: ContinuousAction<R> {
-    fn low()  -> [f32; R];
-    fn high() -> [f32; R];
+    fn low()  -> &'static [f32];
+    fn high() -> &'static [f32];
 }
 ```
 
 This exists because continuous-control algorithms (DDPG, TD3, SAC) genuinely
 need the per-component bounds: to rescale a `[-1, 1]` network output into the
-environment's real range, and to sample uniform warm-up actions before the
-policy has learned anything. The invariant is `low()[i] < high()[i]`, and `clip`
-must be a no-op on an action already inside `[low, high]`.
+environment's real range, to clip a target action, and to sample uniform
+warm-up actions before the policy has learned anything. The invariant is
+`low().len() == high().len() == COMPONENTS` and `low()[i] < high()[i]` for
+every component `i`, and `clip` must be a no-op on an action already inside
+`[low, high]`.
 
-Pendulum is a clean single-axis example — one torque value bounded to
+Notice the return type is a slice, not `[f32; R]`. That is deliberate, and it
+is the same rank-vs-component distinction `COMPONENTS` drew above, one level
+up: `R` names the `ContinuousAction<R>` supertrait but never appears in either
+signature, because keying the bounds on rank instead of `COMPONENTS` was
+exactly the bug ([issue #253](https://github.com/anthonytorlucci/rlevo/issues/253),
+the same conflation as [issue #100](https://github.com/anthonytorlucci/rlevo/issues/100))
+— a rank-1 walker action with four components would only ever get one bound
+pair back. `&'static [f32]` sidesteps `[f32; Self::COMPONENTS]`, which needs
+the unstable `generic_const_exprs` feature and isn't available on the stable
+toolchain this workspace pins; see
+[ADR 0053](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0053-bounded-action-per-component-bounds.md)
+for the full design rationale, including why the length agreement is a
+contract test rather than something the compiler checks for you.
+
+Pendulum is a clean single-component example — one torque value bounded to
 \\([-2, 2]\\):
 
 ```rust
@@ -210,8 +226,27 @@ impl ContinuousAction<1> for PendulumAction {
 }
 
 impl BoundedAction<1> for PendulumAction {
-    fn low()  -> [f32; 1] { [-2.0] }
-    fn high() -> [f32; 1] { [ 2.0] }
+    fn low()  -> &'static [f32] { &[-2.0] }
+    fn high() -> &'static [f32] { &[2.0] }
+}
+```
+
+CarRacing is the case that motivates the whole design: three components —
+`[steer, gas, brake]` — sharing one rank-1 `Action<1>`, with bounds that are
+*not* symmetric across components. Steering ranges over \\([-1, 1]\\), but gas
+and brake only make sense as \\([0, 1]\\); a scalar `low()`/`high()` pair could
+never express that gas has a different floor than steering.
+
+```rust
+impl ContinuousAction<1> for CarRacingAction {
+    const COMPONENTS: usize = 3;
+    fn as_slice(&self) -> &[f32] { &self.components }
+    // ...
+}
+
+impl BoundedAction<1> for CarRacingAction {
+    fn low()  -> &'static [f32] { &[-1.0, 0.0, 0.0] }
+    fn high() -> &'static [f32] { &[1.0, 1.0, 1.0] }
 }
 ```
 
