@@ -40,6 +40,7 @@ pub use rlevo_reinforcement_learning as rl;
 /// **Core base traits** (`rlevo::core::base`):
 /// [`State`](core::base::State), [`Observation`](core::base::Observation),
 /// [`Action`](core::base::Action), [`Reward`](core::base::Reward),
+/// [`HostRow`](core::base::HostRow),
 /// [`TensorConvertible`](core::base::TensorConvertible)
 ///
 /// **Environment** (`rlevo::core::environment`):
