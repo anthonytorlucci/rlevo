@@ -29,7 +29,9 @@ use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components};
+use crate::algorithms::shared::{
+    Slot, UNIFORM_REPLAY_BETA, action_bound_tensors, assert_bounds_match_components,
+};
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
@@ -179,6 +181,10 @@ pub struct Td3Agent<
     exploration: GaussianNoise,
     low: &'static [f32],
     high: &'static [f32],
+    /// `[1, ..action_shape]` per-component bounds for the Eq. 14 target clip,
+    /// built once at construction — see [`action_bound_tensors`].
+    low_t: Tensor<B::InnerBackend, DAB>,
+    high_t: Tensor<B::InnerBackend, DAB>,
     config: Td3TrainingConfig,
     device: B::Device,
     step: usize,
@@ -271,6 +277,7 @@ where
         };
         let exploration = GaussianNoise::new(config.exploration_noise);
         let stats = AgentStats::<Td3Metrics>::new(100);
+        let (low_t, high_t) = action_bound_tensors::<B::InnerBackend, A, DA, DAB>(&device);
         Ok(Self {
             actor: Slot::new(actor),
             target_actor,
@@ -285,6 +292,8 @@ where
             exploration,
             low: A::low(),
             high: A::high(),
+            low_t,
+            high_t,
             config,
             device,
             step: 0,
@@ -526,18 +535,22 @@ where
             Tensor::from_data(TensorData::new(terminated, vec![batch_size]), &device);
 
         // --- Target computation (no autodiff) ---
-        // Convention matches DDPG and CleanRL: clip to `low[0]`/`high[0]`.
-        let low_scalar = self.low[0];
-        let high_scalar = self.high[0];
-
+        // Eq. 14's outer clip is against the `Box(low, high)` **vectors**, one
+        // limit per component. Collapsing them to `low[0]`/`high[0]` is only
+        // equivalent when every component shares a bound; under an asymmetric
+        // space such as CarRacing's `Box([-1,0,0], [1,1,1])` it would leave
+        // negative gas and brake in the target action — the "values of
+        // impossible actions" the clip exists to suppress. The inner
+        // `noise_clip` stays scalar: it bounds the smoothing noise *magnitude*
+        // symmetrically and is scalar in the paper too.
         let raw_next_action: Tensor<B::InnerBackend, DAB> =
             Actor::forward_inner(&self.target_actor, next_t_inner.clone());
         let next_actions = smoothed_target_action::<B::InnerBackend, R, DAB>(
             raw_next_action,
             self.config.policy_noise,
             self.config.noise_clip,
-            low_scalar,
-            high_scalar,
+            self.low_t.clone(),
+            self.high_t.clone(),
             rng,
         );
 

@@ -181,6 +181,76 @@ pub(crate) fn assert_bounds_match_components<const DA: usize, A: BoundedAction<D
     );
 }
 
+/// Builds the `[1, ..action_shape]` per-component lower/upper bound tensors used
+/// by the DDPG and TD3 target-action clip.
+///
+/// TD3 Eq. 14 (Fujimoto et al. 2018) clips the target action against the
+/// `Box(low, high)` **vectors**, one limit per component. Burn 0.21's `clamp`
+/// family takes a scalar and cannot express that, so the clip goes through
+/// `max_pair`/`min_pair`, which need a tensor operand broadcastable to the
+/// `[batch, ..action_shape]` action tensor. Leading dim `1` broadcasts across
+/// the batch.
+///
+/// Built once per agent, at construction: the bounds are `&'static` (ADR 0053
+/// §2) and the device is already in hand, so nothing here belongs on the
+/// per-`learn_step` path.
+///
+/// # Panics
+///
+/// Panics if `A::shape()` does not describe exactly `A::COMPONENTS` scalars.
+/// The learn path already assumes this — it lays out the batched action tensor
+/// as `[batch, ..A::shape()]` and fills it from `A::as_slice()`, which is
+/// `COMPONENTS` long — so an action using ADR 0053 §8's Convention B (rank > 1
+/// with a non-matching `shape()` product) is unusable with these agents, and
+/// says so here rather than as a `TensorData` shape error.
+pub(crate) fn action_bound_tensors<BI, A, const DA: usize, const DAB: usize>(
+    device: &BI::Device,
+) -> (Tensor<BI, DAB>, Tensor<BI, DAB>)
+where
+    BI: Backend,
+    A: BoundedAction<DA>,
+{
+    let action_shape = A::shape();
+    let numel: usize = action_shape.iter().product();
+    assert_eq!(
+        numel,
+        A::COMPONENTS,
+        "action shape {action_shape:?} describes {numel} scalars but COMPONENTS is {}; \
+         the continuous-control agents require shape().product() == COMPONENTS",
+        A::COMPONENTS,
+    );
+
+    let mut shape: Vec<usize> = Vec::with_capacity(DAB);
+    shape.push(1);
+    shape.extend_from_slice(&action_shape);
+
+    let low = Tensor::from_data(TensorData::new(A::low().to_vec(), shape.clone()), device);
+    let high = Tensor::from_data(TensorData::new(A::high().to_vec(), shape), device);
+    (low, high)
+}
+
+/// Clips a batch of actions to `[low, high]` **per component**.
+///
+/// This is TD3 Eq. 14's outer clip, shared by DDPG's target path (which is the
+/// same clip without the smoothing noise). `low` and `high` come from
+/// [`action_bound_tensors`] and are shaped `[1, ..action_shape]`, so they
+/// broadcast across the batch dimension of `actions`.
+///
+/// Burn 0.21's `clamp` / `clamp_min` / `clamp_max` take a scalar
+/// `E: ElementConversion` and cannot express one limit per component, so this
+/// is `max_pair` followed by `min_pair` — two broadcast elementwise ops rather
+/// than one fused scalar clamp, over the same `[batch, ..action_shape]` data.
+pub(crate) fn clip_to_action_bounds<BI, const DAB: usize>(
+    actions: Tensor<BI, DAB>,
+    low: Tensor<BI, DAB>,
+    high: Tensor<BI, DAB>,
+) -> Tensor<BI, DAB>
+where
+    BI: Backend,
+{
+    actions.max_pair(low).min_pair(high)
+}
+
 /// Reduces a per-sample `[batch]` loss to a scalar, first scaling each sample by
 /// its importance-sampling weight when the batch carries any.
 ///
@@ -753,6 +823,77 @@ mod tests {
             (scalar(reduced) - 2.0).abs() < 1e-6,
             "each sample must be scaled by its own weight before the batch mean"
         );
+    }
+
+    // -------- clip_to_action_bounds --------
+
+    fn bound_row(values: &[f32]) -> Tensor<Flex, 2> {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        Tensor::from_data(
+            TensorData::new(values.to_vec(), vec![1, values.len()]),
+            &device,
+        )
+    }
+
+    #[test]
+    fn test_clip_to_action_bounds_respects_asymmetric_components() {
+        // ADR 0053 §6's regression witness, at the level DDPG's target path
+        // uses directly. CarRacing is `Box([-1,0,0], [1,1,1])`: steering is
+        // signed, gas and brake are not. The pre-fix scalar clip used
+        // `low[0]`/`high[0]` = `-1`/`1` for all three components, so a target
+        // actor emitting -5 everywhere produced a target action of
+        // `[-1, -1, -1]` — negative gas and negative brake, actions the
+        // environment cannot execute, whose Q-values TD3 Eq. 14 exists to keep
+        // out of the target. Per-component clipping floors both at 0.
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let low = bound_row(&[-1.0, 0.0, 0.0]);
+        let high = bound_row(&[1.0, 1.0, 1.0]);
+        // Two rows: the `[1, 3]` bounds must broadcast over the batch dim.
+        let actions: Tensor<Flex, 2> = Tensor::from_data(
+            TensorData::new(vec![-5.0_f32, -5.0, -5.0, 5.0, 5.0, 5.0], vec![2, 3]),
+            &device,
+        );
+
+        let out = clip_to_action_bounds(actions, low, high);
+        let data = out.into_data().convert::<f32>();
+        let got = data.as_slice::<f32>().expect("f32 host read");
+
+        let expected = [-1.0_f32, 0.0, 0.0, 1.0, 1.0, 1.0];
+        for (i, want) in expected.iter().enumerate() {
+            assert!(
+                (got[i] - want).abs() < 1e-6,
+                "component {i} must clip to its own bound {want}, got {} (full row: {got:?})",
+                got[i]
+            );
+        }
+        assert!(
+            got[1] >= -1e-6 && got[2] >= -1e-6,
+            "gas and brake have a lower bound of 0 and must never go negative, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn test_clip_to_action_bounds_is_a_noop_inside_the_box() {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let low = bound_row(&[-1.0, 0.0, 0.0]);
+        let high = bound_row(&[1.0, 1.0, 1.0]);
+        let actions: Tensor<Flex, 2> = Tensor::from_data(
+            TensorData::new(vec![-0.5_f32, 0.25, 0.75], vec![1, 3]),
+            &device,
+        );
+
+        let out = clip_to_action_bounds(actions, low, high);
+        let data = out.into_data().convert::<f32>();
+        let got = data.as_slice::<f32>().expect("f32 host read");
+
+        for (i, want) in [-0.5_f32, 0.25, 0.75].iter().enumerate() {
+            assert!(
+                (got[i] - want).abs() < 1e-6,
+                "an in-bounds action must pass through unchanged at component {i}: \
+                 wanted {want}, got {}",
+                got[i]
+            );
+        }
     }
 
     // -------- LogWatermark --------
