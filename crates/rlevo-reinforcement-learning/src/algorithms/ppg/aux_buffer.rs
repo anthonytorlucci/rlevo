@@ -1,7 +1,16 @@
 //! Auxiliary-phase replay buffer for PPG.
 //!
-//! Accumulates the last `n_iteration` policy-phase rollouts so the auxiliary
-//! phase can train over the combined pool. Each slice stores:
+//! Accumulates policy-phase rollouts until drained by the auxiliary phase, so
+//! that phase can train over the combined pool. The pool is **unbounded**:
+//! [`AuxRolloutBuffer::push_slice`] never evicts, and [`AuxRolloutBuffer::is_ready`]
+//! only *reports* that `n_iteration` rollouts have accumulated — it does not cap
+//! them. Under the normal PPG loop the auxiliary phase calls
+//! [`AuxRolloutBuffer::clear`] every `n_iteration` rollouts, which bounds the
+//! pool in practice. A caller that drives the `pub`
+//! `PpgAgent::snapshot_into_aux_buffer` seam directly without ever running the
+//! auxiliary phase will grow the pool without limit.
+//!
+//! Each slice stores:
 //!
 //! - `obs` — the rollout's observations (CPU-resident, cloned at push time)
 //! - `returns` — GAE target returns `advantages + values`, used as the
@@ -140,9 +149,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
         for &global in indices {
             let (si, ii) = self.locate(global);
             let slice = &self.slices[si];
-            let t: Tensor<B, DO> = slice.obs[ii].to_tensor(device);
-            let data = t.into_data().convert::<f32>();
-            obs_flat.extend_from_slice(data.as_slice::<f32>().expect("f32 obs"));
+            slice.obs[ii].write_host_row(&mut obs_flat);
             returns.push(slice.returns[ii]);
         }
 
