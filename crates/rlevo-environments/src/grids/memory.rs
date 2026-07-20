@@ -764,18 +764,15 @@ impl Environment<3, 3, 1> for MemoryEnv {
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
-        let (reward, done) = match outcome {
-            StepOutcome::DoneAction => {
-                if self.facing_match() {
-                    (success_reward(self.steps, self.config.max_steps), true)
-                } else {
-                    (0.0, true)
-                }
+        let (reward, done) = if outcome == StepOutcome::DoneAction {
+            if self.facing_match() {
+                (success_reward(self.steps, self.config.max_steps), true)
+            } else {
+                (0.0, true)
             }
-            _ => {
-                let done = self.steps >= self.config.max_steps;
-                (0.0, done)
-            }
+        } else {
+            let done = self.steps >= self.config.max_steps;
+            (0.0, done)
         };
         Ok(self.emit(reward, done))
     }
@@ -789,6 +786,12 @@ impl rlevo_core::render::payload::GridPayloadSource for MemoryEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;

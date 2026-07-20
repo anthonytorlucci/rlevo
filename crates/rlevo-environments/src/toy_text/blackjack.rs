@@ -150,6 +150,7 @@ impl Default for BlackjackConfig {
 
 impl BlackjackConfig {
     /// Returns a builder for constructing a `BlackjackConfig`.
+    #[must_use]
     pub fn builder() -> BlackjackConfigBuilder {
         BlackjackConfigBuilder::default()
     }
@@ -164,7 +165,7 @@ impl Validate for BlackjackConfig {
 }
 
 /// Builder for [`BlackjackConfig`].
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BlackjackConfigBuilder {
     variant: BlackjackVariant,
     seed: u64,
@@ -172,18 +173,21 @@ pub struct BlackjackConfigBuilder {
 
 impl BlackjackConfigBuilder {
     /// Sets the rule variant.
+    #[must_use]
     pub fn variant(mut self, v: BlackjackVariant) -> Self {
         self.variant = v;
         self
     }
 
     /// Sets the RNG seed.
+    #[must_use]
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
 
     /// Builds the [`BlackjackConfig`].
+    #[must_use]
     pub fn build(self) -> BlackjackConfig {
         BlackjackConfig {
             variant: self.variant,
@@ -539,10 +543,13 @@ impl rlevo_core::render::payload::TabularPayloadSource for Blackjack {
 #[cfg(test)]
 /// Unit tests for [`Blackjack`], covering actions, observations, rewards, and RNG determinism.
 mod tests {
+    // Blackjack rewards are exact sentinels written as literals (-1.0, 0.0,
+    // +1.0) and pass through no arithmetic, so bit-exact equality is the
+    // property under test; an approximate compare would weaken these.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::Observation;
     use rlevo_core::environment::EpisodeStatus;
 
     fn make_env() -> Blackjack {

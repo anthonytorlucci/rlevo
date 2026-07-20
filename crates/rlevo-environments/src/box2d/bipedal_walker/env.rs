@@ -1,6 +1,6 @@
 //! Core [`BipedalWalker`] environment implementation.
 //!
-//! This module wires together the Rapier2D physics world, terrain generation,
+//! This module wires together the `Rapier2D` physics world, terrain generation,
 //! motor control, observation computation, and reward shaping into a type that
 //! implements [`rlevo_core::environment::Environment`].
 //!
@@ -19,8 +19,6 @@
 
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rapier2d::dynamics::RevoluteJoint;
-use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, ConstraintKind, Validate};
@@ -54,10 +52,10 @@ const SCALE: f32 = 30.0;
 /// Ground y-level (world units).
 const GROUND_Y: f32 = -1.0;
 
-/// BipedalWalker reinforcement learning environment.
+/// `BipedalWalker` reinforcement learning environment.
 ///
 /// A 2D bipedal robot that learns to walk forward using hip and knee motor
-/// targets. Physics are simulated with Rapier2D (enhanced-determinism).
+/// targets. Physics are simulated with `Rapier2D` (enhanced-determinism).
 ///
 /// # Episode lifecycle
 ///
@@ -210,8 +208,8 @@ impl BipedalWalker {
             let y0 = w[0][1] / SCALE;
             let x1 = w[1][0] / SCALE;
             let y1 = w[1][1] / SCALE;
-            let mx = (x0 + x1) / 2.0;
-            let my = (y0 + y1) / 2.0;
+            let mx = f32::midpoint(x0, x1);
+            let my = f32::midpoint(y0, y1);
             let dx = x1 - x0;
             let dy = y1 - y0;
             let len = (dx * dx + dy * dy).sqrt() / 2.0;
@@ -467,7 +465,7 @@ impl BipedalWalker {
     ///
     /// If the hull contacts the ground the caller in `step()` subtracts an
     /// additional −100 from the value returned here.
-    fn compute_reward(&self, action: &BipedalWalkerAction, vel_x: f32) -> f32 {
+    fn compute_reward(action: &BipedalWalkerAction, vel_x: f32) -> f32 {
         let ctrl_cost = 0.3 * action.0.iter().map(|a| a * a).sum::<f32>();
         vel_x - ctrl_cost
     }
@@ -565,7 +563,7 @@ impl Environment<1, 1, 1> for BipedalWalker {
             .bodies()
             .get(self.state.hull_handle)
             .map_or(0.0, |b| b.linvel().x);
-        let reward = self.compute_reward(&action, vel_x);
+        let reward = Self::compute_reward(&action, vel_x);
         self.total_reward += reward;
 
         let obs = self.observe(&action, &self.state);
@@ -680,6 +678,10 @@ impl BipedalWalker {
 
 #[cfg(test)]
 mod tests {
+    // These assert bit-exact determinism: two identically seeded runs must
+    // produce byte-identical trajectories, which a tolerance would not test.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;

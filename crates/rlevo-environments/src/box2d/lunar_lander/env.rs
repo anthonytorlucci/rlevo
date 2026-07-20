@@ -1,8 +1,8 @@
-//! LunarLander environment implementation — discrete and continuous variants.
+//! `LunarLander` environment implementation — discrete and continuous variants.
 //!
 //! This module contains the two concrete environment types ([`LunarLanderDiscrete`]
 //! and [`LunarLanderContinuous`]) and the shared `LunarLanderCore` physics driver
-//! that both variants delegate to. Physics are simulated with Rapier2D at a fixed
+//! that both variants delegate to. Physics are simulated with `Rapier2D` at a fixed
 //! timestep (`config.dt`, default 1/50 s).
 //!
 //! ## Reward formula
@@ -23,7 +23,7 @@
 //!
 //! On a terminal step the reward is **set to** +100 (soft landing) or −100
 //! (crash / out-of-bounds), replacing that step's shaping delta and control
-//! cost — matching Gymnasium LunarLander.
+//! cost — matching Gymnasium `LunarLander`.
 //!
 //! The **absolute potential Φ(t)** (not the difference that enters `reward`) is
 //! surfaced through step metadata under
@@ -33,8 +33,6 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rapier2d::dynamics::RevoluteJoint;
-use rapier2d::geometry::ColliderHandle;
 use rapier2d::prelude::*;
 use rlevo_core::base::{Action, State};
 use rlevo_core::config::{ConfigError, Validate};
@@ -175,7 +173,7 @@ impl LunarLanderCore {
         self.state.leg2_contact = false;
         self.state.prev_shaping = 0.0;
         let obs = self.compute_obs();
-        self.state.prev_shaping = self.shaping(&obs);
+        self.state.prev_shaping = Self::shaping(&obs);
 
         // Handles are now assigned and `prev_shaping` written; the state is
         // fully assembled, so the invariant must hold.
@@ -293,7 +291,7 @@ impl LunarLanderCore {
         ])
     }
 
-    fn shaping(&self, obs: &LunarLanderObservation) -> f32 {
+    fn shaping(obs: &LunarLanderObservation) -> f32 {
         -100.0 * (obs.x() * obs.x() + obs.y() * obs.y()).sqrt()
             - 100.0 * (obs.vx() * obs.vx() + obs.vy() * obs.vy()).sqrt()
             - 100.0 * obs.angle().abs()
@@ -313,7 +311,7 @@ impl LunarLanderCore {
         self.update_contacts();
 
         let obs = self.compute_obs();
-        let shaping = self.shaping(&obs);
+        let shaping = Self::shaping(&obs);
         let reward_shaping = shaping - self.state.prev_shaping;
         self.state.prev_shaping = shaping;
 
@@ -321,7 +319,9 @@ impl LunarLanderCore {
         let mut reward = reward_shaping - ctrl_cost;
 
         let lander = self.world.bodies().get(self.state.lander_handle);
-        let pos = lander.map(|b| b.translation()).unwrap_or_default();
+        let pos = lander
+            .map(rapier2d::dynamics::RigidBody::translation)
+            .unwrap_or_default();
         // A crash is a hull–ground contact, mirroring Gymnasium's `game_over`
         // flag (set unconditionally the instant the hull touches the ground;
         // leg contact does NOT suppress it). A clean landing keeps the hull off
@@ -369,7 +369,7 @@ impl LunarLanderCore {
 
 // ─── LunarLanderDiscrete ──────────────────────────────────────────────────────
 
-/// LunarLander with a 4-way discrete action space.
+/// `LunarLander` with a 4-way discrete action space.
 ///
 /// The step-limit is enforced internally (`config.max_steps`, default 1000).
 /// The snapshot type is a plain [`SnapshotBase`] alias ([`LunarLanderSnapshot`])
@@ -389,7 +389,7 @@ pub struct LunarLanderDiscrete {
 impl LunarLanderDiscrete {
     /// Construct with the given configuration.
     ///
-    /// The Rapier2D world is built immediately; the lander is placed at the spawn
+    /// The `Rapier2D` world is built immediately; the lander is placed at the spawn
     /// position and the initial shaping value is computed so that the first call
     /// to `reset` returns a valid snapshot without a prior physics step.
     ///
@@ -487,7 +487,7 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
 
 // ─── LunarLanderContinuous ────────────────────────────────────────────────────
 
-/// LunarLander with a 2-dimensional continuous action space.
+/// `LunarLander` with a 2-dimensional continuous action space.
 ///
 /// Each action is a `[f32; 2]` vector wrapped in [`LunarLanderContinuousAction`].
 /// Both components must lie in `[-1, 1]` and be finite; `step` returns
@@ -512,7 +512,7 @@ pub struct LunarLanderContinuous {
 impl LunarLanderContinuous {
     /// Construct with the given configuration.
     ///
-    /// The Rapier2D world is built immediately; see [`LunarLanderDiscrete::with_config`]
+    /// The `Rapier2D` world is built immediately; see [`LunarLanderDiscrete::with_config`]
     /// for notes that apply equally here.
     ///
     /// # Errors
@@ -810,6 +810,12 @@ impl LunarLanderContinuous {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::super::snapshot::METADATA_KEY_SHAPING;
     use super::*;
     use rlevo_core::action::DiscreteAction;

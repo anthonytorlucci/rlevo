@@ -208,6 +208,11 @@ pub struct EmptyEnv {
     steps: usize,
     render: bool,
     /// RNG slot held for parity with random-spawn variants.
+    // Never sampled: this env's layout builder is fully deterministic and
+    // ignores `config.seed`, so the field is written but never read. Kept
+    // as-is rather than renamed — see #397, which decides whether these
+    // envs become genuinely stochastic or drop the seed entirely.
+    #[allow(clippy::used_underscore_binding)]
     _rng: StdRng,
 }
 
@@ -355,6 +360,12 @@ impl rlevo_core::render::payload::GridPayloadSource for EmptyEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;

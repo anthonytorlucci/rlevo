@@ -1,4 +1,4 @@
-//! Configuration for the BipedalWalker environment.
+//! Configuration for the `BipedalWalker` environment.
 //!
 //! [`BipedalWalkerConfig`] groups all tunable parameters. Use
 //! [`BipedalWalkerConfig::builder`] for ergonomic construction; call
@@ -100,6 +100,7 @@ impl Validate for BipedalWalkerConfig {
 
 impl BipedalWalkerConfig {
     /// Return a builder for configuring a `BipedalWalkerConfig`.
+    #[must_use]
     pub fn builder() -> BipedalWalkerConfigBuilder {
         BipedalWalkerConfigBuilder {
             inner: BipedalWalkerConfig::default(),
@@ -115,30 +116,35 @@ pub struct BipedalWalkerConfigBuilder {
 
 impl BipedalWalkerConfigBuilder {
     /// Sets the terrain difficulty variant.
+    #[must_use]
     pub fn terrain(mut self, terrain: BipedalTerrain) -> Self {
         self.inner.terrain = terrain;
         self
     }
 
     /// Sets the RNG seed for terrain generation and initial state.
+    #[must_use]
     pub fn seed(mut self, seed: u64) -> Self {
         self.inner.seed = seed;
         self
     }
 
     /// Sets the maximum steps per episode before truncation.
+    #[must_use]
     pub fn max_steps(mut self, max_steps: usize) -> Self {
         self.inner.max_steps = max_steps;
         self
     }
 
     /// Sets the maximum torque applied by each leg motor.
+    #[must_use]
     pub fn motors_torque(mut self, torque: f32) -> Self {
         self.inner.motors_torque = torque;
         self
     }
 
     /// Sets the lidar sensing range in world units.
+    #[must_use]
     pub fn lidar_range(mut self, range: f32) -> Self {
         self.inner.lidar_range = range;
         self

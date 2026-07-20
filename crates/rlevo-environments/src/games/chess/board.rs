@@ -27,24 +27,28 @@ const SQUARE_NOTATIONS: &[&str] = &[
 impl Square {
     /// Creates a square from rank and file (0-7).
     #[inline]
+    #[must_use]
     pub const fn from_rank_file(rank: u8, file: u8) -> Self {
         Self(rank * 8 + file)
     }
 
     /// Returns the rank (0-7, where 0 is rank 1).
     #[inline]
+    #[must_use]
     pub const fn rank(self) -> u8 {
         self.0 / 8
     }
 
     /// Returns the file (0-7, where 0 is file A).
     #[inline]
+    #[must_use]
     pub const fn file(self) -> u8 {
         self.0 % 8
     }
 
     /// Returns the bitboard mask for this square.
     #[inline]
+    #[must_use]
     pub const fn bitboard(self) -> u64 {
         1u64 << self.0
     }
@@ -66,6 +70,7 @@ impl Square {
     /// assert_eq!(sq.algebraic_notation(), "a1");
     /// ```
     #[inline]
+    #[must_use]
     pub const fn algebraic_notation(self) -> &'static str {
         SQUARE_NOTATIONS[self.0 as usize]
     }
@@ -97,6 +102,7 @@ impl Square {
     /// assert!(Square::from_algebraic_notation("i9").is_none());
     /// assert!(Square::from_algebraic_notation("e").is_none());
     /// ```
+    #[must_use]
     pub fn from_algebraic_notation(notation: &str) -> Option<Self> {
         // Algebraic notation must be exactly 2 characters
         if notation.len() != 2 {
@@ -139,6 +145,7 @@ pub enum Color {
 impl Color {
     /// Returns the opposite color.
     #[inline]
+    #[must_use]
     pub const fn opponent(self) -> Self {
         match self {
             Color::White => Color::Black,
@@ -172,6 +179,7 @@ impl PieceType {
     /// Returns the zero-based index used to address this piece type in a
     /// per-color bitboard array.
     #[inline]
+    #[must_use]
     pub const fn index(self) -> usize {
         self as usize
     }
@@ -185,6 +193,11 @@ impl PieceType {
 ///
 /// The [`Default`] implementation grants all four rights, matching the standard
 /// starting position.
+//
+// Four bools is the natural shape here: castling rights are four independent
+// flags in the FEN spec and are set and cleared independently by the rules.
+// Packing them into a bitfield would obscure a direct encoding of the standard.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CastlingRights {
     /// White may castle kingside (king to g1, rook from h1).
@@ -264,9 +277,9 @@ mod tests {
     fn test_from_algebraic_notation_all_files() {
         // Test that all file letters parse correctly
         for (file_index, file_letter) in "abcdefgh".chars().enumerate() {
-            let notation = format!("{}1", file_letter);
+            let notation = format!("{file_letter}1");
             let sq = Square::from_algebraic_notation(&notation)
-                .unwrap_or_else(|| panic!("{}1 should parse", file_letter));
+                .unwrap_or_else(|| panic!("{file_letter}1 should parse"));
             assert_eq!(sq.file(), file_index as u8);
             assert_eq!(sq.rank(), 0);
         }
@@ -276,9 +289,9 @@ mod tests {
     fn test_from_algebraic_notation_all_ranks() {
         // Test that all rank numbers parse correctly
         for (rank_index, rank_digit) in "12345678".chars().enumerate() {
-            let notation = format!("a{}", rank_digit);
+            let notation = format!("a{rank_digit}");
             let sq = Square::from_algebraic_notation(&notation)
-                .unwrap_or_else(|| panic!("a{} should parse", rank_digit));
+                .unwrap_or_else(|| panic!("a{rank_digit} should parse"));
             assert_eq!(sq.rank(), rank_index as u8);
             assert_eq!(sq.file(), 0);
         }
@@ -365,12 +378,11 @@ mod tests {
 
         for notation in notations {
             let sq = Square::from_algebraic_notation(notation)
-                .unwrap_or_else(|| panic!("{} should parse", notation));
+                .unwrap_or_else(|| panic!("{notation} should parse"));
             assert_eq!(
                 sq.algebraic_notation(),
                 notation,
-                "roundtrip failed for {}",
-                notation
+                "roundtrip failed for {notation}"
             );
         }
     }

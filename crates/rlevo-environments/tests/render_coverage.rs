@@ -1,7 +1,7 @@
 //! Cross-family regression guard for `AsciiRenderable` coverage.
 //!
 //! Every public env in the five in-scope 2D families (classic, grids,
-//! toy_text, landscapes, box2d) implements [`AsciiRenderable`]. This
+//! `toy_text`, landscapes, box2d) implements [`AsciiRenderable`]. This
 //! integration test enumerates one representative env per family — and
 //! one of every box2d variant since they share no parent type — and
 //! asserts the rendering contract:

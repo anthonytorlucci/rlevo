@@ -1,6 +1,6 @@
-//! LunarLander — 2D spacecraft landing environment (discrete and continuous variants).
+//! `LunarLander` — 2D spacecraft landing environment (discrete and continuous variants).
 //!
-//! Implements the LunarLander-v3 Gymnasium environment using Rapier2D physics.
+//! Implements the LunarLander-v3 Gymnasium environment using `Rapier2D` physics.
 //! The agent fires engines to safely land on a helipad at the origin; reward is
 //! potential-based, shaped by distance, velocity, and tilt relative to target.
 //!

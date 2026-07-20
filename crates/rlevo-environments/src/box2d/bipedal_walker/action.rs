@@ -1,15 +1,15 @@
-//! Action type for the BipedalWalker environment.
+//! Action type for the `BipedalWalker` environment.
 //!
 //! [`BipedalWalkerAction`] wraps four motor velocity targets — one per joint —
 //! each clamped to `[-1, 1]`. The targets are scaled by the per-joint speed
 //! constants (`speed_hip`, `speed_knee`) inside `apply_motors` before being
-//! passed to the Rapier2D impulse-joint motor.
+//! passed to the `Rapier2D` impulse-joint motor.
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
-/// 4-dimensional continuous action for BipedalWalker.
+/// 4-dimensional continuous action for `BipedalWalker`.
 ///
 /// Components (all in `[-1, 1]`):
 /// * `[0]` hip1 motor target (positive = forward)
@@ -96,6 +96,11 @@ impl BoundedAction<1> for BipedalWalkerAction {
 
 #[cfg(test)]
 mod tests {
+    // Clipping and slice round-trips move values without arithmetic, so the
+    // asserted results are bit-exact by construction; a tolerance would let a
+    // genuinely wrong clip pass.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     #[test]

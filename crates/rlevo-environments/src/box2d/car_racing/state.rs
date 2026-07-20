@@ -1,12 +1,12 @@
-//! Physics and progress state for the CarRacing environment.
+//! Physics and progress state for the `CarRacing` environment.
 //!
-//! [`CarRacingState`] holds the Rapier2D body handles for the car and wheels
+//! [`CarRacingState`] holds the `Rapier2D` body handles for the car and wheels
 //! and the tile-visit counters used for lap-completion detection.
 
 use rapier2d::dynamics::RigidBodyHandle;
 use rlevo_core::base::State;
 
-/// Physics and progress state for CarRacing.
+/// Physics and progress state for `CarRacing`.
 ///
 /// # Handle-lifetime caveat
 ///
@@ -24,7 +24,7 @@ use rlevo_core::base::State;
 /// cached on this struct — not the physics state.
 ///
 /// Making the state genuinely self-contained/Markov (owning its DOFs as values
-/// and re-modelling CarRacing as `Environment<3, 1, 1>` + `Observable<3>`) is
+/// and re-modelling `CarRacing` as `Environment<3, 1, 1>` + `Observable<3>`) is
 /// tracked by issue #255 (ADR 0039); this type only closes the encapsulation
 /// and invariant-honesty gap.
 #[derive(Debug, Clone)]
@@ -106,7 +106,7 @@ mod tests {
     use crate::box2d::car_racing::env::CarRacing;
     use rlevo_core::environment::{ConstructableEnv, Environment};
 
-    /// Builds a freshly-reset CarRacing env and returns it. The env owns the
+    /// Builds a freshly-reset `CarRacing` env and returns it. The env owns the
     /// world the state's handles index into, so it must outlive any state read.
     fn reset_env() -> CarRacing {
         let mut env = CarRacing::new(false);

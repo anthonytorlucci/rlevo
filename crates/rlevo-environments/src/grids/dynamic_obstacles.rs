@@ -194,7 +194,7 @@ impl FromStr for DynamicObstaclesConfig {
                     0 => cfg.size = raw.parse().map_err(|e| format!("size: {e}"))?,
                     1 => {
                         cfg.num_obstacles =
-                            raw.parse().map_err(|e| format!("num_obstacles: {e}"))?
+                            raw.parse().map_err(|e| format!("num_obstacles: {e}"))?;
                     }
                     2 => cfg.max_steps = raw.parse().map_err(|e| format!("max_steps: {e}"))?,
                     3 => cfg.seed = raw.parse().map_err(|e| format!("seed: {e}"))?,
@@ -560,6 +560,12 @@ impl rlevo_core::render::payload::GridPayloadSource for DynamicObstaclesEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

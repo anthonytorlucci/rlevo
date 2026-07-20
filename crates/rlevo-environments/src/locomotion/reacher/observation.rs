@@ -21,7 +21,7 @@ impl ReacherObservation {
         self.0[0]
     }
 
-    /// Cosine of the elbow (link 2) **relative** angle θ₂ = θ_world2 − θ₁,
+    /// Cosine of the elbow (link 2) **relative** angle θ₂ = `θ_world2` − θ₁,
     /// wrapped to `(-π, π]`. Index 1.
     #[must_use]
     pub const fn theta2_cos(&self) -> f32 {
@@ -54,7 +54,7 @@ impl ReacherObservation {
         self.0[6]
     }
 
-    /// Elbow **relative** angular velocity θ̇₂ = ω_link2 − ω_link1 in
+    /// Elbow **relative** angular velocity θ̇₂ = `ω_link2` − `ω_link1` in
     /// rad s⁻¹. Index 7.
     #[must_use]
     pub const fn theta2_dot(&self) -> f32 {

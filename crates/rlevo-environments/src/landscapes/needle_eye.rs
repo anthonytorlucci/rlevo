@@ -78,7 +78,7 @@ impl Needle {
     /// Coordinates beyond the first two are held at `0.0` (inside the needle).
     /// The rendered surface is uniformly dense — the optimal patch is invisible
     /// at any reasonable grid resolution, which documents the function's difficulty.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.0_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;

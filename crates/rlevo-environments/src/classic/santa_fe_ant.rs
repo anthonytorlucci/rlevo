@@ -13,7 +13,7 @@
 //!
 //! The one-bit percept is a massive cardinality reduction of the true state at
 //! **constant tensor order** — an information-reducing projection exactly like
-//! dropping the velocities from CartPole, *not* a modality change. Crucially,
+//! dropping the velocities from `CartPole`, *not* a modality change. Crucially,
 //! perceptual aliasing makes the *optimal* policy provably require internal
 //! memory: a memoryless reactive map `{0, 1} → action` cannot cross the trail's
 //! single, double, and L-shaped gaps, where the ant must step forward over an
@@ -815,6 +815,12 @@ impl crate::render::AsciiRenderable for SantaFeAnt {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

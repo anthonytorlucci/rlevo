@@ -1,4 +1,4 @@
-//! Discrete action type for LunarLander (design decision D1).
+//! Discrete action type for `LunarLander` (design decision D1).
 
 use rlevo_core::action::DiscreteAction;
 use rlevo_core::base::Action;
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "LunarLanderDiscreteAction index out of range")]
     fn test_out_of_bounds_panics() {
         LunarLanderDiscreteAction::from_index(4);
     }

@@ -90,7 +90,7 @@ impl Trefethen {
     }
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         self.evaluate(x, y)
     }
 }
@@ -174,9 +174,9 @@ mod tests {
         // any point with f < f*. Trefethen oscillates at frequencies 50–80, so a
         // 400×400 grid will NOT land near the true optimum — that is expected.
         // This test asserts only that the lower bound f* is never breached.
+        const STEPS: usize = 400;
         let t = Trefethen::new();
         let (lo, hi) = t.bounds();
-        const STEPS: usize = 400;
         #[expect(
             clippy::cast_precision_loss,
             reason = "STEPS is 400; grid indices are exactly representable in f64"

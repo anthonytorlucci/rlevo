@@ -182,6 +182,11 @@ impl PendulumAction {
     ///
     /// The bound `2.0` matches the default `max_torque`; environments with a
     /// non-default `max_torque` will further clip the torque in `step`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidActionError`] if `torque` is non-finite or its magnitude
+    /// exceeds `2.0`.
     pub fn new(torque: f32) -> Result<Self, InvalidActionError> {
         if torque.is_finite() && torque.abs() <= 2.0 {
             Ok(Self(torque))
@@ -193,6 +198,7 @@ impl PendulumAction {
     }
 
     /// The raw torque value.
+    #[must_use]
     pub fn torque(&self) -> f32 {
         self.0
     }
@@ -293,6 +299,7 @@ pub struct PendulumObservation {
 
 impl PendulumObservation {
     /// Flatten to a `[f32; 3]` array.
+    #[must_use]
     pub fn to_array(&self) -> [f32; 3] {
         [self.cos_theta, self.sin_theta, self.theta_dot]
     }
@@ -312,6 +319,7 @@ impl Observation<1> for PendulumObservation {
 ///
 /// Uses `rem_euclid` to handle negative inputs correctly.
 #[inline]
+#[must_use]
 pub fn angle_normalize(x: f32) -> f32 {
     (x + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI) - std::f32::consts::PI
 }
@@ -435,17 +443,17 @@ impl Sensor<1, 1, 1> for Pendulum {
     /// Projects the resulting state to the 3-D `[cos θ, sin θ, θ̇]` observation;
     /// the observation is a pure function of the state and ignores the torque.
     fn observe(&self, _action: &PendulumAction, next_state: &PendulumState) -> PendulumObservation {
-        pendulum_observation(next_state)
+        pendulum_observation(*next_state)
     }
 
     /// Projects the initial state to the 3-D observation.
     fn observe_reset(&self, state: &PendulumState) -> PendulumObservation {
-        pendulum_observation(state)
+        pendulum_observation(*state)
     }
 }
 
 /// Builds the 3-D Pendulum observation `[cos θ, sin θ, θ̇]` from a state.
-fn pendulum_observation(state: &PendulumState) -> PendulumObservation {
+fn pendulum_observation(state: PendulumState) -> PendulumObservation {
     PendulumObservation {
         cos_theta: state.theta.cos(),
         sin_theta: state.theta.sin(),
@@ -643,6 +651,12 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for Pendulum {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     //! Unit tests for [`Pendulum`] covering observation shape, action validation,
     //! reward at boundary states, `angle_normalize` correctness, non-termination,
     //! and determinism.
@@ -704,6 +718,8 @@ mod tests {
     }
 
     #[test]
+    // Justified: standard pendulum state names mirror the reference equations.
+    #[allow(clippy::similar_names)]
     fn angle_normalize_examples() {
         let pi = std::f32::consts::PI;
         // 3π and -3π are both ≡ π (mod 2π). The formula maps them to -π (same angle).

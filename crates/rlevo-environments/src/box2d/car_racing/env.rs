@@ -1,6 +1,6 @@
-//! CarRacing environment: `Environment` and `ConstructableEnv` implementations.
+//! `CarRacing` environment: `Environment` and `ConstructableEnv` implementations.
 //!
-//! This module wires the Rapier2D physics world, the [`Track`] generator, the
+//! This module wires the `Rapier2D` physics world, the [`Track`] generator, the
 //! [`Rasterizer`], and the tile-visit logic into the [`CarRacing`] struct that
 //! implements [`Environment<3, 3, 1>`](rlevo_core::environment::Environment).
 //!
@@ -21,8 +21,8 @@
 //!
 //! ## Tile-visit sweep proxy
 //!
-//! Canonical Gymnasium CarRacing marks *every* tile a wheel physically touches
-//! via a Box2D contact stream. rlevo has no cheap contact stream, so a fast car
+//! Canonical Gymnasium `CarRacing` marks *every* tile a wheel physically touches
+//! via a `Box2D` contact stream. rlevo has no cheap contact stream, so a fast car
 //! that skips several tiles between steps would leave gaps that a closed loop
 //! never revisits — undercounting `tiles_visited` and making completion
 //! unreachable. The proxy is a bounded contiguous **sweep**: on each step the
@@ -71,7 +71,7 @@ const CAR_W: f32 = 2.0 / 30.0;
 /// Car half-height.
 const CAR_H: f32 = 4.0 / 30.0;
 
-/// CarRacing reinforcement learning environment.
+/// `CarRacing` reinforcement learning environment.
 ///
 /// A top-down 2D car racing environment. The agent receives a 96×96 RGB
 /// pixel observation and outputs steering, gas, and brake controls.
@@ -223,8 +223,7 @@ impl CarRacing {
             .world
             .bodies()
             .get(self.state.car_handle)
-            .map(|b| [b.translation().x, b.translation().y])
-            .unwrap_or([0.0; 2]);
+            .map_or([0.0; 2], |b| [b.translation().x, b.translation().y]);
 
         let Some(nearest) = self.track.nearest_tile(pos) else {
             return 0.0;
@@ -275,14 +274,12 @@ impl CarRacing {
             .world
             .bodies()
             .get(state.car_handle)
-            .map(|b| [b.translation().x, b.translation().y])
-            .unwrap_or([0.0; 2]);
+            .map_or([0.0; 2], |b| [b.translation().x, b.translation().y]);
         let car_angle = self
             .world
             .bodies()
             .get(state.car_handle)
-            .map(|b| b.rotation().angle())
-            .unwrap_or(0.0);
+            .map_or(0.0, |b| b.rotation().angle());
 
         // The rasterizer is a per-frame scratch buffer, so it lives as a local
         // here rather than as env state — this keeps the sensor `&self`.
@@ -558,7 +555,7 @@ mod tests {
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
-    /// Creates a default seeded CarRacing environment for use in tests.
+    /// Creates a default seeded `CarRacing` environment for use in tests.
     fn make_env() -> CarRacing {
         CarRacing::with_config(CarRacingConfig::default()).expect("valid config")
     }

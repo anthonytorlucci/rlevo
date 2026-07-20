@@ -120,7 +120,7 @@ impl LunacekBiRastrigin {
     ///
     /// Coordinates beyond the first two are fixed at `μ₁ = 2.5` (the optimum) so
     /// the rendered slice passes through the global funnel.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![MU1; self.dim];
         if !p.is_empty() {
             p[0] = x;

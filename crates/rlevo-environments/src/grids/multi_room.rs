@@ -10,7 +10,7 @@
 //! a configurable structural knob (`num_rooms`), giving it a long-horizon
 //! planning flavor without depending on randomization.
 //!
-//! ## Layout (3 rooms, room_width = 5, height = 5 — default)
+//! ## Layout (3 rooms, `room_width` = 5, height = 5 — default)
 //!
 //! ```text
 //! # # # # # # # # # # # # # # # #
@@ -247,6 +247,11 @@ pub struct MultiRoomEnv {
     config: MultiRoomConfig,
     steps: usize,
     render: bool,
+    // Never sampled: this env's layout builder is fully deterministic and
+    // ignores `config.seed`, so the field is written but never read. Kept
+    // as-is rather than renamed — see #397, which decides whether these
+    // envs become genuinely stochastic or drop the seed entirely.
+    #[allow(clippy::used_underscore_binding)]
     _rng: StdRng,
 }
 
@@ -432,6 +437,12 @@ impl rlevo_core::render::payload::GridPayloadSource for MultiRoomEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

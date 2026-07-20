@@ -1,10 +1,10 @@
-//! Rapier3D implementation of [`LocomotionBackend`].
+//! `Rapier3D` implementation of [`LocomotionBackend`].
 //!
 //! Wraps the rapier3d simulation pipeline in [`Rapier3DWorld`] and provides a
 //! [`Rapier3DJointHandle`] union covering both impulse and multibody joints.
 //! Bodies are kept in maximal coordinates; articulated chains (Ant legs,
-//! Humanoid torso/arms/legs, Walker2D) are driven via `MultibodyJointSet` so
-//! they behave closer to MuJoCo's generalised coordinates than plain impulse
+//! Humanoid torso/arms/legs, `Walker2D`) are driven via `MultibodyJointSet` so
+//! they behave closer to `MuJoCo`'s generalised coordinates than plain impulse
 //! joints would.
 //!
 //! Note on math types: rapier3d 0.32's `Vector`, `Rotation`, and `Isometry`
@@ -14,12 +14,11 @@
 //! ([`Pose`], [`Twist`], and the `[f32; 6]` contact wrench), so no glam (or
 //! nalgebra) type ever crosses into observation/state code.
 
-use rapier3d::math::{Real, Vector};
 use rapier3d::prelude::*;
 
 use super::{BackendError, LocomotionBackend, Pose, Twist};
 
-/// Rapier3D scene for one locomotion environment.
+/// `Rapier3D` scene for one locomotion environment.
 ///
 /// Holds every set the rapier3d pipeline needs, plus env-level bookkeeping
 /// (`gravity`, `frame_skip`). Fields are `pub(crate)` so env modules can
@@ -56,6 +55,7 @@ impl std::fmt::Debug for Rapier3DWorld {
 impl Rapier3DWorld {
     /// Create a world with the given gravity vector, physics substep `dt`, and
     /// `frame_skip` substeps per environment step.
+    #[must_use]
     pub fn new(gravity: Vector, dt: Real, frame_skip: u32) -> Self {
         let integration_parameters = IntegrationParameters {
             dt,
@@ -83,7 +83,7 @@ impl Rapier3DWorld {
     /// live **exactly one** substep — each [`step_once`](Self::step_once)
     /// integrates the current accumulator and then clears it. A control input
     /// applied once before this call therefore affects only the *first*
-    /// substep. To hold an actuator constant across the frame skip (MuJoCo
+    /// substep. To hold an actuator constant across the frame skip (`MuJoCo`
     /// `ctrl`-held-across-substeps semantics), apply control every substep via
     /// [`step_actuated`](Self::step_actuated) instead. See ADR 0037.
     pub fn step_with_frame_skip(&mut self) {
@@ -128,7 +128,7 @@ impl Rapier3DWorld {
     ///
     /// rapier 0.32 `add_force`/`add_torque` are additive and consumed+cleared by
     /// [`step_once`](Self::step_once); to hold an actuator constant across the
-    /// frame skip (MuJoCo `ctrl`-held-across-substeps semantics) the caller MUST
+    /// frame skip (`MuJoCo` `ctrl`-held-across-substeps semantics) the caller MUST
     /// re-apply control every substep. `apply` is invoked with `&mut self`
     /// immediately before each `step_once`. See ADR 0037.
     pub fn step_actuated(&mut self, mut apply: impl FnMut(&mut Self)) {
@@ -191,7 +191,7 @@ impl Rapier3DWorld {
 
     /// Link two bodies with a multibody (generalised-coordinate) joint.
     ///
-    /// Multibody joints behave closer to MuJoCo's generalised coordinates than
+    /// Multibody joints behave closer to `MuJoCo`'s generalised coordinates than
     /// impulse joints and are preferred for articulated limb chains.  Returns
     /// `None` if rapier3d rejects the insertion (e.g. cyclic topology).
     pub(crate) fn add_multibody_joint(
@@ -218,9 +218,9 @@ impl Rapier3DWorld {
 
 /// Tagged handle covering both rapier joint kinds.
 ///
-/// Rapier3D has two disjoint joint stores: [`ImpulseJointSet`] (good for
+/// `Rapier3D` has two disjoint joint stores: [`ImpulseJointSet`] (good for
 /// high-frequency / contact-rich joints like wheels and feet) and
-/// [`MultibodyJointSet`] (analogous to MuJoCo's generalised coordinates for
+/// [`MultibodyJointSet`] (analogous to `MuJoCo`'s generalised coordinates for
 /// serial chains). Envs tag each actuated joint so torque application
 /// dispatches to the right store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,7 +241,7 @@ impl From<MultibodyJointHandle> for Rapier3DJointHandle {
     }
 }
 
-/// Backend marker type; implements [`LocomotionBackend`] with Rapier3D semantics.
+/// Backend marker type; implements [`LocomotionBackend`] with `Rapier3D` semantics.
 #[derive(Debug, Clone, Copy)]
 pub struct Rapier3DBackend;
 
@@ -258,7 +258,7 @@ fn is_revolute_axes(locked: JointAxesMask) -> bool {
     let all_lin_locked = locked.contains(JointAxesMask::LIN_AXES);
     // … and exactly one free angular axis.
     let free_ang = JointAxesMask::ANG_AXES.difference(locked);
-    all_lin_locked && free_ang.bits().count_ones() == 1
+    all_lin_locked && free_ang.bits().is_power_of_two()
 }
 
 impl LocomotionBackend for Rapier3DBackend {
@@ -305,7 +305,7 @@ impl LocomotionBackend for Rapier3DBackend {
         )
     }
 
-    /// Drive a revolute joint's free axis by a scalar torque (MuJoCo `motor`
+    /// Drive a revolute joint's free axis by a scalar torque (`MuJoCo` `motor`
     /// analogue). Dispatches on the [`Rapier3DJointHandle`] kind — the maximal-
     /// vs reduced-coordinate mechanics differ and this split is load-bearing.
     ///
@@ -528,6 +528,12 @@ impl LocomotionBackend for Rapier3DBackend {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     fn make_world() -> Rapier3DWorld {
@@ -908,7 +914,7 @@ mod tests {
     ///
     /// SIGN: the wrench is the external contact force acting ON the ball, so the
     /// ground below pushes UP and `wrench[2]` is **positive** (≈ +m·g). This is
-    /// the physically correct convention (MuJoCo `cfrc_ext` = "external force
+    /// the physically correct convention (`MuJoCo` `cfrc_ext` = "external force
     /// acting on the body"); it is verified insertion-order invariant and
     /// Newton's-third-law antisymmetric by the companion tests below. A slight
     /// `> m·g` magnitude is rapier's steady-state penetration bias.
@@ -965,7 +971,7 @@ mod tests {
 
     /// Same-body invariant: two overlapping colliders on ONE body, zero gravity,
     /// no other body — rapier clears same-parent contact pairs, so the wrench is
-    /// exactly zero (pins rapier 0.32 narrow_phase.rs:841).
+    /// exactly zero (pins rapier 0.32 `narrow_phase.rs:841`).
     #[test]
     fn contact_force_same_body_colliders_zero_wrench() {
         let mut world = Rapier3DWorld::new(Vector::ZERO, 1.0 / 60.0, 1);
@@ -994,7 +1000,7 @@ mod tests {
     /// per-contact impulse that acts oppositely on the two bodies
     /// (`-force_mag·normal` on collider1, `+force_mag·normal` on collider2), so
     /// the aggregated force vectors are exactly antisymmetric. (Torque parts are
-    /// taken about each body's own CoM and need not cancel.)
+    /// taken about each body's own `CoM` and need not cancel.)
     #[test]
     fn contact_force_newton_third_law_antisymmetric() {
         let radius = 0.25f32;
@@ -1095,6 +1101,8 @@ mod tests {
     /// collider was inserted first — the branch that flips `normal` and the
     /// `flipped` flag together must leave the sign (and magnitude) invariant.
     #[test]
+    // Justified: paired linear/angular quantities differ by one character by convention.
+    #[allow(clippy::similar_names)]
     fn contact_force_insertion_order_robust() {
         let (w_gf, ball_gf) = resting_ball_insertion_order(true);
         let (w_bf, ball_bf) = resting_ball_insertion_order(false);

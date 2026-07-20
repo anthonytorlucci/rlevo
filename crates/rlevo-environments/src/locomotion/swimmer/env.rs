@@ -13,7 +13,6 @@ use std::marker::PhantomData;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -54,7 +53,7 @@ pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     _marker: PhantomData<B>,
 }
 
-/// Convenience alias: [`Swimmer`] using the Rapier3D backend.
+/// Convenience alias: [`Swimmer`] using the `Rapier3D` backend.
 ///
 /// This is the recommended concrete type for all production use.
 pub type SwimmerRapier = Swimmer<Rapier3DBackend>;
@@ -99,6 +98,8 @@ impl Swimmer<Rapier3DBackend> {
         self.reset()
     }
 
+    // Justified: paired per-axis/per-joint initial values differ only by axis or index.
+    #[allow(clippy::similar_names)]
     fn build_world(config: &SwimmerConfig, rng: &mut StdRng) -> (Rapier3DWorld, SwimmerState) {
         // Zero gravity — swimmer floats in open water.
         // The world owns the `frame_skip` substep loop; `step_physics` drives it
@@ -261,7 +262,7 @@ impl Swimmer<Rapier3DBackend> {
     /// canonical Swimmer-v5 value (`gear [150, 150]`) is deferred to a follow-up
     /// issue — #98 fixes only force accumulation and must not silently change
     /// gear.
-    fn control_torques(&self, action: &SwimmerAction) -> [f32; 2] {
+    fn control_torques(&self, action: SwimmerAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         self.config.gear.apply(&clipped)
@@ -277,7 +278,7 @@ impl Swimmer<Rapier3DBackend> {
     /// substep. Accordingly:
     ///   * the actuator torque (`torques`) is held **constant** across the
     ///     frame skip — the same magnitude re-applied each substep, matching
-    ///     MuJoCo's `ctrl`-held-across-substeps semantics;
+    ///     `MuJoCo`'s `ctrl`-held-across-substeps semantics;
     ///   * viscous drag is recomputed each substep from the segments' **current**
     ///     velocity, so it tracks the chain as it accelerates within the step.
     ///
@@ -394,14 +395,14 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// Returns [`EnvironmentError::InvalidAction`] if any element of `action`
     /// is non-finite (`NaN` or `±∞`).
     fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
-        if !action.0.iter().all(|v| v.is_finite()) {
+        if !action.0.iter().all(rapier2d::math::ComplexField::is_finite) {
             return Err(EnvironmentError::InvalidAction(format!(
                 "Swimmer action must be finite, got {:?}",
                 action.0
             )));
         }
 
-        let torques = self.control_torques(&action);
+        let torques = self.control_torques(action);
         self.step_physics(torques);
         self.steps += 1;
 
@@ -454,7 +455,7 @@ fn segment_z_angle(orientation: [f32; 4]) -> f32 {
 /// quadratic drag is `k_ang · |ω| · dt / I < 1`: at gear=150 the chain reaches
 /// `|ω|` in the 100s of rad/s, which drives quadratic drag unstable and diverges
 /// to NaN in one substep. Linear drag is unconditionally stable as long as
-/// `k_ang · dt / I < 2`. MuJoCo's own swimmer uses quadratic drag but with an
+/// `k_ang · dt / I < 2`. `MuJoCo`'s own swimmer uses quadratic drag but with an
 /// implicit integrator; our linear variant is a Rapier-compatibility divergence.
 ///
 /// Free function (not a `&mut self` method) so it can be invoked from inside a
@@ -477,6 +478,12 @@ fn apply_drag_to(world: &mut Rapier3DWorld, handles: [RigidBodyHandle; 3], k: f3
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
@@ -544,8 +551,6 @@ mod tests {
                 ..Default::default()
             }
         }
-        let narrow = rlevo_core::bounds::Bounds::new(-0.5, 0.5);
-
         fn rollout(config: SwimmerConfig, action: SwimmerAction) -> [f32; 8] {
             let mut env = SwimmerRapier::with_config(config).expect("valid config");
             env.reset().expect("reset");
@@ -554,6 +559,8 @@ mod tests {
                 .observation()
                 .0
         }
+
+        let narrow = rlevo_core::bounds::Bounds::new(-0.5, 0.5);
 
         // The static space's corner, under the narrowed clip.
         let at_boundary = rollout(cfg_with(narrow), SwimmerAction::new(-1.0, 1.0));

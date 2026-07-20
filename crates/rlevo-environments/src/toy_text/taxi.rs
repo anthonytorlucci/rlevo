@@ -60,7 +60,7 @@ use serde::{Deserialize, Serialize};
 /// Named pickup/dropoff locations: R=(0,0), G=(0,4), Y=(4,0), B=(4,3).
 const LOCS: [(u8, u8); 4] = [(0, 0), (0, 4), (4, 0), (4, 3)];
 
-/// Walls between adjacent cells (East–West only; all represented as (row, min_col, max_col)).
+/// Walls between adjacent cells (East–West only; all represented as (row, `min_col`, `max_col`)).
 /// A wall blocks movement between `(row, min_col)` and `(row, max_col)`.
 const WALLS: &[(u8, u8, u8)] = &[
     (0, 1, 2),
@@ -112,6 +112,7 @@ pub struct TaxiConfig {
 
 impl TaxiConfig {
     /// Returns a builder for constructing a `TaxiConfig`.
+    #[must_use]
     pub fn builder() -> TaxiConfigBuilder {
         TaxiConfigBuilder::default()
     }
@@ -126,7 +127,7 @@ impl Validate for TaxiConfig {
 }
 
 /// Builder for [`TaxiConfig`].
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TaxiConfigBuilder {
     is_rainy: bool,
     fickle_passenger: bool,
@@ -135,24 +136,28 @@ pub struct TaxiConfigBuilder {
 
 impl TaxiConfigBuilder {
     /// Enables or disables rainy stochastic transitions.
+    #[must_use]
     pub fn is_rainy(mut self, v: bool) -> Self {
         self.is_rainy = v;
         self
     }
 
     /// Enables or disables fickle-passenger destination resampling.
+    #[must_use]
     pub fn fickle_passenger(mut self, v: bool) -> Self {
         self.fickle_passenger = v;
         self
     }
 
     /// Sets the RNG seed.
+    #[must_use]
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
 
     /// Builds the [`TaxiConfig`].
+    #[must_use]
     pub fn build(self) -> TaxiConfig {
         TaxiConfig {
             is_rainy: self.is_rainy,
@@ -179,8 +184,10 @@ pub struct TaxiState {
 
 impl TaxiState {
     fn encode(&self) -> u16 {
-        ((self.taxi_row as u16 * 5 + self.taxi_col as u16) * 5 + self.passenger_loc as u16) * 4
-            + self.destination as u16
+        ((u16::from(self.taxi_row) * 5 + u16::from(self.taxi_col)) * 5
+            + u16::from(self.passenger_loc))
+            * 4
+            + u16::from(self.destination)
     }
 }
 
@@ -299,7 +306,14 @@ impl TaxiAction {
             TaxiAction::North => [TaxiAction::West, TaxiAction::East],
             TaxiAction::East => [TaxiAction::North, TaxiAction::South],
             TaxiAction::West => [TaxiAction::South, TaxiAction::North],
-            _ => [TaxiAction::North, TaxiAction::South], // unused
+            // `perpendiculars` has exactly one caller, `resolve_movement`, which
+            // is itself reached only from the movement branch of `step`. A
+            // non-movement action here means that invariant broke, so say so
+            // instead of returning a filler pair that would silently slip a
+            // Pickup into a North.
+            TaxiAction::Pickup | TaxiAction::Dropoff => {
+                unreachable!("perpendiculars is only defined for movement actions")
+            }
         }
     }
 }
@@ -390,12 +404,10 @@ impl Taxi {
             return action;
         }
         let r = self.rng.random_range(0u32..10);
-        if r < 8 {
-            action
-        } else if r == 8 {
-            action.perpendiculars()[0]
-        } else {
-            action.perpendiculars()[1]
+        match r.cmp(&8) {
+            std::cmp::Ordering::Less => action,
+            std::cmp::Ordering::Equal => action.perpendiculars()[0],
+            std::cmp::Ordering::Greater => action.perpendiculars()[1],
         }
     }
 }
@@ -729,11 +741,15 @@ impl rlevo_core::render::payload::TabularPayloadSource for Taxi {
 /// Unit tests for [`Taxi`], covering state encoding, wall collisions, pickup/dropoff rewards,
 /// stochastic modes, and RNG determinism.
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::Observation;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
 
     fn make_env() -> Taxi {
         Taxi::with_config(TaxiConfig::default()).expect("valid config")
@@ -1010,8 +1026,6 @@ mod tests {
     /// `check()?` precedes the rainy-slip draw, so two identically seeded envs stay
     /// in lock-step even when one of them is stepped after its episode ended.
     fn test_taxi_rejected_post_terminal_step_does_not_advance_rng() {
-        let cfg = TaxiConfig::builder().is_rainy(true).seed(99).build();
-
         // A full rainy trajectory of state ids, driven purely by the RNG stream.
         fn trajectory(env: &mut Taxi) -> Vec<u16> {
             env.reset().expect("reset must succeed");
@@ -1026,6 +1040,7 @@ mod tests {
             ids
         }
 
+        let cfg = TaxiConfig::builder().is_rainy(true).seed(99).build();
         let mut probed = Taxi::with_config(cfg.clone()).expect("valid config");
         let mut clean = Taxi::with_config(cfg).expect("valid config");
 

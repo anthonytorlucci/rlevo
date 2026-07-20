@@ -1,4 +1,4 @@
-//! Observation type for the BipedalWalker environment.
+//! Observation type for the `BipedalWalker` environment.
 //!
 //! [`BipedalWalkerObservation`] is a 24-element `f32` vector produced after
 //! every `reset()` and `step()`. The first 14 elements capture hull and joint
@@ -9,7 +9,7 @@
 use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
-/// 24-dimensional observation for BipedalWalker.
+/// 24-dimensional observation for `BipedalWalker`.
 ///
 /// Layout:
 /// * `[0]`  hull angle (rad)
@@ -35,6 +35,7 @@ pub struct BipedalWalkerObservation {
 
 impl BipedalWalkerObservation {
     /// Construct an observation from a pre-filled 24-element array.
+    #[must_use]
     pub fn new(values: [f32; 24]) -> Self {
         Self { values }
     }
@@ -43,6 +44,7 @@ impl BipedalWalkerObservation {
     ///
     /// Used by tests and callers to assert a physics step did not diverge into
     /// NaN / infinite observations.
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.values.iter().all(|v| v.is_finite())
     }

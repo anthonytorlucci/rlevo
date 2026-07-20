@@ -147,7 +147,7 @@ use serde::{Deserialize, Serialize};
 // Config
 // ---------------------------------------------------------------------------
 
-/// Integration scheme for the CartPole equations of motion.
+/// Integration scheme for the `CartPole` equations of motion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Integrator {
     /// Forward Euler (Gymnasium default).
@@ -247,6 +247,7 @@ pub struct CartPoleConfigBuilder {
 
 impl CartPoleConfig {
     /// Create a builder seeded from this config's defaults.
+    #[must_use]
     pub fn builder() -> CartPoleConfigBuilder {
         CartPoleConfigBuilder {
             inner: CartPoleConfig::default(),
@@ -256,62 +257,74 @@ impl CartPoleConfig {
 
 impl CartPoleConfigBuilder {
     /// Sets gravitational acceleration (m/s²).
+    #[must_use]
     pub fn gravity(mut self, v: f32) -> Self {
         self.inner.gravity = v;
         self
     }
     /// Sets the mass of the cart (kg).
+    #[must_use]
     pub fn masscart(mut self, v: f32) -> Self {
         self.inner.masscart = v;
         self
     }
     /// Sets the mass of the pole (kg).
+    #[must_use]
     pub fn masspole(mut self, v: f32) -> Self {
         self.inner.masspole = v;
         self
     }
     /// Sets half the pole length (m).
+    #[must_use]
     pub fn length(mut self, v: f32) -> Self {
         self.inner.length = v;
         self
     }
     /// Sets the magnitude of the force applied to the cart (N).
+    #[must_use]
     pub fn force_mag(mut self, v: f32) -> Self {
         self.inner.force_mag = v;
         self
     }
     /// Sets the time step between updates (s).
+    #[must_use]
     pub fn tau(mut self, v: f32) -> Self {
         self.inner.tau = v;
         self
     }
     /// Sets the pole angle termination threshold (rad).
+    #[must_use]
     pub fn theta_threshold_radians(mut self, v: f32) -> Self {
         self.inner.theta_threshold_radians = v;
         self
     }
     /// Sets the cart position termination threshold (m).
+    #[must_use]
     pub fn x_threshold(mut self, v: f32) -> Self {
         self.inner.x_threshold = v;
         self
     }
     /// Sets the integration scheme.
+    #[must_use]
     pub fn integrator(mut self, v: Integrator) -> Self {
         self.inner.integrator = v;
         self
     }
     /// Enables the Sutton-Barto reward schedule (`0` per step, `-1` on failure).
+    #[must_use]
     pub fn sutton_barto_reward(mut self, v: bool) -> Self {
         self.inner.sutton_barto_reward = v;
         self
     }
     /// Sets the RNG seed used by [`CartPole::reset`].
+    #[must_use]
     pub fn seed(mut self, v: u64) -> Self {
         self.inner.seed = v;
         self
     }
 
     /// Finalises and returns the config.
+    #[must_use]
     pub fn build(self) -> CartPoleConfig {
         self.inner
     }
@@ -321,7 +334,7 @@ impl CartPoleConfigBuilder {
 // State
 // ---------------------------------------------------------------------------
 
-/// Internal state of the CartPole system.
+/// Internal state of the `CartPole` system.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CartPoleState {
     /// Cart position (m).
@@ -380,6 +393,7 @@ pub struct CartPoleObservation {
 
 impl CartPoleObservation {
     /// Flatten to a `[f32; 4]` array for tensor conversion.
+    #[must_use]
     pub fn to_array(&self) -> [f32; 4] {
         [
             self.cart_pos,
@@ -495,6 +509,7 @@ impl CartPole {
     }
 
     /// Current step count within the episode.
+    #[must_use]
     pub fn steps(&self) -> usize {
         self.steps
     }
@@ -610,7 +625,7 @@ impl Sensor<1, 1, 1> for CartPole {
     }
 }
 
-/// Builds the 4-D CartPole observation `[x, ẋ, θ, θ̇]` from a state.
+/// Builds the 4-D `CartPole` observation `[x, ẋ, θ, θ̇]` from a state.
 fn cartpole_observation(state: &CartPoleState) -> CartPoleObservation {
     CartPoleObservation {
         cart_pos: state.x,
@@ -924,6 +939,12 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for CartPole {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     //! Unit tests for [`CartPole`] covering observation shape, action indexing,
     //! episode lifecycle, reward schedules, determinism, and integrator divergence.
 

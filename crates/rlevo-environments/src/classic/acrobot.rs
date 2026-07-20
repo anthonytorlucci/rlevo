@@ -192,6 +192,10 @@ pub struct BookDynamics;
 pub struct NipsDynamics;
 
 impl AcrobotDynamicsFn for BookDynamics {
+    // Justified: the Acrobot dynamics variable names (theta1/theta2, dtheta1/dtheta2,
+    // ddtheta1/ddtheta2) are taken verbatim from the reference equations;
+    // renaming them for distinctness would break that correspondence.
+    #[allow(clippy::similar_names)]
     fn dsdt(&self, s: [f32; 4], a: f32, cfg: &AcrobotConfig) -> [f32; 4] {
         let [theta1, theta2, dtheta1, dtheta2] = s;
         let m1 = cfg.link_mass_1;
@@ -222,6 +226,10 @@ impl AcrobotDynamicsFn for BookDynamics {
 }
 
 impl AcrobotDynamicsFn for NipsDynamics {
+    // Justified: the Acrobot dynamics variable names (theta1/theta2, dtheta1/dtheta2,
+    // ddtheta1/ddtheta2) are taken verbatim from the reference equations;
+    // renaming them for distinctness would break that correspondence.
+    #[allow(clippy::similar_names)]
     fn dsdt(&self, s: [f32; 4], a: f32, cfg: &AcrobotConfig) -> [f32; 4] {
         let [theta1, theta2, dtheta1, dtheta2] = s;
         let m1 = cfg.link_mass_1;
@@ -389,6 +397,7 @@ pub struct AcrobotConfigBuilder {
 }
 
 impl AcrobotConfig {
+    #[must_use]
     pub fn builder() -> AcrobotConfigBuilder {
         AcrobotConfigBuilder {
             inner: AcrobotConfig::default(),
@@ -397,58 +406,72 @@ impl AcrobotConfig {
 }
 
 impl AcrobotConfigBuilder {
+    #[must_use]
     pub fn dt(mut self, v: f32) -> Self {
         self.inner.dt = v;
         self
     }
+    #[must_use]
     pub fn link_length_1(mut self, v: f32) -> Self {
         self.inner.link_length_1 = v;
         self
     }
+    #[must_use]
     pub fn link_length_2(mut self, v: f32) -> Self {
         self.inner.link_length_2 = v;
         self
     }
+    #[must_use]
     pub fn link_mass_1(mut self, v: f32) -> Self {
         self.inner.link_mass_1 = v;
         self
     }
+    #[must_use]
     pub fn link_mass_2(mut self, v: f32) -> Self {
         self.inner.link_mass_2 = v;
         self
     }
+    #[must_use]
     pub fn link_com_pos_1(mut self, v: f32) -> Self {
         self.inner.link_com_pos_1 = v;
         self
     }
+    #[must_use]
     pub fn link_com_pos_2(mut self, v: f32) -> Self {
         self.inner.link_com_pos_2 = v;
         self
     }
+    #[must_use]
     pub fn link_moi(mut self, v: f32) -> Self {
         self.inner.link_moi = v;
         self
     }
+    #[must_use]
     pub fn gravity(mut self, v: f32) -> Self {
         self.inner.gravity = v;
         self
     }
+    #[must_use]
     pub fn max_vel_1(mut self, v: f32) -> Self {
         self.inner.max_vel_1 = v;
         self
     }
+    #[must_use]
     pub fn max_vel_2(mut self, v: f32) -> Self {
         self.inner.max_vel_2 = v;
         self
     }
+    #[must_use]
     pub fn torque_noise_max(mut self, v: f32) -> Self {
         self.inner.torque_noise_max = v;
         self
     }
+    #[must_use]
     pub fn seed(mut self, v: u64) -> Self {
         self.inner.seed = v;
         self
     }
+    #[must_use]
     pub fn build(self) -> AcrobotConfig {
         self.inner
     }
@@ -521,6 +544,7 @@ pub struct AcrobotObservation {
 
 impl AcrobotObservation {
     /// Flattens the observation to `[cos θ1, sin θ1, cos θ2, sin θ2, dθ1, dθ2]`.
+    #[must_use]
     pub fn to_array(&self) -> [f32; 6] {
         [
             self.cos_theta1,
@@ -719,7 +743,7 @@ impl<D: AcrobotDynamicsFn> fmt::Debug for Acrobot<D> {
         f.debug_struct("Acrobot")
             .field("steps", &self.steps)
             .field("state", &self.state)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -1001,6 +1025,11 @@ impl<D: AcrobotDynamicsFn + Default> rlevo_core::render::payload::Classic2DPaylo
 
 #[cfg(test)]
 mod tests {
+    // The observation arrays are compared exactly because the property under
+    // test is whether the two integrators diverge *at all*; a tolerance would
+    // let a genuine divergence smaller than epsilon pass as agreement.
+    #![allow(clippy::float_cmp)]
+
     //! Unit tests for [`Acrobot`] covering observation shape, action indexing,
     //! episode lifecycle, physics invariants (velocity clamping, termination),
     //! determinism, and dynamics variant divergence.
@@ -1176,10 +1205,10 @@ mod tests {
         let mut env = default_env();
         env.reset().unwrap();
         let snap = env.step(AcrobotAction::TorquePos).unwrap();
-        if !snap.is_terminated() {
-            assert_eq!(*snap.reward(), ScalarReward(-1.0));
-        } else {
+        if snap.is_terminated() {
             assert_eq!(*snap.reward(), ScalarReward(0.0));
+        } else {
+            assert_eq!(*snap.reward(), ScalarReward(-1.0));
         }
     }
 

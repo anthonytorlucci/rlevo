@@ -213,6 +213,13 @@ impl<const K: usize> AdversarialBandit<K> {
     /// defaults (`max_steps = 500`, `period = 10`, `amplitude = 1.0`).
     ///
     /// Useful for reproducible benchmark trials where only the seed varies.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the default configuration fails validation. This cannot happen
+    /// for the shipped defaults; it would indicate a bug in
+    /// `AdversarialBanditConfig::default`, not misuse by the caller.
+    #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         let config = AdversarialBanditConfig {
             seed,
@@ -360,6 +367,12 @@ impl<const K: usize> crate::render::AsciiRenderable for AdversarialBandit<K> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::Snapshot;

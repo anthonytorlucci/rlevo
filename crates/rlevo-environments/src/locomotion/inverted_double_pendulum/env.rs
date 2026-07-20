@@ -1,11 +1,10 @@
-//! InvertedDoublePendulum environment implementation.
+//! `InvertedDoublePendulum` environment implementation.
 
 use std::marker::PhantomData;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rand_distr::{Distribution, Normal};
-use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -98,6 +97,8 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
         self.reset()
     }
 
+    // Justified: paired per-joint initial values differ only by joint index.
+    #[allow(clippy::similar_names)]
     fn build_world(
         config: &InvertedDoublePendulumConfig,
         rng: &mut StdRng,
@@ -222,7 +223,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// minus pole1 world angle), wrapped to `(-π, π]`.
     ///
     /// `obs[8]` is the aggregated contact wrench on pole2 (`cfrc_ext[0]`). With
-    /// jointed-neighbour contacts disabled for MuJoCo parent–child filter parity
+    /// jointed-neighbour contacts disabled for `MuJoCo` parent–child filter parity
     /// (ADR 0041), pole2 touches nothing in normal operation, so this slot is
     /// `≈ 0`; it is retained as a placeholder for the `qfrc_constraint`-based
     /// re-model tracked in issue #271.
@@ -257,7 +258,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// Compute the world-x cart force for `action` (clip → gear). Pure: the
     /// force is *applied* inside the `step_actuated` closure so it is re-applied
     /// fresh each substep (ADR 0037 force-lifetime contract).
-    fn control_force(&self, action: &InvertedDoublePendulumAction) -> f32 {
+    fn control_force(&self, action: InvertedDoublePendulumAction) -> f32 {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
@@ -387,7 +388,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
         // across the frame skip and cannot accumulate (ADR 0037). The handle is
         // `Copy` and `force` is precomputed, so the closure borrows only the
         // world — not `self`.
-        let force = self.control_force(&action);
+        let force = self.control_force(action);
         let cart_handle = self.state.cart;
         self.world.step_actuated(|w| {
             if let Some(cart) = w.bodies_mut().get_mut(cart_handle) {
@@ -457,6 +458,8 @@ fn pole_y_angle(pose: &Pose) -> f32 {
 ///
 /// Uses the standard `v' = v + 2·u × (u × v + w·v)` identity where
 /// `u = (x, y, z)`. Avoids pulling glam / nalgebra into the env layer.
+// Justified: single-letter names mirror the reference dynamics equations.
+#[allow(clippy::many_single_char_names)]
 fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let [w, x, y, z] = q;
     let [vx, vy, vz] = v;
@@ -474,6 +477,12 @@ fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::ContinuousAction;
     use rlevo_core::base::Action;

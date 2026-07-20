@@ -159,7 +159,7 @@ impl Validate for MountainCarConfig {
 // State
 // ---------------------------------------------------------------------------
 
-/// Internal state of the MountainCar.
+/// Internal state of the `MountainCar`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MountainCarState {
     /// Horizontal position (m).
@@ -196,6 +196,7 @@ pub struct MountainCarObservation {
 
 impl MountainCarObservation {
     /// Flatten to a `[f32; 2]` array for tensor conversion.
+    #[must_use]
     pub fn to_array(&self) -> [f32; 2] {
         [self.position, self.velocity]
     }
@@ -238,7 +239,7 @@ impl DiscreteAction<1> for MountainCarAction {
     ///
     /// # Panics
     ///
-    /// Panics if `index` is not `0` (Left), `1` (NoAccel), or `2` (Right).
+    /// Panics if `index` is not `0` (Left), `1` (`NoAccel`), or `2` (Right).
     fn from_index(index: usize) -> Self {
         match index {
             0 => Self::Left,
@@ -311,6 +312,7 @@ impl MountainCar {
     }
 
     /// Current step count within the episode.
+    #[must_use]
     pub fn steps(&self) -> usize {
         self.steps
     }
@@ -346,7 +348,7 @@ impl MountainCar {
         }
     }
 
-    fn is_terminal(state: &MountainCarState, cfg: &MountainCarConfig) -> bool {
+    fn is_terminal(state: MountainCarState, cfg: &MountainCarConfig) -> bool {
         state.position >= cfg.goal_position && state.velocity >= cfg.goal_velocity
     }
 }
@@ -380,17 +382,17 @@ impl Sensor<1, 1, 1> for MountainCar {
         _action: &MountainCarAction,
         next_state: &MountainCarState,
     ) -> MountainCarObservation {
-        mountain_car_observation(next_state)
+        mountain_car_observation(*next_state)
     }
 
     /// Projects the initial state onto the 2-D observation.
     fn observe_reset(&self, state: &MountainCarState) -> MountainCarObservation {
-        mountain_car_observation(state)
+        mountain_car_observation(*state)
     }
 }
 
-/// Builds the 2-D MountainCar observation `[position, velocity]` from a state.
-fn mountain_car_observation(state: &MountainCarState) -> MountainCarObservation {
+/// Builds the 2-D `MountainCar` observation `[position, velocity]` from a state.
+fn mountain_car_observation(state: MountainCarState) -> MountainCarObservation {
     MountainCarObservation {
         position: state.position,
         velocity: state.velocity,
@@ -437,7 +439,7 @@ impl Environment<1, 1, 1> for MountainCar {
         self.state = Self::apply_physics(self.state, action, &self.config);
         self.steps += 1;
 
-        let terminated = Self::is_terminal(&self.state, &self.config);
+        let terminated = Self::is_terminal(self.state, &self.config);
         let obs = self.observe(&action, &self.state);
         let snap = if terminated {
             SnapshotBase::terminated(obs, ScalarReward(-1.0))
@@ -586,9 +588,9 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
         use rlevo_core::render::payload::{
             Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
         };
-        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
+        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         let terrain: Vec<Point2> = (0..=SAMPLES)
             .map(|i| {
                 let x = lo + (hi - lo) * (i as f32 / SAMPLES as f32);
@@ -629,6 +631,12 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCar {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     //! Unit tests for [`MountainCar`] covering observation shape, action
     //! indexing, reset bounds, left-wall physics, goal termination, reward
     //! value, and determinism.

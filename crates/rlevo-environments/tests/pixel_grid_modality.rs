@@ -1,3 +1,7 @@
+// Exact comparison is intentional: the asserted rewards are literal
+// constants produced without arithmetic.
+#![allow(clippy::float_cmp)]
+
 //! Single-crate proof that [`PixelGridEnv`] exposes a modality-changing
 //! observation: the snapshot the agent receives is a rank-3 `[20, 20, 3]` RGB
 //! image while the underlying state is rank-1 `[2]` (issue #65, ADR 0019/0020).

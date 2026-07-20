@@ -41,7 +41,7 @@ impl Himmelblau {
     }
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         self.evaluate(x, y)
     }
 }

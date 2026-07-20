@@ -13,7 +13,7 @@ use super::observation::SwimmerObservation;
 /// a stiff problem for the PGS impulse solver, which injects kinetic energy
 /// when constraint drift is corrected aggressively. The Featherstone-style
 /// multibody solver parameterises the chain in reduced coordinates
-/// (analogous to MuJoCo's generalised coordinates) and stays conservative.
+/// (analogous to `MuJoCo`'s generalised coordinates) and stays conservative.
 #[derive(Debug, Clone)]
 pub struct SwimmerState {
     pub segment0: RigidBodyHandle,
