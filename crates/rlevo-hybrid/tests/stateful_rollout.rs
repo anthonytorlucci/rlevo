@@ -117,14 +117,15 @@ impl Environment<1, 1, 1> for AlternatingEnv {
 /// counter threaded as `Hidden`, ignoring the (constant) observation.
 #[derive(Module, Debug)]
 struct AlternatingPolicy<B: Backend> {
-    // Unused weights — present so the module has flattenable parameters.
-    _w: Linear<B>,
+    // Never read by `act`, but read by the `Module` derive — present so the
+    // module has flattenable parameters for the reshaper to round-trip.
+    w: Linear<B>,
 }
 
 impl<B: Backend> AlternatingPolicy<B> {
     fn new(device: &B::Device) -> Self {
         Self {
-            _w: LinearConfig::new(1, 1).init(device),
+            w: LinearConfig::new(1, 1).init(device),
         }
     }
 }
@@ -151,13 +152,13 @@ impl StatefulPolicy<TestBackend, AlternatingEnv> for AlternatingPolicy<TestBacke
 /// Reactive baseline: always `Move` (index 0), regardless of observation.
 #[derive(Module, Debug)]
 struct ConstantPolicy<B: Backend> {
-    _w: Linear<B>,
+    w: Linear<B>,
 }
 
 impl<B: Backend> ConstantPolicy<B> {
     fn new(device: &B::Device) -> Self {
         Self {
-            _w: LinearConfig::new(1, 1).init(device),
+            w: LinearConfig::new(1, 1).init(device),
         }
     }
 }

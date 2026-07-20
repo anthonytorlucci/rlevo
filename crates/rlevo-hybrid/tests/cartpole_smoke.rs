@@ -1,6 +1,6 @@
-//! Integration smoke test: `PolicyNeuroevolution` evolves a CartPole policy.
+//! Integration smoke test: `PolicyNeuroevolution` evolves a `CartPole` policy.
 //!
-//! This verifies correctness (compiles, wires CartPole through the full
+//! This verifies correctness (compiles, wires `CartPole` through the full
 //! weight-only stack, runs without panic), **not** convergence — two
 //! generations on a tiny population is far too little to balance the pole.
 
@@ -19,7 +19,7 @@ use rlevo_hybrid::{PolicyNeuroevolution, ReactivePolicy, RolloutFitness};
 type TestBackend = Flex;
 type Dev = <TestBackend as burn::tensor::backend::BackendTypes>::Device;
 
-/// CartPole policy: `obs(4) -> 8 -> logits(2)`.
+/// `CartPole` policy: `obs(4) -> 8 -> logits(2)`.
 ///
 /// Backend generic must be `B` — Burn's `#[derive(Module)]` references
 /// `B::Device` literally.

@@ -31,7 +31,7 @@
 //!
 //! `E: Environment<1, 1, 1>` — weight-only policy neuroevolution v1 targets
 //! vector-observation, scalar/discrete-action classic-control environments
-//! (CartPole, MountainCar, Pendulum, Acrobot), all rank-1. Higher-rank
+//! (`CartPole`, `MountainCar`, Pendulum, Acrobot), all rank-1. Higher-rank
 //! observation/action spaces are a future generalization.
 //!
 //! # Gradient isolation
@@ -151,7 +151,7 @@ where
     ///   are the factory's responsibility).
     /// - `episodes_per_eval`: episodes averaged per genome (≥ 1).
     /// - `max_steps_per_episode`: hard per-episode step cap. Required because
-    ///   environments such as CartPole have no intrinsic terminal step limit;
+    ///   environments such as `CartPole` have no intrinsic terminal step limit;
     ///   the cap guarantees evaluation terminates regardless of policy skill.
     /// - `device`: captured into the rollout scorer (the inner [`ModuleEvalFn`]
     ///   scorer takes no device parameter). Must equal the `device` later
@@ -161,6 +161,13 @@ where
     /// The policy is the module itself: `M` implements [`StatefulPolicy`]
     /// (recurrent) or [`ReactivePolicy`](crate::policy::ReactivePolicy)
     /// (memoryless), so there is no policy closure argument.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `episodes_per_eval` or `max_steps_per_episode` is zero. Both
+    /// are rejected at construction rather than yielding a degenerate scorer:
+    /// zero episodes would divide by zero, and a zero step cap would score
+    /// every genome identically at 0.
     pub fn new<FacFn>(
         reshaper: ModuleReshaper<B, M>,
         env_factory: FacFn,

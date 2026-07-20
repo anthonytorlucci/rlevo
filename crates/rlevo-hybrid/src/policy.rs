@@ -8,7 +8,7 @@
 //!
 //! [`ReactivePolicy`] is the `Hidden = ()` convenience for memoryless (Markov)
 //! policies: implement one method and get [`StatefulPolicy`] for free via the
-//! blanket impl below. Classic-control policies (CartPole, MountainCar, …) take
+//! blanket impl below. Classic-control policies (`CartPole`, `MountainCar`, …) take
 //! this path.
 //!
 //! Both traits are env-generic: `act` owns the **full** `&Observation ->
@@ -56,7 +56,7 @@ pub trait StatefulPolicy<B: Backend, E: Environment<1, 1, 1>> {
 /// A reactive (memoryless) policy: `observation -> action`.
 ///
 /// The [`StatefulPolicy::Hidden`] `= ()` restriction, for Markov environments
-/// (CartPole, MountainCar, …). Implement this single method and the blanket
+/// (`CartPole`, `MountainCar`, …). Implement this single method and the blanket
 /// impl below supplies [`StatefulPolicy`] for free.
 ///
 /// A recurrent policy must **never** implement this trait — the blanket impl
