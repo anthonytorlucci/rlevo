@@ -1,4 +1,4 @@
-//! Shared Rapier2D physics backend for Box2D-style environments.
+//! Shared `Rapier2D` physics backend for Box2D-style environments.
 //!
 //! [`RapierWorld`] wraps the full rapier2d pipeline and exposes a minimal
 //! public surface: `step`, `snapshot`, `restore`, body/collider/joint
@@ -30,7 +30,7 @@ struct BodyRecord {
     angvel: f32,
 }
 
-/// Encapsulated Rapier2D simulation world.
+/// Encapsulated `Rapier2D` simulation world.
 ///
 /// Create one per environment via [`RapierWorld::new`], add bodies and
 /// colliders, then call [`RapierWorld::step`] each environment step.
@@ -65,6 +65,7 @@ impl RapierWorld {
     /// Create a new world with the given gravity vector and physics timestep.
     ///
     /// Typical gravity for a 2D side-view: `Vector::new(0.0, -9.8)`.
+    #[must_use]
     pub fn new(gravity: Vector, dt: f32) -> Self {
         let params = IntegrationParameters {
             dt,
@@ -126,6 +127,7 @@ impl RapierWorld {
     }
 
     /// Capture the current state of all rigid bodies.
+    #[must_use]
     pub fn snapshot(&self) -> PhysicsSnapshot {
         let records = self
             .bodies
@@ -198,11 +200,13 @@ impl RapierWorld {
     // ─── Read-only accessors ──────────────────────────────────────────────────
 
     /// Read-only access to all rigid bodies (for observation extraction).
+    #[must_use]
     pub fn bodies(&self) -> &RigidBodySet {
         &self.bodies
     }
 
     /// Read-only access to all colliders.
+    #[must_use]
     pub fn colliders(&self) -> &ColliderSet {
         &self.colliders
     }
@@ -213,6 +217,7 @@ impl RapierWorld {
     }
 
     /// Read-only access to all impulse joints (for observation extraction).
+    #[must_use]
     pub fn joints(&self) -> &ImpulseJointSet {
         &self.impulse_joints
     }
@@ -225,16 +230,18 @@ impl RapierWorld {
     // ─── Contact queries ──────────────────────────────────────────────────────
 
     /// Returns `true` if `collider` is currently in contact with any other collider.
+    #[must_use]
     pub fn is_in_contact(&self, collider: rapier2d::geometry::ColliderHandle) -> bool {
         self.narrow_phase
             .contact_pairs_with(collider)
-            .any(|pair| pair.has_any_active_contact())
+            .any(rapier2d::geometry::ContactPair::has_any_active_contact)
     }
 
     // ─── Ray casting ─────────────────────────────────────────────────────────
 
     /// Cast a ray from `origin` in `dir`, returning the distance to the
     /// first hit collider, or `None` if no hit within `max_toi`.
+    #[must_use]
     pub fn cast_ray(&self, origin: Vector, dir: Vector, max_toi: f32) -> Option<f32> {
         let dispatcher = DefaultQueryDispatcher;
         let qp = self.broad_phase.as_query_pipeline(
@@ -250,6 +257,12 @@ impl RapierWorld {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     /// Creates a standard-gravity world at 60 Hz for use in tests.

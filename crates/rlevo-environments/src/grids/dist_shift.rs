@@ -1,4 +1,4 @@
-//! Fixed 9×7 gridworld from DeepMind's AI-safety distribution-shift suite.
+//! Fixed 9×7 gridworld from `DeepMind`'s AI-safety distribution-shift suite.
 //!
 //! Ports Farama Minigrid's [`DistShiftEnv`]. The agent starts at `(1, 1)`
 //! facing East and must reach the goal at `(7, 1)` along the safe top
@@ -244,6 +244,11 @@ pub struct DistShiftEnv {
     config: DistShiftConfig,
     steps: usize,
     render: bool,
+    // Never sampled: this env's layout builder is fully deterministic and
+    // ignores `config.seed`, so the field is written but never read. Kept
+    // as-is rather than renamed — see #397, which decides whether these
+    // envs become genuinely stochastic or drop the seed entirely.
+    #[allow(clippy::used_underscore_binding)]
     _rng: StdRng,
 }
 
@@ -393,6 +398,12 @@ impl rlevo_core::render::payload::GridPayloadSource for DistShiftEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

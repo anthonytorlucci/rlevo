@@ -1,6 +1,13 @@
-//! Software rasterizer for the 96×96×3 CarRacing observation.
+//! Software rasterizer for the 96×96×3 `CarRacing` observation.
 //!
 //! No external image crate dependency. Uses scan-line fill for convex polygons.
+
+// The 96×96×3 pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
+// threshold, but every construction site immediately moves it into a `Box` or
+// `Arc`, and the array type is part of this module's public observation API
+// (`Arc<[u8; PIXEL_BYTES]>`). Switching to a heap-allocated slice to satisfy
+// the lint would change that public type for no runtime benefit.
+#![allow(clippy::large_stack_arrays)]
 
 /// Width and height of the rendered frame (pixels).
 pub const FRAME_SIZE: usize = 96;
@@ -23,6 +30,7 @@ impl std::fmt::Debug for Rasterizer {
 
 impl Rasterizer {
     /// Create a new rasterizer (buffer initialised to black).
+    #[must_use]
     pub fn new() -> Self {
         Self {
             buffer: Box::new([0u8; PIXEL_BYTES]),
@@ -42,6 +50,8 @@ impl Rasterizer {
     ///
     /// Vertices are `[pixel_x, pixel_y]` floats. The polygon is assumed convex;
     /// non-convex polygons may render incorrectly.
+    // Justified: x/y/n are scanline-rasterizer conventions.
+    #[allow(clippy::many_single_char_names)]
     pub fn fill_polygon(&mut self, vertices: &[[f32; 2]], color: [u8; 3]) {
         if vertices.len() < 3 {
             return;
@@ -103,6 +113,7 @@ impl Rasterizer {
     }
 
     /// Return the raw pixel buffer (row-major, RGB).
+    #[must_use]
     pub fn pixels(&self) -> &[u8; PIXEL_BYTES] {
         &self.buffer
     }

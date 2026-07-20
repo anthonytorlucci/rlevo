@@ -1,4 +1,4 @@
-//! Snapshot type and shaping-metadata helper for LunarLander (D6).
+//! Snapshot type and shaping-metadata helper for `LunarLander` (D6).
 
 use rlevo_core::environment::{SnapshotBase, SnapshotMetadata};
 use rlevo_core::reward::ScalarReward;
@@ -51,9 +51,9 @@ use super::observation::LunarLanderObservation;
 ///
 /// # Deliberate deviation from strict policy invariance
 ///
-/// Because Φ(s_terminal) ≠ 0 here (a crashed lander still has a large negative
+/// Because `Φ(s_terminal)` ≠ 0 here (a crashed lander still has a large negative
 /// potential), this is not a strictly policy-invariant PBRS instantiation:
-/// Grześ (2017) shows episodic policy invariance requires Φ(s_terminal) = 0.
+/// Grześ (2017) shows episodic policy invariance requires `Φ(s_terminal)` = 0.
 /// This is a **deliberate deviation kept for Gymnasium reward parity**, not a
 /// bug — rlevo reproduces `gymnasium.envs.box2d.lunar_lander` returns exactly.
 /// Do not "fix" the reward function to restore invariance.

@@ -92,6 +92,7 @@ pub struct CliffWalkingConfig {
 
 impl CliffWalkingConfig {
     /// Returns a builder for constructing a `CliffWalkingConfig`.
+    #[must_use]
     pub fn builder() -> CliffWalkingConfigBuilder {
         CliffWalkingConfigBuilder::default()
     }
@@ -106,7 +107,7 @@ impl Validate for CliffWalkingConfig {
 }
 
 /// Builder for [`CliffWalkingConfig`].
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct CliffWalkingConfigBuilder {
     is_slippery: bool,
     seed: u64,
@@ -114,18 +115,21 @@ pub struct CliffWalkingConfigBuilder {
 
 impl CliffWalkingConfigBuilder {
     /// Enables or disables the stochastic slipping behaviour.
+    #[must_use]
     pub fn is_slippery(mut self, v: bool) -> Self {
         self.is_slippery = v;
         self
     }
 
     /// Sets the RNG seed.
+    #[must_use]
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
 
     /// Builds the [`CliffWalkingConfig`].
+    #[must_use]
     pub fn build(self) -> CliffWalkingConfig {
         CliffWalkingConfig {
             is_slippery: self.is_slippery,
@@ -147,22 +151,22 @@ pub struct CliffWalkingState {
 
 impl CliffWalkingState {
     fn state_id(&self) -> u16 {
-        self.row as u16 * NCOL as u16 + self.col as u16
+        u16::from(self.row) * u16::from(NCOL) + u16::from(self.col)
     }
 }
 
 impl TryFrom<u16> for CliffWalkingState {
     type Error = StateError;
     fn try_from(id: u16) -> Result<Self, Self::Error> {
-        let n = NROW as u16 * NCOL as u16;
+        let n = u16::from(NROW) * u16::from(NCOL);
         if id >= n {
             return Err(StateError::InvalidData(format!(
                 "CliffWalkingState id {id} out of range [0, {n})"
             )));
         }
         Ok(CliffWalkingState {
-            row: (id / NCOL as u16) as u8,
-            col: (id % NCOL as u16) as u8,
+            row: (id / u16::from(NCOL)) as u8,
+            col: (id % u16::from(NCOL)) as u8,
         })
     }
 }
@@ -544,10 +548,14 @@ impl rlevo_core::render::payload::TabularPayloadSource for CliffWalking {
 /// Unit tests for [`CliffWalking`], covering state encoding, cliff/goal transitions,
 /// boundary behaviour, slippery distributions, and RNG determinism.
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
-    use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::Observation;
     use rlevo_core::environment::{EpisodeStatus, Snapshot};
 
     fn make_env() -> CliffWalking {
@@ -584,7 +592,7 @@ mod tests {
     #[test]
     /// Verifies that state-id encoding and decoding are mutual inverses for all 48 states.
     fn state_id_encoding() {
-        let total = NROW as u16 * NCOL as u16;
+        let total = u16::from(NROW) * u16::from(NCOL);
         for id in 0..total {
             let state = CliffWalkingState::try_from(id).unwrap();
             assert_eq!(u16::from(state), id, "round-trip failed for id {id}");

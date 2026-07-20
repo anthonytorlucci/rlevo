@@ -3,7 +3,7 @@
 //!
 //! Enabled by the `bench` cargo feature. Disabled by default so the base
 //! envs dep cone (rapier, nalgebra) is not bundled with the harness's
-//! (rayon, tracing, serde_json) for users who only want one of the two.
+//! (rayon, tracing, `serde_json`) for users who only want one of the two.
 //!
 //! # Contents
 //!

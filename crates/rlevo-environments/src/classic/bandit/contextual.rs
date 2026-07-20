@@ -11,7 +11,7 @@
 //! This is the simplest contextual-bandit testbed — a `C × K` table of
 //! Gaussian means — which exercises algorithms that must learn a separate
 //! policy per context (e.g. tabular contextual ε-greedy, contextual
-//! Thompson sampling). For continuous-feature contextual bandits (LinUCB et
+//! Thompson sampling). For continuous-feature contextual bandits (`LinUCB` et
 //! al.) a separate environment with a vector-valued context is appropriate;
 //! it is intentionally out of scope for this module.
 //!
@@ -388,6 +388,13 @@ impl<const C: usize, const K: usize> Display for ContextualBandit<C, K> {
 
 impl<const C: usize, const K: usize> ContextualBandit<C, K> {
     /// Construct with a specific seed (other config fields default).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the default configuration fails validation. This cannot happen
+    /// for the shipped defaults; it would indicate a bug in
+    /// `ContextualBanditConfig::default`, not misuse by the caller.
+    #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         let config = ContextualBanditConfig {
             seed,
@@ -553,6 +560,12 @@ impl<const C: usize, const K: usize> crate::render::AsciiRenderable for Contextu
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::Snapshot;

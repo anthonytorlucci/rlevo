@@ -1,4 +1,4 @@
-//! Observation type for CarRacing: a 96×96×3 RGB pixel buffer.
+//! Observation type for `CarRacing`: a 96×96×3 RGB pixel buffer.
 //!
 //! [`CarRacingObservation`] wraps the raw pixel output of the software
 //! rasterizer. The buffer is stored row-major (top to bottom), with three `u8`
@@ -11,6 +11,13 @@
 //! step is needed or expected. Consumers that feed a Burn `conv2d` must permute
 //! the frame from HWC to CHW first.
 
+// The 96×96×3 pixel array (27,648 bytes) exceeds clippy's 16 KiB stack-array
+// threshold, but every construction site immediately moves it into a `Box` or
+// `Arc`, and the array type is part of this module's public observation API
+// (`Arc<[u8; PIXEL_BYTES]>`). Switching to a heap-allocated slice to satisfy
+// the lint would change that public type for no runtime benefit.
+#![allow(clippy::large_stack_arrays)]
+
 use std::sync::Arc;
 
 use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
@@ -19,7 +26,7 @@ use burn::tensor::{Tensor, backend::Backend};
 
 use super::rasterizer::{FRAME_SIZE, PIXEL_BYTES};
 
-/// 96×96×3 pixel observation for CarRacing.
+/// 96×96×3 pixel observation for `CarRacing`.
 ///
 /// Pixel values are stored as `u8` in `[0, 255]`, row-major, RGB.
 ///
@@ -46,6 +53,7 @@ pub struct CarRacingObservation {
 
 impl CarRacingObservation {
     /// Construct from a raw pixel array.
+    #[must_use]
     pub fn new(pixels: [u8; PIXEL_BYTES]) -> Self {
         Self {
             pixels: Arc::new(pixels),
@@ -60,6 +68,7 @@ impl CarRacingObservation {
     /// allocation cannot be reused). The cold [`Deserialize`](serde::Deserialize)
     /// and [`from_tensor`](TensorConvertible::from_tensor) paths each perform one
     /// such `Box` → `Arc` copy too, but neither runs per render step.
+    #[must_use]
     pub fn from_boxed(pixels: Box<[u8; PIXEL_BYTES]>) -> Self {
         Self {
             pixels: Arc::from(pixels),
@@ -67,6 +76,7 @@ impl CarRacingObservation {
     }
 
     /// Returns `true` (pixels are always valid `u8` values).
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         true
     }
@@ -74,7 +84,7 @@ impl CarRacingObservation {
 
 impl std::fmt::Debug for CarRacingObservation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CarRacingObservation({}×{}×3)", FRAME_SIZE, FRAME_SIZE)
+        write!(f, "CarRacingObservation({FRAME_SIZE}×{FRAME_SIZE}×3)")
     }
 }
 

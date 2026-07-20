@@ -1,9 +1,9 @@
-//! Observation type for LunarLander.
+//! Observation type for `LunarLander`.
 
 use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use serde::{Deserialize, Serialize};
 
-/// 8-dimensional observation for LunarLander.
+/// 8-dimensional observation for `LunarLander`.
 ///
 /// Layout:
 /// * `[0]` x position (normalised)
@@ -22,51 +22,61 @@ pub struct LunarLanderObservation {
 
 impl LunarLanderObservation {
     /// Construct from a raw array.
+    #[must_use]
     pub fn new(values: [f32; 8]) -> Self {
         Self { values }
     }
 
     /// Returns the normalised x position relative to the helipad centre.
+    #[must_use]
     pub fn x(&self) -> f32 {
         self.values[0]
     }
 
     /// Returns the normalised y position relative to the helipad height.
+    #[must_use]
     pub fn y(&self) -> f32 {
         self.values[1]
     }
 
     /// Returns the normalised x velocity.
+    #[must_use]
     pub fn vx(&self) -> f32 {
         self.values[2]
     }
 
     /// Returns the normalised y velocity.
+    #[must_use]
     pub fn vy(&self) -> f32 {
         self.values[3]
     }
 
     /// Returns the hull rotation angle in radians.
+    #[must_use]
     pub fn angle(&self) -> f32 {
         self.values[4]
     }
 
     /// Returns the hull angular velocity in rad/s (scaled).
+    #[must_use]
     pub fn angular_vel(&self) -> f32 {
         self.values[5]
     }
 
     /// Returns 1.0 if the left leg is in ground contact, 0.0 otherwise.
+    #[must_use]
     pub fn leg1_contact(&self) -> f32 {
         self.values[6]
     }
 
     /// Returns 1.0 if the right leg is in ground contact, 0.0 otherwise.
+    #[must_use]
     pub fn leg2_contact(&self) -> f32 {
         self.values[7]
     }
 
     /// Returns `true` if all values are finite.
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.values.iter().all(|v| v.is_finite())
     }

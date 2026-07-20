@@ -1,6 +1,6 @@
-//! BipedalWalker — 2D bipedal locomotion environment.
+//! `BipedalWalker` — 2D bipedal locomotion environment.
 //!
-//! Implements the BipedalWalker-v3 Gymnasium environment using Rapier2D physics.
+//! Implements the BipedalWalker-v3 Gymnasium environment using `Rapier2D` physics.
 //! The agent controls hip and knee motor velocity targets for a two-legged robot
 //! walking forward over procedurally generated terrain.
 //!

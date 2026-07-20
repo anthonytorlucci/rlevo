@@ -1,6 +1,6 @@
 //! # MuJoCo-style locomotion environments
 //!
-//! Eleven continuous-control environments modelled on the Gymnasium v5 MuJoCo
+//! Eleven continuous-control environments modelled on the Gymnasium v5 `MuJoCo`
 //! suite, ported to the pure-Rust [`rapier3d`] physics engine. Enable with:
 //!
 //! ```toml
@@ -9,7 +9,7 @@
 //!
 //! ## Physics note
 //!
-//! This module simulates via Rapier3D, **not MuJoCo**. Observation shapes,
+//! This module simulates via `Rapier3D`, **not `MuJoCo`**. Observation shapes,
 //! action dimensions, reward structure, and termination conditions match
 //! Gymnasium v5. Absolute reward values, learned policies, and published
 //! benchmark scores **will not transfer** to real Gymnasium/MuJoCo without

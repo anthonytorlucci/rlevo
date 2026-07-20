@@ -2,7 +2,7 @@
 //!
 //! ## Physics note
 //!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
+//! This env simulates dynamics via `Rapier3D`, not `MuJoCo`. Observation shape,
 //! action dimensionality, reward structure, and termination conditions match
 //! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
 //! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks

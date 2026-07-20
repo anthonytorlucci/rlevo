@@ -2,7 +2,7 @@
 //!
 //! # Physics note
 //!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
+//! This env simulates dynamics via `Rapier3D`, not `MuJoCo`. Observation shape,
 //! action dimensionality, reward structure, and termination conditions match
 //! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
 //! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
@@ -13,7 +13,7 @@
 //! Three cylindrical segments chained in series (front → middle → tail),
 //! constrained to the world xy-plane with gravity disabled. Two revolute-z
 //! impulse joints actuate the chain; per-segment viscous drag substitutes for
-//! MuJoCo's native fluid model.
+//! `MuJoCo`'s native fluid model.
 //!
 //! * Segment shape: capsule along body-x, length `0.1`, radius `0.05`, mass
 //!   `≈0.0471` (density ≈60 kg/m³ derived from capsule volume). The capsule
@@ -44,7 +44,7 @@
 //! `F = −k · v · ‖v‖` before every physics substep, where `k` is
 //! `drag_coefficient` (default `0.1`). The env owns its own `frame_skip`
 //! loop so drag is applied on every substep, not once per env step; this is
-//! required for numerical stability and to match the Gymnasium frame_skip
+//! required for numerical stability and to match the Gymnasium `frame_skip`
 //! semantics. If/when a second locomotion env needs viscous drag, the pattern
 //! can be promoted to a backend-level hook.
 //!
@@ -65,9 +65,9 @@
 //! * **Smaller substep:** `dt = 0.005`, `frame_skip = 8` → env dt 0.04 still
 //!   matches Gymnasium; the integration step is halved to keep per-step
 //!   Δω tractable.
-//! * **`segment_mass = 0.947 kg`** from MuJoCo's body density (1000 kg/m³)
+//! * **`segment_mass = 0.947 kg`** from `MuJoCo`'s body density (1000 kg/m³)
 //!   applied to the capsule volume; using 0.0471 kg (as Gymnasium-derived
-//!   calculations sometimes produce by crossing body density with MuJoCo's
+//!   calculations sometimes produce by crossing body density with `MuJoCo`'s
 //!   fluid `<option density>`) gives negligible inertia.
 //! * **Linear angular drag** `τ = −k_ang · ω`, not quadratic. Explicit
 //!   Euler on quadratic drag overshoots past zero at high |ω| and

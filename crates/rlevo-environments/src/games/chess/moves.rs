@@ -1,13 +1,13 @@
-//! Chess move representation and action encoding modeled after AlphaZero Chess.
+//! Chess move representation and action encoding modeled after `AlphaZero` Chess.
 //!
 //! This module defines the core data structures and traits for representing chess moves
 //! in a way suitable for reinforcement learning agents. It provides a dense, efficient
 //! encoding scheme that maps moves to discrete action indices for use with neural networks.
 //!
-//! AlphaZero represents the action space of chess as an $8 \times 8 \times 73$ tensor,
+//! `AlphaZero` represents the action space of chess as an $8 \times 8 \times 73$ tensor,
 //! totaling 4,672 possible move slots.
 //!
-//! Because a neural network requires a fixed-size output, AlphaZero must provide a value
+//! Because a neural network requires a fixed-size output, `AlphaZero` must provide a value
 //! for every possible move a piece could technically make on an $8 \times 8$ board, even
 //! if that move is illegal in the current position.
 //!
@@ -27,12 +27,12 @@
 //!   directions (capture left, move straight, capture right).
 //!
 //! **How illegal moves are handled**: The network outputs probabilites for all 4,672 moves.
-//! However, before the move is actually selected, AlphaZero applies a mask. It sets the
+//! However, before the move is actually selected, `AlphaZero` applies a mask. It sets the
 //! probability of all illegal moves to zero and renormalizes the remaining legal moves so they
 //! sum to 1.
 //!
 //! # How the Network Evaluates a Position
-//! AlphaZero uses a "dual-head" architecture. After the input (the $8 \times 8 \times 119$
+//! `AlphaZero` uses a "dual-head" architecture. After the input (the $8 \times 8 \times 119$
 //! tensor) passes through the main body of the residual layers, the network splits into two
 //! distinct output heads:
 //!
@@ -55,13 +55,13 @@
 //!   game from the current position.
 //!
 //! # The Synergy: Evaluation + Search
-//! The magic of AlphaZero is how these two outputs work together inside the Monte Carlo Tree
+//! The magic of `AlphaZero` is how these two outputs work together inside the Monte Carlo Tree
 //! Search (MCTS):
 //! 1. **Prioritization**: When MCTS explores a new branch, it uses the Policy ($\pi$) to decide
 //!   which moves to try first. This prevents the engine from wasting time on "human-obvious"
 //!   blunders.
 //! 2. **Leaf Evaluation**: In old-school MCTS, you would play "random games" until the end to see
-//!   who won. AlphaZero doesn't do that. As soon as it hits a new position in its search tree, it
+//!   who won. `AlphaZero` doesn't do that. As soon as it hits a new position in its search tree, it
 //!   asks the Value Head ($v$) for an estimate.
 //! 3. **Backpropagation**: This value estimate is "rippled" back up the tree, updating the
 //!   quality score of every move that led to that position.
@@ -110,7 +110,7 @@ pub enum PromotionPiece {
     Knight,
 }
 
-/// Chess move representation compatible with AlphaZero's action space.
+/// Chess move representation compatible with `AlphaZero`'s action space.
 ///
 /// Encodes moves in an 8×8×73 tensor format where:
 /// - First dimension: source rank (0-7)
@@ -128,6 +128,7 @@ pub struct ChessMove {
 
 impl ChessMove {
     /// Creates a new chess move from source to destination.
+    #[must_use]
     pub fn new(from: Square, to: Square) -> Self {
         Self {
             from,
@@ -137,6 +138,7 @@ impl ChessMove {
     }
 
     /// Creates a new chess move with a promotion.
+    #[must_use]
     pub fn new_with_promotion(from: Square, to: Square, promotion: PromotionPiece) -> Self {
         Self {
             from,
@@ -147,29 +149,33 @@ impl ChessMove {
 
     /// Returns the source rank (0-7).
     #[inline]
+    #[must_use]
     pub fn from_rank(&self) -> u8 {
         self.from.rank()
     }
 
     /// Returns the source file (0-7).
     #[inline]
+    #[must_use]
     pub fn from_file(&self) -> u8 {
         self.from.file()
     }
 
     /// Returns the destination rank (0-7).
     #[inline]
+    #[must_use]
     pub fn to_rank(&self) -> u8 {
         self.to.rank()
     }
 
     /// Returns the destination file (0-7).
     #[inline]
+    #[must_use]
     pub fn to_file(&self) -> u8 {
         self.to.file()
     }
 
-    /// Computes the move plane index (0–72) for this move in the AlphaZero action space.
+    /// Computes the move plane index (0–72) for this move in the `AlphaZero` action space.
     ///
     /// The plane index encodes the *type* of move made from the source square:
     ///
@@ -188,7 +194,7 @@ impl ChessMove {
     ///
     /// Panics if the move delta does not match any of the 73 encoded patterns
     /// (i.e., the move is geometrically impossible on an 8×8 board).
-    fn compute_move_plane(&self) -> usize {
+    fn compute_move_plane(self) -> usize {
         let from_rank = self.from_rank() as i8;
         let from_file = self.from_file() as i8;
         let to_rank = self.to_rank() as i8;
@@ -227,7 +233,9 @@ impl ChessMove {
                     PromotionPiece::Knight => 0,
                     PromotionPiece::Bishop => 3,
                     PromotionPiece::Rook => 6,
-                    _ => unreachable!(),
+                    PromotionPiece::Queen => unreachable!(
+                        "queen promotions are encoded as ordinary moves, not underpromotions"
+                    ),
                 };
 
                 let direction = match delta_file {
@@ -260,18 +268,11 @@ impl ChessMove {
         } else if delta_rank > 0 && delta_file < 0 && delta_rank == -delta_file {
             7 // Northwest
         } else {
-            panic!(
-                "Invalid queen-like move: delta_rank={}, delta_file={}",
-                delta_rank, delta_file
-            );
+            panic!("Invalid queen-like move: delta_rank={delta_rank}, delta_file={delta_file}");
         };
 
         let distance = delta_rank.abs().max(delta_file.abs()) as usize;
-        assert!(
-            (1..=7).contains(&distance),
-            "Invalid distance: {}",
-            distance
-        );
+        assert!((1..=7).contains(&distance), "Invalid distance: {distance}");
 
         direction_index * 7 + (distance - 1)
     }

@@ -1,6 +1,6 @@
-//! Physics state for the LunarLander environments.
+//! Physics state for the `LunarLander` environments.
 //!
-//! [`LunarLanderState`] holds Rapier2D handles for the lander hull and legs,
+//! [`LunarLanderState`] holds `Rapier2D` handles for the lander hull and legs,
 //! cached ground-contact flags, and the previous shaping value needed for
 //! potential-based reward computation.
 
@@ -8,7 +8,7 @@ use rapier2d::dynamics::RigidBodyHandle;
 use rapier2d::geometry::ColliderHandle;
 use rlevo_core::base::State;
 
-/// Physics state for LunarLander.
+/// Physics state for `LunarLander`.
 ///
 /// # Handle-lifetime caveat
 ///

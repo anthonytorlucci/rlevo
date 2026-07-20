@@ -200,6 +200,11 @@ impl PixelGridState {
     /// Agent and goal are distinguished by **glyph** (`@` / `*`) as well as
     /// color in the pixel projection — never color alone — so the frame is
     /// legible without color perception. Agent-on-goal renders `@`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a cell index exceeds `u32::MAX`. `CELL_COUNT` is a compile-time
+    /// constant far below that bound, so this is unreachable in practice.
     #[must_use]
     pub fn render_ascii(&self) -> String {
         let mut out = String::with_capacity(CELL_COUNT * 2);
@@ -720,6 +725,12 @@ impl Environment<3, 1, 1> for PixelGridEnv {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::{EpisodeStatus, Snapshot};

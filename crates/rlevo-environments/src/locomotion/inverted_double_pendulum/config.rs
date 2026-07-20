@@ -7,7 +7,7 @@ use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 
 /// Environment configuration for [`super::InvertedDoublePendulum`].
 ///
-/// Defaults match the Gymnasium v5 XML: gear 100, dt 0.01, frame_skip 1,
+/// Defaults match the Gymnasium v5 XML: gear 100, dt 0.01, `frame_skip` 1,
 /// reset noise 0.1, truncation at 1000, termination on `y_tip ≤ 1.0`.
 #[derive(Debug, Clone)]
 pub struct InvertedDoublePendulumConfig {

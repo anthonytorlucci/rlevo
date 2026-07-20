@@ -1,10 +1,10 @@
-//! Action type for CarRacing.
+//! Action type for `CarRacing`.
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
 use serde::{Deserialize, Serialize};
 
-/// 3-dimensional continuous action for CarRacing.
+/// 3-dimensional continuous action for `CarRacing`.
 ///
 /// Components and their valid ranges:
 /// * `steer ∈ [−1, 1]` — steering angle
@@ -130,7 +130,7 @@ impl ContinuousAction<1> for CarRacingAction {
         Self::new(values[0], values[1], values[2])
     }
 
-    /// Samples a uniformly-random **valid** action within CarRacing's asymmetric
+    /// Samples a uniformly-random **valid** action within `CarRacing`'s asymmetric
     /// bounds. Overrides the trait default, whose symmetric `[-1, 1)` range would
     /// sample negative gas/brake and fail [`Action::is_valid`] (ADR 0038).
     fn random() -> Self {

@@ -1,6 +1,6 @@
 //! [`Reacher`] environment — `Environment` implementation and world builder.
 //!
-//! This module wires the Rapier3D physics backend to the `rlevo-core`
+//! This module wires the `Rapier3D` physics backend to the `rlevo-core`
 //! `Environment` trait. The public entry-points are:
 //!
 //! - [`Reacher::with_config`] — construct from an explicit [`ReacherConfig`].
@@ -13,7 +13,6 @@ use std::marker::PhantomData;
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use rapier3d::math::Vector;
 use rapier3d::prelude::*;
 use rlevo_core::config::{ConfigError, Validate};
 use rlevo_core::environment::{
@@ -246,7 +245,7 @@ impl Reacher<Rapier3DBackend> {
     /// Compute the two joint torques for `action` (clip → gear). Pure: the
     /// torques are *applied* inside the `step_actuated` closure so they are
     /// re-applied fresh each substep (ADR 0037 force-lifetime contract).
-    fn control_torques(&self, action: &ReacherAction) -> [f32; 2] {
+    fn control_torques(&self, action: ReacherAction) -> [f32; 2] {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi), action.0[1].clamp(lo, hi)];
         self.config.gear.apply(&clipped)
@@ -331,7 +330,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     /// Returns [`EnvironmentError::InvalidAction`] if either action element is
     /// non-finite (`NaN` or ±∞).
     fn step(&mut self, action: ReacherAction) -> Result<Self::SnapshotType, EnvironmentError> {
-        if !action.0.iter().all(|v| v.is_finite()) {
+        if !action.0.iter().copied().all(f32::is_finite) {
             return Err(EnvironmentError::InvalidAction(format!(
                 "Reacher action must be finite, got {:?}",
                 action.0
@@ -360,7 +359,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
         // ⇒ counterclockwise, unchanged. The env owns and constructed both
         // joints as `+Z` revolute impulse joints, so a non-revolute/stale-handle
         // error would be a programming error (docs/rules.md §4) — hence `expect`.
-        let torques = self.control_torques(&action);
+        let torques = self.control_torques(action);
         let shoulder: Rapier3DJointHandle = self.state.shoulder.into();
         let elbow: Rapier3DJointHandle = self.state.elbow.into();
         self.world.step_actuated(|w| {
@@ -410,6 +409,12 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
@@ -462,8 +467,6 @@ mod tests {
                 ..Default::default()
             }
         }
-        let narrow = rlevo_core::bounds::Bounds::new(-0.5, 0.5);
-
         fn rollout(config: ReacherConfig, action: ReacherAction) -> [f32; 10] {
             let mut env = ReacherRapier::with_config(config).expect("valid config");
             env.reset().expect("reset");
@@ -472,6 +475,8 @@ mod tests {
                 .observation()
                 .0
         }
+
+        let narrow = rlevo_core::bounds::Bounds::new(-0.5, 0.5);
 
         // The static space's corner, under the narrowed clip.
         let at_boundary = rollout(cfg_with(narrow), ReacherAction::new(-1.0, 1.0));

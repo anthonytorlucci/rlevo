@@ -1,6 +1,6 @@
-//! Physics state for the BipedalWalker environment.
+//! Physics state for the `BipedalWalker` environment.
 //!
-//! [`BipedalWalkerState`] holds all Rapier2D handles required to read body
+//! [`BipedalWalkerState`] holds all `Rapier2D` handles required to read body
 //! kinematics and drive joints each step, plus cached contact flags.
 
 use rapier2d::dynamics::{ImpulseJointHandle, RigidBodyHandle};
@@ -8,7 +8,7 @@ use rlevo_core::base::State;
 
 use super::observation::BipedalWalkerObservation;
 
-/// Physics state for BipedalWalker.
+/// Physics state for `BipedalWalker`.
 ///
 /// Stores rapier2d handles for all bodies and joints, plus cached
 /// contact flags.

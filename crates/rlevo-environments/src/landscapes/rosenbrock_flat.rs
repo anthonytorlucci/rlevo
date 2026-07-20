@@ -44,7 +44,7 @@
 //!
 //! # References
 //!
-//! Monismith, D.R. (2010), PhD dissertation, Oklahoma State University — source
+//! Monismith, D.R. (2010), `PhD` dissertation, Oklahoma State University — source
 //! of the canonical `[-2000, 2000]^n` domain, catalogued as function #170 in
 //! Al-Roomi's benchmark repository.
 //!
@@ -124,7 +124,7 @@ impl RosenbrockFlat {
     ///
     /// Coordinates beyond the first two are fixed at `1.0` (the optimum) so the
     /// rendered slice passes through the valley.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![1.0_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;
@@ -237,9 +237,9 @@ mod tests {
         // [-2000, 2000]^n or the cited reduced [-30, 30] — can therefore contain
         // a point better than f*. Pinned by a dense deterministic sweep of the
         // 2-D slice over bounds()².
+        const STEPS: i32 = 300;
         let r = RosenbrockFlat::new(2).expect("dim >= 2");
         let (lo, hi) = r.bounds();
-        const STEPS: i32 = 300;
         let step = (hi - lo) / f64::from(STEPS);
 
         for i in 0..=STEPS {

@@ -63,7 +63,7 @@ impl Deb1 {
     ///
     /// Coordinates beyond the first two are fixed at `0.1`, one of the
     /// per-dimension optima, so the rendered slice passes through a global minimum.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.1_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;

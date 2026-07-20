@@ -194,6 +194,13 @@ impl<const K: usize> Display for NonStationaryBandit<K> {
 
 impl<const K: usize> NonStationaryBandit<K> {
     /// Construct with a specific seed (other config fields default).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the default configuration fails validation. This cannot happen
+    /// for the shipped defaults; it would indicate a bug in
+    /// `NonStationaryBanditConfig::default`, not misuse by the caller.
+    #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         let config = NonStationaryBanditConfig {
             seed,
@@ -347,6 +354,10 @@ impl<const K: usize> crate::render::AsciiRenderable for NonStationaryBandit<K> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is the property: these tests assert the arm means moved
+    // (or did not move) at all between steps, not that they moved by some amount.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::environment::Snapshot;

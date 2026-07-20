@@ -112,6 +112,12 @@ impl crate::render::AsciiRenderable for Michalewicz {
 
 #[cfg(test)]
 mod tests {
+    // The optimum coordinate 2.20290552 is quoted digit-for-digit from the
+    // certified Michalewicz n=2 result; digit-group separators would make it
+    // harder to check against the published table, which is the only reason
+    // the literal is written out in full.
+    #![allow(clippy::unreadable_literal)]
+
     use super::*;
     use approx::assert_relative_eq;
 

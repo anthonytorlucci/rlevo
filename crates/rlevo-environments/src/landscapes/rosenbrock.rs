@@ -73,7 +73,7 @@ impl Rosenbrock {
     /// Coordinates beyond the first two are fixed at `1.0` (the per-dimension
     /// optimum) so the rendered slice passes through the valley floor rather
     /// than a flat cross-section.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![1.0_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;

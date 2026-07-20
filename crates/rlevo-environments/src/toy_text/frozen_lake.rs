@@ -193,6 +193,7 @@ impl Default for FrozenLakeConfig {
 
 impl FrozenLakeConfig {
     /// Returns a builder for constructing a `FrozenLakeConfig`.
+    #[must_use]
     pub fn builder() -> FrozenLakeConfigBuilder {
         FrozenLakeConfigBuilder::default()
     }
@@ -207,7 +208,7 @@ impl Validate for FrozenLakeConfig {
 }
 
 /// Builder for [`FrozenLakeConfig`].
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct FrozenLakeConfigBuilder {
     map: Option<FrozenMapSpec>,
     is_slippery: bool,
@@ -218,12 +219,14 @@ pub struct FrozenLakeConfigBuilder {
 
 impl FrozenLakeConfigBuilder {
     /// Sets the grid source: preset, custom, or randomly generated.
+    #[must_use]
     pub fn map(mut self, m: FrozenMapSpec) -> Self {
         self.map = Some(m);
         self
     }
 
     /// Enables or disables stochastic slip transitions.
+    #[must_use]
     pub fn is_slippery(mut self, v: bool) -> Self {
         self.is_slippery = v;
         self
@@ -232,24 +235,28 @@ impl FrozenLakeConfigBuilder {
     /// Sets the probability of moving in the intended direction when slippery mode is active.
     ///
     /// The two perpendicular directions each receive probability `(1 − rate) / 2`. Default: `1/3`.
+    #[must_use]
     pub fn success_rate(mut self, r: f32) -> Self {
         self.success_rate = Some(r);
         self
     }
 
     /// Overrides the per-tile reward values.
+    #[must_use]
     pub fn reward_schedule(mut self, rs: RewardSchedule) -> Self {
         self.reward_schedule = Some(rs);
         self
     }
 
     /// Sets the RNG seed.
+    #[must_use]
     pub fn seed(mut self, s: u64) -> Self {
         self.seed = s;
         self
     }
 
     /// Builds the [`FrozenLakeConfig`].
+    #[must_use]
     pub fn build(self) -> FrozenLakeConfig {
         FrozenLakeConfig {
             map: self.map.unwrap_or_default(),
@@ -376,7 +383,7 @@ fn generate_random_map(
         let mut tiles = vec![Tile::Frozen; nrow * ncol];
         tiles[0] = Tile::Start;
         tiles[nrow * ncol - 1] = Tile::Goal;
-        for tile in tiles[1..nrow * ncol - 1].iter_mut() {
+        for tile in &mut tiles[1..nrow * ncol - 1] {
             if rng.random_range(0.0f32..1.0) >= frozen_prob {
                 *tile = Tile::Hole;
             }
@@ -411,22 +418,22 @@ pub struct FrozenLakeState {
 
 impl FrozenLakeState {
     fn state_id(&self) -> u16 {
-        self.row as u16 * self.ncol as u16 + self.col as u16
+        u16::from(self.row) * u16::from(self.ncol) + u16::from(self.col)
     }
 }
 
 impl TryFrom<(u16, u8, u8)> for FrozenLakeState {
     type Error = StateError;
     fn try_from((id, nrow, ncol): (u16, u8, u8)) -> Result<Self, Self::Error> {
-        let n = nrow as u16 * ncol as u16;
+        let n = u16::from(nrow) * u16::from(ncol);
         if id >= n {
             return Err(StateError::InvalidData(format!(
                 "FrozenLakeState id {id} out of [0,{n})"
             )));
         }
         Ok(FrozenLakeState {
-            row: (id / ncol as u16) as u8,
-            col: (id % ncol as u16) as u8,
+            row: (id / u16::from(ncol)) as u8,
+            col: (id % u16::from(ncol)) as u8,
             nrow,
             ncol,
         })
@@ -459,7 +466,7 @@ impl Observation<1> for FrozenLakeObservation {
     }
 }
 
-/// Four-direction action space matching Gymnasium's FrozenLake ordering.
+/// Four-direction action space matching Gymnasium's `FrozenLake` ordering.
 ///
 /// Movements are clamped at grid boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -585,7 +592,7 @@ impl FrozenLake {
             FrozenMapSpec::Preset(FrozenPreset::Four4x4) => parse_map(MAP_4X4),
             FrozenMapSpec::Preset(FrozenPreset::Eight8x8) => parse_map(MAP_8X8),
             FrozenMapSpec::Custom(rows) => {
-                let refs: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
+                let refs: Vec<&str> = rows.iter().map(std::string::String::as_str).collect();
                 parse_map(&refs)
             }
             FrozenMapSpec::Random {
@@ -867,9 +874,13 @@ impl rlevo_core::render::payload::TabularPayloadSource for FrozenLake {
 /// Unit tests for [`FrozenLake`], covering map validation, tile transitions,
 /// reward customisation, slippery distributions, random map generation, and determinism.
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
-    use rlevo_core::action::DiscreteAction;
-    use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
     #[test]

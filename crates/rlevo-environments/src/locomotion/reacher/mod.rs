@@ -2,7 +2,7 @@
 //!
 //! # Physics note
 //!
-//! This env simulates dynamics via Rapier3D, not MuJoCo. Observation shape,
+//! This env simulates dynamics via `Rapier3D`, not `MuJoCo`. Observation shape,
 //! action dimensionality, reward structure, and termination conditions match
 //! Gymnasium v5 exactly. **Absolute reward values, learned policies, and
 //! trained scores will NOT transfer to real Gymnasium/MuJoCo benchmarks
@@ -41,7 +41,7 @@
 //!
 //! ## Divergence from Gymnasium-v5 dynamics
 //!
-//! Gymnasium's reacher XML stabilises the tiny-inertia links via MuJoCo joint
+//! Gymnasium's reacher XML stabilises the tiny-inertia links via `MuJoCo` joint
 //! `armature` and `damping`, neither of which has a direct Rapier equivalent.
 //! With literal gear `[200, 200]` and per-link mass `0.0356`, a **random-policy
 //! rollout** drives the arm into highly non-physical velocities and distances;

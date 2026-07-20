@@ -53,7 +53,7 @@ pub struct SwimmerConfig {
     /// The term is **linear** in `ω` (not quadratic) because explicit-Euler
     /// integration of quadratic drag diverges at the angular velocities
     /// reachable under sustained actuation in a zero-gravity free-floating
-    /// chain. MuJoCo uses an implicit integrator and can afford quadratic
+    /// chain. `MuJoCo` uses an implicit integrator and can afford quadratic
     /// angular drag; this is a Rapier-compatibility divergence. Default `0.2`.
     pub angular_drag_coefficient: f32,
     /// Half-length of each capsule segment along the body-x axis. Default
@@ -62,7 +62,7 @@ pub struct SwimmerConfig {
     /// Radius of each capsule segment. Default `0.05`.
     pub segment_radius: f32,
     /// Mass of each segment in kg. Used to compute capsule density so that
-    /// the inertia tensor is non-zero. Default `0.947` (MuJoCo body density
+    /// the inertia tensor is non-zero. Default `0.947` (`MuJoCo` body density
     /// 1000 kg/m³ × capsule volume).
     pub segment_mass: f32,
 }

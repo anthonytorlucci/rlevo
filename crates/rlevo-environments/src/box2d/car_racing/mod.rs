@@ -1,6 +1,6 @@
-//! CarRacing — top-down 2D car racing environment with pixel observations.
+//! `CarRacing` — top-down 2D car racing environment with pixel observations.
 //!
-//! Implements the CarRacing-v3 Gymnasium environment using Rapier2D physics and
+//! Implements the CarRacing-v3 Gymnasium environment using `Rapier2D` physics and
 //! a software rasterizer. The agent receives a 96×96 RGB pixel observation and
 //! controls steering, gas, and brake inputs to complete a closed-loop track.
 //!

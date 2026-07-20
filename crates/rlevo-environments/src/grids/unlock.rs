@@ -192,6 +192,11 @@ pub struct UnlockEnv {
     steps: usize,
     render: bool,
     door_pos: (i32, i32),
+    // Never sampled: this env's layout builder is fully deterministic and
+    // ignores `config.seed`, so the field is written but never read. Kept
+    // as-is rather than renamed — see #397, which decides whether these
+    // envs become genuinely stochastic or drop the seed entirely.
+    #[allow(clippy::used_underscore_binding)]
     _rng: StdRng,
 }
 

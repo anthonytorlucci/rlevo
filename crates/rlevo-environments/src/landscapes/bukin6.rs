@@ -66,7 +66,7 @@ impl Bukin6 {
     }
 
     /// 2D projection used by the renderer — the exact surface for a 2-D function.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         self.evaluate(x, y)
     }
 }
@@ -163,9 +163,9 @@ mod tests {
         // rectangle x₁ ∈ [-15, -5], x₂ ∈ [-3, 3] (e.g. x₁ = +2, which the sweep below
         // visits) — this test is precisely the check that those extra points are
         // harmless: none of them can beat f*.
+        const STEPS: i32 = 300;
         let b = Bukin6::new();
         let (lo, hi) = b.bounds();
-        const STEPS: i32 = 300;
         let step = (hi - lo) / f64::from(STEPS);
 
         for i in 0..=STEPS {

@@ -29,6 +29,12 @@ pub fn ten_armed_bandit_suite(
 }
 
 /// Single-env suite running [`CartPole`] (Gymnasium `CartPole-v1`).
+///
+/// # Panics
+///
+/// Panics if the hard-coded suite configuration fails validation. The values
+/// are literals in this function, so a panic indicates a bug here rather than
+/// bad caller input.
 #[must_use]
 pub fn cartpole_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<CartPole, 1, 1, 1>> {
     Suite::new("cartpole", cfg).with_env("cartpole-default", |seed| {
@@ -43,6 +49,12 @@ pub fn cartpole_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<CartPole, 1, 1
 }
 
 /// Single-env suite running [`Pendulum`] (continuous-action swing-up).
+///
+/// # Panics
+///
+/// Panics if the hard-coded suite configuration fails validation. The values
+/// are literals in this function, so a panic indicates a bug here rather than
+/// bad caller input.
 #[must_use]
 pub fn pendulum_suite(cfg: EvaluatorConfig) -> Suite<BenchAdapter<Pendulum, 1, 1, 1>> {
     Suite::new("pendulum", cfg).with_env("pendulum-default", |seed| {

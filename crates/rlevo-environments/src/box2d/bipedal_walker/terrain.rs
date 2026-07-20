@@ -1,4 +1,4 @@
-//! Terrain generation for the BipedalWalker environment.
+//! Terrain generation for the `BipedalWalker` environment.
 //!
 //! The [`TerrainGenerator`] trait is the extension point for ground geometry.
 //! Three concrete generators ship with the crate:
@@ -16,7 +16,7 @@
 //! begin at the spawn point regardless of the difficulty setting.
 //!
 //! Points are in **world space** (not scaled by `SCALE`). Scaling is applied
-//! inside `BipedalWalker::build_ground` when constructing Rapier2D colliders.
+//! inside `BipedalWalker::build_ground` when constructing `Rapier2D` colliders.
 
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -376,6 +376,10 @@ impl TerrainGenerator for HardcoreTerrain {
 
 #[cfg(test)]
 mod tests {
+    // Terrain x-coordinates are exact literals produced by a fixed step, and
+    // the determinism checks compare two runs that must agree bit-for-bit.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rand::SeedableRng;
 

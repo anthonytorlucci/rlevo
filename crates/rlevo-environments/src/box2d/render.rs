@@ -1,6 +1,6 @@
-//! Shared ASCII / styled renderer for Box2D physics envs.
+//! Shared ASCII / styled renderer for `Box2D` physics envs.
 //!
-//! Each Box2D env (LunarLander, BipedalWalker, CarRacing) holds rapier2d
+//! Each `Box2D` env (`LunarLander`, `BipedalWalker`, `CarRacing`) holds rapier2d
 //! bodies in continuous 2D space. This renderer projects body centres onto
 //! a `CELL_COLS × CELL_ROWS` grid spanning a world-space viewport and
 //! plots one glyph per body. The agent body additionally carries an
@@ -69,6 +69,7 @@ fn project(x: f32, y: f32, vp: Viewport) -> Option<(usize, usize)> {
 }
 
 /// Pick one of 8 arrow glyphs based on `angle_rad` (radians, CCW from +X).
+#[must_use]
 pub fn arrow_glyph(angle_rad: f32) -> char {
     use std::f32::consts::PI;
     let two_pi = 2.0 * PI;
@@ -158,7 +159,7 @@ fn glyph_style(g: Glyph) -> SpanStyle {
     }
 }
 
-/// Render a Box2D scene as a plain UTF-8 string.
+/// Render a `Box2D` scene as a plain UTF-8 string.
 ///
 /// Returns a header line followed by [`CELL_ROWS`] grid lines, each
 /// [`CELL_COLS`] characters wide, separated by `\n`.
@@ -206,7 +207,7 @@ pub fn render_box2d_ascii(
     out
 }
 
-/// Render a Box2D scene as a [`StyledFrame`].
+/// Render a `Box2D` scene as a [`StyledFrame`].
 ///
 /// Produces the same layout and content as [`render_box2d_ascii`] but
 /// wraps each run of identically styled characters in a [`StyledSpan`]

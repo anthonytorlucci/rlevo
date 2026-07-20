@@ -213,6 +213,7 @@ impl MountainCarContinuousAction {
     }
 
     /// The raw force value.
+    #[must_use]
     pub fn force(&self) -> f32 {
         self.0
     }
@@ -298,6 +299,7 @@ pub struct MountainCarContinuousObservation {
 
 impl MountainCarContinuousObservation {
     /// Flatten to a `[f32; 2]` array.
+    #[must_use]
     pub fn to_array(&self) -> [f32; 2] {
         [self.position, self.velocity]
     }
@@ -404,7 +406,7 @@ impl MountainCarContinuous {
         }
     }
 
-    fn is_terminal(state: &MountainCarContinuousState, cfg: &MountainCarContinuousConfig) -> bool {
+    fn is_terminal(state: MountainCarContinuousState, cfg: &MountainCarContinuousConfig) -> bool {
         state.position >= cfg.goal_position && state.velocity >= cfg.goal_velocity
     }
 }
@@ -439,7 +441,7 @@ impl Sensor<1, 1, 1> for MountainCarContinuous {
         _action: &MountainCarContinuousAction,
         next_state: &MountainCarContinuousState,
     ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(next_state)
+        mountain_car_continuous_observation(*next_state)
     }
 
     /// Projects the initial state onto the 2-D observation.
@@ -447,14 +449,14 @@ impl Sensor<1, 1, 1> for MountainCarContinuous {
         &self,
         state: &MountainCarContinuousState,
     ) -> MountainCarContinuousObservation {
-        mountain_car_continuous_observation(state)
+        mountain_car_continuous_observation(*state)
     }
 }
 
-/// Builds the 2-D MountainCarContinuous observation `[position, velocity]` from a
+/// Builds the 2-D `MountainCarContinuous` observation `[position, velocity]` from a
 /// state.
 fn mountain_car_continuous_observation(
-    state: &MountainCarContinuousState,
+    state: MountainCarContinuousState,
 ) -> MountainCarContinuousObservation {
     MountainCarContinuousObservation {
         position: state.position,
@@ -506,7 +508,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         self.state = Self::apply_physics(self.state, force, &self.config);
         self.steps += 1;
 
-        let terminated = Self::is_terminal(&self.state, &self.config);
+        let terminated = Self::is_terminal(self.state, &self.config);
         let ctrl_cost = -0.1 * force * force;
         let goal_bonus = if terminated { 100.0 } else { 0.0 };
         let reward = ScalarReward(ctrl_cost + goal_bonus);
@@ -615,8 +617,8 @@ impl crate::render::AsciiRenderable for MountainCarContinuous {
 
 /// Style a `[track]  suffix` style line where a single glyph marks the agent.
 ///
-/// Reused by track-style renders (MountainCar, MountainCarContinuous,
-/// CartPole). The portion before `]` is treated as the track; the matched
+/// Reused by track-style renders (`MountainCar`, `MountainCarContinuous`,
+/// `CartPole`). The portion before `]` is treated as the track; the matched
 /// `agent_glyph` carries `AGENT_FG | AGENT_MODIFIER`; everything else
 /// inside the brackets carries `WALL_FG`; the suffix is unstyled.
 fn style_track_line(line: &str, agent_glyph: char) -> crate::render::StyledLine {
@@ -659,9 +661,9 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCarContinuo
         use rlevo_core::render::payload::{
             Classic2DBody, Classic2DRole, Classic2DSnapshot, Point2,
         };
-        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         // Terrain profile y = sin(3x), sampled across the track.
         const SAMPLES: usize = 48;
+        let (lo, hi) = (self.config.pos_bounds.lo(), self.config.pos_bounds.hi());
         let terrain: Vec<Point2> = (0..=SAMPLES)
             .map(|i| {
                 let x = lo + (hi - lo) * (i as f32 / SAMPLES as f32);
@@ -702,6 +704,12 @@ impl rlevo_core::render::payload::Classic2DPayloadSource for MountainCarContinuo
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     //! Unit tests for [`MountainCarContinuous`] covering observation shape,
     //! action boundary validation, control-cost formula, goal-reaching bonus,
     //! and determinism.

@@ -99,9 +99,9 @@ pub trait LocomotionBackend: 'static {
     /// Apply a scalar actuator torque to a revolute joint's single free axis.
     ///
     /// `torque` is the **generalized force** on the joint's one free angular
-    /// degree of freedom — the direct analogue of a MuJoCo `motor` actuator on a
+    /// degree of freedom — the direct analogue of a `MuJoCo` `motor` actuator on a
     /// hinge joint, where the generalized force is `gear × ctrl`. Torque is in
-    /// world-scale units (newton-metres for Rapier3D); **gear scaling stays the
+    /// world-scale units (newton-metres for `Rapier3D`); **gear scaling stays the
     /// caller's responsibility** — see [`crate::locomotion::common::Gear`].
     ///
     /// # Semantics
@@ -150,12 +150,12 @@ pub trait LocomotionBackend: 'static {
     ///   (`impulse / substep_dt`) from the **last** solved substep — an
     ///   instantaneous per-timestep quantity, **not** a step-integrated or
     ///   frame-skip-averaged one. It mirrors Gymnasium's read-after-last-substep
-    ///   semantics: MuJoCo recomputes `cfrc_ext` via `mj_rnePostConstraint`
+    ///   semantics: `MuJoCo` recomputes `cfrc_ext` via `mj_rnePostConstraint`
     ///   *once*, after `mj_step(nstep = frame_skip)`, so it too reflects only the
     ///   final substep's state. The value is therefore independent of
     ///   `frame_skip`.
     /// - **Sign — force ON the queried body.** The wrench is the external
-    ///   contact force-torque acting *on* `body` (the analogue of MuJoCo
+    ///   contact force-torque acting *on* `body` (the analogue of `MuJoCo`
     ///   `cfrc_ext` = "external force acting on the body"): a body resting on the
     ///   ground reports a positive upward vertical force. By Newton's third law
     ///   the force part of `contact_force(A)` is the negation of that of
@@ -163,19 +163,19 @@ pub trait LocomotionBackend: 'static {
     ///   taken about its own body's centre of mass). The sign is independent of
     ///   collider insertion order.
     /// - **Layout `[force(3), torque(3)]`** — an intentional deviation from
-    ///   MuJoCo's `cfrc_ext`, which is `[torque(3), force(3)]` ("rotation(3),
+    ///   `MuJoCo`'s `cfrc_ext`, which is `[torque(3), force(3)]` ("rotation(3),
     ///   translation(3)" per `mj_rnePostConstraint`). Consumers packing an
     ///   observation must map fields accordingly; this layout is **not**
     ///   `cfrc_ext`-compatible.
     /// - **Torque reference point: the body's own centre of mass**, whereas
-    ///   MuJoCo references its `cfrc_ext` torque to the *kinematic-subtree* CoM.
+    ///   `MuJoCo` references its `cfrc_ext` torque to the *kinematic-subtree* `CoM`.
     ///   These coincide for a leaf body but differ materially for an internal
     ///   body — a calibration caveat for Ant/Humanoid `contact_cost`.
-    /// - **Content: contact-manifold forces only.** MuJoCo's `cfrc_ext` is the
+    /// - **Content: contact-manifold forces only.** `MuJoCo`'s `cfrc_ext` is the
     ///   full Recursive-Newton-Euler post-constraint external wrench (all
     ///   external interactions), a strict superset of contact forces.
     /// - **Self-contacts never contribute.** Two colliders sharing one rigid body
-    ///   cannot produce a contact pair in rapier 0.32, matching MuJoCo's
+    ///   cannot produce a contact pair in rapier 0.32, matching `MuJoCo`'s
     ///   undisableable same-body geom filter.
     fn contact_force(world: &Self::World, body: Self::BodyHandle) -> [f32; 6];
 }

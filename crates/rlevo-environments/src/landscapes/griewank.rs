@@ -70,7 +70,7 @@ impl Griewank {
     ///
     /// Coordinates beyond the first two are held at `0.0` so the rendered slice
     /// passes through the global optimum at the origin.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.0_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;

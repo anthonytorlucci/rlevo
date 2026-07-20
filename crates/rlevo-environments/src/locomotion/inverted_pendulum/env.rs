@@ -1,4 +1,4 @@
-//! InvertedPendulum environment implementation.
+//! `InvertedPendulum` environment implementation.
 
 use std::marker::PhantomData;
 
@@ -22,7 +22,7 @@ use super::state::InvertedPendulumState;
 /// Reward-component metadata key: `+1` if alive at this step, `0` otherwise.
 pub const METADATA_KEY_ALIVE: &str = "alive";
 
-/// InvertedPendulum — cart-pole balance in 3D, with the cart restricted to
+/// `InvertedPendulum` — cart-pole balance in 3D, with the cart restricted to
 /// the world-x axis and the pole free to rotate about the world-y axis.
 ///
 /// Generic in the physics backend; v1 only implements `B = Rapier3DBackend`
@@ -80,6 +80,8 @@ impl InvertedPendulum<Rapier3DBackend> {
         self.reset()
     }
 
+    // Justified: paired per-joint initial values differ only by joint index.
+    #[allow(clippy::similar_names)]
     fn build_world(
         config: &InvertedPendulumConfig,
         rng: &mut StdRng,
@@ -192,7 +194,7 @@ impl InvertedPendulum<Rapier3DBackend> {
     /// Compute the world-x cart force for `action` (clip → gear). Pure: the
     /// force is *applied* inside the `step_actuated` closure so it is re-applied
     /// fresh each substep (ADR 0037 force-lifetime contract).
-    fn control_force(&self, action: &InvertedPendulumAction) -> f32 {
+    fn control_force(&self, action: InvertedPendulumAction) -> f32 {
         let (lo, hi): (f32, f32) = self.config.action_clip.into();
         let clipped = [action.0[0].clamp(lo, hi)];
         let torques = self.config.gear.apply(&clipped);
@@ -307,7 +309,7 @@ impl Environment<1, 1, 1> for InvertedPendulum<Rapier3DBackend> {
         // across the frame skip and cannot accumulate (ADR 0037). The handle is
         // `Copy` and `force` is precomputed, so the closure borrows only the
         // world — not `self`.
-        let force = self.control_force(&action);
+        let force = self.control_force(action);
         let cart_handle = self.state.cart;
         self.world.step_actuated(|w| {
             if let Some(cart) = w.bodies_mut().get_mut(cart_handle) {
@@ -402,6 +404,12 @@ impl rlevo_core::render::Locomotion2DPayloadSource for InvertedPendulum<Rapier3D
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::action::ContinuousAction;
     use rlevo_core::base::Action;

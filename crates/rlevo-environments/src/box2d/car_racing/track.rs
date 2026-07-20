@@ -1,4 +1,4 @@
-//! Procedural track generation for the CarRacing environment.
+//! Procedural track generation for the `CarRacing` environment.
 //!
 //! Each call to [`Track::generate`] builds a unique closed-loop road by:
 //!
@@ -55,6 +55,8 @@ impl Track {
     /// 3. Sort by angle (ensure simple polygon).
     /// 4. Use Catmull-Rom interpolation to produce the centreline.
     /// 5. Tesselate into `TrackTile` quads.
+    // Justified: single-letter geometry names follow the track-generation reference.
+    #[allow(clippy::many_single_char_names)]
     pub fn generate(config: &CarRacingConfig, rng: &mut StdRng) -> Self {
         let n = config.track_n_checkpoints;
         let radius = 900.0_f32 / 30.0; // world units
@@ -148,6 +150,7 @@ impl Track {
     ///
     /// Reads each tile's precomputed [`centre`](TrackTile::centre) rather than
     /// recomputing the centroid inside the comparison.
+    #[must_use]
     pub fn nearest_tile(&self, pos: [f32; 2]) -> Option<usize> {
         self.tiles
             .iter()

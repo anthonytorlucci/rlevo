@@ -32,6 +32,11 @@ use rlevo_core::reward::ScalarReward;
 ///
 /// Envs whose Gymnasium counterpart doesn't expose a given toggle simply
 /// ignore the corresponding field.
+//
+// One independent toggle per optional observation block, mirroring the MuJoCo
+// observation spec these environments reproduce. A bitfield or enum set would
+// break the one-field-per-spec-entry correspondence that makes this readable.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservationComponents {
     /// Include the torso's world-frame `(x, y)` in the observation.
@@ -59,7 +64,7 @@ impl ObservationComponents {
         }
     }
 
-    /// Ant-v5 defaults: exclude xy, include cfrc_ext (no cinert / cvel / qfrc).
+    /// Ant-v5 defaults: exclude xy, include `cfrc_ext` (no cinert / cvel / qfrc).
     #[must_use]
     pub const fn ant_default() -> Self {
         Self {
@@ -94,7 +99,7 @@ impl Default for ObservationComponents {
 ///
 /// Each range is an `Option`; when `None`, that dimension is not checked.
 /// Hopper sets all three (z + angle + state); Ant only sets `z_range`;
-/// HalfCheetah / Swimmer / Reacher / Pusher / HumanoidStandup set none
+/// `HalfCheetah` / Swimmer / Reacher / Pusher / `HumanoidStandup` set none
 /// (they never terminate on unhealthy).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HealthyCheck {
@@ -158,14 +163,14 @@ pub enum TerminationMode {
     /// Terminate the episode when [`HealthyCheck::is_healthy`] returns false.
     #[default]
     OnUnhealthy,
-    /// Never terminate for health reasons (HalfCheetah, Swimmer, Reacher, ...).
+    /// Never terminate for health reasons (`HalfCheetah`, Swimmer, Reacher, ...).
     Never,
 }
 
 /// Gear ratios for an N-actuator env: `torque_i = action_i * gear_i`.
 ///
 /// The const generic `N` pins the actuator count at the type level, so
-/// swapping a 6-gear HalfCheetah vector for an 8-gear Ant vector is a compile
+/// swapping a 6-gear `HalfCheetah` vector for an 8-gear Ant vector is a compile
 /// error rather than a runtime mismatch.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gear<const N: usize>([f32; N]);
@@ -258,6 +263,12 @@ pub type LocomotionSnapshot<O> = SnapshotBase<1, O, ScalarReward>;
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     #[test]

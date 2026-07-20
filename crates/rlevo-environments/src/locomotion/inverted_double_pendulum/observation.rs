@@ -54,7 +54,7 @@ impl InvertedDoublePendulumObservation {
     }
     /// `obs[8]` — approximated constraint force along world-x at the tip of
     /// pole2, sampled from Rapier's contact-force accumulator. See the
-    /// [module documentation](super) for the divergence from MuJoCo's
+    /// [module documentation](super) for the divergence from `MuJoCo`'s
     /// `cfrc_inv`.
     #[must_use]
     pub const fn constraint_force_x(&self) -> f32 {

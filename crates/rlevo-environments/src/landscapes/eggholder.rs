@@ -89,7 +89,7 @@ impl Eggholder {
     /// The first two coordinates vary across the render window — and the `n = 2`
     /// optimum `(512, 404.2318)` lies in that plane — so coordinates beyond the
     /// first two are held at `0.0`.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![0.0_f64; self.dim];
         if !p.is_empty() {
             p[0] = x;

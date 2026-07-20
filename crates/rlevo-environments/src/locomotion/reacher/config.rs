@@ -12,7 +12,7 @@ use crate::locomotion::common::Gear;
 /// Environment configuration for [`super::Reacher`].
 ///
 /// Defaults match the Gymnasium v5 reacher XML: gear `[200, 200]`, dt 0.01,
-/// frame_skip 2 (env dt = 0.02), reset noise 0.1, ctrl-cost weight 0.1,
+/// `frame_skip` 2 (env dt = 0.02), reset noise 0.1, ctrl-cost weight 0.1,
 /// target-disk radius 0.2, truncation at 50.
 #[derive(Debug, Clone)]
 pub struct ReacherConfig {

@@ -7,7 +7,7 @@ use crate::locomotion::common::{Gear, HealthyCheck, TerminationMode};
 
 /// Environment configuration for [`super::InvertedPendulum`].
 ///
-/// Defaults match the Gymnasium v5 XML (gear 100, dt 0.01, frame_skip 1,
+/// Defaults match the Gymnasium v5 XML (gear 100, dt 0.01, `frame_skip` 1,
 /// healthy-angle band `(-0.2, 0.2)`, reset noise 0.01, truncation at 1000).
 #[derive(Debug, Clone)]
 pub struct InvertedPendulumConfig {

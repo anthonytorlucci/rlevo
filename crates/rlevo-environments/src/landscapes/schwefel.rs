@@ -79,7 +79,7 @@ impl Schwefel {
     /// Coordinates beyond the first two are fixed at the per-dimension optimum
     /// `x_i* = 420.9687…`, not `0.0`, so the rendered slice shows the global
     /// basin rather than a cross-section through the deceptive near-zero region.
-    fn evaluate_2d(&self, x: f64, y: f64) -> f64 {
+    fn evaluate_2d(self, x: f64, y: f64) -> f64 {
         let mut p = vec![X_OPT; self.dim];
         if !p.is_empty() {
             p[0] = x;

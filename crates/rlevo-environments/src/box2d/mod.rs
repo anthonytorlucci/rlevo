@@ -1,4 +1,4 @@
-//! Box2D-style physics environments using the Rapier2D pure-Rust physics engine.
+//! Box2D-style physics environments using the `Rapier2D` pure-Rust physics engine.
 //!
 //! Enable with the `box2d` cargo feature:
 //! ```toml

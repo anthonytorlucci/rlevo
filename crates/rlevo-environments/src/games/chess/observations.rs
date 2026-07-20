@@ -1,4 +1,4 @@
-//! Observable chess state using AlphaZero Chess representation.
+//! Observable chess state using `AlphaZero` Chess representation.
 //!
 //! This module provides the core state representation for a chess environment,
 //! designed to work with reinforcement learning agents and neural networks.
@@ -8,7 +8,7 @@
 //! # Overview
 //!
 //! Unlike traditional chess engines that use hand-crafted features (like material count or pawn
-//! structure), AlphaZero represents the board as a three-dimensional tensor of dimensions
+//! structure), `AlphaZero` represents the board as a three-dimensional tensor of dimensions
 //! $8 \times 8 \times 119$.
 //!
 //! # 1. The Input Tensor ($8 \times 8 \times 119$)
@@ -16,7 +16,7 @@
 //! into two main categories: historical board states and constant game metadata.
 //!
 //! **A. Historical State (112 Planes)**
-//! AlphaZero does not just look at the current position; it maintains a history of the 8 most
+//! `AlphaZero` does not just look at the current position; it maintains a history of the 8 most
 //! recent half-moves (the current state plus the 7 previous ones). This history allows the
 //! network to detect patterns and rules that depend on the sequence of moves, such as three-fold
 //! repition.
@@ -54,7 +54,7 @@
 //! # 3. The State vs. Observation
 //! While the state space of chess is the mathematical set of all possible legal configurations of
 //! the board (estimated at $10^{40}$ to $10^{50}$), the observation space described above is the
-//! specific "window" through which AlphaZero perceives the state. By including history, AlphaZero
+//! specific "window" through which `AlphaZero` perceives the state. By including history, `AlphaZero`
 //! effectively turns a non-Markovian environment (where rules like repitition depend on the past)
 //! into a Markovian one that the network can process.
 //!
@@ -180,7 +180,7 @@ impl BoardSnapshot {
     }
 }
 
-/// Chess state representation using AlphaZero observation space.
+/// Chess state representation using `AlphaZero` observation space.
 ///
 /// This struct maintains:
 /// - Historical board positions (last 8 half-moves)
@@ -188,7 +188,7 @@ impl BoardSnapshot {
 /// - Position repetition tracking for draw detection
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChessState {
-    /// Historical board positions (newest first, size = HISTORY_SIZE).
+    /// Historical board positions (newest first, size = `HISTORY_SIZE`).
     /// history[0] is the current position, history[1] is one move ago, etc.
     history: Vec<BoardSnapshot>,
 
@@ -231,24 +231,25 @@ impl std::hash::Hash for ChessState {
 
 impl ChessState {
     /// Creates a new chess state with the standard starting position.
+    #[must_use]
     pub fn new() -> Self {
         let mut snapshot = BoardSnapshot::empty();
 
         // Set up white pieces
-        snapshot.set_piece(Color::White, PieceType::Pawn, 0x000000000000FF00);
-        snapshot.set_piece(Color::White, PieceType::Knight, 0x0000000000000042);
-        snapshot.set_piece(Color::White, PieceType::Bishop, 0x0000000000000024);
-        snapshot.set_piece(Color::White, PieceType::Rook, 0x0000000000000081);
-        snapshot.set_piece(Color::White, PieceType::Queen, 0x0000000000000008);
-        snapshot.set_piece(Color::White, PieceType::King, 0x0000000000000010);
+        snapshot.set_piece(Color::White, PieceType::Pawn, 0x0000_0000_0000_FF00);
+        snapshot.set_piece(Color::White, PieceType::Knight, 0x0000_0000_0000_0042);
+        snapshot.set_piece(Color::White, PieceType::Bishop, 0x0000_0000_0000_0024);
+        snapshot.set_piece(Color::White, PieceType::Rook, 0x0000_0000_0000_0081);
+        snapshot.set_piece(Color::White, PieceType::Queen, 0x0000_0000_0000_0008);
+        snapshot.set_piece(Color::White, PieceType::King, 0x0000_0000_0000_0010);
 
         // Set up black pieces
-        snapshot.set_piece(Color::Black, PieceType::Pawn, 0x00FF000000000000);
-        snapshot.set_piece(Color::Black, PieceType::Knight, 0x4200000000000000);
-        snapshot.set_piece(Color::Black, PieceType::Bishop, 0x2400000000000000);
-        snapshot.set_piece(Color::Black, PieceType::Rook, 0x8100000000000000);
-        snapshot.set_piece(Color::Black, PieceType::Queen, 0x0800000000000000);
-        snapshot.set_piece(Color::Black, PieceType::King, 0x1000000000000000);
+        snapshot.set_piece(Color::Black, PieceType::Pawn, 0x00FF_0000_0000_0000);
+        snapshot.set_piece(Color::Black, PieceType::Knight, 0x4200_0000_0000_0000);
+        snapshot.set_piece(Color::Black, PieceType::Bishop, 0x2400_0000_0000_0000);
+        snapshot.set_piece(Color::Black, PieceType::Rook, 0x8100_0000_0000_0000);
+        snapshot.set_piece(Color::Black, PieceType::Queen, 0x0800_0000_0000_0000);
+        snapshot.set_piece(Color::Black, PieceType::King, 0x1000_0000_0000_0000);
 
         let mut history = Vec::with_capacity(HISTORY_SIZE);
         history.push(snapshot);
@@ -278,30 +279,35 @@ impl ChessState {
 
     /// Returns the side to move.
     #[inline]
+    #[must_use]
     pub fn to_move(&self) -> Color {
         self.to_move
     }
 
     /// Returns the castling rights.
     #[inline]
+    #[must_use]
     pub fn castling_rights(&self) -> CastlingRights {
         self.castling_rights
     }
 
     /// Returns the en passant target square, if any.
     #[inline]
+    #[must_use]
     pub fn en_passant(&self) -> Option<Square> {
         self.en_passant
     }
 
     /// Returns the half-move clock (for 50-move rule).
     #[inline]
+    #[must_use]
     pub fn halfmove_clock(&self) -> u8 {
         self.halfmove_clock
     }
 
     /// Returns the full move number.
     #[inline]
+    #[must_use]
     pub fn fullmove_number(&self) -> u16 {
         self.fullmove_number
     }
@@ -309,6 +315,7 @@ impl ChessState {
     /// Checks how many times the current position has occurred (for repetition draws).
     /// Returns the number of times the current position has appeared in the game.
     /// Used for detecting threefold repetition draws.
+    #[must_use]
     pub fn repetition_count(&self) -> u8 {
         let hash = self.position_hash();
         *self.repetition_history.get(&hash).unwrap_or(&0)
@@ -323,7 +330,6 @@ impl ChessState {
     /// `DefaultHasher` as a placeholder.
     fn position_hash(&self) -> u64 {
         use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         self.history[0].hash(&mut hasher);
@@ -351,7 +357,7 @@ impl ChessState {
 
     /// Flips a binary plane vertically so that rank 1 becomes rank 8 and vice versa.
     ///
-    /// AlphaZero always presents the board from the perspective of the side to move.
+    /// `AlphaZero` always presents the board from the perspective of the side to move.
     /// When it is Black's turn, the board is flipped so that Black's pieces appear at
     /// the "bottom" (rank 1 in the output plane), matching the orientation used when
     /// it is White's turn. This allows the network to learn a single set of positional
@@ -437,6 +443,12 @@ impl Default for ChessState {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use burn::backend::Flex;
 
@@ -483,7 +495,7 @@ mod tests {
     fn test_validation_no_pawns_on_first_rank() {
         let mut state = ChessState::new();
         // Manually set invalid pawn position (pawn on rank 1)
-        state.history[0].set_piece(Color::White, PieceType::Pawn, 0x0000000000000001);
+        state.history[0].set_piece(Color::White, PieceType::Pawn, 0x0000_0000_0000_0001);
         // assert!(!state.is_valid());
     }
 
@@ -491,7 +503,7 @@ mod tests {
     fn test_validation_no_pawns_on_last_rank() {
         let mut state = ChessState::new();
         // Manually set invalid pawn position (pawn on rank 8)
-        state.history[0].set_piece(Color::Black, PieceType::Pawn, 0x8000000000000000);
+        state.history[0].set_piece(Color::Black, PieceType::Pawn, 0x8000_0000_0000_0000);
         // assert!(!state.is_valid());
     }
 
@@ -519,7 +531,7 @@ mod tests {
 
     #[test]
     fn test_bitboard_to_plane() {
-        let bitboard = 0x0000000000000001; // A1 square
+        let bitboard = 0x0000_0000_0000_0001; // A1 square
         let plane = ChessState::bitboard_to_plane(bitboard);
         assert_eq!(plane[0], 1.0);
         for i in 1..64 {

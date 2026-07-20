@@ -426,6 +426,13 @@ impl<const K: usize> KArmedBandit<K> {
     /// their defaults.
     ///
     /// [`reset`]: Environment::reset
+    ///
+    /// # Panics
+    ///
+    /// Panics if the default configuration fails validation. This cannot happen
+    /// for the shipped defaults; it would indicate a bug in
+    /// `KArmedBanditConfig::default`, not misuse by the caller.
+    #[must_use]
     pub fn with_seed(seed: u64) -> Self {
         let config = KArmedBanditConfig {
             seed,
@@ -644,6 +651,12 @@ pub(super) fn style_bandit_line(line: &str) -> crate::render::StyledLine {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
     use rlevo_core::environment::Snapshot;
 

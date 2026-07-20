@@ -7,7 +7,7 @@
 //!
 //! # Module Organization
 //!
-//! - [`classic`]: Classic control problems (CartPole, MountainCar, Pendulum, Acrobot, TenArmedBandit)
+//! - [`classic`]: Classic control problems (`CartPole`, `MountainCar`, Pendulum, Acrobot, `TenArmedBandit`)
 //! - [`episode`]: [`EpisodeGuard`](episode::EpisodeGuard) — the shared post-terminal
 //!   `step()` guard consumed by `toy_text` and [`wrappers::time_limit`]
 //! - [`landscapes`]: Optimization fitness landscapes (Sphere, Ackley, Rastrigin,
@@ -15,11 +15,11 @@
 //! - [`grids`]: Gridworld environments inspired by Farama Minigrid
 //! - [`pixel_grid`]: Synthetic pixel-over-grid env — a rank-1 latent observed as
 //!   a rank-3 RGB image (first real [`rlevo_core::state::Observable`] consumer)
-//! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, CliffWalking, FrozenLake)
-//! - [`wrappers`]: Environment wrappers (TimeLimit)
+//! - [`toy_text`]: Tabular RL environments (Blackjack, Taxi, `CliffWalking`, `FrozenLake`)
+//! - [`wrappers`]: Environment wrappers (`TimeLimit`)
 //! - [`render`]: Re-exports of the render surface defined in `rlevo-core`
-//! - [`box2d`]: Box2D-style physics environments (BipedalWalker, LunarLander, CarRacing)
-//! - [`locomotion`]: MuJoCo-inspired locomotion environments via Rapier3D
+//! - [`box2d`]: Box2D-style physics environments (`BipedalWalker`, `LunarLander`, `CarRacing`)
+//! - [`locomotion`]: MuJoCo-inspired locomotion environments via `Rapier3D`
 //!
 //! # Design Principles
 //!
@@ -34,6 +34,21 @@
 //!   when the episode ends.
 //!
 //! Environments may be deterministic or stochastic depending on their configuration.
+
+// The numeric-cast family is suppressed crate-wide pending the per-site audit
+// tracked in #396. Enabling `[workspace.lints]` here surfaced 194 cast warnings
+// in production physics, rasterizer, and grid-indexing paths. Each needs a real
+// range argument at the site (is this `f32` provably non-negative before `as
+// usize`?) rather than a mechanical rewrite, so they are burned down module by
+// module — narrow this allow as modules are cleared, do not widen it.
+//
+// Every *other* lint in the workspace table is enforced on this crate today.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 
 pub mod landscapes {
     pub mod ackley;

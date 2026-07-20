@@ -1,4 +1,4 @@
-//! Configuration for the CarRacing environment.
+//! Configuration for the `CarRacing` environment.
 //!
 //! [`CarRacingConfig`] groups all tunable parameters for track generation,
 //! physics, and reward shaping. Use [`CarRacingConfig::builder`] for ergonomic
@@ -23,7 +23,7 @@ pub struct CarRacingConfig {
     /// A full lap (every tile visited) sums to exactly `lap_reward`; the
     /// effective per-tile reward is therefore `lap_reward / total_tiles`,
     /// computed per episode from the actual generated tile count. This matches
-    /// the canonical Gymnasium CarRacing formulation (`+1000 / len(track)` per
+    /// the canonical Gymnasium `CarRacing` formulation (`+1000 / len(track)` per
     /// tile), where a full lap pays ≈ 1000 regardless of the episode's tile
     /// count.
     pub lap_reward: f32,
@@ -39,7 +39,7 @@ pub struct CarRacingConfig {
     pub max_steps: usize,
     /// Physics timestep (seconds).
     pub dt: f32,
-    /// Gravity (negative = downward, but CarRacing uses top-down view).
+    /// Gravity (negative = downward, but `CarRacing` uses top-down view).
     pub gravity: f32,
 }
 
@@ -91,6 +91,7 @@ impl Validate for CarRacingConfig {
 
 impl CarRacingConfig {
     /// Returns a builder for configuring a `CarRacingConfig`.
+    #[must_use]
     pub fn builder() -> CarRacingConfigBuilder {
         CarRacingConfigBuilder {
             inner: CarRacingConfig::default(),
@@ -106,18 +107,21 @@ pub struct CarRacingConfigBuilder {
 
 impl CarRacingConfigBuilder {
     /// Sets the RNG seed for procedural track generation.
+    #[must_use]
     pub fn seed(mut self, seed: u64) -> Self {
         self.inner.seed = seed;
         self
     }
 
     /// Sets the number of Bezier control points (more = more complex track).
+    #[must_use]
     pub fn track_n_checkpoints(mut self, n: usize) -> Self {
         self.inner.track_n_checkpoints = n;
         self
     }
 
     /// Sets the maximum steps per episode before truncation.
+    #[must_use]
     pub fn max_steps(mut self, n: usize) -> Self {
         self.inner.max_steps = n;
         self
@@ -127,6 +131,7 @@ impl CarRacingConfigBuilder {
     ///
     /// The value is distributed evenly across the track's tiles, so the
     /// effective per-tile reward is `lap_reward / total_tiles`.
+    #[must_use]
     pub fn lap_reward(mut self, lap_reward: f32) -> Self {
         self.inner.lap_reward = lap_reward;
         self

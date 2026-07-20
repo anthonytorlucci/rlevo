@@ -187,8 +187,8 @@ mod tests {
     use super::*;
     use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::{
-        base::{Action, Observation, State},
-        environment::{Environment, EnvironmentError, EpisodeStatus, Snapshot, SnapshotBase},
+        base::{Action, State},
+        environment::Snapshot,
         reward::ScalarReward,
     };
     use serde::{Deserialize, Serialize};

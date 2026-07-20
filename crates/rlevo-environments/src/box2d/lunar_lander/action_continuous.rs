@@ -1,4 +1,4 @@
-//! Continuous action type for LunarLander (design decision D1).
+//! Continuous action type for `LunarLander` (design decision D1).
 
 use rlevo_core::action::{BoundedAction, ContinuousAction};
 use rlevo_core::base::Action;
@@ -71,7 +71,7 @@ impl ContinuousAction<1> for LunarLanderContinuousAction {
 /// *interprets* component 0, not of the action space: `-1` is a legal
 /// (engine-off) command, so the lower bound is `-1`, not `0`. This is why the
 /// space is symmetric despite one component behaving one-sidedly — unlike
-/// CarRacing, whose gas and brake are genuinely floored at `0`.
+/// `CarRacing`, whose gas and brake are genuinely floored at `0`.
 impl BoundedAction<1> for LunarLanderContinuousAction {
     fn low() -> &'static [f32] {
         &[-1.0, -1.0]
@@ -84,6 +84,12 @@ impl BoundedAction<1> for LunarLanderContinuousAction {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values
+    // are literals or seeds read back without arithmetic, or two identically
+    // seeded runs that must agree bit-for-bit. A tolerance would let a real
+    // regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     #[test]
