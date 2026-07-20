@@ -16,6 +16,16 @@ use std::ops::Index;
 ///
 /// All five fields are required to compute the Bellman target for off-policy
 /// algorithms such as DQN and SAC.
+///
+/// # Thread safety
+///
+/// This type holds its observation, action, and reward by value and contains no
+/// interior mutability, raw pointers, or reference counting, so the [`Send`] and
+/// [`Sync`] auto-traits propagate from its type parameters: an
+/// `ExperienceTuple<D, AD, O, A, R>` is [`Send`] exactly when `O`, `A`, and `R`
+/// are, and [`Sync`] exactly when `O`, `A`, and `R` are. No explicit bounds are
+/// declared on the struct — per the Rust API Guidelines (C-STRUCT-BOUNDS) that
+/// would restrict the type without adding guarantees.
 #[derive(Clone)]
 pub struct ExperienceTuple<
     const D: usize,
@@ -54,6 +64,18 @@ pub struct ExperienceTuple<
 /// When the buffer is full, the oldest entry is evicted before each new push.
 /// This is a thin wrapper around [`VecDeque`] that enforces the capacity
 /// contract at the API level.
+///
+/// # Thread safety
+///
+/// The buffer is a plain [`VecDeque`] of owned [`ExperienceTuple`]s with no
+/// interior mutability, raw pointers, or reference counting, so the [`Send`] and
+/// [`Sync`] auto-traits propagate from its type parameters: a
+/// `History<D, AD, O, A, R>` is [`Send`] exactly when `O`, `A`, and `R` are, and
+/// [`Sync`] exactly when `O`, `A`, and `R` are. This is what lets a history be
+/// moved into a worker thread or shared behind a `Mutex` across parallel
+/// rollouts. No explicit bounds are declared on the struct — per the Rust API
+/// Guidelines (C-STRUCT-BOUNDS) that would restrict the type without adding
+/// guarantees.
 #[derive(Clone)]
 pub struct History<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> {
     trace: VecDeque<ExperienceTuple<D, AD, O, A, R>>,
@@ -74,7 +96,25 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     History<D, AD, O, A, R>
 {
     /// Creates an empty `History` with the given maximum `capacity`.
+    ///
+    /// # Arguments
+    /// * `capacity` - Maximum number of transitions retained before the oldest
+    ///   is evicted. Must be greater than 0.
+    ///
+    /// # Panics
+    /// Panics if `capacity` is 0. A zero-capacity buffer cannot hold any
+    /// transitions: [`Self::add`] would evict before every push, pinning
+    /// `len()` at 1 while [`Self::capacity`] reports 0 and [`Self::is_full`]
+    /// returns `true` from the first insert — a buffer that permanently
+    /// violates its own `len() <= capacity` invariant while silently accepting
+    /// and discarding every experience the agent collects.
     pub fn new(capacity: usize) -> Self {
+        assert!(
+            capacity > 0,
+            "capacity must be greater than 0; a zero-capacity buffer cannot \
+             hold transitions and would pin len() at 1 while reporting a \
+             capacity of 0, breaking the len() <= capacity invariant"
+        );
         Self {
             trace: VecDeque::with_capacity(capacity),
             capacity,
@@ -258,6 +298,32 @@ mod tests {
     }
 
     // ===== History Integration Tests =====
+
+    #[test]
+    #[should_panic(expected = "capacity must be greater than 0")]
+    fn new_rejects_zero_capacity() {
+        let _ = History::<1, 1, TestObs, TestAct, TestReward>::new(0);
+    }
+
+    /// Pins the [`Send`]/[`Sync`] auto-trait propagation documented on
+    /// [`History`] and [`ExperienceTuple`].
+    ///
+    /// This is deliberately *not* tautological, despite compiling to nothing:
+    /// auto-traits are derived structurally, so adding a single non-`Send` or
+    /// non-`Sync` field (an `Rc` for cheap clones, a `Cell` for a lazily
+    /// computed statistic) would silently strip `Send`/`Sync` from both types
+    /// and break every downstream caller that moves a history into a worker
+    /// thread — with nothing else in the suite to catch it. Do not delete.
+    #[test]
+    fn history_and_experience_tuple_are_send_and_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<History<1, 1, TestObs, TestAct, TestReward>>();
+        assert_sync::<History<1, 1, TestObs, TestAct, TestReward>>();
+        assert_send::<ExperienceTuple<1, 1, TestObs, TestAct, TestReward>>();
+        assert_sync::<ExperienceTuple<1, 1, TestObs, TestAct, TestReward>>();
+    }
 
     /// Test that History can store rewards of different values
     #[test]

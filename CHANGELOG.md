@@ -686,6 +686,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   upstream NaN origins are already guarded (#184's SAC alpha optimizer, #173's
   Gaussian `log_std` clamp — both closed), which makes the filter a backstop
   against sources that no longer produce, not a deferred repair.
+- **`History::new(0)` silently degenerated into a one-record buffer instead of
+  rejecting the argument** (resolves #190). The same eviction arithmetic as
+  `AgentStats` above: `add` pops the front whenever `trace.len() >= capacity`,
+  so with `capacity == 0` the pop fires on every call and the buffer pins at
+  exactly one transition forever — while `capacity()` keeps reporting `0` and
+  `is_full()` returns `true` from the first insert. That is a standing violation
+  of the `len() <= capacity` invariant `docs/rules.md` §3 states for this crate's
+  buffers, and it discards every experience the caller collects without
+  signalling anything. `new` now asserts `capacity > 0` and documents the panic.
+
+  `History` has no call sites at all today — `memory.rs`, its only former
+  consumer, was deleted by ADR 0050 — which is why no test caught it and why the
+  fix is cheap now. It is reachable from user code the moment the POMDP work
+  adopts `HistoryRepresentation` or `SufficientStatistic`, both of which take
+  `&History` in their signatures; fixing it before a call site exists is the
+  point, not an argument against it.
+
+  The companion claim — that `Send`/`Sync` "isn't guaranteed" for the stored
+  `A`/`R` and needs explicit bounds plus an ADR — was **refuted**. `Send` and
+  `Sync` are auto-traits: `History` and `ExperienceTuple` hold owned fields in a
+  plain `VecDeque` with no interior mutability, so both are already `Send`/`Sync`
+  exactly when `O`, `A`, and `R` are. Declaring the bounds on the struct would
+  have *restricted* the types without adding a guarantee, against Rust API
+  Guidelines C-STRUCT-BOUNDS. What was genuinely missing is that the property was
+  neither documented nor pinned, so a later field addition (an `Rc` for cheap
+  clones, a `Cell` for a cached statistic) could strip it silently; both types now
+  document the propagation and a static assertion in the test module holds it.
 
 - **A non-finite `next_q_max` survived terminal transitions in
   `compute_target_q_values`, defeating the terminal-bootstrap convention**
