@@ -192,7 +192,7 @@ impl<A> MaskEnv<A> {
         }
     }
 
-    fn observation(state: &MaskState) -> MaskObservation {
+    fn observation(state: MaskState) -> MaskObservation {
         #[allow(clippy::cast_precision_loss)]
         let t = state.steps as f32;
         MaskObservation {
@@ -207,10 +207,10 @@ impl<A: Action<1> + Clone> Sensor<1, 1, 1> for MaskEnv<A> {
     type Observation = MaskObservation;
 
     fn observe(&self, _action: &A, next_state: &MaskState) -> MaskObservation {
-        Self::observation(next_state)
+        Self::observation(*next_state)
     }
     fn observe_reset(&self, state: &MaskState) -> MaskObservation {
-        Self::observation(state)
+        Self::observation(*state)
     }
 }
 
@@ -224,7 +224,7 @@ impl<A: Action<1> + Clone> Environment<1, 1, 1> for MaskEnv<A> {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = MaskState { steps: 0 };
         Ok(SnapshotBase {
-            observation: Self::observation(&self.state),
+            observation: Self::observation(self.state),
             reward: ScalarReward::new(0.0),
             status: EpisodeStatus::Running,
             metadata: None,

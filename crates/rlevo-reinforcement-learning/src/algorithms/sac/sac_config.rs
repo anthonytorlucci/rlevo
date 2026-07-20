@@ -1,6 +1,6 @@
 //! Hyperparameter configuration for the SAC algorithm.
 //!
-//! Fields and defaults track CleanRL's `sac_continuous_action.py` so that
+//! Fields and defaults track `CleanRL`'s `sac_continuous_action.py` so that
 //! reproducing published Pendulum/MuJoCo numbers reduces to plugging the same
 //! values in. Compared to
 //! [`Td3TrainingConfig`](crate::algorithms::td3::td3_config::Td3TrainingConfig),
@@ -43,16 +43,16 @@ pub struct SacTrainingConfig {
     /// `α` is frozen at `initial_alpha`.
     pub autotune: bool,
     /// Initial value for α (i.e. `log α = ln(initial_alpha)`). Defaults to
-    /// `1.0` so `log α` starts at `0`, matching CleanRL.
+    /// `1.0` so `log α` starts at `0`, matching `CleanRL`.
     pub initial_alpha: f32,
     /// Target entropy H̄. `None` ⇒ `-(A::COMPONENTS as f32)` (the common
-    /// heuristic from Haarnoja et al. 2018b, matching CleanRL).
+    /// heuristic from Haarnoja et al. 2018b, matching `CleanRL`).
     pub target_entropy: Option<f32>,
     /// Critic-update cadence at which the actor and α updates run. `2`
-    /// matches CleanRL's `sac_continuous_action.py` default.
+    /// matches `CleanRL`'s `sac_continuous_action.py` default.
     pub policy_frequency: usize,
     /// Critic-update cadence at which the twin critic targets are
-    /// Polyak-averaged. `1` matches CleanRL's default.
+    /// Polyak-averaged. `1` matches `CleanRL`'s default.
     pub target_update_frequency: usize,
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
@@ -63,7 +63,7 @@ pub struct SacTrainingConfig {
 }
 
 impl Default for SacTrainingConfig {
-    /// CleanRL's default hyperparameters for `sac_continuous_action.py`.
+    /// `CleanRL`'s default hyperparameters for `sac_continuous_action.py`.
     fn default() -> Self {
         Self {
             replay_buffer_capacity: 1_000_000,
@@ -121,6 +121,7 @@ impl Validate for SacTrainingConfig {
 ///     .build()
 ///     .expect("valid config");
 /// ```
+#[derive(Debug)]
 pub struct SacTrainingConfigBuilder {
     config: SacTrainingConfig,
 }
@@ -141,60 +142,70 @@ impl SacTrainingConfigBuilder {
     }
 
     /// Sets the replay-buffer capacity.
+    #[must_use]
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
         self
     }
 
     /// Sets the mini-batch size.
+    #[must_use]
     pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
     }
 
     /// Sets the number of warm-up steps before learning begins.
+    #[must_use]
     pub fn learning_starts(mut self, learning_starts: usize) -> Self {
         self.config.learning_starts = learning_starts;
         self
     }
 
     /// Sets the actor learning rate.
+    #[must_use]
     pub fn actor_lr(mut self, lr: f64) -> Self {
         self.config.actor_lr = lr;
         self
     }
 
     /// Sets the shared critic learning rate.
+    #[must_use]
     pub fn critic_lr(mut self, lr: f64) -> Self {
         self.config.critic_lr = lr;
         self
     }
 
     /// Sets the `log α` learning rate.
+    #[must_use]
     pub fn alpha_lr(mut self, lr: f64) -> Self {
         self.config.alpha_lr = lr;
         self
     }
 
     /// Sets the discount factor γ.
+    #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
     /// Sets the Polyak averaging rate τ.
+    #[must_use]
     pub fn tau(mut self, tau: f32) -> Self {
         self.config.tau = tau;
         self
     }
 
     /// Enables or disables auto-tuning of α.
+    #[must_use]
     pub fn autotune(mut self, autotune: bool) -> Self {
         self.config.autotune = autotune;
         self
     }
 
     /// Sets the initial α (also used as the fixed α when `autotune=false`).
+    #[must_use]
     pub fn initial_alpha(mut self, alpha: f32) -> Self {
         self.config.initial_alpha = alpha;
         self
@@ -202,12 +213,14 @@ impl SacTrainingConfigBuilder {
 
     /// Sets the target entropy H̄. Pass `None` to restore the `-|A|`
     /// heuristic.
+    #[must_use]
     pub fn target_entropy(mut self, target: Option<f32>) -> Self {
         self.config.target_entropy = target;
         self
     }
 
     /// Sets the critic-step cadence at which the actor + α updates run.
+    #[must_use]
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
         self
@@ -215,6 +228,7 @@ impl SacTrainingConfigBuilder {
 
     /// Sets the critic-step cadence at which the twin target Polyak updates
     /// run.
+    #[must_use]
     pub fn target_update_frequency(mut self, frequency: usize) -> Self {
         self.config.target_update_frequency = frequency;
         self
@@ -222,12 +236,14 @@ impl SacTrainingConfigBuilder {
 
     /// Sets the gradient-clipping configuration applied to actor and both
     /// critic gradients.
+    #[must_use]
     pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = config;
         self
     }
 
     /// Overrides the base Adam optimiser configuration.
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self

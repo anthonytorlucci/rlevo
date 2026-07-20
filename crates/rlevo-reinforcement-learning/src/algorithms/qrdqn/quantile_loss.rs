@@ -77,9 +77,9 @@ const QUANTILE_CHUNK_SIZE: usize = 32;
 /// Panics if `pred_quantiles` has zero quantiles (`num_quantiles == 0`), which
 /// leaves the chunk accumulator empty.
 pub fn quantile_huber_loss_per_sample<B: Backend>(
-    pred_quantiles: Tensor<B, 2>,
-    target_quantiles: Tensor<B, 2>,
-    taus: Tensor<B, 1>,
+    pred_quantiles: &Tensor<B, 2>,
+    target_quantiles: &Tensor<B, 2>,
+    taus: &Tensor<B, 1>,
     kappa: f32,
 ) -> Tensor<B, 1> {
     let [batch, n_pred] = pred_quantiles.dims();
@@ -172,7 +172,7 @@ mod tests {
             3,
         );
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
-        let per_sample = quantile_huber_loss_per_sample(pred, target, taus, 1.0);
+        let per_sample = quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0);
         assert_eq!(
             per_sample.dims(),
             [batch],
@@ -250,7 +250,7 @@ mod tests {
         let pred = tensor_2d(vec![1.0_f32; 6], 2, 3);
         let target = pred.clone();
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
-        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
+        let loss = scalar(quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0).mean());
         assert!(loss.abs() < 1e-6, "loss should be ~0, got {loss}");
     }
 
@@ -260,7 +260,7 @@ mod tests {
         let pred = tensor_2d(vec![0.3_f32, -0.5, 1.1, 0.4, -0.2, 0.9], 2, 3);
         let target = tensor_2d(vec![0.1_f32, 0.2, 0.8, -0.3, 0.5, 1.0], 2, 3);
         let taus = tensor_1d(vec![1.0 / 6.0, 0.5, 5.0 / 6.0]);
-        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
+        let loss = scalar(quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0).mean());
         assert!(loss >= 0.0, "loss must be non-negative, got {loss}");
         assert!(loss.is_finite());
     }
@@ -274,7 +274,7 @@ mod tests {
         let pred = tensor_2d(vec![1.0_f32], 1, 1);
         let target = tensor_2d(vec![0.5_f32], 1, 1);
         let taus = tensor_1d(vec![0.5_f32]);
-        let loss = scalar(quantile_huber_loss_per_sample(pred, target, taus, 1.0).mean());
+        let loss = scalar(quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0).mean());
         assert!((loss - 0.0625).abs() < 1e-6, "got {loss}, want 0.0625");
     }
 }

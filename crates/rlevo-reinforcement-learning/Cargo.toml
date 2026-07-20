@@ -82,3 +82,6 @@ harness = false
 name = "learn_step_bench"
 path = "benches/learn_step_bench.rs"
 harness = false
+
+[lints]
+workspace = true

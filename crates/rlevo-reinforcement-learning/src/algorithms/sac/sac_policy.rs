@@ -41,7 +41,7 @@ pub struct SquashedGaussianPolicyHeadConfig {
     pub hidden: usize,
     /// Number of continuous action dimensions.
     pub action_dim: usize,
-    /// Clamp applied to the `log σ` head output. CleanRL uses `[-5, 2]`.
+    /// Clamp applied to the `log σ` head output. `CleanRL` uses `[-5, 2]`.
     ///
     /// A [`Bounds`] rather than a `(min, max)` pair because the clamp that
     /// consumes it is [`Tensor::clamp`], whose `Flex` implementation delegates
@@ -228,6 +228,10 @@ impl<B: Backend> SquashedGaussianPolicyHead<B> {
 /// Generic over the backend so the agent can call this on both `B`
 /// (autodiff forward pass) and `B::InnerBackend` (no-autodiff target
 /// computation) without code duplication.
+// Divisor/normalizer derived from a count -- batch size, minibatch count,
+// history length, iteration number. All are bounded by configured sizes far
+// below f32's 2^24 (f64's 2^53) exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
 fn squashed_sample_log_prob<BB: Backend>(
     mean: Tensor<BB, 2>,
     log_std: Tensor<BB, 2>,
@@ -300,6 +304,10 @@ impl<B: AutodiffBackend> SquashedGaussianPolicy<B, 2, 2> for SquashedGaussianPol
 /// Draws `rows × cols` iid standard-normal samples on CPU and stacks them
 /// into a `(rows, cols)` tensor on `device`. Callers own the RNG so the
 /// sampled noise stays reproducible under a seeded `rand::Rng`.
+// `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+// Narrowing to the tensor's own dtype is the intent, and the sample is finite
+// by construction.
+#[allow(clippy::cast_possible_truncation)]
 pub fn standard_normal_tensor<B: Backend, R: rand::Rng + ?Sized>(
     rows: usize,
     cols: usize,
@@ -473,10 +481,10 @@ mod tests {
         );
     }
 
-    /// Pin μ=0, log_std=0, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
+    /// Pin μ=0, `log_std=0`, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
     /// Hand-rolled reference:
     ///   log N(0.5 | 0, 1)  = −0.5·log(2π) − 0.5·0.25
-    ///   − log|1 − tanh²(0.5)| (two terms since action_dim=2 and we feed the
+    ///   − log|1 − tanh²(0.5)| (two terms since `action_dim=2` and we feed the
     ///   same values twice → just double the single-dim result).
     #[test]
     fn squashed_gaussian_logprob_matches_hand_roll_at_pinned_inputs() {
@@ -508,7 +516,7 @@ mod tests {
     }
 
     /// Evaluating `deterministic_action` yields `scale·tanh(μ) + bias` and
-    /// ignores any ε / log_std contribution.
+    /// ignores any ε / `log_std` contribution.
     #[test]
     fn deterministic_action_applies_scale_and_bias() {
         let device = Default::default();

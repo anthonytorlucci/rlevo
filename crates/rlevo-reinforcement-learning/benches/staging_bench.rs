@@ -195,6 +195,11 @@ fn cartpole_batch(n: usize, rng: &mut StdRng) -> Vec<CartPoleObservation> {
         .collect()
 }
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_possible_truncation)]
 fn pixel_batch(n: usize, rng: &mut StdRng) -> Vec<PixelObservation> {
     (0..n)
         .map(|_| {

@@ -156,8 +156,7 @@ where
             let avg = agent
                 .stats()
                 .avg_score()
-                .map(|v| format!("{v:.2}"))
-                .unwrap_or_else(|| "n/a".to_string());
+                .map_or_else(|| "n/a".to_string(), |v| format!("{v:.2}"));
             tracing::info!(
                 step = step + 1,
                 total_steps,
@@ -179,6 +178,10 @@ where
     Ok(())
 }
 
+// Passed by name to `.map_err(..)`, which hands the closure an owned
+// `EnvironmentError`. Taking `&EnvironmentError` to satisfy the lint would force
+// a `|e| ..(&e)` closure at every call site for no benefit.
+#[allow(clippy::needless_pass_by_value)]
 fn env_to_err(err: rlevo_core::environment::EnvironmentError) -> SacAgentError {
     SacAgentError::InvalidAction(err.to_string())
 }

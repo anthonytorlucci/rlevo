@@ -45,6 +45,7 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// push, pinning `recent_history` at a single episode and making
     /// [`Self::avg_score`] report the latest score rather than a moving
     /// average.
+    #[must_use]
     pub fn new(window_size: usize) -> Self {
         assert!(
             window_size > 0,
@@ -82,11 +83,20 @@ impl<T: PerformanceRecord> AgentStats<T> {
     /// The average is computed only over the episodes currently held in
     /// `recent_history` (at most `window_size` entries), not over the full
     /// episode history.
+    #[must_use]
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     pub fn avg_score(&self) -> Option<f32> {
         if self.recent_history.is_empty() {
             None
         } else {
-            let sum: f32 = self.recent_history.iter().map(|r| r.score()).sum();
+            let sum: f32 = self
+                .recent_history
+                .iter()
+                .map(PerformanceRecord::score)
+                .sum();
             Some(sum / self.recent_history.len() as f32)
         }
     }
@@ -126,6 +136,10 @@ mod tests {
     }
 
     #[test]
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn window_retains_n_records_then_evicts_oldest() {
         const N: usize = 3;
         let mut stats = AgentStats::<TestRecord>::new(N);

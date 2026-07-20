@@ -1,6 +1,6 @@
 //! Gaussian exploration noise for DDPG.
 //!
-//! CleanRL's `ddpg_continuous_action.py` defaults to additive Gaussian noise
+//! `CleanRL`'s `ddpg_continuous_action.py` defaults to additive Gaussian noise
 //! rather than the Ornstein–Uhlenbeck process of the original paper; it is
 //! simpler to reason about, stateless, and empirically no worse on Gym
 //! continuous-control tasks. [`GaussianNoise`] is a thin newtype over the
@@ -21,6 +21,11 @@ impl GaussianNoise {
     ///
     /// `sigma = 0.0` disables exploration and makes [`apply`](Self::apply) a
     /// pure clip (useful for evaluation rollouts).
+    /// # Panics
+    ///
+    /// Panics if `sigma` is not finite or is negative. Both are rejected at
+    /// construction so a bad exploration scale surfaces here rather than as
+    /// silent `NaN` actions later in the rollout.
     #[must_use]
     pub fn new(sigma: f32) -> Self {
         assert!(sigma.is_finite(), "sigma must be finite");
@@ -40,6 +45,10 @@ impl GaussianNoise {
     /// # Panics
     ///
     /// Panics if `mean`, `low`, and `high` do not all have the same length.
+    // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+    // Narrowing to the tensor's own dtype is the intent, and the sample is finite
+    // by construction.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn apply<R: Rng + ?Sized>(
         &self,
         mean: &[f32],

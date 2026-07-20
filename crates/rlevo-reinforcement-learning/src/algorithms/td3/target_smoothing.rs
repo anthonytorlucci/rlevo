@@ -41,7 +41,7 @@ use crate::algorithms::shared::clip_to_action_bounds;
 /// - `low` / `high` — the `Box(low, high)` bound tensors, shaped
 ///   `[1, ..action_shape]` so they broadcast across the batch. Per-component,
 ///   because Eq. 14's outer clip is against the bound *vectors*: an asymmetric
-///   space (e.g. CarRacing's `Box([-1,0,0], [1,1,1])`) has no single scalar
+///   space (e.g. `CarRacing`'s `Box([-1,0,0], [1,1,1])`) has no single scalar
 ///   that expresses it, and a scalar collapse would pass impossible actions —
 ///   negative gas, negative brake — to the critic. Burn's `clamp` is
 ///   scalar-only, so the clip goes through `max_pair` / `min_pair`.
@@ -51,6 +51,10 @@ use crate::algorithms::shared::clip_to_action_bounds;
 /// Panics if `policy_noise < 0` or `noise_clip < 0`. The `low <= high` ordering
 /// is a [`BoundedAction`](rlevo_core::action::BoundedAction) invariant checked
 /// at agent construction, not here.
+// `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+// Narrowing to the tensor's own dtype is the intent, and the sample is finite
+// by construction.
+#[allow(clippy::cast_possible_truncation)]
 pub fn smoothed_target_action<BI, R, const DAB: usize>(
     target_action: Tensor<BI, DAB>,
     policy_noise: f32,

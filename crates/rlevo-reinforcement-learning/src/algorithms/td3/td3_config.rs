@@ -1,6 +1,6 @@
 //! Hyperparameter configuration for the TD3 algorithm.
 //!
-//! Fields and defaults track CleanRL's `td3_continuous_action.py` so that
+//! Fields and defaults track `CleanRL`'s `td3_continuous_action.py` so that
 //! reproducing published Pendulum/MuJoCo numbers is a matter of plugging the
 //! same values in. TD3 extends DDPG with two extra knobs on top of
 //! [`DdpgTrainingConfig`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig):
@@ -35,14 +35,14 @@ pub struct Td3TrainingConfig {
     pub exploration_noise: f32,
     /// Standard deviation σ of the Gaussian noise added to the *target*
     /// actor's output during target-Q computation (target-policy smoothing).
-    /// `0.2` matches CleanRL's default.
+    /// `0.2` matches `CleanRL`'s default.
     pub policy_noise: f32,
     /// Symmetric clip applied to the target-policy-smoothing noise: the raw
     /// noise is bounded to `[-noise_clip, +noise_clip]` before being added to
-    /// the target action. `0.5` matches CleanRL's default.
+    /// the target action. `0.5` matches `CleanRL`'s default.
     pub noise_clip: f32,
     /// Critic-update cadence at which the policy and all three Polyak
-    /// updates run. `policy_frequency = 2` matches CleanRL's default.
+    /// updates run. `policy_frequency = 2` matches `CleanRL`'s default.
     pub policy_frequency: usize,
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
@@ -52,7 +52,7 @@ pub struct Td3TrainingConfig {
 }
 
 impl Default for Td3TrainingConfig {
-    /// CleanRL's default hyperparameters for `td3_continuous_action.py`.
+    /// `CleanRL`'s default hyperparameters for `td3_continuous_action.py`.
     fn default() -> Self {
         Self {
             replay_buffer_capacity: 1_000_000,
@@ -123,6 +123,7 @@ impl Validate for Td3TrainingConfig {
 ///     .build()
 ///     .expect("valid config");
 /// ```
+#[derive(Debug)]
 pub struct Td3TrainingConfigBuilder {
     config: Td3TrainingConfig,
 }
@@ -143,66 +144,77 @@ impl Td3TrainingConfigBuilder {
     }
 
     /// Sets the replay-buffer capacity.
+    #[must_use]
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
         self
     }
 
     /// Sets the mini-batch size.
+    #[must_use]
     pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
     }
 
     /// Sets the number of warm-up steps before learning begins.
+    #[must_use]
     pub fn learning_starts(mut self, learning_starts: usize) -> Self {
         self.config.learning_starts = learning_starts;
         self
     }
 
     /// Sets the actor learning rate.
+    #[must_use]
     pub fn actor_lr(mut self, lr: f64) -> Self {
         self.config.actor_lr = lr;
         self
     }
 
     /// Sets the shared critic learning rate.
+    #[must_use]
     pub fn critic_lr(mut self, lr: f64) -> Self {
         self.config.critic_lr = lr;
         self
     }
 
     /// Sets the discount factor γ.
+    #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
     /// Sets the Polyak averaging rate τ.
+    #[must_use]
     pub fn tau(mut self, tau: f32) -> Self {
         self.config.tau = tau;
         self
     }
 
     /// Sets the action-selection Gaussian exploration-noise σ.
+    #[must_use]
     pub fn exploration_noise(mut self, sigma: f32) -> Self {
         self.config.exploration_noise = sigma;
         self
     }
 
     /// Sets the target-policy-smoothing Gaussian noise σ.
+    #[must_use]
     pub fn policy_noise(mut self, sigma: f32) -> Self {
         self.config.policy_noise = sigma;
         self
     }
 
     /// Sets the symmetric clip applied to the target-policy-smoothing noise.
+    #[must_use]
     pub fn noise_clip(mut self, clip: f32) -> Self {
         self.config.noise_clip = clip;
         self
     }
 
     /// Sets the policy-update cadence (in critic steps).
+    #[must_use]
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
         self
@@ -210,12 +222,14 @@ impl Td3TrainingConfigBuilder {
 
     /// Sets the gradient-clipping configuration applied to actor and both
     /// critic gradients.
+    #[must_use]
     pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = config;
         self
     }
 
     /// Overrides the base Adam optimiser configuration.
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self

@@ -174,6 +174,12 @@ pub struct ImportanceExponentError {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::{ImportanceExponent, ImportanceExponentError};
 
     #[test]
@@ -254,6 +260,10 @@ mod tests {
     /// point: the soundness of the evaluated β is not a property the config can
     /// see, so endpoint validation cannot establish it.
     #[test]
+    // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+    // Narrowing to the tensor's own dtype is the intent, and the sample is finite
+    // by construction.
+    #[allow(clippy::cast_precision_loss)]
     fn test_importance_exponent_rejects_an_evaluated_zero_anneal_schedule() {
         let (beta_start, beta_end, anneal_steps) = (0.4_f32, 1.0_f32, 0_u32);
         assert!(

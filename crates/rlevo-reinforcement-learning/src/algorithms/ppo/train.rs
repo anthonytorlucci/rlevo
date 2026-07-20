@@ -5,7 +5,7 @@
 //! gradient updates) → **record episode metrics**. The loop owns the
 //! env/agent/rng references and threads them through; it is *not* a trait
 //! impl so the entire sequence reads top-to-bottom in one function, matching
-//! CleanRL's pedagogical style.
+//! `CleanRL`'s pedagogical style.
 //!
 //! Two entry points:
 //! - [`train_discrete`] — for `DiscreteAction<1>` envs paired with a
@@ -35,6 +35,20 @@ use crate::algorithms::shared::LogWatermark;
 /// rollout boundary (the payload reads the update statistics), so a line lands
 /// at the first boundary at or after each `log_every` steps have elapsed —
 /// never less often, and at most once per rollout.
+/// # Errors
+///
+/// Returns [`PpoAgentError`] if the environment's `reset` or `step` fails, or
+/// if a rollout update cannot be applied.
+///
+/// # Panics
+///
+/// Panics if the policy emits an action row whose length is not 1, which means
+/// the head was built for a different action arity than the environment's.
+// Action indices only. `argmax` yields a non-negative index below
+// `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+// sign; where an index round-trips through f32 it stays far below the 2^24
+// exact-integer limit. `from_index` bounds-checks on the way back.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut PpoAgent<B, P, V, O, DO, DB>,
     env: &mut E,
@@ -67,6 +81,10 @@ where
 /// Pass `log_every > 0` to enable periodic `tracing::info!` progress; set
 /// `log_every == 0` to suppress logging. The cadence is the rollout-boundary
 /// one described on [`train_discrete`].
+/// # Errors
+///
+/// Returns [`PpoAgentError`] if the environment's `reset` or `step` fails, or
+/// if a rollout update cannot be applied.
 pub fn train_continuous<
     B,
     P,
@@ -98,6 +116,11 @@ where
     run_loop(agent, env, rng, total_timesteps, log_every, A::from_slice)
 }
 
+// Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+// f32. This is the intended narrowing point, and the values are hyperparameters
+// (rates, discounts, epsilons) where f32 has far more precision than the
+// schedules that produce them.
+#[allow(clippy::cast_possible_truncation)]
 fn run_loop<
     B,
     P,
@@ -256,6 +279,10 @@ where
 /// `tracing::info!` would drift the moment either is edited. Kept as a free
 /// function rather than a closure because the loop needs `agent` mutably
 /// between calls, which an `agent`-capturing closure would forbid.
+// Divisor/normalizer derived from a count -- batch size, minibatch count,
+// history length, iteration number. All are bounded by configured sizes far
+// below f32's 2^24 (f64's 2^53) exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
 fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
     agent: &PpoAgent<B, P, V, O, DO, DB>,
     stats: &PpoUpdateStats,
@@ -271,8 +298,7 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
     let avg = agent
         .stats()
         .avg_score()
-        .map(|v| format!("{v:.2}"))
-        .unwrap_or_else(|| "n/a".to_string());
+        .map_or_else(|| "n/a".to_string(), |v| format!("{v:.2}"));
     // Per-iteration episode-return statistics over the recent-episode window.
     // Cheap: a handful of arithmetic ops on a bounded VecDeque, and only ever
     // reached behind the periodic-log guard so the hot path is untouched.
@@ -323,6 +349,10 @@ impl EpisodeReturnStats {
     /// Folds a window of [`PerformanceRecord`]s into return/length summaries.
     ///
     /// An empty window yields all-zero stats (the value the report suppresses).
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     fn from_window<'a, T, I>(window: I) -> Self
     where
         T: crate::metrics::PerformanceRecord + 'a,
@@ -365,6 +395,10 @@ impl EpisodeReturnStats {
     }
 }
 
+// Passed by name to `.map_err(..)`, which hands the closure an owned
+// `EnvironmentError`. Taking `&EnvironmentError` to satisfy the lint would force
+// a `|e| ..(&e)` closure at every call site for no benefit.
+#[allow(clippy::needless_pass_by_value)]
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> PpoAgentError {
     PpoAgentError::Environment(err.to_string())
 }

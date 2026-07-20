@@ -71,6 +71,11 @@ use crate::algorithms::shared::LogWatermark;
 /// - `DO` — Observation tensor rank.
 /// - `SD` — State tensor rank (consumed by the environment bound only).
 /// - `DB` — Batched observation tensor rank (`DO + 1`).
+// Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+// f32. This is the intended narrowing point, and the values are hyperparameters
+// (rates, discounts, epsilons) where f32 has far more precision than the
+// schedules that produce them.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn train_discrete<B, P, V, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut PpgAgent<B, P, V, O, DO, DB>,
     env: &mut E,
@@ -150,9 +155,9 @@ where
                     entropy: last_update_stats.entropy,
                     approx_kl: last_update_stats.approx_kl,
                     clip_frac: last_update_stats.clip_frac,
-                    aux_main_value_loss: aux_last.map(|a| a.main_value_loss).unwrap_or(0.0),
-                    aux_value_loss: aux_last.map(|a| a.aux_value_loss).unwrap_or(0.0),
-                    aux_policy_kl: aux_last.map(|a| a.policy_kl).unwrap_or(0.0),
+                    aux_main_value_loss: aux_last.map_or(0.0, |a| a.main_value_loss),
+                    aux_value_loss: aux_last.map_or(0.0, |a| a.aux_value_loss),
+                    aux_policy_kl: aux_last.map_or(0.0, |a| a.policy_kl),
                     learning_rate: agent.current_learning_rate() as f32,
                 };
                 agent.record_episode(metrics);
@@ -238,8 +243,7 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
     let avg = agent
         .stats()
         .avg_score()
-        .map(|v| format!("{v:.2}"))
-        .unwrap_or_else(|| "n/a".to_string());
+        .map_or_else(|| "n/a".to_string(), |v| format!("{v:.2}"));
     tracing::info!(
         step = global_step,
         total_steps = total_timesteps,
@@ -259,6 +263,10 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
 
 /// Maps an [`EnvironmentError`](rlevo_core::environment::EnvironmentError)
 /// into [`PpgAgentError::Environment`] for use with `?` in the training loop.
+// Passed by name to `.map_err(..)`, which hands the closure an owned
+// `EnvironmentError`. Taking `&EnvironmentError` to satisfy the lint would force
+// a `|e| ..(&e)` closure at every call site for no benefit.
+#[allow(clippy::needless_pass_by_value)]
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> PpgAgentError {
     PpgAgentError::Environment(err.to_string())
 }

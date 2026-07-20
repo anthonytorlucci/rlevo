@@ -13,24 +13,34 @@ use rlevo_reinforcement_learning::algorithms::qrdqn::quantile_loss::quantile_hub
 
 type Be = Flex;
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_precision_loss)]
 fn make_taus(
     n: usize,
-    device: &<Be as burn::tensor::backend::BackendTypes>::Device,
+    device: <Be as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<Be, 1> {
     let data: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32).collect();
-    Tensor::from_data(TensorData::new(data, vec![n]), device)
+    Tensor::from_data(TensorData::new(data, vec![n]), &device)
 }
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_precision_loss)]
 fn make_quantile_batch(
     batch: usize,
     n: usize,
-    device: &<Be as burn::tensor::backend::BackendTypes>::Device,
+    device: <Be as burn::tensor::backend::BackendTypes>::Device,
 ) -> Tensor<Be, 2> {
     // Deterministic but non-trivial payload: a saw-tooth across the row.
     let data: Vec<f32> = (0..batch * n)
         .map(|i| ((i % n) as f32) * 0.1 - ((i / n) as f32) * 0.01)
         .collect();
-    Tensor::from_data(TensorData::new(data, vec![batch, n]), device)
+    Tensor::from_data(TensorData::new(data, vec![batch, n]), &device)
 }
 
 fn bench_quantile_huber_loss(c: &mut Criterion) {
@@ -38,9 +48,9 @@ fn bench_quantile_huber_loss(c: &mut Criterion) {
 
     for &num_quantiles in &[51_usize, 101, 200] {
         for &batch in &[32_usize, 128] {
-            let taus = make_taus(num_quantiles, &device);
-            let pred = make_quantile_batch(batch, num_quantiles, &device);
-            let target = make_quantile_batch(batch, num_quantiles, &device);
+            let taus = make_taus(num_quantiles, device);
+            let pred = make_quantile_batch(batch, num_quantiles, device);
+            let target = make_quantile_batch(batch, num_quantiles, device);
 
             // Criterion benchmark IDs are the key for historical comparison, so
             // the label keeps its pre-ADR-0050 spelling even though the callee
@@ -49,13 +59,7 @@ fn bench_quantile_huber_loss(c: &mut Criterion) {
             let label = format!("quantile_huber_loss/quantiles={num_quantiles}/batch={batch}");
             c.bench_function(&label, |b| {
                 b.iter(|| {
-                    let out = quantile_huber_loss_per_sample(
-                        pred.clone(),
-                        target.clone(),
-                        taus.clone(),
-                        1.0,
-                    )
-                    .mean();
+                    let out = quantile_huber_loss_per_sample(&pred, &target, &taus, 1.0).mean();
                     let _ = out.into_data();
                 });
             });

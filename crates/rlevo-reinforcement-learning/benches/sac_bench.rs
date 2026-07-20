@@ -65,6 +65,10 @@ impl<B: Backend> StochasticActor<B> {
         (mean, log_std)
     }
 
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     fn sample_impl(&self, obs: Tensor<B, 2>, eps: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let (mean, log_std) = self.mean_and_log_std(obs);
         let action_dim = mean.dims()[1];
@@ -149,6 +153,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     ) -> Tensor<B::InnerBackend, 1> {
         inner.forward_impl(obs, act)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
             &active.valid(),

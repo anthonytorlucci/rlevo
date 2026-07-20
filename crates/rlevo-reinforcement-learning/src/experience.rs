@@ -26,7 +26,7 @@ use std::ops::Index;
 /// are, and [`Sync`] exactly when `O`, `A`, and `R` are. No explicit bounds are
 /// declared on the struct — per the Rust API Guidelines (C-STRUCT-BOUNDS) that
 /// would restrict the type without adding guarantees.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExperienceTuple<
     const D: usize,
     const AD: usize,
@@ -76,7 +76,7 @@ pub struct ExperienceTuple<
 /// rollouts. No explicit bounds are declared on the struct — per the Rust API
 /// Guidelines (C-STRUCT-BOUNDS) that would restrict the type without adding
 /// guarantees.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct History<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Reward> {
     trace: VecDeque<ExperienceTuple<D, AD, O, A, R>>,
     capacity: usize,
@@ -108,6 +108,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     /// returns `true` from the first insert — a buffer that permanently
     /// violates its own `len() <= capacity` invariant while silently accepting
     /// and discarding every experience the agent collects.
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         assert!(
             capacity > 0,
@@ -122,16 +123,19 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Returns the configured maximum capacity.
+    #[must_use]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// Returns the number of stored transitions.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.trace.len()
     }
 
     /// Returns `true` when no transitions have been stored yet.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.trace.is_empty()
     }
@@ -142,6 +146,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Returns a clone of the full transition sequence in insertion order.
+    #[must_use]
     pub fn trace(&self) -> VecDeque<ExperienceTuple<D, AD, O, A, R>> {
         self.trace.clone()
     }
@@ -178,6 +183,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Returns `true` when `len() >= capacity`.
+    #[must_use]
     pub fn is_full(&self) -> bool {
         self.len() >= self.capacity
     }
@@ -188,6 +194,7 @@ impl<const D: usize, const AD: usize, O: Observation<D>, A: Action<AD>, R: Rewar
     }
 
     /// Returns a reference to the transition at `idx`, or `None` if out of bounds.
+    #[must_use]
     pub fn get(&self, idx: usize) -> Option<&ExperienceTuple<D, AD, O, A, R>> {
         self.trace.get(idx)
     }
@@ -337,7 +344,7 @@ mod tests {
         assert_eq!(history.len(), 3);
     }
 
-    /// Test ExperienceTuple with rewards
+    /// Test `ExperienceTuple` with rewards
     #[test]
     fn test_experience_tuple_creation() {
         let experience = ExperienceTuple {
@@ -349,10 +356,10 @@ mod tests {
         };
 
         assert_eq!(experience.reward, TestReward(50.0));
-        assert!(!experience.terminated)
+        assert!(!experience.terminated);
     }
 
-    /// Test that ExperienceTuple preserves reward through cloning
+    /// Test that `ExperienceTuple` preserves reward through cloning
     #[test]
     fn test_experience_tuple_clone() {
         let original = ExperienceTuple {

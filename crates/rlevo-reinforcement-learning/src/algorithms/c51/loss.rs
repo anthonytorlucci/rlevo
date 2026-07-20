@@ -288,6 +288,10 @@ mod tests {
     }
 
     #[test]
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn cross_entropy_nonnegative_on_uniform() {
         // For any valid probability distributions, CE ≥ 0.
         let n = 4;

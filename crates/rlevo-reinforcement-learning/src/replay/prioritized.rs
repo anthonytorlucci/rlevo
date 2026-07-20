@@ -552,6 +552,12 @@ impl<T> ReplayStrategy<T> for PrioritizedReplay<T> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::{PrioritizedReplay, PrioritizedReplayConfig};
     use crate::replay::priority::Priority;
     use crate::replay::sum_tree::reference::PrefixScanIndex;

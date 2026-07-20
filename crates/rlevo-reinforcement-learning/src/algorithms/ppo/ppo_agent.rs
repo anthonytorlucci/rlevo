@@ -36,7 +36,7 @@ pub enum PpoAgentError {
     /// A tensor-to-action conversion failed.
     #[error("Tensor conversion failed: {0}")]
     TensorConversionFailed(String),
-    /// The config is internally inconsistent (e.g. minibatch_size > batch_size).
+    /// The config is internally inconsistent (e.g. `minibatch_size` > `batch_size`).
     #[error("Invalid config: {0}")]
     InvalidConfig(String),
     /// An I/O error occurred while saving or loading model weights.
@@ -189,7 +189,7 @@ where
             .field("step", &self.step)
             .field("buffer_len", &self.buffer.len())
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -360,7 +360,7 @@ where
     /// Sample one action for a single observation, with the policy's log-prob
     /// and entropy plus the value-network prediction at that observation.
     ///
-    /// Batched rollout is not supported in v1 (num_envs == 1).
+    /// Batched rollout is not supported in v1 (`num_envs` == 1).
     pub fn act<R: Rng + ?Sized>(&self, obs: &O, rng: &mut R) -> ActOutcome {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
@@ -455,6 +455,16 @@ where
     /// Runs `update_epochs × num_minibatches` gradient updates on the current
     /// rollout, applies LR annealing, then clears the buffer. Returns summary
     /// statistics used to populate [`PpoMetrics`].
+    // The body is one linear pipeline — sample, forward, loss, backward,
+    // optimizer step, priority writeback, metrics — with a borrow structure
+    // around the module slot that the inline comments below depend on. Splitting
+    // it into helpers to satisfy the line count would thread that borrow through
+    // signatures without making the sequence easier to follow.
+    #[allow(clippy::too_many_lines)]
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     pub fn update<R: Rng + ?Sized>(&mut self, rng: &mut R) -> PpoUpdateStats {
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / self.config.num_minibatches.max(1)).max(1);

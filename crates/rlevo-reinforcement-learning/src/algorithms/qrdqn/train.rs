@@ -53,6 +53,11 @@ use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 ///
 /// Returns [`QrDqnAgentError::InvalidAction`] if either [`Environment::reset`]
 /// or [`Environment::step`] returns an `EnvironmentError`.
+// Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+// f32. This is the intended narrowing point, and the values are hyperparameters
+// (rates, discounts, epsilons) where f32 has far more precision than the
+// schedules that produce them.
+#[allow(clippy::cast_possible_truncation)]
 pub fn train<B, M, E, O, A, R, const DO: usize, const SD: usize, const DB: usize>(
     agent: &mut QrDqnAgent<B, M, O, A, DO, DB>,
     env: &mut E,
@@ -145,8 +150,7 @@ where
             let avg = agent
                 .stats()
                 .avg_score()
-                .map(|v| format!("{v:.2}"))
-                .unwrap_or_else(|| "n/a".to_string());
+                .map_or_else(|| "n/a".to_string(), |v| format!("{v:.2}"));
             tracing::info!(
                 step = step + 1,
                 total_steps,
@@ -161,6 +165,10 @@ where
     Ok(())
 }
 
+// Passed by name to `.map_err(..)`, which hands the closure an owned
+// `EnvironmentError`. Taking `&EnvironmentError` to satisfy the lint would force
+// a `|e| ..(&e)` closure at every call site for no benefit.
+#[allow(clippy::needless_pass_by_value)]
 fn io_from_env(err: rlevo_core::environment::EnvironmentError) -> QrDqnAgentError {
     QrDqnAgentError::InvalidAction(err.to_string())
 }

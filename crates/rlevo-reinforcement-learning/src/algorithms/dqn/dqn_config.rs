@@ -212,6 +212,7 @@ impl Validate for DqnTrainingConfig {
 ///     .build()
 ///     .expect("valid config");
 /// ```
+#[derive(Debug)]
 pub struct DqnTrainingConfigBuilder {
     config: DqnTrainingConfig,
 }
@@ -232,90 +233,105 @@ impl DqnTrainingConfigBuilder {
     }
 
     /// Sets the batch size.
+    #[must_use]
     pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
     }
 
     /// Sets the discount factor (gamma).
+    #[must_use]
     pub fn gamma(mut self, gamma: f64) -> Self {
         self.config.gamma = gamma;
         self
     }
 
     /// Sets the target network update rate (tau).
+    #[must_use]
     pub fn tau(mut self, tau: f64) -> Self {
         self.config.tau = tau;
         self
     }
 
     /// Sets the learning rate.
+    #[must_use]
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
         self.config.learning_rate = learning_rate;
         self
     }
 
     /// Sets the starting epsilon value for exploration.
+    #[must_use]
     pub fn epsilon_start(mut self, epsilon_start: f64) -> Self {
         self.config.epsilon_start = epsilon_start;
         self
     }
 
     /// Sets the minimum epsilon value.
+    #[must_use]
     pub fn epsilon_end(mut self, epsilon_end: f64) -> Self {
         self.config.epsilon_end = epsilon_end;
         self
     }
 
     /// Sets the epsilon decay rate.
+    #[must_use]
     pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
         self.config.epsilon_decay = epsilon_decay;
         self
     }
 
     /// Sets the target update frequency.
+    #[must_use]
     pub fn target_update_frequency(mut self, frequency: usize) -> Self {
         self.config.target_update_frequency = frequency;
         self
     }
 
     /// Sets the maximum steps per episode.
+    #[must_use]
     pub fn steps_per_episode(mut self, steps: usize) -> Self {
         self.config.steps_per_episode = steps;
         self
     }
 
     /// Sets the capacity of the replay buffer.
+    #[must_use]
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
         self
     }
 
     /// Sets the number of warm-up steps before learning begins.
+    #[must_use]
     pub fn learning_starts(mut self, learning_starts: usize) -> Self {
         self.config.learning_starts = learning_starts;
         self
     }
 
     /// Sets how often a learning update runs, in environment steps.
+    #[must_use]
     pub fn train_frequency(mut self, train_frequency: usize) -> Self {
         self.config.train_frequency = train_frequency;
         self
     }
 
     /// Enables or disables Double-DQN bootstrap targets.
+    #[must_use]
     pub fn double_q(mut self, double_q: bool) -> Self {
         self.config.double_q = double_q;
         self
     }
 
     /// Sets the gradient clipping configuration.
+    #[must_use]
     pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = config;
         self
     }
 
     /// Sets the optimizer configuration (e.g., specific Adam beta values).
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self
@@ -325,6 +341,7 @@ impl DqnTrainingConfigBuilder {
     ///
     /// Pass [`PrioritizedReplaySettings::default`] for Schaul's proportional
     /// defaults (α = 0.6, β 0.4 → 1.0). Leave unset for uniform replay.
+    #[must_use]
     pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
         self.config.prioritized_replay = Some(settings);
         self

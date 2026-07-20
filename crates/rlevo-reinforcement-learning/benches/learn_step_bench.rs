@@ -110,7 +110,7 @@
 //! backend label (`flex` / `wgpu`); as in `staging_bench.rs`, a `wgpu`
 //! number in this repository is Metal on an Apple M2 Pro and does not
 //! transfer to CUDA or any other adapter. Staging's contribution is reported
-//! as a percentage of total `learn_step` wall time (roundtrip vs. host_row),
+//! as a percentage of total `learn_step` wall time (roundtrip vs. `host_row`),
 //! not just an absolute delta -- see the session report for the full table.
 //!
 //! # Run with
@@ -282,6 +282,11 @@ struct SynthTransition<O> {
     terminated: f32,
 }
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_possible_wrap)]
 fn cartpole_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<CartPoleObservation>> {
     let random_obs = |rng: &mut StdRng| CartPoleObservation {
         cart_pos: rng.random_range(-2.4_f32..2.4_f32),
@@ -304,6 +309,11 @@ fn cartpole_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<CartP
         .collect()
 }
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn pixel_transitions(n: usize, rng: &mut StdRng) -> Vec<SynthTransition<PixelObservation>> {
     (0..n)
         .map(|_| {
@@ -365,6 +375,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for SmallMlp<B> {
     ) -> Tensor<B::InnerBackend, 2> {
         inner.forward_impl(obs)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, SmallMlp<B::InnerBackend>>(
             &active.valid(),
@@ -413,6 +428,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
     ) -> Tensor<B::InnerBackend, 2> {
         inner.forward_impl(obs)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, WideMlp<B::InnerBackend>>(
             &active.valid(),
@@ -466,6 +486,8 @@ impl<B: Backend> PixelConvNet<B> {
         }
     }
 
+    // b/c/h/w are the canonical NCHW dimension names.
+    #[allow(clippy::many_single_char_names)]
     fn forward_impl(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
         // [batch, H, W, C] -> [batch, C, H, W].
         let x = x.permute([0, 3, 1, 2]);
@@ -489,6 +511,11 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for PixelConvNet<B> {
     ) -> Tensor<B::InnerBackend, 2> {
         inner.forward_impl(obs)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, PixelConvNet<B::InnerBackend>>(
             &active.valid(),

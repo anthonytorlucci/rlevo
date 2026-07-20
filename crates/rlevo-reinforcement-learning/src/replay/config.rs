@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// produces rather than by appeal to convention:
 ///
 /// - **It must not reorder real TD errors.** The shipped configs use rewards of
-///   order 1 (CartPole's `+1` per step, the classic-control family, the bandit
+///   order 1 (`CartPole`'s `+1` per step, the classic-control family, the bandit
 ///   family) with `γ < 1`, which puts a residual carrying signal at roughly
 ///   `1e-2 … 1e1`. At `1e-6`, ε sits at least four orders of magnitude below
 ///   the smallest such residual, so it perturbs no ordering that matters.

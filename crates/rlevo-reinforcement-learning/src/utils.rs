@@ -146,7 +146,7 @@ mod tests {
     }
 
     /// Reads a rank-1 tensor back to host floats.
-    fn host(tensor: Tensor<TestBackend, 1>) -> Vec<f32> {
+    fn host(tensor: &Tensor<TestBackend, 1>) -> Vec<f32> {
         tensor
             .to_data()
             .to_vec::<f32>()
@@ -174,7 +174,7 @@ mod tests {
         let next_q_max = floats(&[f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
         let terminated = floats(&[1.0, 1.0, 1.0]);
 
-        let got = host(compute_target_q_values(
+        let got = host(&compute_target_q_values(
             rewards, next_q_max, terminated, 0.99,
         ));
         let want = [1.5_f32, -2.0, 0.25];
@@ -191,14 +191,15 @@ mod tests {
 
     #[test]
     fn test_compute_target_q_values_bootstraps_when_not_terminated() {
-        // Masking must not disturb the non-terminal path: every sample here
-        // keeps the full `reward + gamma * next_q_max` target.
-        let gamma = 0.9_f32;
         const REWARDS: [f32; 3] = [1.0, -0.5, 0.0];
         // 1.0 + 0.9*2.0 = 2.8 ; -0.5 + 0.9*4.0 = 3.1 ; 0.0 + 0.9*(-3.0) = -2.7
         const WANT: [f32; 3] = [2.8, 3.1, -2.7];
 
-        let got = host(compute_target_q_values(
+        // Masking must not disturb the non-terminal path: every sample here
+        // keeps the full `reward + gamma * next_q_max` target.
+        let gamma = 0.9_f32;
+
+        let got = host(&compute_target_q_values(
             floats(&REWARDS),
             floats(&[2.0, 4.0, -3.0]),
             floats(&[0.0, 0.0, 0.0]),
@@ -223,13 +224,13 @@ mod tests {
         let next_q_max = [5.0_f32, -5.0, 0.0, 123.5, -0.125, 1.0];
         let terminated = [0.0_f32, 1.0, 0.0, 1.0, 0.0, 1.0];
 
-        let want = host(scaled_reference(
+        let want = host(&scaled_reference(
             floats(&rewards),
             floats(&next_q_max),
             floats(&terminated),
             gamma,
         ));
-        let got = host(compute_target_q_values(
+        let got = host(&compute_target_q_values(
             floats(&rewards),
             floats(&next_q_max),
             floats(&terminated),
@@ -395,13 +396,13 @@ mod tests {
 
     #[test]
     fn test_polyak_update_blends_exactly_when_tau_is_fractional() {
-        let (active, target) = fixture();
-        assert_nets_differ(&active, &target);
-
         // tau = 0.25 => 0.75 * target + 0.25 * active, hand-computed per param.
         // e.g. weight[0]: 0.75 * (-1.0) + 0.25 * 1.0 = -0.5
         //      bias[0]:   0.75 * ( 1.0) + 0.25 * 0.5 = 0.875
         const EXPECTED: [f32; 8] = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, 0.875, 2.125];
+
+        let (active, target) = fixture();
+        assert_nets_differ(&active, &target);
 
         let updated = polyak_update::<TestBackend, _>(&active, target, 0.25);
 
@@ -444,11 +445,11 @@ mod tests {
 
     #[test]
     fn test_polyak_update_converges_monotonically_toward_active() {
-        let (active, mut target) = fixture();
-        assert_nets_differ(&active, &target);
-
         const TAU: f32 = 0.3;
         const STEPS: usize = 12;
+
+        let (active, mut target) = fixture();
+        assert_nets_differ(&active, &target);
 
         let mut prev = target.flat();
         for step in 0..STEPS {

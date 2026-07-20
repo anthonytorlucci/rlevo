@@ -185,7 +185,7 @@ where
             .field("low", &self.low)
             .field("high", &self.high)
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -349,6 +349,11 @@ where
     /// mean) but runs on the non-autodiff backend via
     /// [`inference_net`](Self::inference_net), avoiding the per-call autodiff
     /// graph construction that [`act`](Self::act) incurs.
+    /// # Panics
+    ///
+    /// Panics if the actor's output tensor is not `f32`, or if it yields fewer
+    /// than `A::COMPONENTS` values. Both indicate the supplied `net` does not
+    /// match the action type this agent was built for.
     pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
         let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
@@ -541,7 +546,7 @@ where
             // Clone rather than move out: each target field stays intact if
             // `soft_update` panics, so a failure can't silently hard-sync the
             // target onto its live network.
-            let tau = self.config.tau as f64;
+            let tau = f64::from(self.config.tau);
             self.target_actor =
                 Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
             self.target_critic =
@@ -566,6 +571,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]
