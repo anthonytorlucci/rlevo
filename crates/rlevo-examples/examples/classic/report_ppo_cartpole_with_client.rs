@@ -245,7 +245,8 @@ pub fn build_agent(total_timesteps: usize) -> CartPoleAgent {
         hidden: HIDDEN,
         num_actions: NUM_ACTIONS,
     }
-    .init::<Be>(&device);
+    .try_init::<Be>(&device)
+    .expect("valid head config");
     let value: ValueMlp<Be> = ValueMlp::new(OBS_RANK, HIDDEN, &device);
 
     let config = PpoTrainingConfigBuilder::new()

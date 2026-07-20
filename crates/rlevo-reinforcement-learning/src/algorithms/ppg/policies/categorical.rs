@@ -37,18 +37,33 @@ pub struct PpgCategoricalPolicyHeadConfig {
 }
 
 impl PpgCategoricalPolicyHeadConfig {
-    /// Constructs the module on `device` using Burn's default initializer.
-    pub fn init<B: Backend>(
+    /// Validates the config, then constructs the module on `device` using
+    /// Burn's default initializer.
+    ///
+    /// [`validate`](Validate::validate) runs first, so a zero `obs_dim`,
+    /// `hidden`, or `num_actions` can never reach a built head — without it,
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
+    /// is the *only* constructor: there is deliberately no infallible `init`,
+    /// because an unchecked path would reinstate the bypass this method exists
+    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// infallible `*Config::init` idiom.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] reported by
+    /// [`validate`](Validate::validate).
+    pub fn try_init<B: Backend>(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> PpgCategoricalPolicyHead<B> {
-        PpgCategoricalPolicyHead {
+    ) -> Result<PpgCategoricalPolicyHead<B>, ConfigError> {
+        self.validate()?;
+        Ok(PpgCategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
             logits_head: LinearConfig::new(self.hidden, self.num_actions).init(device),
             aux_value_head: LinearConfig::new(self.hidden, 1).init(device),
             num_actions: self.num_actions,
-        }
+        })
     }
 }
 
@@ -253,6 +268,7 @@ mod tests {
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rlevo_core::config::ConstraintKind;
 
     type B = Autodiff<Flex>;
 
@@ -266,6 +282,51 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
+    /// The regression lock for #386. PPG's head has no `log_std`, so it escapes
+    /// the numerical failure that motivated the issue — but it shares the
+    /// structural bypass: `LinearConfig::new(0, hidden)` builds a zero-width
+    /// layer without complaint, so an unvalidated `init` yields a silently
+    /// degenerate head. `try_init` must reach every invariant `validate()`
+    /// already checked, including the `aux_value_head` fed off the same trunk.
+    #[test]
+    fn try_init_rejects_every_zero_dimension() {
+        let device = Default::default();
+        let cases: [(PpgCategoricalPolicyHeadConfig, &str); 3] = [
+            (
+                PpgCategoricalPolicyHeadConfig {
+                    obs_dim: 0,
+                    hidden: 64,
+                    num_actions: 2,
+                },
+                "obs_dim",
+            ),
+            (
+                PpgCategoricalPolicyHeadConfig {
+                    obs_dim: 4,
+                    hidden: 0,
+                    num_actions: 2,
+                },
+                "hidden",
+            ),
+            (
+                PpgCategoricalPolicyHeadConfig {
+                    obs_dim: 4,
+                    hidden: 64,
+                    num_actions: 0,
+                },
+                "num_actions",
+            ),
+        ];
+        for (cfg, field) in cases {
+            let err = cfg
+                .try_init::<B>(&device)
+                .expect_err("an invalid config must not build a head");
+            assert_eq!(err.config, "PpgCategoricalPolicyHeadConfig");
+            assert_eq!(err.field, field);
+            assert_eq!(err.kind, ConstraintKind::Zero);
+        }
+    }
+
     fn head() -> PpgCategoricalPolicyHead<B> {
         let device = Default::default();
         PpgCategoricalPolicyHeadConfig {
@@ -273,7 +334,8 @@ mod tests {
             hidden: 8,
             num_actions: 3,
         }
-        .init::<B>(&device)
+        .try_init::<B>(&device)
+        .expect("valid head config")
     }
 
     fn obs(batch: usize) -> Tensor<B, 2> {

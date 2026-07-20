@@ -102,7 +102,8 @@ fn make_cart_pole_agent(
         hidden: 64,
         num_actions: 2,
     }
-    .init::<Be>(&device);
+    .try_init::<Be>(&device)
+    .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
     let ppo = PpoTrainingConfigBuilder::new()

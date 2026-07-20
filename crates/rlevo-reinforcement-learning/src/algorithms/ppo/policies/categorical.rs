@@ -27,19 +27,35 @@ pub struct CategoricalPolicyHeadConfig {
 }
 
 impl CategoricalPolicyHeadConfig {
-    /// Constructs the module on `device` using Burn's default initializer.
+    /// Validates the config, then constructs the module on `device` using
+    /// Burn's default initializer.
+    ///
+    /// [`validate`](Validate::validate) runs first, so a zero `obs_dim`,
+    /// `hidden`, or `num_actions` can never reach a built head — without it,
+    /// `LinearConfig::new(0, hidden)` builds a zero-width layer silently. This
+    /// is the *only* constructor: there is deliberately no infallible `init`,
+    /// because an unchecked path would reinstate the bypass this method exists
+    /// to close (#386). The `try_` prefix marks the departure from Burn's own
+    /// infallible `*Config::init` idiom.
+    ///
     /// CleanRL's orthogonal-init detail is a deferred follow-up; users who
     /// want it can post-process the module via a `ModuleMapper`.
-    pub fn init<B: Backend>(
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] reported by
+    /// [`validate`](Validate::validate).
+    pub fn try_init<B: Backend>(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> CategoricalPolicyHead<B> {
-        CategoricalPolicyHead {
+    ) -> Result<CategoricalPolicyHead<B>, ConfigError> {
+        self.validate()?;
+        Ok(CategoricalPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
             logits: LinearConfig::new(self.hidden, self.num_actions).init(device),
             num_actions: self.num_actions,
-        }
+        })
     }
 }
 
@@ -238,6 +254,7 @@ mod tests {
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rlevo_core::config::ConstraintKind;
 
     type B = Autodiff<Flex>;
 
@@ -251,6 +268,51 @@ mod tests {
         assert!(cfg.validate().is_ok());
     }
 
+    /// The regression lock for #386. A categorical head has no `log_std`, so it
+    /// escapes the numerical failure that motivated the issue — but it has the
+    /// same *structural* bypass: `LinearConfig::new(0, hidden)` builds a
+    /// zero-width layer without complaint, so an unvalidated `init` yields a
+    /// head that is silently degenerate rather than rejected. `try_init` must
+    /// reach every invariant `validate()` already checked.
+    #[test]
+    fn try_init_rejects_every_zero_dimension() {
+        let device = Default::default();
+        let cases: [(CategoricalPolicyHeadConfig, &str); 3] = [
+            (
+                CategoricalPolicyHeadConfig {
+                    obs_dim: 0,
+                    hidden: 64,
+                    num_actions: 2,
+                },
+                "obs_dim",
+            ),
+            (
+                CategoricalPolicyHeadConfig {
+                    obs_dim: 4,
+                    hidden: 0,
+                    num_actions: 2,
+                },
+                "hidden",
+            ),
+            (
+                CategoricalPolicyHeadConfig {
+                    obs_dim: 4,
+                    hidden: 64,
+                    num_actions: 0,
+                },
+                "num_actions",
+            ),
+        ];
+        for (cfg, field) in cases {
+            let err = cfg
+                .try_init::<B>(&device)
+                .expect_err("an invalid config must not build a head");
+            assert_eq!(err.config, "CategoricalPolicyHeadConfig");
+            assert_eq!(err.field, field);
+            assert_eq!(err.kind, ConstraintKind::Zero);
+        }
+    }
+
     /// A categorical policy has no scale parameter, so it must take
     /// [`PpoPolicy::min_log_std`]'s `None` default rather than inventing a
     /// value — the field is shared with the Gaussian head via `PpoUpdateStats`.
@@ -262,7 +324,8 @@ mod tests {
             hidden: 8,
             num_actions: 3,
         }
-        .init::<B>(&device);
+        .try_init::<B>(&device)
+        .expect("valid head config");
         assert!(
             <CategoricalPolicyHead<B> as PpoPolicy<B, 2>>::min_log_std(&head).is_none(),
             "a categorical head has no log_std"
@@ -277,7 +340,7 @@ mod tests {
             hidden: 8,
             num_actions: 3,
         };
-        let head: CategoricalPolicyHead<B> = cfg.init::<B>(&device);
+        let head: CategoricalPolicyHead<B> = cfg.try_init::<B>(&device).expect("valid head config");
 
         // Deterministic obs.
         let obs: Tensor<B, 2> = Tensor::from_data(

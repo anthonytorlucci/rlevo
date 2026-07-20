@@ -41,6 +41,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_core::environment::{Environment, Snapshot};
 
 use rlevo_environments::classic::{Pendulum, PendulumAction, PendulumConfig, PendulumObservation};
@@ -184,13 +185,13 @@ fn train_ppo_agent() -> PpoAgent_ {
         hidden: 64,
         action_dim: ACTION_RANK,
         log_std_init: 0.0,
-        log_std_min: -20.0,
-        log_std_max: 2.0,
+        log_std: Bounds::new(-20.0, 2.0),
         // Sole owner of the action scale (and of `log_std_init`) — the
         // training config has no such knobs. Change them here, nowhere else.
         action_scale: 2.0,
     }
-    .init::<Backend_>(&device);
+    .try_init::<Backend_>(&device)
+    .expect("valid head config");
     let value: ValueMlp<Backend_> = ValueMlp::new(&device);
     let config = PpoTrainingConfigBuilder::new()
         .num_envs(1)

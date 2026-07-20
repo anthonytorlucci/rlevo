@@ -884,7 +884,8 @@ mod tests {
             hidden: 4,
             num_actions: 2,
         }
-        .init::<TestBackend>(&device);
+        .try_init::<TestBackend>(&device)
+        .expect("valid head config");
         let value = TestValue::<TestBackend>::init(&device);
         let config = PpgConfigBuilder::new()
             .with_ppo(|p| PpoTrainingConfig {
