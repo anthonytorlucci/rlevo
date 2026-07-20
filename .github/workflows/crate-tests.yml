@@ -38,11 +38,55 @@ jobs:
             exit 1
           fi
 
+  # Issue #391: `[workspace.lints]` is inert on a member crate unless that
+  # member opts in with `[lints] workspace = true`. Four crates silently
+  # lacked it, so the workspace lint table was decorative on them and CI was
+  # green because nothing was being checked — not because the code was clean.
+  # Nothing in the toolchain reports this; a new crate reintroduces it by
+  # simply not adding the stanza. This job is the only thing that notices.
+  workspace-lints-optin:
+    name: workspace lints opt-in
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every crate must opt into the workspace lint table
+        run: |
+          missing=""
+          for manifest in crates/*/Cargo.toml; do
+            # `workspace = true` must appear inside the `[lints]` table
+            # specifically — a bare match would also accept it under
+            # `[dependencies]`, `[package]`, or any other section.
+            if ! awk '
+              /^\[lints\]/    { in_lints = 1; next }
+              /^\[/           { in_lints = 0 }
+              in_lints && /^[[:space:]]*workspace[[:space:]]*=[[:space:]]*true/ { found = 1 }
+              END             { exit !found }
+            ' "$manifest"; then
+              missing="$missing  $manifest\n"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::crate manifests missing '[lints] workspace = true' (see issue #391):"
+            printf "$missing"
+            echo "Without this stanza the workspace lint table does not apply to the crate."
+            exit 1
+          fi
+          echo "all crate manifests opt into [workspace.lints]"
+
   # ADR 0042 / issue #128: `box2d` and `locomotion` are orthogonal
   # rlevo-environments features (neither implies the other) — a shared type
   # gated behind only one of them silently breaks the other's build. Two
-  # cheap `cargo check` steps in isolation catch that class of bug; the full
+  # cheap steps in isolation catch that class of bug; the full
   # `cargo hack --feature-powerset` sweep is deliberately deferred (own issue).
+  #
+  # These run `clippy`, not `check`. `clippy` subsumes `check`, and linting
+  # under each feature in isolation catches a failure mode that linting under
+  # `--all-features` cannot: `clippy --fix` rewriting a closure into a trait
+  # path resolved from an *optional* dependency. That happened on #398 —
+  # `|v| v.is_finite()` in two `locomotion` modules became
+  # `rapier2d::math::ComplexField::is_finite`, naming a crate gated behind
+  # `box2d`. Under `--all-features` rapier2d is linked and it compiles; the
+  # locomotion-only build is where it breaks.
   feature-orthogonality:
     name: rlevo-environments feature orthogonality
     runs-on: ubuntu-latest
@@ -54,11 +98,15 @@ jobs:
         with:
           key: feature-orthogonality
 
-      - name: Check box2d in isolation
-        run: cargo check -p rlevo-environments --no-default-features --features box2d
+      - name: Lint box2d in isolation
+        run: >
+          cargo clippy -p rlevo-environments --all-targets
+          --no-default-features --features box2d -- -D warnings
 
-      - name: Check locomotion in isolation
-        run: cargo check -p rlevo-environments --no-default-features --features locomotion
+      - name: Lint locomotion in isolation
+        run: >
+          cargo clippy -p rlevo-environments --all-targets
+          --no-default-features --features locomotion -- -D warnings
 
   test:
     name: ${{ matrix.crate }}
