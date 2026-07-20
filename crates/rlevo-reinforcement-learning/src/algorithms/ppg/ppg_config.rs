@@ -6,7 +6,7 @@
 //! collection and the policy-phase update remain identical to PPO; the extra
 //! fields here control only the auxiliary-phase cadence and mix.
 //!
-//! Defaults follow CleanRL's [`ppg_procgen.py`](https://docs.cleanrl.dev/rl-algorithms/ppg/).
+//! Defaults follow `CleanRL`'s [`ppg_procgen.py`](https://docs.cleanrl.dev/rl-algorithms/ppg/).
 //!
 //! The `ppo` field is re-used verbatim (no forking): `PpgAgent` delegates to
 //! the PPO loss functions and `RolloutBuffer` from
@@ -30,25 +30,25 @@ pub struct PpgConfig {
     /// Number of policy-phase iterations between auxiliary phases.
     ///
     /// After `n_iteration` policy phases, the auxiliary buffer is drained
-    /// through `e_aux` epochs of auxiliary updates. CleanRL default: `32`.
+    /// through `e_aux` epochs of auxiliary updates. `CleanRL` default: `32`.
     pub n_iteration: usize,
 
     /// Auxiliary epochs per auxiliary phase.
     ///
-    /// CleanRL default: `6`.
+    /// `CleanRL` default: `6`.
     pub e_aux: usize,
 
     /// Behavioral-cloning / distillation coefficient on the KL term.
     ///
     /// Scales the `KL(π_old ‖ π_new)` distillation loss added to the
-    /// auxiliary-value loss on the policy network. CleanRL default: `1.0`.
+    /// auxiliary-value loss on the policy network. `CleanRL` default: `1.0`.
     pub beta_clone: f32,
 
     /// Minibatch size used in the auxiliary phase.
     ///
     /// Not derived from `ppo.batch_size()` because the auxiliary buffer holds
     /// `n_iteration` rollouts, a much larger pool than one rollout.
-    /// CleanRL default: `256`.
+    /// `CleanRL` default: `256`.
     pub aux_batch_size: usize,
 }
 
@@ -114,12 +114,14 @@ impl PpgConfigBuilder {
     }
 
     /// Replaces the wrapped PPO config wholesale.
+    #[must_use]
     pub fn ppo(mut self, ppo: PpoTrainingConfig) -> Self {
         self.config.ppo = ppo;
         self
     }
 
     /// Mutates the wrapped PPO config in place.
+    #[must_use]
     pub fn with_ppo<F>(mut self, f: F) -> Self
     where
         F: FnOnce(PpoTrainingConfig) -> PpoTrainingConfig,
@@ -128,21 +130,25 @@ impl PpgConfigBuilder {
         self
     }
 
+    #[must_use]
     pub fn n_iteration(mut self, n: usize) -> Self {
         self.config.n_iteration = n;
         self
     }
 
+    #[must_use]
     pub fn e_aux(mut self, e: usize) -> Self {
         self.config.e_aux = e;
         self
     }
 
+    #[must_use]
     pub fn beta_clone(mut self, b: f32) -> Self {
         self.config.beta_clone = b;
         self
     }
 
+    #[must_use]
     pub fn aux_batch_size(mut self, s: usize) -> Self {
         self.config.aux_batch_size = s;
         self

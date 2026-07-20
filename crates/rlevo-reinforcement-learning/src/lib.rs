@@ -95,7 +95,7 @@ pub mod algorithms {
         //! [`ddpg_model::ContinuousQ`] critic, each with a Polyak-averaged
         //! target copy. Explores via Gaussian noise on the actor output
         //! ([`exploration::GaussianNoise`]) and learns off a uniform replay
-        //! buffer. CleanRL's `ddpg_continuous_action.py` is the reference
+        //! buffer. `CleanRL`'s `ddpg_continuous_action.py` is the reference
         //! implementation.
 
         pub mod ddpg_agent;
@@ -116,7 +116,7 @@ pub mod algorithms {
         //! [`super::ddpg::exploration::GaussianNoise`] at action-selection
         //! time and the [`super::ddpg::ddpg_model::DeterministicPolicy`] /
         //! [`super::ddpg::ddpg_model::ContinuousQ`] traits unchanged.
-        //! CleanRL's `td3_continuous_action.py` is the reference
+        //! `CleanRL`'s `td3_continuous_action.py` is the reference
         //! implementation.
 
         pub mod target_smoothing;
@@ -137,7 +137,7 @@ pub mod algorithms {
         //! and a uniform replay buffer. The Bellman target includes the
         //! entropy term `−α·log π(a'|s')`; the actor is trained via
         //! reparameterization, and α is auto-tuned toward the heuristic
-        //! target entropy `-|A|` by default. CleanRL's
+        //! target entropy `-|A|` by default. `CleanRL`'s
         //! `sac_continuous_action.py` is the reference implementation.
 
         pub mod sac_agent;
@@ -155,7 +155,7 @@ pub mod algorithms {
         //! v1 ships a discrete-only [`policies::PpgCategoricalPolicyHead`]
         //! and reuses PPO's [`super::ppo::rollout::RolloutBuffer`],
         //! [`super::ppo::losses`], and [`super::ppo::ppo_value::PpoValue`].
-        //! CartPole parity with PPO is the v1 target; Procgen-scale gains
+        //! `CartPole` parity with PPO is the v1 target; Procgen-scale gains
         //! require vectorised envs + CNN encoders (deferred).
 
         pub mod aux_buffer;

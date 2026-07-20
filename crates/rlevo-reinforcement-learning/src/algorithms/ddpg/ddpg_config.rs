@@ -1,6 +1,6 @@
 //! Hyperparameter configuration for the DDPG algorithm.
 //!
-//! Fields and defaults track CleanRL's `ddpg_continuous_action.py` so that
+//! Fields and defaults track `CleanRL`'s `ddpg_continuous_action.py` so that
 //! reproducing published Pendulum/MuJoCo numbers is a matter of plugging the
 //! same values in.
 
@@ -30,7 +30,7 @@ pub struct DdpgTrainingConfig {
     /// actor's output (before clipping to `[low, high]`).
     pub exploration_noise: f32,
     /// Critic-update cadence at which the policy and both Polyak updates run.
-    /// `policy_frequency = 2` matches CleanRL's default.
+    /// `policy_frequency = 2` matches `CleanRL`'s default.
     pub policy_frequency: usize,
     /// Optional gradient clipping applied to both actor and critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
@@ -40,7 +40,7 @@ pub struct DdpgTrainingConfig {
 }
 
 impl Default for DdpgTrainingConfig {
-    /// CleanRL's default hyperparameters for `ddpg_continuous_action.py`.
+    /// `CleanRL`'s default hyperparameters for `ddpg_continuous_action.py`.
     fn default() -> Self {
         Self {
             replay_buffer_capacity: 1_000_000,
@@ -95,6 +95,7 @@ impl Validate for DdpgTrainingConfig {
 ///     .build()
 ///     .expect("valid config");
 /// ```
+#[derive(Debug)]
 pub struct DdpgTrainingConfigBuilder {
     config: DdpgTrainingConfig,
 }
@@ -115,54 +116,63 @@ impl DdpgTrainingConfigBuilder {
     }
 
     /// Sets the replay-buffer capacity.
+    #[must_use]
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
         self
     }
 
     /// Sets the mini-batch size.
+    #[must_use]
     pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
     }
 
     /// Sets the number of warm-up steps before learning begins.
+    #[must_use]
     pub fn learning_starts(mut self, learning_starts: usize) -> Self {
         self.config.learning_starts = learning_starts;
         self
     }
 
     /// Sets the actor learning rate.
+    #[must_use]
     pub fn actor_lr(mut self, lr: f64) -> Self {
         self.config.actor_lr = lr;
         self
     }
 
     /// Sets the critic learning rate.
+    #[must_use]
     pub fn critic_lr(mut self, lr: f64) -> Self {
         self.config.critic_lr = lr;
         self
     }
 
     /// Sets the discount factor γ.
+    #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
     /// Sets the Polyak averaging rate τ.
+    #[must_use]
     pub fn tau(mut self, tau: f32) -> Self {
         self.config.tau = tau;
         self
     }
 
     /// Sets the Gaussian exploration-noise standard deviation.
+    #[must_use]
     pub fn exploration_noise(mut self, sigma: f32) -> Self {
         self.config.exploration_noise = sigma;
         self
     }
 
     /// Sets the policy-update cadence (in critic steps).
+    #[must_use]
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
         self
@@ -170,12 +180,14 @@ impl DdpgTrainingConfigBuilder {
 
     /// Sets the gradient-clipping configuration applied to both actor and
     /// critic gradients.
+    #[must_use]
     pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = config;
         self
     }
 
     /// Overrides the base Adam optimiser configuration.
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self

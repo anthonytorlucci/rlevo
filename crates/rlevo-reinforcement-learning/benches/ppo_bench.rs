@@ -13,6 +13,11 @@ use std::hint::black_box;
 
 type B = Flex;
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_precision_loss)]
 fn synthetic_trajectory(n: usize) -> (Vec<f32>, Vec<f32>, Vec<bool>, Vec<Option<f32>>) {
     let mut rewards = Vec::with_capacity(n);
     let mut values = Vec::with_capacity(n);
@@ -47,6 +52,11 @@ fn bench_compute_gae(c: &mut Criterion) {
     group.finish();
 }
 
+// Synthetic fixture/benchmark data: the loop counter and element count are
+// bounded by small constants declared in this file, far below f32's 2^24
+// exact-integer limit. The values are inputs to a throughput measurement, not
+// quantities whose precision is asserted.
+#[allow(clippy::cast_precision_loss)]
 fn bench_advantage_norm(c: &mut Criterion) {
     let mut group = c.benchmark_group("ppo_advantage_norm");
     let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();

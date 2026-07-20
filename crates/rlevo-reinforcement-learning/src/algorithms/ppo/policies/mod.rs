@@ -7,7 +7,7 @@
 //!   `log_std` parameter, sampling via reparameterisation `z = μ + σ·ε` then
 //!   `a = scale · tanh(z)`.
 //!
-//! Both heads are full MLPs with two hidden `tanh` layers (CleanRL default).
+//! Both heads are full MLPs with two hidden `tanh` layers (`CleanRL` default).
 //! Users who need a different architecture can `impl PpoPolicy` directly on
 //! their own [`burn::module::Module`] struct — the traits in
 //! [`ppo_policy`](crate::algorithms::ppo::ppo_policy) /

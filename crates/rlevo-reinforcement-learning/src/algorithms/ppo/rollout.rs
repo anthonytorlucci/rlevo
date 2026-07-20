@@ -13,7 +13,7 @@
 //! bootstrapping** (Pardo et al. 2018, Eq. 6) at truncations, per ADR 0048.
 //! A truncated step bootstraps its delta from `V(s_continuation)` while its
 //! λ-recursion is cut; a terminated step does neither. This deliberately
-//! diverges from CleanRL's default PPO, which ORs the two flags.
+//! diverges from `CleanRL`'s default PPO, which ORs the two flags.
 //!
 //! # Indexing convention
 //!
@@ -80,6 +80,7 @@ pub struct RolloutBuffer<B: Backend, O> {
 impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     /// Allocates a buffer for `capacity` steps, with `action_dim` action
     /// components per step (1 for discrete, A for continuous-A).
+    #[must_use]
     pub fn new(capacity: usize, action_dim: usize) -> Self {
         Self {
             capacity,
@@ -162,27 +163,32 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     /// `true` when the final stored transition was terminated or truncated,
     /// i.e. exactly when [`Self::finish`]'s `last_value` argument is unused.
     /// An empty buffer reports `false`.
+    #[must_use]
     pub fn last_step_ended(&self) -> bool {
         let n = self.len();
         n > 0 && (self.terminated[n - 1] || self.truncation_value[n - 1].is_some())
     }
 
     /// Current number of stored steps.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.obs.len()
     }
 
     /// `true` if no steps have been pushed.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.obs.is_empty()
     }
 
     /// Capacity, i.e. `num_envs · num_steps`.
+    #[must_use]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// Action components per step.
+    #[must_use]
     pub fn action_dim(&self) -> usize {
         self.action_dim
     }
@@ -196,32 +202,38 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
     }
 
     /// Typed observations in step order.
+    #[must_use]
     pub fn obs(&self) -> &[O] {
         &self.obs
     }
 
     /// Raw action components, shape `(num_steps, action_dim)` in row-major order.
+    #[must_use]
     pub fn action_flat(&self) -> &[f32] {
         &self.action_flat
     }
 
     /// Log-probabilities captured at rollout-time under the sampling policy.
+    #[must_use]
     pub fn log_probs(&self) -> &[f32] {
         &self.log_probs
     }
 
     /// Value-network predictions captured at rollout time.
+    #[must_use]
     pub fn values(&self) -> &[f32] {
         &self.values
     }
 
     /// GAE advantages. Empty until [`Self::finish`] has been called.
+    #[must_use]
     pub fn advantages(&self) -> &[f32] {
         &self.advantages
     }
 
     /// Bootstrap returns: advantages + values. Empty until
     /// [`Self::finish`] has been called.
+    #[must_use]
     pub fn returns(&self) -> &[f32] {
         &self.returns
     }
@@ -240,6 +252,7 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 
     /// Extracts the action rows for `indices` as a flat `Vec<f32>` of length
     /// `indices.len() * action_dim`.
+    #[must_use]
     pub fn gather_action_flat(&self, indices: &[usize]) -> Vec<f32> {
         let mut out = Vec::with_capacity(indices.len() * self.action_dim);
         for &i in indices {
@@ -292,13 +305,14 @@ impl<B: Backend, O: Clone> RolloutBuffer<B, O> {
 /// - the **λ-recursion is cut** — the trajectory genuinely ended, so advantage
 ///   must not propagate across the boundary.
 ///
-/// This deliberately diverges from CleanRL's default PPO, which ORs the flags.
+/// This deliberately diverges from `CleanRL`'s default PPO, which ORs the flags.
 /// See ADR 0048.
 ///
 /// # Panics
 ///
 /// If `values`, `terminated`, or `truncation_value` differ in length from
 /// `rewards`.
+#[must_use]
 pub fn compute_gae(
     rewards: &[f32],
     values: &[f32],

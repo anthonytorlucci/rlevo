@@ -187,7 +187,7 @@ where
             .field("buffer_len", &self.buffer.len())
             .field("aux_slices", &self.aux_buffer.num_slices())
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -519,6 +519,16 @@ where
     /// [`crate::algorithms::ppo::ppo_agent::PpoAgent::update`].
     /// Clears the rollout buffer, increments the iteration counter, returns
     /// the same [`PpoUpdateStats`].
+    // The body is one linear pipeline — sample, forward, loss, backward,
+    // optimizer step, priority writeback, metrics — with a borrow structure
+    // around the module slot that the inline comments below depend on. Splitting
+    // it into helpers to satisfy the line count would thread that borrow through
+    // signatures without making the sequence easier to follow.
+    #[allow(clippy::too_many_lines)]
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     pub fn policy_phase_update<R: Rng + ?Sized>(&mut self, rng: &mut R) -> PpoUpdateStats {
         let cfg = self.config.ppo.clone();
         let batch_size = self.buffer.len();
@@ -672,6 +682,10 @@ where
     ///   policy that has just finished `n_iteration` policy-phase updates).
     ///
     /// Drains the buffer afterwards. Otherwise, no-op.
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     pub fn maybe_aux_phase<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<AuxPhaseStats> {
         if !self.aux_buffer.is_ready(self.config.n_iteration) {
             return None;
@@ -764,7 +778,7 @@ where
         Some(stats)
     }
 
-    /// Computes π_old logits for every step in the auxiliary buffer.
+    /// Computes `π_old` logits for every step in the auxiliary buffer.
     ///
     /// Returns a row-major flat `Vec<f32>` of length
     /// `total_steps * num_actions`. Batched through the policy in chunks to
@@ -888,10 +902,7 @@ mod tests {
         .expect("valid head config");
         let value = TestValue::<TestBackend>::init(&device);
         let config = PpgConfigBuilder::new()
-            .with_ppo(|p| PpoTrainingConfig {
-                clip_grad: clip_grad.clone(),
-                ..p
-            })
+            .with_ppo(|p| PpoTrainingConfig { clip_grad, ..p })
             .build()
             .expect("valid config");
         TestAgent::new(policy, value, config, device, 1).expect("valid config")

@@ -25,9 +25,11 @@ pub fn policy_kl_categorical<B: Backend>(
 ) -> Tensor<B, 1> {
     let old_lp = log_softmax(old_logits, 1);
     let new_lp = log_softmax(new_logits, 1);
-    let old_p = old_lp.clone().exp();
+    let old_probs = old_lp.clone().exp();
     // Σ_a p_old · (log p_old − log p_new), per row.
-    let per_row = (old_p * (old_lp - new_lp)).sum_dim(1).squeeze_dim::<1>(1);
+    let per_row = (old_probs * (old_lp - new_lp))
+        .sum_dim(1)
+        .squeeze_dim::<1>(1);
     per_row.mean()
 }
 
@@ -66,7 +68,7 @@ mod tests {
         // Softmax is shift-invariant, so KL should be 0.
         let old = t2(&[0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6], 2, 3);
         let mut shifted = vec![];
-        for x in [0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6].iter() {
+        for x in &[0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6] {
             shifted.push(x + 5.0);
         }
         let new = t2(&shifted, 2, 3);

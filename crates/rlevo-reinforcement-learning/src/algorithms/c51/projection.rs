@@ -59,6 +59,10 @@ use burn::tensor::{IndexingUpdateOp, Int, Tensor};
 /// assert!(atom_spacing(0.0, 1.0, 1).is_nan());
 /// ```
 #[must_use]
+// Structural size of the distributional support (atom / quantile count). The
+// configs cap these in the low hundreds, so the value is exact in f32; a
+// non-finite or zero spacing is rejected by assertion before use.
+#[allow(clippy::cast_precision_loss)]
 pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
     if num_atoms < 2 {
         return f32::NAN;
@@ -96,6 +100,10 @@ pub fn atom_spacing(v_min: f32, v_max: f32, num_atoms: usize) -> f32 {
 ///   the whole distribution onto atom 0 — a silently corrupted target rather
 ///   than an observable failure. The assertion converts that into a panic.
 #[allow(clippy::too_many_arguments)]
+// Structural size of the distributional support (atom / quantile count). The
+// configs cap these in the low hundreds, so the value is exact in f32; a
+// non-finite or zero spacing is rejected by assertion before use.
+#[allow(clippy::cast_precision_loss)]
 pub fn project_distribution<B: Backend>(
     next_probs: Tensor<B, 2>,
     rewards: Tensor<B, 1>,
@@ -174,15 +182,19 @@ mod tests {
 
     type B = Flex;
 
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn make_support(
         v_min: f32,
         v_max: f32,
         n: usize,
-        device: &<B as burn::tensor::backend::BackendTypes>::Device,
+        device: <B as burn::tensor::backend::BackendTypes>::Device,
     ) -> Tensor<B, 1> {
         let delta = atom_spacing(v_min, v_max, n);
         let data: Vec<f32> = (0..n).map(|i| v_min + (i as f32) * delta).collect();
-        Tensor::from_data(TensorData::new(data, vec![n]), device)
+        Tensor::from_data(TensorData::new(data, vec![n]), &device)
     }
 
     fn into_vec(tensor: Tensor<B, 2>) -> Vec<f32> {
@@ -206,7 +218,7 @@ mod tests {
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let terminated =
             Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, &device);
+        let support = make_support(-1.0, 1.0, 3, device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
@@ -229,7 +241,7 @@ mod tests {
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.5_f32], vec![1]), &device);
         let terminated =
             Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, &device);
+        let support = make_support(-1.0, 1.0, 3, device);
 
         let out =
             project_distribution(next_probs, rewards, terminated, support, 0.99, -1.0, 1.0, 3);
@@ -257,7 +269,7 @@ mod tests {
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![100.0_f32], vec![1]), &device);
         let terminated =
             Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(-1.0, 1.0, 3, &device);
+        let support = make_support(-1.0, 1.0, 3, device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 1.0, -1.0, 1.0, 3);
         let v = into_vec(out);
@@ -267,6 +279,10 @@ mod tests {
     }
 
     #[test]
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn projection_preserves_total_mass() {
         // Arbitrary batch, random-ish probabilities normalised to 1: rows of
         // the projection should still sum to ≈1.
@@ -289,7 +305,7 @@ mod tests {
             TensorData::new(vec![0.0_f32, 1.0, 0.0, 0.0], vec![batch]),
             &device,
         );
-        let support = make_support(-2.0, 2.0, n, &device);
+        let support = make_support(-2.0, 2.0, n, device);
 
         let out = project_distribution(next_probs, rewards, terminated, support, 0.9, -2.0, 2.0, n);
         let v = into_vec(out);
@@ -307,6 +323,10 @@ mod tests {
     /// A reward far above `v_max` with `terminated = 1` forces `Tz ≡ v_max` for
     /// every atom, which is exactly the `b == N-1` boundary where the f32
     /// rounding defect bites.
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn project_saturated_row(v_min: f32, v_max: f32, n: usize, reward: f32) -> Vec<f32> {
         assert!(
             reward >= v_max,
@@ -320,7 +340,7 @@ mod tests {
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![reward], vec![1]), &device);
         let terminated =
             Tensor::<B, 1>::from_data(TensorData::new(vec![1.0_f32], vec![1]), &device);
-        let support = make_support(v_min, v_max, n, &device);
+        let support = make_support(v_min, v_max, n, device);
 
         let out = project_distribution(
             next_probs, rewards, terminated, support, 0.99, v_min, v_max, n,
@@ -405,6 +425,10 @@ mod tests {
     /// `atom_spacing` too, so for a degenerate support the support tensor
     /// itself is degenerate — the tests below assert on the panic *message* to
     /// confirm the guard fired rather than some incidental failure.
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn project_on_support(v_min: f32, v_max: f32, n: usize) -> Vec<f32> {
         let device: <B as burn::tensor::backend::BackendTypes>::Device = Default::default();
         let next_probs = Tensor::<B, 2>::from_data(
@@ -414,7 +438,7 @@ mod tests {
         let rewards = Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
         let terminated =
             Tensor::<B, 1>::from_data(TensorData::new(vec![0.0_f32], vec![1]), &device);
-        let support = make_support(v_min, v_max, n, &device);
+        let support = make_support(v_min, v_max, n, device);
 
         let out = project_distribution(
             next_probs, rewards, terminated, support, 0.99, v_min, v_max, n,

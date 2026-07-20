@@ -20,13 +20,13 @@
 //! The pre-aux-phase policy logits (`π_old` for the distillation KL) are
 //! **not** stored here; they are computed once at the start of the
 //! auxiliary phase against the policy that has just finished `n_iteration`
-//! policy-phase updates, matching CleanRL's `ppg_procgen.py`. Storing them
+//! policy-phase updates, matching `CleanRL`'s `ppg_procgen.py`. Storing them
 //! per-step at rollout collection time would anchor the distillation to a
 //! stale policy and undo the policy-phase's learning.
 //!
 //! Sampling is i.i.d. random across the concatenated pool (the simpler
 //! random-obs sampling choice). The more elaborate contiguous-per-rollout
-//! sampling used in CleanRL's `ppg_procgen.py` is a follow-up once
+//! sampling used in `CleanRL`'s `ppg_procgen.py` is a follow-up once
 //! benchmarks demand it.
 
 use burn::tensor::Tensor;
@@ -123,6 +123,7 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
 
     /// Flat CPU-side access to one observation by global step index.
     /// Used by the agent to batch-compute `π_old` logits once per aux phase.
+    #[must_use]
     pub fn obs_at(&self, global: usize) -> &O {
         let (si, ii) = self.locate(global);
         &self.slices[si].obs[ii]
@@ -178,6 +179,12 @@ impl<B: Backend, O: Clone> AuxRolloutBuffer<B, O> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use rlevo_core::base::{HostRow, TensorConversionError};
     type Be = burn::backend::Flex;
@@ -206,6 +213,10 @@ mod tests {
         }
     }
 
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn push(buf: &mut AuxRolloutBuffer<Be, TestObs>, n: usize) {
         let obs: Vec<TestObs> = (0..n)
             .map(|i| TestObs([i as f32, i as f32 + 0.5]))

@@ -1,6 +1,6 @@
 //! Hyperparameter configuration for the PPO (Proximal Policy Optimization) algorithm.
 //!
-//! Field defaults follow CleanRL's [`ppo.py`](https://docs.cleanrl.dev/rl-algorithms/ppo/)
+//! Field defaults follow `CleanRL`'s [`ppo.py`](https://docs.cleanrl.dev/rl-algorithms/ppo/)
 //! and [`ppo_continuous_action.py`]. See
 //! [Huang et al. 2022, *The 37 Implementation Details of PPO*](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/)
 //! for the rationale behind each value.
@@ -34,7 +34,7 @@ pub struct PpoTrainingConfig {
 
     /// Rollout horizon per env (steps collected before each update).
     ///
-    /// Default `128` matches CleanRL's `ppo.py`.
+    /// Default `128` matches `CleanRL`'s `ppo.py`.
     pub num_steps: usize,
 
     // ----- optimization -----
@@ -64,7 +64,7 @@ pub struct PpoTrainingConfig {
     /// each parameter's gradient is rescaled against its own L2 norm. It does
     /// *not* rescale against the global norm of the flattened parameter
     /// vector, so it does **not** reproduce Huang et al. detail #10
-    /// (global-norm clipping at `0.5`, as in CleanRL). True global-norm
+    /// (global-norm clipping at `0.5`, as in `CleanRL`). True global-norm
     /// clipping is tracked in issue #328.
     pub clip_grad: Option<GradientClippingConfig>,
 
@@ -79,7 +79,7 @@ pub struct PpoTrainingConfig {
     pub clip_coef: f32,
 
     /// When `true`, value-function targets use the clipped loss
-    /// `max((v_clipped − R)², (v − R)²)`. CleanRL default: on.
+    /// `max((v_clipped − R)², (v − R)²)`. `CleanRL` default: on.
     pub clip_value_loss: bool,
 
     /// Entropy bonus coefficient. `0.01` is the discrete default; use `0.0`
@@ -201,42 +201,49 @@ impl PpoTrainingConfigBuilder {
     }
 
     /// Sets [`PpoTrainingConfig::num_envs`]. v1 only supports `1`.
+    #[must_use]
     pub fn num_envs(mut self, num_envs: usize) -> Self {
         self.config.num_envs = num_envs;
         self
     }
 
     /// Sets [`PpoTrainingConfig::num_steps`] (rollout horizon per env).
+    #[must_use]
     pub fn num_steps(mut self, num_steps: usize) -> Self {
         self.config.num_steps = num_steps;
         self
     }
 
     /// Sets [`PpoTrainingConfig::num_minibatches`].
+    #[must_use]
     pub fn num_minibatches(mut self, num_minibatches: usize) -> Self {
         self.config.num_minibatches = num_minibatches;
         self
     }
 
     /// Sets [`PpoTrainingConfig::update_epochs`].
+    #[must_use]
     pub fn update_epochs(mut self, update_epochs: usize) -> Self {
         self.config.update_epochs = update_epochs;
         self
     }
 
     /// Sets [`PpoTrainingConfig::learning_rate`].
+    #[must_use]
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
         self.config.learning_rate = learning_rate;
         self
     }
 
     /// Enables or disables linear learning-rate annealing to zero.
+    #[must_use]
     pub fn anneal_lr(mut self, anneal_lr: bool) -> Self {
         self.config.anneal_lr = anneal_lr;
         self
     }
 
     /// Replaces the entire Adam optimizer config (e.g. to override epsilon).
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self
@@ -244,54 +251,63 @@ impl PpoTrainingConfigBuilder {
 
     /// Sets the optional Burn gradient-clipping config applied inside the
     /// optimizer step. `None` disables it (the default).
+    #[must_use]
     pub fn clip_grad(mut self, clip_grad: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = clip_grad;
         self
     }
 
     /// Sets [`PpoTrainingConfig::gamma`] (discount factor γ).
+    #[must_use]
     pub fn gamma(mut self, gamma: f32) -> Self {
         self.config.gamma = gamma;
         self
     }
 
     /// Sets [`PpoTrainingConfig::gae_lambda`] (GAE bootstrap parameter λ).
+    #[must_use]
     pub fn gae_lambda(mut self, gae_lambda: f32) -> Self {
         self.config.gae_lambda = gae_lambda;
         self
     }
 
     /// Sets [`PpoTrainingConfig::clip_coef`] (PPO clipping coefficient ε).
+    #[must_use]
     pub fn clip_coef(mut self, clip_coef: f32) -> Self {
         self.config.clip_coef = clip_coef;
         self
     }
 
     /// Enables or disables the clipped value-function loss variant.
+    #[must_use]
     pub fn clip_value_loss(mut self, clip_value_loss: bool) -> Self {
         self.config.clip_value_loss = clip_value_loss;
         self
     }
 
     /// Sets [`PpoTrainingConfig::entropy_coef`] (entropy bonus weight).
+    #[must_use]
     pub fn entropy_coef(mut self, entropy_coef: f32) -> Self {
         self.config.entropy_coef = entropy_coef;
         self
     }
 
     /// Sets [`PpoTrainingConfig::value_coef`] (value-loss weight `c_v`).
+    #[must_use]
     pub fn value_coef(mut self, value_coef: f32) -> Self {
         self.config.value_coef = value_coef;
         self
     }
 
     /// Enables or disables per-minibatch advantage normalisation.
+    #[must_use]
     pub fn normalize_advantages(mut self, normalize_advantages: bool) -> Self {
         self.config.normalize_advantages = normalize_advantages;
         self
     }
 
     /// Sets [`PpoTrainingConfig::target_kl`]. `None` disables early stopping.
+    #[must_use]
     pub fn target_kl(mut self, target_kl: Option<f32>) -> Self {
         self.config.target_kl = target_kl;
         self
@@ -316,6 +332,10 @@ impl PpoTrainingConfigBuilder {
 /// At `iteration == 0`, returns `base_lr`; at `iteration == total_iterations`,
 /// returns `0`. Linear interpolation between.
 #[must_use]
+// Divisor/normalizer derived from a count -- batch size, minibatch count,
+// history length, iteration number. All are bounded by configured sizes far
+// below f32's 2^24 (f64's 2^53) exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
 pub fn annealed_learning_rate(base_lr: f64, iteration: usize, total_iterations: usize) -> f64 {
     if total_iterations == 0 {
         return base_lr;
@@ -326,6 +346,12 @@ pub fn annealed_learning_rate(base_lr: f64, iteration: usize, total_iterations: 
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]

@@ -17,7 +17,7 @@
 //! # Entropy
 //!
 //! Returns the Gaussian entropy `Σ (log σ + ½ log(2πe))`, summed across
-//! action dims. This matches CleanRL's `probs.entropy().sum(1)` — the tanh
+//! action dims. This matches `CleanRL`'s `probs.entropy().sum(1)` — the tanh
 //! Jacobian's entropy contribution is omitted, consistent with PPO practice.
 //!
 //! # Bounding `log_std`: a precondition for `log_prob` being total
@@ -42,9 +42,9 @@
 //!
 //! ## Deliberate deviation from reference PPO
 //!
-//! Reference implementations leave PPO's `log_std` **unclamped**: CleanRL's
+//! Reference implementations leave PPO's `log_std` **unclamped**: `CleanRL`'s
 //! `ppo_continuous_action.py`, Stable-Baselines3's `DiagGaussianDistribution`,
-//! and OpenAI Spinning Up all do. SB3 clamps only in
+//! and `OpenAI` Spinning Up all do. SB3 clamps only in
 //! `SquashedDiagGaussianDistribution` (its SAC path). Schulman et al. (2017)
 //! specifies no bound. We diverge knowingly.
 //!
@@ -525,6 +525,10 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
     /// `z` is stored in the rollout buffer, not the tanh-squashed env action
     /// `a = scale · tanh(z)`. See the module-level note on why the tanh
     /// Jacobian is omitted.
+    // `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+    // Narrowing to the tensor's own dtype is the intent, and the sample is finite
+    // by construction.
+    #[allow(clippy::cast_possible_truncation)]
     fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
@@ -635,6 +639,7 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
 /// Use this as the `action_from_row` closure in custom train loops; the
 /// built-in [`train_continuous`](crate::algorithms::ppo::train::train_continuous)
 /// calls it automatically.
+#[must_use]
 pub fn continuous_action_from_row<const AD: usize, A: rlevo_core::action::ContinuousAction<AD>>(
     row: &[f32],
 ) -> A {
@@ -643,6 +648,12 @@ pub fn continuous_action_from_row<const AD: usize, A: rlevo_core::action::Contin
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;

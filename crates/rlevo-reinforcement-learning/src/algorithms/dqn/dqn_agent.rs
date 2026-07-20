@@ -146,7 +146,7 @@ where
             .field("buffer_len", &self.buffer.len())
             .field("epsilon", &self.exploration.value())
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -253,6 +253,11 @@ where
     /// Unlike [`act`](Self::act) this never explores, so it is the policy to
     /// use for evaluation: it reflects what the network has learned without the
     /// ε-greedy exploration noise that floors at `epsilon_end`.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn act_greedy(&self, obs: &O) -> A {
         let obs_t: Tensor<B, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B, DB> = obs_t.unsqueeze::<DB>();
@@ -278,6 +283,11 @@ where
     /// Equivalent to [`act_greedy`](Self::act_greedy) but runs on the
     /// non-autodiff backend via [`inference_net`](Self::inference_net), which
     /// is dramatically cheaper for repeated single-observation inference.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn act_greedy_with(&self, net: &M::InnerModule, obs: &O) -> A {
         let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
@@ -387,6 +397,17 @@ where
     ///
     /// Returns `None` if the agent does not yet have enough transitions to
     /// form a batch.
+    /// # Panics
+    ///
+    /// Panics if the replay buffer hands back an id that is no longer live.
+    /// Sampling and lookup run under the same `&mut self`, so this can only
+    /// fire if a `ReplayStrategy` implementation violates the contract that a
+    /// freshly sampled id resolves.
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;
@@ -535,6 +556,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     use burn::backend::{Autodiff, Flex};
@@ -683,6 +710,10 @@ mod tests {
 
     /// Builds a prioritized-replay agent primed with four transitions and
     /// `learning_starts = 0`, so a single `learn_step` runs immediately.
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn primed_prioritized_agent() -> TestAgent {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let config = DqnTrainingConfigBuilder::new()

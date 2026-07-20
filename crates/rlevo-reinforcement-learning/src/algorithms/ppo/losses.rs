@@ -35,7 +35,7 @@ pub fn clipped_surrogate<B: Backend>(
 /// Clipped value-function loss.
 ///
 /// `v_loss_clipped = max((clip(v, v_old ± ε) − R)², (v − R)²)`, mean × 0.5.
-/// Follows CleanRL's clipped-value variant (an ablation-selected detail in
+/// Follows `CleanRL`'s clipped-value variant (an ablation-selected detail in
 /// Huang et al. §5).
 pub fn clipped_value_loss<B: Backend>(
     new_values: Tensor<B, 1>,
@@ -107,19 +107,23 @@ pub fn old_approx_kl<B: Backend>(new_log_probs: Tensor<B, 1>, old_log_probs: Ten
 /// predicts no better than the mean; negative means worse than the mean. This is
 /// the single most informative value-net health signal.
 ///
-/// # CleanRL / SB3 convention (non-centered residual)
+/// # `CleanRL` / SB3 convention (non-centered residual)
 ///
 /// The residual term is the raw mean-square `mean((returns − values)²)`, not the
 /// *centered* variance `Var(returns − values)` of the scikit-learn R² formula.
 /// The two agree once the value net is unbiased (`E[returns − values] ≈ 0`), but
 /// the non-centered form additionally penalises a constant value-net **bias**.
 /// So during early warm-up a value net that has the right shape but a constant
-/// offset reads `ev < 0` — this is expected, not a code bug. This matches CleanRL
+/// offset reads `ev < 0` — this is expected, not a code bug. This matches `CleanRL`
 /// and Stable-Baselines3 so curves are comparable across implementations.
 ///
 /// Returns `0.0` when `Var(returns) == 0` (a degenerate rollout) rather than
 /// dividing by zero — never emits `NaN`/`Inf`.
 #[must_use]
+// Divisor/normalizer derived from a count -- batch size, minibatch count,
+// history length, iteration number. All are bounded by configured sizes far
+// below f32's 2^24 (f64's 2^53) exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
 pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
     debug_assert_eq!(returns.len(), values.len());
     let n = returns.len();
@@ -148,6 +152,10 @@ pub fn explained_variance(returns: &[f32], values: &[f32]) -> f32 {
 }
 
 /// Fraction of batch entries whose importance ratio was clipped.
+// Divisor/normalizer derived from a count -- batch size, minibatch count,
+// history length, iteration number. All are bounded by configured sizes far
+// below f32's 2^24 (f64's 2^53) exact-integer limit.
+#[allow(clippy::cast_precision_loss)]
 pub fn clip_fraction<B: Backend>(
     new_log_probs: Tensor<B, 1>,
     old_log_probs: Tensor<B, 1>,
@@ -174,6 +182,12 @@ fn max_elem<B: Backend>(a: Tensor<B, 1>, b: Tensor<B, 1>) -> Tensor<B, 1> {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use burn::backend::Flex;
     use burn::tensor::TensorData;
@@ -204,6 +218,10 @@ mod tests {
     }
 
     #[test]
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     fn advantage_norm_has_unit_var() {
         let advs = t1(&[1.0, 2.0, 3.0, 4.0, 5.0]);
         let norm = normalize_advantages(advs);

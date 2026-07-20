@@ -212,7 +212,7 @@ where
             .field("low", &self.low)
             .field("high", &self.high)
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -390,6 +390,11 @@ where
     /// mean) but runs on the non-autodiff backend via
     /// [`inference_net`](Self::inference_net), avoiding the per-call autodiff
     /// graph construction that [`act`](Self::act) incurs.
+    /// # Panics
+    ///
+    /// Panics if the actor's output tensor is not `f32`, or if it yields fewer
+    /// than `A::COMPONENTS` values. Both indicate the supplied `net` does not
+    /// match the action type this agent was built for.
     pub fn act_with(&self, net: &Actor::InnerModule, obs: &O) -> A {
         let obs_t: Tensor<B::InnerBackend, DO> = obs.to_tensor(&self.device);
         let batched: Tensor<B::InnerBackend, DB> = obs_t.unsqueeze::<DB>();
@@ -476,6 +481,12 @@ where
     /// the three steps run in disjoint windows, so a `critic_1` step panic does
     /// not affect `critic_2` or the actor. A poisoned agent cannot be recovered
     /// and must be rebuilt — see the type-level docs.
+    // The body is one linear pipeline — sample, forward, loss, backward,
+    // optimizer step, priority writeback, metrics — with a borrow structure
+    // around the module slot that the inline comments below depend on. Splitting
+    // it into helpers to satisfy the line count would thread that borrow through
+    // signatures without making the sequence easier to follow.
+    #[allow(clippy::too_many_lines)]
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;
@@ -631,7 +642,7 @@ where
             // Clone rather than move out: each target field stays intact if
             // `soft_update` panics, so a failure can't silently hard-sync the
             // target onto its live network.
-            let tau = self.config.tau as f64;
+            let tau = f64::from(self.config.tau);
             self.target_actor =
                 Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
             self.target_critic_1 =
@@ -658,10 +669,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     use burn::backend::Flex;
-    use burn::tensor::TensorData;
 
     type BI = Flex;
 

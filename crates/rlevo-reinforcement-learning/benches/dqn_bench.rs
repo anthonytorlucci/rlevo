@@ -1,7 +1,7 @@
 //! Micro and macro benchmarks for the DQN agent.
 //!
 //! Only the micro benches run by default (`cargo bench -p rlevo-reinforcement-learning --bench
-//! dqn_bench`). The CartPole reward-curve reproduction macro bench is gated
+//! dqn_bench`). The `CartPole` reward-curve reproduction macro bench is gated
 //! behind the `macro` env var and is compared against
 //! `tests/baselines/dqn_cartpole.csv`.
 
@@ -60,6 +60,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     ) -> Tensor<B::InnerBackend, 2> {
         inner.forward_impl(obs)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
             &active.valid(),

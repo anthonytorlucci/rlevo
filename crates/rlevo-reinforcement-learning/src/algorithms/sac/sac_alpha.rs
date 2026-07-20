@@ -31,13 +31,13 @@
 //! Note that the paper writes the dual in terms of **α**, not `log α`.
 //! Optimising `log α` unconstrained — as this module does — is an
 //! *implementation convention* shared by softlearning (the authors' own
-//! code), rlkit, CleanRL and Stable-Baselines3. Its only effect is to enforce
+//! code), rlkit, `CleanRL` and Stable-Baselines3. Its only effect is to enforce
 //! `α ≥ 0` by construction; it carries no other guarantee from the paper.
 //!
 //! # Deliberate deviations from every reference implementation
 //!
 //! This module applies two hardenings that appear in **no** reference SAC:
-//! softlearning, rlkit, CleanRL and SB3 all leave `log α` unbounded, and none
+//! softlearning, rlkit, `CleanRL` and SB3 all leave `log α` unbounded, and none
 //! of them guards the α optimiser against a non-finite gradient. Both are
 //! `rlevo` deviations, justified as defensive engineering rather than as
 //! standard practice. They fix **different** problems and are separable.
@@ -91,7 +91,7 @@
 //! near-floor `std` makes `((a − μ)/σ)²` enormous yet finite, and
 //! `log π` follows.
 //!
-//! The idiom is precedented outside RL by PyTorch AMP's `GradScaler`, which
+//! The idiom is precedented outside RL by `PyTorch` AMP's `GradScaler`, which
 //! skips `optimizer.step()` when the unscaled gradients contain `inf`/`NaN`.
 //! Because `g` is already a host `f32`, the check costs no device sync — the
 //! objection raised against the tensor-side guard debated in #173 does not
@@ -112,12 +112,16 @@
 
 /// Stateful `log α` with its own scalar Adam first/second-moment estimates.
 ///
-/// The Adam hyperparameters are fixed at CleanRL's defaults (β₁ = 0.9,
+/// The Adam hyperparameters are fixed at `CleanRL`'s defaults (β₁ = 0.9,
 /// β₂ = 0.999, ε = 1 × 10⁻⁸) and are not exposed as configuration. The
 /// learning rate is passed per-step via [`LogAlpha::adam_step`] so callers
 /// can derive it from [`SacTrainingConfig::alpha_lr`](super::sac_config::SacTrainingConfig).
 #[derive(Debug, Clone)]
 pub struct LogAlpha {
+    // `log_alpha` is the name this quantity carries in the SAC literature and in
+    // every formula in this module's docs. Shortening it to `value` to drop the
+    // struct-name prefix would break that correspondence for a private field.
+    #[allow(clippy::struct_field_names)]
     log_alpha: f32,
     /// Adam first-moment estimate `m`.
     m: f32,
@@ -167,6 +171,7 @@ impl LogAlpha {
     /// Constructs with `log α = init_log_alpha`. Pass
     /// `initial_alpha.max(f32::MIN_POSITIVE).ln()` when you want to seed
     /// from a target initial α.
+    #[must_use]
     pub fn new(init_log_alpha: f32) -> Self {
         Self {
             log_alpha: init_log_alpha,
@@ -180,6 +185,7 @@ impl LogAlpha {
     }
 
     /// Current `log α`.
+    #[must_use]
     pub fn log_alpha(&self) -> f32 {
         self.log_alpha
     }
@@ -189,6 +195,7 @@ impl LogAlpha {
     /// `log α` is clamped to `[LOG_ALPHA_MIN, LOG_ALPHA_MAX]` before
     /// exponentiating, so the returned α is always finite. See the
     /// [module docs](self) for why the bound never binds in a healthy run.
+    #[must_use]
     pub fn alpha(&self) -> f32 {
         self.log_alpha.clamp(LOG_ALPHA_MIN, LOG_ALPHA_MAX).exp()
     }
@@ -196,7 +203,7 @@ impl LogAlpha {
     /// Applies one Adam step with closed-form gradient
     /// `g = −(log_prob_mean + target_entropy)`.
     ///
-    /// This is the scalar Adam update with CleanRL's default β₁/β₂/ε. The
+    /// This is the scalar Adam update with `CleanRL`'s default β₁/β₂/ε. The
     /// learning rate is passed per-step so callers can reuse a
     /// [`SacTrainingConfig`](super::sac_config::SacTrainingConfig)
     /// schedule.
@@ -220,6 +227,9 @@ impl LogAlpha {
     ///   policy.
     /// * `target_entropy` — the constraint `H̄`, conventionally `−dim(A)`.
     /// * `lr` — learning rate for this step.
+    // Adam's step counter, u32 -> i32 for `powi`. Wrapping would need 2^31 updates,
+    // by which point both bias corrections have long since saturated at 1.0.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn adam_step(&mut self, log_prob_mean: f32, target_entropy: f32, lr: f32) {
         const BETA1: f32 = 0.9;
         const BETA2: f32 = 0.999;
@@ -395,6 +405,12 @@ impl LogAlpha {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     /// With `log π` well below `target_entropy` (i.e. `log π + H̄ < 0`), the

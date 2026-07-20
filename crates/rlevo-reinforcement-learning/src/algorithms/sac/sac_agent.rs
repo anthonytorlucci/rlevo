@@ -218,7 +218,7 @@ where
             .field("low", &self.low)
             .field("high", &self.high)
             .field("config", &self.config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -250,6 +250,10 @@ where
     /// `A::COMPONENTS`. `&'static [f32]` cannot carry that guarantee in the
     /// type system (ADR 0053), so it is checked once here rather than being
     /// discovered as an out-of-bounds index mid-episode.
+    // Divisor/normalizer derived from a count -- batch size, minibatch count,
+    // history length, iteration number. All are bounded by configured sizes far
+    // below f32's 2^24 (f64's 2^53) exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
     pub fn new(
         actor: Actor,
         critic_1: Critic,
@@ -485,6 +489,17 @@ where
     /// optimizer step. The three slots are stepped in sequence and never held
     /// simultaneously, so such a panic poisons only the one network being
     /// stepped.
+    // The body is one linear pipeline — sample, forward, loss, backward,
+    // optimizer step, priority writeback, metrics — with a borrow structure
+    // around the module slot that the inline comments below depend on. Splitting
+    // it into helpers to satisfy the line count would thread that borrow through
+    // signatures without making the sequence easier to follow.
+    #[allow(clippy::too_many_lines)]
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
         if !self.can_learn() {
             return None;
@@ -687,7 +702,7 @@ where
             // Clone rather than move out: each target field stays intact if
             // `soft_update` panics, so a failure can't silently hard-sync the
             // target onto its live critic.
-            let tau = self.config.tau as f64;
+            let tau = f64::from(self.config.tau);
             self.target_critic_1 =
                 Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau);
             self.target_critic_2 =
@@ -711,6 +726,10 @@ where
 /// [`SquashedGaussianPolicyHead`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHead)
 /// uses `DAB = 2`; the agent stays generic so higher-rank action layouts can
 /// plug in a custom policy and their own `DAB`.
+// `rand`'s standard-normal sampler yields f64; the tensor being filled is f32.
+// Narrowing to the tensor's own dtype is the intent, and the sample is finite
+// by construction.
+#[allow(clippy::cast_possible_truncation)]
 fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
     rows: usize,
     cols: usize,
@@ -729,6 +748,12 @@ fn sample_noise<BB: Backend, R: Rng + ?Sized, const DAB: usize>(
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
     use burn::backend::Flex;
 
@@ -758,8 +783,8 @@ mod tests {
     /// SAC target folds the `−α·next_logp` entropy term into the backup.
     /// With `q1 = [2, 1, 5]`, `q2 = [3, 0.5, 4]`, `next_logp = [0.1, 0.2, 0.3]`,
     /// `α = 0.5`, `r = [0.1, 0.2, 0.3]`, `γ = 0.9`, `terminated = [0, 0, 1]`:
-    ///   min_q          = [2.0, 0.5, 4.0]
-    ///   min_q − α·logp = [2.0 − 0.05, 0.5 − 0.10, 4.0 − 0.15]
+    ///   `min_q`          = [2.0, 0.5, 4.0]
+    ///   `min_q` − α·logp = [2.0 − 0.05, 0.5 − 0.10, 4.0 − 0.15]
     ///                  = [1.95, 0.40, 3.85]
     ///   y              = [0.1 + 0.9·1.95, 0.2 + 0.9·0.40, 0.3 + 0·3.85]
     ///                  = [1.855, 0.560, 0.300]

@@ -8,7 +8,7 @@
 //!
 //! [`BenchBackend`] exists so a bench body is written once, generic over
 //! `B: BenchBackend`, and instantiated per backend at the call site — adding a
-//! backend later (CUDA, ROCm, ...) is one new `impl` block here, not a
+//! backend later (CUDA, `ROCm`, ...) is one new `impl` block here, not a
 //! rewrite of every bench that sweeps backends. See `staging_bench.rs` for
 //! the reference usage.
 

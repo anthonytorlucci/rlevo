@@ -1,6 +1,6 @@
 //! Discrete (categorical) policy head for PPO.
 //!
-//! Two-layer MLP with `tanh` activations (matching CleanRL's discrete PPO
+//! Two-layer MLP with `tanh` activations (matching `CleanRL`'s discrete PPO
 //! default) followed by a softmax over `num_actions` logits. Sampling is
 //! done via **Gumbel-max on CPU** so the RNG is explicitly threaded and
 //! bitwise-reproducible under the Flex backend.
@@ -38,7 +38,7 @@ impl CategoricalPolicyHeadConfig {
     /// to close (#386). The `try_` prefix marks the departure from Burn's own
     /// infallible `*Config::init` idiom.
     ///
-    /// CleanRL's orthogonal-init detail is a deferred follow-up; users who
+    /// `CleanRL`'s orthogonal-init detail is a deferred follow-up; users who
     /// want it can post-process the module via a `ModuleMapper`.
     ///
     /// # Errors
@@ -109,6 +109,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     /// Gumbel-max (`argmax(logits + Gumbel(0,1))`) is equivalent to categorical
     /// sampling but uses the explicit `rng` argument, keeping results
     /// bitwise-reproducible under seeded host RNGs regardless of backend.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_wrap)]
     fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
@@ -191,6 +196,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     /// The buffer representation for discrete actions is the integer index
     /// cast to `f32`, so `action_tensor_from_flat` can invert this by casting
     /// back to `i64`.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_precision_loss)]
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<i64>();
         let slice = data
@@ -202,6 +212,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     /// Rebuilds the action tensor from a flat `f32` buffer slice of length
     /// `n_rows` (one index per row), casting each value to `i64` and reshaping
     /// to `(n_rows, 1)`.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_truncation)]
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
@@ -221,6 +236,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
     /// `Vec<f32>`, evaluated on the frozen inner (non-autodiff) backend.
     ///
     /// No sampling noise — appropriate for evaluation and throughput benchmarking.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_precision_loss)]
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,
@@ -235,6 +255,16 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for CategoricalPolicyHead<B> {
 
 /// Convenience converter: extract a `DiscreteAction` value from a single
 /// sampled action row produced by [`CategoricalPolicyHead`].
+/// # Panics
+///
+/// Panics if `row` does not have exactly one component, or if the index it
+/// carries is out of range for `A`.
+#[must_use]
+// Action indices only. `argmax` yields a non-negative index below
+// `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+// sign; where an index round-trips through f32 it stays far below the 2^24
+// exact-integer limit. `from_index` bounds-checks on the way back.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn discrete_action_from_row<const AD: usize, A: rlevo_core::action::DiscreteAction<AD>>(
     row: &[f32],
 ) -> A {

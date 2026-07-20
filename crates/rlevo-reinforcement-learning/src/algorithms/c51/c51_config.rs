@@ -131,7 +131,7 @@ impl C51TrainingConfig {
 }
 
 impl Default for C51TrainingConfig {
-    /// Returns defaults consistent with CleanRL's reference C51 hyperparameters.
+    /// Returns defaults consistent with `CleanRL`'s reference C51 hyperparameters.
     ///
     /// [`target_update_frequency`](Self::target_update_frequency) is
     /// `10_000` environment steps, matching Stable-Baselines3's
@@ -223,12 +223,14 @@ impl C51TrainingConfigBuilder {
     }
 
     /// Sets [`C51TrainingConfig::batch_size`].
+    #[must_use]
     pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.config.batch_size = batch_size;
         self
     }
 
     /// Sets [`C51TrainingConfig::gamma`].
+    #[must_use]
     pub fn gamma(mut self, gamma: f64) -> Self {
         self.config.gamma = gamma;
         self
@@ -238,60 +240,70 @@ impl C51TrainingConfigBuilder {
     ///
     /// Pass `0.0` to disable soft updates and rely on periodic hard syncs
     /// instead (see [`C51TrainingConfig::target_update_frequency`]).
+    #[must_use]
     pub fn tau(mut self, tau: f64) -> Self {
         self.config.tau = tau;
         self
     }
 
     /// Sets [`C51TrainingConfig::learning_rate`].
+    #[must_use]
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
         self.config.learning_rate = learning_rate;
         self
     }
 
     /// Sets [`C51TrainingConfig::epsilon_start`].
+    #[must_use]
     pub fn epsilon_start(mut self, epsilon_start: f64) -> Self {
         self.config.epsilon_start = epsilon_start;
         self
     }
 
     /// Sets [`C51TrainingConfig::epsilon_end`].
+    #[must_use]
     pub fn epsilon_end(mut self, epsilon_end: f64) -> Self {
         self.config.epsilon_end = epsilon_end;
         self
     }
 
     /// Sets [`C51TrainingConfig::epsilon_decay`].
+    #[must_use]
     pub fn epsilon_decay(mut self, epsilon_decay: f64) -> Self {
         self.config.epsilon_decay = epsilon_decay;
         self
     }
 
     /// Sets [`C51TrainingConfig::target_update_frequency`].
+    #[must_use]
     pub fn target_update_frequency(mut self, frequency: usize) -> Self {
         self.config.target_update_frequency = frequency;
         self
     }
 
     /// Sets [`C51TrainingConfig::steps_per_episode`].
+    #[must_use]
     pub fn steps_per_episode(mut self, steps: usize) -> Self {
         self.config.steps_per_episode = steps;
         self
     }
 
     /// Sets [`C51TrainingConfig::replay_buffer_capacity`].
+    #[must_use]
     pub fn replay_buffer_capacity(mut self, capacity: usize) -> Self {
         self.config.replay_buffer_capacity = capacity;
         self
     }
 
     /// Sets [`C51TrainingConfig::learning_starts`].
+    #[must_use]
     pub fn learning_starts(mut self, learning_starts: usize) -> Self {
         self.config.learning_starts = learning_starts;
         self
     }
 
     /// Sets [`C51TrainingConfig::train_frequency`].
+    #[must_use]
     pub fn train_frequency(mut self, train_frequency: usize) -> Self {
         self.config.train_frequency = train_frequency;
         self
@@ -301,18 +313,21 @@ impl C51TrainingConfigBuilder {
     ///
     /// The paper default is `51`; smaller values (e.g. `21`) reduce memory and
     /// compute at the cost of distributional resolution.
+    #[must_use]
     pub fn num_atoms(mut self, num_atoms: usize) -> Self {
         self.config.num_atoms = num_atoms;
         self
     }
 
     /// Sets [`C51TrainingConfig::v_min`].
+    #[must_use]
     pub fn v_min(mut self, v_min: f32) -> Self {
         self.config.v_min = v_min;
         self
     }
 
     /// Sets [`C51TrainingConfig::v_max`].
+    #[must_use]
     pub fn v_max(mut self, v_max: f32) -> Self {
         self.config.v_max = v_max;
         self
@@ -321,12 +336,14 @@ impl C51TrainingConfigBuilder {
     /// Sets [`C51TrainingConfig::clip_grad`].
     ///
     /// Pass `None` to disable gradient clipping entirely.
+    #[must_use]
     pub fn clip_grad(mut self, config: Option<GradientClippingConfig>) -> Self {
         self.config.clip_grad = config;
         self
     }
 
     /// Sets [`C51TrainingConfig::optimizer`].
+    #[must_use]
     pub fn optimizer(mut self, optimizer: AdamConfig) -> Self {
         self.config.optimizer = optimizer;
         self
@@ -337,6 +354,7 @@ impl C51TrainingConfigBuilder {
     /// C51 prioritizes by the KL loss (Rainbow); see
     /// [`C51TrainingConfig::prioritized_replay`] for the literature-recommended
     /// `ω = 0.5`. Leave unset for uniform replay.
+    #[must_use]
     pub fn prioritized_replay(mut self, settings: PrioritizedReplaySettings) -> Self {
         self.config.prioritized_replay = Some(settings);
         self
@@ -357,6 +375,12 @@ impl C51TrainingConfigBuilder {
 
 #[cfg(test)]
 mod tests {
+    // Exact comparison is intentional throughout this test module: the values are
+    // config literals read back unchanged, or a computed result whose bit-exactness
+    // is itself the property under test (that an anneal lands exactly on its
+    // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
+    // would let a real regression pass. Reviewed as a class, not site-by-site.
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]

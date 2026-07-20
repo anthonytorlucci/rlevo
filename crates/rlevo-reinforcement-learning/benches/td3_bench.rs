@@ -66,6 +66,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
     ) -> Tensor<B::InnerBackend, 2> {
         inner.forward_impl(obs)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, ActorMlp<B::InnerBackend>>(
             &active.valid(),
@@ -114,6 +119,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     ) -> Tensor<B::InnerBackend, 1> {
         inner.forward_impl(obs, act)
     }
+    // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
+    // f32. This is the intended narrowing point, and the values are hyperparameters
+    // (rates, discounts, epsilons) where f32 has far more precision than the
+    // schedules that produce them.
+    #[allow(clippy::cast_possible_truncation)]
     fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
         polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
             &active.valid(),

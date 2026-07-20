@@ -507,8 +507,7 @@ mod tests {
     use burn::nn::{Linear, LinearConfig};
     use burn::optim::adaptor::OptimizerAdaptor;
     use burn::optim::{Adam, AdamConfig};
-    use burn::tensor::backend::Backend;
-    use burn::tensor::{Device, Tensor, TensorData};
+    use burn::tensor::Device;
 
     type B = Autodiff<Flex>;
 
@@ -540,15 +539,15 @@ mod tests {
         AdamConfig::new().init::<B, TestNet<B>>()
     }
 
-    fn test_batch(device: &Device<B>) -> Tensor<B, 2> {
-        Tensor::from_data(TensorData::new(vec![0.5_f32, -0.25], vec![1, 2]), device)
+    fn test_batch(device: Device<B>) -> Tensor<B, 2> {
+        Tensor::from_data(TensorData::new(vec![0.5_f32, -0.25], vec![1, 2]), &device)
     }
 
     /// Runs one full learn step against `slot`: forward / backward on a borrow,
     /// then the closure-free optimizer step.
     fn learn_step(slot: &mut Slot<TestNet<B>>, opt: &mut OptimizerAdaptor<Adam, TestNet<B>, B>) {
         let device = Device::<B>::default();
-        let loss = slot.get().forward(test_batch(&device)).sum();
+        let loss = slot.get().forward(test_batch(device)).sum();
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, slot.get());
         slot.step_with(opt, 1e-2, grads);
@@ -595,7 +594,7 @@ mod tests {
             !slot.is_poisoned(),
             "a freshly constructed Slot must hold its module"
         );
-        let out = slot.get().forward(test_batch(&device));
+        let out = slot.get().forward(test_batch(device));
         assert_eq!(
             out.dims(),
             [1, 2],
@@ -709,7 +708,7 @@ mod tests {
         let before = weights(&slot);
 
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            let loss = slot.get().forward(test_batch(&device)).sum();
+            let loss = slot.get().forward(test_batch(device)).sum();
             let _grads = loss.backward();
             panic!("simulated failure in the forward/backward region");
         }));
@@ -870,7 +869,7 @@ mod tests {
 
     // -------- reduce_weighted_loss --------
 
-    use crate::replay::{SampledBatch, TransitionId};
+    use crate::replay::TransitionId;
 
     fn per_sample(values: Vec<f32>) -> Tensor<Flex, 1> {
         let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();

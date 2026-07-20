@@ -137,6 +137,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// - `action` — shape `(batch, 1)`, integer action index.
     /// - `log_prob` — shape `(batch,)`, log-probability of the sampled action.
     /// - `entropy` — shape `(batch,)`, per-row categorical entropy.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_wrap)]
     fn sample_with_logprob<R: Rng + ?Sized>(
         &self,
         obs: Tensor<B, 2>,
@@ -209,6 +214,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// The returned vector always has length `1` (one action index). The `f32`
     /// cast is lossless for action indices within the 24-bit float mantissa
     /// range, which covers all practical discrete action spaces.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_precision_loss)]
     fn action_row_from_tensor(action: &Self::ActionTensor, row: usize) -> Vec<f32> {
         let data = action.clone().into_data().convert::<i64>();
         let slice = data
@@ -224,6 +234,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// # Panics
     ///
     /// Panics if `flat.len() != n_rows`.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_possible_truncation)]
     fn action_tensor_from_flat(
         flat: &[f32],
         n_rows: usize,
@@ -246,6 +261,11 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for PpgCategoricalPolicyHead<B> {
     /// evaluation. Because [`PpgAuxValueHead::logits`] is only defined over
     /// `AutodiffBackend`, the trunk and logits head are accessed directly
     /// through the inner module's fields rather than via the trait method.
+    // Action indices only. `argmax` yields a non-negative index below
+    // `A::ACTION_COUNT`, so the i64 -> usize narrowing can neither wrap nor lose a
+    // sign; where an index round-trips through f32 it stays far below the 2^24
+    // exact-integer limit. `from_index` bounds-checks on the way back.
+    #[allow(clippy::cast_precision_loss)]
     fn deterministic_env_row_inner(
         inner: &Self::InnerModule,
         obs: Tensor<B::InnerBackend, 2>,
@@ -338,6 +358,10 @@ mod tests {
         .expect("valid head config")
     }
 
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn obs(batch: usize) -> Tensor<B, 2> {
         let device = Default::default();
         let data: Vec<f32> = (0..batch * 4).map(|i| 0.01 * (i as f32)).collect();

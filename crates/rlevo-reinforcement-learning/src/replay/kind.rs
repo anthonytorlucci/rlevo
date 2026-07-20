@@ -175,6 +175,7 @@ impl<T> ReplayKind<T> {
 /// the two arms return different opaque iterator types. This two-variant adapter
 /// unifies them without a `Box<dyn Iterator>` allocation, which would defeat the
 /// point of a per-`learn_step` hot-path call.
+#[derive(Debug)]
 pub enum KindIter<A, B> {
     /// Iterating a [`UniformReplay`].
     Uniform(A),
@@ -283,6 +284,10 @@ mod tests {
         }
     }
 
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn uniform() -> ReplayKind<DiscreteTransition<f32>> {
         let mut b = ReplayKind::uniform(8);
         for i in 0..4 {
@@ -291,6 +296,10 @@ mod tests {
         b
     }
 
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit,
+    // so every generated value is represented exactly.
+    #[allow(clippy::cast_precision_loss)]
     fn prioritized() -> ReplayKind<DiscreteTransition<f32>> {
         let mut b = ReplayKind::prioritized(PrioritizedReplayConfig {
             capacity: 8,
