@@ -115,6 +115,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
 use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, StandardNormal};
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::algorithms::ppo::ppo_policy::{LogProbEntropy, PolicyOutput, PpoPolicy};
@@ -130,22 +131,30 @@ pub struct TanhGaussianPolicyHeadConfig {
     pub action_dim: usize,
     /// Initial value for every entry of the state-independent `log_std`.
     ///
-    /// Must lie within `[log_std_min, log_std_max]`; otherwise the head starts
+    /// Must lie within [`log_std`](Self::log_std); otherwise the head starts
     /// out already clamped (and, being state-independent, immediately gradient
     /// -frozen), which is always a configuration mistake.
     pub log_std_init: f32,
-    /// Lower clamp applied to the learned `log σ` parameter. `-20` is the
-    /// value used throughout this repo: `σ ≈ 2·10⁻⁹`, far below any healthy
-    /// policy, so the bound never binds on a run that is working.
+    /// Clamp applied to the learned `log σ` parameter. `[-20, 2]` is the range
+    /// used throughout this repo: the floor is `σ ≈ 2·10⁻⁹`, far below any
+    /// healthy policy, so the bound never binds on a run that is working; the
+    /// ceiling `2` (`σ ≈ 7.4`) matches the SAC head's and sits well above any
+    /// converged continuous-control policy.
     ///
     /// Unlike SAC's clamp this bound is a **trap door** — see the
     /// [module docs](self) — because `log_std` here is a single shared
     /// parameter rather than a per-step network output.
-    pub log_std_min: f32,
-    /// Upper clamp applied to the learned `log σ` parameter. `2` (`σ ≈ 7.4`)
-    /// matches the SAC head's ceiling and sits well above any converged
-    /// continuous-control policy.
-    pub log_std_max: f32,
+    ///
+    /// A [`Bounds`] rather than a `(min, max)` pair: an inverted range reaches
+    /// [`Tensor::clamp`], which silently pins every `log σ` to `min` on the
+    /// autodiff path but **panics** on raw `Flex` (its `f32::clamp` delegate
+    /// asserts `min <= max`). `Bounds` makes that backend-divergent failure
+    /// unrepresentable. It does **not** discharge the two numerical invariants
+    /// below — the absolute floor (`log σ >= -35`) and the maximum span
+    /// (`< 40`), both checked in `validate()`, are not
+    /// expressible as an ordering, and `(-120, -100)` is a perfectly
+    /// well-ordered range that still reaches `NaN` (ADR 0027, ADR 0049).
+    pub log_std: Bounds,
     /// Multiplier applied to `tanh(z)` before the env sees the action.
     pub action_scale: f32,
 }
@@ -187,25 +196,39 @@ const MIN_LOG_STD_FLOOR: f32 = -35.0;
 const MAX_LOG_STD_SPAN: f32 = 40.0;
 
 impl TanhGaussianPolicyHeadConfig {
-    /// Constructs the module on `device`.
-    pub fn init<B: Backend>(
+    /// Validates the config, then constructs the module on `device`.
+    ///
+    /// [`validate`](Validate::validate) runs first, so a config that violates
+    /// the absolute `log σ` floor, the maximum span, or the `log_std_init`
+    /// range can never reach a built head. This is the *only* constructor:
+    /// there is deliberately no infallible `init`, because an unchecked path
+    /// would simply reinstate the bypass this method exists to close (#386).
+    /// The `try_` prefix marks the departure from Burn's own infallible
+    /// `*Config::init` idiom.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] reported by
+    /// [`validate`](Validate::validate).
+    pub fn try_init<B: Backend>(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> TanhGaussianPolicyHead<B> {
+    ) -> Result<TanhGaussianPolicyHead<B>, ConfigError> {
+        self.validate()?;
         let log_std_vec: Vec<f32> = vec![self.log_std_init; self.action_dim];
         let log_std: Tensor<B, 1> =
             Tensor::from_data(TensorData::new(log_std_vec, vec![self.action_dim]), device);
-        TanhGaussianPolicyHead {
+        Ok(TanhGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
             mean: LinearConfig::new(self.hidden, self.action_dim).init(device),
             log_std: Param::from_tensor(log_std),
             action_dim: self.action_dim,
-            log_std_min: self.log_std_min,
-            log_std_max: self.log_std_max,
+            log_std_min: self.log_std.lo(),
+            log_std_max: self.log_std.hi(),
             action_scale: self.action_scale,
             clamp_warned: Arc::new(AtomicBool::new(false)),
-        }
+        })
     }
 }
 
@@ -215,11 +238,19 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
-        config::ordered(
+        // Ordering is *not* checked here: `Bounds` cannot be constructed
+        // inverted, so `lo <= hi` holds by type (ADR 0027). What `Bounds` does
+        // permit and `config::ordered`'s strict `<` did not is the degenerate
+        // `lo == hi`, so that case is re-checked explicitly. A zero-width
+        // `log σ` range is not merely useless: `log_std` is a single shared
+        // parameter, so pinning it to a constant freezes sigma — and its
+        // gradient — from step 0 with no path back (see the module docs). That
+        // is the trap door, entered deliberately at construction.
+        config::distinct(
             C,
-            "log_std_max",
-            f64::from(self.log_std_min),
-            f64::from(self.log_std_max),
+            "log_std",
+            f64::from(self.log_std.lo()),
+            f64::from(self.log_std.hi()),
         )?;
         // The *absolute* floor, checked before the span because the span check
         // says nothing about either bound's magnitude: `(-120, -100)` is
@@ -228,10 +259,10 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         // `config::` helper fits — `in_range` is a two-sided closed interval
         // and there is no float `at_least` — so the error is built here to
         // carry the derivation.
-        if self.log_std_min < MIN_LOG_STD_FLOOR {
+        if self.log_std.lo() < MIN_LOG_STD_FLOOR {
             return Err(ConfigError {
                 config: C,
-                field: "log_std_min",
+                field: "log_std",
                 kind: ConstraintKind::Custom(
                     "log_std_min must be >= -35: sigma = exp(log_std_min) must not \
                      underflow, since ((z-mu)/sigma)^2 overflows f32 once \
@@ -241,16 +272,17 @@ impl Validate for TanhGaussianPolicyHeadConfig {
                 ),
             });
         }
-        // Beyond `config::ordered` (which SAC also applies), the *span* is
-        // bounded: `scaled = (z − μ)/σ_new` with `z` drawn under `σ_old` has
-        // magnitude `O(k · σ_old/σ_new)` for a k-sigma sample, so `scaled²`
-        // overflows f32 once `2·(log_std_max − log_std_min) + 2·ln k >
-        // ln(3.4e38) ≈ 88.7`. `config::ordered` cannot express this and no
-        // range helper carries the derivation, so the error is built here.
-        if self.log_std_max - self.log_std_min >= MAX_LOG_STD_SPAN {
+        // Beyond mere orderedness, the *span* is bounded: `scaled =
+        // (z − μ)/σ_new` with `z` drawn under `σ_old` has magnitude
+        // `O(k · σ_old/σ_new)` for a k-sigma sample, so `scaled²` overflows f32
+        // once `2·(log_std_max − log_std_min) + 2·ln k > ln(3.4e38) ≈ 88.7`.
+        // `Bounds::span()` supplies the width; nothing in `Bounds` bounds it,
+        // and no range helper carries the derivation, so the error is built
+        // here.
+        if self.log_std.span() >= MAX_LOG_STD_SPAN {
             return Err(ConfigError {
                 config: C,
-                field: "log_std_max",
+                field: "log_std",
                 kind: ConstraintKind::Custom(
                     "log_std_max - log_std_min must be < 40: ((z-mu)/sigma)^2 \
                      overflows f32 once 2*(log_std_max - log_std_min) + 2*ln(k) \
@@ -264,8 +296,8 @@ impl Validate for TanhGaussianPolicyHeadConfig {
         config::in_range(
             C,
             "log_std_init",
-            f64::from(self.log_std_min),
-            f64::from(self.log_std_max),
+            f64::from(self.log_std.lo()),
+            f64::from(self.log_std.hi()),
             f64::from(self.log_std_init),
         )?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
@@ -284,6 +316,15 @@ impl Validate for TanhGaussianPolicyHeadConfig {
 /// The `log_std` bounds are applied on every read (see
 /// [`clamped_log_std`](Self::clamped_log_std)); the [module docs](self)
 /// explain why the bound exists and why it is *not* the same as SAC's.
+///
+/// They are stored as two `f32`s rather than as the config's
+/// [`Bounds`] because the clamp site is
+/// [`Tensor::clamp`], which takes two scalars, and plain `f32` fields keep the
+/// `#[derive(Module)]` plain-data classification and the module record
+/// untouched. Both fields are private and written only by
+/// [`try_init`](TanhGaussianPolicyHeadConfig::try_init) from an
+/// already-validated `Bounds`, so `log_std_min <= log_std_max` holds for every
+/// observable head.
 #[derive(Module, Debug)]
 pub struct TanhGaussianPolicyHead<B: Backend> {
     fc1: Linear<B>,
@@ -617,8 +658,7 @@ mod tests {
             hidden: 64,
             action_dim: 1,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
         assert!(cfg.validate().is_ok());
@@ -632,11 +672,11 @@ mod tests {
             hidden: 8,
             action_dim: 1,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let obs: Tensor<B, 2> = Tensor::from_data(
             TensorData::new(vec![0.1_f32, -0.2, 0.3], vec![1, 3]),
             &device,
@@ -658,11 +698,11 @@ mod tests {
             hidden: 2,
             action_dim: 2,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 1.0,
         };
-        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         // Zero-out the mean MLP by constructing obs that yields a nonzero
         // mean — skip: use z = mean(obs). We simply check sample log_prob
         // equals evaluate on that z.
@@ -690,11 +730,11 @@ mod tests {
             hidden: 8,
             action_dim: 1,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let obs_vals = vec![0.1_f32, -0.2, 0.3];
 
         // Reference: scale · tanh(μ) computed on the autodiff head.
@@ -726,11 +766,11 @@ mod tests {
             hidden: 2,
             action_dim: 1,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         };
-        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let env_row = head.raw_to_env_row(&[0.5_f32]);
         let expected = 2.0 * 0.5_f32.tanh();
         assert!((env_row[0] - expected).abs() < 1e-6);
@@ -744,11 +784,11 @@ mod tests {
             hidden: 2,
             action_dim: 2,
             log_std_init: 0.0, // σ = 1
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 1.0,
         };
-        let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let obs: Tensor<B, 2> =
             Tensor::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
         let mean = head.mean(obs.clone());
@@ -773,58 +813,61 @@ mod tests {
             hidden: 8,
             action_dim: 1,
             log_std_init: 0.0,
-            log_std_min: -20.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-20.0, 2.0),
             action_scale: 2.0,
         }
     }
 
+    /// Inverted bounds are no longer a *validation* failure, because they are
+    /// no longer a constructible config: `Bounds` rejects `lo > hi` at its own
+    /// boundary, so the head is unreachable.
+    ///
+    /// This replaces the `config::ordered` check `validate()` used to carry,
+    /// and is asserted here rather than left to `rlevo-core`'s tests because
+    /// this rejection is precisely *why* the ordering check was deleted — if
+    /// `Bounds` ever started accepting an inverted range, PPO would silently
+    /// lose the guard.
     #[test]
-    fn validate_rejects_inverted_log_std_bounds() {
-        let cfg = TanhGaussianPolicyHeadConfig {
-            log_std_min: 2.0,
-            log_std_max: -20.0,
-            log_std_init: 0.0,
-            ..bounded_cfg()
-        };
-        let err = cfg.validate().unwrap_err();
-        assert_eq!(err.field, "log_std_max");
-        assert_eq!(
-            err.kind,
-            ConstraintKind::NotOrdered {
-                low: 2.0,
-                high: -20.0
-            }
+    fn inverted_log_std_bounds_are_unrepresentable() {
+        assert!(
+            Bounds::try_new(2.0, -20.0).is_err(),
+            "an inverted log_std range must not be constructible"
         );
+        assert!(Bounds::try_new(-20.0, 2.0).is_ok());
     }
 
-    /// Equal bounds are degenerate under `config::ordered`'s strict `<`.
+    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is
+    /// well-defined), but PPO does not: `log_std` is a single shared parameter,
+    /// so a zero-width range freezes σ *and its gradient* from step 0 with no
+    /// path back. The old strict-`<` `config::ordered` rejected this as a side
+    /// effect; the explicit `config::distinct` check preserves it.
     #[test]
     fn validate_rejects_equal_log_std_bounds() {
         let cfg = TanhGaussianPolicyHeadConfig {
-            log_std_min: 0.0,
-            log_std_max: 0.0,
+            log_std: Bounds::new(0.0, 0.0),
             ..bounded_cfg()
         };
-        assert_eq!(cfg.validate().unwrap_err().field, "log_std_max");
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "log_std");
+        assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 0.0 });
     }
 
     /// A span of 40 or more lets `((z−μ)/σ)²` leave f32 range even though the
-    /// bounds are correctly ordered — `config::ordered` alone would accept it.
+    /// bounds are correctly ordered — orderedness alone (all `Bounds`
+    /// guarantees) would accept it.
     ///
-    /// Both bounds are pinned to the absolute floor `−35` so that the *span* is
-    /// the only invariant in play: a `log_std_min` of `−38` would trip
+    /// The lower bound is pinned to the absolute floor `−35` so that the *span*
+    /// is the only invariant in play: a lower bound of `−38` would trip
     /// [`MIN_LOG_STD_FLOOR`] first and this test would silently assert the
     /// wrong guard.
     #[test]
     fn validate_rejects_log_std_span_of_forty_or_more() {
         let cfg = TanhGaussianPolicyHeadConfig {
-            log_std_min: -35.0,
-            log_std_max: 5.0, // span == 40.0, exactly at the rejection boundary
+            log_std: Bounds::new(-35.0, 5.0),
             ..bounded_cfg()
         };
         let err = cfg.validate().unwrap_err();
-        assert_eq!(err.field, "log_std_max");
+        assert_eq!(err.field, "log_std");
         match err.kind {
             ConstraintKind::Custom(msg) => {
                 assert!(msg.contains("f32"), "message must state the reason: {msg}");
@@ -838,8 +881,7 @@ mod tests {
 
         // Just inside the limit is accepted.
         let ok = TanhGaussianPolicyHeadConfig {
-            log_std_min: -35.0,
-            log_std_max: 4.0, // span == 39.0
+            log_std: Bounds::new(-35.0, 4.0),
             ..bounded_cfg()
         };
         assert!(ok.validate().is_ok());
@@ -864,13 +906,12 @@ mod tests {
         assert_eq!(init.exp(), 0.0, "exp(-110) must be exactly 0.0 in f32");
 
         let cfg = TanhGaussianPolicyHeadConfig {
-            log_std_min: min,
-            log_std_max: max,
+            log_std: Bounds::new(min, max),
             log_std_init: init,
             ..bounded_cfg()
         };
         let err = cfg.validate().unwrap_err();
-        assert_eq!(err.field, "log_std_min");
+        assert_eq!(err.field, "log_std");
         match err.kind {
             ConstraintKind::Custom(msg) => {
                 assert!(
@@ -883,13 +924,12 @@ mod tests {
 
         // One ulp below the floor is still rejected; the floor itself is not.
         let just_below = TanhGaussianPolicyHeadConfig {
-            log_std_min: -35.000_004,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-35.000_004, 2.0),
             ..bounded_cfg()
         };
         assert_eq!(
             just_below.validate().unwrap_err().field,
-            "log_std_min",
+            "log_std",
             "the floor is closed on -35 and rejects anything below it"
         );
     }
@@ -907,8 +947,7 @@ mod tests {
             (-3.0, 1.0, 0.0),
         ] {
             let cfg = TanhGaussianPolicyHeadConfig {
-                log_std_min: min,
-                log_std_max: max,
+                log_std: Bounds::new(min, max),
                 log_std_init: init,
                 ..bounded_cfg()
             };
@@ -923,10 +962,14 @@ mod tests {
     /// The numerical property the floor exists to buy, and the proof that
     /// rejecting the config is what prevents the `NaN`.
     ///
-    /// [`init`](TanhGaussianPolicyHeadConfig::init) does not re-run
-    /// `validate()`, so the rejected `-110` head can still be built directly —
-    /// and when it is, `log_prob` is non-finite exactly as the ADR predicts.
-    /// At the floor (`-35`) with the same residual it is finite.
+    /// [`try_init`](TanhGaussianPolicyHeadConfig::try_init) runs `validate()`
+    /// first and is the only constructor, so the rejected `-110` head is no
+    /// longer reachable through the public API at all — which is the whole
+    /// point of #386. The below-floor case is therefore reconstructed here by
+    /// writing the head's private bound fields directly, a bypass available
+    /// only to this in-module test. When it is reached, `log_prob` is
+    /// non-finite exactly as the ADR predicts; at the floor (`-35`) with the
+    /// same residual it is finite.
     #[test]
     fn log_prob_is_finite_at_the_floor_and_not_below_it() {
         let device = Default::default();
@@ -937,15 +980,26 @@ mod tests {
         // it violates. Deriving `max` from `init` would widen the span to 122
         // and the span guard, not the floor, would be the thing under test.
         let floor_cfg = |min: f32, max: f32, init: f32| TanhGaussianPolicyHeadConfig {
-            log_std_min: min,
-            log_std_max: max,
+            log_std: Bounds::new(min, max),
             log_std_init: init,
             ..bounded_cfg()
         };
 
+        // Evaluates `log_prob` for a head whose bounds and initial `log σ` are
+        // `(min, max, init)`, *without* consulting `validate()` — the head is
+        // built from an accepted config and then forced into the state under
+        // test. This is deliberately the bypass `try_init` closed: the point of
+        // the test is the numerical fact, not the construction path.
         let eval_at = |min: f32, max: f32, init: f32| -> f32 {
-            let cfg = floor_cfg(min, max, init);
-            let head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+            let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+                .try_init::<B>(&device)
+                .expect("the template config is valid");
+            head.log_std_min = min;
+            head.log_std_max = max;
+            head.log_std = Param::from_tensor(Tensor::<B, 1>::from_data(
+                TensorData::new(vec![init], vec![1]),
+                &device,
+            ));
             let obs: Tensor<B, 2> =
                 Tensor::from_data(TensorData::new(obs_vals.clone(), vec![1, 3]), &device);
             // A residual of order 1 — far inside the 1.16e4 budget the floor buys.
@@ -962,26 +1016,27 @@ mod tests {
         );
         assert!(
             floor_cfg(MIN_LOG_STD_FLOOR, 2.0, MIN_LOG_STD_FLOOR)
-                .validate()
+                .try_init::<B>(&device)
                 .is_ok(),
             "the floor itself must be an accepted configuration"
         );
 
-        // Below it — reachable only by bypassing `validate()` — it is not.
+        // Below it the log-prob blows up...
         let below = eval_at(-120.0, -100.0, -110.0);
         assert!(
             !below.is_finite(),
             "log_prob below the floor must blow up; if this is finite the floor \
              is no longer load-bearing, got {below}"
         );
-        // ...and *that* is why the guard must reject it. This assertion is what
-        // ties the numerical fact above to the validation rule: without it the
-        // test would still pass with the guard deleted, since `init` never
-        // consults `validate`.
-        assert!(
-            floor_cfg(-120.0, -100.0, -110.0).validate().is_err(),
-            "a config whose log_prob is non-finite must be rejected at construction"
-        );
+        // ...and *that* is why the guard must reject it at construction. This
+        // assertion is what ties the numerical fact above to the validation
+        // rule, and it now exercises the real construction path: `try_init`
+        // itself refuses, so no caller outside this module can obtain the head
+        // whose `log_prob` was just shown to be non-finite.
+        let err = floor_cfg(-120.0, -100.0, -110.0)
+            .try_init::<B>(&device)
+            .expect_err("a config whose log_prob is non-finite must not build a head");
+        assert_eq!(err.field, "log_std");
     }
 
     #[test]
@@ -1002,6 +1057,84 @@ mod tests {
                 }
             );
         }
+    }
+
+    /// The regression lock for #386: `validate()` was correct all along, but
+    /// nothing on the construction path called it. Every invariant it checks
+    /// must now be reachable through `try_init`, which is the only constructor.
+    #[test]
+    fn try_init_rejects_every_invalid_config() {
+        let device = Default::default();
+        let cases: [(TanhGaussianPolicyHeadConfig, &str); 7] = [
+            (
+                TanhGaussianPolicyHeadConfig {
+                    obs_dim: 0,
+                    ..bounded_cfg()
+                },
+                "obs_dim",
+            ),
+            (
+                TanhGaussianPolicyHeadConfig {
+                    hidden: 0,
+                    ..bounded_cfg()
+                },
+                "hidden",
+            ),
+            (
+                TanhGaussianPolicyHeadConfig {
+                    action_dim: 0,
+                    ..bounded_cfg()
+                },
+                "action_dim",
+            ),
+            // Degenerate range: permitted by `Bounds`, rejected here.
+            (
+                TanhGaussianPolicyHeadConfig {
+                    log_std: Bounds::new(0.0, 0.0),
+                    ..bounded_cfg()
+                },
+                "log_std",
+            ),
+            // Below the absolute floor (span kept under 40 so the floor fires).
+            (
+                TanhGaussianPolicyHeadConfig {
+                    log_std: Bounds::new(-120.0, -100.0),
+                    log_std_init: -110.0,
+                    ..bounded_cfg()
+                },
+                "log_std",
+            ),
+            // Span of exactly 40, at the rejection boundary.
+            (
+                TanhGaussianPolicyHeadConfig {
+                    log_std: Bounds::new(-35.0, 5.0),
+                    ..bounded_cfg()
+                },
+                "log_std",
+            ),
+            (
+                TanhGaussianPolicyHeadConfig {
+                    log_std_init: 5.0,
+                    ..bounded_cfg()
+                },
+                "log_std_init",
+            ),
+        ];
+        for (cfg, field) in cases {
+            let err = cfg
+                .try_init::<B>(&device)
+                .expect_err("an invalid config must not build a head");
+            assert_eq!(err.config, "TanhGaussianPolicyHeadConfig");
+            assert_eq!(err.field, field);
+        }
+        // `action_scale` is checked last, so it needs an otherwise-valid config.
+        let err = TanhGaussianPolicyHeadConfig {
+            action_scale: 0.0,
+            ..bounded_cfg()
+        }
+        .try_init::<B>(&device)
+        .expect_err("a non-positive action_scale must not build a head");
+        assert_eq!(err.field, "action_scale");
     }
 
     /// The bounds are inclusive: initializing exactly at a bound is legal.
@@ -1031,7 +1164,9 @@ mod tests {
     #[test]
     fn clamp_keeps_log_prob_finite_when_log_std_collapses() {
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
 
         // Force the learned parameter far below the floor.
         let collapsed: Tensor<B, 1> =
@@ -1072,10 +1207,11 @@ mod tests {
         // would round to exactly zero and the assertion could not distinguish
         // the two cases. The clamp under test is identical either way.
         let cfg = TanhGaussianPolicyHeadConfig {
-            log_std_min: -10.0,
+            log_std: Bounds::new(-10.0, 2.0),
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let collapsed: Tensor<B, 1> =
             Tensor::from_data(TensorData::new(vec![-60.0_f32], vec![1]), &device);
         head.log_std = Param::from_tensor(collapsed);
@@ -1114,7 +1250,9 @@ mod tests {
         use burn::module::AutodiffModule;
 
         let device = Default::default();
-        let head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
         assert!((head.log_std_min() - (-20.0)).abs() < f32::EPSILON);
         assert!((head.log_std_max() - 2.0).abs() < f32::EPSILON);
 
@@ -1142,7 +1280,9 @@ mod tests {
     #[test]
     fn clamp_warning_latches_after_first_binding_call() {
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
         assert!(
             !head.clamp_warning_fired(),
             "a freshly built head must not have warned"
@@ -1170,7 +1310,9 @@ mod tests {
     #[test]
     fn clamp_warning_does_not_fire_while_log_std_is_in_bounds() {
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
 
         // Interior values, plus both bounds exactly: the clamp is inclusive, so
         // sitting *on* a bound is not "outside" it and must not warn.
@@ -1192,7 +1334,9 @@ mod tests {
     #[test]
     fn clamp_warning_fires_on_the_upper_bound() {
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
         set_log_std(&mut head, 9.0);
         assert_eq!(head.min_log_std(), Some(2.0));
         assert!(head.clamp_warning_fired());
@@ -1208,7 +1352,8 @@ mod tests {
             action_dim: 3,
             ..bounded_cfg()
         };
-        let mut head: TanhGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
 
         // Mixed dims, all in bounds: the smallest wins.
         let mixed: Tensor<B, 1> =
@@ -1239,7 +1384,9 @@ mod tests {
         use burn::module::AutodiffModule;
 
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg().init::<B>(&device);
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
         set_log_std(&mut head, -60.0);
         let _ = head.min_log_std();
         assert!(head.clamp_warning_fired());

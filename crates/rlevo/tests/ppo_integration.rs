@@ -20,6 +20,7 @@ use burn::tensor::backend::{AutodiffBackend, Backend};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use rlevo_core::bounds::Bounds;
 use rlevo_environments::classic::cartpole::{CartPoleAction, CartPoleObservation};
 use rlevo_environments::classic::pendulum::{
     Pendulum, PendulumAction, PendulumConfig, PendulumObservation,
@@ -105,7 +106,8 @@ fn make_cart_pole_agent(
         hidden: 64,
         num_actions: 2,
     }
-    .init::<Be>(&device);
+    .try_init::<Be>(&device)
+    .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
 
     let config = PpoTrainingConfigBuilder::new()
@@ -177,7 +179,8 @@ fn ppo_agent_new_rejects_multiple_envs() {
         hidden: 64,
         num_actions: 2,
     }
-    .init::<Be>(&device);
+    .try_init::<Be>(&device)
+    .expect("valid head config");
     let value = ValueMlp::new(4, 64, &device);
     let config = PpoTrainingConfig {
         num_envs: 2,
@@ -245,13 +248,13 @@ fn make_pendulum_agent(
         hidden: 64,
         action_dim: 1,
         log_std_init: 0.0,
-        log_std_min: -20.0,
-        log_std_max: 2.0,
+        log_std: Bounds::new(-20.0, 2.0),
         // Sole owner of the action scale — the training config has no such
         // knob. Change the torque limit here, nowhere else.
         action_scale: 2.0,
     }
-    .init::<Be>(&device);
+    .try_init::<Be>(&device)
+    .expect("valid head config");
     let value = ValueMlp::new(3, 64, &device);
 
     let config = PpoTrainingConfigBuilder::new()

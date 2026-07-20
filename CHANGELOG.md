@@ -336,8 +336,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   has no `Default` and every construction site uses a full struct literal, so
   there is no partial migration.
 
-  *Migration.* Add `log_std_min: -20.0, log_std_max: 2.0` to every
-  `TanhGaussianPolicyHeadConfig` literal. `validate()` now rejects an inverted
+  *Migration.* Add the bounds to every `TanhGaussianPolicyHeadConfig` literal.
+  (Later in this same release, #386 collapsed the two fields into a single
+  `log_std: Bounds` — write `log_std: Bounds::new(-20.0, 2.0)`.) `validate()` now rejects an inverted
   interval, a `log_std_min` below `-35`, a span of `40` or more, and a
   `log_std_init` outside the bounds — all four are construction-time errors,
   not silent coercions. The floor and the span guard **different** failures and
@@ -377,10 +378,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   this changes no training behaviour — code that compiled and trained before
   trains identically after. `SacTrainingConfig::validate()` no longer emits a
   `log_std_max` ordering error. `SquashedGaussianPolicyHeadConfig` carries the
-  equivalent check, but it is only reached if a caller invokes `.validate()` on
-  the head config explicitly — neither `init()` nor `SacAgent::new` does. That
-  was equally true before this change, so nothing that was running
-  automatically has been lost. **Persisted configs are unaffected**: `SacTrainingConfig` derives only
+  equivalent check — after #386 below, an inverted range is unrepresentable
+  (`Bounds`) and a zero-width one is rejected (`config::distinct`), which
+  together match the removed strict-`<` check exactly. When #185 landed that
+  check was only reached if a caller
+  invoked `.validate()` on the head config explicitly — neither `init()` nor
+  `SacAgent::new` did. **That gap is closed later in this same release** by
+  #386, which replaced `init()` with a validating `try_init()`; see the entry
+  below. **Persisted configs are unaffected**: `SacTrainingConfig` derives only
   `Clone, Debug` and has no serde impl, so nothing on disk encodes these
   fields.
 
@@ -419,6 +424,93 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   named builder alone would have silently no-op'd while the head kept the old
   scale. **Persisted configs are unaffected**: `PpoTrainingConfig` derives only
   `Clone, Debug` and has no serde impl, so nothing on disk encodes these fields.
+
+- **Policy-head configs now validate on the construction path: `init()` is
+  replaced by `try_init()`, and the Gaussian heads' `log_std_min` /
+  `log_std_max` pair becomes a single `log_std: Bounds`** (resolves #386,
+  ADR 0026, ADR 0027, ADR 0049).
+
+  **The defect.** All four policy-head configs implemented `Validate`, and the
+  checks were correct — but **no production path ever called them**. `init()`
+  did not validate, and the agent constructors validate only the *training*
+  config, so every call to `validate()` on a head config in the entire
+  workspace sat inside a `#[cfg(test)]` module. The bounds that feed the live
+  `log σ` clamp were therefore unenforced: `validate()` was, in effect,
+  documentation that happened to compile. #185 and #385 above removed the dead
+  *duplicates* of these fields; this entry closes the gap on the *surviving*
+  copy, the one that actually feeds the clamp.
+
+  **The failure was backend-divergent**, which is why it merits a breaking
+  change rather than a doc note. Building a head with inverted bounds
+  (`log_std_min: 5.0, log_std_max: -5.0`) reaches `Tensor::clamp`, and the two
+  backends disagree about what that means. On the actor path (`Autodiff<Flex>`)
+  the default `float_clamp` is `clamp_min(clamp_max(x, max), min)`, which with
+  an inverted range pins **every** `log σ` to the constant `log_std_min` — a
+  deterministic, gradient-dead collapse with no NaN, no panic, and no signal.
+  On the target/critic path (raw `Flex`) `float_clamp` delegates to
+  `core::f32::clamp`, which asserts `min <= max` and **panics**. Same config,
+  same op: silent corruption on one backend, a crash on the other.
+
+  *Migration, part 1 — `init` → `try_init`.* Every head config's `init()` is
+  **removed** and replaced by
+  `try_init<B>(&device) -> Result<Head<B>, ConfigError>`, whose first statement
+  is `self.validate()?`. `init()` is not kept alongside it: an unvalidated
+  constructor would simply reinstate the bypass. Applies uniformly to all four
+  heads — `SquashedGaussianPolicyHeadConfig`, `TanhGaussianPolicyHeadConfig`,
+  and both `CategoricalPolicyHeadConfig`s. The categorical heads have no
+  `log_std`, but they share the *structural* bypass: `LinearConfig::new(0,
+  hidden)` builds a zero-width layer without complaint, so a zero `obs_dim`
+  produced a silently degenerate head. A "Gaussian heads validate, categorical
+  ones don't" carve-out is a convention nobody retains. Replace
+  `cfg.init::<B>(&device)` with `cfg.try_init::<B>(&device)?` where a `Result`
+  is available, or `.expect("valid head config")` in benches, examples, and
+  other non-`Result` contexts. The `try_` prefix is deliberate: Burn's own
+  `*Config::init` methods are all infallible, and this crate does not
+  contradict that idiom under its own name.
+
+  *Migration, part 2 — `log_std: Bounds`.* On the two Gaussian head configs the
+  `log_std_min: f32` / `log_std_max: f32` **pair is replaced by a single
+  `log_std: rlevo_core::bounds::Bounds`** field. Write
+  `log_std: Bounds::new(-20.0, 2.0)` (PPO) or `Bounds::new(-5.0, 2.0)` (SAC)
+  in place of the two scalars. `Bounds` exists precisely because `f32::clamp`
+  panics when `min > max`, so this makes the inverted case **unrepresentable**
+  rather than merely rejected — the invariant travels with the value instead of
+  being re-checked at each boundary (ADR 0027).
+
+  **`Bounds` does not replace `validate()`.** It subsumes exactly one check —
+  ordering — which is why `config::ordered` is gone from both Gaussian
+  `validate()` impls. It subsumes only *half* of it: `config::ordered` was
+  strict (`lo < hi`) and so also rejected a zero-width range, whereas
+  `Bounds::try_new` deliberately permits `lo == hi`. **Both** Gaussian head
+  configs therefore carry an explicit `config::distinct(C, "log_std", ..)`
+  check to preserve the old semantics; a degenerate range reports
+  `field: "log_std"` with `ConstraintKind::DegenerateInterval`. The
+  consequence differs by algorithm — on PPO a zero-width range freezes the
+  shared `log_std` parameter and its gradient from step 0 with no path back,
+  while on SAC it pins the per-observation `σ` to a constant and flattens the
+  entropy term the temperature is tuned against — but in both cases it is a
+  silent collapse, not a usable setting.
+
+  Every other invariant remains and is now, for the first
+  time, actually reached: ADR 0049's absolute floor (`log_std_min >= -35`) and
+  span (`log_std_max - log_std_min < 40`, now expressed via `Bounds::span()`),
+  the `log_std_init`-within-bounds range check, `action_scale > 0`, and the
+  non-zero dimension checks. The floor and span are *not* expressible as an
+  ordering: ADR 0049's own counterexample `(-120, -100)` is a perfectly
+  well-ordered range that still reaches `NaN`, because `exp(-110)` is exactly
+  `0.0` in f32.
+
+  Two `ConfigError::field` values change on `TanhGaussianPolicyHeadConfig`: the
+  floor and span violations now report `"log_std"` rather than `"log_std_min"`
+  / `"log_std_max"`, since there is one field where there were two.
+
+  **Behaviour is unchanged for every valid configuration.** No construction
+  site in the repo used inverted bounds, so nothing that trained before trains
+  differently now — the change converts a reachable-but-unreached check into an
+  enforced one. **Persisted records still load**: the bounds remain plain `f32`
+  constants on the built head (the clamp site takes two scalars, and keeping
+  them as `f32` leaves `#[derive(Module)]`'s plain-data classification and the
+  module record untouched), so no saved weights are invalidated.
 
 - **The `memory` module — `PrioritizedExperienceReplay`, its builder, and
   `TrainingBatch` — is removed outright, with no deprecation shim** (ADR 0050,

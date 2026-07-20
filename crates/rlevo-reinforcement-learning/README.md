@@ -155,10 +155,11 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 `num_envs` is currently fixed at `1`; vectorised rollout is deferred.
 
 The continuous head's `log_std` initialisation and action scale (`log_std_init`,
-`action_scale`, plus the `log_std_min` / `log_std_max` bounds) are **not**
+`action_scale`, plus the `log_std: Bounds` clamp range) are **not**
 training-config fields — they live on `TanhGaussianPolicyHeadConfig`, the config
 consumed to build the head and where the `scale · tanh(z)` squash is applied
-(ADR 0049).
+(ADR 0049). Build the head with `try_init`, which validates the config first;
+there is no infallible `init` (#386).
 
 `clip_grad` is the only gradient-clipping knob and is **off by default**. Burn's
 `GradientClippingConfig::Norm` clips per tensor, not across the global flattened
@@ -311,10 +312,11 @@ Default hyperparameters follow CleanRL:
 | `policy_frequency` | 2 | CleanRL |
 | `target_update_frequency` | 1 | CleanRL |
 
-The squashed-Gaussian head's `log σ` bounds (`log_std_min = -5.0`,
-`log_std_max = 2.0`, both CleanRL) are **not** training-config fields — they
-live on `SquashedGaussianPolicyHeadConfig`, the config consumed to build the
-head and where the clamp is applied.
+The squashed-Gaussian head's `log σ` clamp range (`log_std: Bounds::new(-5.0,
+2.0)`, CleanRL) is **not** a training-config field — it lives on
+`SquashedGaussianPolicyHeadConfig`, the config consumed to build the head and
+where the clamp is applied. Build the head with `try_init`, which validates the
+config first; there is no infallible `init` (#386).
 
 **References**
 

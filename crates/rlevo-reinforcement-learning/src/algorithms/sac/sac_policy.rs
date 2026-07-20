@@ -27,6 +27,7 @@ use burn::nn::{Linear, LinearConfig};
 use burn::tensor::activation::{relu, softplus, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::{Tensor, TensorData};
+use rlevo_core::bounds::Bounds;
 use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
@@ -40,10 +41,20 @@ pub struct SquashedGaussianPolicyHeadConfig {
     pub hidden: usize,
     /// Number of continuous action dimensions.
     pub action_dim: usize,
-    /// Lower clamp applied to the `log σ` head output. CleanRL uses `-5`.
-    pub log_std_min: f32,
-    /// Upper clamp applied to the `log σ` head output. CleanRL uses `2`.
-    pub log_std_max: f32,
+    /// Clamp applied to the `log σ` head output. CleanRL uses `[-5, 2]`.
+    ///
+    /// A [`Bounds`] rather than a `(min, max)` pair because the clamp that
+    /// consumes it is [`Tensor::clamp`], whose `Flex` implementation delegates
+    /// to [`f32::clamp`] and **panics** when `min > max` — while the autodiff
+    /// path's default `clamp_min(clamp_max(x, max), min)` instead silently pins
+    /// every `log σ` to `min`. An inverted range is therefore a
+    /// backend-divergent failure, and `Bounds` makes it unrepresentable rather
+    /// than merely rejected.
+    ///
+    /// `Bounds` permits the degenerate `lo == hi`; this config does not.
+    /// [`validate`](Validate::validate) rejects it explicitly, because a
+    /// zero-width range pins `σ` to a constant for every observation.
+    pub log_std: Bounds,
     /// Multiplier applied to `tanh(z)` before the env sees the action.
     pub action_scale: f32,
     /// Bias added after the tanh-scale so asymmetric ranges (e.g., `[0, 1]`)
@@ -52,27 +63,43 @@ pub struct SquashedGaussianPolicyHeadConfig {
 }
 
 impl SquashedGaussianPolicyHeadConfig {
-    /// Constructs a [`SquashedGaussianPolicyHead`] on `device`.
+    /// Validates the config, then constructs a [`SquashedGaussianPolicyHead`]
+    /// on `device`.
+    ///
+    /// [`validate`](Validate::validate) runs first, so an invalid config can
+    /// never reach a built head. This is the *only* constructor: there is
+    /// deliberately no infallible `init`, because an unchecked path would
+    /// simply reinstate the bypass this method exists to close (#386). The
+    /// `try_` prefix marks the departure from Burn's own infallible
+    /// `*Config::init` idiom.
     ///
     /// All four linear layers (`fc1`, `fc2`, `mean`, `log_std`) are
     /// initialized with Burn's default weight initializer. Call this after
     /// seeding the backend's RNG if reproducible weight initialization is
     /// required.
-    pub fn init<B: Backend>(
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] reported by
+    /// [`validate`](Validate::validate) — a zero `obs_dim` / `hidden` /
+    /// `action_dim`, a degenerate (zero-width) `log_std` range, or a
+    /// non-positive `action_scale`.
+    pub fn try_init<B: Backend>(
         &self,
         device: &<B as burn::tensor::backend::BackendTypes>::Device,
-    ) -> SquashedGaussianPolicyHead<B> {
-        SquashedGaussianPolicyHead {
+    ) -> Result<SquashedGaussianPolicyHead<B>, ConfigError> {
+        self.validate()?;
+        Ok(SquashedGaussianPolicyHead {
             fc1: LinearConfig::new(self.obs_dim, self.hidden).init(device),
             fc2: LinearConfig::new(self.hidden, self.hidden).init(device),
             mean: LinearConfig::new(self.hidden, self.action_dim).init(device),
             log_std: LinearConfig::new(self.hidden, self.action_dim).init(device),
             action_dim: self.action_dim,
-            log_std_min: self.log_std_min,
-            log_std_max: self.log_std_max,
+            log_std_min: self.log_std.lo(),
+            log_std_max: self.log_std.hi(),
             action_scale: self.action_scale,
             action_bias: self.action_bias,
-        }
+        })
     }
 }
 
@@ -82,11 +109,22 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
         config::nonzero(C, "obs_dim", self.obs_dim)?;
         config::nonzero(C, "hidden", self.hidden)?;
         config::nonzero(C, "action_dim", self.action_dim)?;
-        config::ordered(
+        // Ordering is *not* checked here: `Bounds` cannot be constructed
+        // inverted, so `lo <= hi` holds by type (ADR 0027). What `Bounds` does
+        // permit and `config::ordered`'s strict `<` did not is the degenerate
+        // `lo == hi`, so that case is re-checked explicitly. A zero-width
+        // `log σ` range collapses σ to a constant for every observation: the
+        // clamp saturates, so ∂σ/∂(log σ head) is zero and the entropy term
+        // SAC's temperature is tuned against becomes a constant. Unlike PPO's
+        // shared `Param` this does not permanently freeze one weight — the
+        // `log_std` head still receives gradient through the mean path — but
+        // the policy is state-independently deterministic in scale, which is
+        // silent misconfiguration rather than a usable setting.
+        config::distinct(
             C,
-            "log_std_max",
-            f64::from(self.log_std_min),
-            f64::from(self.log_std_max),
+            "log_std",
+            f64::from(self.log_std.lo()),
+            f64::from(self.log_std.hi()),
         )?;
         config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
@@ -99,6 +137,15 @@ impl Validate for SquashedGaussianPolicyHeadConfig {
 /// constants captured at construction time. They are **not** learnable and
 /// travel with the module only because Burn's `#[derive(Module)]` requires
 /// fields to be either `Param`s, sub-modules, or plain data.
+///
+/// The two `log σ` bounds are stored as separate `f32`s rather than as the
+/// config's [`Bounds`]: the clamp site is [`Tensor::clamp`], which takes two
+/// scalars, and keeping plain `f32` fields leaves the `#[derive(Module)]`
+/// plain-data classification and the module record untouched. The fields are
+/// private and only
+/// [`try_init`](SquashedGaussianPolicyHeadConfig::try_init) writes them, so
+/// they are populated from an already-validated `Bounds` and `lo <= hi` still
+/// holds for every head that can be observed.
 #[derive(Module, Debug)]
 pub struct SquashedGaussianPolicyHead<B: Backend> {
     fc1: Linear<B>,
@@ -276,22 +323,154 @@ mod tests {
     use burn::tensor::ElementConversion;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rlevo_core::config::ConstraintKind;
 
     type B = Autodiff<Flex>;
     type BI = Flex;
 
-    #[test]
-    fn representative_head_config_is_valid() {
-        let cfg = SquashedGaussianPolicyHeadConfig {
+    /// A config template with valid values; individual tests perturb one field.
+    fn valid_cfg() -> SquashedGaussianPolicyHeadConfig {
+        SquashedGaussianPolicyHeadConfig {
             obs_dim: 4,
             hidden: 64,
             action_dim: 2,
-            log_std_min: -5.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-5.0, 2.0),
             action_scale: 1.0,
             action_bias: 0.0,
+        }
+    }
+
+    #[test]
+    fn representative_head_config_is_valid() {
+        assert!(valid_cfg().validate().is_ok());
+    }
+
+    /// The inverted-bounds case that motivated #386 is no longer a *config*
+    /// error, because it is no longer a constructible config: `Bounds` rejects
+    /// `lo > hi` at its own boundary, so the head cannot be reached at all.
+    ///
+    /// This is the replacement for the ordering check `validate()` used to
+    /// carry. It is asserted here rather than left to `rlevo-core`'s own tests
+    /// because the *reason* the check was deleted from `validate()` is that
+    /// this rejection subsumes it — if `Bounds` ever started accepting an
+    /// inverted range, SAC would silently lose the guard entirely.
+    #[test]
+    fn inverted_log_std_bounds_are_unrepresentable() {
+        assert!(
+            Bounds::try_new(5.0, -5.0).is_err(),
+            "an inverted log_std range must not be constructible"
+        );
+        assert!(Bounds::try_new(-5.0, 2.0).is_ok());
+    }
+
+    /// `Bounds` permits the degenerate `lo == hi` (clamping to a constant is
+    /// well-defined), but SAC does not: a zero-width range saturates the clamp
+    /// for every observation, pinning σ to a constant and flattening the
+    /// entropy term the temperature is tuned against. The old strict-`<`
+    /// `config::ordered` rejected this as a side effect; the explicit
+    /// `config::distinct` check preserves it.
+    #[test]
+    fn validate_rejects_equal_log_std_bounds() {
+        let cfg = SquashedGaussianPolicyHeadConfig {
+            log_std: Bounds::new(1.0, 1.0),
+            ..valid_cfg()
         };
-        assert!(cfg.validate().is_ok());
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.field, "log_std");
+        assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 1.0 });
+    }
+
+    /// The degenerate range must be rejected at the *construction* path too,
+    /// not merely by a `validate()` call a caller might never make — that
+    /// bypass is the whole subject of #386.
+    #[test]
+    fn try_init_rejects_equal_log_std_bounds() {
+        let device = Default::default();
+        let cfg = SquashedGaussianPolicyHeadConfig {
+            log_std: Bounds::new(1.0, 1.0),
+            ..valid_cfg()
+        };
+        let err = cfg.try_init::<B>(&device).unwrap_err();
+        assert_eq!(err.config, "SquashedGaussianPolicyHeadConfig");
+        assert_eq!(err.field, "log_std");
+        assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 1.0 });
+    }
+
+    /// `try_init` is the whole point of #386: the validation that already
+    /// existed must now be *reachable* from the construction path.
+    ///
+    /// `obs_dim: 0` is the case that survives the `Bounds` migration — a
+    /// zero-width `LinearConfig::new(0, hidden)` builds silently, so without
+    /// this check the defect merely changes shape rather than going away.
+    #[test]
+    fn try_init_rejects_zero_obs_dim() {
+        let device = Default::default();
+        let cfg = SquashedGaussianPolicyHeadConfig {
+            obs_dim: 0,
+            ..valid_cfg()
+        };
+        let err = cfg.try_init::<B>(&device).unwrap_err();
+        assert_eq!(err.config, "SquashedGaussianPolicyHeadConfig");
+        assert_eq!(err.field, "obs_dim");
+        assert_eq!(err.kind, ConstraintKind::Zero);
+    }
+
+    /// Every remaining `validate()` invariant must be reachable through
+    /// `try_init`, not just the first one.
+    #[test]
+    fn try_init_rejects_every_invalid_field() {
+        let device = Default::default();
+        let cases: [(SquashedGaussianPolicyHeadConfig, &str); 4] = [
+            (
+                SquashedGaussianPolicyHeadConfig {
+                    obs_dim: 0,
+                    ..valid_cfg()
+                },
+                "obs_dim",
+            ),
+            (
+                SquashedGaussianPolicyHeadConfig {
+                    hidden: 0,
+                    ..valid_cfg()
+                },
+                "hidden",
+            ),
+            (
+                SquashedGaussianPolicyHeadConfig {
+                    action_dim: 0,
+                    ..valid_cfg()
+                },
+                "action_dim",
+            ),
+            (
+                SquashedGaussianPolicyHeadConfig {
+                    action_scale: 0.0,
+                    ..valid_cfg()
+                },
+                "action_scale",
+            ),
+        ];
+        for (cfg, field) in cases {
+            let err = cfg
+                .try_init::<B>(&device)
+                .expect_err("invalid config must not build a head");
+            assert_eq!(err.field, field);
+        }
+    }
+
+    /// A valid config still builds, and the bounds land on the head in order.
+    #[test]
+    fn try_init_accepts_a_valid_config_and_carries_the_bounds() {
+        let device = Default::default();
+        let head: SquashedGaussianPolicyHead<B> = valid_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
+        assert!((head.log_std_min() - (-5.0)).abs() < f32::EPSILON);
+        assert!((head.log_std_max() - 2.0).abs() < f32::EPSILON);
+        assert!(
+            head.log_std_min() <= head.log_std_max(),
+            "the head's clamp bounds must be ordered"
+        );
     }
 
     /// Pin μ=0, log_std=0, ε=0.5 (so z=0.5, σ=1) with scale=1, bias=0.
@@ -337,12 +516,12 @@ mod tests {
             obs_dim: 1,
             hidden: 2,
             action_dim: 1,
-            log_std_min: -5.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-5.0, 2.0),
             action_scale: 2.0,
             action_bias: 0.5,
         };
-        let head: SquashedGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: SquashedGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let obs = Tensor::<B, 2>::from_data(TensorData::new(vec![0.1_f32], vec![1, 1]), &device);
         let det = head.deterministic_action(obs.clone());
         let (mean, _) = head.mean_and_log_std(obs);
@@ -360,12 +539,12 @@ mod tests {
             obs_dim: 2,
             hidden: 4,
             action_dim: 1,
-            log_std_min: -5.0,
-            log_std_max: 2.0,
+            log_std: Bounds::new(-5.0, 2.0),
             action_scale: 1.0,
             action_bias: 0.0,
         };
-        let head: SquashedGaussianPolicyHead<B> = cfg.init::<B>(&device);
+        let head: SquashedGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
         let obs =
             Tensor::<B, 2>::from_data(TensorData::new(vec![0.2_f32, -0.3], vec![1, 2]), &device);
         let mut rng = StdRng::seed_from_u64(9);

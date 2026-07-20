@@ -214,7 +214,8 @@ fn train_ppg_agent() -> PpgAcrobotAgent {
         hidden: HIDDEN,
         num_actions: ACTIONS,
     }
-    .init::<Backend_>(&device);
+    .try_init::<Backend_>(&device)
+    .expect("valid head config");
     let value: ValueMlp<Backend_> = ValueMlp::new(OBS_FEATURES, HIDDEN, &device);
     let config = PpgConfigBuilder::new()
         .with_ppo(|p| {
