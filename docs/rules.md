@@ -63,8 +63,18 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
 - Builder chain methods: `.with_*()` (fluent), `.build()` (finalize).
 - Identity/utility methods: `zero()`, `enumerate()`, `aggregate()`, `encode()`, `decode()`.
 
-### Struct Field Encapsulation
+### Struct Field Encapsulation (ADR 0055)
 
+The workspace allocates invariant enforcement across three mechanisms. Which one
+applies is decided by the *kind* of struct, not case by case:
+
+- **`*Config` types keep `pub` fields.** A config is a hyperparameter record;
+  `GaConfig { pop_size: 64, ..Default::default() }` is the tuning idiom the
+  library exists to serve. Config types are bound by the **Config Validation
+  Contract in §4 alone** — the consumer calls `config.validate()?` at
+  construction — and are **exempt** from the encapsulation rule below. A struct
+  literal reaching an invalid config is the case ADR 0026 §3 was written for,
+  not a bypass of it.
 - **State / params / genome structs do not expose `pub` data-bag fields.**
   A `*State`, `*Params`, or `*Genome` type keeps its fields private (or
   `pub(crate)` when a family of in-crate operators mutates it in place) and
@@ -81,6 +91,30 @@ The filename of an example **is** its `cargo run --example <name>` target (Cargo
   with no invariant offers an infallible `new`. Hyperparameter-bearing
   `*Params` follow the Config Validation Contract below and expose their
   overrides through validating `with_*` setters, not `pub` fields.
+- **An invariant that must survive struct-literal construction goes in a
+  validated newtype, not behind a private field.** Follow the ADR 0027 /
+  0031 shape (`Bounds`, `Probability`, `NonNegativeRate`): private inner field,
+  `new` (panicking, for literals) / `try_new` (`Result`), a dedicated `Copy`
+  error, `#[serde(try_from)]`. A newtype is **transitive** — it holds inside a
+  config, inside a `*Params`, after `Deserialize`, and after a
+  `Clone`-then-mutate — whereas field privacy guards exactly one boundary. A
+  `pub` field of a validated newtype is therefore safe under struct-literal
+  construction; `GaConfig`'s `bounds: Bounds` / `mutation_sigma: NonNegativeRate`
+  are the reference (`algorithms/ga.rs:73-89`). Such a field **removes** its
+  paired `config::` check from `validate()` rather than duplicating it.
+- **`#[non_exhaustive]` is for enums, never structs.** It is used here for its
+  match-exhaustiveness meaning (`EnvironmentError`, `RecordError`, `EnvFamily`,
+  …), not to forbid struct literals. On a struct it also forbids cross-crate
+  `..Default::default()`, breaking the tuning idiom above while buying no
+  validation guarantee (a builder's `build()` must still call `validate()`).
+  Applying it to a struct requires its own ADR.
+- **Validate first, destructure second.** A config-consuming constructor calls
+  `validate()` before reading any field, so no field is acted on ahead of its
+  own check.
+- **An accessor on a config must be total.** A method that reads config fields
+  without constructing anything must return a documented sentinel for values
+  `validate()` rejects, never panic — `C51Config::delta_z` returning `f32::NAN`
+  for `num_atoms < 2` is the reference (`c51/c51_config.rs:120-130`).
 
 ### Constants and Associated Constants
 - Constants: `UPPER_SNAKE_CASE` (e.g., `ACTION_COUNT`, `MAX_STEPS`, `GOAL_STATE`).
@@ -228,7 +262,7 @@ exception: a single `with_*` method may panic on an out-of-domain argument
 because the panic points at the offending call site. They do **not** replace
 whole-config validation — see below.
 
-### Config Validation Contract (ADR 0026)
+### Config Validation Contract (ADR 0026, 0055)
 
 - Every public `*Config` (and any hyperparameter-bearing builder) implements
   `rlevo_core::config::Validate` — `fn validate(&self) -> Result<(), ConfigError>`.
@@ -246,6 +280,16 @@ whole-config validation — see below.
   (cross-field invariants, or fields set without a guarded setter) returns
   `ConfigError`. If an invalid value can arrive via `Deserialize`, it must be an
   `Err`, never a panic.
+- Config fields stay **`pub`** (§2, ADR 0055). This contract — not
+  encapsulation — is the whole of a config's enforcement, so a new
+  config-consuming constructor adopting `validate()?` is not optional. Any
+  invariant that must hold independently of that chokepoint belongs in a
+  validated newtype (§2, ADR 0027/0031).
+- **No config loader exists in the workspace yet.** The first one added (run
+  manifest, config file, checkpoint restore) owns the `Deserialize` half of this
+  contract: call `validate()?` on the decoded value and propagate the `Err`.
+  ~22 configs derive `Deserialize` plainly, so a decoder will otherwise accept
+  values `validate()` rejects (ADR 0055 §Consequences).
 
 ---
 
