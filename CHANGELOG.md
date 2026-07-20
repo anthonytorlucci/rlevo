@@ -199,6 +199,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Breaking changes**
 
+- **`DqnMetrics::value_loss` removed — it was an exact mirror of `policy_loss`**
+  (resolves #415). DQN optimizes a single TD loss; unlike the actor-critic
+  algorithms there is no separate policy/value pair to report. The field was
+  populated with `last_loss`, the same value already assigned to `policy_loss`
+  on the line above it, and its own doc-comment described it as a "mirror ...
+  kept for parity with actor-critic algorithms". Dashboards consuming
+  `DqnMetrics` therefore plotted one curve twice under two names.
+
+  `QrDqnMetrics` never carried the field, so this removal brings the two
+  Q-learning metric structs into agreement rather than splitting them.
+
+  *Migration.* Read `policy_loss` instead — it holds the TD loss and always did.
+  Delete any `value_loss:` initializer from struct literals; those call sites
+  fail to compile. No persisted data or on-disk format is affected.
+
 - **`PpoTrainingConfig::max_grad_norm` removed — it was dead state advertising a
   feature the crate does not have** (resolves #183). The field defaulted to
   `0.5`, was validated as positive, and had a public builder setter, but nothing
