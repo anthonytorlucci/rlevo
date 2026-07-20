@@ -395,7 +395,7 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// Returns [`EnvironmentError::InvalidAction`] if any element of `action`
     /// is non-finite (`NaN` or `±∞`).
     fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
-        if !action.0.iter().all(rapier2d::math::ComplexField::is_finite) {
+        if !action.0.iter().copied().all(f32::is_finite) {
             return Err(EnvironmentError::InvalidAction(format!(
                 "Swimmer action must be finite, got {:?}",
                 action.0

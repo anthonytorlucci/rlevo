@@ -330,7 +330,7 @@ impl Environment<1, 1, 1> for Reacher<Rapier3DBackend> {
     /// Returns [`EnvironmentError::InvalidAction`] if either action element is
     /// non-finite (`NaN` or ±∞).
     fn step(&mut self, action: ReacherAction) -> Result<Self::SnapshotType, EnvironmentError> {
-        if !action.0.iter().all(rapier2d::math::ComplexField::is_finite) {
+        if !action.0.iter().copied().all(f32::is_finite) {
             return Err(EnvironmentError::InvalidAction(format!(
                 "Reacher action must be finite, got {:?}",
                 action.0
