@@ -1,0 +1,15 @@
+# Code owners for rlevo.
+#
+# Paired with the `primary-ruleset` repository ruleset, which sets
+# `require_code_owner_review: true` and requires 1 approving review. Together
+# these mean any pull request authored by someone other than the owner needs
+# an explicit approval from @anthonytorlucci before it can merge.
+#
+# Note: GitHub does not allow approving your own pull request, so this rule is
+# satisfiable only for contributor PRs. The owner's own PRs merge via the
+# admin bypass configured on the ruleset.
+#
+# Last matching pattern wins.
+
+# Everything.
+* @anthonytorlucci
