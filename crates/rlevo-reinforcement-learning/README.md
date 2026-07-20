@@ -154,6 +154,12 @@ Default hyperparameters follow CleanRL's `ppo.py`:
 
 `num_envs` is currently fixed at `1`; vectorised rollout is deferred.
 
+The continuous head's `log_std` initialisation and action scale (`log_std_init`,
+`action_scale`, plus the `log_std_min` / `log_std_max` bounds) are **not**
+training-config fields — they live on `TanhGaussianPolicyHeadConfig`, the config
+consumed to build the head and where the `scale · tanh(z)` squash is applied
+(ADR 0049).
+
 `clip_grad` is the only gradient-clipping knob and is **off by default**. Burn's
 `GradientClippingConfig::Norm` clips per tensor, not across the global flattened
 parameter vector, so setting it does not reproduce Huang et al. #10

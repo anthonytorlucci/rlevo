@@ -228,10 +228,11 @@ fn ppo_cartpole_produces_finite_rewards() {
 /// produce identical initial weights. Callers must hold the [`flex_guard`] lock
 /// for the duration of the test.
 ///
-/// The hyperparameters (higher `update_epochs`, zero entropy coefficient,
-/// `action_scale` matching the ±2 N·m torque limit, GAE λ, γ=0.9) are tuned
-/// for the 3-observation / 1-action continuous Pendulum task with a 2 048-step
-/// rollout buffer.
+/// The hyperparameters (higher `update_epochs`, zero entropy coefficient, GAE
+/// λ, γ=0.9) are tuned for the 3-observation / 1-action continuous Pendulum
+/// task with a 2 048-step rollout buffer. The head's `action_scale` matches
+/// the ±2 N·m torque limit and is set on `TanhGaussianPolicyHeadConfig`, the
+/// only place it exists.
 fn make_pendulum_agent(
     seed: u64,
     num_steps: usize,
@@ -246,6 +247,8 @@ fn make_pendulum_agent(
         log_std_init: 0.0,
         log_std_min: -20.0,
         log_std_max: 2.0,
+        // Sole owner of the action scale — the training config has no such
+        // knob. Change the torque limit here, nowhere else.
         action_scale: 2.0,
     }
     .init::<Be>(&device);
@@ -262,7 +265,6 @@ fn make_pendulum_agent(
         .value_coef(0.5)
         .gamma(0.9)
         .gae_lambda(0.95)
-        .action_scale(2.0)
         .build()
         .expect("valid config");
     let total_iterations = total_timesteps / config.batch_size().max(1);
