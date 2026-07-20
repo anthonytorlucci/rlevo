@@ -186,6 +186,8 @@ fn train_ppo_agent() -> PpoAgent_ {
         log_std_init: 0.0,
         log_std_min: -20.0,
         log_std_max: 2.0,
+        // Sole owner of the action scale (and of `log_std_init`) — the
+        // training config has no such knobs. Change them here, nowhere else.
         action_scale: 2.0,
     }
     .init::<Backend_>(&device);
@@ -201,8 +203,6 @@ fn train_ppo_agent() -> PpoAgent_ {
         .value_coef(0.5)
         .gamma(0.9)
         .gae_lambda(0.95)
-        .action_log_std_init(0.0)
-        .action_scale(2.0)
         .build()
         .expect("valid config");
     let total_iterations = TRAIN_TIMESTEPS / config.batch_size().max(1);

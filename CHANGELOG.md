@@ -384,6 +384,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Clone, Debug` and has no serde impl, so nothing on disk encodes these
   fields.
 
+- **`PpoTrainingConfig::action_log_std_init` / `action_scale` removed — the same
+  write-only defect, one algorithm over** (resolves #385). Both fields were
+  public, defaulted (`0.0` / `1.0`), had public builder setters, and
+  `action_scale` was even positivity-validated — but **no runtime path ever read
+  them**. `PpoAgent`, `PpgAgent`, `ppo/train.rs`, and every policy head left
+  them untouched; the only reads were `validate()` and the config's own
+  round-trip test. Calling `.action_scale(2.0)` returned a config that accepted
+  and reported the value while the actions reaching the env were scaled by
+  whatever the *head* said. `PpgConfig` embeds `PpoTrainingConfig` verbatim, so
+  it inherited both dead fields and is fixed by the same removal.
+
+  The values that actually run have always come from
+  `TanhGaussianPolicyHeadConfig` (`ppo/policies/gaussian.rs`), which carries its
+  own `log_std_init` and `action_scale` — and that copy is untouched here. The
+  duplication was the defect; the head is the surviving owner, which is what ADR
+  0049 already established for PPO's `log σ` bounds. As with SAC, removal rather
+  than delegation is the only viable fix: `PpoAgent::new` and `PpgAgent::new`
+  both take an already-built `policy`, so the head's scale is fixed before the
+  training config is ever consulted — there is no seam to wire through.
+
+  *Migration.* Set `log_std_init` and `action_scale` on the
+  `TanhGaussianPolicyHeadConfig` you use to build the policy passed to
+  `PpoAgent::new` / `PpgAgent::new`, and drop any `.action_log_std_init(..)` /
+  `.action_scale(..)` calls on `PpoTrainingConfigBuilder`. Because the removed
+  setters never had an effect, this changes no training behaviour — code that
+  compiled and trained before trains identically after.
+  `PpoTrainingConfig::validate()` no longer emits an `action_scale` error; the
+  head config carries the equivalent check. **The trap this closes is worth
+  naming**: both in-repo call sites (`crates/rlevo/tests/ppo_integration.rs`,
+  `crates/rlevo/benches/pendulum_rl.rs`) set the identical value on *both* the
+  dead builder and the live head literal, so they were correct by accident. A
+  maintainer retuning the Pendulum torque limit through the prominent, fluently
+  named builder alone would have silently no-op'd while the head kept the old
+  scale. **Persisted configs are unaffected**: `PpoTrainingConfig` derives only
+  `Clone, Debug` and has no serde impl, so nothing on disk encodes these fields.
+
 - **The `memory` module — `PrioritizedExperienceReplay`, its builder, and
   `TrainingBatch` — is removed outright, with no deprecation shim** (ADR 0050,
   resolves #188). The docs advertised the module as the sanctioned

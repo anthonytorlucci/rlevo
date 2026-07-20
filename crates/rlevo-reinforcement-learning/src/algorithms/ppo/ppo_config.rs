@@ -5,6 +5,12 @@
 //! [Huang et al. 2022, *The 37 Implementation Details of PPO*](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/)
 //! for the rationale behind each value.
 //!
+//! The continuous policy head's `log_std` initialisation and action scale are
+//! **not** here: they live on
+//! [`TanhGaussianPolicyHeadConfig`](crate::algorithms::ppo::policies::gaussian::TanhGaussianPolicyHeadConfig),
+//! the config that is actually consumed to build the head and where the squash
+//! is applied (ADR 0049).
+//!
 //! [`ppo_continuous_action.py`]: https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 
 use burn::grad_clipping::GradientClippingConfig;
@@ -13,11 +19,10 @@ use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 /// Configuration for training a PPO agent.
 ///
-/// Covers rollout sizing, optimization, objective weights, and (for continuous
-/// action spaces) the policy-head scale. One `PpoAgent` instance is
-/// parameterised by the same config regardless of whether the env is discrete
-/// or continuous; the continuous-specific fields are simply ignored when the
-/// plugged-in policy head is categorical.
+/// Covers rollout sizing, optimization, and objective weights. One `PpoAgent`
+/// instance is parameterised by the same config regardless of whether the env
+/// is discrete or continuous; head-specific knobs (`log_std` init, action
+/// scale) belong to the policy head's own config, not to this one.
 #[derive(Clone, Debug)]
 pub struct PpoTrainingConfig {
     // ----- rollout sizing -----
@@ -92,16 +97,6 @@ pub struct PpoTrainingConfig {
     /// `Some(k)`, the update epoch loop aborts as soon as the running
     /// mean-approx-KL exceeds `1.5 · k`.
     pub target_kl: Option<f32>,
-
-    // ----- continuous-only (ignored for categorical policies) -----
-    /// Initial value of the state-independent `log_std` parameter used by the
-    /// tanh-squashed Gaussian policy head.
-    pub action_log_std_init: f32,
-
-    /// Scale applied to the tanh-squashed action before it reaches the
-    /// environment. Set to match the env's action-bound magnitude (for
-    /// Pendulum-v1 with `max_torque = 2.0`, use `2.0`).
-    pub action_scale: f32,
 }
 
 impl PpoTrainingConfig {
@@ -141,8 +136,6 @@ impl Default for PpoTrainingConfig {
             value_coef: 0.5,
             normalize_advantages: true,
             target_kl: None,
-            action_log_std_init: 0.0,
-            action_scale: 1.0,
         }
     }
 }
@@ -181,7 +174,6 @@ impl Validate for PpoTrainingConfig {
         if let Some(kl) = self.target_kl {
             config::positive(C, "target_kl", f64::from(kl))?;
         }
-        config::positive(C, "action_scale", f64::from(self.action_scale))?;
         Ok(())
     }
 }
@@ -305,21 +297,6 @@ impl PpoTrainingConfigBuilder {
         self
     }
 
-    /// Sets the initial value for the state-independent `log_std` parameter
-    /// used by the tanh-Gaussian policy head. Ignored for categorical policies.
-    pub fn action_log_std_init(mut self, v: f32) -> Self {
-        self.config.action_log_std_init = v;
-        self
-    }
-
-    /// Sets the tanh-squash scale applied before the env sees a continuous
-    /// action. Match this to the env's action-bound magnitude. Ignored for
-    /// categorical policies.
-    pub fn action_scale(mut self, v: f32) -> Self {
-        self.config.action_scale = v;
-        self
-    }
-
     /// Consumes the builder and returns the assembled [`PpoTrainingConfig`].
     ///
     /// # Errors
@@ -400,14 +377,12 @@ mod tests {
             .num_steps(256)
             .clip_coef(0.1)
             .entropy_coef(0.0)
-            .action_scale(2.0)
             .clip_grad(Some(GradientClippingConfig::Norm(0.5)))
             .build()
             .expect("valid config");
         assert_eq!(cfg.num_steps, 256);
         assert_eq!(cfg.clip_coef, 0.1);
         assert_eq!(cfg.entropy_coef, 0.0);
-        assert_eq!(cfg.action_scale, 2.0);
         // `GradientClippingConfig` is not `PartialEq`, so match on the variant.
         match cfg.clip_grad {
             Some(GradientClippingConfig::Norm(n)) => assert!((n - 0.5).abs() < 1e-6),
