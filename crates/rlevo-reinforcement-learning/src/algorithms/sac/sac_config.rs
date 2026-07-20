@@ -7,7 +7,12 @@
 //! SAC drops the deterministic-exploration / target-policy-smoothing knobs
 //! (`exploration_noise`, `policy_noise`, `noise_clip`) and adds the
 //! entropy-temperature controls (`alpha_lr`, `autotune`, `initial_alpha`,
-//! `target_entropy`) plus the squashed-Gaussian head's `log σ` bounds.
+//! `target_entropy`).
+//!
+//! The squashed-Gaussian head's `log σ` bounds are **not** here: they live on
+//! [`SquashedGaussianPolicyHeadConfig`](crate::algorithms::sac::sac_policy::SquashedGaussianPolicyHeadConfig),
+//! the config that is actually consumed to build the head and where the clamp
+//! is applied.
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
@@ -43,10 +48,6 @@ pub struct SacTrainingConfig {
     /// Target entropy H̄. `None` ⇒ `-(A::COMPONENTS as f32)` (the common
     /// heuristic from Haarnoja et al. 2018b, matching CleanRL).
     pub target_entropy: Option<f32>,
-    /// Lower clamp applied to the policy's `log σ` head. CleanRL uses `-5`.
-    pub log_std_min: f32,
-    /// Upper clamp applied to the policy's `log σ` head. CleanRL uses `2`.
-    pub log_std_max: f32,
     /// Critic-update cadence at which the actor and α updates run. `2`
     /// matches CleanRL's `sac_continuous_action.py` default.
     pub policy_frequency: usize,
@@ -76,8 +77,6 @@ impl Default for SacTrainingConfig {
             autotune: true,
             initial_alpha: 1.0,
             target_entropy: None,
-            log_std_min: -5.0,
-            log_std_max: 2.0,
             policy_frequency: 2,
             target_update_frequency: 1,
             clip_grad: None,
@@ -97,12 +96,6 @@ impl Validate for SacTrainingConfig {
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
         config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
         config::positive(C, "initial_alpha", f64::from(self.initial_alpha))?;
-        config::ordered(
-            C,
-            "log_std_max",
-            f64::from(self.log_std_min),
-            f64::from(self.log_std_max),
-        )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
         config::at_least(
             C,
@@ -214,18 +207,6 @@ impl SacTrainingConfigBuilder {
         self
     }
 
-    /// Sets the lower clamp applied to the policy's `log σ` head.
-    pub fn log_std_min(mut self, v: f32) -> Self {
-        self.config.log_std_min = v;
-        self
-    }
-
-    /// Sets the upper clamp applied to the policy's `log σ` head.
-    pub fn log_std_max(mut self, v: f32) -> Self {
-        self.config.log_std_max = v;
-        self
-    }
-
     /// Sets the critic-step cadence at which the actor + α updates run.
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
@@ -257,8 +238,8 @@ impl SacTrainingConfigBuilder {
     /// # Errors
     ///
     /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`SacTrainingConfig::validate`] (e.g. `log_std_min >=
-    /// log_std_max` or a non-positive `initial_alpha`).
+    /// checked by [`SacTrainingConfig::validate`] (e.g. a non-positive
+    /// `initial_alpha` or a zero `batch_size`).
     pub fn build(self) -> Result<SacTrainingConfig, ConfigError> {
         self.config.validate()?;
         Ok(self.config)
@@ -283,8 +264,6 @@ mod tests {
         assert!(cfg.autotune);
         assert!((cfg.initial_alpha - 1.0).abs() < 1e-6);
         assert!(cfg.target_entropy.is_none());
-        assert!((cfg.log_std_min - -5.0).abs() < 1e-6);
-        assert!((cfg.log_std_max - 2.0).abs() < 1e-6);
         assert_eq!(cfg.policy_frequency, 2);
         assert_eq!(cfg.target_update_frequency, 1);
     }
@@ -311,15 +290,5 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(SacTrainingConfig::default().validate().is_ok());
-    }
-
-    #[test]
-    fn rejects_inverted_log_std_bounds() {
-        let err = SacTrainingConfigBuilder::new()
-            .log_std_min(2.0)
-            .log_std_max(-5.0)
-            .build()
-            .unwrap_err();
-        assert_eq!(err.field, "log_std_max");
     }
 }

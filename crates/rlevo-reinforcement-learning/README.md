@@ -302,10 +302,13 @@ Default hyperparameters follow CleanRL:
 | `autotune` (\(\alpha\) auto-tune) | true | Haarnoja et al. (2018b) |
 | `initial_alpha` | 1.0 | CleanRL |
 | `target_entropy` | \(-\left | A \right |\) heuristic | Haarnoja et al. (2018b) |
-| `log_std_min` | -5.0 | CleanRL |
-| `log_std_max` | 2.0 | CleanRL |
 | `policy_frequency` | 2 | CleanRL |
 | `target_update_frequency` | 1 | CleanRL |
+
+The squashed-Gaussian head's `log σ` bounds (`log_std_min = -5.0`,
+`log_std_max = 2.0`, both CleanRL) are **not** training-config fields — they
+live on `SquashedGaussianPolicyHeadConfig`, the config consumed to build the
+head and where the clamp is applied.
 
 **References**
 
