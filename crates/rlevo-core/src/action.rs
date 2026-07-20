@@ -138,6 +138,7 @@ pub trait DiscreteAction<const R: usize>: Action<R> {
     ///
     /// If you already have an index from another source (e.g., a neural network
     /// output), use `from_index()` directly instead of this method.
+    #[must_use]
     fn random() -> Self
     where
         Self: Sized,
@@ -217,6 +218,7 @@ pub trait MultiDiscreteAction<const R: usize>: Action<R> {
     /// let random_action = StrategyAction::random();
     /// assert!(random_action.is_valid());
     /// ```
+    #[must_use]
     fn random() -> Self
     where
         Self: Sized,
@@ -245,14 +247,11 @@ pub trait MultiDiscreteAction<const R: usize>: Action<R> {
     /// # Panics
     ///
     /// May panic or run out of memory if the action space is too large.
+    #[must_use]
     fn enumerate() -> Vec<Self>
     where
         Self: Sized,
     {
-        let space = Self::shape();
-        let total: usize = space.iter().product();
-        let mut actions = Vec::with_capacity(total);
-
         fn generate<const R: usize, T: MultiDiscreteAction<R>>(
             space: &[usize; R],
             current: &mut [usize; R],
@@ -268,6 +267,10 @@ pub trait MultiDiscreteAction<const R: usize>: Action<R> {
                 generate(space, current, axis + 1, actions);
             }
         }
+
+        let space = Self::shape();
+        let total: usize = space.iter().product();
+        let mut actions = Vec::with_capacity(total);
 
         let mut current = [0; R];
         generate(&space, &mut current, 0, &mut actions);
@@ -324,6 +327,7 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
     /// - Enforcing action space bounds after neural network output
     /// - Adding exploration noise while maintaining validity
     /// - Recovering from numerical instability
+    #[must_use]
     fn clip(&self, min: f32, max: f32) -> Self;
 
     /// Samples a random action with components uniformly distributed in `[-1.0, 1.0)`.
@@ -341,6 +345,7 @@ pub trait ContinuousAction<const R: usize>: Action<R> {
     /// [`is_valid`](Action::is_valid). Override it also for Gaussian noise,
     /// domain-specific distributions, or bounds derived from [`BoundedAction`].
     /// See ADR 0038.
+    #[must_use]
     fn random() -> Self
     where
         Self: Sized,
@@ -494,6 +499,12 @@ pub struct InvalidActionError {
 
 #[cfg(test)]
 mod tests {
+    // These tests assert exact round-trip of values that are stored and read
+    // back without arithmetic, so bit-exact equality is the property under
+    // test; an approximate comparison would weaken them.
+    // The `as u8` casts below are in fixtures that assert their index is in
+    // range first, so the truncation the lint warns about cannot occur.
+    #![allow(clippy::float_cmp, clippy::cast_possible_truncation)]
     use super::*;
     use std::error::Error;
 
@@ -529,7 +540,7 @@ mod tests {
                 1 => SimpleDiscreteAction::Right,
                 2 => SimpleDiscreteAction::Up,
                 3 => SimpleDiscreteAction::Down,
-                _ => panic!("Index out of bounds: {}", index),
+                _ => panic!("Index out of bounds: {index}"),
             }
         }
 
@@ -562,12 +573,16 @@ mod tests {
 
     impl MultiDiscreteAction<2> for MultiActionTest {
         fn from_indices(indices: [usize; 2]) -> Self {
-            if indices[0] >= 4 {
-                panic!("Direction index out of bounds: {}", indices[0]);
-            }
-            if indices[1] >= 3 {
-                panic!("Intensity index out of bounds: {}", indices[1]);
-            }
+            assert!(
+                indices[0] < 4,
+                "Direction index out of bounds: {}",
+                indices[0]
+            );
+            assert!(
+                indices[1] < 3,
+                "Intensity index out of bounds: {}",
+                indices[1]
+            );
             MultiActionTest {
                 direction: indices[0],
                 intensity: indices[1],
@@ -811,7 +826,7 @@ mod tests {
         impl MultiDiscreteAction<3> for LargeMultiAction {
             fn from_indices(indices: [usize; 3]) -> Self {
                 for (i, &idx) in indices.iter().enumerate() {
-                    assert!(idx < 5, "Index {} out of bounds", i);
+                    assert!(idx < 5, "Index {i} out of bounds");
                 }
                 LargeMultiAction(indices)
             }
@@ -991,7 +1006,7 @@ mod tests {
         let error = InvalidActionError {
             message: String::from("Invalid value"),
         };
-        let displayed = format!("{}", error);
+        let displayed = format!("{error}");
         assert_eq!(displayed, "Invalid action: Invalid value");
     }
 
@@ -1000,7 +1015,7 @@ mod tests {
         let error = InvalidActionError {
             message: String::from("Test error"),
         };
-        let debug_str = format!("{:?}", error);
+        let debug_str = format!("{error:?}");
         assert!(debug_str.contains("Test error"));
     }
 
@@ -1048,7 +1063,7 @@ mod tests {
         let cloned = action;
         assert_eq!(action, cloned);
 
-        let debug_str = format!("{:?}", action);
+        let debug_str = format!("{action:?}");
         assert!(debug_str.contains("Left"));
     }
 
@@ -1058,7 +1073,7 @@ mod tests {
         let cloned = action;
         assert_eq!(action, cloned);
 
-        let debug_str = format!("{:?}", action);
+        let debug_str = format!("{action:?}");
         assert!(debug_str.contains("direction"));
     }
 
@@ -1070,7 +1085,7 @@ mod tests {
         let cloned = action.clone();
         assert_eq!(action.as_slice(), cloned.as_slice());
 
-        let debug_str = format!("{:?}", action);
+        let debug_str = format!("{action:?}");
         assert!(debug_str.contains("values"));
     }
 

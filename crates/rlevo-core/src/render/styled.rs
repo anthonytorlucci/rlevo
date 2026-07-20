@@ -42,6 +42,9 @@ impl StyledFrame {
     /// assert_eq!(frame.plain_text(), "line one\nline two");
     /// ```
     #[must_use]
+    // Callers already own the string they are wrapping (`format!`, `render_ascii`),
+    // so taking `&str` here would only add a redundant copy at every call site.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn unstyled(s: String) -> Self {
         if s.is_empty() {
             return Self { lines: Vec::new() };

@@ -281,13 +281,13 @@ pub trait GridPayloadSource {
 // ---------------------------------------------------------------------------
 
 /// Background class of a [`TabularGrid`] cell — the union of cell semantics
-/// across the grid-shaped toy-text envs (FrozenLake / CliffWalking / Taxi).
+/// across the grid-shaped toy-text envs (`FrozenLake` / `CliffWalking` / Taxi).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TabularCell {
     /// Plain walkable cell.
     Empty,
-    /// Frozen safe surface (FrozenLake).
+    /// Frozen safe surface (`FrozenLake`).
     Frozen,
     /// Episode start cell.
     Start,
@@ -387,13 +387,13 @@ pub trait TabularPayloadSource {
 pub enum Classic2DRole {
     /// The ground line / track / terrain profile.
     Track,
-    /// The cart (CartPole).
+    /// The cart (`CartPole`).
     Cart,
-    /// A balancing pole (CartPole / Pendulum).
+    /// A balancing pole (`CartPole` / Pendulum).
     Pole,
     /// A rigid link of a multi-link arm (Acrobot).
     Link,
-    /// The car (MountainCar).
+    /// The car (`MountainCar`).
     Car,
     /// A pivot / hinge point (drawn as a small marker).
     Hinge,
@@ -412,7 +412,7 @@ pub struct Classic2DBody {
     pub closed: bool,
 }
 
-/// A snapshot of a classic-control env (CartPole / Pendulum / MountainCar /
+/// A snapshot of a classic-control env (`CartPole` / Pendulum / `MountainCar` /
 /// Acrobot) at one frame: a set of world-space bodies plus the viewport the
 /// renderer fits to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

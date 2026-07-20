@@ -30,16 +30,19 @@ pub enum EpisodeStatus {
 
 impl EpisodeStatus {
     /// `true` when the episode loop should stop (`Terminated` or `Truncated`).
+    #[must_use]
     pub const fn is_done(self) -> bool {
         matches!(self, Self::Terminated | Self::Truncated)
     }
 
     /// `true` only for intrinsic MDP termination.
+    #[must_use]
     pub const fn is_terminated(self) -> bool {
         matches!(self, Self::Terminated)
     }
 
     /// `true` only for extrinsic step-limit truncation.
+    #[must_use]
     pub const fn is_truncated(self) -> bool {
         matches!(self, Self::Truncated)
     }
@@ -60,17 +63,20 @@ pub struct SnapshotMetadata {
 
 impl SnapshotMetadata {
     /// Creates an empty `SnapshotMetadata`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Builder-style insert for a named reward component.
+    #[must_use]
     pub fn with(mut self, key: &'static str, value: f32) -> Self {
         self.components.insert(key, value);
         self
     }
 
     /// Builder-style insert for a named 3D position.
+    #[must_use]
     pub fn with_position(mut self, key: &'static str, xyz: [f32; 3]) -> Self {
         self.positions.insert(key, xyz);
         self
@@ -94,7 +100,7 @@ pub enum EnvironmentError {
     /// Rendering or display failed.
     #[error("Render failed: {0}")]
     RenderFailed(String),
-    /// An I/O operation failed (wraps std::io::Error).
+    /// An I/O operation failed (wraps `std::io::Error`).
     #[error("IO operation failed: {0}")]
     IoError(#[from] std::io::Error),
     /// A configuration-domain invariant failed during a lifecycle operation.
@@ -517,6 +523,10 @@ pub trait ConstructableEnv {
 
 #[cfg(test)]
 mod tests {
+    // These tests assert exact round-trip of values that are stored and read
+    // back without arithmetic, so bit-exact equality is the property under
+    // test; an approximate comparison would weaken them.
+    #![allow(clippy::float_cmp)]
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -590,7 +600,7 @@ mod tests {
             match index {
                 0 => MockAction::MoveLeft,
                 1 => MockAction::MoveRight,
-                _ => panic!("Unknown action index: {}", index),
+                _ => panic!("Unknown action index: {index}"),
             }
         }
 
@@ -674,8 +684,7 @@ mod tests {
         ) -> Result<Self::SnapshotType, EnvironmentError> {
             if !action.is_valid() {
                 return Err(EnvironmentError::InvalidAction(format!(
-                    "Invalid action: {:?}.",
-                    action
+                    "Invalid action: {action:?}."
                 )));
             }
 
@@ -788,7 +797,7 @@ mod tests {
     fn test_snapshot_debug() {
         let obs = MockObservation { position: 5 };
         let snapshot = SnapshotBase::terminated(obs, ScalarReward(2.0));
-        let debug_str = format!("{:?}", snapshot);
+        let debug_str = format!("{snapshot:?}");
 
         assert!(debug_str.contains("SnapshotBase"));
         assert!(debug_str.contains("position: 5"));
@@ -893,7 +902,7 @@ mod tests {
     #[test]
     fn test_environment_error_display() {
         let error = EnvironmentError::InvalidAction("test action".to_string());
-        let display_str = format!("{}", error);
+        let display_str = format!("{error}");
         assert!(display_str.contains("Invalid action"));
         assert!(display_str.contains("test action"));
     }
@@ -949,10 +958,10 @@ mod tests {
 
     #[test]
     fn test_environment_error_source() {
+        use std::error::Error;
+
         let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
         let env_error = EnvironmentError::IoError(io_error);
-
-        use std::error::Error;
         assert!(env_error.source().is_some());
     }
 

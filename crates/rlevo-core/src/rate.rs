@@ -137,6 +137,10 @@ pub struct NonNegativeRateError {
 
 #[cfg(test)]
 mod tests {
+    // These tests assert exact round-trip of values that are stored and read
+    // back without arithmetic, so bit-exact equality is the property under
+    // test; an approximate comparison would weaken them.
+    #![allow(clippy::float_cmp)]
     use super::{NonNegativeRate, NonNegativeRateError};
 
     #[test]
