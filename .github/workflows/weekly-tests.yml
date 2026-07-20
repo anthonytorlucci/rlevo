@@ -56,10 +56,10 @@ jobs:
           - name: "SAC — heavy suite (LinearEnv + Pendulum)"
             bin: sac_integration
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           # Separate cache key per matrix job so jobs don't thrash each other.
           key: weekly-${{ matrix.bin }}
@@ -88,10 +88,10 @@ jobs:
             bin: qrdqn_integration
             test: qrdqn_cartpole_acceptance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: weekly-${{ matrix.bin }}
 

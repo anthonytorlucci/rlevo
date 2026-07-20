@@ -32,13 +32,13 @@ jobs:
     name: build + clippy (viz examples, all features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # The toolchain (channel + rustfmt/clippy components) is governed by
       # rust-toolchain.toml at the repo root; rustup auto-installs the pin on
       # the first cargo invocation.
       - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       # The examples pull rapier2d (box2d), rapier3d (locomotion), and
       # burn-wgpu. None need a GPU to *compile*; libudev is the only
@@ -49,7 +49,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libudev-dev
 
       - name: Install just
-        uses: taiki-e/install-action@just
+        uses: taiki-e/install-action@2b818c67b359d9778206f1396bde7f4381ebfeda # just
 
       - name: Build viz examples (full feature set)
         run: just build-vis-examples
