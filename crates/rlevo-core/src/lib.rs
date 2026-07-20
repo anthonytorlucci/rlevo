@@ -29,7 +29,7 @@
 //!
 //! Several traits — [`Observation`], [`State`], [`Action`] — are parameterized
 //! by a const generic `R` (rank) that denotes the *number of tensor axes*
-//! (equivalent to NumPy's `ndim` or Burn's `Tensor<B, R>`). This encodes
+//! (equivalent to `NumPy`'s `ndim` or Burn's `Tensor<B, R>`). This encodes
 //! shape compatibility at compile time: a rank-1 observation and a rank-2
 //! observation cannot be mixed up without a compile error.
 //!

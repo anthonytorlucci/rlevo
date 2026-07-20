@@ -27,3 +27,6 @@ approx = { workspace = true }
 # root, so a `../../` path here silently works locally but 404s on docs.rs.
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "katex-header.html"]
+
+[lints]
+workspace = true

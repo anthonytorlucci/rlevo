@@ -34,7 +34,7 @@ pub trait Observation<const R: usize>:
     /// order), *not* the size of any axis.
     ///
     /// "Rank" here means the count of indices needed to address an element
-    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
     /// rank. This is automatically set to match the const generic parameter `R`.
     const RANK: usize = R;
 
@@ -62,7 +62,7 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     /// *not* the size of any axis.
     ///
     /// "Rank" here means the count of indices needed to address an element
-    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
     /// rank. This is automatically set to match the const generic parameter `R`.
     const RANK: usize = R;
 
@@ -130,7 +130,7 @@ pub trait Action<const R: usize>: Debug + Clone + Sized {
     /// *not* the size of any axis.
     ///
     /// "Rank" here means the count of indices needed to address an element
-    /// (NumPy `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
+    /// (`NumPy` `ndim`, Burn's `Tensor<B, R>`), not matrix rank or CP-decomposition
     /// rank. This is automatically set to match the const generic parameter `R`.
     const RANK: usize = R;
 
@@ -415,6 +415,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    // These tests assert exact round-trip of values that are stored and read
+    // back without arithmetic, so bit-exact equality is the property under
+    // test; an approximate comparison would weaken them.
+    // The `as f32` casts below are on small grid coordinates, well inside the
+    // range f32 represents exactly.
+    #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
     use super::*;
 
     /// Simple scalar reward implementation for testing
@@ -443,7 +449,7 @@ mod tests {
 
     // ===== Basic Reward Trait Tests =====
 
-    /// Test that zero() creates a neutral element for addition
+    /// Test that `zero()` creates a neutral element for addition
     #[test]
     fn test_reward_zero_is_additive_identity() {
         let zero = TestReward::zero();
@@ -509,7 +515,7 @@ mod tests {
     #[test]
     fn test_reward_debug() {
         let reward = TestReward(42.0);
-        let debug_str = format!("{:?}", reward);
+        let debug_str = format!("{reward:?}");
 
         assert!(!debug_str.is_empty());
         assert!(debug_str.contains("TestReward"));
@@ -611,7 +617,7 @@ mod tests {
     }
 
     /// ========================================================================
-    /// GameState example to test the State trait implementation
+    /// `GameState` example to test the State trait implementation
     /// ========================================================================
     #[derive(Debug, Clone, PartialEq)]
     enum GameState {
@@ -657,8 +663,7 @@ mod tests {
             let playing_state = GameState::Playing { level };
             assert!(
                 playing_state.is_valid(),
-                "Playing state with level {} should be valid",
-                level
+                "Playing state with level {level} should be valid"
             );
         }
 
@@ -668,8 +673,7 @@ mod tests {
             let invalid_state = GameState::Playing { level };
             assert!(
                 !invalid_state.is_valid(),
-                "Playing state with level {} should be invalid",
-                level
+                "Playing state with level {level} should be invalid"
             );
         }
     }
@@ -710,7 +714,7 @@ mod tests {
         }
     }
 
-    /// Test the invariant: numel() should equal product of shape()
+    /// Test the invariant: `numel()` should equal product of `shape()`
     #[test]
     fn test_game_state_consistency() {
         let test_states = [
@@ -724,8 +728,7 @@ mod tests {
             let shape_product: usize = GameState::shape().iter().product();
             assert_eq!(
                 numel, shape_product,
-                "numel({}) should equal shape product({})",
-                numel, shape_product
+                "numel({numel}) should equal shape product({shape_product})"
             );
         }
     }
@@ -740,7 +743,7 @@ mod tests {
             GameState::GameOver { score: 1000 },
         ];
 
-        let valid_states: Vec<_> = states.into_iter().filter(|s| s.is_valid()).collect();
+        let valid_states: Vec<_> = states.into_iter().filter(super::State::is_valid).collect();
 
         assert_eq!(
             valid_states.len(),
@@ -748,7 +751,7 @@ mod tests {
             "Should have 3 valid states out of 4 total"
         );
         assert!(
-            valid_states.iter().all(|s| s.is_valid()),
+            valid_states.iter().all(super::State::is_valid),
             "All filtered states should be valid"
         );
 
@@ -789,7 +792,7 @@ mod tests {
     }
 
     /// ========================================================================
-    /// GridPosition example to test the State trait implementation
+    /// `GridPosition` example to test the State trait implementation
     /// ========================================================================
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct GridPosition {
@@ -825,7 +828,7 @@ mod tests {
         }
     }
 
-    /// Test GridPosition validation
+    /// Test `GridPosition` validation
     #[test]
     fn test_grid_position_validation() {
         let valid = GridPosition {
@@ -848,7 +851,7 @@ mod tests {
         );
     }
 
-    /// Test GridPosition flatten
+    /// Test `GridPosition` flatten
     #[test]
     fn test_grid_position_flattening() {
         let pos1 = GridPosition {
@@ -878,7 +881,7 @@ mod tests {
         assert_eq!(flat3, vec![9.0, 9.0, 10.0, 10.0]);
     }
 
-    /// Test that GridPosition numel matches shape product
+    /// Test that `GridPosition` numel matches shape product
     #[test]
     fn test_grid_position_consistency() {
         let pos = GridPosition {

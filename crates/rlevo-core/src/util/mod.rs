@@ -23,6 +23,7 @@ pub mod seed;
 /// assert_eq!(combinations(5, 0), 1);
 /// assert_eq!(combinations(3, 5), 0);
 /// ```
+#[must_use]
 pub fn combinations(n: u64, k: u64) -> u64 {
     if k > n {
         return 0;

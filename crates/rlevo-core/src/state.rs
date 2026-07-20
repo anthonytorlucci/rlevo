@@ -62,6 +62,7 @@ pub trait MarkovState {
     /// The default implementation returns `true`, which is correct for most
     /// fully-observable environments. Override to return `false` for raw pixel
     /// or partially-observable representations that require history stacking.
+    #[must_use]
     fn is_markov() -> bool {
         true
     }
@@ -103,6 +104,7 @@ pub trait BeliefState<
 
     /// Updates the belief distribution given the last action taken and the
     /// newly received observation.
+    #[must_use]
     fn update(&self, action: &A, observation: &Self::Observation) -> Self;
 
     /// Draws a state sample from the current belief distribution.
@@ -135,7 +137,7 @@ pub trait HiddenState<const R: usize>: Clone {
 
 /// Learned compact representation with encode, predict, and decode steps.
 ///
-/// Used by world-model agents (e.g., DreamerV3) that operate in a learned
+/// Used by world-model agents (e.g., `DreamerV3`) that operate in a learned
 /// latent space rather than the raw observation space.
 ///
 /// # Type Parameters
@@ -150,6 +152,7 @@ pub trait LatentState<const R: usize, const AR: usize>: Clone {
     fn encode(observation: &Self::Observation) -> Self;
 
     /// Rolls the latent state forward by one step given `action`.
+    #[must_use]
     fn predict_next<A: Action<AR>>(&self, action: &A) -> Self;
 
     /// Reconstructs an observation from the latent representation.
