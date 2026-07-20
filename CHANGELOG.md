@@ -352,6 +352,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   at the default bounds, which never bind on a healthy run (verified: the
   Pendulum end-to-end run passes unchanged at avg −1167.78).
 
+- **`SacTrainingConfig::log_std_min` / `log_std_max` removed — they were dead
+  state that silently did nothing** (resolves #185). Both fields were public,
+  defaulted to CleanRL's `-5.0` / `2.0`, were ordering-validated against each
+  other, and had public builder setters — but **no runtime path ever read
+  them**. `SacAgent`, `sac/train.rs`, and `SacModel` never touch them; the only
+  reads were `validate()` and the config's own tests. A user who called
+  `.log_std_min(-10.0)` got a config that accepted the value, reported it back
+  on the struct, and trained with the bounds entirely unchanged.
+
+  The clamp that actually runs has always come from
+  `SquashedGaussianPolicyHeadConfig` (`sac_policy.rs`), which carries its own
+  copy of the same two names — and that copy is untouched here. The duplication
+  was the defect; the head is the surviving owner, matching the convention ADR
+  0049 established for PPO's `TanhGaussianPolicyHeadConfig`. There was no seam
+  to wire the training-config fields through in the first place:
+  `SacAgent::new` takes an already-built `actor`, so the head's bounds are
+  fixed before the training config is ever consulted.
+
+  *Migration.* Set the bounds on the `SquashedGaussianPolicyHeadConfig` you use
+  to build the actor passed to `SacAgent::new`, and drop any
+  `.log_std_min(..)` / `.log_std_max(..)` calls on
+  `SacTrainingConfigBuilder`. Because the removed setters never had an effect,
+  this changes no training behaviour — code that compiled and trained before
+  trains identically after. `SacTrainingConfig::validate()` no longer emits a
+  `log_std_max` ordering error. `SquashedGaussianPolicyHeadConfig` carries the
+  equivalent check, but it is only reached if a caller invokes `.validate()` on
+  the head config explicitly — neither `init()` nor `SacAgent::new` does. That
+  was equally true before this change, so nothing that was running
+  automatically has been lost. **Persisted configs are unaffected**: `SacTrainingConfig` derives only
+  `Clone, Debug` and has no serde impl, so nothing on disk encodes these
+  fields.
+
 - **The `memory` module — `PrioritizedExperienceReplay`, its builder, and
   `TrainingBatch` — is removed outright, with no deprecation shim** (ADR 0050,
   resolves #188). The docs advertised the module as the sanctioned
