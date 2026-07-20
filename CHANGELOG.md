@@ -1171,6 +1171,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   all, so nothing would ever have overwritten the residue — and on
   pure-Polyak configs (`target_update_frequency == 0`) of all six agents.
 
+### Docs
+
+**Changed**
+
+- **`*Config` types keep their `pub` fields — this is now a recorded decision,
+  not an accident** (ADR 0055, closes #326). All 71 workspace `*Config` structs
+  expose `pub` fields, so `Config { lr: 3e-4, ..Default::default() }` compiles
+  without ever calling `validate()`. That was read as a validation hole, but
+  ADR 0026 deliberately placed the obligation on the **consumer**: the
+  constructor that takes the config by value calls `validate()?`. ADR 0055
+  writes down the allocation rule that was previously spread across
+  `docs/rules.md` §2/§4 and ADRs 0026/0027/0031 — `*Config` keeps `pub` fields
+  and is validated at consumption; `*State`/`*Params`/`*Genome` encapsulate;
+  an invariant that must survive struct-literal construction is encoded in a
+  validated newtype (`Bounds`, `Probability`, `NonNegativeRate`) rather than by
+  hiding the field; `#[non_exhaustive]` is reserved for enums. **No API
+  changes** — the struct-update idiom is explicitly supported and stays
+  supported. `docs/rules.md` §2 previously left the `*Config` exemption
+  inferable only from its absence in a list of three suffixes, which is why the
+  rule could not be reconstructed and the issue was filed.
+
+**Added**
+
+- Conformance test pinning the ADR 0026 consumption chokepoint across 31
+  `rlevo-environments` configs, asserting each `with_config` rejects an invalid
+  config with the expected structured `ConfigError` field and `ConstraintKind`.
+  Adding an environment now means adding a case here. `Taxi`/`Blackjack`/
+  `CliffWalking` are excluded with a stated reason — their `Validate` is
+  unconditionally `Ok(())`, having no numeric invariant to check.
+  Nothing previously failed if a new environment's constructor forgot
+  `validate()?` — that silent-regression risk is what #326 was groping at, and
+  it is the part of the issue that was real. Also characterizes the dormant
+  `Deserialize` gap: plain `derive(Deserialize)` accepts an out-of-domain
+  config (executed: `bincode` decodes `GoToDoorConfig { size: 1 }` below its
+  `MIN_SIZE = 5`), which is per ADR 0026 the loader's obligation — and no
+  config loader exists in the workspace today.
+
 ---
 
 ## [0.3.1] – 2026-07-17
