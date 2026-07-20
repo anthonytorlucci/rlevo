@@ -24,3 +24,6 @@ approx = { workspace = true }
 # `PolicyNeuroevolution` is generic over `E: Environment`, so the production
 # crate carries no environment dependency.
 rlevo-environments = { path = "../rlevo-environments", version = "0.3.1" }
+
+[lints]
+workspace = true
