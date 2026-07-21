@@ -17,6 +17,8 @@ use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
 use burn::tensor::backend::AutodiffBackend;
 
+use crate::utils::PolyakError;
+
 /// Contract implemented by any network usable as a DDPG actor or target
 /// actor.
 ///
@@ -45,7 +47,17 @@ pub trait DeterministicPolicy<B: AutodiffBackend, const DB: usize, const DAB: us
     ///
     /// Returns `(1 − τ) · target + τ · active` element-wise for every
     /// parameter.
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
+    /// [`ParamId`](burn::module::ParamId) topologies — see
+    /// [`polyak_update`](crate::utils::polyak_update).
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError>;
 }
 
 /// Contract implemented by any network usable as a DDPG continuous Q-critic
@@ -76,5 +88,15 @@ pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     ///
     /// Returns `(1 − τ) · target + τ · active` element-wise for every
     /// parameter, with `τ` drawn from [`DdpgTrainingConfig::tau`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig::tau).
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
+    /// [`ParamId`](burn::module::ParamId) topologies — see
+    /// [`polyak_update`](crate::utils::polyak_update).
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError>;
 }

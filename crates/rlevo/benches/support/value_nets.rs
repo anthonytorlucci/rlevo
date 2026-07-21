@@ -31,7 +31,7 @@ use burn::tensor::activation::tanh;
 use burn::tensor::backend::{AutodiffBackend, Backend, BackendTypes};
 use burn::tensor::{Tensor, activation};
 
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
@@ -86,7 +86,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for VecMlpDqn<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, VecMlpDqn<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -146,7 +150,11 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for GridMlpDqn<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, GridMlpDqn<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -215,7 +223,11 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -284,7 +296,11 @@ impl<B: AutodiffBackend> QrDqnModel<B, 2> for QrDqnMlp<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, QrDqnMlp<B::InnerBackend>>(
             &active.valid(),
             target,

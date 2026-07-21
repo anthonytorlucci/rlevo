@@ -50,6 +50,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
+use rlevo_reinforcement_learning::utils::PolyakError;
 
 use rlevo_benchmarks::record::schema::FamilyPayload;
 use rlevo_benchmarks::record::{
@@ -157,9 +158,13 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         inner.forward_impl(observations)
     }
 
-    fn soft_update(_active: &Self, target: Self::InnerModule, _tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        _active: &Self,
+        target: Self::InnerModule,
+        _tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         // Never reached: `target_update_frequency` exceeds `TOTAL_STEPS`.
-        target
+        Ok(target)
     }
 }
 

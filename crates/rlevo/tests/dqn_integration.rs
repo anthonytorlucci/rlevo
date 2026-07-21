@@ -23,7 +23,7 @@ use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
@@ -71,7 +71,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
             &active.valid(),
             target,

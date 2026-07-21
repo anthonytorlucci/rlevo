@@ -12,6 +12,8 @@ use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
 use burn::tensor::backend::AutodiffBackend;
 
+use crate::utils::PolyakError;
+
 /// Contract implemented by any network usable as a QR-DQN policy or target.
 ///
 /// Implementors provide:
@@ -39,5 +41,15 @@ pub trait QrDqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
 
     /// Polyak-averages `active` into `target` with coefficient `tau` and
     /// returns the updated target network.
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
+    /// [`ParamId`](burn::module::ParamId) topologies — see
+    /// [`polyak_update`](crate::utils::polyak_update).
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError>;
 }

@@ -115,7 +115,7 @@ where
         episode_steps += 1;
 
         if agent.should_train()
-            && let Some(outcome) = agent.learn_step(rng)
+            && let Some(outcome) = agent.learn_step(rng)?
         {
             last_loss = outcome.loss;
             last_q_mean = outcome.q_mean;

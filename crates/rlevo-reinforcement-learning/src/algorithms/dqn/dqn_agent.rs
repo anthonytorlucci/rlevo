@@ -26,7 +26,7 @@ use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
 use crate::algorithms::shared::{FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
-use crate::utils::compute_target_q_values;
+use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`DqnAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +40,10 @@ pub enum DqnAgentError {
     /// A replay buffer operation failed.
     #[error(transparent)]
     Buffer(#[from] ReplayBufferError),
+    /// The target soft-update failed because the policy and target networks
+    /// have mismatched parameter topologies.
+    #[error(transparent)]
+    Polyak(#[from] PolyakError),
     /// An I/O error occurred while saving or loading model weights.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -411,14 +415,28 @@ where
     /// Sampling and lookup run under the same `&mut self`, so this can only
     /// fire if a `ReplayStrategy` implementation violates the contract that a
     /// freshly sampled id resolves.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DqnAgentError::Polyak`] if the target soft-update finds a
+    /// parameter-topology mismatch between the policy and target networks (see
+    /// [`polyak_update`](crate::utils::polyak_update)). Every in-tree target is
+    /// cloned from its policy, so this cannot occur for agents built normally.
     // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
     // f32. This is the intended narrowing point, and the values are hyperparameters
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::too_many_lines
+    )]
+    pub fn learn_step<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<Option<LearnOutcome>, DqnAgentError> {
         if !self.can_learn() {
-            return None;
+            return Ok(None);
         }
         let batch_size = self.config.batch_size;
         // β is only consulted by prioritized replay; uniform ignores it. When
@@ -429,8 +447,11 @@ where
             .as_ref()
             .map_or(UNIFORM_REPLAY_BETA, |per| per.beta(self.step));
         // `can_learn()` above already established `buffer.len() >= batch_size`,
-        // so the only variant `sample` can return here is unreachable.
-        let batch = self.buffer.sample(batch_size, beta, rng).ok()?;
+        // so the only variant `sample` can return here is unreachable; treat it
+        // as a skipped step for safety.
+        let Ok(batch) = self.buffer.sample(batch_size, beta, rng) else {
+            return Ok(None);
+        };
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -523,7 +544,7 @@ where
         // loss/q-mean rather than advancing them with a NaN, and never counts
         // this as an applied update. The `warn!` is the surfacing mechanism.
         if !self.loss_guard.check(loss_value) {
-            return None;
+            return Ok(None);
         }
 
         let grads = loss_tensor.backward();
@@ -536,11 +557,12 @@ where
 
         // Soft update when tau > 0; otherwise rely on hard sync_target().
         if self.config.tau > 0.0 {
-            // Clone rather than move out: the field stays intact if
-            // `soft_update` panics, so a failure can't silently hard-sync
-            // the target onto the policy.
+            // Clone rather than move out: `soft_update` consumes `target` by
+            // value, so on `Err` the `?` returns before this reassignment and
+            // the field keeps its prior weights — no silent hard-sync (the
+            // invariant now holds via early return, and equally for a panic).
             self.target_net =
-                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
+                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau)?;
         }
 
         // PER priority writeback (Schaul Alg. 1 lines 11-12): the DQN priority
@@ -566,10 +588,10 @@ where
             }
         }
 
-        Some(LearnOutcome {
+        Ok(Some(LearnOutcome {
             loss: loss_value,
             q_mean,
-        })
+        }))
     }
 }
 
@@ -652,7 +674,11 @@ mod tests {
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+        fn soft_update(
+            active: &Self,
+            target: Self::InnerModule,
+            tau: f64,
+        ) -> Result<Self::InnerModule, PolyakError> {
             polyak_update::<B::InnerBackend, TestNet<B::InnerBackend>>(
                 &active.valid(),
                 target,
@@ -798,6 +824,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         agent
             .learn_step(&mut rng)
+            .expect("no polyak error")
             .expect("a primed agent with learning_starts = 0 learns");
         let after = agent
             .buffer
@@ -891,7 +918,7 @@ mod tests {
         agent.policy_net = Slot::new(poisoned);
 
         let mut rng = StdRng::seed_from_u64(0);
-        let outcome = agent.learn_step(&mut rng);
+        let outcome = agent.learn_step(&mut rng).expect("no polyak error");
 
         assert!(
             outcome.is_none(),
@@ -915,6 +942,51 @@ mod tests {
         assert!(
             action.is_valid(),
             "act must still return a valid action after a skipped step"
+        );
+    }
+
+    /// Agent-level guard for ADR 0057 / issue #341: when the target soft-update
+    /// fails inside `learn_step` because the target network carries independent
+    /// `ParamId`s, the agent must (a) surface the failure as
+    /// `DqnAgentError::Polyak(PolyakError::MissingActive(_))` and (b) leave its
+    /// `target_net` field byte-identical — no silent hard-sync onto the live
+    /// network. The unit tests in `utils.rs` prove `polyak_update` itself
+    /// returns `Err` without mutating; this proves the agent propagates that
+    /// `Err` through `?` *before* the `self.target_net = …` reassignment.
+    #[test]
+    fn dqn_soft_update_err_leaves_target_untouched() {
+        let mut agent = primed_uniform_agent();
+        assert!(
+            agent.config.tau > 0.0,
+            "the soft target update must be live for this path to run"
+        );
+
+        // Inject a target built independently of the policy: `TestNet::constant`
+        // mints fresh `ParamId`s, so its weight id has no counterpart in the
+        // policy net and `polyak_update` must reject it. (Same construction the
+        // `diverged_agent` helper uses, but here the mismatch is a *topology*
+        // mismatch, not just a value divergence.)
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let foreign_target: TestNet<TestInner> = TestNet::constant(&device, 2.0);
+        agent.target_net = foreign_target;
+
+        // Byte-for-byte snapshot of the target field before the failed step.
+        let target_before = weights(&agent.target_net);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let err = agent
+            .learn_step(&mut rng)
+            .expect_err("an independently-minted target must fail the soft update");
+
+        assert!(
+            matches!(err, DqnAgentError::Polyak(PolyakError::MissingActive(_))),
+            "a foreign target param must surface as \
+             DqnAgentError::Polyak(PolyakError::MissingActive(_)); got {err:?}"
+        );
+        assert_eq!(
+            weights(&agent.target_net),
+            target_before,
+            "a failed soft update must leave the target field untouched — no silent hard-sync"
         );
     }
 

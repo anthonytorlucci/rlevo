@@ -24,7 +24,7 @@ use rlevo_reinforcement_learning::algorithms::c51::c51_config::{
 };
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
 use rlevo_test_support::env::cartpole_seeded;
@@ -76,7 +76,11 @@ impl<B: AutodiffBackend> C51Model<B, 2> for C51Mlp<B> {
         inner.forward_impl(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, C51Mlp<B::InnerBackend>>(
             &active.valid(),
             target,

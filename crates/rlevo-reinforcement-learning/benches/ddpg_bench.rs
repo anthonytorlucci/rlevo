@@ -10,7 +10,7 @@ use burn::tensor::Tensor;
 use burn::tensor::activation::{relu, tanh};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -72,7 +72,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for ActorMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, ActorMlp<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -125,7 +129,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for CriticMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, CriticMlp<B::InnerBackend>>(
             &active.valid(),
             target,

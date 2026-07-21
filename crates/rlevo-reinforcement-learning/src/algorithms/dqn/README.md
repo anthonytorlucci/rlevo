@@ -41,7 +41,9 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for MyDqn<B> {
         active: &Self,
         target: Self::InnerModule,
         tau: f64,
-    ) -> Self::InnerModule { /* use ModuleVisitor + ModuleMapper */ }
+    ) -> Result<Self::InnerModule, PolyakError> {
+        /* use ModuleVisitor + ModuleMapper; delegate to utils::polyak_update */
+    }
 }
 ```
 

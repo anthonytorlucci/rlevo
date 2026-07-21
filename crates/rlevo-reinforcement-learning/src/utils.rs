@@ -3,7 +3,7 @@
 //! Provides stateless helper functions used across multiple RL algorithms,
 //! such as Bellman target computation and Polyak averaging.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
@@ -53,6 +53,32 @@ pub fn compute_target_q_values<B: Backend>(
 // Polyak averaging
 // ---------------------------------------------------------------------------
 
+/// Error returned by [`polyak_update`] when the `active` and `target` networks
+/// have mismatched [`ParamId`] topologies.
+///
+/// Both variants signal that `target` was not derived from `active` (a fresh
+/// `init` mints new [`ParamId`]s, so two independently built modules never
+/// match). Building `target` by cloning `active` makes both impossible by
+/// construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PolyakError {
+    /// A `target` parameter has no counterpart in `active` — the modules were
+    /// built independently (issue #341 defect 1). Names the offending id.
+    #[error(
+        "polyak_update: target parameter {0:?} has no counterpart in the active network; \
+         the modules were built independently — build target by cloning active"
+    )]
+    MissingActive(ParamId),
+    /// An `active` parameter was never consumed by any `target` field — `target`
+    /// is a strict subset of `active` (issue #341 defect 3). Applying only the
+    /// overlap would be a silent partial update, so this is surfaced instead.
+    #[error(
+        "polyak_update: active parameter {0:?} has no counterpart in target — target is a \
+         strict subset of active; a partial update would be silent"
+    )]
+    MissingTarget(ParamId),
+}
+
 struct ParamCollector<B: Backend> {
     tensors: HashMap<ParamId, TensorData>,
     _marker: PhantomData<B>,
@@ -66,17 +92,29 @@ impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
 
 struct PolyakMapper<B: Backend> {
     active: HashMap<ParamId, TensorData>,
+    seen: HashSet<ParamId>,
     tau: f32,
+    error: Option<PolyakError>,
     _marker: PhantomData<B>,
 }
 
 impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
     fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
         let id = param.id;
-        let active = self
-            .active
-            .remove(&id)
-            .expect("param not collected from active network");
+        // `.get().cloned()`, not `.remove()`: a single `ParamId` may back
+        // several target fields (tied weights — two module fields holding
+        // clones of one `Param` share an id), so each id must remain lookable
+        // more than once.
+        //
+        // On a lookup miss the mapper cannot fail out of `map_float` (the trait
+        // method is infallible), so it records the *first* miss and returns the
+        // parameter untouched; `polyak_update` reports the recorded error after
+        // the walk completes.
+        let Some(active) = self.active.get(&id).cloned() else {
+            self.error.get_or_insert(PolyakError::MissingActive(id));
+            return param;
+        };
+        self.seen.insert(id);
         let tau = self.tau;
         param.map(move |target_tensor| {
             let device = target_tensor.device();
@@ -94,17 +132,33 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
 /// Parameters are paired by [`ParamId`], not by position or name, so `target`
 /// must carry the *same* `ParamId`s as `active`.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `target` holds a parameter whose [`ParamId`] is absent from
-/// `active` — that is, if the two modules were built independently rather than
-/// `target` being derived from `active`.
+/// Returns [`PolyakError::MissingActive`] if `target` holds a parameter whose
+/// [`ParamId`] is absent from `active` — that is, if the two modules were built
+/// independently rather than `target` being derived from `active`. The error
+/// names the first offending [`ParamId`].
+///
+/// Returns [`PolyakError::MissingTarget`] if `active` holds a parameter whose
+/// [`ParamId`] is absent from `target` — a strict-subset topology in which some
+/// active parameters have no counterpart to update. Rather than silently
+/// applying a partial update, the update reports the smallest leftover
+/// [`ParamId`]. On either error the returned network is discarded and the
+/// caller's `target` retains its prior weights.
+///
+/// Tied weights are supported: several `target` fields may share one
+/// [`ParamId`] (module fields holding clones of a single [`Param`]), and each
+/// is blended from the one matching active entry.
 ///
 /// A fresh `init` mints new `ParamId`s, so two separately initialised networks
 /// never match even when their architecture and weights are identical. Build
 /// the target network by cloning the active one (`let target = active.clone();`)
-/// and it holds by construction; every in-tree agent does this.
-pub fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) -> M {
+/// and both errors are impossible by construction; every in-tree agent does this.
+pub fn polyak_update<B: Backend, M: Module<B>>(
+    active: &M,
+    target: M,
+    tau: f32,
+) -> Result<M, PolyakError> {
     let mut collector = ParamCollector::<B> {
         tensors: HashMap::new(),
         _marker: PhantomData,
@@ -112,10 +166,31 @@ pub fn polyak_update<B: Backend, M: Module<B>>(active: &M, target: M, tau: f32) 
     active.visit(&mut collector);
     let mut mapper = PolyakMapper::<B> {
         active: collector.tensors,
+        seen: HashSet::new(),
         tau,
+        error: None,
         _marker: PhantomData,
     };
-    target.map(&mut mapper)
+    let updated = target.map(&mut mapper);
+    // A `target` parameter with no counterpart in `active` was recorded during
+    // the walk; surface the first such miss.
+    if let Some(e) = mapper.error {
+        return Err(e);
+    }
+    // Every active parameter must have been consumed by some target field. Any
+    // leftover means `target` is a strict subset of `active`; applying only the
+    // overlap would be a silent partial update, so report the smallest leftover
+    // id (`.min()` makes the report deterministic).
+    if let Some(id) = mapper
+        .active
+        .keys()
+        .filter(|id| !mapper.seen.contains(id))
+        .min()
+        .copied()
+    {
+        return Err(PolyakError::MissingTarget(id));
+    }
+    Ok(updated)
 }
 
 #[cfg(test)]
@@ -363,7 +438,8 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated = polyak_update::<TestBackend, _>(&active, target, 0.0);
+        let updated =
+            polyak_update::<TestBackend, _>(&active, target, 0.0).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(TARGET_FLAT.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -381,7 +457,8 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated = polyak_update::<TestBackend, _>(&active, target, 1.0);
+        let updated =
+            polyak_update::<TestBackend, _>(&active, target, 1.0).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(ACTIVE_FLAT.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -404,7 +481,8 @@ mod tests {
         let (active, target) = fixture();
         assert_nets_differ(&active, &target);
 
-        let updated = polyak_update::<TestBackend, _>(&active, target, 0.25);
+        let updated =
+            polyak_update::<TestBackend, _>(&active, target, 0.25).expect("ids match by fixture");
 
         for (i, (got, want)) in updated.flat().iter().zip(EXPECTED.iter()).enumerate() {
             assert_abs_diff_eq!(got, want, epsilon = EPS);
@@ -424,7 +502,8 @@ mod tests {
         let before_shapes = target.shapes();
         let before_len = target.flat().len();
 
-        let updated = polyak_update::<TestBackend, _>(&active, target, 0.3);
+        let updated =
+            polyak_update::<TestBackend, _>(&active, target, 0.3).expect("ids match by fixture");
 
         assert_eq!(
             updated.shapes(),
@@ -453,7 +532,8 @@ mod tests {
 
         let mut prev = target.flat();
         for step in 0..STEPS {
-            target = polyak_update::<TestBackend, _>(&active, target, TAU);
+            target = polyak_update::<TestBackend, _>(&active, target, TAU)
+                .expect("ids match by fixture");
             let now = target.flat();
 
             for (i, (&before, &after)) in prev.iter().zip(now.iter()).enumerate() {
@@ -488,5 +568,190 @@ mod tests {
                  {STEPS} steps; got {got}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // ParamId topology: tied weights, foreign target params, strict subsets
+    // (issue #341)
+    // -----------------------------------------------------------------------
+
+    /// Two same-typed [`Param`] fields, so a fixture can make them share one
+    /// [`ParamId`] (tied weights) or carry two distinct ids.
+    #[derive(Module, Debug)]
+    struct TiedNet<B: Backend> {
+        a: Param<Tensor<B, 1>>,
+        b: Param<Tensor<B, 1>>,
+    }
+
+    /// Three same-typed [`Param`] fields, so a fixture can leave **two**
+    /// distinct active ids unconsumed by the target — enough to distinguish
+    /// "reports the true `.min()` leftover" from "reports whatever id `HashMap`
+    /// iteration happened to surface first".
+    #[derive(Module, Debug)]
+    struct TripleNet<B: Backend> {
+        a: Param<Tensor<B, 1>>,
+        b: Param<Tensor<B, 1>>,
+        c: Param<Tensor<B, 1>>,
+    }
+
+    /// Reads a rank-1 param to host floats.
+    fn param_vec<B: Backend>(param: &Param<Tensor<B, 1>>) -> Vec<f32> {
+        param
+            .val()
+            .to_data()
+            .to_vec::<f32>()
+            .expect("param is f32 by construction")
+    }
+
+    #[test]
+    fn test_polyak_update_blends_tied_weights_without_panic() {
+        // Regression for the `.remove()` double-consume: `a` and `b` are clones
+        // of one `Param`, so they share a single `ParamId`. The active network
+        // therefore contributes exactly one collector entry, and *both* target
+        // fields must be blendable from it. Under the old `.remove()` the second
+        // field's lookup found the id already consumed and panicked.
+
+        // Target values, and the tau = 0.25 blend 0.75 * target + 0.25 * active.
+        const TARGET: [f32; 3] = [-1.0, -2.0, -3.0];
+        const EXPECTED: [f32; 3] = [-0.5, -1.0, -1.5];
+
+        let device = TestDevice::default();
+
+        // Active: both fields are clones of one param -> one shared id, one value.
+        let active_shared = Param::from_data([1.0_f32, 2.0, 3.0], &device);
+        let shared_id = active_shared.id;
+        let active = TiedNet::<TestBackend> {
+            a: active_shared.clone(),
+            b: active_shared.clone(),
+        };
+
+        // Target: both fields share that same id but hold a different value.
+        let target_shared = Param::initialized(
+            shared_id,
+            Tensor::from_data([-1.0_f32, -2.0, -3.0], &device),
+        );
+        let target = TiedNet::<TestBackend> {
+            a: target_shared.clone(),
+            b: target_shared.clone(),
+        };
+
+        let updated = polyak_update::<TestBackend, _>(&active, target, 0.25)
+            .expect("tied weights share one active entry; the update must succeed");
+
+        for (field, values) in [("a", param_vec(&updated.a)), ("b", param_vec(&updated.b))] {
+            for (i, &got) in values.iter().enumerate() {
+                assert_abs_diff_eq!(got, EXPECTED[i], epsilon = EPS);
+                assert!(
+                    (got - TARGET[i]).abs() > EPS,
+                    "tied field {field}[{i}] must be blended from the shared active entry, \
+                     not left at its target value; got {got}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_polyak_update_errors_on_foreign_target_param() {
+        // Both fields of `target` carry a fresh id (`from_data` mints new ones),
+        // so neither is present in `active`. The update must fail with
+        // `MissingActive` naming the offending id rather than silently doing
+        // nothing.
+        let device = TestDevice::default();
+
+        let active_shared = Param::from_data([1.0_f32], &device);
+        let active = TiedNet::<TestBackend> {
+            a: active_shared.clone(),
+            b: active_shared.clone(),
+        };
+
+        // Independently minted ids -> no counterpart in active. Both fields
+        // share `foreign.id`, so the first-recorded miss is that id.
+        let foreign = Param::from_data([2.0_f32], &device);
+        let foreign_id = foreign.id;
+        let target = TiedNet::<TestBackend> {
+            a: foreign.clone(),
+            b: foreign.clone(),
+        };
+
+        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+
+        assert_eq!(result.err(), Some(PolyakError::MissingActive(foreign_id)));
+    }
+
+    #[test]
+    fn test_polyak_update_errors_on_strict_subset_target() {
+        // Active carries two distinct ids (A, B). Target's two fields both share
+        // id A, so its param set {A} is a strict subset of active's {A, B}. The
+        // B entry is never consumed; the old code silently dropped it, the new
+        // code must report `MissingTarget(B)`.
+        let device = TestDevice::default();
+
+        let param_a = Param::from_data([1.0_f32], &device);
+        let param_b = Param::from_data([2.0_f32], &device);
+        let missing_id = param_b.id;
+        let active = TiedNet::<TestBackend> {
+            a: param_a.clone(),
+            b: param_b.clone(),
+        };
+
+        // Target: both fields share A -> B has no counterpart in target.
+        let target_a = Param::initialized(param_a.id, Tensor::from_data([-1.0_f32], &device));
+        let target = TiedNet::<TestBackend> {
+            a: target_a.clone(),
+            b: target_a.clone(),
+        };
+
+        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+
+        assert_eq!(result.err(), Some(PolyakError::MissingTarget(missing_id)));
+    }
+
+    #[test]
+    fn test_polyak_update_reports_min_missing_target_id() {
+        // Active carries three distinct ids (A, B, C). The target's three fields
+        // all share id A, so active's set {A, B, C} strictly contains target's
+        // {A}: *two* entries — B and C — are never consumed. `MissingTarget` is
+        // documented to name the smallest leftover id (`.min()`), so a single
+        // leftover cannot distinguish "reports the true min" from "reports the
+        // first id `HashMap` iteration yielded". Two leftovers can.
+        let device = TestDevice::default();
+
+        let param_a = Param::from_data([1.0_f32], &device);
+        let param_b = Param::from_data([2.0_f32], &device);
+        let param_c = Param::from_data([3.0_f32], &device);
+
+        // Do not assume the minting order of ids; compute the expected minimum
+        // leftover explicitly from the two ids the target fails to consume.
+        let expected_min = param_b.id.min(param_c.id);
+        // Both leftovers are distinct, so the assertion below is non-vacuous.
+        assert_ne!(
+            param_b.id, param_c.id,
+            "the two leftover ids must differ for the min to be meaningful"
+        );
+
+        let active = TripleNet::<TestBackend> {
+            a: param_a.clone(),
+            b: param_b.clone(),
+            c: param_c.clone(),
+        };
+
+        // Target: all three fields share A -> B and C have no counterpart.
+        let target_a = Param::initialized(param_a.id, Tensor::from_data([-1.0_f32], &device));
+        let target = TripleNet::<TestBackend> {
+            a: target_a.clone(),
+            b: target_a.clone(),
+            c: target_a.clone(),
+        };
+
+        let result = polyak_update::<TestBackend, _>(&active, target, 0.5);
+
+        assert_eq!(
+            result.err(),
+            Some(PolyakError::MissingTarget(expected_min)),
+            "MissingTarget must report the smallest leftover id ({expected_min:?}), \
+             not whichever of {:?} / {:?} HashMap order surfaced first",
+            param_b.id,
+            param_c.id
+        );
     }
 }

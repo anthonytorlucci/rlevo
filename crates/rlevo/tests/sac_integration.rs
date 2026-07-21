@@ -32,7 +32,7 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     ContinuousQ, SampleOutput, SquashedGaussianPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::sac::train::train;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
@@ -175,7 +175,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
         inner.forward_impl(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -340,7 +344,10 @@ fn sac_alpha_moves_under_autotune() {
 
     let before = agent.last_alpha();
     for _ in 0..200 {
-        let _ = agent.learn_step(&mut rng).expect("can learn");
+        let _ = agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("can learn");
     }
     let after = agent.last_alpha();
     assert!(after.is_finite(), "alpha must stay finite, got {after}");
@@ -377,7 +384,10 @@ fn sac_alpha_frozen_when_autotune_disabled() {
 
     prime_buffer(&mut agent, &mut env, &mut rng, 128);
     for _ in 0..50 {
-        let _ = agent.learn_step(&mut rng).expect("can learn");
+        let _ = agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("can learn");
     }
     assert!(
         (agent.last_alpha() - 0.2).abs() < 1e-6,

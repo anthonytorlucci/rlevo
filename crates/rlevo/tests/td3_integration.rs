@@ -31,7 +31,7 @@ use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::td3::train::train;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
 use rlevo_test_support::baseline::{random_return, uniform_bounded};
@@ -83,7 +83,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
         inner.forward_impl(obs)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -129,7 +133,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
         inner.forward_impl(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -337,7 +345,10 @@ fn td3_delayed_update_skips_actor_step() {
     // must fire on 5 of them.
     let mut actor_fires = 0_usize;
     for _ in 0..10 {
-        let outcome = agent.learn_step(&mut rng).expect("can learn");
+        let outcome = agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("can learn");
         if outcome.actor_loss.is_some() {
             actor_fires += 1;
         }

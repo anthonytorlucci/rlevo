@@ -36,7 +36,7 @@ use crate::algorithms::shared::{
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
 use crate::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
-use crate::utils::compute_target_q_values;
+use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`Td3Agent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +50,10 @@ pub enum Td3AgentError {
     /// A replay-buffer operation failed.
     #[error(transparent)]
     Buffer(#[from] ReplayBufferError),
+    /// A target soft-update failed because a live network and its target twin
+    /// have mismatched parameter topologies.
+    #[error(transparent)]
+    Polyak(#[from] PolyakError),
     /// An I/O error occurred while saving or loading model weights.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -499,26 +503,37 @@ where
     /// the three steps run in disjoint windows, so a `critic_1` step panic does
     /// not affect `critic_2` or the actor. A poisoned agent cannot be recovered
     /// and must be rebuilt — see the type-level docs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Td3AgentError::Polyak`] if a target soft-update finds a
+    /// parameter-topology mismatch between a live network and its target twin
+    /// (see [`polyak_update`](crate::utils::polyak_update)). Every in-tree
+    /// target is cloned from its active network, so this cannot occur for
+    /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
     // it into helpers to satisfy the line count would thread that borrow through
     // signatures without making the sequence easier to follow.
     #[allow(clippy::too_many_lines)]
-    pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
+    pub fn learn_step<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<Option<LearnOutcome>, Td3AgentError> {
         if !self.can_learn() {
-            return None;
+            return Ok(None);
         }
         let batch_size = self.config.batch_size;
         let device = self.device.clone();
 
         // --- Sample batch ---
         // `can_learn()` above already established `buffer.len() >= batch_size`,
-        // so the only variant `sample` can return here is unreachable.
-        let batch = self
-            .buffer
-            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
-            .ok()?;
+        // so the only variant `sample` can return here is unreachable; treat it
+        // as a skipped step for safety.
+        let Ok(batch) = self.buffer.sample(batch_size, UNIFORM_REPLAY_BETA, rng) else {
+            return Ok(None);
+        };
 
         let obs_shape = O::shape();
         let obs_numel: usize = obs_shape.iter().product();
@@ -684,26 +699,28 @@ where
             // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
             // run whether or not the actor step was skipped — the healthy
             // networks keep being tracked by their targets. Clone rather than
-            // move out: each target field stays intact if `soft_update` panics,
-            // so a failure can't silently hard-sync the target onto its live
-            // network.
+            // move out: `soft_update` consumes `target` by value, so on `Err`
+            // the `?` returns before the reassignment and each target field
+            // keeps its prior weights — no silent hard-sync onto its live
+            // network (the invariant now holds via early return, and equally
+            // for a panic).
             let tau = f64::from(self.config.tau);
             self.target_actor =
-                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
+                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau)?;
             self.target_critic_1 =
-                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau);
+                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau)?;
             self.target_critic_2 =
-                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau);
+                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau)?;
         }
 
-        Some(LearnOutcome {
+        Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic losses so a skipped
             // (non-finite) step carries its last healthy value forward rather
             // than poisoning the metric with a NaN (#318, ADR 0056 §3).
             critic_loss: self.last_qf1_loss + self.last_qf2_loss,
             actor_loss: actor_loss_opt,
             q_mean,
-        })
+        }))
     }
 
     /// Most recent actor loss (persists between policy updates).
@@ -885,6 +902,7 @@ mod tests {
         // test outright.
         let outcome = agent
             .learn_step(&mut rng)
+            .expect("no polyak error")
             .expect("a primed agent past warm-up learns");
         let after = critic_2_probe(&agent);
 

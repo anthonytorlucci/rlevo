@@ -122,7 +122,7 @@ where
         episode_reward += reward_f32;
         episode_steps += 1;
 
-        if let Some(outcome) = agent.learn_step(rng) {
+        if let Some(outcome) = agent.learn_step(rng)? {
             last_critic_loss = outcome.critic_loss;
             last_qf1_loss = outcome.qf1_loss;
             last_qf2_loss = outcome.qf2_loss;

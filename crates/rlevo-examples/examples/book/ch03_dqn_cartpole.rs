@@ -29,7 +29,7 @@ use burn::tensor::activation::relu;
 use burn::tensor::backend::{AutodiffBackend, Backend};
 
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 /// Two-hidden-layer `ReLU` MLP mapping a 4-D `CartPole` observation to a Q-value
 /// per action: `4 → 64 → 64 → 2`. The input/output sizes live in *the model*,
@@ -75,7 +75,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
     /// Polyak (soft) update of the target network toward the active weights:
     /// `target ← τ·active + (1 − τ)·target`.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, DqnMlp<B::InnerBackend>>(
             &active.valid(),
             target,
