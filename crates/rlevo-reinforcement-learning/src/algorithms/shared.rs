@@ -1,7 +1,9 @@
 //! Shared infrastructure for the algorithm implementations in this module.
 //!
 //! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
-//! trainable network across a Burn optimizer step, and [`LogWatermark`], the
+//! trainable network across a Burn optimizer step; [`FiniteLossGuard`], the
+//! non-finite-loss skip-and-warn guard every learn step consults before
+//! `backward()` (ADR 0056, issue #318); and [`LogWatermark`], the
 //! progress-logging trigger shared by the on-policy training loops.
 //!
 //! # Why a `Slot` exists
@@ -398,6 +400,92 @@ impl<M> Slot<M> {
     {
         let module = self.0.take().expect(POISONED);
         self.0 = Some(opt.step(lr, module, grads));
+    }
+}
+
+/// Non-finite-loss skip-and-warn guard for one loss site of one agent
+/// (ADR 0056, issue #318).
+///
+/// Burn does not panic on `NaN` — it propagates it silently, folding a poisoned
+/// loss into the weights on the next optimizer step while training keeps
+/// reporting finite-looking metrics. Every agent already reads its loss scalar
+/// host-side (`into_scalar().elem::<f32>()`) *before* `loss.backward()` for its
+/// metrics, so a finiteness check on that `f32` costs no extra device→host
+/// sync. [`check`](Self::check) rides that existing read: on a non-finite value
+/// it tells the caller to skip both `backward()` and the optimizer step, so the
+/// poison never reaches the parameters and the next minibatch can recover.
+///
+/// This generalizes the SAC-α optimizer guard (#184,
+/// [`sac_alpha`](super::sac::sac_alpha)) from one hand-rolled optimizer to
+/// every agent's learn step. The canonical precedent outside RL is `PyTorch`
+/// AMP's `GradScaler`, which skips `optimizer.step()` when the unscaled
+/// gradients contain `inf`/`NaN` so the params stay uncorrupted, and continues.
+///
+/// One guard instance owns one loss site: each distinct failure mode keeps its
+/// own `warn!` latch so one site firing cannot silence another's diagnostic.
+pub(crate) struct FiniteLossGuard {
+    /// One-shot latch for the non-finite-loss warning. Latches the `warn!`
+    /// only — never the skip.
+    warned: bool,
+    /// Static site label (e.g. `"ppo/policy_loss"`) used in the warning's
+    /// structured `site` field and message.
+    label: &'static str,
+}
+
+impl FiniteLossGuard {
+    /// Creates a guard for the loss site named `label` (e.g.
+    /// `"ppo/policy_loss"`), with its warning latch un-armed.
+    pub(crate) const fn new(label: &'static str) -> Self {
+        Self {
+            warned: false,
+            label,
+        }
+    }
+
+    /// Returns `true` if `loss` is finite — the caller proceeds to `backward()`
+    /// and the optimizer step. Returns `false` if non-finite (NaN/±Inf) — the
+    /// caller MUST skip both. On the FIRST non-finite value only, emits a
+    /// one-shot `tracing::warn!`.
+    ///
+    /// CRITICAL: the skip (returning `false`) fires on EVERY non-finite
+    /// occurrence; only the `warn!` is latched. Never gate the return value
+    /// on `self.warned` — a run that emits NaN every step must be protected
+    /// every step (see ADR 0056 §3 and the mixed-precision `GradScaler`
+    /// precedent).
+    pub(crate) fn check(&mut self, loss: f32) -> bool {
+        if loss.is_finite() {
+            return true;
+        }
+        if !self.warned {
+            self.warned = true;
+            tracing::warn!(
+                loss = loss,
+                site = self.label,
+                "Non-finite loss ({loss}) at {} — the backward pass and \
+                 optimizer step were SKIPPED to keep weights uncorrupted \
+                 (Burn propagates NaN silently rather than panicking). This \
+                 step's value is excluded from the reported mean. One isolated \
+                 occurrence is usually harmless; a persistent source is almost \
+                 always a diverging policy/critic, a bad learning rate, or a \
+                 degenerate log/div (e.g. PPO ratio exp-overflow). Check loss \
+                 magnitudes and lower the learning rate or rescale rewards if \
+                 they grow without bound.",
+                self.label,
+            );
+        }
+        false
+    }
+
+    /// Whether the one-shot non-finite-loss warning has already fired for this
+    /// instance.
+    ///
+    /// Exposed for tests: the crate has no `tracing` capture dependency, so the
+    /// once-only latch is asserted directly rather than by scraping log output
+    /// — the same approach as
+    /// [`LogAlpha::nonfinite_grad_warning_fired`](super::sac::sac_alpha).
+    #[cfg(test)]
+    pub(crate) fn warning_fired(&self) -> bool {
+        self.warned
     }
 }
 
@@ -1203,6 +1291,73 @@ mod tests {
         assert!(
             wm.should_log(192),
             "the watermark must re-arm once `every` steps have elapsed"
+        );
+    }
+
+    // -------- FiniteLossGuard --------
+
+    #[test]
+    fn finite_loss_guard_passes_finite_and_does_not_arm() {
+        let mut guard = FiniteLossGuard::new("test/site");
+        assert!(guard.check(1.5), "a finite positive loss must proceed");
+        assert!(guard.check(0.0), "zero is finite and must proceed");
+        assert!(guard.check(-3.25), "a finite negative loss must proceed");
+        assert!(
+            !guard.warning_fired(),
+            "a finite loss must not arm the warning latch"
+        );
+    }
+
+    #[test]
+    fn finite_loss_guard_skips_and_arms_on_nan() {
+        let mut guard = FiniteLossGuard::new("test/site");
+        assert!(
+            !guard.check(f32::NAN),
+            "a NaN loss must return false (skip)"
+        );
+        assert!(
+            guard.warning_fired(),
+            "the first NaN must arm the one-shot warning latch"
+        );
+    }
+
+    #[test]
+    fn finite_loss_guard_skips_and_arms_on_infinities() {
+        for inf in [f32::INFINITY, f32::NEG_INFINITY] {
+            let mut guard = FiniteLossGuard::new("test/site");
+            assert!(!guard.check(inf), "±inf ({inf}) must return false (skip)");
+            assert!(
+                guard.warning_fired(),
+                "an infinite loss ({inf}) must arm the warning latch"
+            );
+        }
+    }
+
+    #[test]
+    fn finite_loss_guard_skip_refires_but_warning_latches_once() {
+        // ADR 0056 §3: the skip must fire on EVERY non-finite occurrence — only
+        // the `warn!` is one-shot. A run that emits NaN every step must be
+        // protected every step, so `check` returning `false` can never be
+        // gated on the latch.
+        let mut guard = FiniteLossGuard::new("test/site");
+
+        assert!(!guard.check(f32::NAN), "the first NaN must skip");
+        assert!(guard.warning_fired(), "and arm the latch");
+
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(
+                !guard.check(bad),
+                "a subsequent non-finite value ({bad}) must STILL skip"
+            );
+            assert!(
+                guard.warning_fired(),
+                "the latch stays armed but cannot re-warn"
+            );
+        }
+
+        assert!(
+            guard.check(2.0),
+            "a healthy loss after a latched failure must proceed again"
         );
     }
 }

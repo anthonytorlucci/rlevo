@@ -642,6 +642,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **A non-finite loss no longer silently poisons the weights** (ADR 0056,
+  resolves #318). Burn does not panic on `NaN`/`±Inf` — it propagates it. A loss
+  that went non-finite (a PPO `ratio = exp(new − old)` overflow when
+  `new − old > ~88`, a degenerate `log`/`div` in an entropy or log-prob term, an
+  exploding gradient) was fed straight into `backward()` and the optimizer step,
+  corrupting every weight while training continued and reported finite-looking
+  bookkeeping. Every agent now runs its already-host-resident loss scalar through
+  a `FiniteLossGuard` *before* `backward()`; on a non-finite value it **skips the
+  backward pass and the optimizer step** (the skip re-fires every occurrence, so
+  a persistently-diverging run is protected every step, not just once) and emits a
+  **one-shot** `tracing::warn!` naming the site and the likely cause. The check
+  rides the read every agent already did for metrics, so it adds no device→host
+  sync and runs unconditionally in release. Skipped values are excluded from the
+  reported loss means, so a single `NaN` can no longer masquerade as a finite
+  average. Covers all eight agents (PPO, PPG, DQN, C51, QR-DQN, SAC, DDPG, TD3),
+  generalizing the SAC-α guard from #184. The existing tests missed this because
+  the cross-crate suite asserts *reward* finiteness (a fully `NaN`-poisoned
+  network still emits finite rewards) and the reproducibility suite only checks
+  same-seed self-consistency (a deterministic `NaN` reproduces perfectly). This
+  is a loss-level guard: it fully prevents *loss-origin* `NaN` but only surfaces
+  (does not recover from) the rarer *finite-loss → `NaN`-gradient* case, which is
+  tracked separately under #328; reward-ingress finiteness is #352.
 - **The `BoundedAction` construction-time check now enforces the ordering half of
   the contract too**, not just the length half. `low()[i] < high()[i]` is stated
   in the trait docs and in `docs/rules.md` §3, but only the lengths were verified

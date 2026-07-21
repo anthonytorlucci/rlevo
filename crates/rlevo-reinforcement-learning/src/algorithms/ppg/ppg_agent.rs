@@ -26,7 +26,7 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
-use crate::algorithms::shared::Slot;
+use crate::algorithms::shared::{FiniteLossGuard, Slot};
 use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -171,6 +171,17 @@ where
     step: usize,
     stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
+    /// Non-finite-loss guard for the policy-phase policy-loss site (ADR 0056,
+    /// #318). One per-run `warn!` latch per site; the skip fires every time.
+    policy_loss_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the policy-phase value-loss site.
+    value_loss_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the auxiliary-phase main-value-loss site.
+    aux_main_value_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the auxiliary-phase combined loss
+    /// (`aux_v_loss + β·KL`); its input is host-*derived* from the two summands
+    /// already read, adding no sync (ADR 0056 §5).
+    aux_total_guard: FiniteLossGuard,
 }
 
 impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpgAgent<B, P, V, O, DO, DB>
@@ -288,6 +299,10 @@ where
             step: 0,
             stats,
             last_aux: None,
+            policy_loss_guard: FiniteLossGuard::new("ppg/policy_loss"),
+            value_loss_guard: FiniteLossGuard::new("ppg/value_loss"),
+            aux_main_value_guard: FiniteLossGuard::new("ppg/aux_main_value_loss"),
+            aux_total_guard: FiniteLossGuard::new("ppg/aux_total_loss"),
         })
     }
 
@@ -542,6 +557,11 @@ where
         let mut last_kl = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
+        // Denominators for the two gated means: only minibatches whose loss was
+        // finite and applied (#318, ADR 0056 §3). `mb_count` still denominates
+        // the ungated diagnostics.
+        let mut policy_healthy = 0_usize;
+        let mut value_healthy = 0_usize;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -605,10 +625,18 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                let grads = policy_loss.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.policy());
-                self.policy
-                    .step_with(&mut self.policy_optim, lr, grads_params);
+                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // so the finiteness check costs no extra sync. A non-finite
+                // loss skips `backward()` + the optimizer step and is excluded
+                // from the reported mean.
+                if self.policy_loss_guard.check(policy_loss_val) {
+                    let grads = policy_loss.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.policy());
+                    self.policy
+                        .step_with(&mut self.policy_optim, lr, grads_params);
+                    policy_loss_acc += policy_loss_val;
+                    policy_healthy += 1;
+                }
 
                 // Value update.
                 let new_v = self.value().forward(obs_batch);
@@ -619,13 +647,17 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(cfg.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                let grads = v_loss_scaled.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.value());
-                self.value
-                    .step_with(&mut self.value_optim, lr, grads_params);
+                // #318 / ADR 0056: same guard for the value site, latched
+                // separately from the policy site.
+                if self.value_loss_guard.check(v_loss_val) {
+                    let grads = v_loss_scaled.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.value());
+                    self.value
+                        .step_with(&mut self.value_optim, lr, grads_params);
+                    value_loss_acc += v_loss_val;
+                    value_healthy += 1;
+                }
 
-                policy_loss_acc += policy_loss_val;
-                value_loss_acc += v_loss_val;
                 entropy_acc += entropy_mean.into_scalar().elem::<f32>();
                 clip_frac_acc += cf;
                 mb_count += 1;
@@ -654,10 +686,21 @@ where
         self.buffer.clear();
         self.iteration += 1;
 
+        // The two gated losses divide by their own healthy counts (`0.0`, not
+        // NaN, when every minibatch skipped); the ungated diagnostics keep the
+        // total minibatch denominator (#318, ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
-            policy_loss: policy_loss_acc / denom,
-            value_loss: value_loss_acc / denom,
+            policy_loss: if policy_healthy == 0 {
+                0.0
+            } else {
+                policy_loss_acc / policy_healthy as f32
+            },
+            value_loss: if value_healthy == 0 {
+                0.0
+            } else {
+                value_loss_acc / value_healthy as f32
+            },
             entropy: entropy_acc / denom,
             approx_kl: last_kl,
             // PPG does not yet surface the v6 PPO diagnostics; left at their
@@ -709,6 +752,11 @@ where
         let mut kl_acc = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
+        // Healthy-minibatch denominators for the two gated aux losses (#318,
+        // ADR 0056 §3). The main-value site feeds `main_v_acc`; the combined
+        // aux site feeds both `aux_v_acc` and `kl_acc`, so they share a count.
+        let mut main_v_healthy = 0_usize;
+        let mut aux_total_healthy = 0_usize;
 
         for _epoch in 0..cfg.e_aux {
             epochs_run += 1;
@@ -739,10 +787,16 @@ where
                 let new_v = self.value().forward(obs_t.clone());
                 let v_loss = unclipped_value_loss(new_v, returns_t.clone());
                 let v_loss_val = v_loss.clone().into_scalar().elem::<f32>();
-                let grads = v_loss.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.value());
-                self.value
-                    .step_with(&mut self.value_optim, lr, grads_params);
+                // #318 / ADR 0056: skip backward + step on a non-finite
+                // main-value loss; exclude it from the reported mean.
+                if self.aux_main_value_guard.check(v_loss_val) {
+                    let grads = v_loss.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.value());
+                    self.value
+                        .step_with(&mut self.value_optim, lr, grads_params);
+                    main_v_acc += v_loss_val;
+                    main_v_healthy += 1;
+                }
 
                 // Policy-net update: aux-value MSE + β · KL distillation.
                 let aux_v_pred = PpgAuxValueHead::aux_value(self.policy(), obs_t.clone());
@@ -752,25 +806,50 @@ where
                 let aux_v_loss_val = aux_v_loss.clone().into_scalar().elem::<f32>();
                 let kl_val = kl.clone().into_scalar().elem::<f32>();
                 let total = aux_v_loss + kl.mul_scalar(cfg.beta_clone);
-                let grads = total.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.policy());
-                self.policy
-                    .step_with(&mut self.policy_optim, lr, grads_params);
+                // #318 / ADR 0056: `total = aux_v_loss + β·kl` is never read
+                // host-side, so guard on the host-*derived* scalar built from
+                // its two already-read summands — no extra device→host sync.
+                // Both accumulators this site feeds are excluded on a skip.
+                let total_val = aux_v_loss_val + kl_val * cfg.beta_clone;
+                if self.aux_total_guard.check(total_val) {
+                    let grads = total.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.policy());
+                    self.policy
+                        .step_with(&mut self.policy_optim, lr, grads_params);
+                    aux_v_acc += aux_v_loss_val;
+                    kl_acc += kl_val;
+                    aux_total_healthy += 1;
+                }
 
-                main_v_acc += v_loss_val;
-                aux_v_acc += aux_v_loss_val;
-                kl_acc += kl_val;
                 mb_count += 1;
             }
         }
 
         self.aux_buffer.clear();
 
-        let denom = mb_count.max(1) as f32;
+        // Each gated loss divides by its own healthy count (`0.0`, not NaN,
+        // when every minibatch skipped); `minibatches` still reports the total
+        // count attempted (#318, ADR 0056 §3).
         let stats = AuxPhaseStats {
-            main_value_loss: main_v_acc / denom,
-            aux_value_loss: aux_v_acc / denom,
-            policy_kl: kl_acc / denom,
+            main_value_loss: if main_v_healthy == 0 {
+                0.0
+            } else {
+                main_v_acc / main_v_healthy as f32
+            },
+            // `aux_value_loss` and `policy_kl` intentionally share the
+            // `aux_total_healthy` denominator: both are fed by the single
+            // aux-total guard site (`aux_v_loss + β·kl`), so they are applied
+            // and skipped together — this is not a copy-pasted divisor.
+            aux_value_loss: if aux_total_healthy == 0 {
+                0.0
+            } else {
+                aux_v_acc / aux_total_healthy as f32
+            },
+            policy_kl: if aux_total_healthy == 0 {
+                0.0
+            } else {
+                kl_acc / aux_total_healthy as f32
+            },
             epochs_run,
             minibatches: mb_count,
         };
@@ -817,9 +896,11 @@ mod tests {
     use super::*;
     use burn::backend::{Autodiff, Flex};
     use burn::grad_clipping::GradientClippingConfig;
-    use burn::module::Module;
+    use burn::module::{Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::base::{HostRow, TensorConversionError};
     use serde::{Deserialize, Serialize};
 
@@ -934,6 +1015,184 @@ mod tests {
         assert!(
             agent.value_optim.has_gradient_clipping(),
             "clip_grad: Some(..) must configure the value optimizer"
+        );
+    }
+
+    // -------- non-finite-loss guard (ADR 0056, #318) --------
+
+    /// Replaces every float parameter of a module with `NaN`, simulating a
+    /// network that has diverged to non-finite weights — the realistic source
+    /// of a non-finite loss. Applied to a *clone* so the live net's `ParamId`s
+    /// are preserved.
+    struct NanInjector;
+
+    impl<B: Backend> ModuleMapper<B> for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
+        }
+    }
+
+    /// Reads the main value head's weights back to the host, element-wise, so a
+    /// change across a phase proves the value net actually stepped.
+    fn value_weights<B: Backend>(v: &TestValue<B>) -> Vec<f32> {
+        v.head
+            .weight
+            .val()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 weight host read")
+    }
+
+    /// Builds an agent with a single four-step rollout collected and finalized
+    /// (advantages/returns populated) with *healthy* networks. `n_iteration = 1`
+    /// so a single `snapshot_into_aux_buffer` makes the auxiliary phase ready.
+    // Test fixture data: the loop counter is bounded by a small constant, far
+    // below f32's 2^24 exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
+    fn primed_ppg_agent() -> TestAgent {
+        let device = Default::default();
+        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .try_init::<TestBackend>(&device)
+        .expect("valid head config");
+        let value = TestValue::<TestBackend>::init(&device);
+        let config = PpgConfigBuilder::new()
+            .n_iteration(1)
+            .e_aux(1)
+            .aux_batch_size(4)
+            .with_ppo(|p| PpoTrainingConfig {
+                num_envs: 1,
+                num_steps: 4,
+                num_minibatches: 1,
+                update_epochs: 1,
+                anneal_lr: false,
+                ..p
+            })
+            .build()
+            .expect("valid config");
+        let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut last = TestObs([0.4, 0.6]);
+        for i in 0..4usize {
+            let x = i as f32 * 0.1;
+            let obs = TestObs([x, 1.0 - x]);
+            let next = TestObs([x + 0.1, 0.9 - x]);
+            let outcome = agent.act(&obs, &mut rng);
+            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
+            last = next;
+        }
+        agent.finalize_rollout(&last);
+        agent
+    }
+
+    /// Policy-phase site: a non-finite policy loss must skip the policy
+    /// `backward` + optimizer step and be excluded from the reported mean (ADR
+    /// 0056, #318). Diverging the policy net to NaN forces a NaN clipped
+    /// surrogate; the guard must fire, the reported `policy_loss` must be the
+    /// `0.0` all-skipped sentinel, and the value site must still learn.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn ppg_policy_phase_nonfinite_policy_loss_skips_and_warns() {
+        let mut agent = primed_ppg_agent();
+        let value_before = value_weights(agent.value.get());
+
+        let poisoned = agent.policy.get().clone().map(&mut NanInjector);
+        agent.policy = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(1);
+        let stats = agent.policy_phase_update(&mut rng);
+
+        assert!(
+            agent.policy_loss_guard.warning_fired(),
+            "a NaN policy loss must fire the policy-phase policy guard"
+        );
+        assert!(
+            !agent.value_loss_guard.warning_fired(),
+            "the value net was healthy: its guard must not fire"
+        );
+        assert_eq!(
+            stats.policy_loss, 0.0,
+            "every policy minibatch skipped → reported 0.0, never a propagated NaN"
+        );
+
+        let value_after = value_weights(agent.value.get());
+        assert!(
+            value_before
+                .iter()
+                .zip(&value_after)
+                .any(|(a, b)| (a - b).abs() > 1e-9),
+            "the value net must still learn while the policy step is skipped"
+        );
+        assert!(
+            value_after.iter().all(|w| w.is_finite()),
+            "the value weights must stay finite"
+        );
+        assert!(
+            stats.value_loss.is_finite(),
+            "the reported value loss must stay finite"
+        );
+    }
+
+    /// Auxiliary-phase site: the aux-total guard fires on the host-*derived*
+    /// `aux_v_loss_val + kl_val·β` input (ADR 0056 §5). Diverging the policy net
+    /// makes both the aux-value prediction and the distillation logits NaN, so
+    /// the combined loss is non-finite; the guard must fire and skip only the
+    /// policy step, while the independent main-value site still learns. Both
+    /// `aux_value_loss` and `policy_kl` report `0.0` (they share the skipped
+    /// aux-total site's healthy denominator).
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn ppg_aux_phase_nonfinite_total_loss_skips_and_warns() {
+        let mut agent = primed_ppg_agent();
+        // Snapshot the finalized rollout; `n_iteration = 1` arms the aux phase.
+        agent.snapshot_into_aux_buffer();
+        let value_before = value_weights(agent.value.get());
+
+        // Poison the policy: the aux-total site (aux_value + β·KL) runs through
+        // the policy, so its guard input goes NaN; the main-value site (value
+        // net) stays finite.
+        let poisoned = agent.policy.get().clone().map(&mut NanInjector);
+        agent.policy = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(3);
+        let stats = agent
+            .maybe_aux_phase(&mut rng)
+            .expect("n_iteration = 1 makes the aux phase ready after one snapshot");
+
+        assert!(
+            agent.aux_total_guard.warning_fired(),
+            "the NaN aux-total loss must fire the aux-total guard"
+        );
+        assert!(
+            !agent.aux_main_value_guard.warning_fired(),
+            "the main-value site was healthy: its guard must not fire"
+        );
+        assert_eq!(
+            stats.aux_value_loss, 0.0,
+            "the skipped aux-total site must report 0.0 aux value loss"
+        );
+        assert_eq!(
+            stats.policy_kl, 0.0,
+            "the skipped aux-total site must report 0.0 policy KL (shared denominator)"
+        );
+
+        let value_after = value_weights(agent.value.get());
+        assert!(
+            value_before
+                .iter()
+                .zip(&value_after)
+                .any(|(a, b)| (a - b).abs() > 1e-9),
+            "the main value net must still learn while the aux-total site is skipped"
+        );
+        assert!(
+            stats.main_value_loss.is_finite(),
+            "the reported main-value loss must stay finite"
         );
     }
 }
