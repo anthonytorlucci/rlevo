@@ -15,7 +15,7 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{ElementConversion, Tensor, TensorData};
 use rand::Rng;
 
-use crate::algorithms::shared::Slot;
+use crate::algorithms::shared::{FiniteLossGuard, Slot};
 use crate::metrics::{AgentStats, PerformanceRecord};
 use rlevo_core::base::{Observation, TensorConvertible};
 use rlevo_core::config::Validate;
@@ -174,6 +174,12 @@ where
     total_iterations: usize,
     step: usize,
     stats: AgentStats<PpoMetrics>,
+    /// Non-finite-loss guard for the policy-loss site (ADR 0056, #318). One
+    /// per-run `warn!` latch; the skip it drives fires every occurrence.
+    policy_loss_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the value-loss site (ADR 0056, #318),
+    /// latching independently of [`Self::policy_loss_guard`].
+    value_loss_guard: FiniteLossGuard,
 }
 
 impl<B, P, V, O, const DO: usize, const DB: usize> std::fmt::Debug for PpoAgent<B, P, V, O, DO, DB>
@@ -286,6 +292,8 @@ where
             total_iterations,
             step: 0,
             stats,
+            policy_loss_guard: FiniteLossGuard::new("ppo/policy_loss"),
+            value_loss_guard: FiniteLossGuard::new("ppo/value_loss"),
         })
     }
 
@@ -478,6 +486,11 @@ where
         let mut first_old_kl = 0.0_f32;
         let mut mb_count = 0_usize;
         let mut epochs_run = 0_usize;
+        // Count only the minibatches whose loss was finite and therefore
+        // actually applied — the denominators for the two gated means (#318,
+        // ADR 0056 §3). `mb_count` still denominates the ungated diagnostics.
+        let mut policy_healthy = 0_usize;
+        let mut value_healthy = 0_usize;
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -558,10 +571,19 @@ where
                 kl_sum += kl;
                 kl_count += 1;
 
-                let grads = policy_loss.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.policy());
-                self.policy
-                    .step_with(&mut self.policy_optim, lr, grads_params);
+                // #318 / ADR 0056: `policy_loss_val` is already host-resident,
+                // so the finiteness check costs no extra sync. A non-finite
+                // loss skips `backward()` + the optimizer step (Burn would
+                // otherwise fold NaN into the weights silently) and is excluded
+                // from the reported mean.
+                if self.policy_loss_guard.check(policy_loss_val) {
+                    let grads = policy_loss.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.policy());
+                    self.policy
+                        .step_with(&mut self.policy_optim, lr, grads_params);
+                    policy_loss_acc += policy_loss_val;
+                    policy_healthy += 1;
+                }
 
                 // ----- Value update -----
                 let new_v = self.value().forward(obs_batch);
@@ -572,14 +594,18 @@ where
                 };
                 let v_loss_scaled = v_loss.clone().mul_scalar(self.config.value_coef);
                 let v_loss_val = v_loss.into_scalar().elem::<f32>();
-                let grads = v_loss_scaled.backward();
-                let grads_params = GradientsParams::from_grads(grads, self.value());
-                self.value
-                    .step_with(&mut self.value_optim, lr, grads_params);
+                // #318 / ADR 0056: same guard for the value site, latched
+                // separately so one site's failure cannot silence the other.
+                if self.value_loss_guard.check(v_loss_val) {
+                    let grads = v_loss_scaled.backward();
+                    let grads_params = GradientsParams::from_grads(grads, self.value());
+                    self.value
+                        .step_with(&mut self.value_optim, lr, grads_params);
+                    value_loss_acc += v_loss_val;
+                    value_healthy += 1;
+                }
 
-                // Accumulate.
-                policy_loss_acc += policy_loss_val;
-                value_loss_acc += v_loss_val;
+                // Accumulate the ungated per-minibatch diagnostics.
                 entropy_acc += entropy_mean.into_scalar().elem::<f32>();
                 clip_frac_acc += cf;
                 mb_count += 1;
@@ -613,10 +639,21 @@ where
         self.buffer.clear();
         self.iteration += 1;
 
+        // Ungated diagnostics divide by the total minibatch count; the two
+        // gated losses divide by their own healthy counts, reporting `0.0`
+        // (not NaN) when every minibatch skipped (#318, ADR 0056 §3).
         let denom = mb_count.max(1) as f32;
         PpoUpdateStats {
-            policy_loss: policy_loss_acc / denom,
-            value_loss: value_loss_acc / denom,
+            policy_loss: if policy_healthy == 0 {
+                0.0
+            } else {
+                policy_loss_acc / policy_healthy as f32
+            },
+            value_loss: if value_healthy == 0 {
+                0.0
+            } else {
+                value_loss_acc / value_healthy as f32
+            },
             entropy: entropy_acc / denom,
             approx_kl: last_kl,
             old_approx_kl: first_old_kl,
@@ -633,9 +670,11 @@ mod tests {
     use super::*;
     use burn::backend::{Autodiff, Flex};
     use burn::grad_clipping::GradientClippingConfig;
-    use burn::module::Module;
+    use burn::module::{Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rlevo_core::base::{HostRow, TensorConversionError};
     use serde::{Deserialize, Serialize};
 
@@ -751,6 +790,156 @@ mod tests {
         assert!(
             agent.value_optim.has_gradient_clipping(),
             "clip_grad: Some(..) must configure the value optimizer"
+        );
+    }
+
+    // -------- non-finite-loss guard (ADR 0056, #318) --------
+
+    /// Replaces every float parameter of a module with `NaN`, simulating a
+    /// network that has diverged to non-finite weights — the realistic source
+    /// of a non-finite policy or value loss. Applied to a *clone* so the live
+    /// net's `ParamId`s are preserved.
+    struct NanInjector;
+
+    impl<B: Backend> ModuleMapper<B> for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
+        }
+    }
+
+    /// Reads the value head's weights back to the host, element-wise, so a
+    /// change across an update proves the value net actually stepped.
+    fn value_weights<B: Backend>(v: &TestValue<B>) -> Vec<f32> {
+        v.head
+            .weight
+            .val()
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 weight host read")
+    }
+
+    /// Builds an agent whose one four-step rollout has been collected and
+    /// finalized (advantages/returns populated) with *healthy* networks, so a
+    /// subsequent `update` can be driven directly after poisoning one net.
+    // Test fixture data: the loop counter is bounded by a small constant, far
+    // below f32's 2^24 exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
+    fn primed_ppo_agent() -> TestAgent {
+        let device = Default::default();
+        let policy: CategoricalPolicyHead<TestBackend> = CategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .try_init::<TestBackend>(&device)
+        .expect("valid head config");
+        let value = TestValue::<TestBackend>::init(&device);
+        let config = PpoTrainingConfigBuilder::new()
+            .num_envs(1)
+            .num_steps(4)
+            .num_minibatches(1)
+            .update_epochs(1)
+            .anneal_lr(false)
+            .build()
+            .expect("valid config");
+        let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut last = TestObs([0.4, 0.6]);
+        for i in 0..4usize {
+            let x = i as f32 * 0.1;
+            let obs = TestObs([x, 1.0 - x]);
+            let next = TestObs([x + 0.1, 0.9 - x]);
+            let outcome = agent.act(&obs, &mut rng);
+            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
+            last = next;
+        }
+        agent.finalize_rollout(&last);
+        agent
+    }
+
+    /// A non-finite policy loss must skip the policy `backward` + optimizer step
+    /// and be excluded from the reported mean (ADR 0056, #318). Diverging the
+    /// policy net to NaN forces a NaN clipped-surrogate loss; the guard must
+    /// fire, the reported `policy_loss` must be the `0.0` all-skipped sentinel
+    /// (never a propagated NaN), and the independent value site must still learn.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn ppo_nonfinite_policy_loss_skips_and_warns() {
+        let mut agent = primed_ppo_agent();
+        let value_before = value_weights(agent.value.get());
+
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        let poisoned = agent.policy.get().clone().map(&mut NanInjector);
+        agent.policy = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(1);
+        let stats = agent.update(&mut rng);
+
+        assert!(
+            agent.policy_loss_guard.warning_fired(),
+            "a NaN policy loss must fire the policy guard"
+        );
+        assert!(
+            !agent.value_loss_guard.warning_fired(),
+            "the value net was healthy: its guard must not fire"
+        );
+        assert_eq!(
+            stats.policy_loss, 0.0,
+            "every policy minibatch skipped → reported 0.0, never a propagated NaN"
+        );
+
+        let value_after = value_weights(agent.value.get());
+        assert!(
+            value_before
+                .iter()
+                .zip(&value_after)
+                .any(|(a, b)| (a - b).abs() > 1e-9),
+            "the value net must still learn while the policy step is skipped"
+        );
+        assert!(
+            value_after.iter().all(|w| w.is_finite()),
+            "the value weights must stay finite"
+        );
+        assert!(
+            stats.value_loss.is_finite(),
+            "the reported value loss must stay finite"
+        );
+    }
+
+    /// The mirror of [`ppo_nonfinite_policy_loss_skips_and_warns`] for the value
+    /// site: a NaN value loss must fire the value guard, report the `0.0`
+    /// all-skipped sentinel, and leave the independent policy site to learn
+    /// normally.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn ppo_nonfinite_value_loss_skips_and_warns() {
+        let mut agent = primed_ppo_agent();
+
+        // Poison a *clone* of the live value net so its `ParamId`s are preserved.
+        let poisoned = agent.value.get().clone().map(&mut NanInjector);
+        agent.value = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(2);
+        let stats = agent.update(&mut rng);
+
+        assert!(
+            agent.value_loss_guard.warning_fired(),
+            "a NaN value loss must fire the value guard"
+        );
+        assert!(
+            !agent.policy_loss_guard.warning_fired(),
+            "the policy net was healthy: its guard must not fire"
+        );
+        assert_eq!(
+            stats.value_loss, 0.0,
+            "every value minibatch skipped → reported 0.0, never a propagated NaN"
+        );
+        assert!(
+            stats.policy_loss.is_finite(),
+            "the healthy policy site must still report a finite loss"
         );
     }
 }

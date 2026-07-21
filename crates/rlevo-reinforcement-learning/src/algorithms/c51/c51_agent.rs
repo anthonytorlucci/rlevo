@@ -30,7 +30,7 @@ use crate::algorithms::c51::loss::{
 };
 use crate::algorithms::c51::projection::project_distribution;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
+use crate::algorithms::shared::{FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
 
 /// Error variants returned by [`C51Agent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +123,9 @@ where
     device: B::Device,
     step: usize,
     stats: AgentStats<C51Metrics>,
+    /// Non-finite-loss guard for the cross-entropy loss site (ADR 0056, #318).
+    /// One per-run `warn!` latch; the skip it drives fires every occurrence.
+    loss_guard: FiniteLossGuard,
     _action: PhantomData<A>,
 }
 
@@ -191,6 +194,7 @@ where
             device,
             step: 0,
             stats,
+            loss_guard: FiniteLossGuard::new("c51/loss"),
             _action: PhantomData,
         })
     }
@@ -440,7 +444,11 @@ where
     /// `Some(LearnOutcome)` with loss, mean Q-value, and distribution entropy
     /// when a gradient step was taken. Returns `None` without side-effects
     /// when [`can_learn`](Self::can_learn) is false (buffer too small or
-    /// step count below `learning_starts`).
+    /// step count below `learning_starts`), and also when the computed loss is
+    /// non-finite (NaN/±Inf): in that case the backward pass, optimizer step,
+    /// target sync, and PER writeback are all skipped and a one-shot `warn!`
+    /// fires (ADR 0056, #318), so the caller keeps its last healthy reported
+    /// metrics rather than folding a NaN into them.
     ///
     /// # Panics
     ///
@@ -589,6 +597,17 @@ where
         let loss_tensor = reduce_weighted_loss(per_sample_ce, &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
+        // #318 / ADR 0056: `loss_value` is already host-resident, so the
+        // finiteness check costs no extra sync. A non-finite loss skips
+        // `backward()`, the optimizer step, the target soft-update, and the PER
+        // writeback (Burn would otherwise fold NaN into the weights silently),
+        // and returns `None` — the train loop keeps its last healthy reported
+        // metrics rather than advancing them with a NaN, and never counts this
+        // as an applied update. The `warn!` is the surfacing mechanism.
+        if !self.loss_guard.check(loss_value) {
+            return None;
+        }
+
         let grads = loss_tensor.backward();
         // `from_grads` takes `&M` and returns an owned, lifetime-free value, so
         // NLL ends the borrow here — the only window in which the module is out
@@ -648,7 +667,7 @@ mod tests {
     use super::*;
 
     use burn::backend::{Autodiff, Flex};
-    use burn::module::{AutodiffModule, Module};
+    use burn::module::{AutodiffModule, Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
     use rand::SeedableRng;
@@ -997,5 +1016,62 @@ mod tests {
     fn error_display_uses_thiserror_messages() {
         let err = C51AgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
+    }
+
+    // -------- non-finite-loss guard (ADR 0056, #318) --------
+
+    /// Replaces every float parameter of a module with `NaN`, simulating a
+    /// policy network that has diverged to non-finite weights — the realistic
+    /// source of a non-finite cross-entropy loss. Applied to a *clone* so the
+    /// live net's `ParamId`s are preserved and the target pairing stays valid.
+    struct NanInjector;
+
+    impl<B: Backend> ModuleMapper<B> for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
+        }
+    }
+
+    /// C51 shares DQN's single-loss shape: a non-finite categorical
+    /// cross-entropy loss must skip `backward`, the optimizer step, and the
+    /// soft target sync (ADR 0056, #318). Diverging the policy net to NaN forces
+    /// a NaN loss; the guard must fire, `learn_step` must return `None`, and the
+    /// target must stay untouched and finite.
+    #[test]
+    fn c51_nonfinite_loss_skips_step_and_warns() {
+        let mut agent = primed_agent(0.005, 100);
+        // The target net is the healthy sibling: a skipped step leaves it intact.
+        let target_before = target_weights(&agent);
+
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        let poisoned = agent.policy().clone().map(&mut NanInjector);
+        agent.policy_net = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let outcome = agent.learn_step(&mut rng);
+
+        assert!(
+            outcome.is_none(),
+            "a non-finite cross-entropy loss must skip the step and return None"
+        );
+        assert!(
+            agent.loss_guard.warning_fired(),
+            "the non-finite loss must fire the guard"
+        );
+        assert_eq!(
+            target_weights(&agent),
+            target_before,
+            "the soft target update must be skipped, leaving the target untouched"
+        );
+        assert!(
+            target_weights(&agent).iter().all(|w| w.is_finite()),
+            "the target net must stay finite — the policy NaN must not reach it"
+        );
+        let action = agent.act(&TestObs([0.2, -0.2]), &mut rng);
+        assert!(
+            action.is_valid(),
+            "act must still return a valid action after a skipped step"
+        );
     }
 }

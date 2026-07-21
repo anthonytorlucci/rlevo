@@ -30,7 +30,8 @@ use rlevo_core::config::Validate;
 
 use crate::algorithms::ddpg::exploration::GaussianNoise;
 use crate::algorithms::shared::{
-    Slot, UNIFORM_REPLAY_BETA, action_bound_tensors, assert_bounds_match_components,
+    FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, action_bound_tensors,
+    assert_bounds_match_components,
 };
 use crate::algorithms::td3::target_smoothing::smoothed_target_action;
 use crate::algorithms::td3::td3_config::Td3TrainingConfig;
@@ -191,6 +192,18 @@ pub struct Td3Agent<
     critic_updates: usize,
     stats: AgentStats<Td3Metrics>,
     last_actor_loss: f32,
+    /// Most recent *applied* critic-1 loss — carried forward across a
+    /// non-finite skip so the reported metric never folds in a NaN (#318).
+    last_qf1_loss: f32,
+    /// Most recent *applied* critic-2 loss (see [`Self::last_qf1_loss`]).
+    last_qf2_loss: f32,
+    /// Non-finite-loss guard for the critic-1 loss site (ADR 0056, #318). One
+    /// per-run `warn!` latch per site; the skip it drives fires every occurrence.
+    critic_1_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the critic-2 loss site, latching independently.
+    critic_2_guard: FiniteLossGuard,
+    /// Non-finite-loss guard for the actor loss site, latching independently.
+    actor_guard: FiniteLossGuard,
     _action: PhantomData<A>,
 }
 
@@ -300,6 +313,11 @@ where
             critic_updates: 0,
             stats,
             last_actor_loss: 0.0,
+            last_qf1_loss: 0.0,
+            last_qf2_loss: 0.0,
+            critic_1_guard: FiniteLossGuard::new("td3/critic_1"),
+            critic_2_guard: FiniteLossGuard::new("td3/critic_2"),
+            actor_guard: FiniteLossGuard::new("td3/actor"),
             _action: PhantomData,
         })
     }
@@ -600,23 +618,37 @@ where
         let loss_2_tensor = (q2_pred - target).powi_scalar(2).mean();
         let loss_1 = loss_1_tensor.clone().into_scalar().elem::<f32>();
         let loss_2 = loss_2_tensor.clone().into_scalar().elem::<f32>();
-        let critic_loss = loss_1 + loss_2;
 
-        let grads_1 = loss_1_tensor.backward();
-        let grads_1_params = GradientsParams::from_grads(grads_1, self.critic_1.get());
-        self.critic_1.step_with(
-            &mut self.critic_1_opt,
-            self.config.critic_lr,
-            grads_1_params,
-        );
+        // #318 / ADR 0056: the two critics run in DISJOINT backward+step windows
+        // (independent graphs), so each site gets its own guard — a non-finite
+        // loss in one critic skips only that critic's `backward()` + optimizer
+        // step, while the other still updates. `loss_1`/`loss_2` are already
+        // host-resident, so the check costs no extra sync. A skipped critic's
+        // value is excluded from the reported metric: `last_qf{1,2}_loss`
+        // carries its last *applied* value forward rather than folding in a NaN.
+        // `critic_updates` (the actor cadence counter) still advances
+        // unconditionally, per ADR 0056 §3.
+        if self.critic_1_guard.check(loss_1) {
+            let grads_1 = loss_1_tensor.backward();
+            let grads_1_params = GradientsParams::from_grads(grads_1, self.critic_1.get());
+            self.critic_1.step_with(
+                &mut self.critic_1_opt,
+                self.config.critic_lr,
+                grads_1_params,
+            );
+            self.last_qf1_loss = loss_1;
+        }
 
-        let grads_2 = loss_2_tensor.backward();
-        let grads_2_params = GradientsParams::from_grads(grads_2, self.critic_2.get());
-        self.critic_2.step_with(
-            &mut self.critic_2_opt,
-            self.config.critic_lr,
-            grads_2_params,
-        );
+        if self.critic_2_guard.check(loss_2) {
+            let grads_2 = loss_2_tensor.backward();
+            let grads_2_params = GradientsParams::from_grads(grads_2, self.critic_2.get());
+            self.critic_2.step_with(
+                &mut self.critic_2_opt,
+                self.config.critic_lr,
+                grads_2_params,
+            );
+            self.last_qf2_loss = loss_2;
+        }
 
         self.critic_updates += 1;
 
@@ -634,14 +666,27 @@ where
             let actor_loss_tensor = q_actor.mean().neg();
             let actor_loss_value = actor_loss_tensor.clone().into_scalar().elem::<f32>();
 
-            let grads = actor_loss_tensor.backward();
-            let actor_grads = GradientsParams::from_grads(grads, self.actor.get());
-            self.actor
-                .step_with(&mut self.actor_opt, self.config.actor_lr, actor_grads);
+            // #318 / ADR 0056: guard the actor site. A non-finite actor loss
+            // skips the actor `backward()` + optimizer step and leaves
+            // `actor_loss` reported as `None` this iteration (mirroring the
+            // delayed-update skip) rather than folding a NaN into
+            // `last_actor_loss`. `actor_loss_value` is already host-resident.
+            if self.actor_guard.check(actor_loss_value) {
+                let grads = actor_loss_tensor.backward();
+                let actor_grads = GradientsParams::from_grads(grads, self.actor.get());
+                self.actor
+                    .step_with(&mut self.actor_opt, self.config.actor_lr, actor_grads);
 
-            // Clone rather than move out: each target field stays intact if
-            // `soft_update` panics, so a failure can't silently hard-sync the
-            // target onto its live network.
+                self.last_actor_loss = actor_loss_value;
+                actor_loss_opt = Some(actor_loss_value);
+            }
+
+            // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
+            // run whether or not the actor step was skipped — the healthy
+            // networks keep being tracked by their targets. Clone rather than
+            // move out: each target field stays intact if `soft_update` panics,
+            // so a failure can't silently hard-sync the target onto its live
+            // network.
             let tau = f64::from(self.config.tau);
             self.target_actor =
                 Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
@@ -649,13 +694,13 @@ where
                 Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau);
             self.target_critic_2 =
                 Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau);
-
-            self.last_actor_loss = actor_loss_value;
-            actor_loss_opt = Some(actor_loss_value);
         }
 
         Some(LearnOutcome {
-            critic_loss,
+            // Report the most recent *applied* critic losses so a skipped
+            // (non-finite) step carries its last healthy value forward rather
+            // than poisoning the metric with a NaN (#318, ADR 0056 §3).
+            critic_loss: self.last_qf1_loss + self.last_qf2_loss,
             actor_loss: actor_loss_opt,
             q_mean,
         })
@@ -723,5 +768,156 @@ mod tests {
         assert!((slice[0] - 1.9).abs() < 1e-6, "row 0: {}", slice[0]);
         assert!((slice[1] - 0.65).abs() < 1e-6, "row 1: {}", slice[1]);
         assert!((slice[2] - 0.3).abs() < 1e-6, "row 2: {}", slice[2]);
+    }
+
+    // -------- non-finite-loss guard (ADR 0056, #318) --------
+
+    use crate::algorithms::bootstrap_mask::{
+        MaskContinuousAction, MaskObservation, TinyActor, TinyCritic,
+    };
+    use crate::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+    use burn::backend::Autodiff;
+    use burn::module::{Module, ModuleMapper, Param};
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rlevo_core::action::ContinuousAction;
+
+    type Ad = Autodiff<Flex>;
+    type GuardAgent = Td3Agent<
+        Ad,
+        TinyActor<Ad>,
+        TinyCritic<Ad>,
+        MaskObservation,
+        MaskContinuousAction,
+        1,
+        2,
+        1,
+        2,
+    >;
+
+    /// Replaces every float parameter of a module with `NaN`, simulating a
+    /// critic that has diverged to non-finite weights — the realistic source of
+    /// a single non-finite critic loss.
+    struct NanInjector;
+
+    impl<B: Backend> ModuleMapper<B> for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
+        }
+    }
+
+    /// Builds a `MaskObservation` from two feature values, via its
+    /// `TensorConvertible` seam (its fields are private to `bootstrap_mask`).
+    fn make_obs(a: f32, b: f32) -> MaskObservation {
+        let device = Default::default();
+        let t = Tensor::<Ad, 1>::from_data(TensorData::new(vec![a, b], vec![2]), &device);
+        <MaskObservation as TensorConvertible<1, Ad>>::from_tensor(t).expect("obs from tensor")
+    }
+
+    /// Evaluates critic-2 on a fixed (obs, action) pair and reads the scalar
+    /// back — a change across a learn step proves the weights were updated.
+    fn critic_2_probe(agent: &GuardAgent) -> f32 {
+        let device = Default::default();
+        let obs =
+            Tensor::<Ad, 2>::from_data(TensorData::new(vec![0.3_f32, 0.7], vec![1, 2]), &device);
+        let act = Tensor::<Ad, 2>::from_data(TensorData::new(vec![0.0_f32], vec![1, 1]), &device);
+        agent
+            .critic_2
+            .get()
+            .forward(obs, act)
+            .inner()
+            .into_scalar()
+            .elem::<f32>()
+    }
+
+    /// One diverged critic must not poison the other (ADR 0056, #318). TD3 makes
+    /// the same twin-critic independence claim as SAC: the two critics run their
+    /// backward + optimizer step in disjoint windows on independent graphs, so a
+    /// non-finite loss in critic-1 must skip only critic-1's update while
+    /// critic-2 still learns and the agent stays finite.
+    #[test]
+    fn td3_one_nonfinite_critic_skips_only_that_critic() {
+        let device = Default::default();
+        let config = Td3TrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .replay_buffer_capacity(64)
+            .critic_lr(0.05)
+            // policy_frequency = 2 keeps the actor + Polyak updates off this
+            // single critic step, isolating the twin-critic disjoint-window
+            // property under test.
+            .policy_frequency(2)
+            .build()
+            .expect("valid config");
+
+        let mut agent = GuardAgent::new(
+            TinyActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+
+        // Prime the buffer past `batch_size` with finite transitions.
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+
+        // Diverge critic-1 to non-finite weights so ONLY its loss is NaN; the
+        // shared Bellman target and critic-2 stay finite. Poison a *clone* of
+        // the live critic-1 so its `ParamId`s are preserved and the target
+        // Polyak pairing stays valid.
+        let poisoned = agent.critic_1.get().clone().map(&mut NanInjector);
+        agent.critic_1 = Slot::new(poisoned);
+
+        let before = critic_2_probe(&agent);
+        let mut rng = StdRng::seed_from_u64(0);
+        // No panic: a panic here (e.g. a pruned shared-leaf backward) fails the
+        // test outright.
+        let outcome = agent
+            .learn_step(&mut rng)
+            .expect("a primed agent past warm-up learns");
+        let after = critic_2_probe(&agent);
+
+        // critic-1's guard warned; the untouched sites stayed un-armed.
+        assert!(
+            agent.critic_1_guard.warning_fired(),
+            "critic-1's non-finite loss must fire its guard"
+        );
+        assert!(
+            !agent.critic_2_guard.warning_fired(),
+            "critic-2 was finite: its guard must not fire"
+        );
+        assert!(
+            !agent.actor_guard.warning_fired(),
+            "the actor did not update this step: its guard must not fire"
+        );
+
+        // critic-2 still updated.
+        assert!(
+            (before - after).abs() > 1e-6,
+            "critic-2 must still learn while critic-1 is skipped: {before} -> {after}"
+        );
+
+        // The skip kept the poison contained — no global NaN.
+        assert!(after.is_finite(), "critic-2 output must stay finite");
+        assert!(
+            outcome.critic_loss.is_finite(),
+            "the summed critic loss must stay finite despite the skipped site"
+        );
+        let probe_action = agent.act(&make_obs(0.2, 0.8), false, &mut rng);
+        assert!(
+            probe_action.as_slice()[0].is_finite(),
+            "the actor must remain finite — critic-1's NaN must not reach it"
+        );
     }
 }

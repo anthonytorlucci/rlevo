@@ -25,7 +25,7 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::{Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
+use crate::algorithms::shared::{FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
 use crate::utils::compute_target_q_values;
 
 /// Error variants returned by [`DqnAgent`] operations.
@@ -130,6 +130,9 @@ where
     device: B::Device,
     step: usize,
     stats: AgentStats<DqnMetrics>,
+    /// Non-finite-loss guard for the TD-loss site (ADR 0056, #318). One
+    /// per-run `warn!` latch; the skip it drives fires every occurrence.
+    loss_guard: FiniteLossGuard,
     _action: PhantomData<A>,
 }
 
@@ -198,6 +201,7 @@ where
             device,
             step: 0,
             stats,
+            loss_guard: FiniteLossGuard::new("dqn/loss"),
             _action: PhantomData,
         })
     }
@@ -396,7 +400,11 @@ where
     /// loss against the Bellman target, and updates the policy network.
     ///
     /// Returns `None` if the agent does not yet have enough transitions to
-    /// form a batch.
+    /// form a batch, or if the computed loss is non-finite (NaN/±Inf): in that
+    /// case the backward pass, optimizer step, target sync, and PER writeback
+    /// are all skipped and a one-shot `warn!` fires (ADR 0056, #318), so the
+    /// caller keeps its last healthy reported metrics rather than folding a
+    /// NaN into them.
     /// # Panics
     ///
     /// Panics if the replay buffer hands back an id that is no longer live.
@@ -507,6 +515,17 @@ where
         let loss_tensor = reduce_weighted_loss(per_sample_loss, &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
+        // #318 / ADR 0056: `loss_value` is already host-resident, so the
+        // finiteness check costs no extra sync. A non-finite loss skips
+        // `backward()`, the optimizer step, the target soft-update, and the PER
+        // writeback (Burn would otherwise fold NaN into the weights silently),
+        // and returns `None` — the train loop keeps its last healthy reported
+        // loss/q-mean rather than advancing them with a NaN, and never counts
+        // this as an applied update. The `warn!` is the surfacing mechanism.
+        if !self.loss_guard.check(loss_value) {
+            return None;
+        }
+
         let grads = loss_tensor.backward();
         // `from_grads` takes `&M` and returns an owned, lifetime-free value, so
         // NLL ends the borrow here — the only window in which the module is out
@@ -565,7 +584,7 @@ mod tests {
     use super::*;
 
     use burn::backend::{Autodiff, Flex};
-    use burn::module::{AutodiffModule, Module, Param};
+    use burn::module::{AutodiffModule, Module, ModuleMapper, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
     use rand::SeedableRng;
@@ -808,6 +827,95 @@ mod tests {
     fn error_display_uses_thiserror_messages() {
         let err = DqnAgentError::InvalidAction("bad index".into());
         assert_eq!(err.to_string(), "Invalid action: bad index");
+    }
+
+    // -------- non-finite-loss guard (ADR 0056, #318) --------
+
+    /// Replaces every float parameter of a module with `NaN`, simulating a
+    /// policy network that has diverged to non-finite weights — the realistic
+    /// source of a non-finite TD loss. Applied to a *clone* so the live net's
+    /// `ParamId`s are preserved and the target pairing stays valid.
+    struct NanInjector;
+
+    impl<B: Backend> ModuleMapper<B> for NanInjector {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
+        }
+    }
+
+    /// Builds a uniform-replay agent primed with four transitions and
+    /// `learning_starts = 0`, so a single `learn_step` runs immediately. The
+    /// default `tau = 0.005` keeps the soft target update live, so a skipped
+    /// step is provable by the target network staying untouched.
+    // Test fixture data: the loop counter and element count are bounded by small
+    // constants declared in this test, far below f32's 2^24 exact-integer limit.
+    #[allow(clippy::cast_precision_loss)]
+    fn primed_uniform_agent() -> TestAgent {
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let config = DqnTrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .learning_rate(0.05)
+            .build()
+            .expect("valid config");
+        assert!(config.tau > 0.0, "the soft target update must be live");
+        let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
+        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
+        for i in 0..4usize {
+            let x = i as f32;
+            agent.remember(
+                TestObs([x, -x]),
+                &TestAction(i % 2),
+                1.0,
+                TestObs([x + 1.0, -x]),
+                false,
+            );
+        }
+        agent
+    }
+
+    /// A non-finite TD loss must skip the whole learn step: `backward`, the
+    /// optimizer step, and the soft target sync (ADR 0056, #318). Diverging the
+    /// policy net to NaN forces a NaN loss; the guard must fire, `learn_step`
+    /// must return `None`, the target must stay untouched and finite, and the
+    /// agent must remain usable.
+    #[test]
+    fn dqn_nonfinite_loss_skips_step_and_warns() {
+        let mut agent = primed_uniform_agent();
+        // The target net is the healthy sibling: a skipped step leaves it intact.
+        let target_before = weights(&agent.target_net);
+
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        let poisoned = agent.policy().clone().map(&mut NanInjector);
+        agent.policy_net = Slot::new(poisoned);
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let outcome = agent.learn_step(&mut rng);
+
+        assert!(
+            outcome.is_none(),
+            "a non-finite TD loss must skip the step and return None"
+        );
+        assert!(
+            agent.loss_guard.warning_fired(),
+            "the non-finite TD loss must fire the guard"
+        );
+        assert_eq!(
+            weights(&agent.target_net),
+            target_before,
+            "the soft target update must be skipped, leaving the target untouched"
+        );
+        assert!(
+            weights(&agent.target_net).iter().all(|w| w.is_finite()),
+            "the target net must stay finite — the policy NaN must not reach it"
+        );
+        // The agent is still usable: action selection returns a valid action.
+        let action = agent.act(&TestObs([0.2, -0.2]), &mut rng);
+        assert!(
+            action.is_valid(),
+            "act must still return a valid action after a skipped step"
+        );
     }
 
     /// Regression (issue #182): with soft updates enabled, `sync_target` must
