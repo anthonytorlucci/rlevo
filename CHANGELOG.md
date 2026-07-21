@@ -1122,6 +1122,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   either way. The defect was pure throughput, invisible to any correctness
   assertion, and the existing tests pass unmodified — which is the acceptance
   criterion here rather than evidence of a gap.
+- **`PpoTrainingConfig::minibatch_size()` could return `0`** (#166). The accessor
+  guarded only the divisor (`num_minibatches.max(1)`) but not the quotient, so a
+  config with `num_minibatches > batch_size` (e.g. `num_steps = 10,
+  num_minibatches = 20`) reported a minibatch size of `0` while `PpoAgent::update`
+  clamped its own `mb_size` to `1` — the public API and the training loop
+  disagreed, and a caller pre-sizing a buffer from the accessor got a zero-length
+  allocation. The quotient is now floored to `1`, matching the loop. The existing
+  config tests only exercised the well-formed case (`batch_size` a multiple of
+  `num_minibatches`), where the two agree, so the divergence never surfaced. PPG
+  inherits the fix through its wrapped `PpoTrainingConfig`.
 
 **Added**
 

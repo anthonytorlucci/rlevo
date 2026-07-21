@@ -102,10 +102,12 @@ pub struct PpoTrainingConfig {
 impl PpoTrainingConfig {
     /// Size of a single minibatch under the configured rollout.
     ///
-    /// `(num_envs · num_steps) / num_minibatches`.
+    /// `(num_envs · num_steps) / num_minibatches`, floored to `1` so a
+    /// mis-sized `num_minibatches` never yields a zero-length batch. This
+    /// mirrors the `.max(1)` clamp in `PpoAgent::update`'s `mb_size`.
     #[must_use]
     pub fn minibatch_size(&self) -> usize {
-        self.batch_size() / self.num_minibatches.max(1)
+        (self.batch_size() / self.num_minibatches.max(1)).max(1)
     }
 
     /// Total transitions per rollout: `num_envs · num_steps`.
@@ -382,6 +384,19 @@ mod tests {
             .expect("valid config");
         assert_eq!(cfg.batch_size(), 128);
         assert_eq!(cfg.minibatch_size(), 32);
+    }
+
+    #[test]
+    fn minibatch_size_never_zero() {
+        // Regression for #166: num_minibatches > batch_size must floor to 1,
+        // matching PpoAgent::update's mb_size, not integer-divide to 0.
+        let cfg = PpoTrainingConfigBuilder::new()
+            .num_envs(1)
+            .num_steps(10)
+            .num_minibatches(20)
+            .build()
+            .expect("valid config");
+        assert_eq!(cfg.minibatch_size(), 1);
     }
 
     #[test]
