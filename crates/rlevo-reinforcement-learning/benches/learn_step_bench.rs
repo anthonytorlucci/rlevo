@@ -147,7 +147,7 @@ use rlevo_core::state::Observable;
 use rlevo_environments::classic::cartpole::CartPoleObservation;
 use rlevo_environments::pixel_grid::{CELL_COUNT, PixelGridState, PixelObservation};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_model::DqnModel;
-use rlevo_reinforcement_learning::utils::{compute_target_q_values, polyak_update};
+use rlevo_reinforcement_learning::utils::{PolyakError, compute_target_q_values, polyak_update};
 
 use bench_backend::BenchBackend;
 
@@ -380,7 +380,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for SmallMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, SmallMlp<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -433,7 +437,11 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for WideMlp<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, WideMlp<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -516,7 +524,11 @@ impl<B: AutodiffBackend> DqnModel<B, 4> for PixelConvNet<B> {
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, PixelConvNet<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -609,7 +621,7 @@ where
     let policy = optimizer.step(LR, policy, grads);
 
     if TAU > 0.0 {
-        target = M::soft_update(&policy, target, TAU);
+        target = M::soft_update(&policy, target, TAU).expect("bench target is cloned from policy");
     }
 
     // Forced completion probe -- see module doc "Sync correctness" point 2.

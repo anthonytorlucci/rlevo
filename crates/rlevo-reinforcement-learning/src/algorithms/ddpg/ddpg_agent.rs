@@ -30,7 +30,7 @@ use crate::algorithms::shared::{
     FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, action_bound_tensors,
     assert_bounds_match_components, clip_to_action_bounds,
 };
-use crate::utils::compute_target_q_values;
+use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`DdpgAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +44,10 @@ pub enum DdpgAgentError {
     /// A replay-buffer operation failed.
     #[error(transparent)]
     Buffer(#[from] ReplayBufferError),
+    /// A target soft-update failed because a live network and its target twin
+    /// have mismatched parameter topologies.
+    #[error(transparent)]
+    Polyak(#[from] PolyakError),
     /// An I/O error occurred while saving or loading model weights.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -444,20 +448,31 @@ where
     /// panic in any of them leaves the agent fully usable; only a panic inside
     /// the optimizer step itself is terminal. See
     /// [`Slot`](crate::algorithms::shared::Slot).
-    pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DdpgAgentError::Polyak`] if a target soft-update finds a
+    /// parameter-topology mismatch between a live network and its target twin
+    /// (see [`polyak_update`](crate::utils::polyak_update)). Every in-tree
+    /// target is cloned from its active network, so this cannot occur for
+    /// agents built normally.
+    pub fn learn_step<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<Option<LearnOutcome>, DdpgAgentError> {
         if !self.can_learn() {
-            return None;
+            return Ok(None);
         }
         let batch_size = self.config.batch_size;
         let device = self.device.clone();
 
         // --- Sample batch ---
         // `can_learn()` above already established `buffer.len() >= batch_size`,
-        // so the only variant `sample` can return here is unreachable.
-        let batch = self
-            .buffer
-            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
-            .ok()?;
+        // so the only variant `sample` can return here is unreachable; treat it
+        // as a skipped step for safety.
+        let Ok(batch) = self.buffer.sample(batch_size, UNIFORM_REPLAY_BETA, rng) else {
+            return Ok(None);
+        };
 
         let obs_shape = O::shape();
         let obs_numel: usize = obs_shape.iter().product();
@@ -577,24 +592,26 @@ where
             // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
             // run whether or not the actor step was skipped — the healthy
             // networks keep being tracked by their targets. Clone rather than
-            // move out: each target field stays intact if `soft_update` panics,
-            // so a failure can't silently hard-sync the target onto its live
-            // network.
+            // move out: `soft_update` consumes `target` by value, so on `Err`
+            // the `?` returns before the reassignment and each target field
+            // keeps its prior weights — no silent hard-sync onto its live
+            // network (the invariant now holds via early return, and equally
+            // for a panic).
             let tau = f64::from(self.config.tau);
             self.target_actor =
-                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau);
+                Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau)?;
             self.target_critic =
-                Critic::soft_update(self.critic.get(), self.target_critic.clone(), tau);
+                Critic::soft_update(self.critic.get(), self.target_critic.clone(), tau)?;
         }
 
-        Some(LearnOutcome {
+        Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic loss so a skipped
             // (non-finite) step carries its last healthy value forward rather
             // than poisoning the metric with a NaN (#318, ADR 0056 §3).
             critic_loss: self.last_critic_loss,
             actor_loss: actor_loss_opt,
             q_mean,
-        })
+        }))
     }
 
     /// Most recent actor loss (persists between policy updates).
@@ -725,6 +742,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let outcome = agent
             .learn_step(&mut rng)
+            .expect("no polyak error")
             .expect("a primed agent past warm-up learns");
 
         assert!(

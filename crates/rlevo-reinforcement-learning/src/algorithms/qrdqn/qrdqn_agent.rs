@@ -28,6 +28,7 @@ use crate::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfig;
 use crate::algorithms::qrdqn::qrdqn_model::QrDqnModel;
 use crate::algorithms::qrdqn::quantile_loss::quantile_huber_loss_per_sample;
 use crate::algorithms::shared::{FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
+use crate::utils::PolyakError;
 
 /// Error variants returned by [`QrDqnAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +42,10 @@ pub enum QrDqnAgentError {
     /// A replay buffer operation failed.
     #[error(transparent)]
     Buffer(#[from] ReplayBufferError),
+    /// The target soft-update failed because the policy and target networks
+    /// have mismatched parameter topologies.
+    #[error(transparent)]
+    Polyak(#[from] PolyakError),
     /// An I/O error occurred while saving or loading model weights.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -409,6 +414,13 @@ where
     /// against a borrow of the network, so a panic in any of them (a shape
     /// mismatch, a device error, a failed host read) leaves the agent fully
     /// usable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QrDqnAgentError::Polyak`] if the target soft-update finds a
+    /// parameter-topology mismatch between the policy and target networks (see
+    /// [`polyak_update`](crate::utils::polyak_update)). Every in-tree target is
+    /// cloned from its policy, so this cannot occur for agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -420,9 +432,12 @@ where
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
+    pub fn learn_step<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<Option<LearnOutcome>, QrDqnAgentError> {
         if !self.can_learn() {
-            return None;
+            return Ok(None);
         }
         let batch_size = self.config.batch_size;
         let num_quantiles = self.config.num_quantiles;
@@ -434,8 +449,11 @@ where
             .as_ref()
             .map_or(UNIFORM_REPLAY_BETA, |per| per.beta(self.step));
         // `can_learn()` above already established `buffer.len() >= batch_size`,
-        // so the only variant `sample` can return here is unreachable.
-        let batch = self.buffer.sample(batch_size, beta, rng).ok()?;
+        // so the only variant `sample` can return here is unreachable; treat it
+        // as a skipped step for safety.
+        let Ok(batch) = self.buffer.sample(batch_size, beta, rng) else {
+            return Ok(None);
+        };
 
         let obs_shape = O::shape();
         let numel_per_obs: usize = obs_shape.iter().product();
@@ -544,7 +562,7 @@ where
         // metrics rather than advancing them with a NaN, and never counts this
         // as an applied update. The `warn!` is the surfacing mechanism.
         if !self.loss_guard.check(loss_value) {
-            return None;
+            return Ok(None);
         }
 
         let grads = loss_tensor.backward();
@@ -556,11 +574,12 @@ where
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
         if self.config.tau > 0.0 {
-            // Clone rather than move out: the field stays intact if
-            // `soft_update` panics, so a failure can't silently hard-sync
-            // the target onto the policy.
+            // Clone rather than move out: `soft_update` consumes `target` by
+            // value, so on `Err` the `?` returns before this reassignment and
+            // the field keeps its prior weights — no silent hard-sync (the
+            // invariant now holds via early return, and equally for a panic).
             self.target_net =
-                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau);
+                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau)?;
         }
 
         // PER priority writeback (Schaul Alg. 1 lines 11-12): the QR-DQN priority
@@ -587,11 +606,11 @@ where
             }
         }
 
-        Some(LearnOutcome {
+        Ok(Some(LearnOutcome {
             loss: loss_value,
             q_mean,
             quantile_spread: spread_value,
-        })
+        }))
     }
 }
 
@@ -665,7 +684,11 @@ mod tests {
             inner.forward_impl(observations)
         }
         #[allow(clippy::cast_possible_truncation)]
-        fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+        fn soft_update(
+            active: &Self,
+            target: Self::InnerModule,
+            tau: f64,
+        ) -> Result<Self::InnerModule, PolyakError> {
             polyak_update::<B::InnerBackend, TestQrDqnNet<B::InnerBackend>>(
                 &active.valid(),
                 target,
@@ -802,6 +825,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(7);
         agent
             .learn_step(&mut rng)
+            .expect("no polyak error")
             .expect("primed agent with learning_starts = 0 learns");
         let after = agent
             .buffer
@@ -933,7 +957,7 @@ mod tests {
         agent.policy_net = Slot::new(poisoned);
 
         let mut rng = StdRng::seed_from_u64(0);
-        let outcome = agent.learn_step(&mut rng);
+        let outcome = agent.learn_step(&mut rng).expect("no polyak error");
 
         assert!(
             outcome.is_none(),

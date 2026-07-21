@@ -43,7 +43,7 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
 };
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
 
@@ -93,7 +93,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 4, 2> for Actor<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -136,7 +140,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 4, 2> for Critic<B> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -314,6 +322,7 @@ fn td3_learn_step_runs_against_the_asymmetric_action_space() {
 
     let outcome = agent
         .learn_step(&mut rng)
+        .expect("no polyak error")
         .expect("buffer holds >= batch_size transitions, so a learn step must run");
     assert!(
         outcome.critic_loss.is_finite(),

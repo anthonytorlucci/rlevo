@@ -6,6 +6,8 @@ use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
 use burn::tensor::backend::AutodiffBackend;
 
+use crate::utils::PolyakError;
+
 /// Contract implemented by any network usable as a DQN policy or target.
 ///
 /// Implementors provide:
@@ -51,5 +53,15 @@ pub trait DqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     ///
     /// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
     /// [`DqnAgent::sync_target`]: crate::algorithms::dqn::dqn_agent::DqnAgent::sync_target
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule;
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PolyakError`] if `active` and `target` have mismatched
+    /// [`ParamId`](burn::module::ParamId) topologies — see
+    /// [`polyak_update`](crate::utils::polyak_update).
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError>;
 }

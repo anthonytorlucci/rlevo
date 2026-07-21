@@ -35,7 +35,7 @@ use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
 use crate::algorithms::shared::{
     FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components,
 };
-use crate::utils::compute_target_q_values;
+use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`SacAgent`] operations.
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +49,10 @@ pub enum SacAgentError {
     /// A replay-buffer operation failed.
     #[error(transparent)]
     Buffer(#[from] ReplayBufferError),
+    /// A target soft-update failed because a live critic and its target twin
+    /// have mismatched parameter topologies.
+    #[error(transparent)]
+    Polyak(#[from] PolyakError),
     /// An I/O error occurred while saving or loading model weights.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -508,6 +512,14 @@ where
     /// optimizer step. The three slots are stepped in sequence and never held
     /// simultaneously, so such a panic poisons only the one network being
     /// stepped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SacAgentError::Polyak`] if a target soft-update finds a
+    /// parameter-topology mismatch between a live critic and its target twin
+    /// (see [`polyak_update`](crate::utils::polyak_update)). Every in-tree
+    /// target is cloned from its active critic, so this cannot occur for
+    /// agents built normally.
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -519,20 +531,23 @@ where
     // (rates, discounts, epsilons) where f32 has far more precision than the
     // schedules that produce them.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn learn_step<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<LearnOutcome> {
+    pub fn learn_step<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> Result<Option<LearnOutcome>, SacAgentError> {
         if !self.can_learn() {
-            return None;
+            return Ok(None);
         }
         let batch_size = self.config.batch_size;
         let device = self.device.clone();
 
         // --- Sample batch ---
         // `can_learn()` above already established `buffer.len() >= batch_size`,
-        // so the only variant `sample` can return here is unreachable.
-        let batch = self
-            .buffer
-            .sample(batch_size, UNIFORM_REPLAY_BETA, rng)
-            .ok()?;
+        // so the only variant `sample` can return here is unreachable; treat it
+        // as a skipped step for safety.
+        let Ok(batch) = self.buffer.sample(batch_size, UNIFORM_REPLAY_BETA, rng) else {
+            return Ok(None);
+        };
 
         let obs_shape = O::shape();
         let obs_numel: usize = obs_shape.iter().product();
@@ -743,17 +758,19 @@ where
             .critic_updates
             .is_multiple_of(self.config.target_update_frequency)
         {
-            // Clone rather than move out: each target field stays intact if
-            // `soft_update` panics, so a failure can't silently hard-sync the
-            // target onto its live critic.
+            // Clone rather than move out: `soft_update` consumes `target` by
+            // value, so on `Err` the `?` returns before the reassignment and
+            // each target field keeps its prior weights — no silent hard-sync
+            // onto its live critic (the invariant now holds via early return,
+            // and equally for a panic).
             let tau = f64::from(self.config.tau);
             self.target_critic_1 =
-                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau);
+                Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau)?;
             self.target_critic_2 =
-                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau);
+                Critic::soft_update(self.critic_2.get(), self.target_critic_2.clone(), tau)?;
         }
 
-        Some(LearnOutcome {
+        Ok(Some(LearnOutcome {
             // Report the most recent *applied* critic losses, so a skipped
             // (non-finite) step carries its last healthy value forward rather
             // than poisoning the metric with a NaN (#318, ADR 0056 §3).
@@ -764,7 +781,7 @@ where
             alpha: self.last_alpha,
             entropy: entropy_opt,
             q_mean,
-        })
+        }))
     }
 }
 
@@ -997,6 +1014,7 @@ mod tests {
         // the test outright.
         let outcome = agent
             .learn_step(&mut rng)
+            .expect("no polyak error")
             .expect("a primed agent past warm-up learns");
         let after = critic_2_probe(&agent);
 

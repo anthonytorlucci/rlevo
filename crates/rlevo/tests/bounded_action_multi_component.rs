@@ -45,7 +45,7 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_config::SacTrainingConfig
 use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     SampleOutput, SquashedGaussianPolicy,
 };
-use rlevo_reinforcement_learning::utils::polyak_update;
+use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::env::LinearObservation;
 use rlevo_test_support::flex::{FlexAutodiff as Be, flex_guard, seeded_device};
@@ -151,7 +151,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for Actor<B> {
         inner.forward_impl(obs)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Actor<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -193,7 +197,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for Critic<B> {
         inner.forward_impl(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, Critic<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -564,7 +572,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for RecordingCritic<B> {
         inner.forward_impl(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, RecordingCritic<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -612,7 +624,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for SaturatingActor<B> {
         inner.forward_impl(obs)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, SaturatingActor<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -665,6 +681,7 @@ fn target_actions_after_one_learn_step(next_obs_x: f32) -> Vec<Vec<f32>> {
     }
     agent
         .learn_step(&mut rng)
+        .expect("no polyak error")
         .expect("learn_step must run: learning_starts is 0 and the buffer is full");
 
     let calls = recorded.lock().expect("recorder mutex").clone();

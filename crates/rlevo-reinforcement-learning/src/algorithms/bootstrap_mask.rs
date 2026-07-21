@@ -34,7 +34,7 @@ use rlevo_core::reward::ScalarReward;
 
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use crate::algorithms::sac::sac_model::{SampleOutput, SquashedGaussianPolicy};
-use crate::utils::polyak_update;
+use crate::utils::{PolyakError, polyak_update};
 
 /// Observation width and (for the continuous envs) action width.
 pub(crate) const OBS_DIM: usize = 2;
@@ -284,7 +284,11 @@ impl<B: AutodiffBackend> crate::algorithms::dqn::dqn_model::DqnModel<B, 2> for F
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, FlatNet<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -327,7 +331,11 @@ impl<B: AutodiffBackend> crate::algorithms::c51::c51_model::C51Model<B, 2> for A
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, AtomNet<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -347,7 +355,11 @@ impl<B: AutodiffBackend> crate::algorithms::qrdqn::qrdqn_model::QrDqnModel<B, 2>
         inner.run(observations)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, AtomNet<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -384,7 +396,11 @@ impl<B: AutodiffBackend> DeterministicPolicy<B, 2, 2> for TinyActor<B> {
         inner.run(obs)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, TinyActor<B::InnerBackend>>(
             &active.valid(),
             target,
@@ -423,7 +439,11 @@ impl<B: AutodiffBackend> ContinuousQ<B, 2, 2> for TinyCritic<B> {
         inner.run(obs, act)
     }
     #[allow(clippy::cast_possible_truncation)]
-    fn soft_update(active: &Self, target: Self::InnerModule, tau: f64) -> Self::InnerModule {
+    fn soft_update(
+        active: &Self,
+        target: Self::InnerModule,
+        tau: f64,
+    ) -> Result<Self::InnerModule, PolyakError> {
         polyak_update::<B::InnerBackend, TinyCritic<B::InnerBackend>>(
             &active.valid(),
             target,

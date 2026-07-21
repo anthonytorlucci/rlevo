@@ -199,6 +199,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Breaking changes**
 
+- **The target soft-update path is now fallible** (ADR 0057, resolves #341,
+  partially #317). A `ParamId`-topology mismatch between a network and its target
+  is a recoverable configuration error — the target was built wrong — so it is
+  now surfaced as a typed `Result` instead of a panic, matching ADR 0056's
+  skip-don't-crash posture. Three signatures change:
+  - `polyak_update` now returns `Result<M, PolyakError>` (was `M`).
+  - the `soft_update` trait method on `DqnModel`, `C51Model`, `QrDqnModel`, and
+    the DDPG actor (`DeterministicPolicy`) and critic (`ContinuousQ`) traits now
+    returns `Result<Self::InnerModule, PolyakError>` (was `Self::InnerModule`);
+    SAC and TD3 reuse the DDPG traits, so no new decls.
+  - `learn_step` on all six off-policy agents (DQN, C51, QR-DQN, DDPG, TD3, SAC)
+    now returns `Result<Option<LearnOutcome>, XAgentError>` (was
+    `Option<LearnOutcome>`). Each agent error enum gains one
+    `#[error(transparent)] Polyak(#[from] PolyakError)` variant. `Ok(None)` still
+    means "step skipped" (warm-up or non-finite loss, ADR 0056); `Ok(Some(o))`
+    means applied; `Err` means the update failed.
+
+  Every in-tree target is built by cloning its active network, so the `Err`
+  paths are unreachable in practice and the healthy-path behaviour is unchanged.
+  `act()` and the on-policy PPO/PPG agents stay panic-based (residual under
+  #317).
+
+  *Migration.* Callers of `learn_step` add `?` — the training loops already
+  return the agent error type, so they need only the `?`. Direct callers that
+  cannot propagate double-unwrap: `agent.learn_step(rng).expect("no polyak
+  error")` yields the `Option<LearnOutcome>` you handled before. `soft_update`
+  and `polyak_update` implementors/callers likewise propagate or unwrap the
+  `Result`. No persisted data or on-disk format is affected.
+
 - **`DqnMetrics::value_loss` removed — it was an exact mirror of `policy_loss`**
   (resolves #415). DQN optimizes a single TD loss; unlike the actor-critic
   algorithms there is no separate policy/value pair to report. The field was
@@ -642,6 +671,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **`polyak_update` no longer mis-updates target networks with tied or subset
+  parameter topologies** (ADR 0057, resolves #341, partially #317). The mapper
+  pairs `active` and `target` parameters by [`ParamId`], and its bookkeeping was
+  wrong for two topologies and uninformative on a mismatch — a real *tied-weights*
+  module (two fields holding clones of one `Param`, sharing one id) hit every
+  defect at once. First, it consumed each active entry with `.remove()`, so tied
+  weights panicked when the second field's lookup found the id already gone;
+  lookup now uses `.get().cloned()`, letting one active entry blend into every
+  field that references it. Second, a `target` parameter absent from `active`
+  panicked; it is now the typed `PolyakError::MissingActive(ParamId)`, naming the
+  offending id and explaining the independent-init cause. Third, a `target` that
+  was a **strict subset** of `active` (some active parameters had no counterpart)
+  silently applied a partial update; unconsumed active parameters are tracked in a
+  `seen` set and the smallest leftover is now the typed
+  `PolyakError::MissingTarget(ParamId)` (deterministic via `ParamId: Ord`) instead
+  of vanishing without a signal. The existing polyak tests missed all three
+  because they only exercised the blend arithmetic (`tau = 0`/`1`/fractional) over
+  a single same-`ParamId` two-field fixture — the id-topology paths were never
+  entered, so no value assertion could observe the defect, which lived entirely in
+  how *mismatched* modules were handled. Unlike the interim #341 landing, the
+  detection is now reported as a recoverable `Result` rather than a panic: see the
+  **Breaking changes** entry above for `polyak_update` / `soft_update` /
+  `learn_step`. `act()` and the on-policy agents keep the panic shape, so #317 is
+  only partially addressed here.
 - **A non-finite loss no longer silently poisons the weights** (ADR 0056,
   resolves #318). Burn does not panic on `NaN`/`±Inf` — it propagates it. A loss
   that went non-finite (a PPO `ratio = exp(new − old)` overflow when
