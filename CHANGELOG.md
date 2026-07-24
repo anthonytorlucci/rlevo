@@ -669,6 +669,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   default is Atari-scaled: on a short classic-control run it may sync only a
   handful of times (see #337 for per-scale tuning guidance).
 
+- **`polyak_update` now keeps every soft update on-device instead of
+  round-tripping each parameter through host memory** (resolves #322). The
+  collector materialised every active parameter with `param.val().to_data()` — a
+  blocking device→host readback — and the mapper rebuilt each one with
+  `Tensor::from_data(.., &device)`, an upload straight back to the same device.
+  Both networks always share one backend and device, so the entire host
+  round-trip was gratuitous. It now stores the rank-erased on-device
+  `TensorPrimitive<B>` handle (`into_primitive`) and rewraps it with
+  `from_primitive`, so the value never leaves the device. Every off-policy agent
+  that maintains a target network (DQN, C51, QR-DQN, DDPG, TD3, SAC) soft-updates
+  on its configured cadence, so this fired on essentially every training step —
+  twice per step for the twin-critic agents (SAC, TD3). The update is
+  numerically identical (the blend arithmetic is unchanged). The mechanism is the
+  removal of a per-parameter host round trip — a blocking device→host readback and
+  matching upload — on every soft update; on any future accelerator backend it also
+  removes a per-parameter GPU sync stall. A standalone benchmark on the `Flex` CPU
+  backend measured ~1.4–1.9× on the soft-update step (see issue #322). The public
+  signature and `PolyakError` are unchanged.
+
 **Fixed**
 
 - **`polyak_update` no longer mis-updates target networks with tied or subset
