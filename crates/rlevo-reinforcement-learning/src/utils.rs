@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use burn::module::{Module, ModuleMapper, ModuleVisitor, Param, ParamId};
 use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Tensor, TensorPrimitive};
 
 /// Computes Bellman backup target Q-values for a mini-batch.
 ///
@@ -80,18 +80,22 @@ pub enum PolyakError {
 }
 
 struct ParamCollector<B: Backend> {
-    tensors: HashMap<ParamId, TensorData>,
+    tensors: HashMap<ParamId, TensorPrimitive<B>>,
     _marker: PhantomData<B>,
 }
 
 impl<B: Backend> ModuleVisitor<B> for ParamCollector<B> {
     fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
-        self.tensors.insert(param.id, param.val().to_data());
+        // Store the rank-erased on-device primitive handle, not a host
+        // `TensorData` readback: keeping the value on-device avoids a
+        // gratuitous device→host→device round-trip on every soft update
+        // (issue #322). Both networks live on the same backend/device.
+        self.tensors.insert(param.id, param.val().into_primitive());
     }
 }
 
 struct PolyakMapper<B: Backend> {
-    active: HashMap<ParamId, TensorData>,
+    active: HashMap<ParamId, TensorPrimitive<B>>,
     seen: HashSet<ParamId>,
     tau: f32,
     error: Option<PolyakError>,
@@ -117,8 +121,10 @@ impl<B: Backend> ModuleMapper<B> for PolyakMapper<B> {
         self.seen.insert(id);
         let tau = self.tau;
         param.map(move |target_tensor| {
-            let device = target_tensor.device();
-            let active_tensor = Tensor::<B, D>::from_data(active, &device);
+            // Rewrap the stored on-device primitive as a rank-`D` tensor; `D`
+            // is inferred from this `map_float<D>` call site and the primitive
+            // carries the real shape. No host upload occurs (issue #322).
+            let active_tensor = Tensor::<B, D>::from_primitive(active);
             target_tensor.mul_scalar(1.0 - tau) + active_tensor.mul_scalar(tau)
         })
     }
@@ -753,5 +759,69 @@ mod tests {
             param_b.id,
             param_c.id
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // On-device transport (issue #322)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_polyak_update_feeds_reconstructed_target_back_in() {
+        // Regression for the on-device transport swap: `active` is now carried
+        // between the collector and the mapper as a rank-erased
+        // `TensorPrimitive` handle, and each target parameter is rebuilt with
+        // `Tensor::from_primitive`. This test pins two things at the behaviour
+        // level.
+        //
+        // First, a single blend over a genuinely multi-rank net (rank-2 weight
+        // + rank-1 bias) must still produce the exact 0.75·target + 0.25·active
+        // combination — the primitive round-trip is numerically a no-op.
+        //
+        // Second, and the point of this test, the returned target is fed
+        // *straight back* into a second `polyak_update`. A tensor rebuilt from
+        // `from_primitive` must be a fully valid tensor you can read, blend, and
+        // reconstruct again — not a degenerate handle. The second step must
+        // continue converging toward active (every parameter's gap shrinks),
+        // which it cannot do if the reconstructed tensor were somehow inert.
+        //
+        // The fixtures use `Param::from_data` (already materialised), so no
+        // lazy first-read re-materialisation can masquerade as divergence.
+        const TAU: f32 = 0.25;
+        // First step: 0.75·target + 0.25·active, hand-computed per param, in
+        // visit order (weight row-major, then bias). Matches the tau = 0.25
+        // fractional-blend oracle above.
+        const AFTER_ONE: [f32; 8] = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, 0.875, 2.125];
+
+        let (active, target) = fixture();
+        assert_nets_differ(&active, &target);
+
+        let once =
+            polyak_update::<TestBackend, _>(&active, target, TAU).expect("ids match by fixture");
+        let after_one = once.flat();
+        for (i, (&got, &want)) in after_one.iter().zip(AFTER_ONE.iter()).enumerate() {
+            assert_abs_diff_eq!(got, want, epsilon = EPS);
+            assert!(
+                (got - ACTIVE_FLAT[i]).abs() > EPS,
+                "after one step param {i} must be a strict blend, not yet equal to \
+                 active ({}); got {got}",
+                ACTIVE_FLAT[i]
+            );
+        }
+
+        // Feed the reconstructed-from-primitive target back in unchanged.
+        let twice = polyak_update::<TestBackend, _>(&active, once, TAU)
+            .expect("the reconstructed target must remain a valid, updatable module");
+        let after_two = twice.flat();
+
+        for (i, (&one, &two)) in after_one.iter().zip(after_two.iter()).enumerate() {
+            let goal = ACTIVE_FLAT[i];
+            let gap_before = (goal - one).abs();
+            let gap_after = (goal - two).abs();
+            assert!(
+                gap_after < gap_before,
+                "second consecutive step must keep converging param {i} toward active \
+                 ({goal}); gap went {gap_before} -> {gap_after}"
+            );
+        }
     }
 }
