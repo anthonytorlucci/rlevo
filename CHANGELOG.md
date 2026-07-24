@@ -690,6 +690,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **PPG's auxiliary phase no longer anneals one iteration ahead of the policy
+  phase it accompanies** (resolves #324). `maybe_aux_phase` read
+  `current_learning_rate()`, but `policy_phase_update` had already incremented
+  the iteration counter on its way out — so every auxiliary phase stepped at the
+  *next* tick's rate, and whenever `total_iterations % n_iteration == 0` the
+  final one landed on `iteration == total_iterations`, where the linear anneal
+  is exactly `0.0`. That closing phase ran its full complement of forward and
+  backward passes and moved no parameter at all: wasted compute, plus a
+  `last_aux_phase().policy_kl` of bit-exactly `0x00000000` that reads as a
+  broken auxiliary phase to anyone instrumenting it (it is what raised the false
+  alarm in #319). The rate the policy phase applies is now snapshotted before
+  the increment and reused by the auxiliary phase, matching CleanRL's
+  `ppg_procgen.py` — whose `# AUXILIARY PHASE` block is nested inside the phase
+  body, shares the policy optimizer, and never rewrites its `lr` — and Algorithm
+  1 of Cobbe et al. (2021), which places the auxiliary phase inside the phase
+  rather than after a schedule tick. `current_learning_rate()` is unchanged and
+  still reports the rate the *next* policy phase will use; its doc now says so.
+  The existing tests missed this because the PPG suite asserts that the
+  auxiliary phase *fires* and that its metrics are *finite* — and zero is
+  finite — while the annealing tests live in `ppo_config` and only check the
+  arithmetic, never the phase ordering that consumes it. `ppg_aux_phase_actually_runs`
+  demonstrably passed against the bug it was positioned to guard; it and the new
+  regression test now assert `policy_kl > 0.0`, guarded by an explicit
+  `minibatches > 1` precondition (the first minibatch of the first auxiliary
+  epoch forward-passes the same weights `π_old` was snapshotted from, so its KL
+  term is structurally zero and a single-minibatch phase would report `0.0` at a
+  perfectly healthy rate). Training impact is one phase per run and small in
+  absolute terms; the diagnostic trap was the real cost.
 - **`polyak_update` no longer mis-updates target networks with tied or subset
   parameter topologies** (ADR 0057, resolves #341, partially #317). The mapper
   pairs `active` and `target` parameters by [`ParamId`], and its bookkeeping was

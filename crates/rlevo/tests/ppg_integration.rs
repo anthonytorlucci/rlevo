@@ -178,8 +178,29 @@ fn ppg_without_aux_phase_matches_ppo_baseline() {
     );
 }
 
+/// The auxiliary phase must fire *and* move the policy — including on the
+/// terminal iteration (issues #319, #324).
+///
+/// `total / num_steps = 2048 / 128 = 16` policy-phase iterations with
+/// `n_iteration = 4`, so `16 % 4 == 0` and the aux phase this test inspects via
+/// [`PpgAgent::last_aux_phase`] is the **terminal** one, at
+/// `iteration == total_iterations`. That is exactly #324's trigger: the phase
+/// used to read the annealed learning rate one schedule tick ahead of the
+/// policy phase it accompanies, and at the terminal tick the anneal is exactly
+/// `0.0`, so every minibatch stepped by nothing.
+///
+/// This test previously asserted only `aux_value_loss.is_finite()` and
+/// `policy_kl.is_finite()`. `0.0` is finite, so a bit-exactly zero `policy_kl`
+/// — the precise signature of the #324 no-op — satisfied both: the test passed
+/// against the bug it is positioned to guard (recorded in #319's closing
+/// comment). #319 also warned that asserting `policy_kl > 0.0` would fail for a
+/// benign reason; #324's fix is what retired that warning, since the terminal
+/// phase now steps at the rate of the policy phase it accompanies.
+///
+/// The `> 0.0` form is now load-bearing here, and it rests on the
+/// more-than-one-minibatch precondition asserted in the body.
 #[test]
-#[ignore = "2 048-step PPG run (n_iteration=4) verifying the aux phase fires and produces finite KL/value-loss metrics — run with `cargo test -- --ignored`"]
+#[ignore = "2 048-step PPG run (n_iteration=4) verifying the terminal aux phase fires and moves the policy at a nonzero learning rate (#324) — run with `cargo test -- --ignored`"]
 fn ppg_aux_phase_actually_runs() {
     let _guard = flex_guard();
     // Use a small n_iteration so the aux phase fires within a tiny budget.
@@ -202,9 +223,44 @@ fn ppg_aux_phase_actually_runs() {
     let aux = agent
         .last_aux_phase()
         .expect("aux phase should have run at least once");
-    assert!(aux.minibatches > 0);
-    assert!(aux.aux_value_loss.is_finite());
-    assert!(aux.policy_kl.is_finite());
+    // Precondition for the `policy_kl > 0.0` assertion below. `maybe_aux_phase`
+    // snapshots `π_old` once, before the aux epoch loop, so the *first*
+    // minibatch of the *first* epoch compares that snapshot against weights the
+    // phase has not stepped yet: its KL term is structurally `0.0` at any
+    // learning rate. `policy_kl` is the mean over minibatches, so it can only be
+    // strictly positive when the phase runs more than one of them.
+    //
+    // This config does: 4 aux slices × 128 steps = 512 aux steps, chunked at
+    // `aux_batch_size = 128` → 4 chunks, × `e_aux = 6` epochs = 24 minibatches.
+    assert!(
+        aux.minibatches > 1,
+        "`policy_kl > 0.0` is only meaningful when the aux phase runs more than one \
+         minibatch (the first minibatch's KL is structurally zero — π_old is snapshotted \
+         before the epoch loop); got {} minibatches, so shrinking the aux step count or \
+         growing `aux_batch_size` into a single chunk has invalidated this test rather \
+         than regressed #324",
+        aux.minibatches
+    );
+    // Guards the #318 all-minibatches-skipped path, which reports both aux
+    // losses as a literal `0.0` sentinel rather than NaN: an aux-value MSE
+    // against CartPole returns is bounded below by 0 and can only *be* 0 on a
+    // bit-exact perfect regression, which a freshly initialised head does not
+    // achieve.
+    assert!(
+        aux.aux_value_loss > 0.0,
+        "the aux-value MSE must be strictly positive; `0.0` is also the sentinel reported \
+         when every minibatch was skipped as non-finite (#318), got {}",
+        aux.aux_value_loss
+    );
+    // The #324 assertion. `is_finite()` alone passed on the bit-exactly zero
+    // KL that the terminal aux phase produced when it ran at `lr == 0.0`.
+    assert!(
+        aux.policy_kl > 0.0,
+        "the terminal aux phase moved the policy by exactly nothing (policy_kl = {}), \
+         which means it ran at lr = 0.0 — it must step at the rate of the policy phase it \
+         accompanies (#324); `is_finite()` alone does not catch this (#319)",
+        aux.policy_kl
+    );
 }
 
 #[test]
@@ -233,6 +289,89 @@ fn ppg_cartpole_produces_finite_rewards() {
     assert_all_finite(
         "value_loss",
         &history.iter().map(|m| m.value_loss).collect::<Vec<_>>(),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Auxiliary-phase learning rate (issue #324)
+// ---------------------------------------------------------------------------
+
+/// Regression (issue #324): the auxiliary phase used to read the *annealed*
+/// learning rate after `policy_phase_update` had already bumped the iteration
+/// counter, so it ran one schedule tick ahead of the policy phase it
+/// accompanies. Whenever `total_iterations % n_iteration == 0` the final
+/// auxiliary phase therefore landed on `iteration == total_iterations`, where
+/// the anneal is exactly `0.0` — its minibatches moved no parameter and its
+/// reported `policy_kl` was bit-exactly zero.
+///
+/// This is that configuration, minimised: `total / num_steps = 4` iterations
+/// with `n_iteration = 2`, so auxiliary phases fire at iterations 2 and 4 and
+/// the second one is the failing terminal case.
+#[test]
+fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
+    const SEED: u64 = 19;
+    const NUM_STEPS: usize = 128;
+    const TOTAL: usize = 512; // 4 policy-phase iterations.
+    const N_ITERATION: usize = 2; // aux phases at iterations 2 and 4.
+
+    let _guard = flex_guard();
+
+    let mut env = TimeLimit::new(cartpole_seeded(SEED), 500);
+    let mut rng = StdRng::seed_from_u64(SEED);
+    let mut agent = make_cart_pole_agent(SEED, NUM_STEPS, TOTAL, N_ITERATION);
+    train_discrete::<Be, _, _, _, _, CartPoleAction, _, 1, 1, 2>(
+        &mut agent, &mut env, &mut rng, TOTAL, 0,
+    )
+    .expect("training");
+
+    // The run must actually reach the terminal iteration, or the regression
+    // below is checking an interior aux phase that never had the bug.
+    assert_eq!(
+        agent.iteration(),
+        TOTAL / NUM_STEPS,
+        "the run must complete all {} policy phases for the terminal aux phase to fire",
+        TOTAL / NUM_STEPS
+    );
+
+    let aux = agent
+        .last_aux_phase()
+        .expect("the aux phase must have fired at the final iteration");
+    // Soundness precondition for `policy_kl > 0.0` below, not just a
+    // liveness check. `maybe_aux_phase` snapshots `π_old` once, before the aux
+    // epoch loop, so the *first* minibatch of the *first* epoch runs its
+    // "new" forward pass over weights the phase has not stepped yet — that
+    // minibatch's KL is structurally `0.0` at any learning rate, healthy or
+    // annealed to nothing. `policy_kl` is the mean over minibatches, so it is
+    // strictly positive only when more than one minibatch runs. A
+    // single-minibatch aux phase (`e_aux = 1` with `aux_batch_size` ≥ the total
+    // aux step count) reports `policy_kl == 0.0` at a perfectly healthy lr.
+    //
+    // This config does: `n_iteration = 2` slices × `NUM_STEPS = 128` = 256 aux
+    // steps, chunked at `aux_batch_size = 128` → 2 chunks, × `e_aux = 6`
+    // epochs = 12 minibatches.
+    assert!(
+        aux.minibatches > 1,
+        "`policy_kl > 0.0` is only meaningful when the aux phase runs more than one \
+         minibatch (the first minibatch's KL is structurally zero — π_old is snapshotted \
+         before the epoch loop); got {} minibatches, so shrinking `n_iteration × NUM_STEPS` \
+         or growing `aux_batch_size` into a single chunk has invalidated this test rather \
+         than regressed #324",
+        aux.minibatches
+    );
+    assert!(
+        aux.policy_kl.is_finite(),
+        "the final aux phase's distillation KL must be finite, got {}",
+        aux.policy_kl
+    );
+    // The load-bearing assertion. `policy_kl` is `KL(π_old ‖ π_new)` against a
+    // snapshot taken at the start of the phase, so at `lr == 0.0` the policy
+    // cannot move and every minibatch contributes an exact zero.
+    assert!(
+        aux.policy_kl > 0.0,
+        "the final aux phase moved the policy by exactly nothing (policy_kl = {}), which \
+         means it ran at lr = 0.0 — it must step at the rate of the policy phase it \
+         accompanies (#324)",
+        aux.policy_kl
     );
 }
 
