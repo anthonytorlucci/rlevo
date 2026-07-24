@@ -73,6 +73,43 @@ jobs:
           fi
           echo "all crate manifests opt into [workspace.lints]"
 
+  # Issue #519: the `test` matrix below is hand-maintained, and nothing in cargo
+  # notices when a crate is missing from it — the crate's tests simply never
+  # run, and CI is green because nothing was checked. That is how `rlevo`'s 22
+  # test binaries, plus every test in four other crates, stayed out of the pull
+  # request gate. Same silent-inertness class as the #391 lint-opt-in job above,
+  # and the same remedy: make the omission fail the build.
+  test-matrix-coverage:
+    name: test matrix covers every crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Every workspace crate must appear in the test matrix
+        run: |
+          # No exclusions: the matrix is total over `crates/*/`. If a crate ever
+          # genuinely cannot be tested in the gate, add it to an `excluded` list
+          # here together with the reason — do not silently drop it from the
+          # matrix, which is the failure mode this job exists to prevent.
+          missing=""
+          for dir in crates/*/; do
+            crate=$(basename "$dir")
+            # Whole-line match against a YAML list item, so `rlevo` is not
+            # considered covered by `rlevo-core`. Bare `- <name>` items appear
+            # only under the matrix's `crate:` key; every other list in this
+            # file is a mapping (`- uses:`, `- name:`, `- crate:`).
+            if ! grep -qE "^ +- ${crate}\$" .github/workflows/crate-tests.yml; then
+              missing="$missing  $crate\n"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::workspace crates absent from the crate-tests matrix (see issue #519):"
+            printf "$missing"
+            echo "A crate outside the matrix has its tests run by no pull-request check."
+            echo "Add it to the matrix, or to this job's 'excluded' list with a reason."
+            exit 1
+          fi
+          echo "every workspace crate is covered by the test matrix"
+
   # ADR 0042 / issue #128: `box2d` and `locomotion` are orthogonal
   # rlevo-environments features (neither implies the other) — a shared type
   # gated behind only one of them silently breaks the other's build. Two
@@ -108,6 +145,13 @@ jobs:
           cargo clippy -p rlevo-environments --all-targets
           --no-default-features --features locomotion -- -D warnings
 
+  # Issue #519: a crate absent from this matrix has its tests compiled and run
+  # by no pull-request check. `rlevo` was the case that surfaced it — all 22 of
+  # its `crates/rlevo/tests/*.rs` binaries were reachable only by
+  # `weekly-tests.yml`, which runs `-- --ignored` and therefore *filters out*
+  # every non-ignored test in them. Four further crates were absent for no
+  # recorded reason at all. Keep this list total over `crates/*/`; the
+  # `test-matrix-coverage` job below fails the build if it drifts.
   test:
     name: ${{ matrix.crate }}
     runs-on: ubuntu-latest
@@ -117,9 +161,24 @@ jobs:
         crate:
           - rlevo-core
           - rlevo-benchmarks
+          - rlevo-benchmarks-report-client
           - rlevo-environments
           - rlevo-evolution
+          - rlevo-examples
+          - rlevo-hybrid
+          - rlevo-metrics-registry
           - rlevo-reinforcement-learning
+          - rlevo-test-support
+          - rlevo
+        include:
+          # `crates/rlevo/tests/recording_episode_count.rs` and
+          # `cartpole_report_smoke.rs` use `rlevo_benchmarks::record` and the
+          # report emitter unconditionally — neither file is `#![cfg]`-gated —
+          # and `viz-report` is not among `rlevo`'s default features. A bare
+          # `cargo test -p rlevo` therefore fails to *compile* those two
+          # binaries rather than skipping them.
+          - crate: rlevo
+            features: --features viz-report
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -128,5 +187,6 @@ jobs:
         with:
           key: crate-tests-${{ matrix.crate }}
 
+      # `matrix.features` is empty for every crate without an `include:` entry.
       - name: Test ${{ matrix.crate }}
-        run: cargo test --package ${{ matrix.crate }}
+        run: cargo test --package ${{ matrix.crate }} ${{ matrix.features }}

@@ -113,6 +113,16 @@ pub struct AuxPhaseStats {
     pub epochs_run: usize,
     /// Minibatches processed.
     pub minibatches: usize,
+    /// Learning rate both optimizer steps ran at — the rate the accompanying
+    /// policy phase applied, not the next tick's (#324).
+    ///
+    /// Reported so callers can tell a phase that *ran but moved nothing*
+    /// (`learning_rate == 0.0`) from one that moved the policy imperceptibly.
+    /// The loss fields cannot make that distinction: at `lr == 0.0` every
+    /// parameter is bit-exactly unchanged and [`policy_kl`](Self::policy_kl)
+    /// collapses to `0.0`, which is also its value on a healthy
+    /// single-minibatch phase.
+    pub learning_rate: f64,
 }
 
 /// Phasic Policy Gradient agent.
@@ -901,6 +911,7 @@ where
             },
             epochs_run,
             minibatches: mb_count,
+            learning_rate: lr,
         };
         self.last_aux = Some(stats);
         Some(stats)
@@ -945,7 +956,7 @@ mod tests {
     use super::*;
     use burn::backend::{Autodiff, Flex};
     use burn::grad_clipping::GradientClippingConfig;
-    use burn::module::{Module, ModuleMapper, Param};
+    use burn::module::{Module, ModuleMapper, ModuleVisitor, Param};
     use burn::nn::{Linear, LinearConfig};
     use burn::tensor::backend::Backend;
     use rand::SeedableRng;
@@ -1080,6 +1091,36 @@ mod tests {
             let (id, tensor, mapper) = param.consume();
             Param::from_mapped_value(id, tensor.mul_scalar(f32::NAN), mapper)
         }
+    }
+
+    /// Flattens every float parameter of a module into one host `Vec<f32>`, in
+    /// visit order, so two snapshots taken around a phase can be diffed
+    /// element-wise.
+    ///
+    /// Visits rather than naming fields: the policy heads keep their `Linear`
+    /// layers private, and a whole-module sweep also cannot miss a parameter a
+    /// future head adds.
+    struct ParamSnapshot {
+        values: Vec<f32>,
+    }
+
+    impl<B: Backend> ModuleVisitor<B> for ParamSnapshot {
+        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
+            self.values.extend(
+                param
+                    .val()
+                    .into_data()
+                    .convert::<f32>()
+                    .into_vec::<f32>()
+                    .expect("f32 parameter host read"),
+            );
+        }
+    }
+
+    fn param_snapshot<B: Backend, M: Module<B>>(module: &M) -> Vec<f32> {
+        let mut snapshot = ParamSnapshot { values: Vec::new() };
+        module.visit(&mut snapshot);
+        snapshot.values
     }
 
     /// Reads the main value head's weights back to the host, element-wise, so a
@@ -1335,6 +1376,84 @@ mod tests {
             "the last policy phase ran at a positive rate, so the auxiliary phase \
              that accompanies it must too — got {}",
             agent.policy_phase_lr
+        );
+    }
+
+    /// Behavioral companion to
+    /// [`ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick`]: the
+    /// aligned rate must actually *move parameters*, not merely be positive.
+    ///
+    /// Measures a host-side weight delta across the terminal auxiliary phase —
+    /// the phase #324 turned into a bit-exact no-op. A weight delta is
+    /// `lr · step`, linear in the learning rate and here ~1e-4 against weights
+    /// of order 1e-1, so it clears `f32` resolution by several orders of
+    /// magnitude.
+    ///
+    /// This exists because the equivalent end-to-end check in
+    /// `crates/rlevo/tests/ppg_integration.rs` used to assert
+    /// `AuxPhaseStats::policy_kl > 0.0`. That also catches #324 — at `lr == 0.0`
+    /// the parameters are bitwise unchanged and every minibatch's KL is an exact
+    /// zero — but it decides the question through an `f32` mean of
+    /// log-differences between near-identical logits, measured at ~3.4×
+    /// `f32::EPSILON` on a healthy run. A backend with a different reduction
+    /// order could round a *healthy* phase to zero. The integration test now
+    /// asserts on `AuxPhaseStats::learning_rate`, which is exact, and the
+    /// "a nonzero rate moves the policy" half lives here, where the observable
+    /// has margin to spare.
+    #[test]
+    // `current_learning_rate()` landing on *exactly* 0.0 at the terminal
+    // iteration is the precondition that makes this #324's failing
+    // configuration rather than an ordinary interior phase.
+    #[allow(clippy::float_cmp)]
+    fn ppg_aux_phase_at_nonzero_lr_moves_policy_parameters() {
+        const TOTAL_ITERATIONS: usize = 4;
+        let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
+        let mut rng = StdRng::seed_from_u64(9);
+
+        // `annealing_ppg_agent` sets `n_iteration = 1`, so an auxiliary phase
+        // fires after every policy phase; the loop keeps the last one. Mirrors
+        // the per-iteration order in `algorithms::ppg::train`.
+        let mut terminal = None;
+        for _ in 0..TOTAL_ITERATIONS {
+            collect_rollout(&mut agent, &mut rng);
+            agent.snapshot_into_aux_buffer();
+            agent.policy_phase_update(&mut rng);
+            let before = param_snapshot(agent.policy());
+            let stats = agent.maybe_aux_phase(&mut rng);
+            let after = param_snapshot(agent.policy());
+            if let Some(stats) = stats {
+                terminal = Some((before, after, stats));
+            }
+        }
+
+        let (before, after, stats) =
+            terminal.expect("with n_iteration = 1 an auxiliary phase fires every iteration");
+        assert_eq!(
+            agent.current_learning_rate(),
+            0.0,
+            "the anneal must land on exactly 0.0 at the terminal iteration, or this is not \
+             the configuration #324 broke"
+        );
+        assert!(
+            stats.learning_rate > 0.0,
+            "the terminal auxiliary phase must step at the rate of the policy phase it \
+             accompanies, got {}",
+            stats.learning_rate
+        );
+        assert_eq!(
+            before.len(),
+            after.len(),
+            "the auxiliary phase must not change the policy's parameter topology"
+        );
+        let max_delta = before
+            .iter()
+            .zip(&after)
+            .map(|(b, a)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            max_delta > 0.0,
+            "the terminal auxiliary phase left every policy parameter bit-exactly unchanged \
+             (max |Δw| = {max_delta}) — that is what stepping at lr = 0.0 does (#324)"
         );
     }
 }

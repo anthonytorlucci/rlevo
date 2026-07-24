@@ -1257,6 +1257,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`AuxPhaseStats::learning_rate`** — the rate a PPG auxiliary phase's two
+  optimizer steps actually ran at, carried alongside the existing loss fields.
+  Lets a caller distinguish a phase that *ran but moved nothing* (`0.0`, the
+  #324 defect) from one that moved the policy imperceptibly; the loss fields
+  cannot, because at `lr == 0.0` every parameter is bit-exactly unchanged and
+  `policy_kl` collapses to `0.0` — which is also its value on a healthy
+  single-minibatch phase. Additive: `AuxPhaseStats` is constructed only inside
+  `maybe_aux_phase`.
+
+  This replaces the load-bearing assertion in `ppg_integration.rs`'s #324
+  regression test, which previously decided the bug through
+  `policy_kl > 0.0`. That form is correct but is an `f32` mean of
+  log-differences between near-identical logits, measured at ~4.1e-7 — about
+  3.4× `f32::EPSILON` — so a backend with a different reduction order could
+  round a *healthy* phase to zero. Exposure that mattered once #519 put the
+  crate on shared CI hardware. The behavioral half of the check moved to a new
+  in-crate test, `ppg_aux_phase_at_nonzero_lr_moves_policy_parameters`, which
+  measures a host-side weight delta across the terminal auxiliary phase —
+  `lr · step`, linear in the rate and clear of `f32` resolution by orders of
+  magnitude. Both assertions were verified to fail against a deliberately
+  reintroduced #324 (`max |Δw| = 0` exactly).
+
 - **`PpoUpdateStats::min_log_std` and a one-shot warning when the `log_std`
   bound binds** (resolves #173, ADR 0049). Bounding `log_std` trades a *loud*
   failure for a *quiet* one: before, a collapsing policy produced NaN and the run
@@ -1354,6 +1376,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   config (executed: `bincode` decodes `GoToDoorConfig { size: 1 }` below its
   `MIN_SIZE = 5`), which is per ADR 0026 the loader's obligation — and no
   config loader exists in the workspace today.
+
+### Infrastructure
+
+**Fixed**
+
+- **Every workspace crate now runs its tests in the pull-request gate, and a
+  meta-check keeps it that way** (resolves #519). `crate-tests.yml`'s matrix was
+  hand-maintained and named five crates; six were missing. The consequence was
+  worst for `rlevo`, whose 22 `crates/rlevo/tests/*.rs` binaries were reachable
+  only through `weekly-tests.yml` — which runs `-- --ignored` and therefore
+  *filters out* every non-ignored test in them. 38 non-ignored tests across 16
+  binaries executed in no workflow at all, including the regression tests
+  written for #321 and #324 specifically so they would gate pull requests.
+  Un-ignoring a test never made it run.
+
+  The gap was not `rlevo`-only: `rlevo-benchmarks-report-client` (80 tests),
+  `rlevo-metrics-registry` (17), `rlevo-test-support` (6),
+  `rlevo-hybrid` (6) and `rlevo-examples` (5) were absent from the matrix for no
+  recorded reason. All six crates are now in it; `rlevo` carries
+  `--features viz-report`, without which `recording_episode_count.rs` and
+  `cartpole_report_smoke.rs` fail to *compile* (neither is `#![cfg]`-gated, and
+  the feature is not in `rlevo`'s defaults). Measured cost of the added
+  coverage: ~55 s of test execution for `rlevo`, under a second each for the
+  other five.
+
+  The new `test-matrix-coverage` job fails the build when a crate under
+  `crates/` is absent from the matrix, on the model of the #391 lint-opt-in
+  job — the omission itself is the bug, and nothing in cargo reports it.
 
 ---
 
