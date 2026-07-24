@@ -168,6 +168,14 @@ where
     device: B::Device,
     iteration: usize,
     total_iterations: usize,
+    /// Learning rate the most recent [`policy_phase_update`](Self::policy_phase_update)
+    /// actually applied, snapshotted *before* that update bumped `iteration`.
+    ///
+    /// The auxiliary phase belongs to the policy phase it follows, so it steps
+    /// at this rate rather than at `current_learning_rate()` — which, read from
+    /// [`maybe_aux_phase`](Self::maybe_aux_phase), has already advanced one
+    /// annealing tick (#324).
+    policy_phase_lr: f64,
     step: usize,
     stats: AgentStats<PpgMetrics>,
     last_aux: Option<AuxPhaseStats>,
@@ -194,6 +202,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpgAgent")
             .field("iteration", &self.iteration)
+            .field("policy_phase_lr", &self.policy_phase_lr)
             .field("step", &self.step)
             .field("buffer_len", &self.buffer.len())
             .field("aux_slices", &self.aux_buffer.num_slices())
@@ -284,6 +293,12 @@ where
         let buffer = RolloutBuffer::new(capacity, action_dim);
         let aux_buffer = AuxRolloutBuffer::new();
         let stats = AgentStats::<PpgMetrics>::new(100);
+        // What `current_learning_rate()` returns at `iteration == 0`: the
+        // annealed rate at tick zero is the base rate, and with annealing off it
+        // is the base rate throughout. Seeding the field here keeps a
+        // `maybe_aux_phase` that somehow precedes any policy phase on-schedule
+        // instead of stepping at an uninitialised rate.
+        let policy_phase_lr = config.ppo.learning_rate;
 
         Ok(Self {
             policy: Slot::new(policy),
@@ -296,6 +311,7 @@ where
             device,
             iteration: 0,
             total_iterations,
+            policy_phase_lr,
             step: 0,
             stats,
             last_aux: None,
@@ -377,10 +393,20 @@ where
         self.value.get()
     }
 
-    /// Current effective learning rate, accounting for linear annealing.
+    /// Learning rate the **next** policy phase will use, accounting for linear
+    /// annealing.
     ///
     /// Returns `config.ppo.learning_rate` unchanged when `anneal_lr` is
-    /// `false`; otherwise linearly decays toward zero over `total_iterations`.
+    /// `false`; otherwise linearly decays toward zero over `total_iterations`,
+    /// reaching exactly `0.0` at `iteration == total_iterations`.
+    ///
+    /// This is a *forward-looking* read: it is a pure function of `iteration`,
+    /// which [`policy_phase_update`](Self::policy_phase_update) increments on
+    /// its way out. Called after an update, it therefore reports one annealing
+    /// tick *past* the rate that update applied — and at the end of a run it
+    /// reports `0.0`. Anything that must step at the rate of the phase that just
+    /// ran reads `policy_phase_lr` instead; that is exactly what the auxiliary
+    /// phase does (see [`maybe_aux_phase`](Self::maybe_aux_phase), #324).
     pub fn current_learning_rate(&self) -> f64 {
         if self.config.ppo.anneal_lr {
             annealed_learning_rate(
@@ -534,6 +560,10 @@ where
     /// [`crate::algorithms::ppo::ppo_agent::PpoAgent::update`].
     /// Clears the rollout buffer, increments the iteration counter, returns
     /// the same [`PpoUpdateStats`].
+    ///
+    /// The annealed learning rate is snapshotted once, *before* the increment,
+    /// and retained in `policy_phase_lr` so the auxiliary phase that may follow
+    /// this update steps at the same rate (#324).
     // The body is one linear pipeline — sample, forward, loss, backward,
     // optimizer step, priority writeback, metrics — with a borrow structure
     // around the module slot that the inline comments below depend on. Splitting
@@ -548,7 +578,11 @@ where
         let cfg = self.config.ppo.clone();
         let batch_size = self.buffer.len();
         let mb_size = (batch_size / cfg.num_minibatches.max(1)).max(1);
+        // Read before `self.iteration += 1` below, so this is the rate for the
+        // phase about to run. Retained for the auxiliary phase, which belongs to
+        // this policy phase and must not anneal ahead of it (#324).
         let lr = self.current_learning_rate();
+        self.policy_phase_lr = lr;
 
         let mut policy_loss_acc = 0.0_f32;
         let mut value_loss_acc = 0.0_f32;
@@ -725,6 +759,20 @@ where
     ///   policy that has just finished `n_iteration` policy-phase updates).
     ///
     /// Drains the buffer afterwards. Otherwise, no-op.
+    ///
+    /// # Learning rate
+    ///
+    /// Both optimizer steps use `policy_phase_lr` — the rate the policy phase
+    /// this auxiliary phase accompanies actually applied — **not**
+    /// [`current_learning_rate`](Self::current_learning_rate), which has already
+    /// advanced past it. This matches `CleanRL`'s `ppg_procgen.py`, where the
+    /// `# AUXILIARY PHASE` block is nested inside the phase body, shares the
+    /// policy optimizer, and never rewrites its `lr`; and Algorithm 1 of Cobbe
+    /// et al. (2021), where the auxiliary phase sits inside the phase rather
+    /// than after a schedule tick. Reading the annealed rate here instead made
+    /// every auxiliary phase run one tick early and, whenever
+    /// `total_iterations % n_iteration == 0`, made the final one a bit-exact
+    /// no-op at `lr == 0.0` (#324).
     // Divisor/normalizer derived from a count -- batch size, minibatch count,
     // history length, iteration number. All are bounded by configured sizes far
     // below f32's 2^24 (f64's 2^53) exact-integer limit.
@@ -734,7 +782,8 @@ where
             return None;
         }
         let cfg = self.config.clone();
-        let lr = self.current_learning_rate();
+        // The accompanying policy phase's rate, not the next one's (#324).
+        let lr = self.policy_phase_lr;
         let total_steps = self.aux_buffer.len_steps();
         if total_steps == 0 {
             self.aux_buffer.clear();
@@ -1045,12 +1094,28 @@ mod tests {
             .expect("f32 weight host read")
     }
 
-    /// Builds an agent with a single four-step rollout collected and finalized
-    /// (advantages/returns populated) with *healthy* networks. `n_iteration = 1`
-    /// so a single `snapshot_into_aux_buffer` makes the auxiliary phase ready.
+    /// Collects and finalizes one four-step rollout on `agent`, leaving the
+    /// buffer full and its advantages/returns populated — i.e. ready for
+    /// `policy_phase_update`.
     // Test fixture data: the loop counter is bounded by a small constant, far
     // below f32's 2^24 exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
+    fn collect_rollout(agent: &mut TestAgent, rng: &mut StdRng) {
+        let mut last = TestObs([0.4, 0.6]);
+        for i in 0..4usize {
+            let x = i as f32 * 0.1;
+            let obs = TestObs([x, 1.0 - x]);
+            let next = TestObs([x + 0.1, 0.9 - x]);
+            let outcome = agent.act(&obs, rng);
+            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
+            last = next;
+        }
+        agent.finalize_rollout(&last);
+    }
+
+    /// Builds an agent with a single four-step rollout collected and finalized
+    /// (advantages/returns populated) with *healthy* networks. `n_iteration = 1`
+    /// so a single `snapshot_into_aux_buffer` makes the auxiliary phase ready.
     fn primed_ppg_agent() -> TestAgent {
         let device = Default::default();
         let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
@@ -1078,16 +1143,7 @@ mod tests {
         let mut agent = TestAgent::new(policy, value, config, device, 1).expect("valid config");
 
         let mut rng = StdRng::seed_from_u64(0);
-        let mut last = TestObs([0.4, 0.6]);
-        for i in 0..4usize {
-            let x = i as f32 * 0.1;
-            let obs = TestObs([x, 1.0 - x]);
-            let next = TestObs([x + 0.1, 0.9 - x]);
-            let outcome = agent.act(&obs, &mut rng);
-            agent.record_step(obs, &outcome, 1.0, &next, EpisodeStatus::Running);
-            last = next;
-        }
-        agent.finalize_rollout(&last);
+        collect_rollout(&mut agent, &mut rng);
         agent
     }
 
@@ -1193,6 +1249,92 @@ mod tests {
         assert!(
             stats.main_value_loss.is_finite(),
             "the reported main-value loss must stay finite"
+        );
+    }
+
+    // -------- auxiliary-phase learning-rate alignment (#324) --------
+
+    /// Builds an empty agent with LR annealing **on** over `total_iterations`
+    /// policy phases. Mirrors [`primed_ppg_agent`]'s shapes; the rollout is left
+    /// to the caller so several phases can be driven in sequence.
+    fn annealing_ppg_agent(total_iterations: usize) -> TestAgent {
+        let device = Default::default();
+        let policy: PpgCategoricalPolicyHead<TestBackend> = PpgCategoricalPolicyHeadConfig {
+            obs_dim: 2,
+            hidden: 4,
+            num_actions: 2,
+        }
+        .try_init::<TestBackend>(&device)
+        .expect("valid head config");
+        let value = TestValue::<TestBackend>::init(&device);
+        let config = PpgConfigBuilder::new()
+            .n_iteration(1)
+            .e_aux(1)
+            .aux_batch_size(4)
+            .with_ppo(|p| PpoTrainingConfig {
+                num_envs: 1,
+                num_steps: 4,
+                num_minibatches: 1,
+                update_epochs: 1,
+                anneal_lr: true,
+                ..p
+            })
+            .build()
+            .expect("valid config");
+        TestAgent::new(policy, value, config, device, total_iterations).expect("valid config")
+    }
+
+    /// Regression (issue #324): the auxiliary phase must step at the learning
+    /// rate of the policy phase it accompanies, so `policy_phase_lr` has to hold
+    /// the rate read *before* `policy_phase_update` bumped `iteration` — one
+    /// tick behind `current_learning_rate()`. On the final iteration that
+    /// distinction is the whole defect: `current_learning_rate()` is exactly
+    /// `0.0` there, which would make the closing auxiliary phase a bit-exact
+    /// no-op.
+    #[test]
+    // Exact comparison is the property: `annealed_learning_rate` lands on
+    // *exactly* 0.0 at the last tick, and `policy_phase_lr` is a copy of a
+    // `current_learning_rate()` return value, not a recomputation. A tolerance
+    // would let the one-tick offset this test exists to catch slip through.
+    #[allow(clippy::float_cmp)]
+    fn ppg_policy_phase_lr_trails_current_learning_rate_by_one_tick() {
+        const TOTAL_ITERATIONS: usize = 4;
+        let mut agent = annealing_ppg_agent(TOTAL_ITERATIONS);
+        let mut rng = StdRng::seed_from_u64(9);
+
+        for completed in 0..TOTAL_ITERATIONS {
+            let lr_of_this_phase = agent.current_learning_rate();
+            collect_rollout(&mut agent, &mut rng);
+            agent.policy_phase_update(&mut rng);
+
+            assert_eq!(
+                agent.iteration(),
+                completed + 1,
+                "each policy phase must advance the iteration counter exactly once"
+            );
+            assert_eq!(
+                agent.policy_phase_lr, lr_of_this_phase,
+                "policy_phase_lr must be the pre-increment rate the phase applied"
+            );
+            assert!(
+                agent.policy_phase_lr > agent.current_learning_rate(),
+                "the annealed rate must have advanced past the phase that just ran: \
+                 policy_phase_lr = {}, current_learning_rate() = {}",
+                agent.policy_phase_lr,
+                agent.current_learning_rate()
+            );
+        }
+
+        assert_eq!(
+            agent.current_learning_rate(),
+            0.0,
+            "the anneal lands on exactly 0.0 at iteration == total_iterations"
+        );
+        assert!(
+            agent.policy_phase_lr > 0.0,
+            "the last policy phase ran at a positive rate, so the auxiliary phase \
+             that accompanies it must too — got {}",
+            agent.policy_phase_lr
         );
     }
 }
