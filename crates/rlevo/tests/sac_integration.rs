@@ -32,6 +32,7 @@ use rlevo_reinforcement_learning::algorithms::sac::sac_model::{
     ContinuousQ, SampleOutput, SquashedGaussianPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::sac::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -240,7 +241,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .critic_lr(1e-3)
         .alpha_lr(1e-3)
         .gamma(0.99)
-        .tau(0.02)
+        .target_update(TargetUpdate::polyak(0.02, 1))
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(2)
@@ -422,7 +423,7 @@ fn sac_pendulum_improves_over_random() {
         .critic_lr(1e-3)
         .alpha_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(2)

@@ -24,6 +24,7 @@ use rlevo_reinforcement_learning::algorithms::c51::c51_config::{
 };
 use rlevo_reinforcement_learning::algorithms::c51::c51_model::C51Model;
 use rlevo_reinforcement_learning::algorithms::c51::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_all_finite;
@@ -103,20 +104,26 @@ type Agent = C51Agent<Be, C51Mlp<Be>, CartPoleObservation, CartPoleAction, 1, 2>
 /// (cross-entropy over the projected Bellman target), in contrast to DQN's
 /// scalar Bellman MSE. The ε-greedy schedule and replay configuration are
 /// otherwise equivalent to the DQN integration test.
+///
+/// The target rule is `polyak(0.005, 1)` — a soft update on every gradient
+/// step. This is the behaviour this test has always exercised: it used to be
+/// spelled `.tau(0.005).target_update_frequency(500)`, in which the `500` was
+/// **inert** (the hard path self-gated to a no-op whenever τ > 0). Transcribing
+/// the `500` as a cadence would be a 500× slowdown of the soft update, not a
+/// faithful translation.
 fn fresh_agent(seed: u64) -> Agent {
     let device = seeded_device::<Be>(seed);
     let num_atoms = 51;
     let config = C51TrainingConfigBuilder::new()
         .batch_size(64)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(5e-4)
         .epsilon_start(1.0)
         .epsilon_end(0.05)
         .epsilon_decay(0.9995)
         .learning_starts(1_000)
         .train_frequency(4)
-        .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .num_atoms(num_atoms)
         .v_min(0.0)

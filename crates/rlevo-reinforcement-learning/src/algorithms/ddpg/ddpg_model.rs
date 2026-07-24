@@ -87,7 +87,8 @@ pub trait ContinuousQ<B: AutodiffBackend, const DB: usize, const DAB: usize>:
     /// Polyak-averages the target toward the active network.
     ///
     /// Returns `(1 − τ) · target + τ · active` element-wise for every
-    /// parameter, with `τ` drawn from [`DdpgTrainingConfig::tau`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig::tau).
+    /// parameter, with `τ` drawn from
+    /// [`DdpgTrainingConfig::target_update`](crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig::target_update).
     ///
     /// # Errors
     ///

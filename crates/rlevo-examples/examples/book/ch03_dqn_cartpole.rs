@@ -98,6 +98,7 @@ use rlevo_environments::classic::cartpole::{
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 
 /// Deterministic seed shared by the env, the RNG, and backend weight init.
 const SEED: u64 = 42;
@@ -127,14 +128,16 @@ fn build_agent(seed: u64) -> Agent {
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(64)
         .gamma(0.99)
-        .tau(0.005) // target-network soft-update rate
+        // Target rule: move the target 0.5% of the way toward the policy on
+        // every gradient update. The cadence counts *gradient* updates, unlike
+        // `train_frequency` / `learning_starts` below, which count env steps.
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(5e-4)
         .epsilon_start(1.0) // start fully exploratory
         .epsilon_end(0.05) // floor on exploration
         .epsilon_decay(0.9995) // multiplicative per-step decay
         .learning_starts(1_000) // fill the buffer before the first gradient step
         .train_frequency(4) // one gradient step every 4 env steps
-        .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .double_q(false)
         .build()

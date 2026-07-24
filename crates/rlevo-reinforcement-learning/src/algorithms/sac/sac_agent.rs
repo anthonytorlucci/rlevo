@@ -32,6 +32,8 @@ use rlevo_core::config::Validate;
 use crate::algorithms::sac::sac_alpha::LogAlpha;
 use crate::algorithms::sac::sac_config::SacTrainingConfig;
 use crate::algorithms::sac::sac_model::{ContinuousQ, SquashedGaussianPolicy};
+#[cfg(test)]
+use crate::algorithms::shared::param_checksum;
 use crate::algorithms::shared::{
     FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, assert_bounds_match_components,
 };
@@ -475,6 +477,34 @@ where
         self.buffer.iter().map(|t| t.terminated).collect()
     }
 
+    /// Test-only parameter checksums of the two **target** critics, as
+    /// `[target_critic_1, target_critic_2]`. SAC has no target actor.
+    ///
+    /// The target-network observation seam of ADR 0058: nothing else in this
+    /// crate can read a target's weights, which is how the issue-#182
+    /// two-schedule defect survived its tests. Paired with
+    /// [`live_checksums`](Self::live_checksums) it makes a target update's
+    /// *cadence* and *magnitude* both assertable — see
+    /// [`param_checksum`](crate::algorithms::shared::param_checksum) for why a
+    /// sum suffices under Polyak averaging.
+    #[cfg(test)]
+    pub(crate) fn target_checksums(&self) -> [f64; 2] {
+        [
+            param_checksum::<B::InnerBackend, _>(&self.target_critic_1),
+            param_checksum::<B::InnerBackend, _>(&self.target_critic_2),
+        ]
+    }
+
+    /// Test-only parameter checksums of the two **live** critics, in the same
+    /// order as [`target_checksums`](Self::target_checksums).
+    #[cfg(test)]
+    pub(crate) fn live_checksums(&self) -> [f64; 2] {
+        [
+            param_checksum::<B, _>(self.critic_1.get()),
+            param_checksum::<B, _>(self.critic_2.get()),
+        ]
+    }
+
     /// Advances the global env-step counter. Called once per env step.
     pub fn on_env_step(&mut self) {
         self.step += 1;
@@ -496,8 +526,9 @@ where
     /// 4. Every `policy_frequency`-th critic step, runs an actor update
     ///    (`L_π = α·logp − min(Q1(s,a), Q2(s,a))`) and — when `autotune` is
     ///    enabled — an α-update (`L_α = −(log α · (logp + H̄))`).
-    /// 5. Every `target_update_frequency`-th critic step, Polyak-averages
-    ///    both critic targets.
+    /// 5. Every [`target_update.every()`](crate::target::TargetUpdate::every)-th
+    ///    critic step, Polyak-averages both critic targets by
+    ///    [`target_update.tau()`](crate::target::TargetUpdate::tau).
     ///
     /// Returns `None` if the agent is still in warm-up.
     ///
@@ -754,16 +785,17 @@ where
         }
 
         // --- Target Polyak updates ---
-        if self
-            .critic_updates
-            .is_multiple_of(self.config.target_update_frequency)
-        {
+        // `fires_at` takes the *post-increment* `critic_updates` counter and
+        // yields the τ to apply, or `None` (ADR 0058). It reproduces the former
+        // `critic_updates.is_multiple_of(target_update_frequency)` gate exactly,
+        // and hands back an `f64` — the type `soft_update` already took, so the
+        // old `f64::from(self.config.tau)` widening is gone.
+        if let Some(tau) = self.config.target_update.fires_at(self.critic_updates) {
             // Clone rather than move out: `soft_update` consumes `target` by
             // value, so on `Err` the `?` returns before the reassignment and
             // each target field keeps its prior weights — no silent hard-sync
             // onto its live critic (the invariant now holds via early return,
             // and equally for a panic).
-            let tau = f64::from(self.config.tau);
             self.target_critic_1 =
                 Critic::soft_update(self.critic_1.get(), self.target_critic_1.clone(), tau)?;
             self.target_critic_2 =
@@ -1057,5 +1089,162 @@ mod tests {
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — critic-1's NaN must not reach it"
         );
+    }
+
+    // -------- target-update cadence (ADR 0058 / 0059, #334) --------
+
+    use crate::target::TargetUpdate;
+    use approx::assert_abs_diff_eq;
+
+    /// Slack for the Polyak identity below. Each checksum is an `f32` device
+    /// reduction over a handful of parameters and each blended parameter costs
+    /// two `f32` roundings, so ~2e-6 is the realistic worst case; the smallest
+    /// signal any assertion here reads is `τ · gap ≈ 1e-2`, three orders of
+    /// magnitude larger.
+    const CHECKSUM_EPS: f64 = 1e-5;
+
+    /// Adds a constant to every float parameter of a module.
+    ///
+    /// Both critic targets are built by cloning their live critic, so they
+    /// start *identical* — and a Polyak blend between identical networks is a
+    /// no-op that every "did the target move, and by how much?" assertion would
+    /// pass vacuously. That exact vacuity is how the issue-#182 defect survived
+    /// its tests; this mapper removes it by opening a known gap. It maps a
+    /// *clone*, so `ParamId`s are preserved and the Polyak pairing stays valid.
+    struct AddConstant(f32);
+
+    impl<B: Backend> ModuleMapper<B> for AddConstant {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.add_scalar(self.0), mapper)
+        }
+    }
+
+    /// A primed agent whose live critics are held a known distance from their
+    /// targets, so every cadence assertion below is non-vacuous.
+    fn cadence_agent(target_update: TargetUpdate) -> GuardAgent {
+        let device = Default::default();
+        let config = SacTrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .replay_buffer_capacity(64)
+            .actor_lr(1e-3)
+            .critic_lr(1e-3)
+            .autotune(false)
+            .target_update(target_update)
+            .build()
+            .expect("valid config");
+
+        let mut agent = GuardAgent::new(
+            TinySacActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+
+        // Nudge the *targets*, not the live critics. Perturbing a live network
+        // would disturb Burn's autodiff registration across consecutive learn
+        // steps; the targets are plain inner-backend modules with no graph
+        // attached, and `AddConstant` preserves their `ParamId`s, so the Polyak
+        // pairing holds.
+        agent.target_critic_1 = agent.target_critic_1.clone().map(&mut AddConstant(0.5));
+        agent.target_critic_2 = agent.target_critic_2.clone().map(&mut AddConstant(0.5));
+        for (i, (live, target)) in agent
+            .live_checksums()
+            .iter()
+            .zip(agent.target_checksums().iter())
+            .enumerate()
+        {
+            assert!(
+                (live - target).abs() > 0.5,
+                "precondition: critic {i}'s live and target checksums must differ, or a \
+                 Polyak no-op would satisfy every assertion below; got live {live} vs \
+                 target {target}"
+            );
+        }
+        agent
+    }
+
+    /// SAC's shipped cadence is `polyak(0.005, 1)`: both critic targets move on
+    /// **every** critic update, by exactly τ of the gap.
+    ///
+    /// The pre-ADR-0058 gate was `critic_updates.is_multiple_of(1)`, a no-op
+    /// that no test varied — so "every step" was assumed, never observed.
+    #[test]
+    fn sac_default_cadence_fires_on_every_critic_update() {
+        let rule = TargetUpdate::polyak(0.005, 1);
+        let tau = rule.tau();
+        let mut agent = cadence_agent(rule);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for _ in 1..=3_usize {
+            let before = agent.target_checksums();
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+            let after = agent.target_checksums();
+            let live = agent.live_checksums();
+
+            for (i, ((&b, &a), &l)) in before.iter().zip(after.iter()).zip(live.iter()).enumerate()
+            {
+                assert_abs_diff_eq!(a, (1.0 - tau) * b + tau * l, epsilon = CHECKSUM_EPS);
+                assert!(
+                    (a - b).abs() > 1e-4,
+                    "critic {i}'s target must actually have moved: {b} -> {a}"
+                );
+            }
+        }
+    }
+
+    /// A cadence SAC's flat `target_update_frequency` could express but nothing
+    /// in-tree ever exercised: every second critic update, silent in between.
+    #[test]
+    fn sac_cadence_of_two_skips_odd_critic_updates() {
+        let rule = TargetUpdate::polyak(0.005, 2);
+        let tau = rule.tau();
+        let mut agent = cadence_agent(rule);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for critic_update in 1..=4_usize {
+            let before = agent.target_checksums();
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+            let after = agent.target_checksums();
+
+            if critic_update.is_multiple_of(2) {
+                let live = agent.live_checksums();
+                for (i, ((&b, &a), &l)) in
+                    before.iter().zip(after.iter()).zip(live.iter()).enumerate()
+                {
+                    assert_abs_diff_eq!(a, (1.0 - tau) * b + tau * l, epsilon = CHECKSUM_EPS);
+                    assert!(
+                        (a - b).abs() > 1e-4,
+                        "critic {i}'s target must actually have moved: {b} -> {a}"
+                    );
+                }
+            } else {
+                assert_eq!(
+                    after, before,
+                    "critic update {critic_update} is not a multiple of the cadence 2, so \
+                     every target weight must be untouched"
+                );
+            }
+        }
     }
 }

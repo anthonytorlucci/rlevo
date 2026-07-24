@@ -236,7 +236,16 @@ bootstrap stable:
 2. **A target network** keeps a separate, slowly-updated copy of the weights,
    \\(Q(s, a; \theta^-)\\), to compute the Bellman target. Freezing the target
    for a while stops the "moving target" instability where the network forever
-   chases its own predictions.
+   chases its own predictions. Mnih et al. copied \\(\theta\\) into
+   \\(\theta^-\\) wholesale every \\(C\\) parameter updates; later work blends
+   instead, \\(\theta^- \leftarrow \tau\theta + (1 - \tau)\theta^-\\). We treat
+   those as one mechanism rather than two, and give it one type,
+   `TargetUpdate`: its cadence decides *when* an update fires and its
+   \\(\tau\\) decides *how far* the target moves, so \\(\tau = 1.0\\) recovers
+   the original hard copy as a degenerate case of the blend. Every off-policy
+   agent in `rlevo` — DQN, C51, QR-DQN, DDPG, TD3, SAC — configures its target
+   through that single field, and the cadence counts gradient updates, not
+   environment steps.
 
 With those two stabilisers, DQN reached human-level play on 49 Atari games from
 raw pixels — the result that launched the modern deep-RL era. Everything since

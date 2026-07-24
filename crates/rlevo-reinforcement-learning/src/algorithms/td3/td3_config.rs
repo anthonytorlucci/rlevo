@@ -11,6 +11,8 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use rlevo_core::config::{self, ConfigError, Validate};
 
+use crate::target::TargetUpdate;
+
 /// Configuration for training a Twin Delayed DDPG (TD3) agent.
 #[derive(Clone, Debug)]
 pub struct Td3TrainingConfig {
@@ -27,8 +29,6 @@ pub struct Td3TrainingConfig {
     pub critic_lr: f64,
     /// Discount factor γ applied to the bootstrap target.
     pub gamma: f32,
-    /// Polyak averaging rate τ for the actor and both critic target networks.
-    pub tau: f32,
     /// Standard deviation σ of the Gaussian exploration noise added to the
     /// actor's output at action selection time (before clipping to
     /// `[low, high]`).
@@ -41,9 +41,26 @@ pub struct Td3TrainingConfig {
     /// noise is bounded to `[-noise_clip, +noise_clip]` before being added to
     /// the target action. `0.5` matches `CleanRL`'s default.
     pub noise_clip: f32,
-    /// Critic-update cadence at which the policy and all three Polyak
-    /// updates run. `policy_frequency = 2` matches `CleanRL`'s default.
+    /// Critic-update cadence at which the **actor** update runs — TD3's delay
+    /// `d` (Fujimoto et al. 2018 §5.2). `policy_frequency = 2` matches
+    /// `CleanRL`'s default.
+    ///
+    /// This governs the actor only. Before ADR 0058 it silently doubled as the
+    /// cadence of all three target networks; that role now belongs to
+    /// [`target_update`](Self::target_update), so the two are independently
+    /// settable.
     pub policy_frequency: usize,
+    /// Update rule for the target actor and both critic targets: the Polyak
+    /// coefficient τ and the cadence at which it fires.
+    ///
+    /// The cadence counts **gradient (critic) updates**, not environment steps
+    /// (ADR 0059) — unlike [`learning_starts`](Self::learning_starts), which is
+    /// in env steps. The default `TargetUpdate::polyak(0.005, 2)` reproduces
+    /// the pre-ADR-0058 behaviour exactly: `CleanRL`'s `tau = 0.005`, fired on
+    /// the same cadence the default `policy_frequency = 2` used to impose —
+    /// which is also Fujimoto §5.2's "update the policy *and* target networks
+    /// after `d` critic updates", now stated rather than implied.
+    pub target_update: TargetUpdate,
     /// Optional gradient clipping applied to actor and both critic grads.
     pub clip_grad: Option<GradientClippingConfig>,
     /// Base Adam configuration; cloned for each optimizer so actor and both
@@ -61,11 +78,11 @@ impl Default for Td3TrainingConfig {
             actor_lr: 3e-4,
             critic_lr: 3e-4,
             gamma: 0.99,
-            tau: 0.005,
             exploration_noise: 0.1,
             policy_noise: 0.2,
             noise_clip: 0.5,
             policy_frequency: 2,
+            target_update: TargetUpdate::polyak(0.005, 2),
             clip_grad: None,
             optimizer: AdamConfig::new(),
         }
@@ -80,7 +97,6 @@ impl Validate for Td3TrainingConfig {
         config::positive(C, "actor_lr", self.actor_lr)?;
         config::positive(C, "critic_lr", self.critic_lr)?;
         config::in_range(C, "gamma", 0.0, 1.0, f64::from(self.gamma))?;
-        config::in_range(C, "tau", 0.0, 1.0, f64::from(self.tau))?;
         config::in_range(
             C,
             "exploration_noise",
@@ -103,6 +119,10 @@ impl Validate for Td3TrainingConfig {
             f64::from(self.noise_clip),
         )?;
         config::at_least(C, "policy_frequency", self.policy_frequency, 1)?;
+        // `target_update` carries no check here: `TargetUpdate` is valid by
+        // construction (τ ∈ (0, 1], cadence ≥ 1), so the newtype *removes* the
+        // paired `config::in_range(C, "tau", ...)` line rather than duplicating
+        // it — ADR 0027 §3, ADR 0058 §Consequences.
         Ok(())
     }
 }
@@ -185,13 +205,6 @@ impl Td3TrainingConfigBuilder {
         self
     }
 
-    /// Sets the Polyak averaging rate τ.
-    #[must_use]
-    pub fn tau(mut self, tau: f32) -> Self {
-        self.config.tau = tau;
-        self
-    }
-
     /// Sets the action-selection Gaussian exploration-noise σ.
     #[must_use]
     pub fn exploration_noise(mut self, sigma: f32) -> Self {
@@ -213,10 +226,35 @@ impl Td3TrainingConfigBuilder {
         self
     }
 
-    /// Sets the policy-update cadence (in critic steps).
+    /// Sets the **actor**-update cadence `d`, in critic steps. Since ADR 0058
+    /// this no longer moves the target networks — see
+    /// [`target_update`](Self::target_update).
     #[must_use]
     pub fn policy_frequency(mut self, frequency: usize) -> Self {
         self.config.policy_frequency = frequency;
+        self
+    }
+
+    /// Sets all three target networks' update rule: the Polyak coefficient τ
+    /// and the critic-update cadence at which it fires.
+    ///
+    /// ```rust
+    /// use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
+    /// use rlevo_reinforcement_learning::target::TargetUpdate;
+    ///
+    /// // Actor every critic step, targets every second one — a pairing that
+    /// // was unexpressible while `policy_frequency` drove both.
+    /// let cfg = Td3TrainingConfigBuilder::new()
+    ///     .policy_frequency(1)
+    ///     .target_update(TargetUpdate::polyak(0.005, 2))
+    ///     .build()
+    ///     .expect("valid config");
+    /// assert_eq!(cfg.policy_frequency, 1);
+    /// assert_eq!(cfg.target_update.every(), 2);
+    /// ```
+    #[must_use]
+    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
+        self.config.target_update = target_update;
         self
     }
 
@@ -261,11 +299,62 @@ mod tests {
         assert!((cfg.actor_lr - 3e-4).abs() < 1e-12);
         assert!((cfg.critic_lr - 3e-4).abs() < 1e-12);
         assert!((cfg.gamma - 0.99).abs() < 1e-6);
-        assert!((cfg.tau - 0.005).abs() < 1e-6);
         assert!((cfg.exploration_noise - 0.1).abs() < 1e-6);
         assert!((cfg.policy_noise - 0.2).abs() < 1e-6);
         assert!((cfg.noise_clip - 0.5).abs() < 1e-6);
         assert_eq!(cfg.policy_frequency, 2);
+        // Exact equality: both halves are source literals read back.
+        assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 2));
+    }
+
+    /// Before ADR 0058 the three Polyak updates lived *inside* the
+    /// `policy_frequency` block, so the target cadence was `policy_frequency`
+    /// by aliasing. The default `every` must equal the default
+    /// `policy_frequency`, or the decoupling silently rescaled every default
+    /// TD3 run.
+    // Bit-exactness *is* the property under test here: τ is a source literal
+    // stored verbatim and read back through a widening that is exact for every
+    // `f32`, never the result of arithmetic. A tolerance would let a genuine
+    // default drift pass.
+    #[allow(clippy::float_cmp)]
+    #[test]
+    fn default_target_update_is_bit_identical_to_the_pre_migration_alias() {
+        let cfg = Td3TrainingConfig::default();
+        assert_eq!(
+            cfg.target_update.tau(),
+            f64::from(0.005_f32),
+            "τ must survive the migration bit-for-bit, including its f32→f64 widening"
+        );
+        assert_eq!(
+            cfg.target_update.every(),
+            cfg.policy_frequency,
+            "at defaults the target cadence must still coincide with Fujimoto's actor \
+             delay d, which it used to be aliased to"
+        );
+        // The two gates therefore agree on every critic-update index.
+        for updates in 1_usize..=12 {
+            assert_eq!(
+                cfg.target_update.fires_at(updates).is_some(),
+                updates.is_multiple_of(cfg.policy_frequency),
+                "critic update {updates}: the new gate must match the old \
+                 `is_multiple_of(policy_frequency)` predicate"
+            );
+        }
+    }
+
+    /// The configuration ADR 0058 exists to make expressible: an actor delay
+    /// and a target cadence that differ.
+    #[test]
+    fn actor_delay_and_target_cadence_are_independently_settable() {
+        let cfg = Td3TrainingConfigBuilder::new()
+            .policy_frequency(1)
+            .target_update(TargetUpdate::polyak(0.005, 2))
+            .build()
+            .expect("valid config");
+        assert_eq!(cfg.policy_frequency, 1);
+        assert_eq!(cfg.target_update.every(), 2);
+        assert!(cfg.target_update.fires_at(1).is_none());
+        assert!(cfg.target_update.fires_at(2).is_some());
     }
 
     #[test]
@@ -297,5 +386,45 @@ mod tests {
             .build()
             .unwrap_err();
         assert_eq!(err.field, "policy_noise");
+    }
+
+    /// The frozen-target state is not *rejected* by `validate` here — it is
+    /// unrepresentable, so the assertion belongs at the constructor (ADR 0058
+    /// §Consequences). Pinned per family rather than only in `target.rs`,
+    /// because the guarantee a TD3 reader needs is "no `Td3TrainingConfig` can
+    /// hold a frozen target", and that is a statement about this config.
+    #[test]
+    fn frozen_target_is_unreachable_through_the_type() {
+        assert!(
+            TargetUpdate::try_polyak(0.0, 1).is_err(),
+            "τ = 0 fires on schedule and moves nothing — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.005, 0).is_err(),
+            "a cadence of 0 never fires — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.0, 0).is_err(),
+            "both halves frozen at once"
+        );
+    }
+
+    /// The builder is not the only way in: `target_update` is a `pub` field, so
+    /// struct-update syntax bypasses `Td3TrainingConfigBuilder` entirely. It is
+    /// still safe, and the load-bearing reason is that `TargetUpdate`'s inner
+    /// `tau`/`every` fields are **private** (`target.rs`): a caller cannot
+    /// construct an invalid `TargetUpdate` *value* to assign into the public
+    /// field, so there is nothing for `validate` to catch on this route.
+    #[test]
+    fn nan_tau_cannot_be_constructed_for_struct_update_syntax() {
+        assert!(TargetUpdate::try_polyak(f32::NAN, 1).is_err());
+        assert!(TargetUpdate::try_polyak(f32::INFINITY, 1).is_err());
+        // Every τ a struct-update config can carry came through `PolyakTau`, so
+        // the result is necessarily valid.
+        let config = Td3TrainingConfig {
+            target_update: TargetUpdate::polyak(0.005, 2),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }

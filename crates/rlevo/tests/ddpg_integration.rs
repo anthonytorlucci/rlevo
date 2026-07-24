@@ -31,6 +31,7 @@ use rlevo_reinforcement_learning::algorithms::ddpg::ddpg_model::{
     ContinuousQ, DeterministicPolicy,
 };
 use rlevo_reinforcement_learning::algorithms::ddpg::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -171,7 +172,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .actor_lr(1e-3)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.02)
+        .target_update(TargetUpdate::polyak(0.02, 2))
         .exploration_noise(0.2)
         .policy_frequency(2)
         .build()
@@ -258,7 +259,7 @@ fn ddpg_act_with_matches_deterministic_act() {
         .actor_lr(1e-3)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.02)
+        .target_update(TargetUpdate::polyak(0.02, 2))
         .exploration_noise(0.2)
         .policy_frequency(2)
         .build()
@@ -313,7 +314,7 @@ fn ddpg_pendulum_improves_over_random() {
         .actor_lr(1e-4)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 2))
         .exploration_noise(0.1)
         .policy_frequency(2)
         .build()

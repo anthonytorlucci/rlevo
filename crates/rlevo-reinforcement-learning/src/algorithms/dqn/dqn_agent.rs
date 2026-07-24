@@ -118,6 +118,10 @@ pub struct LearnOutcome {
 ///   documented on [`Slot`].
 /// - `target_net` lives on `B::InnerBackend` (the non-autodiff backend) so
 ///   that computing bootstrap targets never builds an autodiff graph.
+/// - `step` counts **environment** steps and drives `learning_starts` /
+///   `train_frequency`; `gradient_updates` counts **optimizer** steps and
+///   drives the target-update cadence. The two units are deliberately distinct
+///   (ADR 0059) — see [`gradient_updates`](Self::gradient_updates).
 pub struct DqnAgent<B, M, O, A, const DO: usize, const DB: usize>
 where
     B: AutodiffBackend,
@@ -133,6 +137,10 @@ where
     config: DqnTrainingConfig,
     device: B::Device,
     step: usize,
+    /// Gradient (optimizer) updates attempted so far — the unit
+    /// `config.target_update`'s cadence counts (ADR 0059). Advanced
+    /// unconditionally, including on a non-finite-loss skip.
+    gradient_updates: usize,
     stats: AgentStats<DqnMetrics>,
     /// Non-finite-loss guard for the TD-loss site (ADR 0056, #318). One
     /// per-run `warn!` latch; the skip it drives fires every occurrence.
@@ -150,6 +158,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DqnAgent")
             .field("step", &self.step)
+            .field("gradient_updates", &self.gradient_updates)
             .field("buffer_len", &self.buffer.len())
             .field("epsilon", &self.exploration.value())
             .field("config", &self.config)
@@ -204,6 +213,7 @@ where
             config,
             device,
             step: 0,
+            gradient_updates: 0,
             stats,
             loss_guard: FiniteLossGuard::new("dqn/loss"),
             _action: PhantomData,
@@ -235,9 +245,44 @@ where
         self.buffer.len()
     }
 
-    /// Global step count.
+    /// Global **environment** step count.
     pub fn step(&self) -> usize {
         self.step
+    }
+
+    /// Number of gradient (optimizer) updates attempted so far.
+    ///
+    /// This is the counter [`DqnTrainingConfig::target_update`]'s cadence is
+    /// read against (ADR 0059), and it is *not*
+    /// [`step`](Self::step) — the two differ by `train_frequency` and by the
+    /// `learning_starts` warm-up. It advances once per [`learn_step`] that gets
+    /// as far as computing a loss, **including** one the non-finite-loss guard
+    /// then skips (ADR 0056 §3): counting only applied updates would make the
+    /// target cadence a function of run health, stretching it exactly when a
+    /// run is diverging.
+    ///
+    /// [`DqnTrainingConfig::target_update`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update
+    /// [`learn_step`]: Self::learn_step
+    pub fn gradient_updates(&self) -> usize {
+        self.gradient_updates
+    }
+
+    /// Read-only view of the target network.
+    ///
+    /// The observation seam for the target-update rule: with it, a caller — or
+    /// a test — can check *that* a target update fired on the expected gradient
+    /// update and moved the weights by the expected τ. Issue #182's
+    /// double-update defect survived its own test suite precisely because no
+    /// such seam existed, so every assertion had to be made through Q-values,
+    /// which are a lossy function of the weights.
+    ///
+    /// `pub`, and a shared borrow rather than a clone: `M::InnerModule` is the
+    /// caller's own network type, so this hands back nothing the caller did not
+    /// supply, and `&` cannot perturb agent state. Compare
+    /// [`inference_net`](Self::inference_net), which already returns an owned
+    /// snapshot of the *policy* side.
+    pub fn target_net(&self) -> &M::InnerModule {
+        &self.target_net
     }
 
     fn policy(&self) -> &M {
@@ -361,54 +406,24 @@ where
         self.config.train_frequency > 0 && self.step.is_multiple_of(self.config.train_frequency)
     }
 
-    /// Periodically hard-syncs the target network with the policy network.
-    ///
-    /// This method is **only ever the hard path** — a wholesale copy of the
-    /// policy weights into the target. The soft (Polyak) path lives inside
-    /// [`learn_step`](Self::learn_step), not here.
-    ///
-    /// When [`DqnTrainingConfig::tau`] is greater than zero this method is a
-    /// **no-op**: the target is maintained exclusively by the per-learn-step
-    /// Polyak update `target ← (1 − τ) · target + τ · policy`, and a hard copy
-    /// would erase precisely the target lag that soft updates exist to
-    /// create. Because the default config sets `tau = 0.005`, the hard path is
-    /// unreachable for a default agent regardless of
-    /// `target_update_frequency`.
-    ///
-    /// When `tau` is zero, a hard sync is performed every
-    /// `target_update_frequency` steps. If `target_update_frequency` is `0`,
-    /// hard syncing is disabled entirely — a combination rejected by
-    /// [`DqnTrainingConfig::validate`](rlevo_core::config::Validate::validate)
-    /// when `tau` is also zero, since the target would then never update.
-    ///
-    /// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
-    pub fn sync_target(&mut self) {
-        // Soft updates own the target network when tau > 0; hard-copying here
-        // would wipe out the Polyak lag every `target_update_frequency` steps.
-        if self.config.tau > 0.0 {
-            return;
-        }
-        if self.config.target_update_frequency == 0 {
-            return;
-        }
-        if self.step > 0
-            && self
-                .step
-                .is_multiple_of(self.config.target_update_frequency)
-        {
-            self.target_net = self.policy().valid();
-        }
-    }
-
     /// Runs one learning step: samples a batch uniformly, computes the Huber
     /// loss against the Bellman target, and updates the policy network.
     ///
+    /// The target network is updated here and nowhere else: once the loss is
+    /// computed, [`gradient_updates`](Self::gradient_updates) advances and
+    /// [`TargetUpdate::fires_at`] decides whether this update moves the target
+    /// (ADR 0059).
+    ///
     /// Returns `None` if the agent does not yet have enough transitions to
     /// form a batch, or if the computed loss is non-finite (NaN/±Inf): in that
-    /// case the backward pass, optimizer step, target sync, and PER writeback
+    /// case the backward pass, optimizer step, target update, and PER writeback
     /// are all skipped and a one-shot `warn!` fires (ADR 0056, #318), so the
     /// caller keeps its last healthy reported metrics rather than folding a
-    /// NaN into them.
+    /// NaN into them. The gradient-update counter advances even then, so the
+    /// target cadence does not drift on a diverging run.
+    ///
+    /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at
+    ///
     /// # Panics
     ///
     /// Panics if the replay buffer hands back an id that is no longer live.
@@ -536,6 +551,14 @@ where
         let loss_tensor = reduce_weighted_loss(per_sample_loss, &batch, &device);
         let loss_value = loss_tensor.clone().into_scalar().elem::<f32>();
 
+        // An optimizer step is now attempted, so the cadence counter advances —
+        // unconditionally, BEFORE the non-finite-loss guard below (ADR 0059 §4,
+        // matching SAC/DDPG/TD3). Counting only *applied* updates would make
+        // the target-update rhythm a function of run health: a diverging run
+        // emitting non-finite losses would advance the cadence more slowly
+        // exactly when stability matters most.
+        self.gradient_updates += 1;
+
         // #318 / ADR 0056: `loss_value` is already host-resident, so the
         // finiteness check costs no extra sync. A non-finite loss skips
         // `backward()`, the optimizer step, the target soft-update, and the PER
@@ -555,14 +578,15 @@ where
         self.policy_net
             .step_with(&mut self.optimizer, self.config.learning_rate, grads);
 
-        // Soft update when tau > 0; otherwise rely on hard sync_target().
-        if self.config.tau > 0.0 {
+        // One target-update mechanism, gated on gradient updates (ADR 0058 /
+        // 0059). `fires_at` yields the τ to apply on this update, or `None`.
+        // A hard copy is the degenerate τ = 1.0, not a separate path.
+        if let Some(tau) = self.config.target_update.fires_at(self.gradient_updates) {
             // Clone rather than move out: `soft_update` consumes `target` by
             // value, so on `Err` the `?` returns before this reassignment and
             // the field keeps its prior weights — no silent hard-sync (the
             // invariant now holds via early return, and equally for a panic).
-            self.target_net =
-                M::soft_update(self.policy(), self.target_net.clone(), self.config.tau)?;
+            self.target_net = M::soft_update(self.policy(), self.target_net.clone(), tau)?;
         }
 
         // PER priority writeback (Schaul Alg. 1 lines 11-12): the DQN priority
@@ -617,6 +641,7 @@ mod tests {
 
     use crate::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
     use crate::replay::PrioritizedReplaySettings;
+    use crate::target::TargetUpdate;
     use crate::utils::polyak_update;
 
     type TestBackend = Autodiff<Flex>;
@@ -742,17 +767,6 @@ mod tests {
         }
     }
 
-    /// Builds an agent whose policy weights are all `1.0` and whose target
-    /// weights are all `2.0`, i.e. provably diverged before any sync.
-    fn diverged_agent(config: DqnTrainingConfig) -> TestAgent {
-        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
-        let policy: TestNet<TestBackend> = TestNet::constant(&device, 1.0);
-        let target: TestNet<TestInner> = TestNet::constant(&device, 2.0);
-        let mut agent = TestAgent::new(policy, config, device).expect("valid config");
-        agent.target_net = target;
-        agent
-    }
-
     /// Builds a prioritized-replay agent primed with four transitions and
     /// `learning_starts = 0`, so a single `learn_step` runs immediately.
     // Test fixture data: the loop counter and element count are bounded by small
@@ -872,21 +886,22 @@ mod tests {
     }
 
     /// Builds a uniform-replay agent primed with four transitions and
-    /// `learning_starts = 0`, so a single `learn_step` runs immediately. The
-    /// default `tau = 0.005` keeps the soft target update live, so a skipped
-    /// step is provable by the target network staying untouched.
+    /// `learning_starts = 0`, so each `learn_step` runs immediately. `rule` is
+    /// the target-update rule under test; the target network is `policy.valid()`
+    /// (built by `DqnAgent::new`), so its `ParamId`s match and `soft_update`
+    /// can pair them.
     // Test fixture data: the loop counter and element count are bounded by small
     // constants declared in this test, far below f32's 2^24 exact-integer limit.
     #[allow(clippy::cast_precision_loss)]
-    fn primed_uniform_agent() -> TestAgent {
+    fn primed_uniform_agent_with(rule: TargetUpdate) -> TestAgent {
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let config = DqnTrainingConfigBuilder::new()
             .batch_size(2)
             .learning_starts(0)
             .learning_rate(0.05)
+            .target_update(rule)
             .build()
             .expect("valid config");
-        assert!(config.tau > 0.0, "the soft target update must be live");
         let policy: TestNet<TestBackend> = TestNet::constant(&device, 0.5);
         let mut agent = TestAgent::new(policy, config, device).expect("valid config");
         for i in 0..4usize {
@@ -899,6 +914,19 @@ mod tests {
                 false,
             );
         }
+        agent
+    }
+
+    /// The default-configured fixture: `polyak(0.005, 1)`, i.e. a soft update
+    /// on every gradient step, so a skipped step is provable by the target
+    /// network staying untouched.
+    fn primed_uniform_agent() -> TestAgent {
+        let agent = primed_uniform_agent_with(DqnTrainingConfig::default().target_update);
+        assert_eq!(
+            agent.config.target_update,
+            TargetUpdate::polyak(0.005, 1),
+            "the soft target update must be live on every gradient update"
+        );
         agent
     }
 
@@ -956,16 +984,16 @@ mod tests {
     #[test]
     fn dqn_soft_update_err_leaves_target_untouched() {
         let mut agent = primed_uniform_agent();
-        assert!(
-            agent.config.tau > 0.0,
-            "the soft target update must be live for this path to run"
+        assert_eq!(
+            agent.config.target_update.every(),
+            1,
+            "the target update must fire on this learn step for this path to run"
         );
 
         // Inject a target built independently of the policy: `TestNet::constant`
         // mints fresh `ParamId`s, so its weight id has no counterpart in the
-        // policy net and `polyak_update` must reject it. (Same construction the
-        // `diverged_agent` helper uses, but here the mismatch is a *topology*
-        // mismatch, not just a value divergence.)
+        // policy net and `polyak_update` must reject it — a *topology* mismatch,
+        // not merely a value divergence.
         let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
         let foreign_target: TestNet<TestInner> = TestNet::constant(&device, 2.0);
         agent.target_net = foreign_target;
@@ -990,70 +1018,182 @@ mod tests {
         );
     }
 
-    /// Regression (issue #182): with soft updates enabled, `sync_target` must
-    /// not hard-copy the policy over the target — doing so erases the Polyak
-    /// lag every `target_update_frequency` steps.
-    ///
-    /// Asserts on parameter tensors, not Q-values: a greedy action is a lossy
-    /// argmax of the weights and would agree under both behaviours.
+    // -------- target-update cadence (ADR 0058 / 0059) --------
+    //
+    // These four replace the pair of `sync_target` tests that pinned issue
+    // #182's two-mechanism gate (`sync_target_is_noop_when_tau_positive` /
+    // `..._hard_copies_when_tau_zero`). `sync_target` is gone: the cadence gate
+    // now lives inside `learn_step`, so the same properties are asserted
+    // against gradient updates instead of env steps, and `TargetUpdate::hard(n)`
+    // expresses what `tau = 0.0, target_update_frequency = n` used to.
+    //
+    // All four assert on parameter tensors, via `target_net()`, not on
+    // Q-values: a greedy action is a lossy argmax of the weights and would
+    // agree under both correct and defective behaviour — the reason the #182
+    // defect survived its first test suite.
+
+    /// The behaviour-preserving default: at `polyak(0.005, 1)` the target moves
+    /// on **every** learn step, by exactly τ toward the post-step policy.
     #[test]
-    fn test_dqn_agent_sync_target_is_noop_when_tau_positive() {
-        let config = DqnTrainingConfig::default();
-        assert!(config.tau > 0.0, "default config must enable soft updates");
-        let freq = config.target_update_frequency;
-        assert!(freq > 0, "default config must set a hard-sync frequency");
+    fn dqn_polyak_default_moves_target_on_every_learn_step() {
+        let mut agent = primed_uniform_agent();
+        let tau = 0.005_f32;
+        let mut rng = StdRng::seed_from_u64(3);
 
-        let mut agent = diverged_agent(config);
-        // Precondition: without this, the test below would be vacuous.
-        let policy_w = weights(agent.policy());
-        let target_w = weights(&agent.target_net);
+        for update in 1..=3_usize {
+            let target_before = weights(agent.target_net());
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent with learning_starts = 0 learns");
+            assert_eq!(
+                agent.gradient_updates(),
+                update,
+                "one attempted optimizer step is one gradient update"
+            );
+
+            let policy_after = weights(agent.policy());
+            let target_after = weights(agent.target_net());
+            for ((&before, &policy), &after) in target_before
+                .iter()
+                .zip(policy_after.iter())
+                .zip(target_after.iter())
+            {
+                let expected = (1.0 - tau).mul_add(before, tau * policy);
+                assert!(
+                    (after - expected).abs() < 1e-6,
+                    "update {update}: target must move by exactly τ toward the \
+                     post-step policy: got {after}, want {expected}"
+                );
+            }
+            assert_ne!(
+                target_after, target_before,
+                "update {update}: τ = 0.005 must actually move the target"
+            );
+        }
+    }
+
+    /// At `hard(n)` the target is frozen between firings and becomes an exact
+    /// copy of the policy at one. This is the property the old
+    /// `tau = 0.0` + `target_update_frequency = n` pair expressed, now counted
+    /// in gradient updates rather than env steps.
+    #[test]
+    fn dqn_hard_cadence_holds_target_between_firings_then_copies() {
+        let mut agent = primed_uniform_agent_with(TargetUpdate::hard(3));
+        let mut rng = StdRng::seed_from_u64(4);
+        let initial = weights(agent.target_net());
+
+        // Updates 1 and 2 are not multiples of 3: the target must not move.
+        for update in 1..=2_usize {
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent learns");
+            assert_eq!(agent.gradient_updates(), update);
+            assert_eq!(
+                weights(agent.target_net()),
+                initial,
+                "update {update} is not a multiple of 3 — the target must be untouched"
+            );
+        }
         assert_ne!(
-            policy_w, target_w,
-            "precondition: policy and target must differ before the sync"
-        );
-
-        // Land exactly on a hard-sync boundary — the branch the bug fired on.
-        agent.step = freq;
-        agent.sync_target();
-
-        let after = weights(&agent.target_net);
-        assert_ne!(
-            after,
             weights(agent.policy()),
-            "sync_target must not hard-copy the policy while tau > 0"
+            initial,
+            "precondition: the policy must have moved, or the copy below is vacuous"
         );
+
+        // Update 3 fires: τ = 1.0 degenerates the blend to a copy.
+        agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("a primed agent learns");
+        assert_eq!(agent.gradient_updates(), 3);
         assert_eq!(
-            after, target_w,
-            "target weights must be left completely untouched when tau > 0"
+            weights(agent.target_net()),
+            weights(agent.policy()),
+            "at a firing, hard(3) must copy the post-step policy exactly"
         );
     }
 
-    /// Mirror of the regression test: with `tau == 0.0` the hard path is the
-    /// only target-update mechanism, so it must still fire on a boundary step.
+    /// ADR 0059 §4, the subtle one: the counter must advance even when the
+    /// non-finite-loss guard skips the optimizer step, or a diverging run
+    /// silently stretches the target cadence. Pinned by driving one skipped
+    /// step and one healthy step through `hard(2)`: the skip consumes update 1,
+    /// so the healthy step lands on update 2 and fires.
     #[test]
-    fn test_dqn_agent_sync_target_hard_copies_when_tau_zero() {
-        let config = DqnTrainingConfigBuilder::new()
-            .tau(0.0)
-            .target_update_frequency(100)
-            .build()
-            .expect("valid config");
+    fn dqn_gradient_counter_advances_through_a_nonfinite_loss_skip() {
+        let mut agent = primed_uniform_agent_with(TargetUpdate::hard(2));
+        let healthy_policy = agent.policy().clone();
+        let target_before = weights(agent.target_net());
+        let mut rng = StdRng::seed_from_u64(5);
 
-        let mut agent = diverged_agent(config);
-        let policy_w = weights(agent.policy());
-        assert_ne!(
-            policy_w,
-            weights(&agent.target_net),
-            "precondition: policy and target must differ before the sync"
+        // Poison a *clone* of the live policy so its `ParamId`s are preserved.
+        let poisoned = agent.policy().clone().map(&mut NanInjector);
+        agent.policy_net = Slot::new(poisoned);
+        assert!(
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .is_none(),
+            "a non-finite loss must skip the step"
+        );
+        assert_eq!(
+            agent.gradient_updates(),
+            1,
+            "the counter must advance on a skipped step (ADR 0059 §4) — gating it \
+             on a successful step would let the cadence drift on a diverging run"
+        );
+        assert_eq!(
+            weights(agent.target_net()),
+            target_before,
+            "update 1 is not a multiple of 2, and the step was skipped anyway"
         );
 
-        agent.step = 100;
-        agent.sync_target();
-
+        // Restore a healthy policy; the next attempt is update 2, which fires.
+        agent.policy_net = Slot::new(healthy_policy);
+        agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("a healthy primed agent learns");
+        assert_eq!(agent.gradient_updates(), 2);
         assert_eq!(
-            weights(&agent.target_net),
-            policy_w,
-            "with tau == 0 the target must be hard-copied from the policy at a \
-             multiple of target_update_frequency"
+            weights(agent.target_net()),
+            weights(agent.policy()),
+            "the skipped attempt still consumed update 1, so the healthy step is \
+             update 2 and hard(2) fires on it"
+        );
+    }
+
+    /// The counter is *not* the env-step counter: `on_env_step` must not move
+    /// it, and a `learn_step` that cannot learn must not either. If these two
+    /// drifted together the ADR 0059 unit change would be invisible.
+    #[test]
+    fn dqn_gradient_counter_is_not_the_env_step_counter() {
+        let mut agent = primed_uniform_agent();
+        for _ in 0..5 {
+            agent.on_env_step();
+        }
+        assert_eq!(agent.step(), 5);
+        assert_eq!(
+            agent.gradient_updates(),
+            0,
+            "environment steps must not advance the gradient-update counter"
+        );
+
+        // Starve the buffer so `can_learn()` is false: no attempted update.
+        let mut starved = primed_uniform_agent_with(TargetUpdate::polyak(0.005, 1));
+        starved.config.batch_size = 1_000;
+        let mut rng = StdRng::seed_from_u64(6);
+        assert!(
+            starved
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .is_none()
+        );
+        assert_eq!(
+            starved.gradient_updates(),
+            0,
+            "a learn step that never reaches a loss is not an attempted update"
         );
     }
 }

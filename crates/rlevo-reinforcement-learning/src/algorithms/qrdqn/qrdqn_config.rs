@@ -14,9 +14,10 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
-use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::replay::PrioritizedReplaySettings;
+use crate::target::TargetUpdate;
 
 /// Configuration for training a Quantile Regression DQN (QR-DQN) agent.
 ///
@@ -33,12 +34,6 @@ pub struct QrDqnTrainingConfig {
     /// Discount factor γ in `[0, 1]`.
     pub gamma: f64,
 
-    /// Polyak τ used for the per-step soft update of the target network.
-    ///
-    /// `target ← (1 − τ) · target + τ · policy`. Set to `0` to disable
-    /// soft updates and rely on periodic hard syncs.
-    pub tau: f64,
-
     /// Optimizer learning rate.
     pub learning_rate: f64,
 
@@ -51,28 +46,35 @@ pub struct QrDqnTrainingConfig {
     /// Multiplicative decay applied to ε each env step.
     pub epsilon_decay: f64,
 
-    /// Period, in env steps, between hard syncs of the target network.
+    /// How the target network tracks the policy network: one cadence, one τ.
     ///
-    /// Only meaningful when [`tau`](Self::tau) is `0`. When `tau > 0` the
-    /// Polyak soft update is the live mechanism and this field is an inert
-    /// fallback —
-    /// [`QrDqnAgent::sync_target`](crate::algorithms::qrdqn::qrdqn_agent::QrDqnAgent::sync_target)
-    /// is a no-op, so the hard copy can never erase the soft-update lag.
+    /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
+    /// [`every`](TargetUpdate::every) decides *when* an update fires; its
+    /// coefficient [`tau`](TargetUpdate::tau) decides *how far* the target
+    /// moves when it does — `target ← (1 − τ) · target + τ · policy`. A
+    /// periodic hard copy is not a second mechanism but the degenerate
+    /// `τ = 1.0`, spelled [`TargetUpdate::hard`]. The update is applied inside
+    /// [`QrDqnAgent::learn_step`] and nowhere else, so no train loop can forget
+    /// to drive it.
     ///
-    /// Setting both this field and `tau` to `0` is rejected by
-    /// [`validate`](Validate::validate): the target network would never update
-    /// at all.
+    /// # The cadence counts gradient updates — its neighbours count env steps
     ///
-    /// The unit is **environment steps** — not parameter updates and not
-    /// gradient updates. The default of `10_000` matches
-    /// Stable-Baselines3's `target_update_interval`, which is counted in the
-    /// same unit. It is *not* the Nature-DQN figure: Mnih et al. (2015)
-    /// specify `C = 10,000` **parameter updates** (Extended Data Table 1),
-    /// which under the default [`train_frequency`](Self::train_frequency) of
-    /// `4` would be 40,000 environment steps. So 10,000 env steps is roughly
-    /// 2,500 parameter updates — four times more frequent than Nature's `C`,
-    /// and an exact match to the SB3 convention.
-    pub target_update_frequency: usize,
+    /// [`every`](TargetUpdate::every) is a **gradient (optimizer) update**
+    /// count (ADR 0059), matching Mnih et al. (2015), whose `C` is "measured in
+    /// the number of *parameter updates*" (Extended Data Table 1).
+    /// [`learning_starts`](Self::learning_starts) and
+    /// [`train_frequency`](Self::train_frequency) stay in **environment
+    /// steps**, because they gate whether a gradient step is taken at all.
+    /// This config therefore carries two units deliberately, and only this note
+    /// distinguishes them: at the default `train_frequency = 4`, a cadence of
+    /// `10_000` gradient updates is 40 000 environment steps.
+    ///
+    /// The counter fed to the cadence advances once per attempted optimizer
+    /// step — including one skipped by the non-finite-loss guard (ADR 0056), so
+    /// a diverging run cannot silently stretch the target-update rhythm.
+    ///
+    /// [`QrDqnAgent::learn_step`]: crate::algorithms::qrdqn::qrdqn_agent::QrDqnAgent::learn_step
+    pub target_update: TargetUpdate,
 
     /// Upper bound on steps allowed per episode (for bookkeeping only —
     /// environments are responsible for enforcing their own step limits).
@@ -145,20 +147,23 @@ impl Default for QrDqnTrainingConfig {
     /// Returns defaults consistent with Dabney et al. 2018 QR-DQN
     /// reference hyperparameters.
     ///
-    /// [`target_update_frequency`](Self::target_update_frequency) is
-    /// `10_000` environment steps, matching Stable-Baselines3's
-    /// `target_update_interval`. It is inert under these defaults because
-    /// `tau = 0.005 > 0` selects the Polyak soft update.
+    /// [`target_update`](Self::target_update) is a τ = 0.005 Polyak step on
+    /// **every** gradient update. That is bit-for-bit the pre-[`TargetUpdate`]
+    /// behaviour: the old `tau = 0.005` soft update ran ungated inside every
+    /// learn step, which in gradient-update units is exactly `every = 1`. The
+    /// old `target_update_frequency = 10_000` is deliberately not carried over
+    /// — it was inert under `tau > 0` and, read as a cadence under the unified
+    /// rule, would collapse the Polyak schedule 10 000×
+    /// (ADR 0059 §Consequences).
     fn default() -> Self {
         Self {
             batch_size: 32,
             gamma: 0.99,
-            tau: 0.005,
             learning_rate: 0.001,
             epsilon_start: 1.0,
             epsilon_end: 0.01,
             epsilon_decay: 0.995,
-            target_update_frequency: 10_000,
+            target_update: TargetUpdate::polyak(0.005, 1),
             steps_per_episode: 1000,
             replay_buffer_capacity: 10_000,
             learning_starts: 1_000,
@@ -177,7 +182,6 @@ impl Validate for QrDqnTrainingConfig {
         const C: &str = "QrDqnTrainingConfig";
         config::nonzero(C, "batch_size", self.batch_size)?;
         config::in_range(C, "gamma", 0.0, 1.0, self.gamma)?;
-        config::in_range(C, "tau", 0.0, 1.0, self.tau)?;
         config::positive(C, "learning_rate", self.learning_rate)?;
         config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
         config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
@@ -190,18 +194,13 @@ impl Validate for QrDqnTrainingConfig {
         if let Some(per) = &self.prioritized_replay {
             per.validate()?;
         }
-        // `tau` is already range-checked to `[0, 1]` above, so `<= 0.0` is
-        // exactly "soft updates disabled" (and avoids a float `==`).
-        if self.tau <= 0.0 && self.target_update_frequency == 0 {
-            return Err(ConfigError {
-                config: C,
-                field: "target_update_frequency",
-                kind: ConstraintKind::Custom(
-                    "target network would never update: set tau > 0 for Polyak soft updates, \
-                     or target_update_frequency > 0 for periodic hard syncs",
-                ),
-            });
-        }
+        // `target_update` carries no check here, deliberately: `TargetUpdate`
+        // is valid by construction (ADR 0027 §3 — a validated newtype *removes*
+        // its paired `config::` line). Its `PolyakTau` excludes τ = 0.0 and its
+        // `NonZeroUsize` cadence excludes 0, so the frozen target the old
+        // cross-field check rejected is now unrepresentable rather than merely
+        // rejected — including through `..Default::default()` struct update,
+        // which `validate` never saw.
         Ok(())
     }
 }
@@ -242,17 +241,6 @@ impl QrDqnTrainingConfigBuilder {
         self
     }
 
-    /// Sets [`QrDqnTrainingConfig::tau`] (Polyak soft-update coefficient).
-    ///
-    /// Pass `0.0` to disable soft updates; the target network will then be
-    /// refreshed only via periodic hard syncs controlled by
-    /// [`target_update_frequency`](Self::target_update_frequency).
-    #[must_use]
-    pub fn tau(mut self, tau: f64) -> Self {
-        self.config.tau = tau;
-        self
-    }
-
     /// Sets [`QrDqnTrainingConfig::learning_rate`].
     #[must_use]
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
@@ -281,17 +269,27 @@ impl QrDqnTrainingConfigBuilder {
         self
     }
 
-    /// Sets [`QrDqnTrainingConfig::target_update_frequency`].
+    /// Sets [`QrDqnTrainingConfig::target_update`] — cadence and τ together.
     ///
-    /// Only meaningful when [`tau`](Self::tau) is `0.0`; ignored otherwise.
+    /// One setter, because there is one mechanism (ADR 0058). The cadence is in
+    /// **gradient updates**, unlike the env-step
+    /// [`train_frequency`](Self::train_frequency) beside it.
     ///
-    /// # Errors
+    /// # Examples
     ///
-    /// [`build`](Self::build) rejects `frequency == 0` combined with
-    /// `tau == 0.0`, since that leaves the target network frozen forever.
+    /// ```rust
+    /// use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
+    /// use rlevo_reinforcement_learning::target::TargetUpdate;
+    ///
+    /// let cfg = QrDqnTrainingConfigBuilder::new()
+    ///     .target_update(TargetUpdate::polyak(0.01, 2))
+    ///     .build()
+    ///     .expect("valid config");
+    /// assert_eq!(cfg.target_update.every(), 2);
+    /// ```
     #[must_use]
-    pub fn target_update_frequency(mut self, frequency: usize) -> Self {
-        self.config.target_update_frequency = frequency;
+    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
+        self.config.target_update = target_update;
         self
     }
 
@@ -418,50 +416,55 @@ mod tests {
         assert_eq!(err.field, "num_quantiles");
     }
 
+    /// The default is behaviour-preserving: the old `tau = 0.005` soft update
+    /// ran inside *every* learn step with the hard path inert, which in
+    /// gradient-update units is `every = 1` (ADR 0059 §Consequences).
     #[test]
-    fn rejects_frozen_target_when_tau_and_frequency_are_both_zero() {
-        let err = QrDqnTrainingConfigBuilder::new()
-            .tau(0.0)
-            .target_update_frequency(0)
-            .build()
-            .unwrap_err();
-        assert_eq!(
-            err.field, "target_update_frequency",
-            "a config in which the target network never updates must be rejected"
-        );
+    fn default_target_update_is_polyak_every_gradient_update() {
+        let cfg = QrDqnTrainingConfig::default();
+        assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 1));
+        assert_eq!(cfg.target_update.every(), 1);
     }
 
+    /// Replaces `rejects_frozen_target_when_tau_and_frequency_are_both_zero`.
+    /// The frozen-target state is no longer *rejected* by `validate` — it is
+    /// unrepresentable, so the assertion moves to the constructor (ADR 0058
+    /// §Consequences). That is strictly stronger: the old check could be
+    /// bypassed by struct-update syntax on the two `pub` scalar fields.
     #[test]
-    fn accepts_soft_updates_with_an_inert_hard_sync_frequency() {
-        // The workspace default sets both; under the `sync_target` gate the
-        // frequency is simply inert, so this must stay a legal config
-        // (ADR 0026: a library default must pass its own `validate`).
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .tau(0.005)
-            .target_update_frequency(100)
-            .build();
+    fn frozen_target_is_unreachable_through_the_type() {
         assert!(
-            cfg.is_ok(),
-            "tau > 0 alongside a nonzero target_update_frequency is legal"
+            TargetUpdate::try_polyak(0.0, 1).is_err(),
+            "τ = 0 fires on schedule and moves nothing — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.005, 0).is_err(),
+            "a cadence of 0 never fires — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.0, 0).is_err(),
+            "the pair the deleted cross-field check rejected"
         );
     }
 
+    /// Replaces the three `accepts_*_configuration` tests, which enumerated the
+    /// legal (τ, frequency) combinations of the two-mechanism era. There is one
+    /// mechanism now, so the property is simply: anything constructible is
+    /// valid — hard included, since hard is `τ = 1.0` on the same rule.
     #[test]
-    fn accepts_hard_sync_only_configuration() {
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .tau(0.0)
-            .target_update_frequency(500)
-            .build();
-        assert!(cfg.is_ok(), "tau = 0 with periodic hard syncs is legal");
-    }
-
-    #[test]
-    fn accepts_soft_update_only_configuration() {
-        let cfg = QrDqnTrainingConfigBuilder::new()
-            .tau(0.01)
-            .target_update_frequency(0)
-            .build();
-        assert!(cfg.is_ok(), "tau > 0 with hard sync disabled is legal");
+    fn every_constructible_target_update_yields_a_valid_config() {
+        for rule in [
+            TargetUpdate::polyak(0.005, 1),
+            TargetUpdate::polyak(0.01, 100),
+            TargetUpdate::hard(1),
+            TargetUpdate::hard(500),
+        ] {
+            let cfg = QrDqnTrainingConfigBuilder::new()
+                .target_update(rule)
+                .build()
+                .expect("a constructible TargetUpdate is always a valid config");
+            assert_eq!(cfg.target_update, rule);
+        }
     }
 
     #[test]

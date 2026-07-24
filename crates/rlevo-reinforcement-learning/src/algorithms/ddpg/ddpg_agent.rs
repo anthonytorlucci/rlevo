@@ -26,6 +26,8 @@ use rlevo_core::config::Validate;
 use crate::algorithms::ddpg::ddpg_config::DdpgTrainingConfig;
 use crate::algorithms::ddpg::ddpg_model::{ContinuousQ, DeterministicPolicy};
 use crate::algorithms::ddpg::exploration::GaussianNoise;
+#[cfg(test)]
+use crate::algorithms::shared::param_checksum;
 use crate::algorithms::shared::{
     FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, action_bound_tensors,
     assert_bounds_match_components, clip_to_action_bounds,
@@ -416,6 +418,34 @@ where
         self.buffer.iter().map(|t| t.terminated).collect()
     }
 
+    /// Test-only parameter checksums of the two **target** networks, as
+    /// `[target_actor, target_critic]`.
+    ///
+    /// The target-network observation seam of ADR 0058: nothing else in this
+    /// crate can read a target's weights, which is how the issue-#182
+    /// two-schedule defect survived its tests. Paired with
+    /// [`live_checksums`](Self::live_checksums) it makes a target update's
+    /// *cadence* and *magnitude* both assertable — see
+    /// [`param_checksum`](crate::algorithms::shared::param_checksum) for why a
+    /// sum suffices under Polyak averaging.
+    #[cfg(test)]
+    pub(crate) fn target_checksums(&self) -> [f64; 2] {
+        [
+            param_checksum::<B::InnerBackend, _>(&self.target_actor),
+            param_checksum::<B::InnerBackend, _>(&self.target_critic),
+        ]
+    }
+
+    /// Test-only parameter checksums of the two **live** networks, in the same
+    /// order as [`target_checksums`](Self::target_checksums).
+    #[cfg(test)]
+    pub(crate) fn live_checksums(&self) -> [f64; 2] {
+        [
+            param_checksum::<B, _>(self.actor.get()),
+            param_checksum::<B, _>(self.critic.get()),
+        ]
+    }
+
     /// Advances the global env-step counter. Called once per env step.
     pub fn on_env_step(&mut self) {
         self.step += 1;
@@ -427,8 +457,9 @@ where
         self.buffer.len() >= self.config.batch_size && self.step >= self.config.learning_starts
     }
 
-    /// Runs one learning step: a critic update and (every
-    /// `policy_frequency`-th critic update) an actor + Polyak update.
+    /// Runs one learning step: a critic update, an actor update every
+    /// `policy_frequency`-th critic update, and a target Polyak update every
+    /// [`target_update.every()`](crate::target::TargetUpdate::every)-th one.
     ///
     /// Returns `None` if the agent is still in warm-up (see
     /// [`can_learn`](Self::can_learn)).
@@ -437,7 +468,11 @@ where
     /// actor is updated with the deterministic policy gradient (negative mean
     /// Q-value over the batch). Both target networks are Polyak-averaged
     /// toward the active networks with rate τ
-    /// ([`DdpgTrainingConfig::tau`]) after every actor update.
+    /// ([`DdpgTrainingConfig::target_update`]) on their own cadence — which is
+    /// independent of `policy_frequency` since ADR 0058, though the two
+    /// coincide at the shipped defaults. When both fire on the same critic
+    /// update the actor step runs first, so the target never tracks a stale
+    /// actor.
     ///
     /// # Panics
     ///
@@ -563,7 +598,7 @@ where
         }
         self.critic_updates += 1;
 
-        // --- Actor + Polyak update (every policy_frequency-th critic step) ---
+        // --- Actor update (every policy_frequency-th critic step) ---
         let mut actor_loss_opt: Option<f32> = None;
         if self
             .critic_updates
@@ -588,16 +623,34 @@ where
                 self.last_actor_loss = actor_loss_value;
                 actor_loss_opt = Some(actor_loss_value);
             }
+        }
 
-            // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
-            // run whether or not the actor step was skipped — the healthy
-            // networks keep being tracked by their targets. Clone rather than
-            // move out: `soft_update` consumes `target` by value, so on `Err`
-            // the `?` returns before the reassignment and each target field
-            // keeps its prior weights — no silent hard-sync onto its live
-            // network (the invariant now holds via early return, and equally
-            // for a panic).
-            let tau = f64::from(self.config.tau);
+        // --- Target Polyak updates (every target_update.every()-th critic
+        // step) ---
+        // This gate is deliberately *adjacent to*, not nested in, the actor
+        // block above: before ADR 0058 the Polyak calls lived inside it, which
+        // made `policy_frequency` an undeclared alias for the target cadence —
+        // an operator could not change the actor delay without also changing
+        // how often the target moved. Both gates read the same post-increment
+        // `critic_updates` counter, so at the shipped defaults
+        // (`policy_frequency == target_update.every() == 2`) the predicate is
+        // identical and the trajectory is unchanged.
+        //
+        // Order is load-bearing and matches the pre-ADR-0058 code exactly: the
+        // actor step must precede this block, or the target would track a stale
+        // actor for one cadence period.
+        //
+        // Target Polyak updates: cadence-driven (per ADR 0056 §3), so they
+        // run whether or not the actor step was skipped — the healthy
+        // networks keep being tracked by their targets. That invariant survives
+        // the move unchanged: this block never consults the actor guard, and a
+        // skipped actor step still leaves `self.actor` a valid network to blend
+        // from. Clone rather than move out: `soft_update` consumes `target` by
+        // value, so on `Err` the `?` returns before the reassignment and each
+        // target field keeps its prior weights — no silent hard-sync onto its
+        // live network (the invariant now holds via early return, and equally
+        // for a panic).
+        if let Some(tau) = self.config.target_update.fires_at(self.critic_updates) {
             self.target_actor =
                 Actor::soft_update(self.actor.get(), self.target_actor.clone(), tau)?;
             self.target_critic =
@@ -769,6 +822,187 @@ mod tests {
         assert!(
             probe_action.as_slice()[0].is_finite(),
             "the actor must remain finite — the critic's NaN must not reach it"
+        );
+    }
+
+    // -------- target-update cadence (ADR 0058 / 0059, #334) --------
+
+    use crate::target::TargetUpdate;
+    use approx::assert_abs_diff_eq;
+
+    /// Slack for the Polyak identity below. Each checksum is an `f32` device
+    /// reduction over a handful of parameters and each blended parameter costs
+    /// two `f32` roundings, so ~2e-6 is the realistic worst case; the smallest
+    /// signal any assertion here reads is `τ · gap ≈ 7.5e-3`, three orders of
+    /// magnitude larger.
+    const CHECKSUM_EPS: f64 = 1e-5;
+
+    /// Adds a constant to every float parameter of a module.
+    ///
+    /// Both targets are built by cloning their live network, so they start
+    /// *identical* — and a Polyak blend between identical networks is a no-op
+    /// that every "did the target move, and by how much?" assertion would pass
+    /// vacuously. That exact vacuity is how the issue-#182 defect survived its
+    /// tests; this mapper removes it by opening a known gap. It maps a *clone*,
+    /// so `ParamId`s are preserved and the Polyak pairing stays valid.
+    struct AddConstant(f32);
+
+    impl<B: Backend> ModuleMapper<B> for AddConstant {
+        fn map_float<const D: usize>(&mut self, param: Param<Tensor<B, D>>) -> Param<Tensor<B, D>> {
+            let (id, tensor, mapper) = param.consume();
+            Param::from_mapped_value(id, tensor.add_scalar(self.0), mapper)
+        }
+    }
+
+    /// A primed agent whose live networks are held a known distance from their
+    /// targets, so every cadence assertion below is non-vacuous.
+    fn cadence_agent(policy_frequency: usize, target_update: TargetUpdate) -> GuardAgent {
+        let device = Default::default();
+        let config = DdpgTrainingConfigBuilder::new()
+            .batch_size(2)
+            .learning_starts(0)
+            .replay_buffer_capacity(64)
+            .actor_lr(1e-3)
+            .critic_lr(1e-3)
+            .policy_frequency(policy_frequency)
+            .target_update(target_update)
+            .build()
+            .expect("valid config");
+
+        let mut agent = GuardAgent::new(
+            TinyActor::<Ad>::new(&device),
+            TinyCritic::<Ad>::new(&device),
+            config,
+            device,
+        )
+        .expect("valid agent");
+
+        let action = MaskContinuousAction::from_slice(&[0.0]);
+        for x in [0.0_f32, 0.1, 0.2, 0.3] {
+            agent.remember(
+                make_obs(x, 1.0 - x),
+                &action,
+                0.5,
+                make_obs(x + 0.1, 0.9 - x),
+                false,
+            );
+        }
+
+        // Nudge the *targets*, not the live networks. Perturbing a live network
+        // would disturb Burn's autodiff registration across consecutive learn
+        // steps, and pushing the actor's weights up saturates its `tanh`,
+        // zeroing the very actor gradient one of these tests asserts on. The
+        // targets are plain inner-backend modules with no graph attached, and
+        // `AddConstant` preserves their `ParamId`s, so the Polyak pairing holds.
+        agent.target_actor = agent.target_actor.clone().map(&mut AddConstant(0.5));
+        agent.target_critic = agent.target_critic.clone().map(&mut AddConstant(0.5));
+        for (i, (live, target)) in agent
+            .live_checksums()
+            .iter()
+            .zip(agent.target_checksums().iter())
+            .enumerate()
+        {
+            assert!(
+                (live - target).abs() > 0.5,
+                "precondition: network {i}'s live and target checksums must differ, or a \
+                 Polyak no-op would satisfy every assertion below; got live {live} vs \
+                 target {target}"
+            );
+        }
+        agent
+    }
+
+    /// Asserts that a fired Polyak update landed exactly where the rule says:
+    /// `target ← (1 − τ)·target + τ·active`, and that it moved at all.
+    fn assert_fired(before: [f64; 2], after: [f64; 2], live: [f64; 2], tau: f64) {
+        for (i, ((&b, &a), &l)) in before.iter().zip(after.iter()).zip(live.iter()).enumerate() {
+            assert_abs_diff_eq!(a, (1.0 - tau) * b + tau * l, epsilon = CHECKSUM_EPS);
+            assert!(
+                (a - b).abs() > 1e-4,
+                "network {i}'s target must actually have moved: {b} -> {a}"
+            );
+        }
+    }
+
+    /// DDPG's shipped cadence is `polyak(0.005, 2)`: the targets move on critic
+    /// updates 2, 4, … and are **bit-identically unchanged** on 1, 3, ….
+    ///
+    /// This is the test that proves lifting the Polyak calls out of the
+    /// `policy_frequency` block did not shift the cadence — `every = 2` is the
+    /// same number the block used to be gated on.
+    #[test]
+    fn ddpg_default_cadence_fires_every_second_critic_update() {
+        let rule = TargetUpdate::polyak(0.005, 2);
+        let tau = rule.tau();
+        let mut agent = cadence_agent(2, rule);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        for critic_update in 1..=4_usize {
+            let before = agent.target_checksums();
+            agent
+                .learn_step(&mut rng)
+                .expect("no polyak error")
+                .expect("a primed agent past warm-up learns");
+            let after = agent.target_checksums();
+
+            if critic_update.is_multiple_of(2) {
+                assert_fired(before, after, agent.live_checksums(), tau);
+            } else {
+                assert_eq!(
+                    after, before,
+                    "critic update {critic_update} is not a multiple of the cadence 2, so \
+                     every target weight must be untouched"
+                );
+            }
+        }
+    }
+
+    /// The configuration that was **unexpressible** before ADR 0058: the actor
+    /// updates on every critic step while the targets still move only every
+    /// second one. While the Polyak calls lived inside the `policy_frequency`
+    /// block, `policy_frequency = 1` forced the targets to move every step too.
+    #[test]
+    fn ddpg_actor_cadence_and_target_cadence_are_independent() {
+        let rule = TargetUpdate::polyak(0.005, 2);
+        let tau = rule.tau();
+        let mut agent = cadence_agent(1, rule);
+        let mut rng = StdRng::seed_from_u64(0);
+
+        // Critic update 1: the actor fires (policy_frequency = 1); the targets
+        // must not (every = 2).
+        let target_before = agent.target_checksums();
+        let actor_before = agent.live_checksums()[0];
+        let outcome = agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("a primed agent past warm-up learns");
+        assert!(
+            outcome.actor_loss.is_some(),
+            "policy_frequency = 1 must run the actor on every critic update"
+        );
+        assert!(
+            (agent.live_checksums()[0] - actor_before).abs() > 1e-6,
+            "the actor step must have moved the live actor's weights, or 'the actor \
+             updated while the target did not' is vacuous"
+        );
+        assert_eq!(
+            agent.target_checksums(),
+            target_before,
+            "the target cadence is 2: an actor update on critic update 1 must not drag \
+             the targets with it"
+        );
+
+        // Critic update 2: now the target cadence fires.
+        let before = agent.target_checksums();
+        agent
+            .learn_step(&mut rng)
+            .expect("no polyak error")
+            .expect("a primed agent past warm-up learns");
+        assert_fired(
+            before,
+            agent.target_checksums(),
+            agent.live_checksums(),
+            tau,
         );
     }
 }
