@@ -1257,6 +1257,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Added**
 
+- **`AuxPhaseStats::learning_rate`** — the rate a PPG auxiliary phase's two
+  optimizer steps actually ran at, carried alongside the existing loss fields.
+  Lets a caller distinguish a phase that *ran but moved nothing* (`0.0`, the
+  #324 defect) from one that moved the policy imperceptibly; the loss fields
+  cannot, because at `lr == 0.0` every parameter is bit-exactly unchanged and
+  `policy_kl` collapses to `0.0` — which is also its value on a healthy
+  single-minibatch phase. Additive: `AuxPhaseStats` is constructed only inside
+  `maybe_aux_phase`.
+
+  This replaces the load-bearing assertion in `ppg_integration.rs`'s #324
+  regression test, which previously decided the bug through
+  `policy_kl > 0.0`. That form is correct but is an `f32` mean of
+  log-differences between near-identical logits, measured at ~4.1e-7 — about
+  3.4× `f32::EPSILON` — so a backend with a different reduction order could
+  round a *healthy* phase to zero. Exposure that mattered once #519 put the
+  crate on shared CI hardware. The behavioral half of the check moved to a new
+  in-crate test, `ppg_aux_phase_at_nonzero_lr_moves_policy_parameters`, which
+  measures a host-side weight delta across the terminal auxiliary phase —
+  `lr · step`, linear in the rate and clear of `f32` resolution by orders of
+  magnitude. Both assertions were verified to fail against a deliberately
+  reintroduced #324 (`max |Δw| = 0` exactly).
+
 - **`PpoUpdateStats::min_log_std` and a one-shot warning when the `log_std`
   bound binds** (resolves #173, ADR 0049). Bounding `log_std` trades a *loud*
   failure for a *quiet* one: before, a collapsing policy produced NaN and the run

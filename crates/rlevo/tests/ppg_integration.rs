@@ -336,41 +336,49 @@ fn ppg_final_aux_phase_steps_at_a_nonzero_learning_rate() {
     let aux = agent
         .last_aux_phase()
         .expect("the aux phase must have fired at the final iteration");
-    // Soundness precondition for `policy_kl > 0.0` below, not just a
-    // liveness check. `maybe_aux_phase` snapshots `π_old` once, before the aux
-    // epoch loop, so the *first* minibatch of the *first* epoch runs its
-    // "new" forward pass over weights the phase has not stepped yet — that
-    // minibatch's KL is structurally `0.0` at any learning rate, healthy or
-    // annealed to nothing. `policy_kl` is the mean over minibatches, so it is
-    // strictly positive only when more than one minibatch runs. A
-    // single-minibatch aux phase (`e_aux = 1` with `aux_batch_size` ≥ the total
-    // aux step count) reports `policy_kl == 0.0` at a perfectly healthy lr.
-    //
-    // This config does: `n_iteration = 2` slices × `NUM_STEPS = 128` = 256 aux
-    // steps, chunked at `aux_batch_size = 128` → 2 chunks, × `e_aux = 6`
-    // epochs = 12 minibatches.
+    // Liveness: the phase must have done real optimizer work for its reported
+    // learning rate to mean anything. This config does `n_iteration = 2` slices
+    // × `NUM_STEPS = 128` = 256 aux steps, chunked at `aux_batch_size = 128` →
+    // 2 chunks, × `e_aux = 6` epochs = 12 minibatches.
     assert!(
-        aux.minibatches > 1,
-        "`policy_kl > 0.0` is only meaningful when the aux phase runs more than one \
-         minibatch (the first minibatch's KL is structurally zero — π_old is snapshotted \
-         before the epoch loop); got {} minibatches, so shrinking `n_iteration × NUM_STEPS` \
-         or growing `aux_batch_size` into a single chunk has invalidated this test rather \
-         than regressed #324",
+        aux.minibatches > 0,
+        "the final aux phase must have run at least one minibatch for its learning rate \
+         to describe any actual step; got {}",
         aux.minibatches
+    );
+    // The load-bearing assertion, and deliberately a check on the *rate* rather
+    // than on any downstream numeric effect of it.
+    //
+    // #324 is a bit-exact defect: the terminal aux phase read
+    // `current_learning_rate()` after `policy_phase_update` had bumped
+    // `iteration`, so it ran at an anneal of exactly `0.0`. `learning_rate` is a
+    // copy of the `f64` the optimizer steps were handed, not a recomputation, so
+    // `> 0.0` decides the bug on every backend with no tolerance to tune.
+    //
+    // The previous form of this test asserted `policy_kl > 0.0` instead. That
+    // also catches the bug — at `lr == 0.0` the parameters are bitwise unchanged
+    // and every minibatch's KL is an exact zero — but it decides it through an
+    // `f32` mean of log-differences between near-identical logits. The healthy
+    // margin here measures ~4.1e-7, about 3.4× `f32::EPSILON`, so a backend with
+    // a different reduction order or fused multiply-add could round a *healthy*
+    // phase to zero and fail this test for a reason unrelated to #324. That
+    // exposure became live when the `rlevo` crate joined the PR gate (#519) and
+    // these tests started running on hardware other than the author's.
+    //
+    // The behavioral half — that a nonzero rate actually moves parameters — is
+    // asserted directly, and deterministically, by
+    // `ppg_aux_phase_at_nonzero_lr_moves_policy_parameters` in
+    // `rlevo-reinforcement-learning`, which measures a weight delta rather than
+    // a KL and so has no cancellation exposure.
+    assert!(
+        aux.learning_rate > 0.0,
+        "the final aux phase ran at lr = {}; it must step at the rate of the policy phase \
+         it accompanies, which is nonzero at every iteration (#324)",
+        aux.learning_rate
     );
     assert!(
         aux.policy_kl.is_finite(),
         "the final aux phase's distillation KL must be finite, got {}",
-        aux.policy_kl
-    );
-    // The load-bearing assertion. `policy_kl` is `KL(π_old ‖ π_new)` against a
-    // snapshot taken at the start of the phase, so at `lr == 0.0` the policy
-    // cannot move and every minibatch contributes an exact zero.
-    assert!(
-        aux.policy_kl > 0.0,
-        "the final aux phase moved the policy by exactly nothing (policy_kl = {}), which \
-         means it ran at lr = 0.0 — it must step at the rate of the policy phase it \
-         accompanies (#324)",
         aux.policy_kl
     );
 }
