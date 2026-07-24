@@ -31,6 +31,10 @@
 //! - [`replay`] — The replay-strategy seam (ADR 0050): [`replay::Transition`],
 //!   the [`replay::ReplayStrategy`] trait, and [`replay::UniformReplay`], the
 //!   FIFO uniform buffer every off-policy agent above draws its batches from.
+//! - [`target`] — The target-network update rule: [`target::TargetUpdate`]
+//!   (a cadence plus a [`target::PolyakTau`] coefficient) expresses one
+//!   mechanism, in which a hard weight copy is the degenerate case `τ = 1.0`
+//!   rather than a separate variant.
 //! - [`utils`] — Shared helpers: Bellman target computation, Polyak averaging.
 
 pub mod algorithms {
@@ -171,4 +175,5 @@ pub mod algorithms {
 pub mod experience;
 pub mod metrics;
 pub mod replay;
+pub mod target;
 pub mod utils;

@@ -63,6 +63,7 @@ use rlevo_reinforcement_learning::algorithms::sac::train::train as train_sac;
 use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::td3::train::train as train_td3;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use pendulum_support::{ActorMlp, CriticMlp, StochasticActor};
 
@@ -234,7 +235,7 @@ fn train_ddpg_agent() -> DdpgAgent_ {
         .actor_lr(1e-4)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 2))
         .exploration_noise(0.1)
         .policy_frequency(2)
         .build()
@@ -267,7 +268,7 @@ fn train_td3_agent() -> Td3Agent_ {
         .actor_lr(1e-4)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 2))
         .exploration_noise(0.1)
         .policy_noise(0.2)
         .noise_clip(0.5)
@@ -304,7 +305,7 @@ fn train_sac_agent() -> SacAgent_ {
         .critic_lr(1e-3)
         .alpha_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .autotune(true)
         .initial_alpha(1.0)
         .policy_frequency(2)

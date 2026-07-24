@@ -3,8 +3,9 @@
 //! Provides a single entry-point, [`train`], that drives a [`C51Agent`]
 //! against any [`Environment`] for a fixed number of environment steps. The
 //! loop handles ε-greedy action selection, replay-buffer ingestion, periodic
-//! gradient updates, target-network synchronisation, episode boundary resets,
-//! and optional `tracing` progress logging.
+//! gradient updates, episode boundary resets, and optional `tracing` progress
+//! logging. The target network is maintained inside
+//! [`C51Agent::learn_step`], not here (ADR 0059).
 //!
 //! The structure mirrors [`crate::algorithms::dqn::train`]; the only
 //! behavioural difference is the metrics type emitted per completed episode —
@@ -25,16 +26,17 @@ use crate::algorithms::c51::c51_model::C51Model;
 ///
 /// The loop runs one environment step per iteration. After collecting each
 /// transition, it calls [`C51Agent::learn_step`] whenever
-/// [`C51Agent::should_train`] returns `true`, calls [`C51Agent::sync_target`],
-/// and decays ε via [`C51Agent::decay_exploration`]. On episode termination the loop records
+/// [`C51Agent::should_train`] returns `true`, and decays ε via
+/// [`C51Agent::decay_exploration`]. On episode termination the loop records
 /// per-episode [`C51Metrics`] into the agent's rolling statistics window and
 /// calls [`Environment::reset`] to begin a new episode, except on the very
 /// last step (to avoid recording a phantom episode in recording environments).
 ///
-/// `sync_target` is called unconditionally and self-gates: it is the **hard
-/// sync only**, and does nothing unless `tau == 0`. With the default `tau =
-/// 0.005` the target is maintained solely by the Polyak update inside
-/// [`C51Agent::learn_step`].
+/// The target network is **not** this loop's business. It is updated inside
+/// [`C51Agent::learn_step`], on the cadence in `C51TrainingConfig::target_update`
+/// — counted in gradient updates, not the environment steps this loop iterates
+/// over (ADR 0059). There is no target-sync call here whose omission could
+/// silently freeze the target.
 ///
 /// # Const generics
 ///
@@ -127,7 +129,6 @@ where
             last_q_mean = outcome.q_mean;
             last_entropy = outcome.entropy;
         }
-        agent.sync_target();
         agent.decay_exploration();
 
         if done {

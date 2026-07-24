@@ -8,13 +8,14 @@
 //! 2. Step the environment and store the transition in the replay buffer.
 //! 3. Every `train_frequency` steps, run one gradient update
 //!    ([`QrDqnAgent::learn_step`]).
-//! 4. Call [`QrDqnAgent::sync_target`] every step. This is the **hard**-sync
-//!    path only, and it is gated internally: it is a no-op unless
-//!    `tau == 0.0`. When `tau > 0` the target network is instead maintained by
-//!    the Polyak soft update inside `learn_step`, so calling `sync_target`
-//!    unconditionally here cannot clobber that lag.
-//! 5. On episode termination, record [`QrDqnMetrics`] (including
+//! 4. On episode termination, record [`QrDqnMetrics`] (including
 //!    `quantile_spread`) and reset the environment.
+//!
+//! The target network is **not** this loop's business. It is updated inside
+//! [`QrDqnAgent::learn_step`], on the cadence in
+//! `QrDqnTrainingConfig::target_update` — counted in gradient updates, not the
+//! environment steps this loop iterates over (ADR 0059). There is no
+//! target-sync call here whose omission could silently freeze the target.
 //!
 //! The only behavioural difference from [`crate::algorithms::c51::train`] is
 //! the metrics type emitted per completed episode — [`QrDqnMetrics`] carries
@@ -121,7 +122,6 @@ where
             last_q_mean = outcome.q_mean;
             last_spread = outcome.quantile_spread;
         }
-        agent.sync_target();
         agent.decay_exploration();
 
         if done {

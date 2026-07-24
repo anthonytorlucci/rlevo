@@ -98,6 +98,27 @@ Two things differ from the evolutionary side:
 {{#rustdoc_include ../../../../crates/rlevo-examples/examples/book/ch03_dqn_cartpole.rs:agent}}
 ```
 
+One field there carries the entire target-network rule.
+[`TargetUpdate`](https://docs.rs/rlevo-reinforcement-learning) fuses the two
+knobs that older APIs split apart: the **cadence** decides *when* an update
+fires, and \\(\tau\\) decides *how far* the target moves when it does.
+`TargetUpdate::polyak(0.005, 1)` therefore reads as "every gradient update,
+drag the target 0.5% of the way toward the policy", while
+`TargetUpdate::hard(10_000)` is the *same* mechanism at \\(\tau = 1.0\\) — a
+full copy every 10,000 gradient updates, obtained by degeneracy of the blend
+rather than by a second code path.
+
+Mind the units, because a config deliberately carries two: the cadence counts
+**gradient updates**, whereas `learning_starts` and `train_frequency` beside it
+count **environment steps**. One gradient update happens per `train_frequency`
+env steps, so a budget of \\(N\\) env steps buys \\(N / 4\\) gradient updates at
+the default `train_frequency: 4` — the 50,000-step loop below buys about 12,500,
+and `TargetUpdate::hard(10_000)` would fire just once, near the end. Size the
+cadence from your own budget: `10,000` is the Atari-derived figure (roughly
+40,000 env steps here), and a classic-control run wants far less. Which values
+we ship by default is still under review in
+[issue #337](https://github.com/anthonytorlucci/rlevo/issues/337).
+
 `DqnTrainingConfig::default()` also exists with sensible CartPole-shaped values.
 
 ## The training loop
@@ -122,9 +143,8 @@ for _step in 0..50_000 {
     agent.on_env_step();
 
     if agent.should_train() {
-        agent.learn_step(&mut rng);                    // one gradient update
+        agent.learn_step(&mut rng);        // one gradient update, target included
     }
-    agent.sync_target();                               // periodic target copy
     agent.decay_exploration();
 
     snapshot = if done { env.reset()? } else { next };
@@ -140,9 +160,17 @@ for why that distinction matters. The provided `train` helper below makes this
 same distinction internally, so you only need to reproduce it if you write
 your own loop.
 
+Notice too what the loop *does not* contain: there is no target-sync stage.
+`learn_step` owns the target network end to end — it advances the agent's
+gradient-update counter, asks the configured `TargetUpdate` whether this update
+fires, and blends the target if it does. We put it there so that a hand-written
+loop cannot silently freeze a target by forgetting to sync it; the only way to
+change the target's rhythm is to change the config. Read the counter back with
+`agent.gradient_updates()`, which is distinct from `agent.step()`.
+
 A provided `train(&mut agent, &mut env, &mut rng, total_steps, log_every)` helper
 wraps exactly this loop — ε-greedy acting, replay storage, periodic learning,
-target sync, and episode bookkeeping — so you rarely write it by hand. The
+ε decay, and episode bookkeeping — so you rarely write it by hand. The
 example calls it directly:
 
 ```rust,no_run

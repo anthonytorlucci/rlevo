@@ -163,7 +163,10 @@ impl<B: AutodiffBackend> DqnModel<B, 2> for DqnMlp<B> {
         target: Self::InnerModule,
         _tau: f64,
     ) -> Result<Self::InnerModule, PolyakError> {
-        // Never reached: `target_update_frequency` exceeds `TOTAL_STEPS`.
+        // Never reached. The target update lives inside `learn_step` (ADR
+        // 0059), past the `can_learn()` gate, and `learning_starts` exceeds the
+        // whole step budget — so `learn_step` returns before any gradient
+        // update is attempted. `run_recording` asserts that below.
         Ok(target)
     }
 }
@@ -201,10 +204,16 @@ fn run_recording(total_steps: usize) -> RecordedRun {
     <Be as Backend>::seed(&device, seed);
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(8)
-        // Keep the whole run in the pre-learning window: no gradient steps,
-        // no target sync — we are testing the loop's episode bookkeeping only.
+        // Keep the whole run in the pre-learning window: no gradient steps and
+        // therefore no target updates either — we are testing the loop's
+        // episode bookkeeping only.
+        //
+        // `learning_starts` is the whole mechanism. It used to be paired with
+        // `.target_update_frequency(total_steps + 1)`, which suppressed a hard
+        // sync that was *already* inert under the default `tau = 0.005`; there
+        // is no second knob to suppress now, and the target update sits behind
+        // the same `can_learn()` gate this line closes (ADR 0059).
         .learning_starts(total_steps + 1)
-        .target_update_frequency(total_steps + 1)
         .replay_buffer_capacity(1_000)
         .build()
         .expect("valid config");
@@ -214,6 +223,17 @@ fn run_recording(total_steps: usize) -> RecordedRun {
 
     let mut rng = StdRng::seed_from_u64(seed);
     train(&mut agent, &mut env, &mut rng, total_steps, 0).expect("training loop");
+    // The premise of the fixture, now asserted rather than assumed: the run
+    // stayed in the pre-learning window, so no gradient update was attempted
+    // and the `soft_update` stub above was never called. Without this, a future
+    // change to `learning_starts` could silently start exercising the target
+    // path through a stub that returns its argument unchanged.
+    assert_eq!(
+        agent.gradient_updates(),
+        0,
+        "this fixture must take no gradient step: `learning_starts` exceeds the \
+         step budget, so the target-update path is unreachable"
+    );
 
     // --- finalise ---------------------------------------------------------
     sink.lock().on_run_end(manifest);

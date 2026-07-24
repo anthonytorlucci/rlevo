@@ -101,6 +101,7 @@ use rlevo_environments::grids::{GridAction, MemoryConfig, MemoryEnv};
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_agent::DqnAgent;
 use rlevo_reinforcement_learning::algorithms::dqn::dqn_config::DqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::dqn::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use support::GridMlpDqn;
 
@@ -142,14 +143,13 @@ fn train_dqn() -> MemoryAgent {
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(64)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(5e-4)
         .epsilon_start(1.0)
         .epsilon_end(0.01)
         .epsilon_decay(0.9997)
         .learning_starts(500)
         .train_frequency(4)
-        .target_update_frequency(200)
         .replay_buffer_capacity(20_000)
         .double_q(true)
         .build()

@@ -1,10 +1,11 @@
 //! End-to-end training loop for DQN.
 //!
-//! [`train`] drives the collect-learn-sync cycle: reset the environment,
-//! step with ε-greedy actions, push each transition
-//! into the agent's replay buffer, call [`DqnAgent::learn_step`] on the
-//! configured cadence, and sync the target network. Per-episode metrics are
-//! accumulated into the agent's [`AgentStats`].
+//! [`train`] drives the collect-learn cycle: reset the environment, step with
+//! ε-greedy actions, push each transition into the agent's replay buffer, and
+//! call [`DqnAgent::learn_step`] on the configured cadence. Per-episode metrics
+//! are accumulated into the agent's [`AgentStats`]. The target network is
+//! maintained inside `learn_step`, not here — this loop has no target-sync
+//! step to forget (ADR 0059).
 //!
 //! [`AgentStats`]: crate::metrics::AgentStats
 
@@ -26,13 +27,15 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 /// 2. Steps the environment and pushes the resulting transition into the
 ///    replay buffer with [`DqnAgent::remember`].
 /// 3. Calls [`DqnAgent::learn_step`] when `agent.should_train()` returns
-///    `true` (controlled by [`DqnTrainingConfig::train_frequency`]).
-/// 4. Calls [`DqnAgent::sync_target`], which performs a **hard** target-network
-///    copy every [`DqnTrainingConfig::target_update_frequency`] steps — and
-///    only when [`DqnTrainingConfig::tau`] is `0.0`. With `tau > 0.0` (the
-///    default) this call is a no-op: the target is instead maintained by the
-///    Polyak soft update inside [`DqnAgent::learn_step`].
-/// 5. Decays ε with [`DqnAgent::decay_exploration`].
+///    `true` (controlled by [`DqnTrainingConfig::train_frequency`], in
+///    environment steps).
+/// 4. Decays ε with [`DqnAgent::decay_exploration`].
+///
+/// The target network is **not** this loop's business. It is updated inside
+/// [`DqnAgent::learn_step`], on the cadence in
+/// [`DqnTrainingConfig::target_update`] — counted in gradient updates, not the
+/// environment steps this loop iterates over (ADR 0059). There is no
+/// target-sync call here whose omission could silently freeze the target.
 ///
 /// When an episode ends the collected [`DqnMetrics`] are recorded via
 /// [`DqnAgent::record_episode`] and the environment is reset. To avoid
@@ -63,8 +66,7 @@ use crate::algorithms::dqn::dqn_model::DqnModel;
 /// [`EnvironmentError`] message) if `env.reset()` or `env.step()` fails.
 ///
 /// [`DqnTrainingConfig::train_frequency`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::train_frequency
-/// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
-/// [`DqnTrainingConfig::target_update_frequency`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update_frequency
+/// [`DqnTrainingConfig::target_update`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update
 /// [`EnvironmentError`]: rlevo_core::environment::EnvironmentError
 // Config knobs are stored as f64 for ergonomics; every tensor in this crate is
 // f32. This is the intended narrowing point, and the values are hyperparameters
@@ -134,7 +136,6 @@ where
             last_q_mean = outcome.q_mean;
             n_updates += 1;
         }
-        agent.sync_target();
         agent.decay_exploration();
 
         if done {

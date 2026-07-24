@@ -7,10 +7,11 @@
 
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
-use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
+use rlevo_core::config::{self, ConfigError, Validate};
 
 use crate::algorithms::c51::projection::atom_spacing;
 use crate::replay::PrioritizedReplaySettings;
+use crate::target::TargetUpdate;
 
 /// Configuration for training a Categorical DQN (C51) agent.
 ///
@@ -27,12 +28,6 @@ pub struct C51TrainingConfig {
     /// Discount factor γ in `[0, 1]`.
     pub gamma: f64,
 
-    /// Polyak τ used for the per-step soft update of the target network.
-    ///
-    /// `target ← (1 − τ) · target + τ · policy`. Set to `0` to disable
-    /// soft updates and rely on periodic hard syncs.
-    pub tau: f64,
-
     /// Optimizer learning rate.
     pub learning_rate: f64,
 
@@ -45,21 +40,35 @@ pub struct C51TrainingConfig {
     /// Multiplicative decay applied to ε each env step.
     pub epsilon_decay: f64,
 
-    /// Period, in env steps, between hard syncs of the target network.
+    /// How the target network tracks the policy network: one cadence, one τ.
     ///
-    /// Only meaningful when [`tau`](Self::tau) is `0`; while `tau > 0` the
-    /// Polyak soft update is the live mechanism and this field is inert.
+    /// [`TargetUpdate`] is a single mechanism, not two (ADR 0058). Its cadence
+    /// [`every`](TargetUpdate::every) decides *when* an update fires; its
+    /// coefficient [`tau`](TargetUpdate::tau) decides *how far* the target
+    /// moves when it does — `target ← (1 − τ) · target + τ · policy`. A
+    /// periodic hard copy is not a second mechanism but the degenerate
+    /// `τ = 1.0`, spelled [`TargetUpdate::hard`]. The update is applied inside
+    /// [`C51Agent::learn_step`] and nowhere else, so no train loop can forget
+    /// to drive it.
     ///
-    /// The unit is **environment steps** — not parameter updates and not
-    /// gradient updates. The default of `10_000` matches
-    /// Stable-Baselines3's `target_update_interval`, which is counted in the
-    /// same unit. It is *not* the Nature-DQN figure: Mnih et al. (2015)
-    /// specify `C = 10,000` **parameter updates** (Extended Data Table 1),
-    /// which under the default [`train_frequency`](Self::train_frequency) of
-    /// `4` would be 40,000 environment steps. So 10,000 env steps is roughly
-    /// 2,500 parameter updates — four times more frequent than Nature's `C`,
-    /// and an exact match to the SB3 convention.
-    pub target_update_frequency: usize,
+    /// # The cadence counts gradient updates — its neighbours count env steps
+    ///
+    /// [`every`](TargetUpdate::every) is a **gradient (optimizer) update**
+    /// count (ADR 0059), matching Mnih et al. (2015), whose `C` is "measured in
+    /// the number of *parameter updates*" (Extended Data Table 1).
+    /// [`learning_starts`](Self::learning_starts) and
+    /// [`train_frequency`](Self::train_frequency) stay in **environment
+    /// steps**, because they gate whether a gradient step is taken at all.
+    /// This config therefore carries two units deliberately, and only this note
+    /// distinguishes them: at the default `train_frequency = 4`, a cadence of
+    /// `10_000` gradient updates is 40 000 environment steps.
+    ///
+    /// The counter fed to the cadence advances once per attempted optimizer
+    /// step — including one skipped by the non-finite-loss guard (ADR 0056), so
+    /// a diverging run cannot silently stretch the target-update rhythm.
+    ///
+    /// [`C51Agent::learn_step`]: crate::algorithms::c51::c51_agent::C51Agent::learn_step
+    pub target_update: TargetUpdate,
 
     /// Upper bound on steps allowed per episode (for bookkeeping only —
     /// environments are responsible for enforcing their own step limits).
@@ -133,20 +142,23 @@ impl C51TrainingConfig {
 impl Default for C51TrainingConfig {
     /// Returns defaults consistent with `CleanRL`'s reference C51 hyperparameters.
     ///
-    /// [`target_update_frequency`](Self::target_update_frequency) is
-    /// `10_000` environment steps, matching Stable-Baselines3's
-    /// `target_update_interval`. It is inert under these defaults because
-    /// `tau = 0.005 > 0` selects the Polyak soft update.
+    /// [`target_update`](Self::target_update) is a τ = 0.005 Polyak step on
+    /// **every** gradient update. That is bit-for-bit the pre-[`TargetUpdate`]
+    /// behaviour: the old `tau = 0.005` soft update ran ungated inside every
+    /// learn step, which in gradient-update units is exactly `every = 1`. The
+    /// old `target_update_frequency = 10_000` is deliberately not carried over
+    /// — it was inert under `tau > 0` and, read as a cadence under the unified
+    /// rule, would collapse the Polyak schedule 10 000×
+    /// (ADR 0059 §Consequences).
     fn default() -> Self {
         Self {
             batch_size: 32,
             gamma: 0.99,
-            tau: 0.005,
             learning_rate: 0.001,
             epsilon_start: 1.0,
             epsilon_end: 0.01,
             epsilon_decay: 0.995,
-            target_update_frequency: 10_000,
+            target_update: TargetUpdate::polyak(0.005, 1),
             steps_per_episode: 1000,
             replay_buffer_capacity: 10_000,
             learning_starts: 1_000,
@@ -166,7 +178,6 @@ impl Validate for C51TrainingConfig {
         const C: &str = "C51TrainingConfig";
         config::nonzero(C, "batch_size", self.batch_size)?;
         config::in_range(C, "gamma", 0.0, 1.0, self.gamma)?;
-        config::in_range(C, "tau", 0.0, 1.0, self.tau)?;
         config::positive(C, "learning_rate", self.learning_rate)?;
         config::in_range(C, "epsilon_start", 0.0, 1.0, self.epsilon_start)?;
         config::in_range(C, "epsilon_end", 0.0, 1.0, self.epsilon_end)?;
@@ -180,22 +191,13 @@ impl Validate for C51TrainingConfig {
         if let Some(per) = &self.prioritized_replay {
             per.validate()?;
         }
-        // The target network has exactly two update mechanisms — Polyak soft
-        // updates (`tau > 0`) and periodic hard syncs
-        // (`target_update_frequency > 0`). Disabling both leaves the target
-        // frozen at its initial weights for the whole run, which silently
-        // trains against a random bootstrap. `tau` is already range-checked
-        // to `[0, 1]` above, so `<= 0.0` here is exactly "τ is zero".
-        if self.tau <= 0.0 && self.target_update_frequency == 0 {
-            return Err(ConfigError {
-                config: C,
-                field: "target_update_frequency",
-                kind: ConstraintKind::Custom(
-                    "target network would never update: set tau > 0 for Polyak \
-                     soft updates, or target_update_frequency > 0 for hard syncs",
-                ),
-            });
-        }
+        // `target_update` carries no check here, deliberately: `TargetUpdate`
+        // is valid by construction (ADR 0027 §3 — a validated newtype *removes*
+        // its paired `config::` line). Its `PolyakTau` excludes τ = 0.0 and its
+        // `NonZeroUsize` cadence excludes 0, so the frozen target the old
+        // cross-field check rejected is now unrepresentable rather than merely
+        // rejected — including through `..Default::default()` struct update,
+        // which `validate` never saw.
         Ok(())
     }
 }
@@ -236,16 +238,6 @@ impl C51TrainingConfigBuilder {
         self
     }
 
-    /// Sets [`C51TrainingConfig::tau`].
-    ///
-    /// Pass `0.0` to disable soft updates and rely on periodic hard syncs
-    /// instead (see [`C51TrainingConfig::target_update_frequency`]).
-    #[must_use]
-    pub fn tau(mut self, tau: f64) -> Self {
-        self.config.tau = tau;
-        self
-    }
-
     /// Sets [`C51TrainingConfig::learning_rate`].
     #[must_use]
     pub fn learning_rate(mut self, learning_rate: f64) -> Self {
@@ -274,10 +266,27 @@ impl C51TrainingConfigBuilder {
         self
     }
 
-    /// Sets [`C51TrainingConfig::target_update_frequency`].
+    /// Sets [`C51TrainingConfig::target_update`] — cadence and τ together.
+    ///
+    /// One setter, because there is one mechanism (ADR 0058). The cadence is in
+    /// **gradient updates**, unlike the env-step
+    /// [`train_frequency`](Self::train_frequency) beside it.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rlevo_reinforcement_learning::algorithms::c51::c51_config::C51TrainingConfigBuilder;
+    /// use rlevo_reinforcement_learning::target::TargetUpdate;
+    ///
+    /// let cfg = C51TrainingConfigBuilder::new()
+    ///     .target_update(TargetUpdate::hard(500))
+    ///     .build()
+    ///     .expect("valid config");
+    /// assert!(cfg.target_update.is_hard());
+    /// ```
     #[must_use]
-    pub fn target_update_frequency(mut self, frequency: usize) -> Self {
-        self.config.target_update_frequency = frequency;
+    pub fn target_update(mut self, target_update: TargetUpdate) -> Self {
+        self.config.target_update = target_update;
         self
     }
 
@@ -424,45 +433,54 @@ mod tests {
         assert!(C51TrainingConfig::default().validate().is_ok());
     }
 
+    /// The default is behaviour-preserving: the old `tau = 0.005` soft update
+    /// ran inside *every* learn step with the hard path inert, which in
+    /// gradient-update units is `every = 1` (ADR 0059 §Consequences).
     #[test]
-    fn rejects_config_where_target_never_updates() {
-        let err = C51TrainingConfigBuilder::new()
-            .tau(0.0)
-            .target_update_frequency(0)
-            .build()
-            .unwrap_err();
-        assert_eq!(
-            err.field, "target_update_frequency",
-            "tau == 0 with no hard-sync period must be rejected: the target would never update"
+    fn default_target_update_is_polyak_every_gradient_update() {
+        let cfg = C51TrainingConfig::default();
+        assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 1));
+        assert_eq!(cfg.target_update.every(), 1);
+    }
+
+    /// Replaces `rejects_config_where_target_never_updates`. The frozen-target
+    /// state is no longer *rejected* by `validate` — it is unrepresentable, so
+    /// the assertion moves to the constructor (ADR 0058 §Consequences). That is
+    /// strictly stronger: the old check could be bypassed by struct-update
+    /// syntax on the two `pub` scalar fields.
+    #[test]
+    fn frozen_target_is_unreachable_through_the_type() {
+        assert!(
+            TargetUpdate::try_polyak(0.0, 1).is_err(),
+            "τ = 0 fires on schedule and moves nothing — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.005, 0).is_err(),
+            "a cadence of 0 never fires — a frozen target"
+        );
+        assert!(
+            TargetUpdate::try_polyak(0.0, 0).is_err(),
+            "the pair the deleted cross-field check rejected"
         );
     }
 
+    /// Replaces `accepts_either_target_update_mechanism_alone`. There are no
+    /// longer two mechanisms to accept "alone": hard is `τ = 1.0` on the one
+    /// rule, and every constructible rule yields a valid config.
     #[test]
-    fn accepts_either_target_update_mechanism_alone() {
-        assert!(
-            C51TrainingConfigBuilder::new()
-                .tau(0.0)
-                .target_update_frequency(100)
+    fn every_constructible_target_update_yields_a_valid_config() {
+        for rule in [
+            TargetUpdate::polyak(0.005, 1),
+            TargetUpdate::polyak(0.5, 100),
+            TargetUpdate::hard(1),
+            TargetUpdate::hard(10_000),
+        ] {
+            let cfg = C51TrainingConfigBuilder::new()
+                .target_update(rule)
                 .build()
-                .is_ok(),
-            "hard sync alone is a valid target-update mechanism"
-        );
-        assert!(
-            C51TrainingConfigBuilder::new()
-                .tau(0.005)
-                .target_update_frequency(0)
-                .build()
-                .is_ok(),
-            "Polyak soft update alone is a valid target-update mechanism"
-        );
-        assert!(
-            C51TrainingConfigBuilder::new()
-                .tau(0.005)
-                .target_update_frequency(100)
-                .build()
-                .is_ok(),
-            "both set is legal: tau wins and the frequency is an inert fallback (this is Default)"
-        );
+                .expect("a constructible TargetUpdate is always a valid config");
+            assert_eq!(cfg.target_update, rule);
+        }
     }
 
     #[test]

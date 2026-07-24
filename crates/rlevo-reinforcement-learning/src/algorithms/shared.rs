@@ -302,6 +302,63 @@ pub(crate) fn reduce_weighted_loss<B: Backend>(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Parameter checksum — the target-network observation seam (ADR 0058)
+// ---------------------------------------------------------------------------
+
+/// Sums every float parameter of `module` into one `f64`.
+///
+/// # Why this exists
+///
+/// Until ADR 0058 there was **no way to read a target network's weights**, and
+/// that is precisely how the issue-#182 two-schedule defect survived its own
+/// test suite: the tests could observe that `learn_step` returned, not what it
+/// did to the target. This is the missing observation seam, in its smallest
+/// useful form.
+///
+/// # Why a plain sum is enough
+///
+/// Polyak averaging is *linear* in each parameter, so the sum is exact under
+/// it: if `t` and `a` are the target's and active network's checksums before an
+/// update, the checksum after `target ← (1 − τ)·target + τ·active` is
+/// `(1 − τ)·t + τ·a`, up to `f32` rounding. A caller can therefore assert not
+/// merely *that* the target moved but that it moved by exactly τ of the gap —
+/// the property a cadence test needs. It cannot distinguish two different
+/// weight vectors with equal sums, so a caller asserting "unchanged" should
+/// first assert that the live and target checksums genuinely differ, or the
+/// assertion is vacuous.
+///
+/// Int and bool parameters are not visited: `polyak_update` blends floats only,
+/// so anything else is invariant under the operation being observed.
+///
+/// # Visibility
+///
+/// `#[cfg(test)] pub(crate)` — this is instrumentation, not API. It is reachable
+/// only from this crate's own unit tests, mirroring
+/// [`FiniteLossGuard::warning_fired`], the existing precedent for a
+/// test-only observation hook in this module. Making it public would commit the
+/// crate to a checksum's stability across backends and dtypes, which nothing
+/// outside a test needs.
+#[cfg(test)]
+pub(crate) fn param_checksum<B: Backend, M: burn::module::Module<B>>(module: &M) -> f64 {
+    use burn::module::{ModuleVisitor, Param};
+    use burn::tensor::ElementConversion;
+
+    struct Summer {
+        total: f64,
+    }
+
+    impl<B: Backend> ModuleVisitor<B> for Summer {
+        fn visit_float<const D: usize>(&mut self, param: &Param<Tensor<B, D>>) {
+            self.total += f64::from(param.val().sum().into_scalar().elem::<f32>());
+        }
+    }
+
+    let mut summer = Summer { total: 0.0 };
+    module.visit(&mut summer);
+    summer.total
+}
+
 // A network's `Debug` would dump every parameter tensor, so report the slot's
 // state and the module's type instead. This also keeps `Slot<M>: Debug` free of
 // an `M: Debug` bound, mirroring the hand-written `DqnAgent` impl's summary

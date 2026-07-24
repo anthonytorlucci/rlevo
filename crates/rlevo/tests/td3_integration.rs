@@ -31,6 +31,7 @@ use rlevo_reinforcement_learning::algorithms::td3::td3_agent::Td3Agent;
 use rlevo_reinforcement_learning::algorithms::td3::td3_config::Td3TrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::td3::td3_model::{ContinuousQ, DeterministicPolicy};
 use rlevo_reinforcement_learning::algorithms::td3::train::train;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 use rlevo_reinforcement_learning::utils::{PolyakError, polyak_update};
 
 use rlevo_test_support::assert::assert_improves_over_random;
@@ -171,7 +172,7 @@ fn run_linear(seed: u64, total: usize) -> TrainOutcome {
         .actor_lr(1e-3)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.02)
+        .target_update(TargetUpdate::polyak(0.02, 2))
         .exploration_noise(0.2)
         .policy_noise(0.2)
         .noise_clip(0.5)
@@ -271,7 +272,7 @@ fn td3_act_with_matches_deterministic_act() {
         .actor_lr(1e-3)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.02)
+        .target_update(TargetUpdate::polyak(0.02, 2))
         .exploration_noise(0.2)
         .policy_noise(0.2)
         .noise_clip(0.5)
@@ -390,7 +391,7 @@ fn td3_pendulum_improves_over_random() {
         .actor_lr(1e-4)
         .critic_lr(1e-3)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 2))
         .exploration_noise(0.1)
         .policy_noise(0.2)
         .noise_clip(0.5)

@@ -65,6 +65,7 @@ use rlevo_reinforcement_learning::algorithms::ppo::ppo_config::PpoTrainingConfig
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_agent::QrDqnAgent;
 use rlevo_reinforcement_learning::algorithms::qrdqn::qrdqn_config::QrDqnTrainingConfigBuilder;
 use rlevo_reinforcement_learning::algorithms::qrdqn::train::train as train_qrdqn;
+use rlevo_reinforcement_learning::target::TargetUpdate;
 
 use value_nets::{C51Mlp, QrDqnMlp, ValueMlp, VecMlpDqn};
 
@@ -129,14 +130,13 @@ fn train_dqn_agent() -> DqnAcrobotAgent {
     let config = DqnTrainingConfigBuilder::new()
         .batch_size(128)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(1e-3)
         .epsilon_start(1.0)
         .epsilon_end(0.02)
         .epsilon_decay(0.9997)
         .learning_starts(1_000)
         .train_frequency(4)
-        .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .double_q(true)
         .build()
@@ -155,14 +155,13 @@ fn train_c51_agent() -> C51AcrobotAgent {
     let config = C51TrainingConfigBuilder::new()
         .batch_size(128)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(1e-3)
         .epsilon_start(1.0)
         .epsilon_end(0.02)
         .epsilon_decay(0.9997)
         .learning_starts(1_000)
         .train_frequency(4)
-        .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .num_atoms(NUM_ATOMS)
         .v_min(V_MIN)
@@ -183,14 +182,13 @@ fn train_qrdqn_agent() -> QrDqnAcrobotAgent {
     let config = QrDqnTrainingConfigBuilder::new()
         .batch_size(128)
         .gamma(0.99)
-        .tau(0.005)
+        .target_update(TargetUpdate::polyak(0.005, 1))
         .learning_rate(1e-3)
         .epsilon_start(1.0)
         .epsilon_end(0.02)
         .epsilon_decay(0.9997)
         .learning_starts(1_000)
         .train_frequency(4)
-        .target_update_frequency(500)
         .replay_buffer_capacity(50_000)
         .num_quantiles(NUM_QUANTILES)
         .kappa(1.0)

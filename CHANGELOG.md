@@ -199,6 +199,80 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Breaking changes**
 
+- **`tau` and `target_update_frequency` are replaced by a single
+  `target_update: TargetUpdate` field on all six off-policy configs** (ADR 0058
+  + ADR 0059, resolves #334, closes #455). The two fields did not describe two
+  mechanisms — they described one, badly, and they did not agree on what they
+  meant. `target_update_frequency` gated a **hard copy** in DQN/C51/QR-DQN but
+  the **soft** Polyak update in SAC, so a τ carried from one family to the other
+  silently produced a different training regime. Worse, and not what the issue
+  reported: DDPG and TD3 had no such field at all but gated their Polyak update
+  on `policy_frequency`, making the actor-delay knob an *undeclared alias* for
+  target cadence — you could not change how often the actor updated without also
+  changing how often the target moved. Three regimes, one field name, no error.
+
+  The new type says it once: the cadence decides *when* an update fires, τ
+  decides *how far* the target moves, and `τ = 1.0` is a hard copy by degeneracy
+  rather than a separate mode. That formulation is not borrowed from
+  Stable-Baselines3 — it is Haarnoja et al. 2018a's own "SAC (hard target
+  update)" ablation (τ = 1, interval = 1000) and TD3's Algorithm 1, which gates
+  the soft update on a period. What was rejected is SB3's *two-flat-fields
+  shape*, which is the mechanism by which the three families drifted apart.
+
+  ```rust
+  // before
+  .tau(0.005).target_update_frequency(500)
+  // after
+  .target_update(TargetUpdate::polyak(0.005, 1))   // soft, every gradient update
+  .target_update(TargetUpdate::hard(10_000))       // full copy, τ = 1.0
+  ```
+
+  *Migration.* Replace the paired `.tau(..)` / `.target_update_frequency(..)`
+  builder setters with one `.target_update(..)`, and the paired struct fields
+  with `target_update`. Every existing call site becomes a **compile error**
+  rather than silently changing meaning — no config in the workspace derives
+  `Serialize`/`Deserialize`, so there is no persisted data to migrate and no
+  record `FORMAT_VERSION` bump. **Defaults are bit-identical to the previous
+  behaviour** (`polyak(0.005, 1)` for DQN/C51/QR-DQN/SAC, `polyak(0.005, 2)` for
+  DDPG/TD3, matching the `policy_frequency` it decouples from), so a run left at
+  defaults is unchanged. Do **not** transcribe an old `target_update_frequency`
+  literally: under `tau > 0.0` it was inert, so carrying `10_000` across would
+  collapse the Polyak cadence 10,000-fold. The default-*value* question is
+  tracked separately by #337.
+
+  This also makes a frozen target unrepresentable rather than merely rejected.
+  `PolyakTau`'s invariant is the half-open `(0, 1]` and the cadence is a
+  `NonZeroUsize`, so `τ = 0.0` — which passed `config::in_range`'s closed
+  interval and froze the target network (#455) — no longer type-checks, in all
+  six configs and including via struct-literal `..Default::default()`
+  construction. Six `config::in_range("tau", ..)` checks, SAC's
+  `config::at_least("target_update_frequency", .., 1)`, and three cross-field
+  frozen-target guards are deleted as redundant (ADR 0027 §3).
+- **`sync_target()` is removed from `DqnAgent`, `C51Agent` and `QrDqnAgent`**
+  (ADR 0059). The target update now happens inside `learn_step`, so the three
+  train loops no longer call it and a hand-written loop has no target-sync stage
+  to forget. This comes with a unit change that is easy to miss: the cadence now
+  counts **gradient (optimizer) updates**, not environment steps. Every
+  canonical source counts it that way — Nature DQN's `C` is "measured in the
+  number of parameter updates", SAC's interval sits inside "for each gradient
+  step do", TD3's `d` is "updates to the critic" — and the env-step reading was
+  the reason the shipped default was 4× more frequent than the Nature value it
+  claimed to match. `learning_starts` and `train_frequency` still count
+  environment steps, so a config now deliberately carries two units; the field
+  rustdoc says which is which. The counter advances even when the ADR-0056
+  non-finite-loss guard skips an optimizer step, so a diverging run cannot drift
+  the cadence.
+
+  *Why the old tests missed all of this.* Nothing in the workspace could read a
+  target network — there was no accessor — so the three integration tests
+  asserted only that rewards were finite and that two seeded runs agreed. A
+  wrongly-scheduled target update is finite and perfectly deterministic, so both
+  the correct and the defective regimes passed. The agents now expose a
+  target-network observation seam, and the new tests assert the arithmetic
+  directly: that a fired update moves each parameter to exactly
+  `(1 − τ)·target + τ·live`, that no update fires between cadence boundaries,
+  and — the configuration that was previously unexpressible — that an actor
+  cadence of 1 and a target cadence of 2 are now independent.
 - **The target soft-update path is now fallible** (ADR 0057, resolves #341,
   partially #317). A `ParamId`-topology mismatch between a network and its target
   is a recoverable configuration error — the target was built wrong — so it is

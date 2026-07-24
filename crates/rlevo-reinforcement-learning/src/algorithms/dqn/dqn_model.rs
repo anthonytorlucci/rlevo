@@ -46,13 +46,14 @@ pub trait DqnModel<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
     /// parameter tensor and returns the updated target network. `target` is
     /// consumed and replaced; `active` is borrowed read-only.
     ///
-    /// Typical `τ` values are in the range `[0.001, 0.01]`. Setting `τ = 1.0`
-    /// is equivalent to a hard copy of the policy into the target. When
-    /// [`DqnTrainingConfig::tau`] is `0.0`, the caller should use
-    /// [`DqnAgent::sync_target`] for periodic hard syncs instead.
+    /// Typical `τ` values are in the range `[0.001, 0.01]`; `τ = 1.0` is a hard
+    /// copy of the policy into the target, by degeneracy of the same formula.
+    /// Callers do not choose τ per call — [`DqnTrainingConfig::target_update`]
+    /// owns both the coefficient and the cadence, and
+    /// [`TargetUpdate::fires_at`] hands the applicable τ to this method.
     ///
-    /// [`DqnTrainingConfig::tau`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::tau
-    /// [`DqnAgent::sync_target`]: crate::algorithms::dqn::dqn_agent::DqnAgent::sync_target
+    /// [`DqnTrainingConfig::target_update`]: crate::algorithms::dqn::dqn_config::DqnTrainingConfig::target_update
+    /// [`TargetUpdate::fires_at`]: crate::target::TargetUpdate::fires_at
     ///
     /// # Errors
     ///
