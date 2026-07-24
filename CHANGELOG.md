@@ -1377,6 +1377,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `MIN_SIZE = 5`), which is per ADR 0026 the loader's obligation — and no
   config loader exists in the workspace today.
 
+### Infrastructure
+
+**Fixed**
+
+- **Every workspace crate now runs its tests in the pull-request gate, and a
+  meta-check keeps it that way** (resolves #519). `crate-tests.yml`'s matrix was
+  hand-maintained and named five crates; six were missing. The consequence was
+  worst for `rlevo`, whose 22 `crates/rlevo/tests/*.rs` binaries were reachable
+  only through `weekly-tests.yml` — which runs `-- --ignored` and therefore
+  *filters out* every non-ignored test in them. 38 non-ignored tests across 16
+  binaries executed in no workflow at all, including the regression tests
+  written for #321 and #324 specifically so they would gate pull requests.
+  Un-ignoring a test never made it run.
+
+  The gap was not `rlevo`-only: `rlevo-benchmarks-report-client` (80 tests),
+  `rlevo-metrics-registry` (17), `rlevo-test-support` (6),
+  `rlevo-hybrid` (6) and `rlevo-examples` (5) were absent from the matrix for no
+  recorded reason. All six crates are now in it; `rlevo` carries
+  `--features viz-report`, without which `recording_episode_count.rs` and
+  `cartpole_report_smoke.rs` fail to *compile* (neither is `#![cfg]`-gated, and
+  the feature is not in `rlevo`'s defaults). Measured cost of the added
+  coverage: ~55 s of test execution for `rlevo`, under a second each for the
+  other five.
+
+  The new `test-matrix-coverage` job fails the build when a crate under
+  `crates/` is absent from the matrix, on the model of the #391 lint-opt-in
+  job — the omission itself is the bug, and nothing in cargo reports it.
+
 ---
 
 ## [0.3.1] – 2026-07-17
