@@ -10,11 +10,46 @@
 //!
 //! Issue #326 ("all 32 config structs have `pub` fields, so struct-literal
 //! construction bypasses `validate()`") read that `pub` field as the bug. It is
-//! not: at the time of filing, all 34 environment `with_config` constructors and
-//! all 6 RL agent constructors already called `config.validate()?`. The real
+//! not: at the time of filing, every one of this crate's 35 environment
+//! `with_config` constructors — covering 34 distinct `*Config` types, since
+//! `LunarLanderDiscrete` and `LunarLanderContinuous` each have a `with_config`
+//! consuming the *same* `LunarLanderConfig` — and all 8 RL agent constructors
+//! already called `config.validate()?`. (The RL figure is the same 8/8 ADR 0055
+//! reports: `dqn`, `c51`, `qrdqn`, `ddpg`, `td3`, `sac`, `ppo`, `ppg`.) The real
 //! risk the issue was groping at is that **nothing pinned the convention** — a
 //! new environment whose `with_config` forgot `validate()?` would ship silently,
 //! and no test would fail.
+//!
+//! # The second failure mode: chokepoint present, predicate incomplete
+//!
+//! Issue #106 established that "forgot to call `validate()`" is not the only way
+//! the contract breaks, and empirically not the common one. The chokepoint can be
+//! present and running while its `validate()` is simply **incomplete** — the call
+//! returns `Ok(())` and the constructor then builds a broken (or panicking) env
+//! from a config the contract was supposed to have refused. Two measured examples
+//! from the pre-fix tree:
+//!
+//! - `EmptyEnv::with_config(EmptyConfig { size: 1, ..Default::default() }, false)`
+//!   panicked at `empty.rs:277` with a `usize` underflow — *after* its
+//!   `config.validate()` had returned `Ok(())`.
+//! - `UnlockPickupEnv::with_config(UnlockPickupConfig { size: 3, ..Default::default() }, false)`
+//!   returned `Ok`, having built a board whose cells were
+//!   `[Wall, Wall, Wall, Wall, Key(Yellow), Box(Purple), Wall, Wall, Wall]` — no
+//!   `Door` cell at all, the key having silently overwritten it.
+//!
+//! This file pins that mode too, and it is why the cases below assert a
+//! *specific* `field` and `ConstraintKind` per constraint rather than merely that
+//! some rejection happened: an incomplete predicate is invisible to any assertion
+//! that only asks whether `validate()` ran.
+//!
+//! None of this retracts the #326 refutation above — that analysis was
+//! substantially right, and the mechanism #326 named remains false. `pub` fields
+//! do not bypass anything, and `#[non_exhaustive]` would not have prevented
+//! either construction: both were **same-crate**, where the cross-crate
+//! restriction never applies, and more fundamentally the attribute restricts
+//! *construction syntax*, not *predicate completeness* — a `size = 1` arriving
+//! through a hand-written setter or builder hits the same incomplete `validate()`
+//! and panics identically.
 //!
 //! This file is that pin. For each environment config with a non-vacuous
 //! [`Validate`] impl, it hands a deliberately invalid config to the public
@@ -46,6 +81,31 @@
 //! parse failure, a physics-init failure, a different field's guard firing
 //! first), which is exactly the silent regression this file exists to catch.
 //! Assert the `field` and the `ConstraintKind`, or the test proves nothing.
+//!
+//! # Which `ConstraintKind` a size floor gets
+//!
+//! Several grid configs reject a `size` (or a room count) that is too small, and
+//! the *variant* they reject with is a deliberate distinction that these cases
+//! pin:
+//!
+//! - [`ConstraintKind::TooSmall`] — via `config::at_least` — is the variant for a
+//!   plain minimum-count floor. The nine `grids/` envs with a `MIN_SIZE`-style
+//!   constant use it, including the ones whose floor is a *policy* choice rather
+//!   than a hard geometric limit: measured on this checkout, `lava_gap` builds a
+//!   clean board at `4` (floor `5`), `crossing` at `5` (floor `7`),
+//!   `unlock_pickup` at `5` (floor `7`), `four_rooms` at `9` (floor `11`), and
+//!   `multi_room` at `height = 3` (floor `5`). A machine-readable
+//!   `TooSmall { min, got }` is the honest report for those — the caller can act
+//!   on the number.
+//! - [`ConstraintKind::Custom`] is reserved for a floor (or a shape) derived from
+//!   a non-obvious invariant, where the prose payload carries information the
+//!   `min` alone cannot: `memory.rs`'s Invariant M, `go_to_door.rs`'s
+//!   four-distinct-doors requirement, and `four_rooms`' odd-`size` parity rule.
+//!
+//! So do not "upgrade" a `TooSmall` case here to `assert_rejected_custom`: that
+//! is a strictly weaker assertion (it drops `min` and `got`) *and* it would
+//! contradict the convention. Conversely, do not fabricate a `Custom` expectation
+//! for one of the nine floors — none of them is geometry-derived.
 //!
 //! # Placement
 //!
@@ -320,7 +380,24 @@ fn test_empty_grid_with_config_rejects_zero_size() {
         EmptyEnv::with_config(cfg, false),
         "EmptyConfig",
         "size",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 4, got: 0 },
+    );
+}
+
+/// `EmptyConfig` floors `size` at `MIN_SIZE` (4). `3` is deliberately *not* `0`:
+/// a zero would also be caught by any generic `nonzero` guard, so only a
+/// non-zero sub-floor value proves the real floor is enforced.
+#[test]
+fn test_empty_grid_with_config_rejects_size_below_min() {
+    let cfg = EmptyConfig {
+        size: 3,
+        ..EmptyConfig::default()
+    };
+    assert_rejected(
+        EmptyEnv::with_config(cfg, false),
+        "EmptyConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 4, got: 3 },
     );
 }
 
@@ -348,15 +425,89 @@ fn test_multi_room_with_config_rejects_zero_num_rooms() {
         MultiRoomEnv::with_config(cfg, false),
         "MultiRoomConfig",
         "num_rooms",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 2, got: 0 },
     );
 }
 
-// The seven grid configs below share one `nonzero(size)` + `nonzero(max_steps)`
-// shape. The broken field is alternated on purpose: a `size` case only proves
-// the *first* guard runs, so half these tests instead zero `max_steps` (leaving
-// `size` valid) to prove the *second* guard is reached too. Do not normalize them
-// all onto the same field — that would halve what the block actually pins.
+// `MultiRoomConfig` is the only grid config with *three* independent floors —
+// `num_rooms` >= 2, `room_width` >= 3, `height` >= 5 — checked in that order.
+// Each gets its own sub-floor case, with the other two left at their defaults,
+// so a case cannot pass on the strength of an earlier guard firing.
+
+/// `num_rooms = 1` is the value that actually motivated the floor: it built a
+/// **single-room** env with no dividing wall and therefore no door to unlock.
+#[test]
+fn test_multi_room_with_config_rejects_num_rooms_below_min() {
+    let cfg = MultiRoomConfig {
+        num_rooms: 1,
+        ..MultiRoomConfig::default()
+    };
+    assert_rejected(
+        MultiRoomEnv::with_config(cfg, false),
+        "MultiRoomConfig",
+        "num_rooms",
+        &ConstraintKind::TooSmall { min: 2, got: 1 },
+    );
+}
+
+/// `room_width` floors at `MIN_ROOM_WIDTH` (3); `2` leaves each room a single
+/// interior column.
+#[test]
+fn test_multi_room_with_config_rejects_room_width_below_min() {
+    let cfg = MultiRoomConfig {
+        room_width: 2,
+        ..MultiRoomConfig::default()
+    };
+    assert_rejected(
+        MultiRoomEnv::with_config(cfg, false),
+        "MultiRoomConfig",
+        "room_width",
+        &ConstraintKind::TooSmall { min: 3, got: 2 },
+    );
+}
+
+/// `height` floors at `MIN_HEIGHT` (5). `4` is a *policy* rejection, not a
+/// geometric one — the board at `height = 3` still builds cleanly — which is
+/// exactly why the floor reports `TooSmall` and not `Custom`.
+#[test]
+fn test_multi_room_with_config_rejects_height_below_min() {
+    let cfg = MultiRoomConfig {
+        height: 4,
+        ..MultiRoomConfig::default()
+    };
+    assert_rejected(
+        MultiRoomEnv::with_config(cfg, false),
+        "MultiRoomConfig",
+        "height",
+        &ConstraintKind::TooSmall { min: 5, got: 4 },
+    );
+}
+
+// The seven grid configs below share one `at_least(size, MIN_SIZE)` +
+// `nonzero(max_steps)` shape, and the block pins it in three tiers:
+//
+//   1. `size = 0`      → `TooSmall { min: MIN_SIZE, got: 0 }`. Pins that the
+//      floor, not a leftover `nonzero`, is what rejects a zero. Before the fix
+//      these cases expected `Zero`, which is precisely the confusion the tier
+//      structure now rules out.
+//   2. `size = MIN - 1` → `TooSmall { min: MIN_SIZE, got: MIN - 1 }`. This is the
+//      tier that actually pins the defect. A `size = 0` case alone cannot
+//      distinguish a real floor from an incidental non-zero guard, because both
+//      reject `0`; only a non-zero sub-floor value can. Each `MIN_SIZE` differs
+//      per env (`empty` 4, `unlock` 4, `dynamic_obstacles` 5, `door_key` 5,
+//      `lava_gap` 5, `crossing` 7, `unlock_pickup` 7, `four_rooms` 11), so the
+//      expected `min` is per-env too — do not copy one env's number to another.
+//   3. `max_steps = 0` → `Zero`. `max_steps` has no floor above 1, so it keeps
+//      `nonzero`; it is the one field in these configs whose rejection is still
+//      `ConstraintKind::Zero`.
+//
+// The broken field stays alternated across the block, as it always was, but for
+// a restated reason: `size` is checked *before* `max_steps`, so a `size` case can
+// only ever prove the first guard runs. The envs that zero `max_steps` (leaving
+// `size` valid) are what prove the *second* guard is reached at all. Do not
+// normalize the block onto `size` — that would drop every proof that validation
+// continues past the first `?`. Every env is covered by tier 2; tiers 1 and 3 are
+// split across the block on purpose.
 
 #[test]
 fn test_crossing_with_config_rejects_zero_size() {
@@ -368,7 +519,26 @@ fn test_crossing_with_config_rejects_zero_size() {
         CrossingEnv::with_config(cfg, false),
         "CrossingConfig",
         "size",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 7, got: 0 },
+    );
+}
+
+/// Tier 2 for `crossing`: `MIN_SIZE` is `7`, and `6` is non-zero, so only the
+/// floor can reject it. Measured on this checkout, `size = 5` still builds a
+/// clean board — the floor is policy, which is why `TooSmall` (with its
+/// machine-readable `min`) is the right variant rather than a `Custom` prose
+/// claim about geometry.
+#[test]
+fn test_crossing_with_config_rejects_size_below_min() {
+    let cfg = CrossingConfig {
+        size: 6,
+        ..CrossingConfig::default()
+    };
+    assert_rejected(
+        CrossingEnv::with_config(cfg, false),
+        "CrossingConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 7, got: 6 },
     );
 }
 
@@ -386,6 +556,24 @@ fn test_door_key_with_config_rejects_zero_max_steps() {
     );
 }
 
+/// Tier 2 for `door_key`: `MIN_SIZE` is `5`, so `4` is the largest rejected
+/// `size`. Reported as `TooSmall`, unlike sibling `go_to_door`'s same-valued
+/// floor, which stays `Custom` because it encodes the four-distinct-doors
+/// invariant rather than a plain count.
+#[test]
+fn test_door_key_with_config_rejects_size_below_min() {
+    let cfg = DoorKeyConfig {
+        size: 4,
+        ..DoorKeyConfig::default()
+    };
+    assert_rejected(
+        DoorKeyEnv::with_config(cfg, false),
+        "DoorKeyConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 5, got: 4 },
+    );
+}
+
 #[test]
 fn test_dynamic_obstacles_with_config_rejects_zero_size() {
     let cfg = DynamicObstaclesConfig {
@@ -396,7 +584,23 @@ fn test_dynamic_obstacles_with_config_rejects_zero_size() {
         DynamicObstaclesEnv::with_config(cfg, false),
         "DynamicObstaclesConfig",
         "size",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 5, got: 0 },
+    );
+}
+
+/// Tier 2 for `dynamic_obstacles`: `MIN_SIZE` is `5`, so `4` is non-zero and
+/// still below the floor.
+#[test]
+fn test_dynamic_obstacles_with_config_rejects_size_below_min() {
+    let cfg = DynamicObstaclesConfig {
+        size: 4,
+        ..DynamicObstaclesConfig::default()
+    };
+    assert_rejected(
+        DynamicObstaclesEnv::with_config(cfg, false),
+        "DynamicObstaclesConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 5, got: 4 },
     );
 }
 
@@ -414,6 +618,53 @@ fn test_four_rooms_with_config_rejects_zero_max_steps() {
     );
 }
 
+/// Tier 2 for `four_rooms`: `MIN_SIZE` is `11`. `9` is chosen because it is
+/// **odd** — it therefore satisfies the parity guard, isolating the floor from
+/// it. (A board at `9` builds cleanly on this checkout; the floor is policy, so
+/// `TooSmall` is the honest variant.) The parity guard is exercised separately
+/// by `test_four_rooms_with_config_rejects_even_size` below.
+#[test]
+fn test_four_rooms_with_config_rejects_size_below_min() {
+    let cfg = FourRoomsConfig {
+        size: 9,
+        ..FourRoomsConfig::default()
+    };
+    assert_rejected(
+        FourRoomsEnv::with_config(cfg, false),
+        "FourRoomsConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 11, got: 9 },
+    );
+}
+
+/// `FourRoomsEnv` also requires an **odd** `size`, so the interior cross has a
+/// single centre row and column. `14` is even but comfortably above `MIN_SIZE`
+/// (11), which isolates the parity guard from the floor: the `at_least` check
+/// runs first, so any value that is *both* sub-floor and even would report
+/// `TooSmall` and prove nothing about parity.
+///
+/// `14` and not `12`, and the value must **not** be a multiple of 3: `12` is
+/// divisible by both 2 and 3, so mutating the guard's modulus
+/// (`size.is_multiple_of(2)` → `is_multiple_of(3)` in `four_rooms.rs`) left this
+/// case, and the entire suite, green. `14 % 3 == 2`, so the modulus is now pinned
+/// as well as the parity intent. Do not "simplify" this back to `12`.
+///
+/// This is the one `four_rooms` `size` case that is `Custom` rather than
+/// `TooSmall` — parity has no `min` to report, so the prose payload is the whole
+/// information content.
+#[test]
+fn test_four_rooms_with_config_rejects_even_size() {
+    let cfg = FourRoomsConfig {
+        size: 14,
+        ..FourRoomsConfig::default()
+    };
+    assert_rejected_custom(
+        FourRoomsEnv::with_config(cfg, false),
+        "FourRoomsConfig",
+        "size",
+    );
+}
+
 #[test]
 fn test_lava_gap_with_config_rejects_zero_size() {
     let cfg = LavaGapConfig {
@@ -424,7 +675,24 @@ fn test_lava_gap_with_config_rejects_zero_size() {
         LavaGapEnv::with_config(cfg, false),
         "LavaGapConfig",
         "size",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 5, got: 0 },
+    );
+}
+
+/// Tier 2 for `lava_gap`: `MIN_SIZE` is `5`. Measured on this checkout a board
+/// at `4` still builds cleanly, so this rejection is a policy floor — asserted
+/// as `TooSmall`, never as a `Custom` geometric claim.
+#[test]
+fn test_lava_gap_with_config_rejects_size_below_min() {
+    let cfg = LavaGapConfig {
+        size: 4,
+        ..LavaGapConfig::default()
+    };
+    assert_rejected(
+        LavaGapEnv::with_config(cfg, false),
+        "LavaGapConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 5, got: 4 },
     );
 }
 
@@ -438,7 +706,22 @@ fn test_unlock_with_config_rejects_zero_size() {
         UnlockEnv::with_config(cfg, false),
         "UnlockConfig",
         "size",
-        &ConstraintKind::Zero,
+        &ConstraintKind::TooSmall { min: 4, got: 0 },
+    );
+}
+
+/// Tier 2 for `unlock`: `MIN_SIZE` is `4`, so `3` is the largest rejected size.
+#[test]
+fn test_unlock_with_config_rejects_size_below_min() {
+    let cfg = UnlockConfig {
+        size: 3,
+        ..UnlockConfig::default()
+    };
+    assert_rejected(
+        UnlockEnv::with_config(cfg, false),
+        "UnlockConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 4, got: 3 },
     );
 }
 
@@ -453,6 +736,24 @@ fn test_unlock_pickup_with_config_rejects_zero_max_steps() {
         "UnlockPickupConfig",
         "max_steps",
         &ConstraintKind::Zero,
+    );
+}
+
+/// Tier 2 for `unlock_pickup`: `MIN_SIZE` is `7`, twice the sibling `unlock`
+/// floor (4) because this env must host a second room plus a box. `6` is
+/// non-zero, so only the floor can reject it. Measured on this checkout a board
+/// at `5` still builds cleanly — policy floor, hence `TooSmall`.
+#[test]
+fn test_unlock_pickup_with_config_rejects_size_below_min() {
+    let cfg = UnlockPickupConfig {
+        size: 6,
+        ..UnlockPickupConfig::default()
+    };
+    assert_rejected(
+        UnlockPickupEnv::with_config(cfg, false),
+        "UnlockPickupConfig",
+        "size",
+        &ConstraintKind::TooSmall { min: 7, got: 6 },
     );
 }
 

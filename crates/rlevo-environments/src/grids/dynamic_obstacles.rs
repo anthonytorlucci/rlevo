@@ -154,9 +154,26 @@ impl Default for DynamicObstaclesConfig {
 }
 
 impl Validate for DynamicObstaclesConfig {
+    /// Rejects any `size` below `MIN_SIZE` (5) and a zero `max_steps`.
+    ///
+    /// The `size` floor lives **here**, not only in [`FromStr`]:
+    /// `DynamicObstaclesConfig` derives `Deserialize`, so a config loaded from a
+    /// file is user-supplied runtime data that never passes through `from_str`
+    /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it must
+    /// be an `Err`"). Struct-update syntax on [`Default`] bypasses `from_str`
+    /// just as freely.
+    ///
+    /// [`config::at_least`] subsumes a `nonzero` check for `size`, so the zero
+    /// case reports [`TooSmall`](rlevo_core::config::ConstraintKind::TooSmall)
+    /// rather than [`Zero`](rlevo_core::config::ConstraintKind::Zero);
+    /// `max_steps` keeps `nonzero` because its only floor is 1.
+    ///
+    /// `num_obstacles` is deliberately unchecked here: `0` is a supported
+    /// configuration, and the cross-field ceiling relating it to `size` is
+    /// tracked separately.
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "DynamicObstaclesConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -165,6 +182,14 @@ impl Validate for DynamicObstaclesConfig {
 impl FromStr for DynamicObstaclesConfig {
     type Err = String;
 
+    /// Parses `"size=8,num_obstacles=4,max_steps=256,seed=0"` (keys in any
+    /// order) or the positional form `"8,4,256,0"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`DynamicObstaclesEnv::with_config`] applies, so this parser cannot
+    /// admit a config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -202,9 +227,8 @@ impl FromStr for DynamicObstaclesConfig {
                 }
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -253,8 +277,11 @@ impl DynamicObstaclesEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (5) — zero included — or a zero `max_steps`. This is the
+    /// construction chokepoint (rules.md §4), so it also rejects a config that
+    /// arrived by `Deserialize` or struct-update syntax without passing through
+    /// [`FromStr`].
     ///
     /// # Examples
     ///
@@ -567,6 +594,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     fn env_no_obstacles() -> DynamicObstaclesEnv {
@@ -586,6 +614,33 @@ mod tests {
             ..Default::default()
         };
         assert!(DynamicObstaclesEnv::with_config(bad, false).is_err());
+    }
+
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        // The floor must be enforced at the construction chokepoint, not only in
+        // `FromStr`. Before this guard, sizes 2 and 3 built a board on which
+        // *none* of the requested obstacles were placed, silently turning a
+        // stochastic env into a static one.
+        let bad = DynamicObstaclesConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = DynamicObstaclesEnv::with_config(bad, false)
+            .expect_err("a sub-MIN_SIZE grid must be refused at construction");
+        assert_eq!(
+            err.config, "DynamicObstaclesConfig",
+            "the config must be named"
+        );
+        assert_eq!(err.field, "size", "the offending field must be named");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            },
+            "the structured kind carries the bound; assert it, not the message"
+        );
     }
 
     #[test]

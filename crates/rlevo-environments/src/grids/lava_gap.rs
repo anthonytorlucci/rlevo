@@ -119,9 +119,24 @@ impl Default for LavaGapConfig {
 }
 
 impl Validate for LavaGapConfig {
+    /// Rejects any `size` below `MIN_SIZE` (5) and a zero `max_steps`.
+    ///
+    /// The `size` guard lives **here**, not only in [`FromStr`]:
+    /// `LavaGapConfig` derives `Deserialize`, so a config loaded from a file is
+    /// user-supplied runtime data that never passes through `from_str`
+    /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it
+    /// must be an `Err`"). At `size = 1` the layout builder's `size - 2` goal
+    /// placement underflows and panics; sizes between that and `MIN_SIZE` build
+    /// without panicking but are outside the supported range this env
+    /// documents, so the floor is enforced as policy rather than only as a
+    /// crash guard.
+    ///
+    /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
+    /// zero `size` is still rejected, now as
+    /// [`ConstraintKind::TooSmall`](rlevo_core::config::ConstraintKind::TooSmall).
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "LavaGapConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -130,6 +145,14 @@ impl Validate for LavaGapConfig {
 impl FromStr for LavaGapConfig {
     type Err = String;
 
+    /// Parses `"size=5,max_steps=100,seed=0"` (keys in any order) or the
+    /// positional form `"5,100,0"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`LavaGapEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -157,9 +180,8 @@ impl FromStr for LavaGapConfig {
                 }
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -218,8 +240,10 @@ impl LavaGapEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (5) or a zero `max_steps`. This is the construction chokepoint
+    /// (rules.md §4), so it also rejects a config that arrived by `Deserialize`
+    /// or struct-update syntax without passing through [`FromStr`].
     pub fn with_config(config: LavaGapConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -377,6 +401,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     fn env_5x5() -> LavaGapEnv {
@@ -414,6 +439,30 @@ mod tests {
     #[test]
     fn fromstr_rejects_small_size() {
         assert!("3".parse::<LavaGapConfig>().is_err());
+    }
+
+    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
+    /// built by `Deserialize` or struct-update syntax reached `build`, where
+    /// `size - 2` underflowed and panicked at `size = 1`. The guard now lives
+    /// in [`Validate`], which `with_config` runs (ADR 0026 chokepoint), and it
+    /// rejects the whole sub-`MIN_SIZE` range — including sizes that happen to
+    /// build a well-formed board.
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        let bad = LavaGapConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = LavaGapEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "LavaGapConfig");
+        assert_eq!(err.field, "size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            }
+        );
     }
 
     #[test]

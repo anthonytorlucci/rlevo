@@ -82,7 +82,8 @@ const MIN_SIZE: usize = 4;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmptyConfig {
-    /// Grid side length in cells (including perimeter walls).
+    /// Grid side length in cells (including perimeter walls); must be ≥
+    /// `MIN_SIZE` (4).
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,
@@ -125,9 +126,21 @@ impl Default for EmptyConfig {
 }
 
 impl Validate for EmptyConfig {
+    /// Rejects any `size` below `MIN_SIZE` (4) and a zero `max_steps`.
+    ///
+    /// The `size` guard lives **here**, not only in [`FromStr`]: `EmptyConfig`
+    /// derives `Deserialize`, so a config loaded from a file is user-supplied
+    /// runtime data that never passes through `from_str` (rules.md §4 — "if an
+    /// invalid value can arrive via `Deserialize`, it must be an `Err`").
+    /// The layout builder subtracts 2 from `size` to place the goal, which
+    /// underflows for `size < 2`.
+    ///
+    /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
+    /// zero `size` is still rejected, now as
+    /// [`ConstraintKind::TooSmall`](rlevo_core::config::ConstraintKind::TooSmall).
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "EmptyConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -139,8 +152,13 @@ impl FromStr for EmptyConfig {
     /// Parse a config from a comma-separated list.
     ///
     /// Accepts positional values (`"5"`, `"5,100"`, `"5,100,42"`) and
-    /// `key=value` pairs (`"size=5,max_steps=100,seed=42"`). Unknown keys
-    /// and sizes below the minimum produce an error.
+    /// `key=value` pairs (`"size=5,max_steps=100,seed=42"`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`EmptyEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (i, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -153,9 +171,8 @@ impl FromStr for EmptyConfig {
                 apply_positional(&mut cfg, i, raw)?;
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -225,8 +242,10 @@ impl EmptyEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (4) or a zero `max_steps`. This is the construction chokepoint
+    /// (rules.md §4), so it also rejects a config that arrived by `Deserialize`
+    /// or struct-update syntax without passing through [`FromStr`].
     ///
     /// # Examples
     ///
@@ -369,6 +388,7 @@ mod tests {
     use super::*;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     #[test]
@@ -418,8 +438,34 @@ mod tests {
 
     #[test]
     fn fromstr_rejects_small_size() {
+        // `from_str` delegates to `Validate`, so the text is the `ConfigError`
+        // rendering plus the parsed size. Substrings only: the structured
+        // assertion lives in `with_config_rejects_size_below_min`.
         let err = "2".parse::<EmptyConfig>().unwrap_err();
-        assert!(err.contains("size must be"));
+        assert!(err.contains("EmptyConfig.size"), "was {err}");
+        assert!(err.contains("at least 4"), "was {err}");
+    }
+
+    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
+    /// built by `Deserialize` or struct-update syntax reached `build`, where
+    /// `size - 2` underflowed and panicked. The guard now lives in
+    /// [`Validate`], which `with_config` runs (ADR 0026 chokepoint).
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        let bad = EmptyConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = EmptyEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "EmptyConfig");
+        assert_eq!(err.field, "size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            }
+        );
     }
 
     #[test]

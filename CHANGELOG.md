@@ -225,6 +225,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GoToDoorEnv` implements `Sensor` for its goal-conditioned observation.
   `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to `project()`.
   Behaviour (observations, rewards, termination) is unchanged.
+- **Nine grid environments now reject sub-minimum configs at construction**
+  (#106): `CrossingEnv`, `DoorKeyEnv`, `DynamicObstaclesEnv`, `EmptyEnv`,
+  `FourRoomsEnv`, `LavaGapEnv`, `MultiRoomEnv`, `UnlockEnv`, `UnlockPickupEnv`.
+  Each declared a minimum but enforced it only in `FromStr`, so `with_config` and
+  `ConstructableEnv::new` accepted values that `from_str` refused. Configs that
+  previously built — `EmptyConfig { size: 3, .. }`, `MultiRoomConfig { num_rooms:
+  1, .. }`, and every other sub-floor value — now return `Err(ConfigError)`.
+
+  *Migration.* Raise the offending field to the environment's documented minimum:
+  `Empty`/`Unlock` 4, `DoorKey`/`DynamicObstacles`/`LavaGap` 5,
+  `Crossing`/`UnlockPickup` 7, `FourRooms` 11 **and odd**, `MultiRoom`
+  `num_rooms ≥ 2`, `room_width ≥ 3`, `height ≥ 5`. Every `Default` config already
+  satisfies its floor, so `ConstructableEnv::new` is unaffected. No persisted data
+  is involved — `Deserialize` remains non-validating by design (ADR 0026 §2), and
+  the constructor is where the rejection now happens for a deserialized config too.
+- **`ConfigError::kind` for a zero-valued grid dimension changes from
+  `ConstraintKind::Zero` to `ConstraintKind::TooSmall { min, got }`** on the same
+  nine environments, because a single `config::at_least` guard replaces the
+  `config::nonzero` it subsumes. Code matching on `Zero` for these fields must
+  match `TooSmall` instead; the new variant carries strictly more information.
+  `max_steps` keeps `nonzero`/`Zero` throughout — it has no floor above 1.
+  `FromStr`'s `String` error text changes correspondingly, from
+  `"size must be >= 5, got 1"` to `ConfigError`'s `Display` form.
 
 **Added**
 
@@ -247,6 +270,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   asserted only `len() >= COMPONENTS` and so accepted (and truncated) a long
   slice. All five now `assert_eq!` and carry a matching `# Panics` line. No
   in-workspace caller passed a non-exact slice, so nothing else changes.
+- **Grid construction no longer panics or silently builds a corrupt board for an
+  undersized config** (#106). The nine environments above split their invariant
+  across two doors: `FromStr` checked the minimum, `Validate::validate` — the one
+  the ADR 0026 chokepoint actually calls — checked only `nonzero`. Anything
+  reaching `with_config` by struct literal, `..Default::default()`, or
+  `Deserialize` therefore skipped the guard entirely and ran `build()` on a size
+  the layout code cannot express. The failure was inconsistent, which is why it
+  survived: `EmptyEnv`/`LavaGapEnv` at `size = 1` panicked with a `usize`
+  underflow, `DoorKeyEnv`/`UnlockEnv`/`UnlockPickupEnv` panicked on an
+  out-of-bounds `Grid::set`, and the rest built quietly broken boards —
+  `UnlockPickupEnv` at `size = 3` produced a board with **no door at all** (the
+  key overwrote it), `FourRoomsEnv` at `size = 7` punched a hole through all four
+  perimeter walls, and `MultiRoomEnv` at `num_rooms = 1` returned a single-room
+  environment. The floors now live in `Validate`, so all four construction paths
+  share one guard, and `FourRoomsEnv` gained `const _` assertions pinning the
+  derivation of its bound at compile time.
+
+  The existing conformance test could not have caught this: every grid case in
+  `tests/config_validation_chokepoint.rs` used a **zero** value, which trips the
+  generic `nonzero` guard and so cannot distinguish a real minimum from an
+  incidental one. Each environment now also has a non-zero below-floor case,
+  which is the input that actually pins the constraint.
 
 ### `rlevo-reinforcement-learning`
 

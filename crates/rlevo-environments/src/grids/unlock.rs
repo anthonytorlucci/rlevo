@@ -78,7 +78,7 @@ const DOOR_COLOR: Color = Color::Yellow;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnlockConfig {
-    /// Side length of the room.
+    /// Side length of the room; must be ≥ `MIN_SIZE` (4).
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,
@@ -119,9 +119,23 @@ impl Default for UnlockConfig {
 }
 
 impl Validate for UnlockConfig {
+    /// Rejects any `size` below `MIN_SIZE` (4) and a zero `max_steps`.
+    ///
+    /// The `size` guard lives **here**, not only in [`FromStr`]: `UnlockConfig`
+    /// derives `Deserialize`, so a config loaded from a file is user-supplied
+    /// runtime data that never passes through `from_str` (rules.md §4 — "if an
+    /// invalid value can arrive via `Deserialize`, it must be an `Err`"). The
+    /// layout builder writes the door at `(1, 0)` and the key at `(2, 1)` from
+    /// fixed coordinates: below this floor those land out of bounds (`size <= 2`,
+    /// a panic in `Grid::set`) or inside the perimeter wall (`size == 3`, an
+    /// unsolvable board).
+    ///
+    /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
+    /// zero `size` is still rejected, now as
+    /// [`ConstraintKind::TooSmall`](rlevo_core::config::ConstraintKind::TooSmall).
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "UnlockConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -130,6 +144,14 @@ impl Validate for UnlockConfig {
 impl FromStr for UnlockConfig {
     type Err = String;
 
+    /// Parses `"size=5,max_steps=200,seed=0"` (keys in any order) or the
+    /// positional form `"5,200,0"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`UnlockEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -157,9 +179,8 @@ impl FromStr for UnlockConfig {
                 }
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -221,8 +242,10 @@ impl UnlockEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (4) or a zero `max_steps`. This is the construction chokepoint
+    /// (rules.md §4), so it also rejects a config that arrived by `Deserialize`
+    /// or struct-update syntax without passing through [`FromStr`].
     pub fn with_config(config: UnlockConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -361,6 +384,7 @@ impl rlevo_core::render::payload::GridPayloadSource for UnlockEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     fn test_env() -> UnlockEnv {
@@ -399,6 +423,30 @@ mod tests {
     #[test]
     fn fromstr_rejects_small_size() {
         assert!("2".parse::<UnlockConfig>().is_err());
+    }
+
+    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
+    /// built by `Deserialize` or struct-update syntax reached `build`, which
+    /// panicked in `Grid::set` placing the door at `(1, 0)` (`size = 1`) or the
+    /// key at `(2, 1)` (`size = 2`), and silently produced an unsolvable board
+    /// at `size = 3`. The guard now lives in [`Validate`], which `with_config`
+    /// runs (ADR 0026 chokepoint).
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        let bad = UnlockConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = UnlockEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "UnlockConfig");
+        assert_eq!(err.field, "size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            }
+        );
     }
 
     #[test]
