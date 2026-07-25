@@ -388,6 +388,38 @@ mod tests {
         assert_eq!(err.field, "policy_noise");
     }
 
+    /// The real-config-layer guard for ADR 0060's value-vs-bound distinction,
+    /// at an actual `in_range(C, .., 0.0, f64::INFINITY, ..)` call site.
+    /// `rlevo-core`'s own test exercises the helper with literal arguments;
+    /// this one exercises the idiom where a regression would actually bite —
+    /// `noise_clip` spelled "non-negative, unbounded above".
+    ///
+    /// Both halves are load-bearing. The failing half pins that an infinite
+    /// config *value* is now rejected, and as `NotFinite` rather than
+    /// `OutOfRange` — under `hi = ∞` a comparison-only check would *accept*
+    /// it. The passing half pins that the *bound* stays legal: a future change
+    /// that "simplifies" `in_range` to reject infinite bounds too would break
+    /// it, which is the whole point of the test.
+    #[test]
+    fn noise_clip_accepts_large_finite_but_rejects_infinity() {
+        let cfg = Td3TrainingConfigBuilder::new()
+            .noise_clip(1e30)
+            .build()
+            .expect("a finite value under the f64::INFINITY upper bound must still pass");
+        assert!(cfg.noise_clip.is_finite());
+
+        let err = Td3TrainingConfigBuilder::new()
+            .noise_clip(f32::INFINITY)
+            .build()
+            .unwrap_err();
+        assert_eq!(err.field, "noise_clip");
+        assert_eq!(
+            err.kind,
+            config::ConstraintKind::NotFinite { got: f64::INFINITY },
+            "an infinite config value is a finiteness failure, not an out-of-range one"
+        );
+    }
+
     /// The frozen-target state is not *rejected* by `validate` here — it is
     /// unrepresentable, so the assertion belongs at the constructor (ADR 0058
     /// §Consequences). Pinned per family rather than only in `target.rs`,

@@ -409,7 +409,13 @@ algorithm will drive your environment correctly:
   a confusing panic mid-episode. A config that derives `Deserialize` is
   user-supplied runtime data, so this must be a `Result`, never a panic (ADR 0026).
   Back it with a `assert!(KArmedBanditConfig::default().validate().is_ok())` unit
-  test — that is what lets `ConstructableEnv::new` stay infallible.
+  test — that is what lets `ConstructableEnv::new` stay infallible. One invariant
+  the `config` helpers check for you: every hyperparameter **value** must be
+  finite — `NaN` and `±∞` are rejected as
+  [`ConstraintKind::NotFinite`](https://docs.rs/rlevo-core/latest/rlevo_core/config/enum.ConstraintKind.html),
+  so a physics constant like `dt` or `force_mag` cannot silently arrive as
+  infinity. An unbounded-above field is still legal — that's a **bound**, not a
+  value — and is spelled `config::in_range(C, "field", 0.0, f64::INFINITY, x)`.
 - **Determinism is seedable.** Thread all randomness through a seed you store, so
   `(config, action sequence)` reproduces the trajectory — the bandit re-draws its
   arm means from `config.seed` on every `reset`. This is what makes RL results

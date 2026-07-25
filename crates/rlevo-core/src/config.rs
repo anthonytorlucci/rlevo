@@ -23,6 +23,23 @@
 //! the infallible `Default` / `ConstructableEnv::new` paths keep returning
 //! `Self`.
 //!
+//! ## A config *value* must be finite; a config *bound* may be `±∞`
+//!
+//! Every float the helpers below check as a **value** — `positive`'s `got`,
+//! `in_range`'s `got`, `ordered`'s `(low, high)`, `distinct`'s `(a, b)` — is a
+//! config's own field, and a field is never legitimately `NaN` or `±∞`. Those
+//! are rejected as [`ConstraintKind::NotFinite`], and the finiteness check runs
+//! *first*, so `NotFinite` wins over `NotPositive` / `OutOfRange` /
+//! `NotOrdered` / `DegenerateInterval`. A non-finite value is a
+//! wrong-kind-of-number problem, and naming it as one is a better diagnosis
+//! than reporting the downstream comparison it also happens to fail.
+//!
+//! The **bounds** of [`in_range`] are the opposite case: `lo` and `hi` are the
+//! *schema*, not the data, and `hi = f64::INFINITY` is the intended spelling of
+//! "unbounded above". `in_range(C, f, 0.0, f64::INFINITY, x)` therefore means
+//! "`x` must be finite and non-negative" and is accepted. `lo`/`hi` are not
+//! checked for finiteness, deliberately.
+//!
 //! # Panic vs. `Result` (rules.md §4 / ADR 0026)
 //!
 //! Validating an **assembled config as a whole** returns `Result` — never a
@@ -189,8 +206,26 @@ pub struct ConfigError {
 /// Structured rather than string-based (per `rules.md` §4). The `Custom`
 /// variant carries a `&'static str`, never an owned `String`, so
 /// [`ConfigError`] allocates nothing.
+///
+/// `#[non_exhaustive]`: a new violation kind (as [`NotFinite`] itself was) must
+/// not break a downstream `match`. Match with a trailing `_` arm.
+///
+/// [`NotFinite`]: ConstraintKind::NotFinite
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConstraintKind {
+    /// Value must be finite: `NaN` and `±∞` are never valid config *values*.
+    ///
+    /// Checked before every other float constraint, so a non-finite value is
+    /// reported as what it is rather than as the range / ordering / positivity
+    /// comparison it also fails.
+    ///
+    /// A *bound* may still be infinite — see [`in_range`]'s `lo`/`hi`.
+    #[error("value {got} must be finite")]
+    NotFinite {
+        /// The offending value.
+        got: f64,
+    },
     /// Value must lie in the closed interval `[lo, hi]`.
     #[error("value {got} is out of range [{lo}, {hi}]")]
     OutOfRange {
@@ -237,13 +272,25 @@ pub enum ConstraintKind {
     Custom(&'static str),
 }
 
-/// Rejects a value that is not strictly positive (`got > 0`).
+/// Rejects a value that is not finite, or not strictly positive (`got > 0`).
+///
+/// `+∞` is *not* a positive config value: `f64::INFINITY > 0.0` is true, but a
+/// hyperparameter of `+∞` is a mistake, not an intent. It is rejected as
+/// [`ConstraintKind::NotFinite`], as is `−∞` and `NaN`.
 ///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotPositive`] when `got <= 0` (or is `NaN`).
+/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `±∞` — that
+/// check runs first — and [`ConstraintKind::NotPositive`] when `got` is finite
+/// but `<= 0`.
 pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(), ConfigError> {
-    if got > 0.0 {
+    if !got.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got },
+        })
+    } else if got > 0.0 {
         Ok(())
     } else {
         Err(ConfigError {
@@ -256,10 +303,26 @@ pub fn positive(config: &'static str, field: &'static str, got: f64) -> Result<(
 
 /// Rejects a value outside the closed interval `[lo, hi]`.
 ///
+/// # The value must be finite; the bounds need not be
+///
+/// `got` is a config's own field, so `NaN` and `±∞` are rejected outright as
+/// [`ConstraintKind::NotFinite`] rather than as an out-of-range comparison.
+/// `lo` and `hi` are the *schema* and are deliberately **not** checked:
+/// `hi = f64::INFINITY` is the intended spelling of "unbounded above", so
+///
+/// ```
+/// # use rlevo_core::config;
+/// assert!(config::in_range("C", "x", 0.0, f64::INFINITY, 3.0).is_ok());
+/// assert!(config::in_range("C", "x", 0.0, f64::INFINITY, f64::INFINITY).is_err());
+/// ```
+///
+/// is the blessed way to say "non-negative, unbounded above".
+///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::OutOfRange`] when `got < lo`, `got > hi`, or `got`
-/// is `NaN`.
+/// Returns [`ConstraintKind::NotFinite`] when `got` is `NaN` or `±∞` — that
+/// check runs first — and [`ConstraintKind::OutOfRange`] when `got` is finite
+/// but `< lo` or `> hi`.
 pub fn in_range(
     config: &'static str,
     field: &'static str,
@@ -267,7 +330,13 @@ pub fn in_range(
     hi: f64,
     got: f64,
 ) -> Result<(), ConfigError> {
-    if got >= lo && got <= hi {
+    if !got.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got },
+        })
+    } else if got >= lo && got <= hi {
         Ok(())
     } else {
         Err(ConfigError {
@@ -280,17 +349,37 @@ pub fn in_range(
 
 /// Rejects a `(low, high)` pair that is not strictly ordered (`low < high`).
 ///
+/// Both endpoints are config *values* here — not bounds — so both must be
+/// finite. `ordered(C, f, -∞, ∞)` is rejected, unlike [`in_range`]'s `lo`/`hi`.
+///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::NotOrdered`] when `low >= high` (or either is
-/// `NaN`).
+/// Returns [`ConstraintKind::NotFinite`] when either endpoint is `NaN` or `±∞`
+/// (`low` is checked first), and [`ConstraintKind::NotOrdered`] when both are
+/// finite but `low >= high`.
+///
+/// Note the pre-existing limitation that this helper names a **single** field
+/// for a two-value check, so the returned `NotFinite` cannot say *which*
+/// endpoint by field name; its `got` payload carries the offending value.
 pub fn ordered(
     config: &'static str,
     field: &'static str,
     low: f64,
     high: f64,
 ) -> Result<(), ConfigError> {
-    if low < high {
+    if !low.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got: low },
+        })
+    } else if !high.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got: high },
+        })
+    } else if low < high {
         Ok(())
     } else {
         Err(ConfigError {
@@ -303,16 +392,49 @@ pub fn ordered(
 
 /// Rejects two values that must differ but are equal.
 ///
+/// Both are config *values*, so both must be finite. Without that guard
+/// `distinct(C, f, f64::NAN, 1.0)` rejected — correctly — but reported
+/// `DegenerateInterval`, which is a *wrong diagnosis*: it claims two values
+/// that plainly differ are equal.
+///
+/// `-0.0` and `0.0` are equal under IEEE-754 and so are **not** distinct:
+/// `distinct(C, f, -0.0, 0.0)` is rejected as `DegenerateInterval`, not as
+/// `NotFinite` — both are ordinary finite values. As with any degenerate pair,
+/// the reported `value` is `a` alone, so the error names only one of the two.
+///
 /// # Errors
 ///
-/// Returns [`ConstraintKind::DegenerateInterval`] when `a == b`.
+/// Returns [`ConstraintKind::NotFinite`] when either value is `NaN` or `±∞`
+/// (`a` is checked first), and [`ConstraintKind::DegenerateInterval`] when both
+/// are finite but equal.
+///
+/// As with [`ordered`], one field name covers a two-value check, so
+/// `NotFinite`'s `got` payload — not the field — identifies the offender.
 pub fn distinct(
     config: &'static str,
     field: &'static str,
     a: f64,
     b: f64,
 ) -> Result<(), ConfigError> {
-    if (a - b).abs() > 0.0 {
+    if !a.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got: a },
+        })
+    } else if !b.is_finite() {
+        Err(ConfigError {
+            config,
+            field,
+            kind: ConstraintKind::NotFinite { got: b },
+        })
+    // `(a - b).abs() > 0.0`, not `a != b`: the workspace warns on every clippy
+    // category and `clippy::float_cmp` would fire on the latter. The two agree
+    // exactly once both operands are known finite — for finite IEEE-754 inputs
+    // `a - b` is nonzero iff `a != b`, gradual underflow included — so the
+    // guards above make this spelling correct rather than merely accidental.
+    // Do not "simplify" it back into a lint.
+    } else if (a - b).abs() > 0.0 {
         Ok(())
     } else {
         Err(ConfigError {
@@ -383,9 +505,39 @@ mod tests {
         assert!(positive(C, "dt", -1.0).is_err());
     }
 
+    /// The headline case of issue #353: `f64::INFINITY > 0.0` is `true`, so
+    /// `positive` used to hand `+∞` back as a perfectly good hyperparameter at
+    /// every one of its call sites. A config *value* is never legitimately
+    /// infinite, so both infinities are now `NotFinite` — and the carried `got`
+    /// is the offending value verbatim, so the message names what arrived.
     #[test]
-    fn positive_rejects_nan() {
-        assert!(positive(C, "dt", f64::NAN).is_err());
+    fn positive_rejects_infinity() {
+        for got in [f64::INFINITY, f64::NEG_INFINITY] {
+            let err = positive(C, "dt", got).unwrap_err();
+            assert_eq!(err.config, C);
+            assert_eq!(err.field, "dt");
+            assert_eq!(
+                err.kind,
+                ConstraintKind::NotFinite { got },
+                "{got} must be rejected as NotFinite, carrying the value verbatim"
+            );
+        }
+    }
+
+    /// `NaN` fails `got > 0.0` too, so it was already rejected — but as
+    /// `NotPositive`, which reads as a claim about sign that `NaN` does not
+    /// have. Pin the kind, not merely `is_err()`.
+    #[test]
+    fn positive_rejects_nan_as_not_finite() {
+        let err = positive(C, "dt", f64::NAN).unwrap_err();
+        assert_eq!(err.field, "dt");
+        match err.kind {
+            ConstraintKind::NotFinite { got } => assert!(
+                got.is_nan(),
+                "NotFinite must carry the offending NaN verbatim, got {got}"
+            ),
+            other => panic!("NaN must be rejected as NotFinite, got {other:?}"),
+        }
     }
 
     #[test]
@@ -405,41 +557,66 @@ mod tests {
         assert!(in_range(C, "gamma", 0.0, 1.0, f64::NAN).is_err());
     }
 
-    /// `NaN` compares false against *both* bounds, so `got >= lo && got <= hi`
-    /// is false and `NaN` lands in the `Err` branch — the behaviour promised by
-    /// `in_range`'s rustdoc. This test pins the **kind**, not merely `is_err()`:
-    /// a refactor to the superficially equivalent `!(got < lo || got > hi)`
-    /// would start silently *accepting* `NaN`, and only a kind-level assertion
-    /// distinguishes "rejected as out of range" from "rejected for some other
-    /// reason".
+    /// `NaN` is now caught by the explicit `!got.is_finite()` guard rather than
+    /// by falling out of `got >= lo && got <= hi`, so the reported kind is
+    /// `NotFinite`. This test still pins the **kind**, not merely `is_err()`,
+    /// and for the same paranoid reason as before: the finiteness guard is one
+    /// line that a refactor can drop, and if it goes, `NaN` falls back onto the
+    /// comparison chain — where the superficially equivalent
+    /// `!(got < lo || got > hi)` would silently start *accepting* it. Only a
+    /// kind-level assertion distinguishes "rejected as non-finite" from
+    /// "rejected for some other reason", and therefore notices the day the
+    /// guard is gone.
     #[test]
-    fn in_range_rejects_nan_as_out_of_range() {
+    fn in_range_rejects_nan_as_not_finite() {
         let err = in_range(C, "tau", 0.0, 1.0, f64::NAN).unwrap_err();
         assert_eq!(err.config, C, "NaN rejection must name the config");
         assert_eq!(err.field, "tau", "NaN rejection must name the field");
         match err.kind {
-            ConstraintKind::OutOfRange { got, .. } => assert!(
+            ConstraintKind::NotFinite { got } => assert!(
                 got.is_nan(),
-                "OutOfRange must carry the offending NaN verbatim, got {got}"
+                "NotFinite must carry the offending NaN verbatim, got {got}"
             ),
-            other => panic!("NaN must be rejected as OutOfRange, got {other:?}"),
+            other => panic!("NaN must be rejected as NotFinite, got {other:?}"),
         }
     }
 
-    /// Both infinities sit outside every finite `[lo, hi]`; each is an
-    /// otherwise-untested branch of the same comparison chain that handles NaN.
+    /// The other half of the finiteness guard. `−∞` would also fall out of a
+    /// finite `[lo, hi]` on comparison alone, but `+∞` would *not* if the upper
+    /// bound were `f64::INFINITY` — which is exactly the idiom at 37 call
+    /// sites. So the kind assertion here is load-bearing: it pins that an
+    /// infinite **value** is rejected by the guard, independently of whatever
+    /// the bounds happen to be.
     #[test]
-    fn in_range_rejects_infinities() {
+    fn in_range_rejects_infinities_as_not_finite() {
         for got in [f64::INFINITY, f64::NEG_INFINITY] {
-            let err = in_range(C, "tau", 0.0, 1.0, got).unwrap_err();
-            match err.kind {
-                ConstraintKind::OutOfRange { got: reported, .. } => assert!(
-                    reported.is_infinite(),
-                    "OutOfRange must carry the offending infinity verbatim, got {reported}"
-                ),
-                other => panic!("{got} must be rejected as OutOfRange, got {other:?}"),
+            for (lo, hi) in [(0.0, 1.0), (0.0, f64::INFINITY)] {
+                let err = in_range(C, "tau", lo, hi, got).unwrap_err();
+                assert_eq!(
+                    err.kind,
+                    ConstraintKind::NotFinite { got },
+                    "{got} in [{lo}, {hi}] must be rejected as NotFinite, carrying \
+                     the value verbatim"
+                );
             }
         }
+    }
+
+    /// The regression guard for every `in_range(.., f64::INFINITY, ..)` call
+    /// site in the workspace (37 of them). Issue #353 tightened the rule on
+    /// config *values*; it must not have touched the rule on config *bounds*,
+    /// where `hi = f64::INFINITY` is the intended spelling of "unbounded
+    /// above". If this test ever fails, the finiteness guard has leaked from
+    /// `got` onto `lo`/`hi` and a third of the workspace's configs reject their
+    /// own defaults.
+    #[test]
+    fn in_range_accepts_finite_value_with_infinite_upper_bound() {
+        assert!(in_range(C, "x", 0.0, f64::INFINITY, 3.0).is_ok());
+        assert!(in_range(C, "x", 0.0, f64::INFINITY, 0.0).is_ok());
+        assert!(in_range(C, "x", 0.0, f64::INFINITY, f64::MAX).is_ok());
+        assert!(in_range(C, "x", f64::NEG_INFINITY, f64::INFINITY, -1e300).is_ok());
+        // The bound stays a bound: a finite value below it is still rejected.
+        assert!(in_range(C, "x", 0.0, f64::INFINITY, -1.0).is_err());
     }
 
     #[test]
@@ -456,11 +633,90 @@ mod tests {
         );
     }
 
+    /// Both endpoints are config *values*, not bounds, so `ordered` refuses an
+    /// infinite one — including `(−∞, ∞)`, which satisfies `low < high` and was
+    /// therefore accepted outright. `(∞, ∞)` previously reported `NotOrdered`,
+    /// a true-but-secondary diagnosis; it is a finiteness failure first.
+    #[test]
+    fn ordered_rejects_infinite_endpoints() {
+        for (low, high) in [
+            (f64::NEG_INFINITY, f64::INFINITY),
+            (1.0, f64::INFINITY),
+            (f64::NEG_INFINITY, 1.0),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            let err = ordered(C, "clip", low, high).unwrap_err();
+            assert_eq!(err.field, "clip");
+            // `low` is checked first, so it is the reported offender whenever
+            // it is itself non-finite.
+            let expected = if low.is_finite() { high } else { low };
+            assert_eq!(
+                err.kind,
+                ConstraintKind::NotFinite { got: expected },
+                "({low}, {high}) must be rejected as NotFinite, not NotOrdered"
+            );
+        }
+    }
+
     #[test]
     fn distinct_rejects_equal() {
         assert!(distinct(C, "v_max", -10.0, 10.0).is_ok());
         let err = distinct(C, "v_max", 5.0, 5.0).unwrap_err();
         assert_eq!(err.kind, ConstraintKind::DegenerateInterval { value: 5.0 });
+    }
+
+    /// Closes the wrong-diagnosis bug: `distinct(NaN, 1.0)` rejected, but as
+    /// `DegenerateInterval` — an error message asserting that two plainly
+    /// different values are equal. `(∞, ∞)` is the converse trap: genuinely
+    /// equal, but the actionable complaint is the infinity, not the degeneracy.
+    /// None of these may report `DegenerateInterval`.
+    #[test]
+    fn distinct_rejects_non_finite() {
+        for (a, b) in [
+            (f64::NAN, 1.0),
+            (1.0, f64::NAN),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            let err = distinct(C, "v_max", a, b).unwrap_err();
+            assert_eq!(err.field, "v_max");
+            // `a` is checked first, so it is the reported offender unless it is
+            // itself finite.
+            let expected = if a.is_finite() { b } else { a };
+            match err.kind {
+                ConstraintKind::NotFinite { got } => assert!(
+                    got.to_bits() == expected.to_bits() || (got.is_nan() && expected.is_nan()),
+                    "NotFinite must carry the offending value verbatim: \
+                     ({a}, {b}) reported {got}, expected {expected}"
+                ),
+                other => panic!("({a}, {b}) must be rejected as NotFinite, got {other:?}"),
+            }
+        }
+    }
+
+    /// The boundary marker for the finiteness guard. `-0.0` is the one input
+    /// that *looks* non-finite-adjacent — a signed zero, the neighbour of every
+    /// underflow — but is an ordinary finite value and must still take the old
+    /// path. IEEE-754 has `-0.0 == 0.0`, so the pair is degenerate, and the
+    /// asserted kind is load-bearing: `DegenerateInterval`, never `NotFinite`.
+    /// It also pins that only one of the two values is reported, `a` verbatim.
+    #[test]
+    fn distinct_treats_signed_zeros_as_equal() {
+        for (a, b) in [(-0.0_f64, 0.0_f64), (0.0, -0.0), (-0.0, -0.0)] {
+            let err = distinct(C, "v_max", a, b).unwrap_err();
+            assert_eq!(err.field, "v_max");
+            match err.kind {
+                ConstraintKind::DegenerateInterval { value } => assert_eq!(
+                    value.to_bits(),
+                    a.to_bits(),
+                    "DegenerateInterval must report `a` verbatim, sign of zero \
+                     included: ({a}, {b}) reported {value}"
+                ),
+                other => panic!(
+                    "({a}, {b}) are equal finite values and must be rejected as \
+                     DegenerateInterval, got {other:?}"
+                ),
+            }
+        }
     }
 
     #[test]

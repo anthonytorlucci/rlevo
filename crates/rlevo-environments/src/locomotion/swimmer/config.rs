@@ -173,4 +173,41 @@ mod tests {
         };
         assert_eq!(bad.validate().unwrap_err().field, "segment_mass");
     }
+
+    /// The real-config-layer guard for ADR 0060's value-vs-bound distinction,
+    /// at an actual `in_range(C, .., 0.0, f64::INFINITY, ..)` call site.
+    /// `rlevo-core`'s own test exercises the helper with literal arguments;
+    /// this one exercises the idiom where a regression would actually bite —
+    /// `ctrl_cost_weight` spelled "non-negative, unbounded above".
+    ///
+    /// Both halves are load-bearing. The passing half is the "we tightened the
+    /// rule on config *values* without breaking the unbounded-above idiom"
+    /// direction: a future change that "simplifies" `in_range` to reject
+    /// infinite *bounds* too would break it, which is the whole point of the
+    /// test. The failing half pins that an infinite *value* is rejected as
+    /// `NotFinite` rather than `OutOfRange` — under `hi = ∞` a comparison-only
+    /// check would *accept* it.
+    #[test]
+    fn ctrl_cost_weight_accepts_large_finite_but_rejects_infinity() {
+        let big = SwimmerConfig {
+            ctrl_cost_weight: 1e30,
+            ..Default::default()
+        };
+        assert!(
+            big.validate().is_ok(),
+            "a finite value under the f64::INFINITY upper bound must still pass"
+        );
+
+        let infinite = SwimmerConfig {
+            ctrl_cost_weight: f32::INFINITY,
+            ..Default::default()
+        };
+        let err = infinite.validate().unwrap_err();
+        assert_eq!(err.field, "ctrl_cost_weight");
+        assert_eq!(
+            err.kind,
+            config::ConstraintKind::NotFinite { got: f64::INFINITY },
+            "an infinite config value is a finiteness failure, not an out-of-range one"
+        );
+    }
 }

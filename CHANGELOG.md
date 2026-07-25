@@ -132,6 +132,59 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   static methods with no `self` and cannot reach instance state. `from_slice`'s
   docs (and the matching row in `docs/rules.md`) said the slice must have exactly
   `RANK` elements; the contract has been `COMPONENTS` since ADR 0038.
+- **`config::positive` and `config::in_range` reject a non-finite value; the
+  paired-value checks `config::ordered` and `config::distinct` now require
+  *both* arguments finite** (ADR 0060, resolves #353). The rule is now
+  explicit and enforced in one place: a config **value** must be finite, a
+  config **bound** may be `±∞`. `positive(f64::INFINITY)` returned `Ok`
+  — `f64::INFINITY > 0.0` is true — and the same comparison-vs-usable-number
+  gap ran through the sibling predicates, across call sites spanning learning
+  rates, physics constants, and evolution parameters. A new
+  `ConstraintKind::NotFinite { got: f64 }` is checked *before* every other
+  float constraint, and `ConstraintKind` is now `#[non_exhaustive]`. No call
+  site changed — the fix sits entirely inside the four predicates.
+  `in_range(C, f, 0.0, f64::INFINITY, x)` is unaffected and remains the
+  blessed spelling of "non-negative, unbounded above": `hi = ∞` is a bound,
+  not a value.
+
+  This is a **breaking**, not a bugfix-only, change because a downstream
+  `Validate` impl inherits the stricter behaviour with no source change of its
+  own. It breaks in four distinct ways:
+
+  1. **Previously-accepted configs are now rejected.** `positive(+∞)`:
+     `Ok` → `Err(NotFinite)`. `in_range(lo, ∞, ∞)`: `Ok` → `Err(NotFinite)`
+     for any `lo`. `ordered(-∞, ∞)`, `ordered(x, ∞)`, `ordered(-∞, x)`:
+     `Ok` → `Err(NotFinite)`.
+  2. **The error *kind* changes for inputs that already failed** —
+     source-compatible, but assertion-breaking. `positive(NaN)` /
+     `positive(-∞)`: `NotPositive` → `NotFinite`. `in_range(0, 1, ±∞)` and
+     `in_range(.., NaN)`: `OutOfRange` → `NotFinite`. `distinct(NaN, x)` and
+     `distinct(∞, ∞)`: `DegenerateInterval` → `NotFinite`. `ordered(∞, ∞)`:
+     `NotOrdered` → `NotFinite`.
+  3. **Type-level.** The new `ConstraintKind::NotFinite { got: f64 }` variant
+     and the enum's new `#[non_exhaustive]` both break a downstream `match`
+     with no trailing wildcard arm. Variant *construction*, including
+     `Custom`, is unaffected.
+  4. **`Display` text changes** for every input in (1) and (2), which breaks
+     any downstream code string-matching on error messages.
+
+  *Migration.* If you genuinely wanted an unbounded **value** rather than a
+  bound, spell it with `f32::MAX` / `f64::MAX` instead of infinity — the two
+  in-workspace parameters where `+∞` was a meaningful sentinel, TD3's
+  `noise_clip` and CMSA-ES's `tau_c`, both mean "effectively
+  unclipped/frozen", and `f32::MAX` expresses that exactly, since
+  `clip(x, −f32::MAX, f32::MAX) ≡ x` for any finite `x`. **No persisted-data
+  format changed, and no call site in the workspace needed editing.**
+
+  *Why the existing tests missed it.* `positive` had a `positive_rejects_nan`
+  test but no infinity test in either direction. `NaN` is rejected by
+  `got > 0.0` for free — `NaN` compares false against everything — so that
+  test passed without the predicate ever having a finiteness concept.
+  Infinity is the one input where "greater than zero" and "usable as a
+  number" diverge, and nothing exercised it. Separately, `qrdqn_config.rs`
+  had already hand-rolled its own `is_finite()` guard on κ (see #345, below)
+  — a call site working around the missing shared-layer rule rather than
+  reporting it.
 
 **Added**
 

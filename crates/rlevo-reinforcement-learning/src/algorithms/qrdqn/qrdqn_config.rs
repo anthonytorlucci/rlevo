@@ -98,11 +98,13 @@ pub struct QrDqnTrainingConfig {
     /// Huber threshold `κ` used by the quantile Huber loss. Values below
     /// `κ` are treated quadratically, above `κ` linearly. Default `1.0`.
     ///
-    /// # Valid domain: strictly positive, with `0.5 · κ²` finite in `f32`
+    /// # Valid domain: finite, strictly positive, with `0.5 · κ²` finite in `f32`
     ///
-    /// [`validate`](Validate::validate) rejects `κ ≤ 0`, `NaN`, and every κ
-    /// large enough that `0.5 · κ²` overflows `f32` — the last accepted value
-    /// is `≈ 2.6087635e19` (`√(2 · f32::MAX)`), which also excludes `+∞`.
+    /// [`validate`](Validate::validate) rejects `κ ≤ 0`; every non-finite κ
+    /// (`NaN` and `±∞` alike, as
+    /// [`ConstraintKind::NotFinite`](rlevo_core::config::ConstraintKind::NotFinite));
+    /// and every *finite* κ large enough that `0.5 · κ²` overflows `f32` — the
+    /// last accepted value is `≈ 2.6087635e19` (`√(2 · f32::MAX)`).
     ///
     /// Two independent `NaN` sources motivate the bounds. Dabney et al. (2018)
     /// Eq. (10) is `ρ^κ_τ(u) = |τ − 𝟙{u<0}| · L_κ(u) / κ`, so κ is a
@@ -245,8 +247,10 @@ impl Validate for QrDqnTrainingConfig {
         config::nonzero(C, "num_quantiles", self.num_quantiles)?;
         // κ is the *divisor* of Dabney et al. (2018) Eq. (10), so the whole
         // open interval is required — not the closed `[0, ∞]` an `in_range`
-        // would accept. κ = 0 makes the loss evaluate `0/0` → NaN. This half
-        // also catches NaN and −∞.
+        // would accept. κ = 0 makes the loss evaluate `0/0` → NaN, reported as
+        // `NotPositive`. This half also catches every non-finite κ — `NaN`,
+        // `−∞`, and `+∞` alike — which `config::positive` reports as
+        // `NotFinite` (issue #353), a distinct kind from κ = 0's.
         config::positive(C, "kappa", f64::from(self.kappa))?;
         // The upper bound is not a range check but the precondition of
         // `huber`'s eagerly-evaluated linear branch: it computes
@@ -258,7 +262,11 @@ impl Validate for QrDqnTrainingConfig {
         // "the branch must not overflow" rather than a hardcoded threshold
         // keeps it correct if `huber` changes; the resulting cutoff is
         // `√(2 · f32::MAX) ≈ 2.6087635e19`, measured to be exact to the ULP
-        // (see `rejects_overflowing_kappa`). `+∞` fails here too.
+        // (see `rejects_overflowing_kappa`). Its remaining job is the
+        // **huge-but-finite** κ: `+∞` is now rejected one line above by
+        // `config::positive` as `NotFinite`, but a finite κ whose `0.5·κ²`
+        // overflows f32 passes every generic predicate and is caught only
+        // here. Do not remove this guard.
         if !(0.5 * self.kappa * self.kappa).is_finite() {
             return Err(ConfigError {
                 config: C,
@@ -548,10 +556,12 @@ mod tests {
         );
     }
 
-    /// `NaN` and `−∞` fail `got > 0.0`, so they are caught by `config::positive`
-    /// — the *same* branch as κ = 0, not by the overflow guard. Asserted per
-    /// value rather than in one loop with `+∞`, which lands in a different
-    /// branch (see `rejects_overflowing_kappa`).
+    /// `NaN` and `−∞` are caught by `config::positive`, but as `NotFinite`
+    /// (issue #353) — a *different* kind from κ = 0's `NotPositive`, because
+    /// "not a number" and "not above zero" are different complaints. Asserted
+    /// per value rather than in one loop with `+∞`: `+∞` is also `NotFinite`
+    /// now, but it reaches that verdict having previously been the overflow
+    /// guard's job (see `rejects_overflowing_kappa`).
     #[test]
     fn rejects_non_finite_kappa() {
         for bad in [f32::NAN, f32::NEG_INFINITY] {
@@ -561,12 +571,12 @@ mod tests {
                 .expect_err("kappa must be finite");
             assert_eq!(err.field, "kappa", "the error must name the kappa field");
             match err.kind {
-                ConstraintKind::NotPositive { got } => assert_eq!(
+                ConstraintKind::NotFinite { got } => assert_eq!(
                     got.is_nan(),
                     bad.is_nan(),
-                    "NotPositive must carry the offending value verbatim, got {got}"
+                    "NotFinite must carry the offending value verbatim, got {got}"
                 ),
-                other => panic!("{bad} must be rejected as NotPositive, got {other:?}"),
+                other => panic!("{bad} must be rejected as NotFinite, got {other:?}"),
             }
         }
     }
@@ -606,13 +616,7 @@ mod tests {
             "the cutoff must be √(2·f32::MAX) ≈ 2.6087635e19, got {last_ok:e}"
         );
 
-        for bad in [
-            f32::from_bits(lo + 1),
-            2.7e19,
-            1e20,
-            f32::MAX,
-            f32::INFINITY,
-        ] {
+        for bad in [f32::from_bits(lo + 1), 2.7e19, 1e20, f32::MAX] {
             let err = QrDqnTrainingConfigBuilder::new()
                 .kappa(bad)
                 .build()
@@ -625,6 +629,25 @@ mod tests {
                 err.kind
             );
         }
+
+        // `+∞` used to be listed above, because `config::positive` waved it
+        // through (`f64::INFINITY > 0.0`) and this overflow guard was the only
+        // thing that stopped it. Issue #353 moved that verdict one line
+        // earlier: `+∞` is not a config *value* at all, so it is now
+        // `NotFinite`. Still rejected, still at the same chokepoint — but the
+        // overflow guard is no longer load-bearing for it, and the four
+        // huge-but-*finite* κ above are the cases only it catches.
+        let err = QrDqnTrainingConfigBuilder::new()
+            .kappa(f32::INFINITY)
+            .build()
+            .expect_err("an infinite Huber threshold is not a config value");
+        assert_eq!(err.field, "kappa", "the error must name the kappa field");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::NotFinite { got: f64::INFINITY },
+            "+∞ must be rejected as NotFinite by config::positive, ahead of the \
+             overflow guard"
+        );
 
         // The bound must not be over-tight: κ far above any sane setting, but
         // whose linear branch still fits in f32, stays accepted.
