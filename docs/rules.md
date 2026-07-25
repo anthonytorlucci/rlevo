@@ -262,12 +262,19 @@ exception: a single `with_*` method may panic on an out-of-domain argument
 because the panic points at the offending call site. They do **not** replace
 whole-config validation — see below.
 
-### Config Validation Contract (ADR 0026, 0055)
+### Config Validation Contract (ADR 0026, 0055, 0060)
 
 - Every public `*Config` (and any hyperparameter-bearing builder) implements
   `rlevo_core::config::Validate` — `fn validate(&self) -> Result<(), ConfigError>`.
   `ConfigError` names the config, the field, and the violated `ConstraintKind`
   (structured, allocation-free).
+- A config **value** must be finite — `NaN` and `±∞` are rejected as
+  `ConstraintKind::NotFinite`, checked before every other float constraint
+  (ADR 0060). A config **bound** may be `±∞`:
+  `in_range(C, f, 0.0, f64::INFINITY, x)` is the correct spelling of
+  "non-negative, unbounded above", and is deliberately the *only* spelling —
+  there is no `finite_*` helper beside it. A half-open *range* belongs in
+  `Bounds` (§2, ADR 0027), not in `ordered`.
 - Construction that consumes a **caller-supplied or deserialized** config calls
   `config.validate()?` and returns `Result<_, ConfigError>`. It **must not
   panic** — a config can arrive via `Deserialize` or struct-update syntax with
