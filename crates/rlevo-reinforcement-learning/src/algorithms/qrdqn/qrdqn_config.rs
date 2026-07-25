@@ -14,7 +14,7 @@ use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::AdamConfig;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 
 use crate::replay::PrioritizedReplaySettings;
 use crate::target::TargetUpdate;
@@ -97,6 +97,59 @@ pub struct QrDqnTrainingConfig {
 
     /// Huber threshold `κ` used by the quantile Huber loss. Values below
     /// `κ` are treated quadratically, above `κ` linearly. Default `1.0`.
+    ///
+    /// # Valid domain: strictly positive, with `0.5 · κ²` finite in `f32`
+    ///
+    /// [`validate`](Validate::validate) rejects `κ ≤ 0`, `NaN`, and every κ
+    /// large enough that `0.5 · κ²` overflows `f32` — the last accepted value
+    /// is `≈ 2.6087635e19` (`√(2 · f32::MAX)`), which also excludes `+∞`.
+    ///
+    /// Two independent `NaN` sources motivate the bounds. Dabney et al. (2018)
+    /// Eq. (10) is `ρ^κ_τ(u) = |τ − 𝟙{u<0}| · L_κ(u) / κ`, so κ is a
+    /// **divisor** and κ = 0 evaluates `0/0`. Separately, `huber` evaluates
+    /// *both* branches eagerly and selects with a multiplicative mask:
+    /// `linear = (|u| − 0.5·κ)·κ ≈ −0.5·κ²` for the small-residual elements
+    /// the mask is about to discard. Once `0.5 · κ²` overflows to `−∞`, the
+    /// discard is `0 · (−∞) = NaN` — so a huge-but-finite κ poisons every
+    /// element even though the mask selects the quadratic branch everywhere.
+    /// The upper bound is therefore the precondition of that eager branch, not
+    /// a magic constant; it is verified against the measured boundary in
+    /// `rejects_overflowing_kappa`.
+    ///
+    /// # What an invalid κ actually costs
+    ///
+    /// It does **not** corrupt the weights. Every QR-DQN update reads its loss
+    /// scalar host-side and passes it through `FiniteLossGuard` (ADR 0056,
+    /// issue #318) *before* `backward()`, so a `NaN` loss skips the backward
+    /// pass, the optimizer step, the target update, and the PER writeback. The
+    /// failure mode is quieter than corruption and harder to spot: every
+    /// update becomes a no-op while `gradient_updates` keeps advancing, so
+    /// training runs to completion, reports its cadence faithfully, and learns
+    /// nothing — discoverable only from a single one-shot `tracing::warn!`.
+    /// Rejecting κ here fails fast with a named-field [`ConfigError`] instead
+    /// of relying on a downstream generic guard and a silent stall.
+    ///
+    /// # Tiny κ is accepted and is not a `NaN`, but is not useful
+    ///
+    /// Subnormal κ (~`1e-45`) validates and produces a finite loss, because
+    /// `L_κ(u)` underflows to `0.0` before the division does any damage. The
+    /// measured loss is then exactly `0.0` for ordinary residuals: the
+    /// gradient signal is flushed away by `f32` precision loss rather than by
+    /// any modelled behaviour. This is documented, not rejected — the boundary
+    /// is unrepresentable as a clean threshold and depends on the residual
+    /// magnitudes. Values below ~`1e-20` should be treated as a modelling
+    /// mistake.
+    ///
+    /// # κ = 0 (QR-DQN-0) is not representable here
+    ///
+    /// The paper notes that "as κ → 0 the quantile Huber loss reverts to the
+    /// quantile regression loss" — a **limit** statement, not an evaluation.
+    /// The paper's own κ = 0 variant, QR-DQN-0, is the strict quantile loss of
+    /// Eq. (8), `ρ_τ(u) = u(τ − 𝟙{u<0})`, a separate unsmoothed formula
+    /// substituted for Eq. (10) rather than Eq. (10) at κ = 0. That unsmoothed
+    /// path is not implemented in this crate, so QR-DQN-0 cannot be selected by
+    /// setting this field to `0.0`. The default `1.0` is the paper's
+    /// recommended QR-DQN-1, which outperformed QR-DQN-0 on Atari-57.
     pub kappa: f32,
 
     /// Optional gradient-norm / gradient-value clipping.
@@ -190,7 +243,35 @@ impl Validate for QrDqnTrainingConfig {
         config::nonzero(C, "train_frequency", self.train_frequency)?;
         config::nonzero(C, "steps_per_episode", self.steps_per_episode)?;
         config::nonzero(C, "num_quantiles", self.num_quantiles)?;
-        config::in_range(C, "kappa", 0.0, f64::INFINITY, f64::from(self.kappa))?;
+        // κ is the *divisor* of Dabney et al. (2018) Eq. (10), so the whole
+        // open interval is required — not the closed `[0, ∞]` an `in_range`
+        // would accept. κ = 0 makes the loss evaluate `0/0` → NaN. This half
+        // also catches NaN and −∞.
+        config::positive(C, "kappa", f64::from(self.kappa))?;
+        // The upper bound is not a range check but the precondition of
+        // `huber`'s eagerly-evaluated linear branch: it computes
+        // `(|u| − 0.5·κ)·κ` for *every* element and then discards the
+        // small-residual ones by multiplying by a 0.0 mask. Once `0.5·κ²`
+        // overflows f32 to `−∞`, that discard is `0 · (−∞) = NaN`, so a
+        // huge-but-finite κ poisons the whole loss even though the mask
+        // selects the quadratic branch everywhere. Expressing the guard as
+        // "the branch must not overflow" rather than a hardcoded threshold
+        // keeps it correct if `huber` changes; the resulting cutoff is
+        // `√(2 · f32::MAX) ≈ 2.6087635e19`, measured to be exact to the ULP
+        // (see `rejects_overflowing_kappa`). `+∞` fails here too.
+        if !(0.5 * self.kappa * self.kappa).is_finite() {
+            return Err(ConfigError {
+                config: C,
+                field: "kappa",
+                kind: ConstraintKind::Custom(
+                    "the Huber threshold is too large: the quantile Huber \
+                     loss evaluates its linear branch `(|u| − 0.5·κ)·κ` for \
+                     every element before masking, so `0.5·κ²` must stay \
+                     finite in f32 (κ ≤ √(2·f32::MAX) ≈ 2.6e19) or the \
+                     masked-out elements become `0 · (−∞)` = NaN",
+                ),
+            });
+        }
         if let Some(per) = &self.prioritized_replay {
             per.validate()?;
         }
@@ -329,6 +410,12 @@ impl QrDqnTrainingConfigBuilder {
     }
 
     /// Sets [`QrDqnTrainingConfig::kappa`] (Huber loss threshold κ).
+    ///
+    /// κ must be strictly positive and small enough that `0.5 · κ²` stays
+    /// finite in `f32`; [`build`](Self::build) rejects anything else, because
+    /// the quantile Huber loss divides by κ and evaluates a `−0.5·κ²` branch
+    /// eagerly. See [`QrDqnTrainingConfig::kappa`] for the derivation and for
+    /// why κ = 0 is not QR-DQN-0.
     #[must_use]
     pub fn kappa(mut self, kappa: f32) -> Self {
         self.config.kappa = kappa;
@@ -367,8 +454,10 @@ impl QrDqnTrainingConfigBuilder {
     /// # Errors
     ///
     /// Returns a [`ConfigError`] if the assembled config violates any invariant
-    /// checked by [`QrDqnTrainingConfig::validate`] (e.g. zero `num_quantiles`
-    /// or a negative `kappa`).
+    /// checked by [`QrDqnTrainingConfig::validate`] — e.g. zero
+    /// `num_quantiles`, or a `kappa` that is not strictly positive or is large
+    /// enough to overflow the Huber loss's linear branch (see
+    /// [`QrDqnTrainingConfig::kappa`]).
     pub fn build(self) -> Result<QrDqnTrainingConfig, ConfigError> {
         self.config.validate()?;
         Ok(self.config)
@@ -424,6 +513,127 @@ mod tests {
         let cfg = QrDqnTrainingConfig::default();
         assert_eq!(cfg.target_update, TargetUpdate::polyak(0.005, 1));
         assert_eq!(cfg.target_update.every(), 1);
+    }
+
+    /// κ = 0 makes Dabney et al. (2018) Eq. (10) evaluate `0/0`: the loss
+    /// divides by κ, so the config boundary — not the loss — must reject it.
+    #[test]
+    fn rejects_zero_kappa() {
+        let err = QrDqnTrainingConfigBuilder::new()
+            .kappa(0.0)
+            .build()
+            .expect_err("kappa = 0 divides by zero in the quantile Huber loss");
+        assert_eq!(err.field, "kappa", "the error must name the kappa field");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::NotPositive { got: 0.0 },
+            "κ = 0 must be rejected by the strict-positivity half of the guard, \
+             not incidentally by the overflow half"
+        );
+    }
+
+    /// Regression guard: a negative Huber threshold was already rejected and
+    /// must stay rejected.
+    #[test]
+    fn rejects_negative_kappa() {
+        let err = QrDqnTrainingConfigBuilder::new()
+            .kappa(-1.0)
+            .build()
+            .expect_err("a negative Huber threshold is meaningless");
+        assert_eq!(err.field, "kappa", "the error must name the kappa field");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::NotPositive { got: -1.0 },
+            "a negative κ must be rejected as NotPositive"
+        );
+    }
+
+    /// `NaN` and `−∞` fail `got > 0.0`, so they are caught by `config::positive`
+    /// — the *same* branch as κ = 0, not by the overflow guard. Asserted per
+    /// value rather than in one loop with `+∞`, which lands in a different
+    /// branch (see `rejects_overflowing_kappa`).
+    #[test]
+    fn rejects_non_finite_kappa() {
+        for bad in [f32::NAN, f32::NEG_INFINITY] {
+            let err = QrDqnTrainingConfigBuilder::new()
+                .kappa(bad)
+                .build()
+                .expect_err("kappa must be finite");
+            assert_eq!(err.field, "kappa", "the error must name the kappa field");
+            match err.kind {
+                ConstraintKind::NotPositive { got } => assert_eq!(
+                    got.is_nan(),
+                    bad.is_nan(),
+                    "NotPositive must carry the offending value verbatim, got {got}"
+                ),
+                other => panic!("{bad} must be rejected as NotPositive, got {other:?}"),
+            }
+        }
+    }
+
+    /// A huge-but-*finite* κ is as fatal as κ = 0 and was the hole the first
+    /// `is_finite` guard left open. `huber` evaluates its linear branch
+    /// `(|u| − 0.5·κ)·κ` for every element before masking, so once `0.5·κ²`
+    /// overflows f32 to `−∞` the masked-out elements become `0 · (−∞)` = NaN,
+    /// even though the mask selects the quadratic branch everywhere.
+    ///
+    /// The rejected values below bracket the measured NaN boundary: on the
+    /// `Flex` backend `quantile_huber_loss_per_sample` returns a finite loss at
+    /// κ = `2.608_763_5e19` and `NaN` at the very next `f32`,
+    /// `2.608_763_7e19` — i.e. the guard `!(0.5·κ²).is_finite()` is exact to
+    /// the ULP, not merely conservative.
+    #[test]
+    fn rejects_overflowing_kappa() {
+        // Bit-search the exact f32 boundary rather than transcribing a
+        // literal: `√(2 · f32::MAX)` is not representable by a computation
+        // that stays in f32, and a transcribed decimal could land on either
+        // side of the true cutoff as the rounding of the literal drifts.
+        // f32 bit patterns of positive finite values are monotonic, so a
+        // plain binary search over `to_bits` finds it.
+        let (mut lo, mut hi) = (1.0_f32.to_bits(), f32::MAX.to_bits());
+        while lo + 1 < hi {
+            let mid = lo + (hi - lo) / 2;
+            let k = f32::from_bits(mid);
+            if (0.5 * k * k).is_finite() {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let last_ok = f32::from_bits(lo);
+        assert!(
+            (2.608_763e19..2.608_764e19).contains(&last_ok),
+            "the cutoff must be √(2·f32::MAX) ≈ 2.6087635e19, got {last_ok:e}"
+        );
+
+        for bad in [
+            f32::from_bits(lo + 1),
+            2.7e19,
+            1e20,
+            f32::MAX,
+            f32::INFINITY,
+        ] {
+            let err = QrDqnTrainingConfigBuilder::new()
+                .kappa(bad)
+                .build()
+                .expect_err("kappa whose 0.5·κ² overflows f32 makes the loss NaN");
+            assert_eq!(err.field, "kappa", "the error must name the kappa field");
+            assert!(
+                matches!(err.kind, ConstraintKind::Custom(_)),
+                "{bad} overflows the Huber linear branch and must be rejected by \
+                 the Custom overflow guard, not as NotPositive; got {:?}",
+                err.kind
+            );
+        }
+
+        // The bound must not be over-tight: κ far above any sane setting, but
+        // whose linear branch still fits in f32, stays accepted.
+        for good in [1.0_f32, 1e9, 1e18, last_ok] {
+            QrDqnTrainingConfigBuilder::new()
+                .kappa(good)
+                .build()
+                .expect("a κ whose 0.5·κ² is finite must validate");
+        }
     }
 
     /// Replaces `rejects_frozen_target_when_tau_and_frequency_are_both_zero`.
