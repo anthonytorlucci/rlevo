@@ -65,7 +65,7 @@ use super::core::{
 };
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rlevo_core::config::{self, ConfigError, Validate};
+use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -73,7 +73,35 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 /// Minimum side length; we need at least three interior cells per quadrant.
+///
+/// `11` is an `rlevo` convention, not a value inherited from upstream: Sutton,
+/// Precup & Singh (1999) do not parameterize four-rooms by size at all, and
+/// Farama Minigrid `v3.1.0` hardcodes `self.size = 19` with no `size`
+/// constructor argument. It is deliberately *above* the smallest geometrically
+/// clean size — the openings land inside the border from `9` up — so changing it
+/// is a policy decision, not a bug fix.
 const MIN_SIZE: usize = 11;
+
+// The two invariants `build` silently assumed. Its four openings are written at
+// `mid ± 3` where `mid = size / 2`, with no bounds check of their own; when they
+// fall outside the interior they land on the *border* and punch holes in it.
+// Measured before the guard existed: `size = 7` perforated all four perimeter
+// walls — holes at (0,3), (3,0), (3,6), (6,3) — and `size = 8` perforated two,
+// at (4,7) and (7,4). Written as `const _` so lowering `MIN_SIZE` breaks the
+// build instead of the board.
+//
+//   `mid - 3 >= 1`         (top / left opening stays off the border) → mid >= 4
+//   `mid + 3 <= size - 2`  (bottom / right opening stays off the border)
+const _: () = assert!(MIN_SIZE % 2 == 1, "MIN_SIZE must be odd");
+const _: () = assert!(
+    MIN_SIZE / 2 + 3 <= MIN_SIZE - 2 && MIN_SIZE / 2 >= 4,
+    "the mid±3 openings must land strictly inside the border"
+);
+
+/// Rejection text for an even `size`. Unlike the floor, the parity requirement
+/// has no `at_least` analogue, so it is a `Custom` invariant.
+const SIZE_NOT_ODD: &str =
+    "FourRoomsEnv requires an odd size so the interior cross has a single centre row and column";
 
 /// Configuration for [`FourRoomsEnv`].
 ///
@@ -136,9 +164,32 @@ impl Default for FourRoomsConfig {
 }
 
 impl Validate for FourRoomsConfig {
+    /// Rejects any `size` below `MIN_SIZE` (11), an even `size`, and a zero
+    /// `max_steps`.
+    ///
+    /// Both `size` guards live **here**, not only in [`FromStr`]:
+    /// `FourRoomsConfig` derives `Deserialize`, so a config loaded from a file is
+    /// user-supplied runtime data that never passes through `from_str`
+    /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it must
+    /// be an `Err`"). Measured below the floor: `size` 1 through 6 panic inside
+    /// `Grid::set` (out of bounds), and `size` 7 and 8 build a board whose
+    /// `mid ± 3` openings are punched through the *perimeter* wall rather than
+    /// the interior cross. Enforcing parity anywhere but here would recreate,
+    /// for one env, exactly the split enforcement this guard removes.
+    ///
+    /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
+    /// zero `size` is still rejected, now as
+    /// [`ConstraintKind::TooSmall`].
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "FourRoomsConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
+        if self.size.is_multiple_of(2) {
+            return Err(ConfigError {
+                config: C,
+                field: "size",
+                kind: ConstraintKind::Custom(SIZE_NOT_ODD),
+            });
+        }
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -147,6 +198,14 @@ impl Validate for FourRoomsConfig {
 impl FromStr for FourRoomsConfig {
     type Err = String;
 
+    /// Parses `"size=11,max_steps=484,seed=0"` (keys in any order) or the
+    /// positional form `"11,484,0"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`FourRoomsEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -174,12 +233,8 @@ impl FromStr for FourRoomsConfig {
                 }
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
-        if cfg.size % 2 == 0 {
-            return Err(format!("size must be odd, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -245,8 +300,11 @@ impl FourRoomsEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (11), an even `size`, or a zero `max_steps`. This is the
+    /// construction chokepoint (rules.md §4), so it also rejects a config that
+    /// arrived by `Deserialize` or struct-update syntax without passing through
+    /// [`FromStr`].
     pub fn with_config(config: FourRoomsConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -393,6 +451,8 @@ mod tests {
     // regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
 
+    // `ConstraintKind` arrives via `super::*` — this module's `Validate` impl
+    // needs it at file scope for the parity `Custom` variant.
     use super::*;
     use rlevo_core::environment::Snapshot;
 
@@ -429,6 +489,74 @@ mod tests {
     #[test]
     fn fromstr_rejects_small_size() {
         assert!("9".parse::<FourRoomsConfig>().is_err());
+    }
+
+    /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
+    /// built by `Deserialize` or struct-update syntax reached `build`. Measured
+    /// consequences: `size` 1–6 panicked in `Grid::set`; `size = 7` punched a
+    /// hole in all four perimeter walls and `size = 8` in two, because `build`
+    /// writes its openings at `mid ± 3` without checking where they land. The
+    /// guard now lives in [`Validate`], which `with_config` runs (ADR 0026
+    /// chokepoint).
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        let bad = FourRoomsConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = FourRoomsEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "FourRoomsConfig");
+        assert_eq!(err.field, "size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            }
+        );
+    }
+
+    /// `9` builds a geometrically clean board — the `mid ± 3` openings land
+    /// inside the border — and is still refused. The floor is `rlevo` policy for
+    /// this env, not the smallest size the layout code survives.
+    #[test]
+    fn with_config_rejects_clean_but_sub_floor_size() {
+        let bad = FourRoomsConfig {
+            size: 9,
+            ..Default::default()
+        };
+        let err = FourRoomsEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.field, "size");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: 9,
+            }
+        );
+    }
+
+    /// The parity rule the `size` field doc already published. It was enforced
+    /// only in [`FromStr`] before #106, so `Deserialize` could hand `build` an
+    /// even size whose interior cross has two centre rows.
+    ///
+    /// The value is `14`, not `MIN_SIZE + 1` (12), and must **not** be a
+    /// multiple of 3. `12` is divisible by both 2 and 3, so it cannot tell the
+    /// guard's modulus apart: mutating `is_multiple_of(2)` to
+    /// `is_multiple_of(3)` in [`FourRoomsConfig::validate`] left this test — and
+    /// the whole suite — green. `14` is even, above the floor, and `14 % 3 == 2`,
+    /// so it pins the modulus as well as the parity intent. Do not "tidy" it back
+    /// to `MIN_SIZE + 1`.
+    #[test]
+    fn with_config_rejects_even_size() {
+        let bad = FourRoomsConfig {
+            size: 14,
+            ..Default::default()
+        };
+        let err = FourRoomsEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "FourRoomsConfig");
+        assert_eq!(err.field, "size");
+        assert_eq!(err.kind, ConstraintKind::Custom(SIZE_NOT_ODD));
     }
 
     #[test]

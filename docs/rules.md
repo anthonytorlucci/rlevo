@@ -292,6 +292,26 @@ whole-config validation — see below.
   config-consuming constructor adopting `validate()?` is not optional. Any
   invariant that must hold independently of that chokepoint belongs in a
   validated newtype (§2, ADR 0027/0031).
+- **A minimum-count constraint uses `config::at_least`, yielding
+  `ConstraintKind::TooSmall`.** An `at_least` guard **replaces** its paired
+  `nonzero` rather than sitting beside it (same rule as a validated newtype,
+  §2) — `at_least(.., min)` with `min >= 1` subsumes `nonzero`, so keeping both
+  leaves a branch that cannot fire. `ConstraintKind::Custom` is reserved for a
+  floor **derived** from a non-obvious invariant that prose must defend:
+  `MemoryConfig`'s Invariant M and `GoToDoorConfig`'s four-distinct-doors bound
+  are the reference cases. **Do not write a `Custom` message asserting a
+  mechanism that a value one below the floor does not actually violate** — most
+  grid floors are task convention, not geometry, and several build clean boards
+  below their declared minimum (#106), so cause-naming prose would be false in
+  the source. `TooSmall` states the policy, which is true.
+- **A minimum enforced only in `FromStr` is not enforced.** `validate()` is the
+  chokepoint every construction path shares; `from_str` is a second door onto
+  the same contract, so it delegates (`cfg.validate().map_err(..)?`) rather than
+  re-checking. Splitting a bound across the two doors is how #106's nine grid
+  environments admitted configs that `from_str` refused. Where a constant's
+  value is *derived* (a parity rule, a geometric offset), add a `const _: () =
+  assert!(..)` pinning the derivation so lowering it breaks the build rather
+  than the output — `memory.rs` and `four_rooms.rs` are the reference cases.
 - **No config loader exists in the workspace yet.** The first one added (run
   manifest, config file, checkpoint restore) owns the `Deserialize` half of this
   contract: call `validate()?` on the decoded value and propagate the `Err`.

@@ -180,9 +180,21 @@ impl Default for CrossingConfig {
 }
 
 impl Validate for CrossingConfig {
+    /// Rejects any `size` below `MIN_SIZE` (7) and a zero `max_steps`.
+    ///
+    /// The `size` floor lives **here**, not only in [`FromStr`]: `CrossingConfig`
+    /// derives `Deserialize`, so a config loaded from a file is user-supplied
+    /// runtime data that never passes through `from_str` (rules.md §4 — "if an
+    /// invalid value can arrive via `Deserialize`, it must be an `Err`").
+    /// Struct-update syntax on [`Default`] bypasses `from_str` just as freely.
+    ///
+    /// [`config::at_least`] subsumes a `nonzero` check for `size`, so the zero
+    /// case reports [`TooSmall`](rlevo_core::config::ConstraintKind::TooSmall)
+    /// rather than [`Zero`](rlevo_core::config::ConstraintKind::Zero);
+    /// `max_steps` keeps `nonzero` because its only floor is 1.
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "CrossingConfig";
-        config::nonzero(C, "size", self.size)?;
+        config::at_least(C, "size", self.size, MIN_SIZE)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -191,6 +203,14 @@ impl Validate for CrossingConfig {
 impl FromStr for CrossingConfig {
     type Err = String;
 
+    /// Parses `"size=9,max_steps=324,seed=0,kind=wall"` (keys in any order) or
+    /// the positional form `"9,324,0,wall"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`CrossingEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -220,9 +240,8 @@ impl FromStr for CrossingConfig {
                 }
             }
         }
-        if cfg.size < MIN_SIZE {
-            return Err(format!("size must be >= {MIN_SIZE}, got {}", cfg.size));
-        }
+        cfg.validate()
+            .map_err(|e| format!("{e} (got size={})", cfg.size))?;
         Ok(cfg)
     }
 }
@@ -283,8 +302,11 @@ impl CrossingEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero `size` or
-    /// `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
+    /// `MIN_SIZE` (7) — zero included — or a zero `max_steps`. This is the
+    /// construction chokepoint (rules.md §4), so it also rejects a config that
+    /// arrived by `Deserialize` or struct-update syntax without passing through
+    /// [`FromStr`].
     pub fn with_config(config: CrossingConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -447,6 +469,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     fn default_env(kind: CrossingKind) -> CrossingEnv {
@@ -465,6 +488,32 @@ mod tests {
             ..Default::default()
         };
         assert!(CrossingEnv::with_config(bad, false).is_err());
+    }
+
+    #[test]
+    fn with_config_rejects_size_below_min() {
+        // The floor must be enforced at the construction chokepoint, not only in
+        // `FromStr`: a `Deserialize`d or struct-updated config skips the parser
+        // entirely, and used to reach `build` unchecked. The assertion is on the
+        // *policy* (`size >= MIN_SIZE`), not on a geometric claim — some
+        // sub-MIN_SIZE boards do build successfully, which is exactly why the
+        // floor has to be stated rather than inferred from a build failure.
+        let bad = CrossingConfig {
+            size: MIN_SIZE - 1,
+            ..Default::default()
+        };
+        let err = CrossingEnv::with_config(bad, false)
+            .expect_err("a sub-MIN_SIZE grid must be refused at construction");
+        assert_eq!(err.config, "CrossingConfig", "the config must be named");
+        assert_eq!(err.field, "size", "the offending field must be named");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_SIZE as u64,
+                got: (MIN_SIZE - 1) as u64,
+            },
+            "the structured kind carries the bound; assert it, not the message"
+        );
     }
 
     /// Optimal rollout that works for both lava and wall variants.

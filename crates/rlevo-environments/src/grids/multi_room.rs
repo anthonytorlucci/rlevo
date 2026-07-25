@@ -68,7 +68,15 @@ use std::str::FromStr;
 /// Minimum per-room width; needs at least one interior column in each room.
 const MIN_ROOM_WIDTH: usize = 3;
 /// Minimum number of rooms.
+///
+/// Below this the env has no dividing wall and therefore no door to toggle —
+/// the task it exists to pose disappears.
 const MIN_NUM_ROOMS: usize = 2;
+/// Minimum strip height.
+///
+/// Was a bare `5` literal in [`FromStr`] before it became a [`Validate`] guard;
+/// named so the floor is stated once and reachable from the field docs.
+const MIN_HEIGHT: usize = 5;
 const DOOR_COLOR: Color = Color::Grey;
 
 /// Configuration for [`MultiRoomEnv`].
@@ -87,7 +95,7 @@ pub struct MultiRoomConfig {
     pub num_rooms: usize,
     /// Width of each individual room, including its right-hand wall; must be ≥ `MIN_ROOM_WIDTH` (3).
     pub room_width: usize,
-    /// Height of the strip in cells; must be ≥ 5.
+    /// Height of the strip in cells; must be ≥ `MIN_HEIGHT` (5).
     pub height: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
@@ -146,11 +154,29 @@ impl Default for MultiRoomConfig {
 }
 
 impl Validate for MultiRoomConfig {
+    /// Rejects `num_rooms` below `MIN_NUM_ROOMS` (2), `room_width` below
+    /// `MIN_ROOM_WIDTH` (3), `height` below `MIN_HEIGHT` (5), and a zero
+    /// `max_steps`.
+    ///
+    /// The three floors live **here**, not only in [`FromStr`]: `MultiRoomConfig`
+    /// derives `Deserialize`, so a config loaded from a file is user-supplied
+    /// runtime data that never passes through `from_str` (rules.md §4 — "if an
+    /// invalid value can arrive via `Deserialize`, it must be an `Err`").
+    /// Measured below the floors: `num_rooms = 1` silently built a
+    /// **single-room** env with no dividing wall and no door at all
+    /// (`wall_columns()` returned `[]`); `room_width = 2` built rooms of a single
+    /// interior column; `height = 2` put the corridor row, its doors and the goal
+    /// on the bottom border wall.
+    ///
+    /// `at_least` subsumes the previous `nonzero` checks — every floor is `>= 1`,
+    /// so zeros are still rejected, now as
+    /// [`ConstraintKind::TooSmall`](rlevo_core::config::ConstraintKind::TooSmall).
+    /// `max_steps` keeps `nonzero`: it has no floor above 1.
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "MultiRoomConfig";
-        config::nonzero(C, "num_rooms", self.num_rooms)?;
-        config::nonzero(C, "room_width", self.room_width)?;
-        config::nonzero(C, "height", self.height)?;
+        config::at_least(C, "num_rooms", self.num_rooms, MIN_NUM_ROOMS)?;
+        config::at_least(C, "room_width", self.room_width, MIN_ROOM_WIDTH)?;
+        config::at_least(C, "height", self.height, MIN_HEIGHT)?;
         config::nonzero(C, "max_steps", self.max_steps)?;
         Ok(())
     }
@@ -159,6 +185,14 @@ impl Validate for MultiRoomConfig {
 impl FromStr for MultiRoomConfig {
     type Err = String;
 
+    /// Parses `"num_rooms=3,room_width=5,height=5,max_steps=300,seed=0"` (keys in
+    /// any order) or the positional form `"3,5,5,300,0"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the offending key/value, or the [`Validate`] rejection — the same
+    /// guard [`MultiRoomEnv::with_config`] applies, so this parser cannot admit a
+    /// config that construction would refuse.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cfg = Self::default();
         for (idx, raw) in s.trim().split(',').map(str::trim).enumerate() {
@@ -202,21 +236,10 @@ impl FromStr for MultiRoomConfig {
                 }
             }
         }
-        if cfg.num_rooms < MIN_NUM_ROOMS {
-            return Err(format!(
-                "num_rooms must be >= {MIN_NUM_ROOMS}, got {}",
-                cfg.num_rooms
-            ));
-        }
-        if cfg.room_width < MIN_ROOM_WIDTH {
-            return Err(format!(
-                "room_width must be >= {MIN_ROOM_WIDTH}, got {}",
-                cfg.room_width
-            ));
-        }
-        if cfg.height < 5 {
-            return Err(format!("height must be >= 5, got {}", cfg.height));
-        }
+        // Unlike the square-grid envs there is no single `size` worth appending:
+        // `ConfigError`'s own `Display` already names the config, the field and
+        // the offending count.
+        cfg.validate().map_err(|e| e.to_string())?;
         Ok(cfg)
     }
 }
@@ -276,8 +299,12 @@ impl MultiRoomEnv {
     ///
     /// # Errors
     ///
-    /// Returns a [`ConfigError`] if `config` fails [`Validate`] (zero
-    /// `num_rooms`, `room_width`, `height`, or `max_steps`).
+    /// Returns a [`ConfigError`] if `config` fails [`Validate`]: `num_rooms`
+    /// below `MIN_NUM_ROOMS` (2), `room_width` below `MIN_ROOM_WIDTH` (3),
+    /// `height` below `MIN_HEIGHT` (5), or a zero `max_steps`. This is the
+    /// construction chokepoint (rules.md §4), so it also rejects a config that
+    /// arrived by `Deserialize` or struct-update syntax without passing through
+    /// [`FromStr`].
     pub fn with_config(config: MultiRoomConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let rng = StdRng::seed_from_u64(config.seed);
@@ -444,6 +471,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> MultiRoomEnv {
@@ -483,6 +511,69 @@ mod tests {
             "num_rooms=3,room_width=2"
                 .parse::<MultiRoomConfig>()
                 .is_err()
+        );
+    }
+
+    /// Issue #106: the three structural floors were enforced only in
+    /// [`FromStr`], so a config built by `Deserialize` or struct-update syntax
+    /// reached `build`. Measured: `num_rooms = 1` produced a silent single-room
+    /// env whose `wall_columns()` was empty — no dividing wall, no door, the
+    /// whole task gone. The guard now lives in [`Validate`], which `with_config`
+    /// runs (ADR 0026 chokepoint).
+    #[test]
+    fn with_config_rejects_num_rooms_below_min() {
+        let bad = MultiRoomConfig {
+            num_rooms: MIN_NUM_ROOMS - 1,
+            ..Default::default()
+        };
+        let err = MultiRoomEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "MultiRoomConfig");
+        assert_eq!(err.field, "num_rooms");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_NUM_ROOMS as u64,
+                got: (MIN_NUM_ROOMS - 1) as u64,
+            }
+        );
+    }
+
+    /// `room_width = 2` used to build rooms with a single interior column.
+    #[test]
+    fn with_config_rejects_room_width_below_min() {
+        let bad = MultiRoomConfig {
+            room_width: MIN_ROOM_WIDTH - 1,
+            ..Default::default()
+        };
+        let err = MultiRoomEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "MultiRoomConfig");
+        assert_eq!(err.field, "room_width");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_ROOM_WIDTH as u64,
+                got: (MIN_ROOM_WIDTH - 1) as u64,
+            }
+        );
+    }
+
+    /// `height = 2` used to build a degenerate strip whose corridor row — agent,
+    /// doors and goal — sat on the bottom border wall.
+    #[test]
+    fn with_config_rejects_height_below_min() {
+        let bad = MultiRoomConfig {
+            height: MIN_HEIGHT - 1,
+            ..Default::default()
+        };
+        let err = MultiRoomEnv::with_config(bad, false).unwrap_err();
+        assert_eq!(err.config, "MultiRoomConfig");
+        assert_eq!(err.field, "height");
+        assert_eq!(
+            err.kind,
+            ConstraintKind::TooSmall {
+                min: MIN_HEIGHT as u64,
+                got: (MIN_HEIGHT - 1) as u64,
+            }
         );
     }
 
