@@ -107,6 +107,16 @@ Distributional-specific hyperparameters:
 | `num_quantiles` | 200 | Dabney et al. (2018) |
 | `kappa` (Huber threshold) | 1.0 | Dabney et al. (2018) |
 
+`kappa` must be **strictly positive and small enough that `0.5·κ²` stays finite
+in `f32`** (κ ⩽ √(2·`f32::MAX`) ≈ 2.6e19) — Eq. (10) divides by κ, and the Huber
+loss evaluates its `−0.5·κ²` linear branch eagerly before masking it out, so
+`validate()` rejects `0.0`, negatives, `NaN`, `±∞`, and any overflowing κ. An
+invalid κ does not corrupt weights: `FiniteLossGuard` skips the update, so
+training stalls silently instead. The paper's κ = 0
+variant (QR-DQN-0) is the *unsmoothed* Eq. (8) quantile loss, a separate
+formula that is not implemented here; it is not reachable by setting
+`kappa = 0.0`.
+
 **References**
 
 - W. Dabney, M. Rowland, M. G. Bellemare, and R. Munos, "Distributional reinforcement learning with quantile regression," in Proc. Thirty-Second AAAI Conf. Artif. Intell., vol. 32, no. 1, Feb. 2018, doi: 10.1609/aaai.v32i1.11791. [arXiv](https://arxiv.org/abs/1710.10044)

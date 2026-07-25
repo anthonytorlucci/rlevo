@@ -764,6 +764,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **QR-DQN's Huber threshold κ is now required to be finite and strictly
+  positive, closing two NaN paths that `validate()` waved through** (resolves
+  #345). `QrDqnTrainingConfig::validate` checked κ with
+  `config::in_range("kappa", 0.0, f64::INFINITY, …)`, and `config::in_range` is
+  inclusive at *both* ends — so the one value that must never reach the loss was
+  the one the check explicitly admitted. κ is the divisor of Dabney et al.
+  (2018) Eq. (10), `ρ^κ_τ(u) = |τ − 𝟙{u<0}| · L_κ(u) / κ`, which
+  `quantile_loss.rs` implements literally as `(weight * huber_u).div_scalar(κ)`.
+  Correcting the issue as filed: κ = 0 does **not** produce `inf`. `huber()`
+  returns exactly `0.0` at κ = 0 (the `|u| ≤ 0` mask is false for nonzero `u`,
+  leaving the linear branch `(|u| − 0)·0`), so the division is `0/0` and the
+  loss is `NaN` — verified by execution, not by reading. The inclusive *upper*
+  bound was the second hole and went unreported: the Huber mask selects the
+  quadratic branch everywhere, but the masked-out linear branch `(|u| − 0.5κ)·κ`
+  is still evaluated eagerly, so once it overflows f32 the blend computes
+  `0 · (−inf)` = `NaN` in **every** element, including at `u = 0`. That happens
+  at κ = `+∞` and also at any κ large enough that `0.5·κ²` exceeds `f32::MAX`,
+  so an `is_finite` check alone is not sufficient. `NaN` itself was never
+  reachable — `NaN >= lo` is false, so `in_range` already rejected it.
+  Also correcting the severity this issue was filed under: an invalid κ does
+  **not** corrupt weights. `FiniteLossGuard` (ADR 0056, #318) checks the loss
+  scalar in `qrdqn_agent.rs` before `backward()`, skips the optimizer step, and
+  fires a one-shot `tracing::warn!` — so the actual pre-fix consequence was a
+  QR-DQN run that *silently stalled*, every update a no-op while the step
+  counter advanced, discoverable only from a single warn line. That is a milder
+  and quite different failure from the silent poisoning the issue describes, and
+  it is what makes the config-boundary rejection the right fix: fail fast with a
+  named field error instead of leaning on a downstream generic guard and a
+  stalled run. Validation now uses `config::positive` plus an explicit
+  finiteness-and-overflow guard, and the fix sits at the config boundary rather
+  than inside the loss: both
+  `QrDqnTrainingConfigBuilder::build` and `QrDqnAgent::new` call `validate()`,
+  so a hand-constructed config with `pub` fields cannot route around it. No
+  behavior changes for any valid κ, and no call site in the repo moved — every
+  one already passed `1.0`. The existing tests missed this because the config
+  suite covered `num_quantiles == 0` and the τ/cadence cross-field case but had
+  no κ boundary test at all; the new `rejects_*_kappa` tests fence the whole
+  invalid domain, and were confirmed to fail against the pre-fix validator
+  before the fix landed. The root cause of the upper-bound half lives in
+  `huber()`'s eagerly-evaluated masked-out branch, not in κ — that pattern is
+  filed separately, since it is reachable through the public
+  `quantile_huber_loss_per_sample` regardless of what the config accepts. Note
+  for anyone expecting the paper's κ = 0 variant: QR-DQN-0 is *not* Eq. (10)
+  evaluated at zero. The paper's "as κ → 0 the quantile Huber loss reverts to
+  the quantile regression loss" is a limit statement, and its κ = 0 experiments
+  substitute the separate unsmoothed Eq. (8), `ρ_τ(u) = u(τ − 𝟙{u<0})`, which
+  this crate does not implement — so `kappa = 0.0` was never a way to select it.
+  The field docs and the crate README now say so.
+
 - **PPG's auxiliary phase no longer anneals one iteration ahead of the policy
   phase it accompanies** (resolves #324). `maybe_aux_phase` read
   `current_learning_rate()`, but `policy_phase_update` had already incremented
