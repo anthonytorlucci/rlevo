@@ -64,7 +64,7 @@ use rand::rngs::StdRng;
 use rlevo_core::base::{HostRow, Observation, State, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use rlevo_core::state::Observable;
@@ -72,6 +72,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 use burn::tensor::{Tensor, backend::Backend};
+
+use crate::episode::EpisodeGuard;
 
 /// Grid side length in cells; the grid is [`GRID_SIDE`]`²` cells.
 pub const GRID_SIDE: usize = 5;
@@ -98,6 +100,14 @@ const AGENT_RGB: [u8; CHANNELS] = [255, 255, 255];
 /// Reaching the goal early pays close to `1.0`; reaching it on the final legal
 /// step pays `0.1`. Returns `0.0` when `max_steps == 0` so the formula is total.
 /// Re-implemented locally to keep this module independent of the `grids` family.
+///
+/// The formula is only non-negative for `step <= max_steps`; past the budget it
+/// crosses zero and a goal reach would pay a *penalty*. That branch is
+/// unreachable by construction rather than by clamping: the episode is
+/// [`Truncated`](rlevo_core::environment::EpisodeStatus::Truncated) the moment
+/// `steps` reaches `max_steps`, and the [`EpisodeGuard`] on [`PixelGridEnv`]
+/// rejects every further [`step`](Environment::step), so `step` can never
+/// exceed `max_steps` when this is called.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 fn success_reward(step: usize, max_steps: usize) -> f32 {
@@ -509,6 +519,14 @@ impl Validate for PixelGridConfig {
 /// Construct via [`PixelGridEnv::with_config`] for full control or
 /// [`ConstructableEnv::new`] for defaults.
 ///
+/// # Episode lifecycle
+///
+/// An episode has two endings: `Terminated` when the agent steps onto the goal
+/// cell, and `Truncated` once `steps` reaches `config.max_steps`. Either ending
+/// closes the episode — a further [`step`](Environment::step) returns
+/// [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
+/// is called (see the [`EpisodeGuard`] field).
+///
 /// # Examples
 ///
 /// ```no_run
@@ -526,6 +544,16 @@ pub struct PixelGridEnv {
     steps: usize,
     render: bool,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode ended. Neither ending is
+    /// self-limiting: an agent standing on the goal keeps satisfying
+    /// `at_goal()`, so an unguarded post-terminal step re-emits `Terminated`
+    /// with a fresh success reward, and past `max_steps` the truncation
+    /// predicate keeps holding while `steps` climbs past the budget the caller
+    /// asked for. The two compound — walking onto the goal after truncation
+    /// calls [`success_reward`] with `step > max_steps`, where
+    /// `1 - 0.9 * (step / max_steps)` is **negative** and a goal reach pays a
+    /// penalty. The guard makes that branch unreachable.
+    guard: EpisodeGuard,
 }
 
 impl PixelGridEnv {
@@ -558,6 +586,7 @@ impl PixelGridEnv {
             steps: 0,
             render,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -567,6 +596,9 @@ impl PixelGridEnv {
     /// successive episodes differ; use this when you need a *specific* episode
     /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
     /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// This delegates to [`reset`](Environment::reset), so it also re-opens a
+    /// finished episode: the episode guard is cleared there, not here.
     ///
     /// # Errors
     ///
@@ -696,14 +728,46 @@ impl Environment<3, 1, 1> for PixelGridEnv {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<3, PixelObservation, ScalarReward>;
 
+    /// Starts a new episode: re-places agent and goal, clears the step counter,
+    /// and returns the initial `Running` snapshot with reward `0.0`.
+    ///
+    /// The episode guard is cleared too, so an environment whose last episode
+    /// terminated or truncated becomes steppable again.
+    ///
+    /// # Errors
+    ///
+    /// This implementation does not currently return an error; the signature
+    /// reflects the `Environment` trait contract.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        // The re-placement below is infallible, so there is no partial-reset
+        // window in which clearing the guard would re-open an episode over a
+        // state that never returned to its initial placement (ADR 0044 §6).
+        self.guard.reset();
         self.state = Self::initial_state(self.config, &mut self.rng);
         self.steps = 0;
         let observation = self.observe_reset(&self.state);
         Ok(self.snapshot(observation, 0.0, SnapshotStatus::Running))
     }
 
+    /// Applies a 4-way move, then emits the resulting rank-3 pixel snapshot.
+    ///
+    /// Stepping onto the goal cell `Terminated`s the episode and pays
+    /// [`success_reward`]; exhausting `config.max_steps` `Truncated`s it with
+    /// reward `0.0`; anything else is `Running` with reward `0.0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (the agent reached the goal, or `steps` reached
+    /// `config.max_steps`); call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first, ahead of every mutation. A rejected step must leave the
+        // step counter and the latent placement exactly as the terminal step
+        // left them — and, because the counter cannot climb past `max_steps`,
+        // `success_reward` below is never called with `step > max_steps`, where
+        // it would go negative.
+        self.guard.check()?;
+
         self.steps += 1;
         self.state.apply_move(action);
         let observation = self.observe(&action, &self.state);
@@ -719,6 +783,10 @@ impl Environment<3, 1, 1> for PixelGridEnv {
         } else {
             self.snapshot(observation, 0.0, SnapshotStatus::Running)
         };
+        // Single exit: the guard is fed the emitted snapshot's *own*
+        // `EpisodeStatus` — the single source of truth for done-ness — not the
+        // private `SnapshotStatus` display selector, so the two cannot disagree.
+        self.guard.record(snap.status());
         Ok(snap)
     }
 }
@@ -732,8 +800,223 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
-    use rlevo_core::environment::{EpisodeStatus, Snapshot};
+    use rlevo_core::environment::EpisodeStatus;
+
+    // ── post-terminal step guard (issue #294) ────────────────────────────────
+    //
+    // `PixelGridEnv` has both done paths, and they fail differently, so both are
+    // covered: `Terminated` when the agent stands on the goal (`at_goal()` is a
+    // live read that keeps holding, so an unguarded step re-emits `Terminated`
+    // with a fresh success reward), and `Truncated` at `steps >= max_steps`
+    // (past the cap the predicate keeps holding while `steps` climbs).
+
+    /// Step budget for the guard tests: small enough to burn through, large
+    /// enough that a one-step solve from cell 23 lands inside it.
+    const GUARD_MAX_STEPS: usize = 3;
+
+    /// Environment with fixed placement and a [`GUARD_MAX_STEPS`] budget.
+    fn guard_env() -> PixelGridEnv {
+        PixelGridEnv::with_config(PixelGridConfig::new(GUARD_MAX_STEPS, 0, false), false)
+            .expect("valid config")
+    }
+
+    /// Resets, places the agent one cell left of the goal, and steps onto it.
+    fn drive_to_termination(
+        env: &mut PixelGridEnv,
+    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        env.state = PixelGridState::new(23, 24);
+        env.step(PixelGridAction::Right)
+            .expect("stepping onto the goal must succeed")
+    }
+
+    /// Resets and bumps the top-left wall until the step budget runs out. `Up`
+    /// from cell `0` is a no-op, so the goal is never reached.
+    fn drive_to_truncation(
+        env: &mut PixelGridEnv,
+    ) -> SnapshotBase<3, PixelObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        let mut snap = env
+            .step(PixelGridAction::Up)
+            .expect("first step must succeed");
+        while !snap.is_done() {
+            snap = env
+                .step(PixelGridAction::Up)
+                .expect("step must succeed while the episode is running");
+        }
+        snap
+    }
+
+    /// `PixelGridEnv` satisfies the shared post-terminal conformance check on
+    /// the `Terminated` path: once the agent reaches the goal, a further
+    /// `step()` with a *legal* action fails with `StepAfterEpisodeEnd` carrying
+    /// the status that ended the episode.
+    #[test]
+    fn rejects_post_terminal_step_after_goal() {
+        let mut env = guard_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_termination, PixelGridAction::Up);
+    }
+
+    /// The same conformance check on the `Truncated` path — the ending that made
+    /// `success_reward` reachable with `step > max_steps`.
+    #[test]
+    fn rejects_post_terminal_step_after_truncation() {
+        let mut env = guard_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_truncation, PixelGridAction::Up);
+    }
+
+    /// Regression for what the guard removes: `at_goal()` is a live read, not a
+    /// latch, so an unguarded post-terminal step would move the agent, tick the
+    /// counter and re-emit `Terminated` with a fresh reward. A rejected step
+    /// must mutate nothing.
+    #[test]
+    fn post_terminal_step_does_not_mutate_state() {
+        let mut env = guard_env();
+        let terminal = drive_to_termination(&mut env);
+        let ended = terminal.status();
+        assert_eq!(
+            ended,
+            EpisodeStatus::Terminated,
+            "reaching the goal must terminate the episode"
+        );
+
+        let steps_at_end = env.steps();
+        let placement_at_end = (env.state().agent(), env.state().goal());
+
+        let err = env
+            .step(PixelGridAction::Up)
+            .expect_err("a step after termination must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            (env.state().agent(), env.state().goal()),
+            placement_at_end,
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `success_reward` can no longer be called with `step > max_steps`, where
+    /// `1 - 0.9 * (step / max_steps)` is negative and a goal reach would pay a
+    /// *penalty*. The guard closes that by construction, not by clamping: the
+    /// episode truncates at `max_steps` and every further step is rejected, so
+    /// the counter cannot climb into the negative region and a late goal reach
+    /// is unreachable rather than mispriced.
+    #[test]
+    fn success_reward_cannot_be_reached_past_max_steps() {
+        // Direct evidence that the formula is the hazard it is claimed to be.
+        assert!(
+            success_reward(GUARD_MAX_STEPS + 1, GUARD_MAX_STEPS) < 0.0,
+            "the premise of this test: past max_steps the formula goes negative"
+        );
+
+        let mut env = guard_env();
+        let terminal = drive_to_truncation(&mut env);
+        assert_eq!(
+            terminal.status(),
+            EpisodeStatus::Truncated,
+            "the step budget must truncate the episode"
+        );
+        assert_eq!(
+            env.steps(),
+            GUARD_MAX_STEPS,
+            "truncation must land exactly on the budget"
+        );
+
+        // Walking towards the goal past the truncation is the sequence that used
+        // to reach `success_reward` with `step > max_steps`; every call is now
+        // rejected and the counter never advances.
+        for action in [PixelGridAction::Down, PixelGridAction::Right] {
+            for _ in 0..GRID_SIDE {
+                assert!(
+                    matches!(
+                        env.step(action),
+                        Err(EnvironmentError::StepAfterEpisodeEnd { .. })
+                    ),
+                    "the episode is over; no step may advance past max_steps"
+                );
+            }
+        }
+        assert_eq!(
+            env.steps(),
+            GUARD_MAX_STEPS,
+            "steps must never exceed max_steps, so success_reward stays non-negative"
+        );
+        assert!(
+            !env.state().at_goal(),
+            "the rejected walk must not have carried the agent onto the goal"
+        );
+
+        // And on the path that *is* reachable, the terminal reward is
+        // non-negative: the goal reach happens at or before the budget.
+        let mut env = guard_env();
+        let snap = drive_to_termination(&mut env);
+        let reward: f32 = (*snap.reward()).into();
+        assert!(
+            reward >= 0.0,
+            "a reachable goal reward must be non-negative, got {reward}"
+        );
+    }
+
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    #[test]
+    fn reset_reopens_finished_episode() {
+        let mut env = guard_env();
+        drive_to_termination(&mut env);
+        assert!(
+            env.step(PixelGridAction::Up).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after termination");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert!(
+            env.step(PixelGridAction::Up).is_ok(),
+            "reset() must re-open the environment for a new episode"
+        );
+    }
+
+    /// `reset_with_seed` delegates to `reset`, so it must clear the guard too.
+    #[test]
+    fn reset_with_seed_reopens_finished_episode() {
+        let mut env = guard_env();
+        drive_to_truncation(&mut env);
+
+        env.reset_with_seed(999)
+            .expect("reset_with_seed must succeed after truncation");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset_with_seed() must return the guard to Running"
+        );
+        assert!(
+            env.step(PixelGridAction::Up).is_ok(),
+            "reset_with_seed() must re-open the environment for a new episode"
+        );
+    }
 
     #[test]
     fn default_config_validates() {
