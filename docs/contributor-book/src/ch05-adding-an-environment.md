@@ -36,8 +36,11 @@ subdirectory:
 
 - `classic/` — standard control tasks (CartPole, MountainCar, …)
 - `games/` — discrete game environments
+- `grids/` — Minigrid-family gridworlds (Empty, DoorKey, FourRooms, …)
 - `landscapes/` — static optimisation landscapes (Sphere, Rastrigin, …)
+- `toy_text/` — tabular text environments (FrozenLake, Blackjack, Taxi, …)
 - `locomotion/` — continuous physics environments (behind a feature flag)
+- `box2d/` — 2D physics environments (behind a feature flag)
 
 ## Outline
 
