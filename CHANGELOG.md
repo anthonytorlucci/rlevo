@@ -504,6 +504,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` kept integrating the Rapier sim across the whole
+  `locomotion` family** (ADR 0044, resolves #292) — `InvertedPendulum`,
+  `InvertedDoublePendulum`, `Reacher` and `Swimmer` gated `step()` only on
+  `action.is_valid()`, so a step taken past a done snapshot ran another
+  physics tick and the observation drifted past termination.
+
+  The two pendulums are the sharp case: their healthiness predicates are live
+  reads of the current pose, not latches. A toppled pole that swings back
+  through `|θ| < 0.2` (`InvertedPendulum`) or a tip that swings back above the
+  healthy z floor (`InvertedDoublePendulum`) re-earns the alive bonus (+1,
+  +10 respectively) on a **`Running`** snapshot — a finished episode was
+  silently resurrected, not merely drifted. `Reacher` and `Swimmer` have no
+  `Terminated` path at all — their only done status is `Truncated` at `steps
+  >= max_steps` — so for them the defect was unbounded stepping past the
+  truncation boundary rather than reward re-firing.
+
+  All four now hold an `episode::EpisodeGuard`, `check()` it as the **first**
+  statement of `step()` — ahead of the `action.is_valid()` bounds check,
+  because the episode being over is a call-sequence fact independent of
+  whether the action was well-formed — and `record()` the emitted snapshot's
+  own status on a single exit. One observable side effect of the ordering: a
+  replayed malformed action taken past a terminal now reports
+  `StepAfterEpisodeEnd` rather than `InvalidAction`.
+
+  Each environment gained an `assert_rejects_post_terminal_step` conformance
+  test and a reset-reopens-the-episode test. Existing tests missed the defect
+  because none of them stepped past a done snapshot; `Reacher`'s
+  `reward_distance_is_nonpositive` and `reward_control_is_nonpositive` each
+  drive exactly 50 unconditional steps against a default `max_steps == 50` —
+  they land precisely **on** the truncation boundary, and one more iteration
+  in either would have caught it.
 - **Post-terminal `step()` kept integrating the physics sim across the whole
   `box2d` family** (ADR 0044, resolves #293) — `BipedalWalker`, `CarRacing`,
   `LunarLanderDiscrete` and `LunarLanderContinuous` checked only

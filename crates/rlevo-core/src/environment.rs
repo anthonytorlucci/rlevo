@@ -355,9 +355,9 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// so a rejected call leaves the environment untouched.
     ///
     /// **Migration note (alpha).** The `toy_text`, `classic` (non-bandit),
-    /// `grids`, and `box2d` families and the `TimeLimit` wrapper enforce this.
-    /// The behaviour of the remaining environments — the `classic` module's
-    /// bandits, the `locomotion` family, and `pixel_grid` — after a terminal
+    /// `grids`, `box2d`, and `locomotion` families and the `TimeLimit` wrapper
+    /// enforce this. The behaviour of the remaining environments — the
+    /// `classic` module's bandits and `pixel_grid` — after a terminal
     /// snapshot is **undefined**; see issue #289 for the family-by-family
     /// rollout. Callers must not rely on it there.
     ///
