@@ -378,22 +378,20 @@ Three details here are load-bearing, not stylistic:
   the guard *after* the fallible work, not before — a failed reset must not
   silently re-open a finished episode.
 
-> **Scope: most, but not all, of the built-in families enforce this today.**
-> `EpisodeGuard` ships in `rlevo-environments`, and the
+> **Scope: every built-in family enforces this.** `EpisodeGuard` ships in
+> `rlevo-environments`, and the
 > `toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
-> `classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
-> `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
+> `classic` family — its six non-bandit environments (`CartPole`, `Acrobot`,
+> `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`) and its four
+> bandits (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
+> `AdversarialBandit`) — all twelve
 > `grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
 > `LunarLanderDiscrete`, `LunarLanderContinuous`), the `locomotion` family
 > (`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`),
 > `pixel_grid`, and the
-> `TimeLimit` wrapper all hold one. The `classic` module's bandits
-> (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
-> `AdversarialBandit`) do not yet — their post-terminal
-> behaviour is undefined, tracked family-by-family in
-> [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). Your own
-> environment doesn't have to wait for that rollout: reach for `EpisodeGuard`
-> the same way `CliffWalking` does, and it conforms from day one.
+> `TimeLimit` wrapper all hold one. Reach for `EpisodeGuard` the same way
+> `CliffWalking` does and your environment joins that guarantee rather than
+> becoming the one exception a caller has to special-case.
 
 ## Step 6 — construction
 
@@ -434,10 +432,10 @@ algorithm will drive your environment correctly:
   that is a caller error, not a fresh transition, and should be rejected with
   `EnvironmentError::StepAfterEpisodeEnd` rather than silently continuing — see
   [Step 5](#step-5--guard-the-post-terminal-step) above for the `EpisodeGuard`
-  recipe. (The `toy_text` family, the `classic` family's non-bandit
-  environments, the `grids`, `box2d`, and `locomotion` families, and
-  `TimeLimit` enforce this today; treat it as the target for any environment
-  you write, not yet a workspace-wide guarantee.)
+  recipe. (Every environment in the workspace enforces this — the `toy_text`,
+  `classic` (bandits included), `grids`, `box2d`, and `locomotion` families,
+  `pixel_grid`, and `TimeLimit` — so callers already treat it as a
+  workspace-wide guarantee; yours is expected to honour it too.)
 - **Neither method panics on valid input.** Return `EnvironmentError::InvalidAction`
   for out-of-range actions; reserve panics for genuine internal-logic bugs.
 - **Your config validates its own invariants.** Implement

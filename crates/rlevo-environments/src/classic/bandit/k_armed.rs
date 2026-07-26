@@ -37,12 +37,14 @@ use rlevo_core::base::{
 };
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+use crate::episode::EpisodeGuard;
 
 // ---------------------------------------------------------------------------
 // State
@@ -188,6 +190,18 @@ impl<const K: usize> KArmedBanditAction<K> {
     #[must_use]
     pub fn arm(&self) -> usize {
         self.selected_arm
+    }
+
+    /// Forges an action whose arm index is out of range (`selected_arm == K`).
+    ///
+    /// Test-only, and shared with the sibling bandit modules: every public
+    /// constructor rejects an out-of-range index, so this is the only way to
+    /// obtain the malformed action needed to prove that
+    /// [`Environment::step`] consults the episode guard **before** it validates
+    /// the action (ADR 0044 §5).
+    #[cfg(test)]
+    pub(super) fn out_of_range_for_tests() -> Self {
+        Self { selected_arm: K }
     }
 }
 
@@ -400,7 +414,10 @@ impl FromStr for KArmedBanditConfig {
 pub struct KArmedBandit<const K: usize> {
     state: KArmedBanditState,
     steps: usize,
-    done: bool,
+    /// Episode-lifecycle guard: rejects a [`Environment::step`] taken after the
+    /// episode ended (ADR 0044). `EpisodeStatus` is the single source of truth
+    /// for done-ness (`docs/rules.md` §10).
+    guard: EpisodeGuard,
     config: KArmedBanditConfig,
     rng: StdRng,
     arm_means: [f32; K],
@@ -410,8 +427,10 @@ impl<const K: usize> Display for KArmedBandit<K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "KArmedBandit<{K}>(step={}/{}, done={})",
-            self.steps, self.config.max_steps, self.done
+            "KArmedBandit<{K}>(step={}/{}, status={:?})",
+            self.steps,
+            self.config.max_steps,
+            self.guard.status()
         )
     }
 }
@@ -454,7 +473,7 @@ impl<const K: usize> KArmedBandit<K> {
         Ok(Self {
             state: KArmedBanditState,
             steps: 0,
-            done: false,
+            guard: EpisodeGuard::new(),
             config,
             rng,
             arm_means,
@@ -474,16 +493,29 @@ impl<const K: usize> KArmedBandit<K> {
     /// discards the snapshot return value. Prefer the
     /// [`Environment::reset`] trait method for new code — it returns a
     /// [`SnapshotBase`] for composition with wrappers.
+    ///
+    /// The episode guard is re-opened here, so both reset lanes (this one and
+    /// [`Environment::reset`], which delegates to it) agree.
     pub fn reset(&mut self) {
+        self.guard.reset();
         self.state = KArmedBanditState;
         self.steps = 0;
-        self.done = false;
     }
 
     /// Pull `arm` and return a sampled reward from `N(q*(arm), 1)`.
     ///
-    /// Advances the internal step counter and marks the episode `done` when
-    /// `steps == max_steps`.
+    /// Advances the internal step counter and, like [`Environment::step`],
+    /// records the resulting episode status on the guard: `Terminated` once
+    /// `steps >= max_steps`, `Running` before that. Both entry points funnel
+    /// through the same private `advance` helper, so the guard and the step
+    /// counter can never disagree about where the episode is — pulling to the
+    /// step budget closes the episode for the trait `step` too.
+    ///
+    /// Unlike [`Environment::step`], `pull` is **infallible and unguarded on
+    /// entry**: it does not reject a post-terminal call. It is a bespoke
+    /// non-trait entry point kept for `rlevo-benchmarks`, and making it
+    /// fallible would be an unrelated API break. Callers that need the
+    /// post-terminal contract of ADR 0044 must use [`Environment::step`].
     ///
     /// # Panics
     ///
@@ -492,17 +524,30 @@ impl<const K: usize> KArmedBandit<K> {
     pub fn pull(&mut self, arm: usize) -> f32 {
         let action = KArmedBanditAction::<K>::new(arm).expect("arm index in range");
         let reward = self.sample_reward(action.arm());
-        self.steps += 1;
-        if self.steps >= self.config.max_steps {
-            self.done = true;
-        }
+        let _ = self.advance(action, ScalarReward(reward));
         reward
     }
 
-    /// `true` when the episode has reached `max_steps`.
-    #[must_use]
-    pub fn is_done(&self) -> bool {
-        self.done
+    /// Ticks the step counter, builds the snapshot for this transition, and
+    /// records **that snapshot's own status** on the guard.
+    ///
+    /// The single place the episode advances: shared by [`Environment::step`]
+    /// and [`Self::pull`] so the guard cannot drift from the emitted snapshot
+    /// (ADR 0044 §5).
+    fn advance(
+        &mut self,
+        action: KArmedBanditAction<K>,
+        reward: ScalarReward,
+    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+        self.steps += 1;
+        let obs = self.observe(&action, &self.state);
+        let snap = if self.steps >= self.config.max_steps {
+            SnapshotBase::terminated(obs, reward)
+        } else {
+            SnapshotBase::running(obs, reward)
+        };
+        self.guard.record(snap.status());
+        snap
     }
 
     /// Read-only view of the true arm means.
@@ -567,7 +612,15 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
         ))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] when the episode has
+    /// already ended — checked **first**, before the action is validated and
+    /// before any RNG draw, so a rejected call leaves the environment (and its
+    /// reward stream) untouched. Returns
+    /// [`EnvironmentError::InvalidAction`] when the arm index is out of range.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.check()?;
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
                 "arm index {} out of range [0, {K})",
@@ -575,15 +628,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
             )));
         }
         let reward = ScalarReward(self.sample_reward(action.arm()));
-        self.steps += 1;
-        let obs = self.observe(&action, &self.state);
-        let snap = if self.steps >= self.config.max_steps {
-            self.done = true;
-            SnapshotBase::terminated(obs, reward)
-        } else {
-            SnapshotBase::running(obs, reward)
-        };
-        Ok(snap)
+        Ok(self.advance(action, reward))
     }
 }
 
@@ -658,7 +703,8 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
+    use crate::episode::assert_rejects_post_terminal_step;
+    use rlevo_core::environment::EpisodeStatus;
 
     #[test]
     fn default_config_validates() {
@@ -758,7 +804,11 @@ mod tests {
     fn environment_new_constructs() {
         let env = <KArmedBandit<K> as ConstructableEnv>::new(false);
         assert_eq!(env.steps, 0);
-        assert!(!env.done);
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "a freshly constructed bandit must be steppable"
+        );
     }
 
     #[test]
@@ -784,6 +834,192 @@ mod tests {
         assert!(!s2.is_done());
         let s3 = <KArmedBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).unwrap();
         assert!(s3.is_terminated());
+    }
+
+    // ── post-terminal step guard (issue #295, ADR 0044) ──────────────────────
+
+    /// Step budget for the guard tests: small enough to burn through quickly.
+    const GUARD_MAX_STEPS: usize = 3;
+
+    fn guard_env() -> KArmedBandit<K> {
+        KArmedBandit::<K>::with_config(KArmedBanditConfig {
+            max_steps: GUARD_MAX_STEPS,
+            seed: 7,
+        })
+        .expect("valid config")
+    }
+
+    /// Resets, then steps arm 0 until the step budget terminates the episode.
+    fn drive_to_termination(
+        env: &mut KArmedBandit<K>,
+    ) -> SnapshotBase<1, KArmedBanditObservation, ScalarReward> {
+        <KArmedBandit<K> as Environment<1, 1, 1>>::reset(env).expect("reset must succeed");
+        let action = KArmedBanditAction::<K>::from_index(0);
+        let mut snap = <KArmedBandit<K> as Environment<1, 1, 1>>::step(env, action)
+            .expect("first step must succeed");
+        while !snap.is_done() {
+            snap = <KArmedBandit<K> as Environment<1, 1, 1>>::step(env, action)
+                .expect("step must succeed while the episode is running");
+        }
+        snap
+    }
+
+    #[test]
+    fn rejects_post_terminal_step() {
+        let mut env = guard_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_termination,
+            KArmedBanditAction::<K>::from_index(0),
+        );
+    }
+
+    #[test]
+    fn post_terminal_step_is_rejected_before_action_validity() {
+        // Being past the end of the episode is a call-sequence fact that does
+        // not depend on the action being well-formed: replaying a malformed
+        // action past a terminal must report StepAfterEpisodeEnd, not
+        // InvalidAction.
+        let mut env = guard_env();
+        let terminal = drive_to_termination(&mut env);
+
+        let malformed = KArmedBanditAction::<K>::out_of_range_for_tests();
+        assert!(!malformed.is_valid(), "the replayed action is out of range");
+
+        let err = <KArmedBandit<K> as Environment<1, 1, 1>>::step(&mut env, malformed)
+            .expect_err("a step after termination must be rejected");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                terminal.status(),
+                "the call-sequence error wins over the action's own validity"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn post_terminal_step_does_not_advance_the_step_counter() {
+        let mut env = guard_env();
+        drive_to_termination(&mut env);
+        let steps_at_end = env.steps;
+
+        let _ = <KArmedBandit<K> as Environment<1, 1, 1>>::step(
+            &mut env,
+            KArmedBanditAction::<K>::from_index(0),
+        )
+        .expect_err("a step after termination must be rejected");
+
+        assert_eq!(
+            env.steps, steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    fn rejected_step_does_not_advance_the_rng_stream() {
+        // ADR 0029: the env's RNG is persistent, observable state. A rejected
+        // step must draw no randomness, so the next episode's rewards must be
+        // exactly those of a same-seed env that never made the illegal call.
+        let mut rejected = guard_env();
+        let mut untouched = guard_env();
+        drive_to_termination(&mut rejected);
+        drive_to_termination(&mut untouched);
+
+        let _ = <KArmedBandit<K> as Environment<1, 1, 1>>::step(
+            &mut rejected,
+            KArmedBanditAction::<K>::from_index(0),
+        )
+        .expect_err("a step after termination must be rejected");
+
+        let after: Vec<f32> = {
+            <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut rejected).unwrap();
+            (0..GUARD_MAX_STEPS).map(|_| rejected.pull(0)).collect()
+        };
+        let baseline: Vec<f32> = {
+            <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut untouched).unwrap();
+            (0..GUARD_MAX_STEPS).map(|_| untouched.pull(0)).collect()
+        };
+        assert_eq!(
+            after, baseline,
+            "a rejected step must draw no randomness; the next episode must replay identically"
+        );
+    }
+
+    #[test]
+    fn reset_reopens_a_terminated_episode() {
+        let mut env = guard_env();
+        drive_to_termination(&mut env);
+        let action = KArmedBanditAction::<K>::from_index(0);
+        assert!(
+            <KArmedBandit<K> as Environment<1, 1, 1>>::step(&mut env, action).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        <KArmedBandit<K> as Environment<1, 1, 1>>::reset(&mut env).expect("reset must succeed");
+        assert!(
+            !<KArmedBandit<K> as Environment<1, 1, 1>>::step(&mut env, action)
+                .expect("reset() must re-open the environment")
+                .is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+    }
+
+    #[test]
+    fn inherent_reset_reopens_a_terminated_episode() {
+        // `KArmedBandit::reset` is the bespoke benchmark lane; it must clear the
+        // guard too, or the two reset paths disagree.
+        let mut env = guard_env();
+        drive_to_termination(&mut env);
+
+        KArmedBandit::reset(&mut env);
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "the inherent reset must re-open the guard as well"
+        );
+        assert!(
+            <KArmedBandit<K> as Environment<1, 1, 1>>::step(
+                &mut env,
+                KArmedBanditAction::<K>::from_index(0)
+            )
+            .is_ok(),
+            "the inherent reset must leave the environment steppable"
+        );
+    }
+
+    #[test]
+    fn pull_records_the_same_status_the_trait_step_would() {
+        // `pull` is unguarded on entry but shares `advance`, so it closes the
+        // episode at exactly the same step count the trait `step` does.
+        let mut env = guard_env();
+        for _ in 0..GUARD_MAX_STEPS - 1 {
+            let _ = env.pull(0);
+            assert_eq!(
+                env.guard.status(),
+                EpisodeStatus::Running,
+                "the episode is still inside its step budget"
+            );
+        }
+        let _ = env.pull(0);
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "pulling to max_steps must terminate the episode for the trait step too"
+        );
+        assert!(
+            <KArmedBandit<K> as Environment<1, 1, 1>>::step(
+                &mut env,
+                KArmedBanditAction::<K>::from_index(0)
+            )
+            .is_err(),
+            "the guard and the step counter must not disagree across the two entry points"
+        );
     }
 
     #[test]

@@ -351,15 +351,10 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// and is reported as one. Call [`reset`](Self::reset) to begin a new
     /// episode.
     ///
-    /// The check belongs at the **top** of `step()`, before any state mutation,
-    /// so a rejected call leaves the environment untouched.
-    ///
-    /// **Migration note (alpha).** The `toy_text`, `classic` (non-bandit),
-    /// `grids`, `box2d`, and `locomotion` families, `pixel_grid`, and the
-    /// `TimeLimit` wrapper enforce this. The behaviour of the remaining
-    /// environments — the `classic` module's bandits — after a terminal
-    /// snapshot is **undefined**; see issue #289 for the family-by-family
-    /// rollout. Callers must not rely on it there.
+    /// The check belongs at the **top** of `step()`, before any state mutation
+    /// or RNG draw, so a rejected call leaves the environment untouched — an
+    /// environment's RNG stream is a persistent, observable part of its state,
+    /// so a rejected step must not advance it either.
     ///
     /// # Errors
     ///
