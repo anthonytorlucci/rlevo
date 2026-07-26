@@ -244,11 +244,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   CarRacing pixels). `CarRacing` drops its cached pixel buffer entirely;
   `BipedalWalker`/`LunarLander` retain only a finiteness signal for `is_valid`
   (`last_obs`/`prev_shaping` respectively), matching the locomotion states, so
-  `is_valid` is unchanged. The grid family routes its shared egocentric projection
-  through `GridState: Observable<3>` and the `build_snapshot` chokepoint;
-  `GoToDoorEnv` implements `Sensor` for its goal-conditioned observation.
-  `pixel_grid` keeps `Observable<3>` and delegates its `Sensor` to `project()`.
-  Behaviour (observations, rewards, termination) is unchanged.
+  `is_valid` is unchanged. `pixel_grid` keeps `Observable<3>` and delegates its
+  `Sensor` to `project()`. Behaviour (observations, rewards, termination) is
+  unchanged for every family except the grids, which this same unreleased cycle
+  revisits below: ADR 0047 §5 initially kept the grid family routing its shared
+  egocentric projection through `GridState: Observable<3>` and the
+  `build_snapshot` chokepoint, with only `GoToDoorEnv` implementing `Sensor` for
+  its goal-conditioned observation. That exemption's stated premise — one
+  shared, state-pure projection covers all eleven other envs — turned out to be
+  false (canonical Minigrid sets `see_through_walls` per environment, not per
+  family) and is reversed later in this section (ADR 0063): `Observable<3>` is
+  removed from `GridState` entirely, and all twelve grid environments implement
+  `Sensor`. Neither state shipped to a user, so there is one migration path
+  below, not two.
 - **Nine grid environments now reject sub-minimum configs at construction**
   (#106): `CrossingEnv`, `DoorKeyEnv`, `DynamicObstaclesEnv`, `EmptyEnv`,
   `FourRoomsEnv`, `LavaGapEnv`, `MultiRoomEnv`, `UnlockEnv`, `UnlockPickupEnv`.
@@ -334,6 +342,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `strip_cols()`/`gap_rows()` pair — `strip_rows()` alone no longer describes the
   board. A caller that only wants to know whether a cell is passable should read
   `env.state().grid` instead of reconstructing the layout from accessors at all.
+- **All 12 grid environments implement `Sensor` (ADR 0063, resolves #281);
+  `impl Observable<3> for GridState` is removed.** Each environment's
+  `observe`/`observe_reset` forwards to a shared `observe_grid`/`mask_view` pair
+  parameterised by that environment's own `const VISIBILITY`, so the per-env
+  difference is one constant, not eleven near-duplicated projections.
+  `build_snapshot` now **takes** an already-produced `GridObservation` instead
+  of producing one — its signature changes from `build_snapshot(reward, done)`
+  to `build_snapshot(observation, reward, done)`. `egocentric_view` is demoted
+  to `pub(crate)` and dropped from the `grids::core` re-export entirely: a raw,
+  unoccluded view is semantically wrong for eight of the twelve environments
+  once visibility is per-env, so it is no longer public API. No in-tree caller
+  outside `grids/` used any of these, so this is a zero-migration break for
+  every consumer of the public crate.
+- **`Entity::type_u8` is renumbered to canonical Minigrid's `OBJECT_TO_IDX`**
+  (ADR 0063, #281): `Empty` 0→1, `Wall` 1→2, `Floor` 2→3, `Door` 5→4, `Key`
+  6→5, `Ball` 7→6, `Box` 8→7, `Goal` 3→8, `Lava` 4→9, with `0` now reserved for
+  an unseen (masked) cell rather than doubling as `Empty`. This is channel 0 of
+  every grid observation's encoding, across all 12 environments.
+
+  *Migration.* **Persisted configs and recorded runs still load** — `Entity`
+  derives `Serialize`/`Deserialize` by variant name, not by `type_u8`, and
+  `render.rs`/the WASM report client match on the `Entity`/`GridTile` variant,
+  never on the raw byte — so nothing in the existing record/report pipeline
+  needs to change. What does not survive is anything keyed to the **byte
+  table** itself: a saved observation tensor, a trained checkpoint whose input
+  layer learned the old numbering, or an external baseline comparing raw
+  channel-0 values must be regenerated against the new table. Note channel 1
+  (color) is unaffected and therefore now **mixed-parity** with channel 0:
+  `Entity::color_u8` still reserves `0` for "no color" rather than shifting by
+  one the way `type_u8` did (`Color::to_u8`'s own indices are unchanged), which
+  will surprise anyone porting a Minigrid baseline expecting both channels to
+  move together.
 
 **Added**
 
@@ -395,6 +435,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Changed**
 
+- **Eight of twelve grid environments now occlude; four stay see-through,
+  matching upstream exactly** (ADR 0063, #281): `crossing`, `door_key`,
+  `four_rooms`, `lava_gap`, `memory`, `multi_room`, `unlock`, and
+  `unlock_pickup` run the canonical shadow cast; `empty`, `dist_shift`,
+  `dynamic_obstacles`, and `go_to_door` stay fully visible, per canonical
+  Minigrid's own per-env `see_through_walls` values (whose default is
+  occlusion — an environment opts *out*, not in). `FourRoomsEnv`,
+  `MultiRoomEnv`, `DoorKeyEnv`, and `UnlockPickupEnv` get harder, since the
+  agent can no longer see into a room it has not entered — but say this
+  honestly, not from the floor plan alone: `FourRooms`'s four cross openings
+  let the shadow cast's flood fill spread sideways into a neighbouring room,
+  so from most poses the goal in an unentered room stays visible exactly as
+  before, and across 12 seeds the goal was maskable from any pose in only 2 of
+  them. `grid_memory_rl`'s bench numbers are not comparable across this
+  change — they now measure a different (occluded) task, not a regression.
 - **`EmptyEnv` and `DistShiftEnv` are deterministic on purpose, and their docs
   now say so** (ADR 0062 §1, §2b); the unread `_rng` field is deleted from both.
   Each was reconciled against upstream and found faithful: `MiniGrid-Empty-*`'s
@@ -529,6 +584,45 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   helper. Both now stop at the first snapshot reporting `is_done()` and assert on
   that one, and treat any action left in the script after termination as a defect
   in the script or the planner rather than tolerating it.
+- **`egocentric_view` applied no masking at all, so `see_through_walls` was
+  effectively `true` crate-wide** (ADR 0063, resolves #281). Every cell of the
+  rotated `7×7` window was read straight from the grid, walls included, the
+  opposite of canonical Minigrid's own default. A new crate-private
+  `grid::process_vis` — a direct port of `Grid.process_vis` — flood-fills from
+  the agent's own cell outward and masks any cell an opaque cell (a wall, or a
+  closed door) stands in front of; `mask_view` is the one place that dispatches
+  on each environment's `Visibility`.
+
+  *Why the existing tests missed it, and why this shipped safely anyway.*
+  Commit 040e057 changed eight environments' observations on every single
+  step and broke **zero** existing tests. `memory.rs`'s Invariant-M tests —
+  the ones written to prove the cue is unreadable from the decision region —
+  called `egocentric_view` directly rather than the observation an environment
+  actually emits, so they were asserting a property of a raw projection no
+  environment ever produces; nothing anywhere asserted that the *emitted*
+  observation was occlusion-free, because nothing expected occlusion to exist.
+- **Masked cells were briefly encoded identically to seen-empty cells**, which
+  made the fix above invisible to any policy at exactly the pose it mattered
+  most. Because `UNSEEN_TYPE == Entity::Empty.type_u8() == 0` under the byte
+  table in place before this cycle's renumbering (see the Breaking changes
+  entry above), a masked `Empty` cell and a confirmed-empty cell wrote the same
+  bytes. Measured on `MemoryEnv`'s default board: of 9,053 masked cells across
+  its occlusion sweep, 2,928 were `Entity::Empty`, and at the fork decision
+  cell facing West — the pose at which the agent must actually answer — the
+  occluded and unoccluded observations were **byte-identical**. Occlusion was
+  running correctly and encoding it wrong made it disappear on the wire; the
+  `type_u8` renumbering above is what makes it observable.
+- **ADR 0043's predicted `MemoryEnv::MIN_SIZE` 11→7 relaxation was tested and
+  refuted, not merely left undone.** ADR 0043 called the relaxation "a
+  one-line change" once occlusion landed. An executed sweep over every
+  decision-region cell and facing, at sizes 7, 9, 11, and 13, found the
+  occluded and see-through violation sets **identical** at every size (5
+  violating poses at 7 and 9, none at 11 or 13) — the shadow cast reaches the
+  cue by routing around the corridor's walls through the open start room, so
+  occlusion buys this environment nothing. `MIN_SIZE` is therefore unchanged at
+  `11`, and canonical `MiniGrid-MemoryS7-v0`/`S9-v0` remain unreproducible in
+  rlevo. Recorded explicitly because a reader of ADR 0043 alone would expect
+  S7/S9 to have arrived in this cycle; they have not.
 
 ### `rlevo-reinforcement-learning`
 
