@@ -1,22 +1,59 @@
 //! `LavaGap`: cross a vertical lava column through a single gap.
 //!
-//! Ports Farama Minigrid's [`LavaGapEnv`]. A vertical strip of [`Lava`]
-//! bisects the room with one empty cell forming the crossing. Stepping
-//! into lava terminates the episode with reward `0.0`; reaching the goal
-//! pays [`success_reward`].
+//! Ports Farama Minigrid's [`LavaGapEnv`] — the `MiniGrid-LavaGapS5-v0`
+//! family. A vertical strip of [`Lava`] bisects the room with one empty cell
+//! forming the crossing. Stepping into lava terminates the episode with reward
+//! `0.0`; reaching the goal pays [`success_reward`].
 //!
-//! ## Layout (5 × 5 default)
+//! ## Layout: sampled fresh every episode
+//!
+//! Every [`reset`](rlevo_core::environment::Environment::reset) draws a new
+//! board, reproducing the two `_rand_int` draws upstream `_gen_grid` makes and
+//! the order it makes them in (ADR 0062 §1):
+//!
+//! 1. the **lava column** `x`, uniform over `2..size-2`;
+//! 2. the **gap row** `y`, uniform over `1..size-1`.
+//!
+//! Nothing else moves. The agent always starts at `(1, 1)` facing East and the
+//! goal always sits at `(size-2, size-2)`, because upstream assigns both
+//! directly and never routes them through `place_agent` / `place_obj`.
+//! [`LavaGapEnv::lava_col`] and [`LavaGapEnv::gap_row`] read the *current*
+//! episode's draw back, so a caller (or a planner) can recover the board it was
+//! handed.
+//!
+//! At `size = 5` the column range `2..3` holds a single value, so only the gap
+//! row varies there; from `size = 6` upwards both quantities move.
+//!
+//! ### Two sampled boards
+//!
+//! `LavaGapConfig::new(5, 100, 0)` after `reset_with_seed(0)` — the column is
+//! pinned to `2` at this size, and this seed puts the gap on row `3`:
 //!
 //! ```text
 //! # # # # #
-//! # A ~ . #    ~ = Lava
-//! # . . . #    A = agent, start (1, 1) facing East
-//! # . ~ G #    G = Goal (3, 3)
+//! # > L . #    L = Lava
+//! # . L . #    > = agent at (1, 1) facing East
+//! # . . G #    G = Goal at (size-2, size-2)
 //! # # # # #    # = wall
 //! ```
 //!
-//! The lava strip occupies `x = size / 2`; the single gap sits at
-//! `y = size / 2`. The goal is always at `(size-2, size-2)`.
+//! `LavaGapConfig::new(9, 324, 0)` after `reset_with_seed(0)` — at this size
+//! the column moves too; this seed lands it on `6` with the gap on row `6`:
+//!
+//! ```text
+//! # # # # # # # # #
+//! # > . . . . L . #
+//! # . . . . . L . #
+//! # . . . . . L . #
+//! # . . . . . L . #
+//! # . . . . . L . #
+//! # . . . . . . . #
+//! # . . . . . L G #
+//! # # # # # # # # #
+//! ```
+//!
+//! Both boards are real `ascii()` output, pinned by
+//! `tests::module_doc_snapshots_are_current`.
 //!
 //! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell  |
 //! |-------------|---------------------------------------------------------------------|
@@ -51,8 +88,10 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+// `Rng` is the object-safe core trait in rand 0.10; the `random_range` sugar
+// lives on the blanket-implemented `RngExt`. The public bound stays
+// `R: Rng + ?Sized` per `rules.md` §8.
+use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -63,6 +102,17 @@ use std::str::FromStr;
 /// Minimum grid side length; the lava column needs at least one interior
 /// cell on each side.
 const MIN_SIZE: usize = 5;
+
+/// The lava column is drawn from `2..size-2` (upstream's `_rand_int(2, w-2)`),
+/// which is empty for `size < 5` and would make
+/// [`random_range`](rand::RngExt::random_range) panic. `MIN_SIZE` is what keeps
+/// that range non-empty, so tie the two together at compile time rather than
+/// leaving the connection in a comment — this is the assertion ADR 0062's
+/// consequences section asks each randomized env to carry.
+const _: () = assert!(
+    MIN_SIZE >= 5,
+    "MIN_SIZE < 5 makes the lava-column range `2..size-2` empty"
+);
 
 /// Configuration for [`LavaGapEnv`].
 ///
@@ -78,11 +128,24 @@ const MIN_SIZE: usize = 5;
 pub struct LavaGapConfig {
     /// Grid side length in cells (width = height = `size`); must be ≥ `MIN_SIZE` (5).
     ///
-    /// The lava column sits at `x = size / 2` and the gap at `y = size / 2`.
+    /// It also bounds the layout draws: the lava column comes from `2..size-2`
+    /// and the gap row from `1..size-1`. At the `MIN_SIZE` floor the former is
+    /// the single value `2`.
     pub size: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
-    /// RNG seed; reserved for future stochastic placement variants.
+    /// Seed for the environment's persistent RNG, drawn once at construction.
+    ///
+    /// Every episode samples the **lava column** from `2..size-2` and the
+    /// **gap row** from `1..size-1`, in that order — the two `_rand_int` draws
+    /// upstream `MiniGrid-LavaGapS5-v0` makes in `_gen_grid`. The agent's start
+    /// pose `(1, 1)` facing East and the goal at `(size-2, size-2)` are *not*
+    /// sampled: upstream assigns both directly, so neither is a deviation.
+    ///
+    /// The RNG **advances** across resets (ADR 0029), so successive episodes
+    /// get independent columns and gaps. A fixed seed therefore reproduces a
+    /// fixed *sequence* of episodes, not one repeated episode. For bit-for-bit
+    /// replay of a single episode use [`LavaGapEnv::reset_with_seed`].
     pub seed: u64,
 }
 
@@ -192,6 +255,10 @@ impl FromStr for LavaGapConfig {
 /// through the single gap to reach the goal in the opposite corner.
 /// Stepping into lava ends the episode immediately with reward `0.0`.
 ///
+/// The strip's column and the gap's row are **re-sampled every
+/// [`reset`](Environment::reset)** from a persistent RNG stream (ADR 0029/0062);
+/// see the module docs for the ranges and for what stays fixed.
+///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
 /// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
@@ -211,20 +278,20 @@ pub struct LavaGapEnv {
     config: LavaGapConfig,
     steps: usize,
     render: bool,
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
+    /// Column the current episode's lava strip occupies.
+    lava_col: i32,
+    /// Row of the current episode's single gap in that strip.
+    gap_row: i32,
+    rng: StdRng,
 }
 
 impl LavaGapEnv {
     /// Constructs a [`LavaGapEnv`] from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Seeds the persistent RNG once from `config.seed` and immediately builds
+    /// a first board from it. Call [`Environment::reset`] before the first
+    /// [`Environment::step`] to obtain the first observation; that reset samples
+    /// a *fresh* board, advancing the stream.
     ///
     /// # Examples
     ///
@@ -246,15 +313,33 @@ impl LavaGapEnv {
     /// or struct-update syntax without passing through [`FromStr`].
     pub fn with_config(config: LavaGapConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
-        let state = Self::build(&config);
+        let mut rng = StdRng::seed_from_u64(config.seed);
+        let (state, lava_col, gap_row) = Self::build(&config, &mut rng);
         Ok(Self {
             state,
             config,
             steps: 0,
             render,
-            _rng: rng,
+            lava_col,
+            gap_row,
+            rng,
         })
+    }
+
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes get independent lava columns and gap rows (ADR 0029);
+    /// use this when you need a *specific* board to reproduce bit-for-bit (e.g.
+    /// replaying a failure). Run-level reproducibility is already guaranteed by
+    /// the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
     }
 
     /// Returns the environment's active configuration.
@@ -275,20 +360,24 @@ impl LavaGapEnv {
         &self.state
     }
 
-    /// Column index where the lava strip sits.
+    /// Column index where **this episode's** lava strip sits.
+    ///
+    /// Re-sampled from `2..size-2` at every [`reset`](Environment::reset), so
+    /// read it back after the reset rather than deriving it from
+    /// [`LavaGapConfig::size`].
     #[must_use]
-    pub fn lava_col(&self) -> i32 {
-        #[allow(clippy::cast_possible_wrap)]
-        let col = (self.config.size / 2) as i32;
-        col
+    pub const fn lava_col(&self) -> i32 {
+        self.lava_col
     }
 
-    /// Row index of the single gap in the lava strip.
+    /// Row index of **this episode's** single gap in the lava strip.
+    ///
+    /// Re-sampled from `1..size-1` at every [`reset`](Environment::reset), so
+    /// read it back after the reset rather than deriving it from
+    /// [`LavaGapConfig::size`].
     #[must_use]
-    pub fn gap_row(&self) -> i32 {
-        #[allow(clippy::cast_possible_wrap)]
-        let row = (self.config.size / 2) as i32;
-        row
+    pub const fn gap_row(&self) -> i32 {
+        self.gap_row
     }
 
     /// Renders the current grid state as an ASCII string.
@@ -297,30 +386,51 @@ impl LavaGapEnv {
         render_ascii(&self.state.grid, &self.state.agent)
     }
 
-    fn build(config: &LavaGapConfig) -> GridState {
+    /// Build a fresh episode: a walled room, a goal in the far corner, and a
+    /// lava column with one gap — both of the latter's coordinates sampled.
+    ///
+    /// Returns the state together with `(lava_col, gap_row)` so the caller can
+    /// cache the draw for [`lava_col`](Self::lava_col) / [`gap_row`](Self::gap_row).
+    ///
+    /// Draws from `rng` and lets it advance (ADR 0029) — never re-seeds.
+    ///
+    /// # Fidelity
+    ///
+    /// Mirrors upstream `LavaGapEnv._gen_grid`: perimeter, agent at `(1, 1)`
+    /// facing East, goal at `(size-2, size-2)`, then **column before row** —
+    /// `_rand_int(2, w-2)` then `_rand_int(1, h-1)`, both half-open in Python
+    /// and so written as Rust `2..size-2` / `1..size-1`. Draw order is part of
+    /// the algorithm (ADR 0062 §1); swapping the two lines changes every seeded
+    /// board.
+    ///
+    /// These are index draws over a coordinate range, not free-cell draws, so
+    /// they deliberately use [`random_range`](rand::RngExt::random_range)
+    /// directly rather than [`sample_pos`](super::core::sample_pos). Routing
+    /// them through the placement sampler would fold two independent uniform
+    /// draws into one draw over a rectangle and would silently re-weight the
+    /// distribution if any cell in that rectangle were ever occupied.
+    fn build<R: Rng + ?Sized>(config: &LavaGapConfig, rng: &mut R) -> (GridState, i32, i32) {
         let mut grid = Grid::new(config.size, config.size);
         grid.draw_walls();
 
         #[allow(clippy::cast_possible_wrap)]
-        let lava_col = (config.size / 2) as i32;
-        #[allow(clippy::cast_possible_wrap)]
-        let gap_row = (config.size / 2) as i32;
-        #[allow(clippy::cast_possible_wrap)]
-        let height = (config.size - 1) as i32;
-        for y in 1..height {
+        let size = config.size as i32;
+
+        let agent = AgentState::new(1, 1, Direction::East);
+        grid.set(size - 2, size - 2, Entity::Goal);
+
+        // `MIN_SIZE >= 5` (asserted at compile time above) keeps `2..size-2`
+        // non-empty; `1..size-1` is non-empty for any `size >= 2`.
+        let lava_col = rng.random_range(2..size - 2);
+        let gap_row = rng.random_range(1..size - 1);
+
+        for y in 1..size - 1 {
             if y != gap_row {
                 grid.set(lava_col, y, Entity::Lava);
             }
         }
 
-        #[allow(clippy::cast_possible_wrap)]
-        let gx = (config.size - 2) as i32;
-        #[allow(clippy::cast_possible_wrap)]
-        let gy = (config.size - 2) as i32;
-        grid.set(gx, gy, Entity::Goal);
-
-        let agent = AgentState::new(1, 1, Direction::East);
-        GridState::new(grid, agent)
+        (GridState::new(grid, agent), lava_col, gap_row)
     }
 
     fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
@@ -364,10 +474,17 @@ impl Environment<3, 3, 1> for LavaGapEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Samples a fresh board from the **persistent** RNG stream.
+    ///
+    /// Per ADR 0029 the stream is *not* re-seeded here: successive resets draw
+    /// independent lava columns and gap rows. Use
+    /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = Self::build(&self.config);
+        let (state, lava_col, gap_row) = Self::build(&self.config, &mut self.rng);
+        self.state = state;
+        self.lava_col = lava_col;
+        self.gap_row = gap_row;
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 
@@ -401,11 +518,87 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::grids::core::is_free;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
+    use std::collections::HashSet;
+
+    /// Every seed loop runs at both of these.
+    ///
+    /// `MIN_SIZE` is where the draw ranges degenerate — the column range
+    /// `2..size-2` collapses to the single value `2` there — and `9` is a size
+    /// where both quantities move. An invariant that only holds at one of the
+    /// two is a bug, and running both is what surfaces it.
+    const SIZES: [usize; 2] = [MIN_SIZE, 9];
+
+    /// How many seeds each loop sweeps.
+    ///
+    /// Sized by the *weakest* draw in the suite rather than picked round: at
+    /// `MIN_SIZE` the gap row has exactly three values, so "every seed happened
+    /// to draw the same row" has probability `3 * (1/3)^SEEDS ≈ 10^-30` at 64.
+    /// That is many orders below the number of times this suite will ever run,
+    /// so a failure here is evidence of a pinned draw, not of bad luck.
+    const SEEDS: u64 = 64;
 
     fn env_5x5() -> LavaGapEnv {
         LavaGapEnv::with_config(LavaGapConfig::new(5, 100, 0), false).expect("valid config")
+    }
+
+    /// A square env at `size` with the same `4 * size * size` budget
+    /// [`LavaGapConfig::default`] picks, so no seed loop is quietly handed a
+    /// budget the shipped default would not have.
+    fn env_of(size: usize) -> LavaGapEnv {
+        LavaGapEnv::with_config(LavaGapConfig::new(size, 4 * size * size, 0), false)
+            .expect("valid config")
+    }
+
+    /// An optimal route across whatever board `env` is **currently** holding.
+    ///
+    /// Every coordinate is read back from the environment, so the script stays
+    /// correct for every sampled layout: descend column `x = 1` to the gap row,
+    /// cross east through the gap to the goal column, then descend to the goal.
+    /// A fixed action list cannot state that property once the board moves.
+    fn route_to_goal(env: &LavaGapEnv) -> Vec<GridAction> {
+        #[allow(clippy::cast_possible_wrap)]
+        let goal = (env.config().size - 2) as i32;
+        let gap_row = env.gap_row();
+        let mut script = Vec::new();
+        if gap_row > 1 {
+            script.push(GridAction::TurnRight); // face South
+            for _ in 1..gap_row {
+                script.push(GridAction::Forward);
+            }
+            script.push(GridAction::TurnLeft); // face East again
+        }
+        // x: 1 -> goal, passing through the gap cell (lava_col, gap_row).
+        for _ in 1..goal {
+            script.push(GridAction::Forward);
+        }
+        if goal > gap_row {
+            script.push(GridAction::TurnRight); // face South
+            for _ in gap_row..goal {
+                script.push(GridAction::Forward);
+            }
+        }
+        script
+    }
+
+    /// Step `script` through `env`, stopping at the first terminal snapshot.
+    ///
+    /// The derived scripts above may overshoot by design (a route that reaches
+    /// the goal early, a walk that hits lava early); stopping on `done` keeps
+    /// the tests from stepping a finished episode.
+    fn run_to_completion(env: &mut LavaGapEnv, script: &[GridAction]) -> GridSnapshot {
+        let mut last = None;
+        for &action in script {
+            let snap = env.step(action).unwrap();
+            let done = snap.is_done();
+            last = Some(snap);
+            if done {
+                break;
+            }
+        }
+        last.expect("script must contain at least one action")
     }
 
     #[test]
@@ -465,13 +658,300 @@ mod tests {
         );
     }
 
+    /// The two sampled quantities are asserted **separately**.
+    ///
+    /// A whole-board "consecutive resets differ" check passes while one of the
+    /// two draws is stuck, because the other one alone makes the boards differ.
+    /// That is the exact trap #282 and ADR 0062 §4 name, so each quantity gets
+    /// its own non-degeneracy assertion.
     #[test]
-    fn build_places_lava_strip_with_gap() {
-        let env = env_5x5();
-        assert_eq!(env.state().grid.get(2, 1), Entity::Lava);
-        assert_eq!(env.state().grid.get(2, 3), Entity::Lava);
-        assert_eq!(env.state().grid.get(2, 2), Entity::Empty);
-        assert_eq!(env.state().grid.get(3, 3), Entity::Goal);
+    fn lava_column_and_gap_row_vary_separately_across_seeds() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            let mut cols = HashSet::new();
+            let mut rows = HashSet::new();
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                cols.insert(env.lava_col());
+                rows.insert(env.gap_row());
+            }
+
+            assert!(
+                rows.len() >= 2,
+                "size {size}: the gap row never moved across {SEEDS} seeds, saw {rows:?}"
+            );
+
+            if size == MIN_SIZE {
+                // Verified by hand against upstream: the column is drawn from
+                // `_rand_int(2, width - 2)` = Rust `2..3` at size 5, a range
+                // with one member. The column genuinely *cannot* vary here, so
+                // assert the true invariant rather than a variability that does
+                // not exist — and assert the value, so a range that silently
+                // widens or shifts still fails.
+                assert_eq!(
+                    cols,
+                    HashSet::from([2]),
+                    "at MIN_SIZE the lava column range `2..3` admits only 2, saw {cols:?}"
+                );
+            } else {
+                assert!(
+                    cols.len() >= 2,
+                    "size {size}: the lava column never moved across {SEEDS} seeds, saw {cols:?}"
+                );
+            }
+        }
+    }
+
+    /// The draws cover their **whole** range, both endpoints included.
+    ///
+    /// `2..size-2` and `1..size-1` are the Rust translation of Python's
+    /// half-open `_rand_int(2, w-2)` / `_rand_int(1, h-1)`, and that interval
+    /// conversion is the easiest thing here to get wrong by one. Membership
+    /// (asserted in [`every_sampled_board_is_well_formed`]) catches a range that
+    /// came out too *wide*; only coverage catches one that came out too
+    /// *narrow*, which is the direction an off-by-one on a half-open bound
+    /// actually fails in.
+    ///
+    /// Run at size 9, where the sets are `{2,3,4,5,6}` and `{1,…,7}`.
+    /// `WIDE_SEEDS` is sized so that missing any one of the seven rows by chance
+    /// has probability `7 * (6/7)^512 ≈ 5e-34`; the assertion is deterministic
+    /// for every practical purpose, and 512 resets of a 9×9 board are free.
+    #[test]
+    fn the_draws_cover_their_whole_range() {
+        const WIDE_SEEDS: u64 = 512;
+        let mut env = env_of(9);
+        let mut cols = HashSet::new();
+        let mut rows = HashSet::new();
+        for seed in 0..WIDE_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            cols.insert(env.lava_col());
+            rows.insert(env.gap_row());
+        }
+        assert_eq!(
+            cols,
+            (2..7).collect::<HashSet<i32>>(),
+            "the lava column range is not `2..size-2` at size 9"
+        );
+        assert_eq!(
+            rows,
+            (1..8).collect::<HashSet<i32>>(),
+            "the gap row range is not `1..size-1` at size 9"
+        );
+    }
+
+    /// Structural invariants that must hold for **every** sampled board.
+    ///
+    /// This is what replaces the cell-pinning assertions the fixed layout used
+    /// to allow: the same facts, quantified over the whole generated
+    /// distribution instead of over one board.
+    #[test]
+    fn every_sampled_board_is_well_formed() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            #[allow(clippy::cast_possible_wrap)]
+            let n = size as i32;
+
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                let col = env.lava_col();
+                let row = env.gap_row();
+                let state = env.state();
+                let grid = &state.grid;
+                let agent = &state.agent;
+                let board = env.ascii();
+                let at = format!("size {size} seed {seed}:\n{board}");
+
+                // The upstream ranges, restated in Rust's half-open form.
+                assert!(
+                    (2..n - 2).contains(&col),
+                    "{at}lava column {col} outside `2..{}`",
+                    n - 2
+                );
+                assert!(
+                    (1..n - 1).contains(&row),
+                    "{at}gap row {row} outside `1..{}`",
+                    n - 1
+                );
+
+                // The gap is in bounds and strictly inside the interior — never
+                // in the perimeter ring.
+                assert!(
+                    grid.in_bounds(col, row),
+                    "{at}gap ({col}, {row}) out of bounds"
+                );
+                assert!(
+                    (1..=n - 2).contains(&col) && (1..=n - 2).contains(&row),
+                    "{at}gap ({col}, {row}) is not strictly interior"
+                );
+                assert_eq!(
+                    grid.get(col, row),
+                    Entity::Empty,
+                    "{at}the gap must be walkable"
+                );
+
+                // The perimeter is all wall.
+                for i in 0..n {
+                    for (x, y) in [(i, 0), (i, n - 1), (0, i), (n - 1, i)] {
+                        assert_eq!(grid.get(x, y), Entity::Wall, "{at}({x}, {y}) is not a wall");
+                    }
+                }
+
+                // Exactly one goal, in the corner upstream fixes it to.
+                let goals: Vec<(i32, i32)> = (0..n)
+                    .flat_map(|y| (0..n).map(move |x| (x, y)))
+                    .filter(|&(x, y)| grid.get(x, y) == Entity::Goal)
+                    .collect();
+                assert_eq!(goals, vec![(n - 2, n - 2)], "{at}wrong goal set");
+
+                // The strip is contiguous lava down the sampled column, minus
+                // exactly the one gap cell. Comparing the whole cell list also
+                // proves no lava escaped to another column.
+                let lava: Vec<(i32, i32)> = (0..n)
+                    .flat_map(|y| (0..n).map(move |x| (x, y)))
+                    .filter(|&(x, y)| grid.get(x, y) == Entity::Lava)
+                    .collect();
+                let expected: Vec<(i32, i32)> =
+                    (1..n - 1).filter(|&y| y != row).map(|y| (col, y)).collect();
+                assert_eq!(lava, expected, "{at}lava strip is not one gapped column");
+
+                // The agent's pose is fixed (upstream assigns it directly) and
+                // its cell is free by the shared placement predicate.
+                assert_eq!((agent.x, agent.y), (1, 1), "{at}agent moved off (1, 1)");
+                assert_eq!(
+                    agent.direction,
+                    Direction::East,
+                    "{at}agent is not facing East"
+                );
+                assert!(
+                    is_free(grid, agent.x, agent.y),
+                    "{at}agent does not start on a free cell"
+                );
+                let under = grid.get(agent.x, agent.y);
+                assert_ne!(under, Entity::Lava, "{at}agent starts on lava");
+                assert_ne!(under, Entity::Goal, "{at}agent starts on the goal");
+            }
+        }
+    }
+
+    /// Plain `reset()` draws from the persistent stream, so the board moves
+    /// between episodes without any re-seeding.
+    ///
+    /// The loop length is the same argument as [`SEEDS`]: at `MIN_SIZE` only the
+    /// gap row varies, over three values, so "all `SEEDS` boards identical" has
+    /// probability `3 * (1/3)^SEEDS`. Picking a small number here — two resets,
+    /// say — would fail once in nine runs at `MIN_SIZE` purely by chance.
+    #[test]
+    fn consecutive_resets_draw_different_boards() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            let mut boards = HashSet::new();
+            for _ in 0..SEEDS {
+                env.reset().expect("reset");
+                boards.insert(env.ascii());
+            }
+            assert!(
+                boards.len() >= 2,
+                "size {size}: {SEEDS} consecutive resets produced one board — \
+                 the stream is being re-seeded or the draw is dead"
+            );
+        }
+    }
+
+    /// `reset_with_seed` is the single-episode replay hatch (ADR 0029).
+    #[test]
+    fn reset_with_seed_replays_one_episode_bit_for_bit() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            let first = env.reset_with_seed(7).expect("reset");
+            let board = env.ascii();
+
+            // Advance the stream in between, so a replay cannot succeed merely
+            // because nothing moved.
+            env.reset().expect("reset");
+            env.reset().expect("reset");
+
+            let again = env.reset_with_seed(7).expect("reset");
+            assert_eq!(
+                first.observation(),
+                again.observation(),
+                "size {size}: reset_with_seed(7) did not replay its observation"
+            );
+            assert_eq!(
+                board,
+                env.ascii(),
+                "size {size}: reset_with_seed(7) did not replay its board"
+            );
+        }
+    }
+
+    /// Two different replay seeds give two different boards.
+    ///
+    /// At `MIN_SIZE` only three distinct boards exist (one column, three gap
+    /// rows), so this is a spot check on a pair verified by inspection, not a
+    /// law that holds for every pair — one third of seed pairs must collide
+    /// there. The non-degeneracy sweep above is what carries the general claim.
+    #[test]
+    fn different_replay_seeds_give_different_boards() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            env.reset_with_seed(1).expect("reset");
+            let one = env.ascii();
+            env.reset_with_seed(2).expect("reset");
+            let two = env.ascii();
+            assert_ne!(one, two, "size {size}: seeds 1 and 2 produced one board");
+        }
+    }
+
+    /// The module-level ASCII snapshots are real output, and stay real.
+    ///
+    /// The docs show two named boards, which is what carries the documentation
+    /// value the deleted cell-pinning assertions used to. A doc block is not
+    /// compiled, so this is what stops it rotting: render the same two episodes
+    /// and compare, modulo the trailing space [`render_ascii`] puts after every
+    /// glyph.
+    #[test]
+    fn module_doc_snapshots_are_current() {
+        fn board(env: &LavaGapEnv) -> String {
+            env.ascii()
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        // `LavaGapConfig::new(5, 100, 0)`, `reset_with_seed(0)`.
+        let mut small = env_of(MIN_SIZE);
+        small.reset_with_seed(0).expect("reset");
+        assert_eq!((small.lava_col(), small.gap_row()), (2, 3));
+        assert_eq!(
+            board(&small),
+            concat!(
+                "# # # # #\n",
+                "# > L . #\n",
+                "# . L . #\n",
+                "# . . G #\n",
+                "# # # # #",
+            )
+        );
+
+        // `LavaGapConfig::new(9, 324, 0)`, `reset_with_seed(0)`.
+        let mut large = env_of(9);
+        large.reset_with_seed(0).expect("reset");
+        assert_eq!((large.lava_col(), large.gap_row()), (6, 6));
+        assert_eq!(
+            board(&large),
+            concat!(
+                "# # # # # # # # #\n",
+                "# > . . . . L . #\n",
+                "# . . . . . L . #\n",
+                "# . . . . . L . #\n",
+                "# . . . . . L . #\n",
+                "# . . . . . L . #\n",
+                "# . . . . . . . #\n",
+                "# . . . . . L G #\n",
+                "# # # # # # # # #",
+            )
+        );
     }
 
     #[test]
@@ -484,39 +964,69 @@ mod tests {
         assert_eq!(sa.observation(), sb.observation());
     }
 
+    /// Walking into the strip anywhere other than the gap ends the episode for
+    /// nothing — on every sampled board, not just the one that used to be fixed.
     #[test]
     fn stepping_into_lava_terminates_with_zero_reward() {
-        let mut env = env_5x5();
-        env.reset().unwrap();
-        // Agent at (1,1) facing East. Directly forward is (2,1) = lava.
-        let snap = env.step(GridAction::Forward).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
-        assert_eq!(reward, 0.0);
+        for size in SIZES {
+            let mut env = env_of(size);
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                // Walk east along an interior row that is *not* the gap row.
+                // Row 1 is the agent's own row and works unless the gap landed
+                // there; row 2 is interior at every size >= MIN_SIZE.
+                let blocked_row = if env.gap_row() == 1 { 2 } else { 1 };
+                let mut script = Vec::new();
+                if blocked_row > 1 {
+                    script.push(GridAction::TurnRight); // face South
+                    for _ in 1..blocked_row {
+                        script.push(GridAction::Forward);
+                    }
+                    script.push(GridAction::TurnLeft); // face East again
+                }
+                // x: 1 -> lava_col; the last Forward enters the strip.
+                for _ in 1..env.lava_col() {
+                    script.push(GridAction::Forward);
+                }
+
+                let snap = run_to_completion(&mut env, &script);
+                assert!(
+                    snap.is_done(),
+                    "size {size} seed {seed}: walking into the strip did not terminate:\n{}",
+                    env.ascii()
+                );
+                let reward: f32 = (*snap.reward()).into();
+                assert_eq!(reward, 0.0, "size {size} seed {seed}: lava paid {reward}");
+            }
+        }
     }
 
+    /// A route derived from the board reaches the goal on every sampled layout.
+    ///
+    /// The script is computed from [`LavaGapEnv::gap_row`] and the config size,
+    /// never hard-coded — which is the only form of this test that survives the
+    /// board moving per episode.
     #[test]
-    fn optimal_rollout_crosses_gap_and_reaches_goal() {
-        let mut env = env_5x5();
-        env.reset().unwrap();
-        // Navigate south to the gap row, cross east, then south to the goal.
-        let script = [
-            GridAction::TurnRight, // face south
-            GridAction::Forward,   // (1,2)
-            GridAction::TurnLeft,  // face east
-            GridAction::Forward,   // (2,2) through gap
-            GridAction::Forward,   // (3,2)
-            GridAction::TurnRight, // face south
-            GridAction::Forward,   // (3,3) goal
-        ];
-        let mut last = None;
-        for a in script {
-            last = Some(env.step(a).unwrap());
+    fn derived_rollout_crosses_gap_and_reaches_goal() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                let script = route_to_goal(&env);
+                let snap = run_to_completion(&mut env, &script);
+                assert!(
+                    snap.is_done(),
+                    "size {size} seed {seed}: the derived route did not terminate:\n{}",
+                    env.ascii()
+                );
+                let reward: f32 = (*snap.reward()).into();
+                assert!(
+                    reward > 0.0,
+                    "size {size} seed {seed}: the derived route paid {reward}:\n{}",
+                    env.ascii()
+                );
+            }
         }
-        let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
-        assert!(reward > 0.0, "reward was {reward}");
     }
 
     #[test]
@@ -532,11 +1042,32 @@ mod tests {
         assert_eq!(reward, 0.0);
     }
 
+    /// The accessors report the board actually built, not a formula.
+    ///
+    /// They were closed-form functions of `config.size` before #282; a caller
+    /// that trusted them would now be reading a different board than the one it
+    /// was handed, so pin them against the grid itself.
     #[test]
-    fn lava_col_and_gap_row_match_config() {
-        let env = env_5x5();
-        assert_eq!(env.lava_col(), 2);
-        assert_eq!(env.gap_row(), 2);
+    fn accessors_agree_with_the_built_grid() {
+        for size in SIZES {
+            let mut env = env_of(size);
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                let (col, row) = (env.lava_col(), env.gap_row());
+                let grid = &env.state().grid;
+                assert_eq!(
+                    grid.get(col, row),
+                    Entity::Empty,
+                    "size {size} seed {seed}: gap_row does not name the gap"
+                );
+                let other = if row == 1 { 2 } else { 1 };
+                assert_eq!(
+                    grid.get(col, other),
+                    Entity::Lava,
+                    "size {size} seed {seed}: lava_col does not name the strip"
+                );
+            }
+        }
     }
 
     #[test]
