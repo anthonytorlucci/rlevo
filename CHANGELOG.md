@@ -448,8 +448,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   let the shadow cast's flood fill spread sideways into a neighbouring room,
   so from most poses the goal in an unentered room stays visible exactly as
   before, and across 12 seeds the goal was maskable from any pose in only 2 of
-  them. `grid_memory_rl`'s bench numbers are not comparable across this
-  change — they now measure a different (occluded) task, not a regression.
+  them. Stronger still, and measured while writing the per-env tests: **three
+  of the eight occluding environments mask no in-grid cell in any pose at
+  all.** `LavaGapEnv` and `CrossingEnv` at its default lava kind hide nothing,
+  because lava is transparent to the shadow cast (canonical `see_behind()` is
+  overridden only by `Wall`, and by `Door` when shut) and a convex room of
+  transparent cells is entirely lit by a flood fill — only
+  `CrossingKind::Wall`, the `SimpleCrossing` family, occludes anything.
+  `UnlockEnv` hides nothing for a different reason: rlevo draws one perimeter
+  room with the door in the outer wall, where upstream `RoomGrid` has two
+  rooms with the door between them (#1020). In all three the shadow cast is
+  running and correct; there is simply nothing positioned for it to hide. So
+  "eight environments now occlude" describes what they *run*, not what any of
+  them *hides*. `grid_memory_rl`'s bench numbers are not comparable across
+  this change — they now measure a different (occluded) task, not a
+  regression.
 - **`EmptyEnv` and `DistShiftEnv` are deterministic on purpose, and their docs
   now say so** (ADR 0062 §1, §2b); the unread `_rng` field is deleted from both.
   Each was reconciled against upstream and found faithful: `MiniGrid-Empty-*`'s
