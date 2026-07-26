@@ -253,20 +253,19 @@ tail can still build a wrapper over a rejecting environment, but a caller who
 silently absorbed a bug into a replay buffer has no way back. Reject is the
 reversible choice.
 
-**This is not yet universal — check before you rely on it.** The following
-enforce it today: the
-`toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
-`classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
-`MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
-`grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
-`LunarLanderDiscrete`, `LunarLanderContinuous`), the `locomotion` family
-(`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`),
-`pixel_grid`, and the
-`TimeLimit` wrapper. The `classic` module's bandits do not
-yet — their behaviour after a terminal snapshot remains **undefined**; do not
-depend on it, even by accident, until it lands for that family — the rollout
-is tracked family-by-family in
-[issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). If you're
+**This is universal — you can rely on it.** Every environment we ship enforces
+it: the `toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`),
+the whole `classic` family — both its six non-bandit environments (`CartPole`,
+`Acrobot`, `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`)
+and its four bandits (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
+`AdversarialBandit`) — all twelve `grids` environments, the `box2d` family
+(`BipedalWalker`, `CarRacing`, `LunarLanderDiscrete`, `LunarLanderContinuous`),
+the `locomotion` family (`InvertedPendulum`, `InvertedDoublePendulum`,
+`Reacher`, `Swimmer`), `pixel_grid`, and the `TimeLimit` wrapper. So you can
+write one rollout loop that treats a post-terminal `step()` as a caller bug —
+matching on `StepAfterEpisodeEnd` rather than defending against a snapshot that
+might quietly come back to life — and every built-in environment will agree with
+it. If you're
 implementing your own environment, [Bring Your Own
 Environment](../../part-2-guided-tour/99-extending-the-environment.md#step-5--guard-the-post-terminal-step)
 shows the `EpisodeGuard` helper that gets you this behaviour without hand-rolling
@@ -417,11 +416,10 @@ the crate as a vocabulary anchor more than a workhorse.
   part of the contract, and `EnvironmentError` is `#[non_exhaustive]`.
 - **A `step()` taken after `is_done()` is `true` is an error, not a silent
   resume.** It returns `EnvironmentError::StepAfterEpisodeEnd { status }`; call
-  `reset()` to start a new episode. The `toy_text` family, the `classic`
-  family's non-bandit environments, the `grids` family, the `box2d` family, the
-  `locomotion` family, and `TimeLimit` enforce this today
-  ([issue #289](https://github.com/anthonytorlucci/rlevo/issues/289) tracks
-  the rest).
+  `reset()` to start a new episode. Every environment in the workspace enforces
+  this — the `toy_text`, `classic` (bandits included), `grids`, `box2d`, and
+  `locomotion` families, `pixel_grid`, and the `TimeLimit` wrapper — so it is a
+  guarantee you can code against, not a per-environment habit to check.
 - **`ConstructableEnv`** keeps construction off the behaviour trait so
   **wrappers** like `TimeLimit` compose cleanly — and that is where `Truncated`
   comes from.

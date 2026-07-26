@@ -15,9 +15,11 @@
 //! # Usage
 //!
 //! Hold a guard in the environment struct, `check()` at the very top of `step()`
-//! (before any state mutation, so a rejected call leaves the environment
-//! untouched), `record()` the status of every snapshot you emit, and `reset()`
-//! the guard in `Environment::reset`:
+//! (before any state mutation or RNG draw, so a rejected call leaves the
+//! environment untouched — including its RNG stream, which ADR 0029 makes a
+//! persistent, observable part of the environment's state), `record()` the
+//! status of every snapshot you emit, and `reset()` the guard in
+//! `Environment::reset`:
 //!
 //! ```rust,ignore
 //! fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -100,7 +102,9 @@ impl EpisodeGuard {
     ///
     /// Call at the **top** of
     /// [`Environment::step`](rlevo_core::environment::Environment::step), before
-    /// any state mutation, so a rejected call leaves the environment untouched.
+    /// any state mutation or RNG draw, so a rejected call leaves the environment
+    /// untouched — including its RNG stream, which ADR 0029 makes a persistent,
+    /// observable part of the environment's state.
     ///
     /// # Errors
     ///

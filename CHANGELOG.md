@@ -232,6 +232,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   form and clause 2's vacuous case already held for them. The two grid
   observation types that motivated the amendment are the `rlevo-environments`
   entries below.
+- **`Environment::step`'s post-terminal contract is now unconditional** (ADR
+  0044 §8, closes #289). The rustdoc's alpha migration note — which disclosed
+  that only some families enforced the contract and that post-terminal
+  behaviour was **undefined** everywhere else, so callers must not rely on it —
+  is deleted: with the bandit family guarded, every `Environment` implementation
+  in the workspace now holds an `EpisodeGuard` and rejects a post-terminal
+  `step()`. The normative "implementations **must** return
+  `EnvironmentError::StepAfterEpisodeEnd`" text is unchanged; what changes is
+  that it is now true of the whole workspace rather than aspirational, so
+  callers may rely on it. The same section also now says the check belongs
+  ahead of any state mutation **or RNG draw** — a rejected step must not
+  advance the environment's RNG stream either, which ADR 0029 makes persistent,
+  observable state; `EpisodeGuard`'s own docs carry the matching wording.
+
+  This is **doc-only**: no signature changes and no behavioural change in
+  `rlevo-core`. Fixture and stub environments (`rlevo-test-support`, the
+  in-crate `StubEnv`/`MockEnvironment` types) remain exempt by ADR 0044 §9 —
+  `TimeLimit`'s `StubEnv` is unguarded on purpose so the wrapper's tests
+  exercise the wrapper's own guard.
 
 ### `rlevo-environments`
 
@@ -374,6 +393,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   one the way `type_u8` did (`Color::to_u8`'s own indices are unchanged), which
   will surprise anyone porting a Minigrid baseline expecting both channels to
   move together.
+- **The inherent `KArmedBandit::is_done()` is removed** (ADR 0044, #295). It was
+  a second source of truth for episode termination, which `docs/rules.md` §10
+  forbids: done-ness is read from the snapshot, never from the environment by
+  other means. The method could not have been the real answer in any case — it
+  returned a private `done: bool` that `step()` wrote and nothing ever read, so
+  it reported termination from a field the episode's actual lifecycle had no
+  dependence on. The three sibling bandits never exposed an equivalent, so the
+  removal also ends an inconsistency inside the family.
+
+  *Migration.* Read done-ness from the snapshot: `snapshot.is_done()`
+  (`rlevo_core::environment::Snapshot::is_done`), which is what every in-tree
+  caller already did. No in-workspace caller of the inherent method existed, so
+  the break is nominal for anyone not depending on it externally.
 
 **Added**
 
@@ -504,6 +536,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` drew a fresh random reward and re-emitted
+  `Terminated` across the whole bandit family** (ADR 0044, resolves #295 and
+  closes the #289 sweep) — `KArmedBandit`, `AdversarialBandit`,
+  `ContextualBandit` and `NonStationaryBandit`. Each already carried a
+  `done: bool` that `step()` **wrote and nothing read**, so the guard was
+  half-built and inert: a call made after `max_steps` kept incrementing the
+  step counter, produced a **fresh reward** — a new draw from the arm's
+  distribution for the three stochastic bandits, a further slide along the
+  adversary's `steps`-indexed schedule for `AdversarialBandit` — and emitted a
+  **new `Terminated` snapshot** — every time, without bound. A
+  trainer that stepped one call past the budget did not get an error and did
+  not get a repeat of the terminal transition; it got fabricated experience
+  that looks indistinguishable from real experience once it is in a replay
+  buffer. This is exactly the silent data contamination ADR 0044 rejects
+  absorbing semantics to avoid, except here it was not even absorbing — the
+  reward was freshly random on each call.
+
+  All four now hold an `episode::EpisodeGuard`, `check()` it as the **first**
+  statement of `step()`, and `record()` the emitted snapshot's own
+  `EpisodeStatus` on a single exit, so the guard and the snapshot cannot drift
+  apart. The `done: bool` field is gone from all four, along with the inherent
+  `KArmedBandit::is_done()` accessor it backed (see *Breaking changes* above):
+  `EpisodeStatus` is the single source of truth (`docs/rules.md` §10), and a
+  bool could not have carried the `Terminated`/`Truncated` distinction the
+  error reports anyway.
+
+  The guard sits **ahead of** the action-validity check, because the episode
+  being over is a fact about the call sequence and is independent of whether
+  the action was well-formed. One observable consequence: an out-of-range arm
+  index replayed past a terminal snapshot now reports `StepAfterEpisodeEnd`
+  rather than `InvalidAction` — the caller is told about the sequencing bug
+  they have, not handed the wrong diagnosis.
+
+  The existing tests missed all of this for two compounding reasons. Nothing
+  asserted on post-terminal behaviour — every test stopped on the terminal call
+  and checked its status, never asking what a further step returns — and
+  because `done` was **write-only**, no test *could* have observed that the
+  lifecycle tracking was half-implemented; the field's value was correct and
+  simply never consulted. A dead field is invisible to behavioural testing by
+  construction. Each environment gained the shared
+  `assert_rejects_post_terminal_step` conformance check, a
+  rejected-before-`is_valid()` test, a reset-reopens-the-episode test, and a
+  no-mutation regression: the three stochastic bandits pin that a rejected step
+  does not advance the **RNG stream** (ADR 0029 makes that stream persistent,
+  observable state, so consuming a draw on a rejected call would desynchronise
+  every subsequent episode), and `AdversarialBandit` — whose reward is a pure
+  function of `steps` — pins the deterministic analogue, that the schedule does
+  not slide.
 - **Post-terminal `step()` kept moving the agent — and paid a *negative* goal
   reward — in `pixel_grid`** (ADR 0044, resolves #294). `PixelGridEnv::step`
   opened with `self.steps += 1; self.state.apply_move(action);` and had no
