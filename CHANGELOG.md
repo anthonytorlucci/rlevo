@@ -504,6 +504,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` kept moving the agent — and paid a *negative* goal
+  reward — in `pixel_grid`** (ADR 0044, resolves #294). `PixelGridEnv::step`
+  opened with `self.steps += 1; self.state.apply_move(action);` and had no
+  terminal check at all, so a step taken past a done snapshot advanced the
+  latent, ticked the counter and emitted a fresh reward.
+
+  Neither ending is self-limiting. An agent standing on the goal keeps
+  satisfying `at_goal()` — it is a live read, not a latch — so a finished
+  episode re-emitted `Terminated` with a fresh success reward on every
+  subsequent call. Past `max_steps` the truncation predicate keeps holding
+  while `steps` climbs beyond the budget the caller asked for. The two
+  compound into the real defect: Minigrid's success formula
+  `1 - 0.9 * (step / max_steps)` is only non-negative for `step <= max_steps`,
+  so walking onto the goal *after* truncation paid a **penalty** for reaching
+  it. Measured on the pre-fix code with `max_steps = 3`, fixed placement: the
+  episode truncated at step 3, a further 16 steps to the goal terminated at
+  step 19 with reward **−4.7**.
+
+  `PixelGridEnv` now holds an `episode::EpisodeGuard`, `check()`s it as the
+  **first** statement of `step()` — ahead of every mutation — and `record()`s
+  the emitted snapshot's own `EpisodeStatus` on a single exit. Because the
+  counter can no longer climb past `max_steps`, the negative branch of
+  `success_reward` is unreachable **by construction**; the separately-tracked
+  `success_reward` negativity is resolved without a `step.min(max_steps)`
+  clamp, which would have hidden the call-sequence bug rather than rejecting
+  it. `reset_with_seed` reseeds and then delegates to `Environment::reset`, so
+  there is exactly one `guard.reset()` site and a future reset variant cannot
+  forget it.
+
+  Existing tests missed the defect because none of them stepped past a done
+  snapshot: `reaching_goal_terminates_with_positive_reward` and
+  `step_limit_truncates_with_zero_reward` both stop on the terminal call and
+  assert its status, never asking what a further step does. Six new tests
+  cover it — the shared `assert_rejects_post_terminal_step` conformance check
+  on **both** done paths, a no-mutation regression, the `success_reward`
+  reachability bound, and reset/`reset_with_seed` re-opening the episode.
 - **Post-terminal `step()` kept integrating the Rapier sim across the whole
   `locomotion` family** (ADR 0044, resolves #292) — `InvertedPendulum`,
   `InvertedDoublePendulum`, `Reacher` and `Swimmer` gated `step()` only on

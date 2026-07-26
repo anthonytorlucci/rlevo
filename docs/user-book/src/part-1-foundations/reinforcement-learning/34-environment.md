@@ -260,8 +260,9 @@ enforce it today: the
 `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
 `grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
 `LunarLanderDiscrete`, `LunarLanderContinuous`), the `locomotion` family
-(`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`), and the
-`TimeLimit` wrapper. The `classic` module's bandits and `pixel_grid` do not
+(`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`),
+`pixel_grid`, and the
+`TimeLimit` wrapper. The `classic` module's bandits do not
 yet — their behaviour after a terminal snapshot remains **undefined**; do not
 depend on it, even by accident, until it lands for that family — the rollout
 is tracked family-by-family in

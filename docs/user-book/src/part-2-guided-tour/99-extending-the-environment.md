@@ -385,10 +385,11 @@ Three details here are load-bearing, not stylistic:
 > `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
 > `grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
 > `LunarLanderDiscrete`, `LunarLanderContinuous`), the `locomotion` family
-> (`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`), and the
+> (`InvertedPendulum`, `InvertedDoublePendulum`, `Reacher`, `Swimmer`),
+> `pixel_grid`, and the
 > `TimeLimit` wrapper all hold one. The `classic` module's bandits
 > (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
-> `AdversarialBandit`) and `pixel_grid` do not yet — their post-terminal
+> `AdversarialBandit`) do not yet — their post-terminal
 > behaviour is undefined, tracked family-by-family in
 > [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). Your own
 > environment doesn't have to wait for that rollout: reach for `EpisodeGuard`
