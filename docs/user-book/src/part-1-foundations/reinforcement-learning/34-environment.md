@@ -253,9 +253,13 @@ tail can still build a wrapper over a rejecting environment, but a caller who
 silently absorbed a bug into a replay buffer has no way back. Reject is the
 reversible choice.
 
-**This is not yet universal — check before you rely on it.** Only the
-`toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`) and the
-`TimeLimit` wrapper enforce this rule today. Every other environment's
+**This is not yet universal — check before you rely on it.** Two of the
+built-in families enforce it today: the
+`toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
+`classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
+`MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), and the
+`TimeLimit` wrapper. The `classic` module's bandits, the `grids`,
+`locomotion`, and `box2d` families, and `pixel_grid` do not yet — their
 behaviour after a terminal snapshot remains **undefined**; do not depend on it,
 even by accident, until it lands for that family — the rollout is tracked
 family-by-family in
@@ -410,8 +414,9 @@ the crate as a vocabulary anchor more than a workhorse.
   part of the contract, and `EnvironmentError` is `#[non_exhaustive]`.
 - **A `step()` taken after `is_done()` is `true` is an error, not a silent
   resume.** It returns `EnvironmentError::StepAfterEpisodeEnd { status }`; call
-  `reset()` to start a new episode. Only `toy_text` and `TimeLimit` enforce this
-  today ([issue #289](https://github.com/anthonytorlucci/rlevo/issues/289) tracks
+  `reset()` to start a new episode. The `toy_text` family, the `classic`
+  family's non-bandit environments, and `TimeLimit` enforce this today
+  ([issue #289](https://github.com/anthonytorlucci/rlevo/issues/289) tracks
   the rest).
 - **`ConstructableEnv`** keeps construction off the behaviour trait so
   **wrappers** like `TimeLimit` compose cleanly — and that is where `Truncated`

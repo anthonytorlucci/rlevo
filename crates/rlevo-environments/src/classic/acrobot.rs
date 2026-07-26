@@ -142,6 +142,7 @@
 //! ```
 use std::fmt;
 
+use crate::episode::EpisodeGuard;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
@@ -653,6 +654,14 @@ pub struct Acrobot<D: AcrobotDynamicsFn = BookDynamics> {
     dynamics: D,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the swing-up terminated the episode.
+    /// Without it, the integrator would keep running past the goal: the tip
+    /// swings back down below the height threshold and the next snapshot reads
+    /// `Running` with reward `-1`, silently resurrecting a finished episode and
+    /// corrupting the return (which is defined as the negative step count to
+    /// success). The guard lives on the environment, not on `D`, so both
+    /// [`BookDynamics`] and [`NipsDynamics`] are covered by one state machine.
+    guard: EpisodeGuard,
 }
 
 impl<D: AcrobotDynamicsFn + Default> Acrobot<D> {
@@ -709,6 +718,7 @@ impl<D: AcrobotDynamicsFn> Acrobot<D> {
             dynamics,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -815,6 +825,7 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     ///
     /// Currently infallible; returns `Ok` in all cases.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
@@ -832,8 +843,17 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
     ///
     /// # Errors
     ///
-    /// Currently infallible; returns `Ok` in all cases.
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode already
+    /// ended; call [`reset`](Environment::reset) first. No other failure is
+    /// possible.
     fn step(&mut self, action: AcrobotAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before the state integrates and — critically — before the
+        // torque-noise draw below, which consumes from `self.rng` whenever
+        // `torque_noise_max > 0`. A rejected call must leave both the physical
+        // state and the RNG stream untouched, or the stream would depend on how
+        // many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         let mut torque = action.to_torque();
         if self.config.torque_noise_max > 0.0 {
             let noise =
@@ -851,11 +871,15 @@ impl<D: AcrobotDynamicsFn + Default> Environment<1, 1, 1> for Acrobot<D> {
 
         let terminated = Self::is_terminal(&self.state, &self.config);
         let obs = self.observe(&action, &self.state);
+        // Single exit: both branches build exactly one snapshot, and the guard is
+        // fed that snapshot's own status, so no branch can forget to record.
         let snap = if terminated {
             SnapshotBase::terminated(obs, ScalarReward(0.0))
         } else {
             SnapshotBase::running(obs, ScalarReward(-1.0))
         };
+
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -1035,9 +1059,39 @@ mod tests {
     //! determinism, and dynamics variant divergence.
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::environment::Snapshot;
 
     type DefaultAcrobot = Acrobot<BookDynamics>;
+
+    /// Swings the acrobot up until the tip clears the height threshold and
+    /// returns that terminal snapshot.
+    ///
+    /// The policy is the classic bang-bang energy pump — torque always applied
+    /// in the direction the elbow is already turning — which drives the real
+    /// dynamics through `step()` rather than hand-placing a terminal state, so
+    /// the termination the guard records is one the environment produced itself.
+    fn swing_up_to_terminal(
+        env: &mut DefaultAcrobot,
+    ) -> SnapshotBase<1, AcrobotObservation, ScalarReward> {
+        const MAX_STEPS: usize = 2_000;
+
+        env.reset().expect("reset must succeed");
+        for _ in 0..MAX_STEPS {
+            let action = if env.state.theta2_dot >= 0.0 {
+                AcrobotAction::TorquePos
+            } else {
+                AcrobotAction::TorqueNeg
+            };
+            let snap = env
+                .step(action)
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("energy-pumping policy must reach the swing-up height within {MAX_STEPS} steps");
+    }
 
     fn default_env() -> DefaultAcrobot {
         DefaultAcrobot::with_config(AcrobotConfig::default()).expect("valid config")
@@ -1267,6 +1321,161 @@ mod tests {
         assert_ne!(
             first, second,
             "successive resets must draw independent initial states"
+        );
+    }
+
+    // ── post-terminal step guard (issue #290) ────────────────────────────────
+
+    #[test]
+    /// Verifies `Acrobot` satisfies the shared post-terminal conformance check:
+    /// once the swing-up has terminated the episode, a further legal `step()`
+    /// fails with `StepAfterEpisodeEnd { status: Terminated }` instead of
+    /// integrating the tip back down and reporting `Running` again.
+    fn test_acrobot_rejects_post_terminal_step() {
+        let mut env = default_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            swing_up_to_terminal,
+            AcrobotAction::TorqueZero,
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step mutates nothing: the physical
+    /// state, the step counter, and the guard all stand exactly as the terminal
+    /// snapshot left them.
+    fn test_acrobot_post_terminal_step_does_not_mutate_state() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = default_env();
+        let terminal = swing_up_to_terminal(&mut env);
+        assert!(terminal.is_terminated(), "swing-up must terminate");
+
+        let state_before = env.state;
+        let steps_before = env.steps;
+
+        env.step(AcrobotAction::TorquePos)
+            .expect_err("a step after termination must be rejected");
+
+        assert_eq!(
+            env.state, state_before,
+            "a rejected step must not integrate the dynamics"
+        );
+        assert_eq!(
+            env.steps, steps_before,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// Verifies the guard is per-environment, not per-dynamics: `NipsDynamics`
+    /// gets the same post-terminal rejection as `BookDynamics`. Termination is
+    /// forced by placing the arm upright, because the two dynamics need
+    /// different pump horizons and the guard's behaviour is independent of them.
+    fn test_acrobot_nips_dynamics_rejects_post_terminal_step() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env =
+            Acrobot::<NipsDynamics>::with_config(AcrobotConfig::default()).expect("valid config");
+        env.reset().expect("reset must succeed");
+        // Upright and at rest: height = 2 > 1, so the next step terminates.
+        env.state = AcrobotState {
+            theta1: std::f32::consts::PI,
+            theta2: 0.0,
+            theta1_dot: 0.0,
+            theta2_dot: 0.0,
+        };
+        let terminal = env
+            .step(AcrobotAction::TorqueZero)
+            .expect("the first step must succeed");
+        assert!(
+            terminal.is_terminated(),
+            "an upright acrobot must terminate on the next step"
+        );
+
+        let err = env
+            .step(AcrobotAction::TorqueZero)
+            .expect_err("a step after termination must be rejected");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated environment for a new episode.
+    fn test_acrobot_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = default_env();
+        swing_up_to_terminal(&mut env);
+        assert!(
+            env.step(AcrobotAction::TorqueZero).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert!(
+            env.step(AcrobotAction::TorqueZero).is_ok(),
+            "reset() must re-open the environment for a new episode"
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step draws no randomness: with
+    /// `torque_noise_max > 0` the torque is sampled from the persistent RNG, so
+    /// checking the guard *after* it would let illegal calls advance the stream
+    /// and desynchronise replay (ADR 0029).
+    fn test_acrobot_rejected_step_does_not_advance_rng() {
+        let noisy_env_at_terminal = || {
+            let cfg = AcrobotConfig::builder()
+                .torque_noise_max(0.1)
+                .seed(17)
+                .build();
+            let mut env = DefaultAcrobot::with_config(cfg).expect("valid config");
+            env.reset().expect("reset must succeed");
+            env.state = AcrobotState {
+                theta1: std::f32::consts::PI,
+                theta2: 0.0,
+                theta1_dot: 0.0,
+                theta2_dot: 0.0,
+            };
+            let snap = env
+                .step(AcrobotAction::TorqueZero)
+                .expect("the first step must succeed");
+            assert!(snap.is_terminated(), "an upright acrobot must terminate");
+            env
+        };
+
+        let mut rejected = noisy_env_at_terminal();
+        let mut untouched = noisy_env_at_terminal();
+
+        rejected
+            .step(AcrobotAction::TorquePos)
+            .expect_err("a step after termination must be rejected");
+
+        let draw = |env: &mut DefaultAcrobot| {
+            let u = Uniform::new_inclusive(-1.0_f32, 1.0_f32).unwrap();
+            (0..16).map(|_| u.sample(&mut env.rng)).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            draw(&mut rejected),
+            draw(&mut untouched),
+            "a rejected step must draw no randomness; the RNG stream must be identical to one that never saw the step"
         );
     }
 

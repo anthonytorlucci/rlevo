@@ -56,6 +56,7 @@ use rlevo_core::state::MarkovState;
 use serde::{Deserialize, Serialize};
 
 use crate::direction::Direction;
+use crate::episode::EpisodeGuard;
 
 /// Side length of the (square, toroidal) trail grid.
 pub const GRID_SIZE: usize = 32;
@@ -382,10 +383,25 @@ impl Validate for SantaFeAntConfig {
 /// }
 /// assert!(eaten < 89.0, "a memoryless reflex cannot clear the trail (got {eaten})");
 /// ```
+///
+/// # Episode lifecycle
+///
+/// Two routes end an episode: clearing the trail *terminates* it, exhausting
+/// [`max_steps`](SantaFeAntConfig::max_steps) *truncates* it. After either, a
+/// further [`step`](Environment::step) returns
+/// [`EnvironmentError::StepAfterEpisodeEnd`] carrying the status that ended the
+/// episode — call [`reset`](Environment::reset) first.
 #[derive(Debug, Clone)]
 pub struct SantaFeAnt {
     state: SantaFeAntState,
     config: SantaFeAntConfig,
+    /// Rejects a `step()` taken after the episode ended. Without it the ant
+    /// keeps walking past the end: a post-terminal `Move` advances `steps`
+    /// beyond the budget and re-emits `Truncated` forever, and a post-truncation
+    /// `Move` can still eat pellets — scoring reward for an episode that was
+    /// already over. It also preserves the terminal/truncated distinction the
+    /// error carries back, which callers use to decide whether to bootstrap.
+    guard: EpisodeGuard,
 }
 
 impl SantaFeAnt {
@@ -400,6 +416,7 @@ impl SantaFeAnt {
         Ok(Self {
             state: Self::fresh_state(),
             config,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -493,7 +510,14 @@ impl Environment<1, 1, 1> for SantaFeAnt {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<1, SantaFeAntObservation, ScalarReward>;
 
+    /// Restores the pristine trail, pose, and step counter, and re-opens the
+    /// [`EpisodeGuard`] for a new episode.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = Self::fresh_state();
         self.maybe_render();
         Ok(SnapshotBase::running(
@@ -502,7 +526,22 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         ))
     }
 
+    /// Applies one motor primitive and returns the resulting snapshot.
+    ///
+    /// The episode terminates once the last pellet is eaten and truncates once
+    /// the step budget is exhausted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already terminated or truncated.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before the heading/pose mutation and the step counter, so
+        // a rejected call leaves the ant exactly where the terminal snapshot left
+        // it. The dynamics draw no randomness, but the ordering rule is the same
+        // one ADR 0029 imposes on the seeded environments.
+        self.guard.check()?;
+
         let reward: ScalarReward = match action {
             SantaFeAntAction::TurnLeft => {
                 self.state.heading = self.state.heading.left();
@@ -530,6 +569,9 @@ impl Environment<1, 1, 1> for SantaFeAnt {
 
         let obs: SantaFeAntObservation = self.observe(&action, &self.state);
         let limit: u32 = u32::try_from(self.config.max_steps).unwrap_or(u32::MAX);
+        // Single exit: all three routes build exactly one snapshot, and the guard
+        // is fed that snapshot's own status, so no branch can forget to record —
+        // and the guard cannot disagree with what the caller was handed.
         let snapshot: Self::SnapshotType = if self.state.pellets_remaining == 0 {
             // Goal reached — the whole trail is cleared.
             SnapshotBase::terminated(obs, reward)
@@ -539,6 +581,8 @@ impl Environment<1, 1, 1> for SantaFeAnt {
         } else {
             SnapshotBase::running(obs, reward)
         };
+
+        self.guard.record(snapshot.status);
         Ok(snapshot)
     }
 }
@@ -822,7 +866,8 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
+    use crate::episode::assert_rejects_post_terminal_step;
+    use rlevo_core::environment::{EpisodeStatus, Snapshot};
 
     #[test]
     fn default_config_validates() {
@@ -1031,6 +1076,106 @@ mod tests {
         assert_eq!(e.state().pellets_remaining(), 0);
         assert!(snap.is_terminated());
         assert!(snap.is_done());
+    }
+
+    // -- Post-terminal step guard (issue #290) -----------------------------
+
+    /// Clears the trail down to the single pellet directly ahead of the ant and
+    /// eats it, so the returned snapshot is `Terminated` (white-box: same module).
+    fn drive_to_last_pellet(
+        e: &mut SantaFeAnt,
+    ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
+        let _ = <SantaFeAnt as Environment<1, 1, 1>>::reset(e).expect("reset");
+        e.state.food = [[false; GRID_SIZE]; GRID_SIZE];
+        e.state.food[0][1] = true;
+        e.state.pellets_remaining = 1;
+        <SantaFeAnt as Environment<1, 1, 1>>::step(e, SantaFeAntAction::Move).expect("step")
+    }
+
+    /// Spins in place until the step budget truncates the episode, so the
+    /// returned snapshot is `Truncated` (turning never eats, so the trail
+    /// cannot clear first).
+    fn drive_to_truncation(
+        e: &mut SantaFeAnt,
+    ) -> SnapshotBase<1, SantaFeAntObservation, ScalarReward> {
+        let mut snap = <SantaFeAnt as Environment<1, 1, 1>>::reset(e).expect("reset");
+        while !snap.is_done() {
+            snap = <SantaFeAnt as Environment<1, 1, 1>>::step(e, SantaFeAntAction::TurnRight)
+                .expect("step must succeed until the budget runs out");
+        }
+        snap
+    }
+
+    #[test]
+    /// Verifies `SantaFeAnt` satisfies the shared post-terminal conformance check on
+    /// its *terminating* route: once the trail is cleared, a further legal `step()`
+    /// fails with `StepAfterEpisodeEnd { status: Terminated }`.
+    fn test_santa_fe_ant_rejects_post_terminal_step() {
+        let mut e = env();
+        assert_rejects_post_terminal_step(&mut e, drive_to_last_pellet, SantaFeAntAction::Move);
+    }
+
+    #[test]
+    /// Verifies the *truncating* route is guarded too, and — the part that matters —
+    /// that the error carries `Truncated`, not `Terminated`. A caller bootstraps the
+    /// value of the final observation on truncation but not on termination, so
+    /// collapsing the two would silently corrupt its returns.
+    fn test_santa_fe_ant_rejects_post_truncation_step() {
+        let mut e = SantaFeAnt::with_config(SantaFeAntConfig {
+            max_steps: 5,
+            render: false,
+        })
+        .expect("valid config");
+        assert_rejects_post_terminal_step(&mut e, drive_to_truncation, SantaFeAntAction::Move);
+    }
+
+    #[test]
+    /// Verifies a rejected post-truncation `Move` mutates nothing: the pose, the step
+    /// counter, and the pellet count must all match the terminal snapshot's state.
+    /// Without the guard the ant would keep walking (and eating) past the budget.
+    fn test_santa_fe_ant_rejected_step_does_not_mutate_state() {
+        let mut e = SantaFeAnt::with_config(SantaFeAntConfig {
+            max_steps: 5,
+            render: false,
+        })
+        .expect("valid config");
+        let terminal = drive_to_truncation(&mut e);
+        assert!(terminal.is_truncated());
+        let frozen: SantaFeAntState = e.state().clone();
+
+        let err = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
+            .expect_err("a step after truncation must return Err, not a fresh snapshot");
+        assert!(matches!(
+            err,
+            EnvironmentError::StepAfterEpisodeEnd {
+                status: EpisodeStatus::Truncated
+            }
+        ));
+        assert_eq!(
+            e.state(),
+            &frozen,
+            "a rejected step must not move the ant, eat a pellet, or advance the step counter"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens an ended episode: the next `step()` succeeds and the
+    /// trail is pristine again.
+    fn test_santa_fe_ant_reset_reopens_ended_episode() {
+        let mut e = env();
+        drive_to_last_pellet(&mut e);
+        assert!(
+            <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        <SantaFeAnt as Environment<1, 1, 1>>::reset(&mut e).expect("reset must succeed");
+        let snap = <SantaFeAnt as Environment<1, 1, 1>>::step(&mut e, SantaFeAntAction::Move)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
     }
 
     // -- POMDP marker ------------------------------------------------------

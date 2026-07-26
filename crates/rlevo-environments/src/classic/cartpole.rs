@@ -116,6 +116,13 @@
 //! There is no intrinsic step cap. Compose with [`crate::wrappers::TimeLimit`]
 //! to replicate the Gymnasium v1 500-step episode limit.
 //!
+//! ## Episode lifecycle
+//!
+//! The episode terminates as soon as the pole angle or the cart position leaves
+//! its threshold band. Once it has, a further [`Environment::step`] returns
+//! [`EnvironmentError::StepAfterEpisodeEnd`] — call [`Environment::reset`]
+//! first.
+//!
 //! ## Quick start
 //!
 //! ```no_run,ignore
@@ -132,6 +139,7 @@
 //! ```
 use std::fmt;
 
+use crate::episode::EpisodeGuard;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
@@ -464,12 +472,23 @@ impl DiscreteAction<1> for CartPoleAction {
 ///
 /// No intrinsic step cap. Wrap with [`crate::wrappers::TimeLimit::new(env, 500)`]
 /// to replicate the Gymnasium v1 500-step episode limit.
+///
+/// Leaving either threshold band terminates the episode; a
+/// [`step`](Environment::step) taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 #[derive(Debug)]
 pub struct CartPole {
     state: CartPoleState,
     config: CartPoleConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after a threshold ended the episode. Without it
+    /// the integrator keeps running on the fallen pole: `is_terminal` is
+    /// recomputed from scratch each step, so every post-terminal call re-emits a
+    /// fresh `Terminated` snapshot and pays out another `+1.0` (or another
+    /// `-1.0` under the Sutton-Barto schedule), inflating the episode return
+    /// without bound and advancing `steps` past the true episode length.
+    guard: EpisodeGuard,
 }
 
 impl CartPole {
@@ -487,6 +506,7 @@ impl CartPole {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -653,6 +673,7 @@ impl Environment<1, 1, 1> for CartPole {
     ///
     /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
@@ -669,8 +690,15 @@ impl Environment<1, 1, 1> for CartPole {
     ///
     /// # Errors
     ///
-    /// Currently infallible; always returns `Ok`.
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: CartPoleAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before the integrator runs, before `steps` advances, and
+        // before anything touches `self.rng`. A rejected call must leave the
+        // physics state, the step counter, and the RNG stream untouched, or the
+        // stream would depend on how many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         let next = Self::step_physics(&self.state, action, &self.config);
         self.state = next;
         self.steps += 1;
@@ -686,12 +714,16 @@ impl Environment<1, 1, 1> for CartPole {
             ScalarReward(1.0)
         };
 
+        // Single exit: every path builds exactly one snapshot, and the guard is
+        // fed that snapshot's own status, so no branch can forget to record.
         let obs = self.observe(&action, &self.state);
         let snap = if terminated {
             SnapshotBase::terminated(obs, reward)
         } else {
             SnapshotBase::running(obs, reward)
         };
+
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -949,10 +981,30 @@ mod tests {
     //! episode lifecycle, reward schedules, determinism, and integrator divergence.
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::environment::Snapshot;
 
     fn default_env() -> CartPole {
         CartPole::with_config(CartPoleConfig::default()).expect("valid config")
+    }
+
+    /// Resets `env` and pushes `Right` until the pole tips past the 12° angle
+    /// threshold, returning the terminal snapshot. Pushing one direction from a
+    /// near-upright start topples the pole in a few dozen steps, so this reaches
+    /// a *real* termination rather than a hand-written terminal state.
+    fn drive_to_pole_fall(
+        env: &mut CartPole,
+    ) -> SnapshotBase<1, CartPoleObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        for _ in 0..1_000 {
+            let snap = env
+                .step(CartPoleAction::Right)
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("pushing Right must topple the pole within 1000 steps");
     }
 
     #[test]
@@ -1268,6 +1320,114 @@ mod tests {
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
+        );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #290) ──────────────────────
+
+    #[test]
+    /// Verifies `CartPole` satisfies the shared post-terminal conformance check:
+    /// once the pole has fallen past the angle threshold, a further legal
+    /// `step()` fails with `StepAfterEpisodeEnd { status: Terminated }` instead
+    /// of integrating on and paying out another `+1.0`.
+    fn test_cart_pole_rejects_post_terminal_step() {
+        let mut env = default_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_pole_fall, CartPoleAction::Right);
+    }
+
+    #[test]
+    /// Regression for the concrete defect the guard prevents: `is_terminal` is
+    /// recomputed from the current state each call, so an unguarded
+    /// post-terminal `step()` re-emitted a fresh `Terminated` snapshot, added
+    /// another `+1.0` to the return, and advanced `steps` past the true episode
+    /// length. A rejected step must mutate nothing at all.
+    fn test_cart_pole_post_terminal_step_does_not_extend_the_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = default_env();
+        let terminal = drive_to_pole_fall(&mut env);
+        assert!(terminal.is_terminated(), "the pole must have fallen");
+
+        let steps_at_end = env.steps();
+        let state_at_end = env.state;
+
+        let err = env
+            .step(CartPoleAction::Right)
+            .expect_err("a step after termination must return Err, not another +1.0 snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry Terminated, the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            env.state, state_at_end,
+            "a rejected step must not advance the physics state"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated environment, so a guard that has
+    /// latched cannot strand the environment for the rest of the run.
+    fn test_cart_pole_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = default_env();
+        drive_to_pole_fall(&mut env);
+        assert!(
+            env.step(CartPoleAction::Right).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(CartPoleAction::Right)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+    }
+
+    #[test]
+    /// Verifies a rejected post-terminal step draws no randomness. `step()` does
+    /// not sample today, but `reset()` shares the persistent stream: checking the
+    /// guard after any future draw would let illegal calls shift every
+    /// subsequent episode's initial state and desynchronise replay (ADR 0029).
+    fn test_cart_pole_rejected_step_does_not_advance_rng() {
+        let mut rejected = default_env();
+        let mut untouched = default_env();
+        drive_to_pole_fall(&mut rejected);
+        drive_to_pole_fall(&mut untouched);
+
+        rejected
+            .step(CartPoleAction::Right)
+            .expect_err("a step after termination must be rejected");
+
+        let after = rejected.reset().unwrap().observation().to_array();
+        let baseline = untouched.reset().unwrap().observation().to_array();
+        assert_eq!(
+            after, baseline,
+            "a rejected step must draw no randomness; the next episode must start where it would have"
         );
     }
 }
