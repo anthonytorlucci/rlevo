@@ -209,6 +209,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   so a `NaN` `tau` would silently select pure hard-sync mode instead of
   erroring.
 
+**Changed**
+
+- **`TensorConvertible`'s round-trip contract is now two clauses instead of
+  one** (ADR 0061, resolves #286). The old text — *"round-trip:
+  `from_tensor(x.to_tensor(device))` equals `Ok(x)` for any valid `x`"* —
+  silently assumed every implementor's row covers every field, and said
+  nothing about what an implementor with a partial row must do. Now:
+  **(1) tensor-image fidelity** — `from_tensor(x.to_tensor(d))?.to_tensor(d)
+  == x.to_tensor(d)`, decode-then-re-encode is a no-op *on the tensor* — and
+  **(2) no fabrication** — any field `write_host_row` omits must decode to an
+  explicit absence (`None`, or a dedicated "unknown" variant), never a
+  plausible in-domain value. A type whose row covers every field gets the
+  stronger `from_tensor(x.to_tensor(d)) == Ok(x)` for free and satisfies (2)
+  vacuously — the expected case, and (1) is a **floor**, not a licence to be
+  partial. `docs/rules.md`'s Core Trait Invariants table and §10 carry the
+  matching text.
+
+  This is **doc-only**: no signature on `HostRow` or `TensorConvertible`
+  changes, and none of the ~33 other impls in the workspace needs to change —
+  each already writes every field its type declares, so clause 1's stronger
+  form and clause 2's vacuous case already held for them. The two grid
+  observation types that motivated the amendment are the `rlevo-environments`
+  entries below.
+
 ### `rlevo-environments`
 
 **Breaking changes**
@@ -248,6 +272,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `max_steps` keeps `nonzero`/`Zero` throughout — it has no floor above 1.
   `FromStr`'s `String` error text changes correspondingly, from
   `"size must be >= 5, got 1"` to `ConfigError`'s `Display` form.
+- **`GridObservation`/`GoToDoorObservation::agent_direction` changes from
+  `u8` to `Option<Direction>`** (ADR 0061, resolves #286, closes #844). The
+  field is public on both types, which every one of the 12 grid environments
+  emits, so this reaches every caller that reads it.
+
+  *Migration.* `obs.agent_direction` is no longer directly comparable to a
+  `u8` or to `Direction::to_u8()`'s output. Compare it against
+  `Some(Direction::East)` (etc.) instead of `Direction::East.to_u8()`. A
+  tensor-decoded observation — `from_tensor`, the path a decode goes through
+  — now reports `agent_direction: None` rather than the fabricated `North`
+  it silently reported before; a real observation, from any environment's
+  `reset`/`step`, always reports `Some(direction)`. **No persisted data
+  breaks**: nothing in-tree serializes a grid observation — `ExperienceTuple`
+  holds it by value with no persistence path, `BenchStep` isn't `Serialize`,
+  and the report client's wire format carries steps and metrics, not raw
+  observations. An **externally**-serialized observation's wire form does
+  change, though, since both types still derive `Serialize`/`Deserialize`:
+  the field was a plain integer and is now an `Option`-wrapped enum tag —
+  in JSON, `3` becomes `"North"` or `null`. The exact bytes depend on the
+  format (bincode, MessagePack, and JSON each encode the change differently),
+  so re-serialize rather than hand-patching a stored payload.
 
 **Added**
 
@@ -270,6 +315,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   asserted only `len() >= COMPONENTS` and so accepted (and truncated) a long
   slice. All five now `assert_eq!` and carry a matching `# Panics` line. No
   in-workspace caller passed a non-exact slice, so nothing else changes.
+- **`from_tensor` no longer fabricates the agent's facing on decode**
+  (ADR 0061, resolves #286). `write_host_row` on both `GridObservation` and
+  `GoToDoorObservation` never wrote a facing byte at all — `row_shape()` is
+  `[7,7,3]`/`[7,7,4]`, sized for the view alone — yet `from_tensor` on both
+  types hard-coded `agent_direction: Direction::North.to_u8()` on every
+  decode: a value indistinguishable from a real measurement that was never
+  one. `GoToDoorObservation` carried the identical, previously unfiled
+  defect. Both now report `agent_direction: None` on decode (see the
+  breaking-change entry above).
+
+  *Why the existing tests missed it.* Each type's `view_round_trips_through_tensor`
+  test asserted the lossiness directly —
+  `assert_eq!(round_tripped.agent_direction, Direction::North.to_u8())` —
+  so the test could not fail on the exact defect it sat on top of; it
+  encoded the bug as the expected value. Nothing in the workspace decodes a
+  grid observation outside tests or doc examples (`ExperienceTuple` stores
+  observations by value, and the replay modules never call `from_tensor`),
+  which is also why this was never corrupting a live training run.
 - **Grid construction no longer panics or silently builds a corrupt board for an
   undersized config** (#106). The nine environments above split their invariant
   across two doors: `FromStr` checked the minimum, `Validate::validate` — the one

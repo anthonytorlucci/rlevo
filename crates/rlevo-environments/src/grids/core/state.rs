@@ -69,7 +69,7 @@ mod tests {
         let agent = AgentState::new(1, 1, Direction::East);
         let state = GridState::new(grid, agent);
         let obs = state.project();
-        assert_eq!(obs.agent_direction, Direction::East.to_u8());
+        assert_eq!(obs.agent_direction, Some(Direction::East));
     }
 
     #[test]

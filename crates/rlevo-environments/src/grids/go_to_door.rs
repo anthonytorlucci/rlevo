@@ -214,14 +214,36 @@ impl Mission {
 pub struct GoToDoorObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's current facing direction, encoded via [`Direction::to_u8`].
+    /// Agent's absolute facing when the observation was produced, or `None`
+    /// when the facing is genuinely unknown.
     ///
-    /// Like [`GridObservation`](super::core::GridObservation), this field is
-    /// **not** included in the tensor produced by
-    /// [`TensorConvertible::to_tensor`]; round-tripping through a tensor resets
-    /// it to [`Direction::North`]. Carry the direction out-of-band if full
-    /// fidelity is required.
-    pub agent_direction: u8,
+    /// Typed as [`Direction`] rather than a raw byte so that no illegal
+    /// encoding is representable (issue #844); [`Direction::to_u8`] still
+    /// yields the canonical Minigrid byte order for callers that want it.
+    ///
+    /// # Why it is not in the tensor
+    ///
+    /// As on [`GridObservation`](super::core::GridObservation), the facing is
+    /// deliberately **absent** from the tensor produced by
+    /// [`TensorConvertible::to_tensor`]. [`view`](Self::view) is already
+    /// rotated into the agent's own frame, so an absolute heading is
+    /// decision-vestigial for a policy: canonical Minigrid ships `direction`
+    /// as a separate entry of the observation dict and never inside the image,
+    /// and every published baseline (`ImgObsWrapper`, `rl-starter-files`,
+    /// RIDE) discards it before the network. The mission is the one piece of
+    /// out-of-image information this env *does* fold into the tensor, via
+    /// [`MISSION_CHANNEL`] (ADR 0043).
+    ///
+    /// # What `None` means
+    ///
+    /// `None` means *this observation was decoded from a tensor, so its facing
+    /// is genuinely unknown* — **not** "the agent faces some default". A value
+    /// produced by [`from_entity_view`](Self::from_entity_view) — i.e. by
+    /// `GoToDoorEnv`'s own projection — is always `Some`. When the true facing
+    /// is needed, read it from the full state
+    /// ([`GridState::agent`](super::core::GridState::agent)), which is where
+    /// the allocentric heading lives.
+    pub agent_direction: Option<Direction>,
 }
 
 impl GoToDoorObservation {
@@ -251,7 +273,7 @@ impl GoToDoorObservation {
         }
         Self {
             view: encoded,
-            agent_direction: direction.to_u8(),
+            agent_direction: Some(direction),
         }
     }
 
@@ -289,10 +311,18 @@ impl HostRow<3> for GoToDoorObservation {
 impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
     /// Reconstructs the `7 × 7 × 4` view from a tensor.
     ///
-    /// The tensor contains only the view channels (including the mission
-    /// channel). `agent_direction` is not encoded and is defaulted to
-    /// [`Direction::North`]; callers that need round-trip fidelity for the
-    /// direction must carry it out-of-band.
+    /// The tensor carries only the view channels — including the mission
+    /// channel — because the view is already rotated into the agent's frame
+    /// and the absolute facing adds nothing a policy consumes (see
+    /// [`agent_direction`](GoToDoorObservation::agent_direction)). The decoded
+    /// observation therefore reports `agent_direction == None` — the facing is
+    /// *unknown*, and this method will never invent a plausible one. Callers
+    /// needing the true facing must carry it out-of-band, from
+    /// [`GridState`].
+    ///
+    /// This satisfies the [`TensorConvertible`] contract's two clauses:
+    /// decode-then-re-encode reproduces the tensor exactly, and the one field
+    /// the tensor omits decodes to an explicit absence.
     ///
     /// # Errors
     ///
@@ -335,7 +365,8 @@ impl<B: Backend> TensorConvertible<3, B> for GoToDoorObservation {
         }
         Ok(Self {
             view,
-            agent_direction: Direction::North.to_u8(),
+            // The tensor carries no facing, so a decode must not invent one.
+            agent_direction: None,
         })
     }
 }
@@ -1103,8 +1134,50 @@ mod tests {
             env.mission().target_color.to_u8(),
             "the mission byte must survive the tensor round-trip"
         );
-        // agent_direction is not encoded in the tensor; defaults to North.
-        assert_eq!(back.agent_direction, Direction::North.to_u8());
+        // The tensor carries no facing, so a decode must report the facing as
+        // unknown rather than inventing a plausible one.
+        assert_eq!(
+            back.agent_direction, None,
+            "a decoded observation must not fabricate a facing"
+        );
+    }
+
+    #[test]
+    fn test_decoded_observation_re_encodes_to_the_same_tensor() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        let env = env_6x6(9);
+        let obs = env.observe_reset(env.state());
+
+        let tensor =
+            <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let decoded =
+            <GoToDoorObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor.clone())
+                .expect("decode of a self-produced tensor must succeed");
+
+        // Clause 2 of the TensorConvertible contract: an unwritten field
+        // decodes to an explicit absence, never to a plausible value.
+        assert_eq!(
+            decoded.agent_direction, None,
+            "the facing is absent from the tensor, so it must decode as unknown"
+        );
+        assert_eq!(
+            decoded.mission_color_u8(),
+            obs.mission_color_u8(),
+            "the mission channel is written, so it must survive the decode"
+        );
+
+        // Clause 1: decode-then-re-encode is a no-op on the tensor.
+        let re_encoded = <GoToDoorObservation as TensorConvertible<3, TestBackend>>::to_tensor(
+            &decoded, &device,
+        );
+        assert_eq!(
+            re_encoded.to_data().to_vec::<f32>().unwrap(),
+            tensor.to_data().to_vec::<f32>().unwrap(),
+            "re-encoding a decoded observation must reproduce the same tensor row"
+        );
     }
 
     #[test]
