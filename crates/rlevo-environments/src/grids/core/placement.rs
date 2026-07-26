@@ -37,7 +37,7 @@
 //!   function wearing a costume. Moving the RNG *into* [`Grid`] instead is
 //!   worse: [`Grid`] is a pure `Clone` data type that sits on the
 //!   observation-extraction path (see
-//!   [`egocentric_view`](super::egocentric_view)), and giving it interior
+//!   `grid::egocentric_view`), and giving it interior
 //!   randomness would make cloning a state semantically load-bearing.
 //! - **A `Placer<'a>` holding `&mut Grid` + `&mut R`** has no amortized state to
 //!   justify it, and it would fight the borrow checker in the `build` bodies

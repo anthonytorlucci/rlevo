@@ -47,8 +47,12 @@ pub use color::Color;
 pub use crate::direction::{self, Direction};
 pub use dynamics::{StepOutcome, apply_action};
 pub use entity::{DoorState, Entity};
-pub use grid::{Grid, egocentric_view};
-pub use observation::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
+// `egocentric_view` is deliberately **not** re-exported: it is the raw,
+// unoccluded window, which is only a correct emission model for an environment
+// that chose `Visibility::SeeThrough`. `observe_grid` is the public entry point
+// so the visibility policy cannot be bypassed from outside the crate.
+pub use grid::Grid;
+pub use observation::{GridObservation, OBS_CHANNELS, UNSEEN_TYPE, VIEW_SIZE};
 pub use placement::{
     PlacementError, Rect, is_free, no_reject, place_agent, place_obj, random_direction, sample_pos,
 };
@@ -56,6 +60,7 @@ pub use render::render_ascii;
 pub use reward::success_reward;
 pub use state::GridState;
 
+use grid::egocentric_view;
 use rlevo_core::environment::SnapshotBase;
 use rlevo_core::reward::ScalarReward;
 
@@ -110,7 +115,9 @@ pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 pub enum Visibility {
     /// Opaque cells (walls, closed doors) hide what lies behind them.
     ///
-    /// Canonical `see_through_walls=False` — Minigrid's default.
+    /// Canonical `see_through_walls=False` — Minigrid's default. The shadow
+    /// cast is a port of `Grid.process_vis`; hidden cells encode as
+    /// [`UNSEEN_TYPE`].
     Occluded,
     /// Every cell of the view window is reported, regardless of what stands
     /// between it and the agent.
@@ -135,36 +142,19 @@ pub enum Visibility {
 /// # Returns
 ///
 /// The `7×7×3` view rotated into the agent's frame, tagged with the agent's
-/// absolute facing.
+/// absolute facing. Under [`Visibility::Occluded`] the cells the agent cannot
+/// see carry the [`UNSEEN_TYPE`] byte triple; under
+/// [`Visibility::SeeThrough`] every cell is reported.
 #[must_use]
 pub fn observe_grid(state: &GridState, visibility: Visibility) -> GridObservation {
     let view = egocentric_view(&state.grid, &state.agent);
-    let view = match visibility {
-        // TODO(#281): occlusion lands in T2 — `occlude` is the identity today,
-        // so both arms emit the same view and this seam changes no observation
-        // byte.
-        Visibility::Occluded => occlude(view),
-        Visibility::SeeThrough => view,
+    // Both arms feed the *same* encoder, so the only difference between the two
+    // policies is which cells arrive as `None`.
+    let masked = match visibility {
+        Visibility::Occluded => grid::process_vis(view),
+        Visibility::SeeThrough => view.map(|row| row.map(Some)),
     };
-    GridObservation::from_entity_view(view, state.agent.direction)
-}
-
-/// Hide the cells of an egocentric `view` that an opaque cell stands in front
-/// of.
-///
-/// The input is the rotated view window, so the agent is at
-/// `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` looking toward row `0` — the same frame
-/// canonical Minigrid's `Grid.process_vis` runs in.
-///
-/// **This is the identity function today.** Introducing the [`Visibility`]
-/// seam is deliberately a no-op on every emitted observation; the shadow cast
-/// itself is a separate change, so that a behavioural diff is attributable to
-/// one commit.
-fn occlude(view: [[Entity; VIEW_SIZE]; VIEW_SIZE]) -> [[Entity; VIEW_SIZE]; VIEW_SIZE] {
-    // TODO(#281): port `Grid.process_vis` here in T2 — two horizontal sweeps
-    // per row from the agent's row outward, masking behind any cell whose
-    // `see_behind` is false (walls, and doors that are not open).
-    view
+    GridObservation::from_masked_view(masked, state.agent.direction)
 }
 
 /// Build a [`GridSnapshot`] from an already-produced [`GridObservation`] plus a
@@ -183,5 +173,97 @@ pub fn build_snapshot(observation: GridObservation, reward: f32, done: bool) -> 
         SnapshotBase::terminated(observation, ScalarReward::new(reward))
     } else {
         SnapshotBase::running(observation, ScalarReward::new(reward))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A corridor with a solid wall run beside the agent — enough geometry for
+    /// the two visibility policies to disagree.
+    fn walled_state() -> GridState {
+        let mut grid = Grid::new(9, 9);
+        grid.draw_walls();
+        for y in 1..8 {
+            grid.set(3, y, Entity::Wall);
+        }
+        grid.set(5, 1, Entity::Goal);
+        GridState::new(grid, AgentState::new(5, 5, Direction::North))
+    }
+
+    #[test]
+    fn see_through_reports_every_cell() {
+        let state = walled_state();
+        let obs = observe_grid(&state, Visibility::SeeThrough);
+
+        // `UNSEEN_TYPE` currently collides with `Entity::Empty` in the byte
+        // encoding (see the `UNSEEN_TYPE` docs), so assert against the *source*
+        // of truth instead: SeeThrough must reproduce the raw view exactly.
+        let raw = GridObservation::from_entity_view(
+            egocentric_view(&state.grid, &state.agent),
+            state.agent.direction,
+        );
+        assert_eq!(
+            obs, raw,
+            "SeeThrough must emit the unoccluded view byte for byte — no cell may be masked"
+        );
+    }
+
+    #[test]
+    fn see_through_is_byte_identical_to_the_pre_occlusion_encoder() {
+        // The end-to-end no-op guard for this commit: every environment is
+        // still `Visibility::SeeThrough`, so no observation byte may change.
+        for direction in [
+            Direction::North,
+            Direction::East,
+            Direction::South,
+            Direction::West,
+        ] {
+            for (x, y) in [(1, 1), (5, 5), (7, 7), (2, 6)] {
+                let mut grid = Grid::new(9, 9);
+                grid.draw_walls();
+                for gy in 1..8 {
+                    grid.set(3, gy, Entity::Wall);
+                }
+                grid.set(6, 2, Entity::Door(Color::Blue, DoorState::Closed));
+                grid.set(6, 6, Entity::Lava);
+                let state = GridState::new(grid, AgentState::new(x, y, direction));
+
+                let before = GridObservation::from_entity_view(
+                    egocentric_view(&state.grid, &state.agent),
+                    direction,
+                );
+                assert_eq!(
+                    observe_grid(&state, Visibility::SeeThrough),
+                    before,
+                    "SeeThrough at ({x}, {y}) facing {direction:?} must be unchanged"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn occluded_hides_cells_that_see_through_reports() {
+        let state = walled_state();
+        let open = observe_grid(&state, Visibility::SeeThrough);
+        let shut = observe_grid(&state, Visibility::Occluded);
+
+        assert_ne!(
+            open, shut,
+            "with a wall run beside the agent the two policies must disagree"
+        );
+
+        // The agent faces North from (5, 5); the wall column at x == 3 is two
+        // cells to its left, so the world beyond it is unseen.
+        let masked = process_vis_of(&state);
+        assert!(
+            masked.iter().flatten().any(Option::is_none),
+            "the occluded view must mask at least one cell"
+        );
+    }
+
+    fn process_vis_of(state: &GridState) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+        grid::process_vis(egocentric_view(&state.grid, &state.agent))
     }
 }

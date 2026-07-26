@@ -33,6 +33,30 @@ pub const VIEW_SIZE: usize = 7;
 /// [`Entity::state_u8`]: super::entity::Entity::state_u8
 pub const OBS_CHANNELS: usize = 3;
 
+/// Channel-0 byte written for a cell the agent cannot see.
+///
+/// Canonical Minigrid's `Grid.encode` writes `[OBJECT_TO_IDX["unseen"], 0, 0]`
+/// for a masked cell, and `OBJECT_TO_IDX["unseen"] == 0`.
+///
+/// # Temporary collision with `Entity::Empty`
+///
+/// Canonical numbers `unseen = 0` and `empty = 1` as *distinct* type indices,
+/// precisely so a masked cell cannot be confused with a confirmed-empty one.
+/// rlevo's [`Entity::type_u8`] does not yet use canonical indices —
+/// [`Entity::Empty`] is also `0` — so today the two encode identically. That is
+/// harmless *only* because no environment selects
+/// [`Visibility::Occluded`](super::Visibility::Occluded) yet, so no `None` cell
+/// is ever produced; the renumbering to canonical indices is a follow-up in the
+/// same issue (#281), after which `Empty` becomes `1` and this constant is
+/// uniquely the unseen marker.
+///
+/// **Do not "fix" the collision by picking a different value here.** `0` is the
+/// canonical unseen index; it is `type_u8` that has to move.
+///
+/// [`Entity::type_u8`]: super::entity::Entity::type_u8
+/// [`Entity::Empty`]: super::entity::Entity::Empty
+pub const UNSEEN_TYPE: u8 = 0;
+
 /// Egocentric observation of the 7×7 cells around the agent.
 ///
 /// The agent sits at view row `VIEW_SIZE - 1`, column `VIEW_SIZE / 2`, and
@@ -78,20 +102,54 @@ pub struct GridObservation {
 }
 
 impl GridObservation {
-    /// Encode a decoded 7×7 entity view and the agent's facing into an
-    /// observation.
+    /// Encode a visibility-masked 7×7 entity view and the agent's facing into
+    /// an observation.
+    ///
+    /// This is the single encoder behind every grid observation. A `Some` cell
+    /// is encoded from its [`Entity`]; a `None` cell — one the shadow cast in
+    /// `grid::process_vis` hid — becomes the byte triple
+    /// `[UNSEEN_TYPE, 0, 0]`, matching canonical Minigrid's
+    /// `Grid.encode(vis_mask)`.
+    ///
+    /// Callers holding an unmasked view use
+    /// [`from_entity_view`](Self::from_entity_view), which delegates here.
+    ///
+    /// # Arguments
+    ///
+    /// * `view` — the rotated view window, `None` where the agent's sight is
+    ///   blocked.
+    /// * `direction` — the agent's absolute facing, carried beside the tensor
+    ///   (see [`agent_direction`](Self::agent_direction)).
     #[must_use]
-    pub fn from_entity_view(view: [[Entity; VIEW_SIZE]; VIEW_SIZE], direction: Direction) -> Self {
+    pub fn from_masked_view(
+        view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
+        direction: Direction,
+    ) -> Self {
         let mut encoded = [[[0u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE];
         for (r, row) in view.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
-                encoded[r][c] = [cell.type_u8(), cell.color_u8(), cell.state_u8()];
+                encoded[r][c] = match cell {
+                    Some(entity) => [entity.type_u8(), entity.color_u8(), entity.state_u8()],
+                    // Canonical: `array[i, j, :] = [OBJECT_TO_IDX["unseen"], 0, 0]`.
+                    None => [UNSEEN_TYPE, 0, 0],
+                };
             }
         }
         Self {
             view: encoded,
             agent_direction: Some(direction),
         }
+    }
+
+    /// Encode a fully visible 7×7 entity view and the agent's facing into an
+    /// observation.
+    ///
+    /// Equivalent to wrapping every cell in `Some` and calling
+    /// [`from_masked_view`](Self::from_masked_view) — which is exactly what it
+    /// does, so there is one encoder rather than two.
+    #[must_use]
+    pub fn from_entity_view(view: [[Entity; VIEW_SIZE]; VIEW_SIZE], direction: Direction) -> Self {
+        Self::from_masked_view(view.map(|row| row.map(Some)), direction)
     }
 }
 
@@ -295,6 +353,50 @@ mod tests {
         let err = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
             .unwrap_err();
         assert!(err.message.contains("expected shape"));
+    }
+
+    #[test]
+    fn masked_cells_encode_as_the_unseen_triple() {
+        let mut view = [[Some(Entity::Empty); VIEW_SIZE]; VIEW_SIZE];
+        view[2][5] = None;
+        view[6][3] = Some(Entity::Goal);
+
+        let obs = GridObservation::from_masked_view(view, Direction::South);
+
+        assert_eq!(
+            obs.view[2][5],
+            [UNSEEN_TYPE, 0, 0],
+            "a masked cell encodes as canonical's [unseen, 0, 0] triple"
+        );
+        assert_eq!(obs.view[6][3][0], Entity::Goal.type_u8());
+        assert_eq!(obs.agent_direction, Some(Direction::South));
+    }
+
+    #[test]
+    fn from_entity_view_delegates_to_from_masked_view() {
+        // One encoder, not two: wrapping every cell in `Some` must reproduce
+        // the unmasked encoding byte for byte.
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[0][0] = Entity::Wall;
+        view[3][3] = Entity::Door(Color::Blue, DoorState::Locked);
+        view[6][3] = Entity::Goal;
+
+        let unmasked = GridObservation::from_entity_view(view, Direction::North);
+        let wrapped =
+            GridObservation::from_masked_view(view.map(|row| row.map(Some)), Direction::North);
+
+        assert_eq!(
+            unmasked, wrapped,
+            "from_entity_view must be from_masked_view with every cell Some"
+        );
+    }
+
+    #[test]
+    fn unseen_type_is_the_canonical_index() {
+        // Canonical `OBJECT_TO_IDX["unseen"] == 0`. The collision with
+        // `Entity::Empty` is temporary and tracked in #281 — it is `type_u8`
+        // that moves to canonical indices, not this constant.
+        assert_eq!(UNSEEN_TYPE, 0);
     }
 
     #[test]

@@ -79,6 +79,67 @@ impl Entity {
         matches!(self, Self::Key(_) | Self::Ball(_) | Self::Box(_))
     }
 
+    /// Whether the agent's line of sight passes *through* this cell.
+    ///
+    /// This is the rlevo spelling of canonical Minigrid's
+    /// `WorldObj.see_behind()`, the sole predicate driving the shadow cast in
+    /// `grid::process_vis`. Canonical's base
+    /// implementation returns `true` and exactly two subclasses override it:
+    /// `Wall` returns `false`, and `Door` returns `self.is_open`. Everything
+    /// else — `Goal`, `Floor`, `Lava`, `Key`, `Ball`, `Box` — inherits the
+    /// transparent default.
+    ///
+    /// # This is deliberately *not* [`is_passable`](Self::is_passable)
+    ///
+    /// The two predicates answer different questions and disagree on four
+    /// variants. A key, ball, or box blocks movement but not sight; lava
+    /// permits movement (fatally) and also sight. Defining transparency in
+    /// terms of passability would make an agent blind to everything behind a
+    /// ball on the floor, which canonical Minigrid does not do — and it would
+    /// compile, look plausible, and only show up as a silently harder task.
+    ///
+    /// | Variant | `is_passable` | `see_behind` |
+    /// |---------|---------------|--------------|
+    /// | `Empty` / `Floor` / `Goal` / `Lava` | `true` | `true` |
+    /// | `Key` / `Ball` / `Box` | `false` | **`true`** |
+    /// | `Wall` | `false` | `false` |
+    /// | `Door(_, Open)` | `true` | `true` |
+    /// | `Door(_, Closed \| Locked)` | `false` | `false` |
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rlevo_environments::grids::core::{Color, DoorState, Entity};
+    ///
+    /// assert!(!Entity::Wall.see_behind());
+    /// assert!(Entity::Lava.see_behind());
+    /// assert!(Entity::Ball(Color::Red).see_behind());
+    /// assert!(Entity::Door(Color::Blue, DoorState::Open).see_behind());
+    /// assert!(!Entity::Door(Color::Blue, DoorState::Closed).see_behind());
+    /// ```
+    #[must_use]
+    pub const fn see_behind(self) -> bool {
+        match self {
+            // Canonical `Wall.see_behind()` -> False.
+            Self::Wall => false,
+            // Canonical `Door.see_behind()` -> `self.is_open`. For a
+            // `DoorState` alone, "passable" and "open" are the same predicate
+            // (`DoorState::is_passable` is `matches!(self, Open)`); it is only
+            // at the `Entity` level that passability and transparency diverge.
+            Self::Door(_, state) => state.is_passable(),
+            // Canonical's base `WorldObj.see_behind()` -> True. Listed
+            // exhaustively rather than with `_` so that a new entity variant
+            // must make a deliberate transparency choice.
+            Self::Empty
+            | Self::Floor
+            | Self::Goal
+            | Self::Lava
+            | Self::Key(_)
+            | Self::Ball(_)
+            | Self::Box(_) => true,
+        }
+    }
+
     /// Entity-type byte for observation channel 0.
     ///
     /// `0` is reserved for [`Empty`]; every other variant maps to a
@@ -150,6 +211,64 @@ mod tests {
         assert!(!Entity::Goal.is_pickable());
         assert!(!Entity::Lava.is_pickable());
         assert!(!Entity::Door(Color::Red, DoorState::Open).is_pickable());
+    }
+
+    #[test]
+    fn only_walls_and_shut_doors_block_sight() {
+        // Canonical Minigrid overrides `see_behind` on exactly two classes.
+        assert!(!Entity::Wall.see_behind(), "a wall is opaque");
+        assert!(
+            !Entity::Door(Color::Blue, DoorState::Closed).see_behind(),
+            "a closed door is opaque"
+        );
+        assert!(
+            !Entity::Door(Color::Blue, DoorState::Locked).see_behind(),
+            "a locked door is opaque"
+        );
+        assert!(
+            Entity::Door(Color::Blue, DoorState::Open).see_behind(),
+            "an open door is transparent"
+        );
+
+        // Everything else inherits the transparent base implementation.
+        for transparent in [
+            Entity::Empty,
+            Entity::Floor,
+            Entity::Goal,
+            Entity::Lava,
+            Entity::Key(Color::Yellow),
+            Entity::Ball(Color::Red),
+            Entity::Box(Color::Green),
+        ] {
+            assert!(
+                transparent.see_behind(),
+                "{transparent:?} does not override canonical WorldObj.see_behind"
+            );
+        }
+    }
+
+    #[test]
+    fn see_behind_is_not_passability() {
+        // The four variants where the two predicates disagree. Conflating them
+        // is the single most likely way to mis-port the shadow cast, and it
+        // would compile.
+        assert!(Entity::Lava.is_passable(), "lava is walkable (fatally)");
+        assert!(Entity::Lava.see_behind(), "lava is also transparent");
+        for blocking_but_transparent in [
+            Entity::Key(Color::Yellow),
+            Entity::Ball(Color::Red),
+            Entity::Box(Color::Green),
+        ] {
+            assert!(
+                !blocking_but_transparent.is_passable(),
+                "{blocking_but_transparent:?} blocks movement"
+            );
+            assert!(
+                blocking_but_transparent.see_behind(),
+                "{blocking_but_transparent:?} must NOT block sight — see_behind is \
+                 not is_passable"
+            );
+        }
     }
 
     #[test]

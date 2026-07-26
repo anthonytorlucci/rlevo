@@ -1,4 +1,5 @@
-//! Rectangular grid of [`Entity`] cells plus an egocentric view extractor.
+//! Rectangular grid of [`Entity`] cells, an egocentric view extractor, and the
+//! shadow-casting pass that turns that view into a visibility-masked one.
 
 use super::agent::AgentState;
 use super::entity::Entity;
@@ -99,18 +100,39 @@ impl Grid {
     }
 }
 
+/// View-window row the agent occupies: the bottom row, looking toward row `0`.
+///
+/// Canonical Minigrid passes `agent_pos=(agent_view_size // 2,
+/// agent_view_size - 1)` to `Grid.process_vis`; this is the `row` half of that
+/// pair, derived from [`VIEW_SIZE`] rather than hardcoded.
+const AGENT_VIEW_ROW: usize = VIEW_SIZE - 1;
+
+/// View-window column the agent occupies: the centre column.
+const AGENT_VIEW_COL: usize = VIEW_SIZE / 2;
+
 /// Extract a [`VIEW_SIZE`]×[`VIEW_SIZE`] egocentric view of the grid.
 ///
 /// The agent sits at view coordinates `(row = VIEW_SIZE - 1, col = VIEW_SIZE / 2)`
 /// and looks toward row `0`. Cells outside the grid decode as
 /// [`Entity::Wall`], so the returned array is always fully populated.
+///
+/// # Visibility
+///
+/// The returned view is **unoccluded**: every cell of the window is read
+/// straight out of the grid, walls included. That is only a correct emission
+/// model for an environment that opted into
+/// [`Visibility::SeeThrough`](super::Visibility::SeeThrough), which is why this
+/// function is `pub(crate)` — the crate-public entry point is
+/// [`observe_grid`](super::observe_grid), which applies the environment's own
+/// visibility policy. Callers inside the crate that want the occluded view feed
+/// this result to [`process_vis`].
 #[must_use]
-pub fn egocentric_view(grid: &Grid, agent: &AgentState) -> [[Entity; VIEW_SIZE]; VIEW_SIZE] {
+pub(crate) fn egocentric_view(grid: &Grid, agent: &AgentState) -> [[Entity; VIEW_SIZE]; VIEW_SIZE] {
     let mut view = [[Entity::Wall; VIEW_SIZE]; VIEW_SIZE];
     #[allow(clippy::cast_possible_wrap)]
-    let agent_row = (VIEW_SIZE - 1) as i32;
+    let agent_row = AGENT_VIEW_ROW as i32;
     #[allow(clippy::cast_possible_wrap)]
-    let agent_col = (VIEW_SIZE / 2) as i32;
+    let agent_col = AGENT_VIEW_COL as i32;
     for (vr, row) in view.iter_mut().enumerate() {
         for (vc, cell) in row.iter_mut().enumerate() {
             #[allow(clippy::cast_possible_wrap)]
@@ -138,6 +160,104 @@ const fn rotate_view_offset(dir: Direction, right: i32, forward: i32) -> (i32, i
         // Facing West: forward = -x, right = -y
         Direction::West => (-forward, -right),
     }
+}
+
+/// Apply canonical Minigrid's shadow cast to an already-rotated egocentric
+/// `view`, replacing every cell the agent cannot see with `None`.
+///
+/// This is a direct port of `Grid.process_vis`
+/// (`minigrid/core/grid.py`, `master` @ 2026-07-26). The input is the output of
+/// [`egocentric_view`], i.e. the window already rotated into the agent's frame,
+/// which is the same coordinate system canonical runs `process_vis` in (its
+/// `gen_obs_grid` slices, then `rotate_left`s, then occludes).
+///
+/// # Algorithm
+///
+/// Visibility is seeded at the agent's own cell and flood-filled *forward*:
+/// each row is finalized before the next row out is touched, so a shadow can
+/// never leak backward toward the agent. Within a row, a lit transparent cell
+/// lights its two horizontal neighbours and the three cells one row ahead of
+/// it. An **opaque** cell (`see_behind() == false`) is itself lit — the agent
+/// sees the wall that blocks it — but propagates nothing.
+///
+/// A consequence worth stating, because it looks like a bug and is not: a
+/// *single* isolated wall cell casts essentially no shadow, since light routes
+/// diagonally around it from the neighbouring columns. Durable shadows require
+/// an occluder that also blocks the sideways spread within each row — a wall
+/// run, or the view-window edge (out-of-grid cells already read as
+/// [`Entity::Wall`] via [`Grid::get`], matching canonical `Grid.slice`).
+///
+/// # Index transposition
+///
+/// Canonical indexes its mask `mask[i, j]` with **`i` the column and `j` the
+/// row**; rlevo's view array is `view[row][col]`. Every index pair below is
+/// therefore deliberately swapped relative to the Python source: canonical's
+/// `mask[i + 1, j - 1]` is this port's `mask[row - 1][col + 1]`. Getting this
+/// wrong yields a plausible-looking mask that is wrong only for layouts which
+/// are not symmetric about the transpose.
+///
+/// # Returns
+///
+/// A `VIEW_SIZE × VIEW_SIZE` array where a visible cell is `Some(entity)` and a
+/// masked cell is `None`.
+#[must_use]
+pub(crate) fn process_vis(
+    view: [[Entity; VIEW_SIZE]; VIEW_SIZE],
+) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+    // Canonical: `mask = np.zeros((width, height)); mask[agent_pos] = True`.
+    // Transposed to `[row][col]`; the agent sits at the bottom-centre of the
+    // window, derived from VIEW_SIZE rather than hardcoded to (3, 6).
+    let mut mask = [[false; VIEW_SIZE]; VIEW_SIZE];
+    mask[AGENT_VIEW_ROW][AGENT_VIEW_COL] = true;
+
+    // Canonical: `for j in reversed(range(0, self.height))` — from the agent's
+    // own row outward toward row 0.
+    for row in (0..VIEW_SIZE).rev() {
+        // Canonical sub-pass 1: `for i in range(0, self.width - 1)`, writing
+        // `i + 1`. The upper bound is short by one precisely because of that
+        // write.
+        for col in 0..VIEW_SIZE - 1 {
+            if !mask[row][col] {
+                continue;
+            }
+            // The occluder is already marked visible above; `continue` here
+            // only stops it from *propagating*.
+            if !view[row][col].see_behind() {
+                continue;
+            }
+            mask[row][col + 1] = true;
+            if row > 0 {
+                mask[row - 1][col + 1] = true;
+                mask[row - 1][col] = true;
+            }
+        }
+
+        // Canonical sub-pass 2: `for i in reversed(range(1, self.width))`,
+        // writing `i - 1`. Both sub-passes are required — visibility has to
+        // spread sideways from the agent's column in *both* directions before
+        // the row pushes forward, and a single-direction sweep silently loses
+        // cells on one side of an occluder.
+        for col in (1..VIEW_SIZE).rev() {
+            if !mask[row][col] {
+                continue;
+            }
+            if !view[row][col].see_behind() {
+                continue;
+            }
+            mask[row][col - 1] = true;
+            if row > 0 {
+                mask[row - 1][col - 1] = true;
+                mask[row - 1][col] = true;
+            }
+        }
+    }
+
+    // Canonical erases masked cells with `self.set(i, j, None)`; rlevo models
+    // that absence with `Option` rather than an `Entity::Unseen` variant, so
+    // the exhaustive `entity_to_tile` match in `render.rs` — which feeds the
+    // versioned `GridTile` wire type — stays untouched by a value that can
+    // never appear in a recorded world grid.
+    std::array::from_fn(|row| std::array::from_fn(|col| mask[row][col].then_some(view[row][col])))
 }
 
 #[cfg(test)]
@@ -236,5 +356,264 @@ mod tests {
             .count();
         // Only the agent's own cell and at most one neighbor are inside the grid.
         assert!(wall_count >= 45);
+    }
+
+    // ---- process_vis -----------------------------------------------------
+
+    use super::super::color::Color;
+    use super::super::entity::DoorState;
+
+    /// Shorthand for a visible cell in a hand-written expected mask.
+    const V: bool = true;
+    /// Shorthand for a masked (unseen) cell in a hand-written expected mask.
+    const X: bool = false;
+
+    /// Visible-cell predicate per position, for readable whole-mask asserts.
+    fn visibility(
+        masked: &[[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
+    ) -> [[bool; VIEW_SIZE]; VIEW_SIZE] {
+        std::array::from_fn(|row| std::array::from_fn(|col| masked[row][col].is_some()))
+    }
+
+    /// `[[Entity; N]; N]` -> `[[Option<Entity>; N]; N]`, everything visible.
+    fn all_visible(
+        view: [[Entity; VIEW_SIZE]; VIEW_SIZE],
+    ) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+        view.map(|row| row.map(Some))
+    }
+
+    /// A wall row one cell ahead of the agent with `centre` punched into the
+    /// middle column. Everything else is [`Entity::Empty`].
+    ///
+    /// This is the discriminating fixture for "does `centre` occlude?": the
+    /// flanking walls stop light spreading sideways, so the only route to rows
+    /// `0..=4` is straight through `centre`.
+    fn wall_row_with_centre(centre: Entity) -> [[Entity; VIEW_SIZE]; VIEW_SIZE] {
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[AGENT_VIEW_ROW - 1] = [Entity::Wall; VIEW_SIZE];
+        view[AGENT_VIEW_ROW - 1][AGENT_VIEW_COL] = centre;
+        view
+    }
+
+    #[test]
+    fn process_vis_empty_view_hides_nothing() {
+        let view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        assert_eq!(
+            process_vis(view),
+            all_visible(view),
+            "with no occluder anywhere, every cell of the window is visible"
+        );
+    }
+
+    #[test]
+    fn process_vis_asymmetric_wall_column_shadows_only_the_far_side() {
+        // Layout — agent `A` at (row 6, col 3) looking toward row 0. Column 1
+        // is a solid wall run; every other cell is Empty.
+        //
+        //   col      0  1  2  3  4  5  6
+        //   row 0    .  #  .  .  .  .  .
+        //   row 1    .  #  .  .  .  .  .
+        //   ...
+        //   row 6    .  #  .  A  .  .  .
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        for row in &mut view {
+            row[1] = Entity::Wall;
+        }
+
+        // Hand-computed and written out literally — NOT derived by running the
+        // code under test. Trace: light starts at (6, 3); row 6's right-to-left
+        // sub-pass walks it to col 2, which lights col 1 (the wall itself) and
+        // then stops, because a wall propagates nothing. Nothing ever reaches
+        // col 0. Each row out repeats the shape, since col 2 lights (row-1,
+        // col 1) diagonally but the wall never feeds col 0.
+        let expected = [[X, V, V, V, V, V, V]; VIEW_SIZE];
+
+        let masked = process_vis(view);
+        let actual = visibility(&masked);
+        assert_eq!(
+            actual, expected,
+            "column 0 must lie entirely in the shadow of the wall run in column 1"
+        );
+
+        // Why this fixture — and not a symmetric one — can catch a row/column
+        // index swap: the expected mask differs from its own transpose, so an
+        // implementation that indexed `mask[col][row]` (the literal
+        // transcription of canonical's `mask[i, j]`) cannot produce it.
+        let transposed: [[bool; VIEW_SIZE]; VIEW_SIZE] =
+            std::array::from_fn(|r| std::array::from_fn(|c| expected[c][r]));
+        assert_ne!(
+            expected, transposed,
+            "fixture must not be transpose-symmetric, or it cannot detect an index swap"
+        );
+
+        // The occluder is itself visible; only what is behind it is hidden.
+        for (row, cells) in masked.iter().enumerate() {
+            assert_eq!(
+                cells[1],
+                Some(Entity::Wall),
+                "the agent sees the wall that blocks it, at row {row}"
+            );
+            assert_eq!(cells[0], None, "col 0 is hidden at row {row}");
+        }
+    }
+
+    #[test]
+    fn process_vis_wall_row_ahead_hides_everything_behind_it() {
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[AGENT_VIEW_ROW - 1] = [Entity::Wall; VIEW_SIZE];
+
+        let masked = process_vis(view);
+
+        let wall_row = &masked[AGENT_VIEW_ROW - 1];
+        let agent_row = &masked[AGENT_VIEW_ROW];
+        for (col, (&on_wall, &on_agent)) in wall_row.iter().zip(agent_row.iter()).enumerate() {
+            assert_eq!(
+                on_wall,
+                Some(Entity::Wall),
+                "the wall row itself is visible at col {col}"
+            );
+            assert_eq!(
+                on_agent,
+                Some(Entity::Empty),
+                "the agent's own row is unaffected at col {col}"
+            );
+        }
+        assert_unseen_beyond_the_wall_row(&masked, "the wall row");
+    }
+
+    /// Every cell strictly ahead of the occluding row is masked.
+    fn assert_unseen_beyond_the_wall_row(
+        masked: &[[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
+        occluder: &str,
+    ) {
+        for (row, cells) in masked.iter().enumerate().take(AGENT_VIEW_ROW - 1) {
+            for (col, &cell) in cells.iter().enumerate() {
+                assert_eq!(
+                    cell, None,
+                    "({row}, {col}) lies behind {occluder} and must be unseen"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn process_vis_lone_wall_cell_casts_no_shadow() {
+        // Canonical fidelity, and it looks like a bug until traced: a single
+        // isolated wall does not hide the cell directly behind it, because the
+        // neighbouring columns light it diagonally. Durable shadows need an
+        // occluder that also blocks the sideways spread within a row.
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[AGENT_VIEW_ROW - 1][AGENT_VIEW_COL] = Entity::Wall;
+
+        assert_eq!(
+            process_vis(view),
+            all_visible(view),
+            "a lone wall cell occludes nothing — light routes around it"
+        );
+    }
+
+    #[test]
+    fn process_vis_only_open_doors_let_sight_through() {
+        let color = Color::Blue;
+
+        let open = process_vis(wall_row_with_centre(Entity::Door(color, DoorState::Open)));
+        assert_eq!(
+            open[AGENT_VIEW_ROW - 2][AGENT_VIEW_COL],
+            Some(Entity::Empty),
+            "an open door does not occlude"
+        );
+
+        for shut in [DoorState::Closed, DoorState::Locked] {
+            let masked = process_vis(wall_row_with_centre(Entity::Door(color, shut)));
+            assert_eq!(
+                masked[AGENT_VIEW_ROW - 1][AGENT_VIEW_COL],
+                Some(Entity::Door(color, shut)),
+                "the {shut:?} door itself stays visible"
+            );
+            assert_unseen_beyond_the_wall_row(&masked, &format!("a {shut:?} door"));
+        }
+    }
+
+    #[test]
+    fn process_vis_objects_and_lava_do_not_occlude() {
+        // The counter-intuitive half of canonical `see_behind`: only Wall and
+        // shut Doors override it. An agent sees straight past lava, and past a
+        // key or ball lying on the floor.
+        for transparent in [
+            Entity::Lava,
+            Entity::Key(Color::Yellow),
+            Entity::Ball(Color::Red),
+            Entity::Box(Color::Green),
+            Entity::Goal,
+            Entity::Floor,
+        ] {
+            let masked = process_vis(wall_row_with_centre(transparent));
+            assert_eq!(
+                masked[AGENT_VIEW_ROW - 1][AGENT_VIEW_COL],
+                Some(transparent),
+                "{transparent:?} is visible"
+            );
+            assert_eq!(
+                masked[AGENT_VIEW_ROW - 2][AGENT_VIEW_COL],
+                Some(Entity::Empty),
+                "{transparent:?} must not occlude the cell behind it"
+            );
+        }
+    }
+
+    #[test]
+    fn process_vis_agent_cell_is_always_visible() {
+        // Canonical seeds `mask[agent_pos] = True` before reading any cell, so
+        // the agent's own cell is visible even when it is opaque.
+        let view = [[Entity::Wall; VIEW_SIZE]; VIEW_SIZE];
+        let masked = process_vis(view);
+
+        assert_eq!(
+            masked[AGENT_VIEW_ROW][AGENT_VIEW_COL],
+            Some(Entity::Wall),
+            "the agent's own cell is seeded visible unconditionally"
+        );
+        let visible = masked.iter().flatten().filter(|c| c.is_some()).count();
+        assert_eq!(
+            visible, 1,
+            "walled in on every side, the agent sees exactly its own cell"
+        );
+    }
+
+    #[test]
+    fn process_vis_treats_out_of_grid_cells_as_occluding_walls() {
+        // `Grid::get` returns `Entity::Wall` out of bounds (matching canonical
+        // `Grid.slice`), so the world edge occludes with no special case in
+        // `process_vis`.
+        let grid = Grid::new(1, 1);
+        let agent = AgentState::new(0, 0, Direction::East);
+        let masked = process_vis(egocentric_view(&grid, &agent));
+
+        // Only the agent's cell, its two in-row neighbours (both out-of-grid
+        // walls), and the three cells they light one row ahead survive.
+        let expected = [
+            [X, X, X, X, X, X, X],
+            [X, X, X, X, X, X, X],
+            [X, X, X, X, X, X, X],
+            [X, X, X, X, X, X, X],
+            [X, X, X, X, X, X, X],
+            [X, X, V, V, V, X, X],
+            [X, X, V, V, V, X, X],
+        ];
+        assert_eq!(
+            visibility(&masked),
+            expected,
+            "the out-of-grid wall ring must occlude everything past it"
+        );
+        assert_eq!(
+            masked[AGENT_VIEW_ROW][AGENT_VIEW_COL],
+            Some(Entity::Empty),
+            "the one in-grid cell is the agent's own"
+        );
+        assert_eq!(
+            masked[AGENT_VIEW_ROW][AGENT_VIEW_COL - 1],
+            Some(Entity::Wall),
+            "the out-of-grid neighbour reads as a visible wall"
+        );
     }
 }
