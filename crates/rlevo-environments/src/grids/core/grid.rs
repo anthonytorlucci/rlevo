@@ -192,9 +192,18 @@ const fn rotate_view_offset(dir: Direction, right: i32, forward: i32) -> (i32, i
 /// Canonical indexes its mask `mask[i, j]` with **`i` the column and `j` the
 /// row**; rlevo's view array is `view[row][col]`. Every index pair below is
 /// therefore deliberately swapped relative to the Python source: canonical's
-/// `mask[i + 1, j - 1]` is this port's `mask[row - 1][col + 1]`. Getting this
-/// wrong yields a plausible-looking mask that is wrong only for layouts which
-/// are not symmetric about the transpose.
+/// `mask[i + 1, j - 1]` is this port's `mask[row - 1][col + 1]`.
+///
+/// Getting it wrong is hard to catch, and harder than it looks. Transcribing
+/// canonical's `i`/`j` straight into rlevo's two array indices computes
+/// `transpose(process_vis(transpose(view)))` — so it agrees with this function
+/// on **every** window that composition leaves fixed, which includes the
+/// obvious test fixtures: a full-height wall column transposes into a
+/// full-width wall row, and both produce the same mask back. A window merely
+/// being asymmetric is therefore *not* enough to discriminate the two. The
+/// fixture that is, and the transposed transcription it is checked against,
+/// live in this module's tests as
+/// `process_vis_offset_wall_stub_detects_a_transposed_implementation`.
 ///
 /// # Returns
 ///
@@ -405,8 +414,56 @@ mod tests {
         );
     }
 
+    /// Canonical `Grid.process_vis`, transcribed **wrongly** on purpose: `i` and
+    /// `j` are used directly as the two array indices, so `mask[i, j]` becomes
+    /// `mask[i][j]` rather than `mask[row][col]`.
+    ///
+    /// This is the concrete bug the port's `# Index transposition` note exists
+    /// to prevent, and it is self-consistent — the seed, the mask writes and the
+    /// `view` reads are all swapped together, so it compiles, runs, and returns
+    /// a plausible mask. Algebraically it computes
+    /// `transpose(process_vis(transpose(view)))`, which is why so many fixtures
+    /// cannot tell it apart from the real thing.
+    ///
+    /// It exists only so a fixture claiming to be transpose-detecting can be
+    /// *demonstrated* to be, in-tree, instead of asserted to be by a comment.
+    fn transposed_process_vis(
+        view: [[Entity; VIEW_SIZE]; VIEW_SIZE],
+    ) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+        let mut mask = [[false; VIEW_SIZE]; VIEW_SIZE];
+        // Canonical `mask[agent_pos] = True` with `agent_pos = (col, row)`.
+        mask[AGENT_VIEW_COL][AGENT_VIEW_ROW] = true;
+
+        for j in (0..VIEW_SIZE).rev() {
+            for i in 0..VIEW_SIZE - 1 {
+                if !mask[i][j] || !view[i][j].see_behind() {
+                    continue;
+                }
+                mask[i + 1][j] = true;
+                if j > 0 {
+                    mask[i + 1][j - 1] = true;
+                    mask[i][j - 1] = true;
+                }
+            }
+            for i in (1..VIEW_SIZE).rev() {
+                if !mask[i][j] || !view[i][j].see_behind() {
+                    continue;
+                }
+                mask[i - 1][j] = true;
+                if j > 0 {
+                    mask[i - 1][j - 1] = true;
+                    mask[i][j - 1] = true;
+                }
+            }
+        }
+
+        std::array::from_fn(|row| {
+            std::array::from_fn(|col| mask[row][col].then_some(view[row][col]))
+        })
+    }
+
     #[test]
-    fn process_vis_asymmetric_wall_column_shadows_only_the_far_side() {
+    fn process_vis_wall_column_shadows_only_the_far_side() {
         // Layout — agent `A` at (row 6, col 3) looking toward row 0. Column 1
         // is a solid wall run; every other cell is Empty.
         //
@@ -435,17 +492,6 @@ mod tests {
             "column 0 must lie entirely in the shadow of the wall run in column 1"
         );
 
-        // Why this fixture — and not a symmetric one — can catch a row/column
-        // index swap: the expected mask differs from its own transpose, so an
-        // implementation that indexed `mask[col][row]` (the literal
-        // transcription of canonical's `mask[i, j]`) cannot produce it.
-        let transposed: [[bool; VIEW_SIZE]; VIEW_SIZE] =
-            std::array::from_fn(|r| std::array::from_fn(|c| expected[c][r]));
-        assert_ne!(
-            expected, transposed,
-            "fixture must not be transpose-symmetric, or it cannot detect an index swap"
-        );
-
         // The occluder is itself visible; only what is behind it is hidden.
         for (row, cells) in masked.iter().enumerate() {
             assert_eq!(
@@ -455,6 +501,92 @@ mod tests {
             );
             assert_eq!(cells[0], None, "col 0 is hidden at row {row}");
         }
+
+        // This fixture is **blind** to an index transposition, and that is
+        // recorded here rather than left to be rediscovered. The expected mask
+        // above differs from its own transpose, which once passed for a proof
+        // that a `mask[col][row]` implementation could not produce it — it is
+        // not one. The transposed transcription computes
+        // `transpose(process_vis(transpose(view)))`, and transposing a
+        // full-height wall column yields a full-width wall row whose mask
+        // transposes straight back into this same array. See
+        // `process_vis_offset_wall_stub_detects_a_transposed_implementation` for
+        // the fixture that does discriminate.
+        assert_eq!(
+            visibility(&transposed_process_vis(view)),
+            expected,
+            "a full-height wall column cannot distinguish the two index orders — \
+             if it now can, the algorithm changed and this note needs rewriting"
+        );
+    }
+
+    #[test]
+    fn process_vis_offset_wall_stub_detects_a_transposed_implementation() {
+        // Layout — agent `A` at (row 6, col 3) looking toward row 0. A
+        // three-cell wall stub in column 1, covering the agent's own row and the
+        // two rows ahead of it; every other cell is Empty. The occluder is
+        // deliberately offset from both the agent's column and the window
+        // centre, and stops short of the far edge, so it has no symmetry of any
+        // kind — least of all about the transpose.
+        //
+        //   col      0  1  2  3  4  5  6
+        //   row 0    .  .  .  .  .  .  .
+        //   row 1    .  .  .  .  .  .  .
+        //   row 2    .  .  .  .  .  .  .
+        //   row 3    .  .  .  .  .  .  .
+        //   row 4    .  #  .  .  .  .  .
+        //   row 5    .  #  .  .  .  .  .
+        //   row 6    .  #  .  A  .  .  .
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        for row in &mut view[AGENT_VIEW_ROW - 2..=AGENT_VIEW_ROW] {
+            row[1] = Entity::Wall;
+        }
+
+        // Hand-computed and written out literally — NOT derived by running the
+        // code under test. Trace: in rows 6, 5 and 4 the only routes into col 0
+        // are the sideways spread through (row, col 1) and the diagonal from
+        // (row + 1, col 1); both are the stub, which is lit but propagates
+        // nothing, so col 0 stays dark for exactly as long as the stub lasts. At
+        // row 3 the stub has ended: (3, 1) is Empty, is lit diagonally from
+        // (4, 2), and its own right-to-left sub-pass lights (3, 0). Rows 2, 1
+        // and 0 are then fully transparent and fully lit.
+        let expected = [
+            [V, V, V, V, V, V, V],
+            [V, V, V, V, V, V, V],
+            [V, V, V, V, V, V, V],
+            [V, V, V, V, V, V, V],
+            [X, V, V, V, V, V, V],
+            [X, V, V, V, V, V, V],
+            [X, V, V, V, V, V, V],
+        ];
+
+        let masked = process_vis(view);
+        assert_eq!(
+            visibility(&masked),
+            expected,
+            "the stub shadows col 0 only over its own three rows"
+        );
+        assert_eq!(
+            masked[AGENT_VIEW_ROW][1],
+            Some(Entity::Wall),
+            "the stub is itself visible; only what is behind it is hidden"
+        );
+
+        // The whole point of this fixture, **demonstrated** rather than asserted:
+        // run the transposed transcription over the identical window and watch
+        // it disagree. Transposing the stub turns it into a horizontal run at
+        // the far edge of the window, which casts no shadow back here at all —
+        // so the buggy implementation reports everything visible.
+        let transposed = visibility(&transposed_process_vis(view));
+        assert_ne!(
+            transposed, expected,
+            "this fixture exists to separate `mask[row][col]` from `mask[col][row]`; \
+             if the two now agree on it, it has stopped doing its job"
+        );
+        assert_eq!(
+            transposed, [[V; VIEW_SIZE]; VIEW_SIZE],
+            "the transposed transcription loses the shadow entirely here"
+        );
     }
 
     #[test]

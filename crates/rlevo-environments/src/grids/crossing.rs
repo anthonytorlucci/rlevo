@@ -755,9 +755,46 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point, the raw window extractor, and
+    // the byte a masked cell carries. All three are read by the two occlusion
+    // tests at the bottom of this module, which assert on the *hidden set*
+    // rather than on a single cell.
+    use super::super::core::grid::egocentric_view;
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
     use std::collections::{HashMap, HashSet, VecDeque};
+
+    /// The four facings, for the occlusion sweeps.
+    const DIRECTIONS: [Direction; 4] = [
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
+
+    /// A same-shaped board of transparent cells, used as an **in-grid mask**.
+    ///
+    /// [`Grid::get`] reads out of bounds as [`Entity::Wall`] (matching canonical
+    /// `Grid.slice`), so the window `egocentric_view` cuts from this board is
+    /// [`Entity::Floor`] exactly where that window cell lies inside the world and
+    /// [`Entity::Wall`] exactly where it does not. That is the view geometry read
+    /// off the real extractor, rather than re-derived by a test-local copy of
+    /// `rotate_view_offset` that could drift away from it.
+    fn all_floor_like(grid: &Grid) -> Grid {
+        let (w, h) = (grid.width(), grid.height());
+        let mut probe = Grid::new(w, h);
+        let (w, h) = (
+            i32::try_from(w).expect("test grids fit in i32"),
+            i32::try_from(h).expect("test grids fit in i32"),
+        );
+        for y in 0..h {
+            for x in 0..w {
+                probe.set(x, y, Entity::Floor);
+            }
+        }
+        probe
+    }
 
     /// Episodes each seed-loop oracle draws from one persistent stream.
     ///
@@ -1324,5 +1361,174 @@ mod tests {
             checked,
             "the traced river set never came up in {EPISODES} episodes"
         );
+    }
+
+    /// Occlusion hides the **goal** from a cell on the solution corridor — and
+    /// it is carried entirely by [`CrossingKind::Wall`].
+    ///
+    /// The pose is the one that matters for this task: the agent standing *in*
+    /// the opening of the first river, facing down its own column at the goal
+    /// three cells ahead. The second river runs across that line of sight, so
+    /// the goal — the only thing worth navigating toward — is unseen at exactly
+    /// the moment the agent commits to a direction.
+    ///
+    /// # The honest half: `CrossingKind::Lava` occludes nothing at all
+    ///
+    /// Lava is *transparent* (canonical `WorldObj.see_behind` is overridden only
+    /// by `Wall` and shut `Door`), and the room is a plain rectangle, so on a
+    /// `Lava` board the only opaque cells are the border ring — which has
+    /// nothing behind it. Measured over sizes 7/9/11 × six seeds × every
+    /// passable cell × all four facings: **not one in-grid cell is ever masked
+    /// on a `Lava` board**. That is the default kind, so the default
+    /// `CrossingEnv` is occluded in name only, and the second half of this test
+    /// pins that finding at the same seed, board and pose as the first: swap
+    /// `Wall` for `Lava` and the goal comes back into view.
+    #[test]
+    fn test_crossing_occlusion_hides_the_goal_beyond_a_wall_river() {
+        // Seed 3 at size 9 draws two horizontal rivers, at rows 4 and 6, with
+        // openings at columns 7 and 3. If the generator moves, these fail first
+        // and the pose below gets re-derived rather than silently going vacuous.
+        let mut env = env_at(9, CrossingKind::Wall, 0);
+        env.reset_with_seed(3).expect("reset");
+        assert_eq!(env.strip_rows(), vec![4, 6], "seed 3's horizontal rivers");
+        assert_eq!(env.gap_col(), vec![7, 3], "seed 3's openings");
+        assert_eq!(env.strip_cols(), Vec::<i32>::new(), "no vertical river");
+
+        let grid = env.state().grid.clone();
+        assert_eq!(grid.get(7, 4), Entity::Empty, "(7, 4) is the first opening");
+        assert_eq!(
+            grid.get(7, 6),
+            Entity::Wall,
+            "the second river blocks (7, 6)"
+        );
+        assert_eq!(grid.get(7, 7), Entity::Goal, "the goal sits at (size-2)²");
+
+        // The pose is on the solution corridor, not merely somewhere convenient.
+        let corridor = safe_path(env.state()).expect("seed 3's board must be solvable");
+        assert!(
+            corridor.contains(&(7, 4)),
+            "(7, 4) must lie on the safe path {corridor:?}"
+        );
+
+        // Standing in the opening of the first river, facing the goal.
+        let state = GridState::new(grid, AgentState::new(7, 4, Direction::South));
+        let masked = mask_view(&state.grid, &state.agent, CrossingEnv::VISIBILITY);
+        let occluded = observe_grid(&state, CrossingEnv::VISIBILITY);
+        let see_through = observe_grid(&state, Visibility::SeeThrough);
+
+        // (row 3, col 3) is the goal: three cells straight ahead.
+        let (row, col) = (3, 3);
+        assert_eq!(
+            see_through.view[row][col][0],
+            Entity::Goal.type_u8(),
+            "the pre-#281 emission model reported the goal from this pose"
+        );
+        assert_eq!(
+            occluded.view[row][col],
+            [UNSEEN_TYPE, 0, 0],
+            "the goal must now encode as unseen — this env inherits canonical's \
+             see_through_walls=False default"
+        );
+        assert_eq!(
+            masked[4][3],
+            Some(Entity::Wall),
+            "the river that blocks the view — two cells ahead — is itself visible"
+        );
+
+        // Differ *exactly* on the hidden set, in both directions: a bare
+        // "something is masked" would also pass if occlusion leaked into cells
+        // it must not touch.
+        let mut hidden = 0;
+        for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+            if masked[r][c].is_none() {
+                hidden += 1;
+                assert_eq!(
+                    occluded.view[r][c],
+                    [UNSEEN_TYPE, 0, 0],
+                    "hidden cell ({r}, {c}) must encode as the unseen triple"
+                );
+                assert_ne!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "hidden cell ({r}, {c}) must not encode the same as the seen one"
+                );
+            } else {
+                assert_eq!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "visible cell ({r}, {c}) must be unaffected by occlusion"
+                );
+            }
+        }
+        assert_eq!(hidden, 36, "the shadow cast masks 36 of the 49 cells here");
+
+        // The same seed, the same rivers, the same pose — but lava rivers, which
+        // do not occlude. Nothing in the grid is hidden and the goal is back.
+        let mut lava = env_at(9, CrossingKind::Lava, 0);
+        lava.reset_with_seed(3).expect("reset");
+        assert_eq!(
+            lava.strip_rows(),
+            env.strip_rows(),
+            "the kind must not change the draws, or this is not the same board"
+        );
+        let lava_state = GridState::new(
+            lava.state().grid.clone(),
+            AgentState::new(7, 4, Direction::South),
+        );
+        assert_eq!(
+            observe_grid(&lava_state, CrossingEnv::VISIBILITY).view[row][col][0],
+            Entity::Goal.type_u8(),
+            "lava is transparent, so the identical board occludes nothing here"
+        );
+
+        assert_eq!(
+            CrossingEnv::VISIBILITY,
+            Visibility::Occluded,
+            "crossing.py passes see_through_walls=False explicitly"
+        );
+    }
+
+    /// The finding above, swept rather than asserted at one pose: on a
+    /// [`CrossingKind::Lava`] board the shadow cast never hides an **in-grid**
+    /// cell, at any size, seed, cell or facing.
+    ///
+    /// Deliberately **not** a substitute for
+    /// `test_crossing_occlusion_hides_the_goal_beyond_a_wall_river` — this
+    /// property is vacuously true under [`Visibility::SeeThrough`], so it cannot
+    /// detect the emission model being switched off. It exists to keep the
+    /// "lava occludes nothing" claim in that test's docs honest, and to fail if
+    /// a future change ever gives a lava board something opaque to hide behind.
+    #[test]
+    fn test_crossing_lava_rivers_never_hide_an_in_grid_cell() {
+        for size in [7usize, 9, 11] {
+            let mut env = env_at(size, CrossingKind::Lava, 0);
+            for seed in 0..6u64 {
+                env.reset_with_seed(seed).expect("reset");
+                let grid = env.state().grid.clone();
+                let in_grid = all_floor_like(&grid);
+                #[allow(clippy::cast_possible_wrap)]
+                let side = size as i32;
+                for y in 0..side {
+                    for x in 0..side {
+                        if !grid.get(x, y).is_passable() {
+                            continue;
+                        }
+                        for dir in DIRECTIONS {
+                            let agent = AgentState::new(x, y, dir);
+                            let masked = mask_view(&grid, &agent, CrossingEnv::VISIBILITY);
+                            let inside = egocentric_view(&in_grid, &agent);
+                            for r in 0..VIEW_SIZE {
+                                for c in 0..VIEW_SIZE {
+                                    assert!(
+                                        masked[r][c].is_some() || inside[r][c] == Entity::Wall,
+                                        "size {size} seed {seed}: ({x}, {y}) facing {dir:?} \
+                                         masks the in-grid window cell ({r}, {c}) — a lava \
+                                         board has no opaque cell but the border"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

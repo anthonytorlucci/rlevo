@@ -676,6 +676,10 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point and the byte a masked cell
+    // carries, both read by
+    // `test_unlock_pickup_occlusion_hides_the_box_behind_the_locked_door`.
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use crate::direction::Direction;
     use crate::grids::core::AgentState;
     use rlevo_core::config::ConstraintKind;
@@ -1398,5 +1402,116 @@ mod tests {
         env.reset().unwrap();
         assert_eq!(env.state().agent.carrying, None);
         assert_eq!(env.steps(), 0);
+    }
+
+    /// Occlusion is not decoration here: a cell that encoded a real entity under
+    /// the pre-#281 (see-through) emission model must now be able to encode as
+    /// *unseen*.
+    ///
+    /// The box is the interesting case — it is the object the whole task is
+    /// about, it is the one thing a policy would want to look at before spending
+    /// a dozen steps on the key, and the room divider is exactly what is supposed
+    /// to withhold it. Seed 11's board is the one the module docs draw; this test
+    /// uses seed 0, whose split wall stands between the agent's start cell and
+    /// the box in the right room. The agent is turned to face it through the real
+    /// dynamics and the assertion is on the observation the environment itself
+    /// **emitted**, not on a hand-built state.
+    ///
+    /// Unlike `Unlock` — whose single-room deviation (issue #1020) leaves the
+    /// shadow cast nothing in-grid to hide — this environment has the two-room
+    /// topology upstream specifies, so the occlusion is the canonical one.
+    #[test]
+    fn test_unlock_pickup_occlusion_hides_the_box_behind_the_locked_door() {
+        let mut env = env_7x7();
+        env.reset_with_seed(0).expect("reset");
+
+        // The premise: seed 0 puts the box at (5, 3), the split wall at x = 3,
+        // and the agent at (1, 1). If the generator moves, these fail first and
+        // the pose below gets re-derived rather than silently going vacuous.
+        let start = env.state().agent;
+        assert_eq!(
+            (start.x, start.y, start.direction),
+            (1, 1, Direction::West),
+            "seed 0's start pose"
+        );
+        assert_eq!(
+            env.state().grid.get(5, 3),
+            env.target(),
+            "seed 0 must place the target box at (5, 3)"
+        );
+        assert_eq!(
+            env.door_pos(),
+            (3, 5),
+            "seed 0's door row on the split column"
+        );
+        assert_eq!(env.state().grid.get(3, 3), Entity::Wall, "the split wall");
+
+        // Turn from West to East — the direction the box lies in.
+        env.step(GridAction::TurnRight).expect("turn");
+        let snapshot = env.step(GridAction::TurnRight).expect("turn");
+        let agent = env.state().agent;
+        assert_eq!(
+            (agent.x, agent.y, agent.direction),
+            (1, 1, Direction::East),
+            "two right turns from West must face East"
+        );
+
+        let masked = mask_view(&env.state().grid, &agent, UnlockPickupEnv::VISIBILITY);
+        let occluded = *snapshot.observation();
+        let see_through = observe_grid(env.state(), Visibility::SeeThrough);
+
+        // (row 2, col 5) is the box: four cells ahead, two to the right.
+        let (row, col) = (2, 5);
+        let Entity::Box(box_color) = env.target() else {
+            panic!("the target must be a box, got {:?}", env.target());
+        };
+        assert_eq!(
+            see_through.view[row][col],
+            [
+                Entity::Box(box_color).type_u8(),
+                Entity::Box(box_color).color_u8(),
+                Entity::Box(box_color).state_u8()
+            ],
+            "the pre-#281 emission model reported the box through the room divider"
+        );
+        assert_eq!(
+            occluded.view[row][col],
+            [UNSEEN_TYPE, 0, 0],
+            "the box must now encode as unseen — this env inherits canonical's \
+             see_through_walls=False default"
+        );
+        assert_eq!(
+            masked[4][3],
+            Some(Entity::Wall),
+            "the divider two cells ahead is itself visible — the agent sees what blocks it"
+        );
+
+        // Differ *exactly* on the hidden set, in both directions: a bare
+        // "something is masked" would also pass if occlusion leaked into cells it
+        // must not touch.
+        for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+            if masked[r][c].is_none() {
+                assert_eq!(
+                    occluded.view[r][c],
+                    [UNSEEN_TYPE, 0, 0],
+                    "hidden cell ({r}, {c}) must encode as the unseen triple"
+                );
+                assert_ne!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "hidden cell ({r}, {c}) must not encode the same as the seen one"
+                );
+            } else {
+                assert_eq!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "visible cell ({r}, {c}) must be unaffected by occlusion"
+                );
+            }
+        }
+
+        assert_eq!(
+            UnlockPickupEnv::VISIBILITY,
+            Visibility::Occluded,
+            "UnlockPickup derives from RoomGrid, which passes see_through_walls=False"
+        );
     }
 }

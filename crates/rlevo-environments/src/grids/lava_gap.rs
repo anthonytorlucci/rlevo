@@ -560,10 +560,46 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point, the raw window extractor, and
+    // the byte a masked cell carries — all read by
+    // `test_lava_gap_occlusion_masks_only_the_world_outside_the_room`.
+    use super::super::core::grid::egocentric_view;
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use crate::grids::core::is_free;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;
+
+    /// The four facings, for the occlusion sweep.
+    const DIRECTIONS: [Direction; 4] = [
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
+
+    /// A same-shaped board of transparent cells, used as an **in-grid mask**.
+    ///
+    /// [`Grid::get`] reads out of bounds as [`Entity::Wall`] (matching canonical
+    /// `Grid.slice`), so the window `egocentric_view` cuts from this board is
+    /// [`Entity::Floor`] exactly where that window cell lies inside the world and
+    /// [`Entity::Wall`] exactly where it does not. That is the view geometry read
+    /// off the real extractor, rather than re-derived by a test-local copy of
+    /// `rotate_view_offset` that could drift away from it.
+    fn all_floor_like(grid: &Grid) -> Grid {
+        let (w, h) = (grid.width(), grid.height());
+        let mut probe = Grid::new(w, h);
+        let (w, h) = (
+            i32::try_from(w).expect("test grids fit in i32"),
+            i32::try_from(h).expect("test grids fit in i32"),
+        );
+        for y in 0..h {
+            for x in 0..w {
+                probe.set(x, y, Entity::Floor);
+            }
+        }
+        probe
+    }
 
     /// Every seed loop runs at both of these.
     ///
@@ -1121,5 +1157,109 @@ mod tests {
         assert_eq!(env.steps(), 2);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    /// Occlusion is live here, but **nothing it hides is task-relevant**: every
+    /// masked cell lies outside the room.
+    ///
+    /// This environment has no decision-relevant occluded pose, and that is a
+    /// measured finding rather than a gap in this test. Lava is *transparent* —
+    /// canonical `WorldObj.see_behind` is overridden only by `Wall` and shut
+    /// `Door`, which [`LavaGapEnv::VISIBILITY`]'s own doc already says — and the
+    /// board is a plain rectangle whose only opaque cells are the border ring.
+    /// The window's intersection with the room is therefore a rectangle of
+    /// transparent cells containing the agent, and `process_vis` is a forward
+    /// flood fill, so it lights every one of them. The lava strip, its gap and
+    /// the goal are visible from every pose they fall into.
+    ///
+    /// The test asserts what is actually true, at both ends:
+    ///
+    /// 1. **The start pose always masks something.** That is the pose every
+    ///    episode begins from, and it is what makes this a regression guard:
+    ///    flip [`LavaGapEnv::VISIBILITY`] to [`Visibility::SeeThrough`] and this
+    ///    clause fails.
+    /// 2. **Every masked cell — at every pose — lies outside the room**, swept
+    ///    over sizes 5/7/9 × 16 seeds × every passable cell × all four facings.
+    ///    Occlusion cannot cost this agent one cell of the board it must solve.
+    ///
+    /// Clause 2 on its own is vacuous under `SeeThrough` (nothing is masked, so
+    /// nothing violates it). Clause 1 is what makes the pair bite. If clause 2
+    /// ever starts failing, the board grew an interior wall and this environment
+    /// finally has an occlusion story worth naming a pose for.
+    #[test]
+    fn test_lava_gap_occlusion_masks_only_the_world_outside_the_room() {
+        for size in [5usize, 7, 9] {
+            let mut env = env_of(size);
+            for seed in 0..16u64 {
+                let snapshot = env.reset_with_seed(seed).expect("reset");
+                let grid = env.state().grid.clone();
+                let in_grid = all_floor_like(&grid);
+
+                // (1) The start pose — fixed at (1, 1) facing East, as upstream.
+                let start = env.state().agent;
+                assert_eq!(
+                    (start.x, start.y, start.direction),
+                    (1, 1, Direction::East),
+                    "size {size} seed {seed}: the start pose this clause names has moved"
+                );
+                let masked = mask_view(&grid, &start, LavaGapEnv::VISIBILITY);
+                let occluded = *snapshot.observation();
+                let see_through = observe_grid(env.state(), Visibility::SeeThrough);
+                let hidden = masked.iter().flatten().filter(|c| c.is_none()).count();
+                assert!(
+                    hidden > 0,
+                    "size {size} seed {seed}: the border ring must mask something from \
+                     the start pose, or occlusion is switched off"
+                );
+                // Differ *exactly* on the hidden set, in both directions.
+                for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+                    if masked[r][c].is_none() {
+                        assert_eq!(
+                            occluded.view[r][c],
+                            [UNSEEN_TYPE, 0, 0],
+                            "size {size} seed {seed}: hidden cell ({r}, {c}) must encode \
+                             as the unseen triple"
+                        );
+                        assert_ne!(
+                            occluded.view[r][c], see_through.view[r][c],
+                            "size {size} seed {seed}: hidden cell ({r}, {c}) must not \
+                             encode the same as the seen one"
+                        );
+                    } else {
+                        assert_eq!(
+                            occluded.view[r][c], see_through.view[r][c],
+                            "size {size} seed {seed}: visible cell ({r}, {c}) must be \
+                             unaffected by occlusion"
+                        );
+                    }
+                }
+
+                // (2) No pose anywhere hides a cell of the room itself.
+                #[allow(clippy::cast_possible_wrap)]
+                let side = size as i32;
+                for y in 0..side {
+                    for x in 0..side {
+                        if !grid.get(x, y).is_passable() {
+                            continue;
+                        }
+                        for dir in DIRECTIONS {
+                            let agent = AgentState::new(x, y, dir);
+                            let masked = mask_view(&grid, &agent, LavaGapEnv::VISIBILITY);
+                            let inside = egocentric_view(&in_grid, &agent);
+                            for r in 0..VIEW_SIZE {
+                                for c in 0..VIEW_SIZE {
+                                    assert!(
+                                        masked[r][c].is_some() || inside[r][c] == Entity::Wall,
+                                        "size {size} seed {seed}: ({x}, {y}) facing {dir:?} \
+                                         masks the in-room window cell ({r}, {c}) — lava is \
+                                         transparent, so only the border can occlude here"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
