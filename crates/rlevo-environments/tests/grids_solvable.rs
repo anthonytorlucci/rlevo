@@ -27,11 +27,13 @@
 //! of seeds. Do not replace them with a fixed action list.
 //!
 //! **Planned.** [`DoorKeyEnv`], [`LavaGapEnv`], [`UnlockPickupEnv`],
-//! [`CrossingEnv`] (both kinds) and [`FourRoomsEnv`] read their board back from
-//! `env.state()` and hand it to [`common::plan`], a BFS over the grid state, which
-//! *computes* the action sequence. That sequence is then executed through
+//! [`CrossingEnv`] (both kinds) and [`FourRoomsEnv`] sample their whole layout
+//! per episode (ADR 0062, #282). They read their board back from `env.state()`
+//! and hand it to [`common::plan`], a BFS over the grid state, which *computes*
+//! the action sequence. That sequence is then executed through
 //! [`Environment::step`] exactly as a script would be, so nothing about the
-//! end-to-end property changes.
+//! end-to-end property changes. Each runs the search over
+//! `0..PLANNED_SEEDS` episodes at each of two board sizes.
 //!
 //! ### Why planning is a coverage *gain*, not a loss
 //!
@@ -40,10 +42,10 @@
 //! generates** is solvable — it is handed the board and must find a route, with
 //! no privileged knowledge of the layout. That is the property these tests were
 //! always trying to state, and it is the only form of it that survives the
-//! per-episode layout randomization the five planned envs are about to gain
-//! (#282). This migration deliberately landed *while the layouts are still
+//! per-episode layout randomization the five planned envs now have (#282). The
+//! planner migration deliberately landed *while the layouts were still
 //! deterministic*, so the oracle was validated against a known-good board before
-//! the board started moving; a later failure therefore isolates to the generator,
+//! the board started moving; a failure now therefore isolates to the generator,
 //! not to the oracle.
 //!
 //! Two assertions the scripted oracles never carried come with it:
@@ -55,18 +57,25 @@
 //!    `UnlockPickupConfig { size: 3 }` building a board with no `Door` cell at
 //!    all, the key having overwritten it.
 //! 2. **No planned oracle contains a coordinate or an action literal.** The board
-//!    is read from the env, never asserted against a constant, so the parallel
-//!    work that moves those coordinates cannot make this file quietly false.
+//!    is read from the env, never asserted against a constant, so the work that
+//!    moves those coordinates cannot make this file quietly false.
+//! 3. **Every planned oracle asserts its seed loop saw more than one board**
+//!    ([`assert_boards_varied`]). A generator regression that pinned the layout
+//!    would otherwise leave these tests green while proving no more than a
+//!    single `reset()` did.
 //!
-//! ### Adding randomization later
+//! ## Terminating on the *first* terminal snapshot
 //!
-//! Each planned oracle is shaped so that the *only* edit needed when its env
-//! gains a per-episode layout is swapping the `env.reset()` for a
-//! `for seed in 0..ORACLE_SEEDS { env.reset_with_seed(seed)?; … }` loop — see
-//! [`go_to_door_is_solvable_for_every_seed`] for the shape. None of the five has
-//! `reset_with_seed` yet, so all five currently call plain `reset()`.
+//! [`run_script`] stops at the first `is_done()` and asserts on that snapshot,
+//! and treats trailing actions past termination as a failure. This is
+//! load-bearing rather than tidiness: no env in this family rejects a
+//! post-terminal `step` (ADR 0044), so a helper that ran the whole list and read
+//! only the *last* snapshot would accept an episode the agent died in. See the
+//! note on [`run_script`] for the measured case.
 
 mod common;
+
+use std::collections::HashSet;
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_core::reward::ScalarReward;
@@ -79,8 +88,31 @@ use rlevo_environments::grids::{
     UnlockPickupConfig, UnlockPickupEnv,
 };
 
-/// Number of distinct episodes the seed-driven oracle tests must clear.
+/// Number of distinct episodes the *scripted* seed-driven oracles must clear.
+///
+/// These two ([`go_to_door_is_solvable_for_every_seed`],
+/// [`memory_is_solvable_for_every_seed`]) execute a derived action list and do
+/// no search, so seeds are nearly free here.
 const ORACLE_SEEDS: u64 = 32;
+
+/// Number of distinct episodes each *planned* oracle must clear, per board size.
+///
+/// Lower than [`ORACLE_SEEDS`] on purpose. Every seed here pays for a full BFS
+/// over the board — and the BFS key is the entire cell array plus the agent
+/// pose, because `Drop` can put a carried object on any empty cell (see
+/// `common`), so the state space grows fast with `size`. Each planned oracle
+/// also sweeps two sizes, so this buys `2 * PLANNED_SEEDS` searches per test
+/// across six tests, which the harness runs on parallel threads.
+///
+/// Measured on the authoring workstation (Apple silicon, `cargo test` debug
+/// profile, whole-binary wall clock): 0.26 s at one board per size, 3.1 s at 16,
+/// 6.5 s at 32 — linear, and paced by `door_key` and `unlock_pickup` (2.9 s
+/// each at 16), whose search must discover a key/`Drop` ordering rather than
+/// just a path. 16 buys 192 planned episodes per run (16 seeds × 2 sizes ×
+/// 6 tests) — enough to catch a generator that only misbehaves on some seeds,
+/// for a binary that still finishes in a few seconds. Raise it if a
+/// seed-specific generator bug ever slips through; the cost is predictable.
+const PLANNED_SEEDS: u64 = 16;
 
 /// Every planned oracle runs at its env's `MIN_SIZE` floor and at one larger
 /// board, per the degeneracy argument in the module docs.
@@ -116,68 +148,121 @@ macro_rules! assert_solvable {
     ($env:expr, $script:expr) => {{
         let env = &mut $env;
         env.reset().expect("reset");
-        let mut last = None;
-        for action in $script {
-            last = Some(env.step(action).expect("step"));
-        }
-        let snap = last.expect("script must contain at least one action");
-        assert!(snap.is_done(), "script did not terminate the episode");
-        let reward = f32::from(*snap.reward());
+        let reward = run_script(env, &$script);
         assert!(reward > 0.0, "reward was {reward}, expected > 0.0");
         reward
     }};
 }
 
-/// Run `script` on an **already-reset** grid env and return the terminal reward.
+/// Run `script` on an **already-reset** grid env and return the reward paid by
+/// the snapshot that **first** reported `is_done()`.
 ///
 /// The seed-driven oracle tests must read the environment *after* `reset` to
 /// derive their script, so they cannot use [`assert_solvable`], which resets for
-/// you. Panics if the script does not terminate the episode.
+/// you.
+///
+/// # Stopping at the first terminal snapshot
+///
+/// This function stops at the first `is_done()` and reports *that* snapshot's
+/// reward. The earlier version ran the whole list and read only the last
+/// snapshot, which was vacuous: no grid env in this family rejects a
+/// post-terminal `step` (ADR 0044 records ~44 non-conformant envs), so an
+/// episode could end *badly* mid-script, keep stepping on a corpse, and then
+/// report a healthy final snapshot. That was observed, not hypothesised — a
+/// `DistShift` script that walked into lava at action 5 (`done`, reward `0.0`)
+/// and strolled to the goal afterwards passed the old helper with reward
+/// `0.874`.
+///
+/// # Panics
+///
+/// - if `script` is empty;
+/// - if some action terminates the episode with actions still left to run —
+///   trailing actions past termination are themselves a bug in the script or the
+///   planner, so they are surfaced rather than tolerated;
+/// - if the script runs to exhaustion without terminating the episode.
 fn run_script<E>(env: &mut E, script: &[GridAction]) -> f32
 where
     E: Environment<3, 3, 1, ActionType = GridAction, RewardType = ScalarReward>,
 {
-    let mut last = None;
-    for &action in script {
-        last = Some(env.step(action).expect("step"));
+    assert!(
+        !script.is_empty(),
+        "script must contain at least one action"
+    );
+    for (i, &action) in script.iter().enumerate() {
+        let snap = env.step(action).expect("step");
+        if !snap.is_done() {
+            continue;
+        }
+        let reward = f32::from(*snap.reward());
+        let trailing = script.len() - i - 1;
+        assert_eq!(
+            trailing,
+            0,
+            "action {i} ({action:?}) ended the episode with reward {reward}, \
+             but {trailing} of the script's {} actions come after it; \
+             a grid env does not reject a post-terminal `step`, so running them \
+             would let a later snapshot mask this outcome",
+            script.len()
+        );
+        return reward;
     }
-    let snap = last.expect("script must contain at least one action");
-    assert!(snap.is_done(), "script did not terminate the episode");
-    f32::from(*snap.reward())
+    panic!(
+        "the {}-action script ran to exhaustion without terminating the episode",
+        script.len()
+    );
 }
 
 /// Plan a route across the board `$env` is **currently** holding, execute it
 /// through the public `step` API, and assert the episode terminated for reward.
 ///
-/// The env must already be reset. That is deliberate: keeping `reset` at the
-/// call site is what makes the later randomization edit a one-line swap to a
-/// `reset_with_seed(seed)` loop, with the planning and execution below already
-/// layout-agnostic. Everything the failure messages report — the label, the
-/// board — is read back from the environment, so this macro carries no knowledge
-/// of any layout.
+/// The env must already be reset by `reset_with_seed($seed)`; `$seed` is carried
+/// only so the failure messages name the episode that broke, which is the one
+/// thing a reader needs to reproduce it. Everything else the messages report —
+/// the label, the board — is read back from the environment, so this macro
+/// carries no knowledge of any layout.
 macro_rules! assert_planner_solves {
-    ($env:expr, $solved:expr $(,)?) => {{
+    ($env:expr, $solved:expr, $seed:expr $(,)?) => {{
         let env = &mut $env;
+        let seed = $seed;
         // `Display` on every grid env prints size / kind / step budget.
         let label = env.to_string();
         let plan = common::plan(env.state(), $solved).unwrap_or_else(|| {
             panic!(
-                "{label}: the planner found no route across this board:\n{}",
+                "{label} seed {seed}: the planner found no route across this board:\n{}",
                 env.ascii()
             )
         });
         assert!(
             !plan.is_empty(),
-            "{label}: a freshly reset board must not already be solved"
+            "{label} seed {seed}: a freshly reset board must not already be solved"
         );
         let reward = run_script(env, &plan);
         assert!(
             reward > 0.0,
-            "{label}: the planned {}-action route paid {reward}, expected > 0.0",
+            "{label} seed {seed}: the planned {}-action route paid {reward}, expected > 0.0",
             plan.len()
         );
         reward
     }};
+}
+
+/// Assert a planned oracle's seed loop actually saw more than one board.
+///
+/// Without this, a regression that pinned a layout back to a single
+/// deterministic board would leave every seed loop below green while proving
+/// exactly what one `reset()` proved. This is the same degenerate-pass guard
+/// [`go_to_door_is_solvable_for_every_seed`] and
+/// [`memory_is_solvable_for_every_seed`] carry, stated over whole boards.
+///
+/// Boards are compared by their ASCII render, read off the env — so this stays
+/// within the file's no-coordinate-literals rule.
+fn assert_boards_varied(label: &str, boards: &HashSet<String>) {
+    assert!(
+        boards.len() > 1,
+        "{label}: {PLANNED_SEEDS} seeds produced {} distinct board(s); \
+         the layout must be sampled per episode (ADR 0062)",
+        boards.len()
+    );
 }
 
 #[test]
@@ -201,8 +286,13 @@ fn door_key_is_solvable() {
     for size in sizes::DOOR_KEY {
         let mut env = DoorKeyEnv::with_config(DoorKeyConfig::new(size, budget(size), 0), false)
             .expect("valid config");
-        env.reset().expect("reset");
-        assert_planner_solves!(env, common::on_goal);
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 
@@ -214,8 +304,13 @@ fn lava_gap_is_solvable() {
     for size in sizes::LAVA_GAP {
         let mut env = LavaGapEnv::with_config(LavaGapConfig::new(size, budget(size), 0), false)
             .expect("valid config");
-        env.reset().expect("reset");
-        assert_planner_solves!(env, common::on_goal);
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 
@@ -247,9 +342,15 @@ fn unlock_pickup_is_solvable() {
         let mut env =
             UnlockPickupEnv::with_config(UnlockPickupConfig::new(size, budget(size), 0), false)
                 .expect("valid config");
-        env.reset().expect("reset");
-        let target = env.target();
-        assert_planner_solves!(env, common::carrying(target));
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            // The target is re-read every episode: it is sampled with the board.
+            let target = env.target();
+            assert_planner_solves!(env, common::carrying(target), seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 
@@ -260,8 +361,13 @@ fn crossing_lava_is_solvable() {
     for size in sizes::CROSSING {
         let cfg = CrossingConfig::new(size, budget(size), 0, CrossingKind::Lava);
         let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
-        env.reset().expect("reset");
-        assert_planner_solves!(env, common::on_goal);
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 
@@ -273,8 +379,13 @@ fn crossing_wall_is_solvable() {
     for size in sizes::CROSSING {
         let cfg = CrossingConfig::new(size, budget(size), 0, CrossingKind::Wall);
         let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
-        env.reset().expect("reset");
-        assert_planner_solves!(env, common::on_goal);
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 
@@ -383,8 +494,13 @@ fn four_rooms_is_solvable() {
     for size in sizes::FOUR_ROOMS {
         let mut env = FourRoomsEnv::with_config(FourRoomsConfig::new(size, budget(size), 0), false)
             .expect("valid config");
-        env.reset().expect("reset");
-        assert_planner_solves!(env, common::on_goal);
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
     }
 }
 

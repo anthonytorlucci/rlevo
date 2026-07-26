@@ -20,7 +20,7 @@
 //! | Environment | Module | Observation | Key challenge |
 //! |---|---|---|---|
 //! | [`EmptyEnv`] | [`empty`] | `7×7×3` | Baseline navigation, no obstacles |
-//! | [`CrossingEnv`] | [`crossing`] | `7×7×3` | Cross lava or wall strips through a single gap |
+//! | [`CrossingEnv`] | [`crossing`] | `7×7×3` | Cross sampled lava or wall rivers, one opening each |
 //! | [`DistShiftEnv`] | [`dist_shift`] | `7×7×3` | Distribution shift between training and evaluation layouts |
 //! | [`DoorKeyEnv`] | [`door_key`] | `7×7×3` | Long-horizon: key pickup → door unlock → goal |
 //! | [`DynamicObstaclesEnv`] | [`dynamic_obstacles`] | `7×7×3` | Stochastic ball obstacles that random-walk each step |

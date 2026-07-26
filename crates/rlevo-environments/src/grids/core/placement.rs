@@ -68,8 +68,8 @@
 //! # Propagate with `?`; do not `.expect()`
 //!
 //! [`PlacementError`] converts into
-//! [`ConfigError`](rlevo_core::config::ConfigError) and into
-//! [`EnvironmentError`](rlevo_core::environment::EnvironmentError), so a
+//! [`ConfigError`] and into
+//! [`EnvironmentError`], so a
 //! `reset()` body or a fallible `build` writes `?` and nothing else. A `Result`
 //! at the sampler paired with `.expect()` at every call site is a panic with
 //! extra steps, and it re-introduces exactly the failure mode deviation 2 was
@@ -304,8 +304,8 @@ impl fmt::Display for Rect {
 /// Both variants are config-domain failures — a region that a config's
 /// arithmetic produced, or a residual free set that a config's geometry made
 /// too small — so they convert into
-/// [`ConfigError`](rlevo_core::config::ConfigError) and from there into
-/// [`EnvironmentError::Config`](rlevo_core::environment::EnvironmentError::Config),
+/// [`ConfigError`] and from there into
+/// [`EnvironmentError::Config`],
 /// the variant whose own documentation anticipates a `reset()` that re-runs
 /// construction-time work. A caller therefore writes `?` and nothing else:
 ///
