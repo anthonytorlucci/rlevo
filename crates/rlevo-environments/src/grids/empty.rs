@@ -58,9 +58,10 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -233,6 +234,19 @@ pub struct EmptyEnv {
     config: EmptyConfig,
     steps: usize,
     render: bool,
+    /// Rejects a `step()` taken after the episode ended. Reaching the goal does
+    /// not consume the [`Goal`] tile or freeze the agent, and `done` is
+    /// recomputed from the *current* outcome each call, so without this guard a
+    /// post-terminal `step()` emitted a fresh **`Running`** snapshot — silently
+    /// resurrecting a finished episode — while `steps` kept advancing past the
+    /// true episode length. Worse, the agent stands *on* the goal: stepping off
+    /// and back on re-triggers `StepOutcome::ReachedGoal` and pays
+    /// [`success_reward`] a second time. On a 5×5 grid with `max_steps = 100`
+    /// the optimal rollout terminates at step 5 with `0.955`, then six more
+    /// steps re-pay `0.901` — an episode return of `1.856` for one goal, and
+    /// unbounded under repetition. The inflated `steps` also deflates every
+    /// later payout, since `success_reward` divides by the step count.
+    guard: EpisodeGuard,
 }
 
 impl EmptyEnv {
@@ -275,6 +289,9 @@ impl EmptyEnv {
     /// )
     /// .expect("valid config");
     /// ```
+    /// This is the only constructor that builds an `EmptyEnv` value —
+    /// [`ConstructableEnv::new`] delegates here — so it is also the single
+    /// place the [`EpisodeGuard`] is initialized.
     pub fn with_config(config: EmptyConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
         let (grid, agent) = Self::build(&config);
@@ -283,6 +300,7 @@ impl EmptyEnv {
             config,
             steps: 0,
             render,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -385,7 +403,14 @@ impl Environment<3, 3, 1> for EmptyEnv {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<3, GridObservation, ScalarReward>;
 
+    /// Rebuilds the fixed layout, clears the step counter, and re-opens the
+    /// episode guard so a terminated environment becomes steppable again.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
         self.steps = 0;
@@ -393,7 +418,21 @@ impl Environment<3, 3, 1> for EmptyEnv {
         Ok(self.snapshot(observation, 0.0, false))
     }
 
+    /// Applies `action`, then maps the resulting [`StepOutcome`] to reward and
+    /// termination.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances and before `apply_action` touches
+        // the grid or the agent. A rejected call must leave the environment
+        // bit-identical — and this env draws no randomness, but the ordering is
+        // the same one ADR 0029 requires of the envs that do, so a rejected step
+        // can never shift a seed stream.
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -405,7 +444,12 @@ impl Environment<3, 3, 1> for EmptyEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.snapshot(observation, reward, done))
+
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status, so the two cannot drift apart.
+        let snapshot = self.snapshot(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -424,10 +468,11 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::EpisodeStatus;
 
     #[test]
     fn default_config_validates() {
@@ -619,6 +664,121 @@ mod tests {
                 break;
             }
         }
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// Drives a fresh 5×5 episode to the goal with real `step()` calls.
+    ///
+    /// The termination is a **goal arrival**, deliberately not a step-limit
+    /// cutoff: `grids::core::build_snapshot` currently reports a timeout as
+    /// `Terminated` (issue #1028), and these tests must not bake that in.
+    fn drive_to_goal(env: &mut EmptyEnv) -> SnapshotBase<3, GridObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        // Agent at (1,1) facing East, goal at (3,3).
+        let script = [
+            GridAction::Forward,
+            GridAction::Forward,
+            GridAction::TurnRight,
+            GridAction::Forward,
+            GridAction::Forward,
+        ];
+        let mut last = None;
+        for action in script {
+            last = Some(env.step(action).expect("scripted step must succeed"));
+        }
+        last.expect("the script is non-empty")
+    }
+
+    fn goal_env() -> EmptyEnv {
+        EmptyEnv::with_config(EmptyConfig::new(5, 100, 0), false).expect("valid config")
+    }
+
+    #[test]
+    /// `EmptyEnv` satisfies the shared post-terminal conformance check: once the
+    /// agent has reached the goal, a further legal `step()` fails with
+    /// `StepAfterEpisodeEnd` carrying the status that ended the episode.
+    fn rejects_post_terminal_step() {
+        let mut env = goal_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, GridAction::TurnLeft);
+    }
+
+    #[test]
+    /// Regression for the concrete defect the guard prevents. Reaching the goal
+    /// neither consumes the `Goal` tile nor freezes the agent, so an unguarded
+    /// post-terminal `step()` advanced `steps`, moved the agent, and emitted a
+    /// fresh `Running` snapshot — and walking off the goal and back on re-paid
+    /// `success_reward` (measured: `0.955` then another `0.901` on this 5×5).
+    /// A rejected step must mutate nothing at all.
+    fn post_terminal_step_does_not_mutate_state() {
+        let mut env = goal_env();
+        let terminal = drive_to_goal(&mut env);
+        assert!(terminal.is_done(), "reaching the goal must end the episode");
+        let ended = terminal.status();
+
+        let steps_at_end = env.steps();
+        let pos_at_end = (env.state().agent.x, env.state().agent.y);
+        let dir_at_end = env.state().agent.direction;
+
+        let err = env
+            .step(GridAction::TurnLeft)
+            .expect_err("a step after the goal must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            pos_at_end,
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            dir_at_end,
+            "a rejected step must not turn the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    fn reset_reopens_terminated_episode() {
+        let mut env = goal_env();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after termination");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
     }
 
     #[test]

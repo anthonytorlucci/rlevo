@@ -72,10 +72,13 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -268,6 +271,22 @@ pub struct DynamicObstaclesEnv {
     render: bool,
     obstacles: Vec<(i32, i32)>,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode ended.
+    ///
+    /// Load-bearing for a correctness invariant here, not merely for step-count
+    /// hygiene. On a collision-terminal step `move_obstacles` moves the winning
+    /// obstacle's *tracked* position onto the agent's cell but deliberately
+    /// draws no [`Ball`](Entity::Ball) there, so `self.obstacles` holds one
+    /// entry the grid does not back with a ball. A further `step()` would run
+    /// `move_obstacles` against that ghost entry, breaking its SOUNDNESS
+    /// premise — every obstacle's old cell reads as `Ball` on entry — and
+    /// obstacles then **duplicate**: with `size = 5`, `num_obstacles = 4`,
+    /// `seed = 37`, one post-terminal step turns
+    /// `[(2, 2), (2, 1), (1, 1), (1, 3)]` into
+    /// `[(1, 2), (1, 1), (1, 1), (2, 3)]` — two obstacles on `(1, 1)`. The
+    /// guard makes that call an error, which is what keeps
+    /// [`obstacles`](Self::obstacles) unconditionally pairwise distinct.
+    guard: EpisodeGuard,
 }
 
 impl DynamicObstaclesEnv {
@@ -324,6 +343,7 @@ impl DynamicObstaclesEnv {
             render,
             obstacles,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -366,17 +386,14 @@ impl DynamicObstaclesEnv {
     /// slice length equals `num_obstacles` (or fewer if there were not enough
     /// free cells at spawn time).
     ///
-    /// Throughout any episode driven per the [`Environment`] contract
-    /// (`reset` → `step` until `done` → `reset`), the returned positions are
-    /// **pairwise distinct** — including on the terminal step where an obstacle
-    /// collides with the agent. Obstacles that would otherwise merge are
-    /// resolved by `move_obstacles`: the first claimant
-    /// of a cell keeps it and the loser stays put.
-    ///
-    /// Calling [`step`](Environment::step) again *after* a terminal snapshot,
-    /// without an intervening [`reset`](Environment::reset), leaves the
-    /// contract and may break the invariant — see the note on
-    /// `move_obstacles`.
+    /// The returned positions are **pairwise distinct** in every observable
+    /// state — including on the terminal step where an obstacle collides with
+    /// the agent. Obstacles that would otherwise merge are resolved by
+    /// `move_obstacles`: the first claimant of a cell keeps it and the loser
+    /// stays put. The invariant is unconditional because
+    /// [`step`](Environment::step) cannot be called after a terminal snapshot:
+    /// it returns [`EnvironmentError::StepAfterEpisodeEnd`] until
+    /// [`reset`](Environment::reset) re-opens the episode.
     #[must_use]
     pub fn obstacles(&self) -> &[(i32, i32)] {
         &self.obstacles
@@ -440,22 +457,21 @@ impl DynamicObstaclesEnv {
     /// wins, and any later obstacle whose draw lands on an already-claimed cell
     /// stays at its old position. The agent's cell is claimed like any other, so
     /// at most one obstacle can reach the agent on a given step. Obstacle
-    /// positions are consequently pairwise distinct in every state reachable
-    /// through the documented [`Environment`] contract (`reset` → `step` until
-    /// `done` → `reset`).
+    /// positions are consequently pairwise distinct in every observable state.
     ///
     /// # Stepping past a terminal snapshot
     ///
     /// On a collision-terminal step the winning obstacle's tracked position is
     /// set to the agent's cell, but no [`Ball`](Entity::Ball) is *drawn* there —
     /// the episode is over. `self.obstacles` is therefore deliberately desynced
-    /// from the grid, which is harmless only because the contract requires a
-    /// [`reset`](Environment::reset) next. Calling [`step`](Environment::step)
-    /// again instead violates the contract: the stale entry's cell no longer
-    /// reads as `Ball`, the SOUNDNESS premise below fails, and obstacles can
-    /// merge. That is the grids family's known missing post-terminal `step`
-    /// guard (the ADR 0044 / #105 sweep covered `toy_text` only), not a property
-    /// of this function; `Environment` claims nothing about post-terminal steps.
+    /// from the grid for exactly as long as the terminal snapshot is the latest
+    /// one. Re-entering this function with that stale entry would break the
+    /// SOUNDNESS premise below (the entry's cell no longer reads as `Ball`) and
+    /// obstacles could merge — so it cannot happen:
+    /// [`step`](Environment::step) checks its [`EpisodeGuard`] first and returns
+    /// [`EnvironmentError::StepAfterEpisodeEnd`] rather than calling this
+    /// function again. [`reset`](Environment::reset) rebuilds the grid and the
+    /// obstacle list together, so the next episode starts in sync.
     fn move_obstacles(&mut self) -> bool {
         let mut collision = false;
         let agent_pos = (self.state.agent.x, self.state.agent.y);
@@ -471,11 +487,12 @@ impl DynamicObstaclesEnv {
         // *other* obstacle can have that old cell among its candidates: each
         // old position is uniquely reserved for its own occupant.
         //
-        // The premise holds in every state reachable through the documented
-        // `Environment` contract (`reset` -> `step` until `done` -> `reset`).
-        // It does *not* hold if a caller steps past a terminal snapshot without
-        // resetting — see the "Stepping past a terminal snapshot" section on
-        // this function.
+        // The premise holds in every state this function can be entered from:
+        // `reset` draws the balls and the tracked list from one another, each
+        // non-terminal pass below restores the correspondence, and the one pass
+        // that does not — the collision-terminal step — is never followed by
+        // another, because `step`'s `EpisodeGuard` rejects the call. See the
+        // "Stepping past a terminal snapshot" section on this function.
         let mut claimed: HashSet<(i32, i32)> = HashSet::with_capacity(self.obstacles.len());
         let mut new_positions: Vec<(i32, i32)> = Vec::with_capacity(self.obstacles.len());
         for &pos in &self.obstacles {
@@ -588,7 +605,14 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Rebuilds the grid, respawns the obstacles, and re-opens the
+    /// [`EpisodeGuard`] for a new episode.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (state, obstacles) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.obstacles = obstacles;
@@ -597,26 +621,42 @@ impl Environment<3, 3, 1> for DynamicObstaclesEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies the agent's action, then random-walks every obstacle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Self::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first — before the step counter, before `apply_action`, and
+        // critically before `move_obstacles` draws from `self.rng`. ADR 0029
+        // makes the persistent RNG an observable part of this environment's
+        // state, so a rejected step must not advance the seed stream.
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
 
-        // Terminal state from agent step takes priority over obstacle motion.
-        if let StepOutcome::ReachedGoal = outcome {
-            let observation = self.observe(&action, &self.state);
-            let reward = success_reward(self.steps, self.config.max_steps);
-            return Ok(self.emit(observation, reward, true));
-        }
-        if let StepOutcome::HitLava = outcome {
-            let observation = self.observe(&action, &self.state);
-            return Ok(self.emit(observation, 0.0, true));
-        }
+        // A terminal outcome from the agent's own step takes priority over
+        // obstacle motion: on those routes the obstacles do not move at all.
+        let (reward, done) = match outcome {
+            StepOutcome::ReachedGoal => (success_reward(self.steps, self.config.max_steps), true),
+            StepOutcome::HitLava => (0.0, true),
+            _ => {
+                let collided = self.move_obstacles();
+                let reward = if collided { COLLISION_REWARD } else { 0.0 };
+                (reward, collided || self.steps >= self.config.max_steps)
+            }
+        };
 
-        let collided = self.move_obstacles();
-        let done = collided || self.steps >= self.config.max_steps;
-        let reward = if collided { COLLISION_REWARD } else { 0.0 };
+        // Single exit: all three routes build exactly one snapshot, and the
+        // guard is fed that snapshot's own status, so no branch can forget to
+        // record — and the guard cannot disagree with what the caller was
+        // handed.
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -985,6 +1025,150 @@ mod tests {
         assert_eq!(env.state().grid.get(3, 3), Entity::Ball(OBSTACLE_COLOR));
         assert_eq!(env.state().grid.get(3, 1), Entity::Empty);
         assert_eq!(count_balls(&env), 2);
+    }
+
+    // -- Post-terminal step guard (issue #291) -----------------------------
+
+    /// A configuration whose `TurnLeft` rollout ends in a **collision**, and
+    /// whose very next (illegal) step used to duplicate an obstacle.
+    ///
+    /// Pinned deliberately: collision endings are the interesting terminal
+    /// route here, and step-limit endings are avoided because `build_snapshot`
+    /// labels truncation as `Terminated` (#1028, out of scope).
+    const COLLISION_CFG: DynamicObstaclesConfig = DynamicObstaclesConfig::new(5, 4, 200, 37);
+
+    /// Drives a fresh episode to its **collision**-terminal snapshot through
+    /// real `step()` calls, and asserts the ending really was a collision (the
+    /// `−1.0` reward) rather than the step budget running out.
+    fn drive_to_collision(env: &mut DynamicObstaclesEnv) -> GridSnapshot {
+        let cfg = *env.config();
+        env.reset().expect("reset must succeed");
+        for _ in 1..=cfg.max_steps {
+            let snapshot = env
+                .step(GridAction::TurnLeft)
+                .expect("step must succeed until the episode ends");
+            if snapshot.is_done() {
+                let reward: f32 = (*snapshot.reward()).into();
+                assert_eq!(
+                    reward, COLLISION_REWARD,
+                    "this fixture must end by collision, not by exhausting the step budget"
+                );
+                return snapshot;
+            }
+        }
+        panic!("the episode never ended within max_steps");
+    }
+
+    #[test]
+    fn rejects_post_terminal_step() {
+        // The shared conformance check: a collision-terminal snapshot reached
+        // through real `step()` calls, then one more legal action.
+        let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_collision,
+            GridAction::TurnLeft,
+        );
+    }
+
+    #[test]
+    fn post_terminal_step_is_rejected_rather_than_duplicating_an_obstacle() {
+        // Regression for the desync recorded on #291. On a collision-terminal
+        // step the winning obstacle's tracked position moves onto the agent's
+        // cell with no ball drawn there, so a further `move_obstacles` pass ran
+        // against a ghost entry and merged two obstacles. With this exact
+        // config the pre-guard result of the illegal step was
+        // `[(1, 2), (1, 1), (1, 1), (2, 3)]` — a duplicate at (1, 1).
+        let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+        let terminal = drive_to_collision(&mut env);
+        assert!(terminal.is_done());
+        let frozen = env.obstacles().to_vec();
+
+        let err = env
+            .step(GridAction::TurnLeft)
+            .expect_err("a step after the collision must return Err, not move the obstacles");
+        assert!(
+            matches!(err, EnvironmentError::StepAfterEpisodeEnd { .. }),
+            "expected StepAfterEpisodeEnd, got {err:?}"
+        );
+
+        assert_eq!(
+            env.obstacles(),
+            frozen.as_slice(),
+            "a rejected step must not move any obstacle"
+        );
+        let unique: std::collections::HashSet<(i32, i32)> =
+            env.obstacles().iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            env.obstacles().len(),
+            "obstacles must remain pairwise distinct after a rejected post-terminal step, got {:?}",
+            env.obstacles()
+        );
+    }
+
+    #[test]
+    fn rejected_step_does_not_advance_the_rng_stream() {
+        // ADR 0029: the persistent RNG is observable state, so a rejected step
+        // must draw nothing. `move_obstacles` is the only RNG consumer inside
+        // `step`, and `reset` re-draws the spawn layout from the same stream —
+        // so an identical post-reset layout is the evidence that no draw
+        // happened.
+        let mut rejected =
+            DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+        let mut clean =
+            DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+
+        drive_to_collision(&mut rejected);
+        drive_to_collision(&mut clean);
+        assert_eq!(
+            rejected.obstacles(),
+            clean.obstacles(),
+            "the two identically seeded runs must agree before the illegal call"
+        );
+
+        rejected
+            .step(GridAction::TurnLeft)
+            .expect_err("the post-terminal step must be rejected");
+
+        rejected.reset().expect("reset must succeed");
+        clean.reset().expect("reset must succeed");
+        assert_eq!(
+            rejected.obstacles(),
+            clean.obstacles(),
+            "the rejected step must not have consumed a draw from the seed stream"
+        );
+
+        for _ in 0..5 {
+            let a = rejected.step(GridAction::TurnLeft).expect("step");
+            let b = clean.step(GridAction::TurnLeft).expect("step");
+            assert_eq!(a.is_done(), b.is_done());
+            assert_eq!(
+                rejected.obstacles(),
+                clean.obstacles(),
+                "the two streams must stay in lockstep after the rejected call"
+            );
+            if a.is_done() {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn reset_reopens_an_ended_episode() {
+        let mut env = DynamicObstaclesEnv::with_config(COLLISION_CFG, false).expect("valid config");
+        drive_to_collision(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed");
+        // Only that the step is *accepted* is asserted: this fixture is dense
+        // enough (4 obstacles in a 3x3 interior) that a fresh episode can end
+        // by collision on its very first step.
+        env.step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
     }
 
     #[test]

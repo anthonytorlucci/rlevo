@@ -71,8 +71,9 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -278,6 +279,10 @@ impl FromStr for MultiRoomConfig {
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
 /// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
+/// Reaching the goal (or exhausting `max_steps`) ends the episode; a
+/// [`step`](Environment::step) taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// # Examples
 ///
 /// ```rust
@@ -294,6 +299,28 @@ pub struct MultiRoomEnv {
     config: MultiRoomConfig,
     steps: usize,
     render: bool,
+    /// Rejects a `step()` taken after the episode ended. Without it the strip
+    /// keeps walking, and two things go wrong — both measured on the default
+    /// 3-room board, whose optimal rollout terminates on step 15 with reward
+    /// `0.955`:
+    ///
+    /// 1. **The goal is never consumed.** `step_forward` moves the agent *onto*
+    ///    the `Entity::Goal` cell but leaves the entity in the grid, so
+    ///    `TurnLeft, TurnLeft, Forward` (off the goal) then `TurnLeft, TurnLeft,
+    ///    Forward` (back onto it) re-raises `StepOutcome::ReachedGoal` and pays
+    ///    `success_reward` a second time — a further `0.934` at step 22, taking
+    ///    the episode return to `1.889` for a task worth at most `1.0`. The goal
+    ///    can be farmed indefinitely until `max_steps` drives the payout
+    ///    negative.
+    /// 2. **`steps` keeps advancing.** Every post-terminal call increments the
+    ///    counter (15 → 22 above), so `steps()` no longer reports the true
+    ///    episode length *and* it is the numerator of
+    ///    `success_reward(steps, max_steps)`, discounting every later payout.
+    ///
+    /// The unguarded intermediate calls are worse than merely extra: they emit
+    /// `Running` snapshots after a `Terminated` one, silently resurrecting the
+    /// episode for any rollout loop that watches `is_done()`.
+    guard: EpisodeGuard,
 }
 
 impl MultiRoomEnv {
@@ -346,6 +373,7 @@ impl MultiRoomEnv {
             config,
             steps: 0,
             render,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -482,14 +510,33 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Rebuilds the fixed strip, re-closes every door, and re-opens the episode.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
         let observation = self.observe_reset(&self.state);
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies one grid action and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances and before `apply_action` touches
+        // the grid or the agent. A rejected call must leave the environment
+        // bit-identical — and it must precede any future random draw, or the
+        // seed stream would depend on how many illegal steps a caller made
+        // (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -501,7 +548,11 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        // Single exit: the guard is fed the emitted snapshot's own status, so it
+        // cannot disagree with what the caller received.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -524,11 +575,48 @@ mod tests {
     // carries, both read by
     // `test_multi_room_occlusion_hides_the_goal_behind_the_next_closed_door`.
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::EpisodeStatus;
 
     fn default_env() -> MultiRoomEnv {
         MultiRoomEnv::with_config(MultiRoomConfig::default(), false).expect("valid config")
+    }
+
+    /// The optimal rollout on the default 3-room board: open door one, cross,
+    /// open door two, cross, step onto the goal at (14, 2).
+    const OPTIMAL_ROLLOUT: [GridAction; 15] = [
+        GridAction::Forward, // (2, 2)
+        GridAction::Forward, // (3, 2)
+        GridAction::Forward, // (4, 2)
+        GridAction::Toggle,  // open door at (5, 2)
+        GridAction::Forward, // (5, 2)
+        GridAction::Forward, // (6, 2)
+        GridAction::Forward, // (7, 2)
+        GridAction::Forward, // (8, 2)
+        GridAction::Forward, // (9, 2)
+        GridAction::Toggle,  // open door at (10, 2)
+        GridAction::Forward, // (10, 2)
+        GridAction::Forward, // (11, 2)
+        GridAction::Forward, // (12, 2)
+        GridAction::Forward, // (13, 2)
+        GridAction::Forward, // (14, 2) goal
+    ];
+
+    /// Drives `env` to termination **by reaching the goal**, through real
+    /// `step()` calls only, and returns the terminal snapshot.
+    ///
+    /// Deliberately not the step-limit ending: `build_snapshot` maps a
+    /// `max_steps` cutoff to `Terminated` rather than `Truncated` (issue #1028,
+    /// out of scope here), so a timeout-driven test would bake that bug into an
+    /// assertion.
+    fn drive_to_goal(env: &mut MultiRoomEnv) -> GridSnapshot {
+        env.reset().expect("reset must succeed");
+        let mut last = None;
+        for action in OPTIMAL_ROLLOUT {
+            last = Some(env.step(action).expect("the optimal rollout must succeed"));
+        }
+        last.expect("the rollout is non-empty")
     }
 
     #[test]
@@ -840,6 +928,109 @@ mod tests {
             MultiRoomEnv::VISIBILITY,
             Visibility::Occluded,
             "multiroom.py omits see_through_walls, so MiniGridEnv's False default applies"
+        );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// Verifies `MultiRoomEnv` satisfies the shared post-terminal conformance
+    /// check: once the agent has stepped onto the goal, a further legal `step()`
+    /// fails with `StepAfterEpisodeEnd` carrying the status that ended the
+    /// episode.
+    #[test]
+    fn test_multi_room_rejects_post_terminal_step() {
+        let mut env = default_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, GridAction::Forward);
+    }
+
+    /// Regression for the concrete defect the guard prevents.
+    ///
+    /// `step_forward` moves the agent onto the goal cell but never clears
+    /// `Entity::Goal`, so an unguarded rollout could turn around, step off, and
+    /// step back on to re-raise `StepOutcome::ReachedGoal` and collect
+    /// `success_reward` again — measured at `+0.934` on top of the terminal
+    /// `0.955`, a return of `1.889` on a task worth at most `1.0`. Each of those
+    /// calls also advanced `steps` (15 → 22), which is both the reported episode
+    /// length and the numerator of `success_reward`. A rejected step must mutate
+    /// nothing at all.
+    #[test]
+    fn test_multi_room_post_terminal_step_does_not_refarm_the_goal() {
+        let mut env = default_env();
+        let terminal = drive_to_goal(&mut env);
+        assert!(terminal.is_done(), "reaching the goal must end the episode");
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        assert_eq!(
+            env.state().grid.get(14, 2),
+            Entity::Goal,
+            "the goal entity survives arrival — that is what made re-farming possible"
+        );
+
+        // The first move of the off-and-back-on re-farm loop.
+        let err = env
+            .step(GridAction::TurnLeft)
+            .expect_err("a step after the goal must return Err, not another payout");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                terminal.status(),
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (
+                env.state().agent.x,
+                env.state().agent.y,
+                env.state().agent.direction
+            ),
+            (agent_at_end.x, agent_at_end.y, agent_at_end.direction),
+            "a rejected step must not move or turn the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            terminal.status(),
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// Verifies `reset()` re-opens a terminated episode, so a guard that has
+    /// latched cannot strand the environment for the rest of the run.
+    #[test]
+    fn test_multi_room_reset_reopens_terminated_episode() {
+        let mut env = default_env();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::Forward)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+        assert_eq!(env.steps(), 1, "reset() must restart the step counter");
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (2, 2),
+            "the fresh episode starts back at (1, 2) and the first Forward advances one cell"
         );
     }
 }

@@ -63,8 +63,9 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -251,6 +252,28 @@ pub struct DistShiftEnv {
     config: DistShiftConfig,
     steps: usize,
     render: bool,
+    /// Rejects a `step()` taken after the goal or the lava ended the episode.
+    ///
+    /// Termination here is recomputed from the current cell on every call and
+    /// nothing consumes the terminal cell, so without the guard the board stays
+    /// fully playable after the episode is over:
+    ///
+    /// - **The goal pays out again.** `step_forward` moves the agent onto `(7,
+    ///   1)` but leaves `Entity::Goal` in the grid. Two `TurnLeft`s, a
+    ///   `Forward` off the goal and a `Forward` back onto it produce a second
+    ///   `StepOutcome::ReachedGoal`, and `success_reward(self.steps,
+    ///   max_steps)` is paid a second time — still positive for any `steps <
+    ///   max_steps`, and repeatable until the step limit, so a single episode's
+    ///   return can be inflated by roughly `max_steps / 4` extra goal payouts.
+    /// - **The lava death is undone.** After `StepOutcome::HitLava` the agent
+    ///   is standing on the lava strip; the next `Forward` steps off it, scores
+    ///   `StepOutcome::Moved`, and emits a fresh `Running` snapshot — the agent
+    ///   walks out of the lava it just died in and the terminated episode is
+    ///   resurrected.
+    /// - **`self.steps` keeps advancing** past the true episode length, so the
+    ///   reported episode length is wrong and every replayed goal payout is
+    ///   discounted by steps the episode never legitimately took.
+    guard: EpisodeGuard,
 }
 
 impl DistShiftEnv {
@@ -300,6 +323,7 @@ impl DistShiftEnv {
             config,
             steps: 0,
             render,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -400,14 +424,35 @@ impl Environment<3, 3, 1> for DistShiftEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Rebuilds the fixed board, re-opens the episode, and returns the initial
+    /// observation.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = Self::build(&self.config);
         self.steps = 0;
         let observation = self.observe_reset(&self.state);
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies `action` to the grid and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (goal reached, lava entered, or step limit hit); call
+    /// [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances and before `apply_action` touches
+        // the grid or the agent, so a rejected call leaves the environment
+        // bit-for-bit unchanged. This env draws no randomness, but the guard
+        // still precedes every effect so the ordering matches ADR 0029's rule
+        // that a rejected step never advances a seed stream.
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -419,7 +464,12 @@ impl Environment<3, 3, 1> for DistShiftEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch can forget to record.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -438,7 +488,6 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
 
     #[test]
     fn default_config_validates() {
@@ -575,5 +624,155 @@ mod tests {
     #[test]
     fn unknown_variant_errors() {
         assert!("variant=wat".parse::<DistShiftConfig>().is_err());
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+    //
+    // Both drivers end the episode on a *task* outcome — the goal or the lava —
+    // never on the step limit. `build_snapshot` currently reports a step-limit
+    // cutoff as `Terminated` rather than `Truncated` (#1028); routing these
+    // tests around it keeps them correct either way.
+
+    /// Drives a default env to the goal at `(7, 1)` with six `Forward`s, through
+    /// real `step()` calls only.
+    fn drive_to_goal(env: &mut DistShiftEnv) -> GridSnapshot {
+        env.reset().expect("reset must succeed");
+        let mut snapshot = env
+            .step(GridAction::Forward)
+            .expect("the first step must succeed");
+        while !snapshot.is_done() {
+            snapshot = env
+                .step(GridAction::Forward)
+                .expect("stepping east along the safe corridor must succeed until the goal");
+        }
+        snapshot
+    }
+
+    /// Drives a default env (variant One, lava at row 3) onto the lava strip at
+    /// `(3, 3)`, through real `step()` calls only.
+    fn drive_into_lava(env: &mut DistShiftEnv) -> GridSnapshot {
+        env.reset().expect("reset must succeed");
+        for action in [
+            GridAction::Forward,   // (2, 1)
+            GridAction::Forward,   // (3, 1)
+            GridAction::TurnRight, // face South
+            GridAction::Forward,   // (3, 2)
+        ] {
+            let snapshot = env
+                .step(action)
+                .expect("the approach must not end the episode");
+            assert!(
+                !snapshot.is_done(),
+                "the approach to the lava must stay running"
+            );
+        }
+        env.step(GridAction::Forward)
+            .expect("stepping onto the lava must succeed")
+    }
+
+    #[test]
+    /// `DistShiftEnv` satisfies the shared post-terminal conformance check: once
+    /// the agent is on the goal, a further legal `Forward` fails with
+    /// `StepAfterEpisodeEnd` instead of stepping on.
+    fn test_dist_shift_rejects_post_terminal_step() {
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_goal,
+            GridAction::Forward,
+        );
+    }
+
+    #[test]
+    /// The same conformance check for the other terminal route: dying in lava
+    /// must latch the episode just as reaching the goal does.
+    fn test_dist_shift_rejects_post_terminal_step_after_lava() {
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_into_lava,
+            GridAction::Forward,
+        );
+    }
+
+    #[test]
+    /// Regression for the concrete defect the guard prevents on the goal cell:
+    /// nothing consumes `Entity::Goal`, so an unguarded agent could turn around,
+    /// step off the goal and back onto it for a second `success_reward` payout
+    /// while `steps` ran past the true episode length. A rejected step must
+    /// mutate nothing at all.
+    fn test_dist_shift_post_terminal_step_does_not_mutate_state() {
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        let terminal = drive_to_goal(&mut env);
+        let ended = terminal.status();
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+
+        let err = env
+            .step(GridAction::TurnLeft)
+            .expect_err("a step after the goal must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent_at_end.x, agent_at_end.y),
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            agent_at_end.direction,
+            "a rejected TurnLeft must not rotate the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a terminated episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    fn test_dist_shift_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env =
+            DistShiftEnv::with_config(DistShiftConfig::default(), false).expect("valid config");
+        drive_into_lava(&mut env);
+        assert!(
+            env.step(GridAction::Forward).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert_eq!(env.steps(), 0, "reset() must clear the step counter");
+
+        let snapshot = env
+            .step(GridAction::Forward)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snapshot.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
     }
 }

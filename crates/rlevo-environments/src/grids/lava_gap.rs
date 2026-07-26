@@ -93,9 +93,10 @@ use super::core::{
 // `Rng` is the object-safe core trait in rand 0.10; the `random_range` sugar
 // lives on the blanket-implemented `RngExt`. The public bound stays
 // `R: Rng + ?Sized` per `rules.md` §8.
+use crate::episode::EpisodeGuard;
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -261,6 +262,10 @@ impl FromStr for LavaGapConfig {
 /// [`reset`](Environment::reset)** from a persistent RNG stream (ADR 0029/0062);
 /// see the module docs for the ranges and for what stays fixed.
 ///
+/// Reaching the goal, burning in the lava, or exhausting the step budget ends
+/// the episode; a [`step`](Environment::step) taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
 /// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
@@ -285,6 +290,33 @@ pub struct LavaGapEnv {
     /// Row of the current episode's single gap in that strip.
     gap_row: i32,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode already ended.
+    ///
+    /// Termination here is derived from the *current* action's
+    /// [`StepOutcome`] alone — nothing in the state records that the episode is
+    /// over — so before this guard existed a post-terminal `step()` simply ran
+    /// the dynamics again, with two concrete defects:
+    ///
+    /// - **A lava death was reversible.** `step_forward` moves the agent *onto*
+    ///   the lava cell and leaves the cell as [`Entity::Lava`], so the dead
+    ///   agent was still standing on a normal, passable board. One more
+    ///   `Forward` (or a turn plus `Forward`) walked it straight back off the
+    ///   lava onto an empty cell, whose outcome is `Moved` — reward `0.0`,
+    ///   `done = false`. The env emitted a fresh **`Running`** snapshot and the
+    ///   episode continued as if the agent had never burned.
+    /// - **The goal payout could be collected repeatedly.** `ReachedGoal`
+    ///   leaves [`Entity::Goal`] in place under the agent, so stepping off the
+    ///   goal and back onto it paid `success_reward(self.steps,
+    ///   self.config.max_steps)` a *second* time, and again for every further
+    ///   round trip — inflating the episode return without bound. Meanwhile
+    ///   `self.steps` kept advancing past the true episode length, so those
+    ///   extra payouts shrank and, once `steps > max_steps`, went **negative**:
+    ///   a "success" reward below zero on a snapshot the caller reads as a win.
+    ///
+    /// [`StepOutcome`]: super::core::dynamics::StepOutcome
+    /// [`Entity::Lava`]: super::core::entity::Entity::Lava
+    /// [`Entity::Goal`]: super::core::entity::Entity::Goal
+    guard: EpisodeGuard,
 }
 
 impl LavaGapEnv {
@@ -346,6 +378,11 @@ impl LavaGapEnv {
             lava_col,
             gap_row,
             rng,
+            // Sole construction chokepoint: `ConstructableEnv::new` and every
+            // test fixture route through here, so the guard cannot be missed on
+            // one path. `reset_with_seed` re-seeds and delegates to `reset`,
+            // which clears the guard itself.
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -520,6 +557,7 @@ impl Environment<3, 3, 1> for LavaGapEnv {
     /// independent lava columns and gap rows. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (state, lava_col, gap_row) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.lava_col = lava_col;
@@ -529,7 +567,20 @@ impl Environment<3, 3, 1> for LavaGapEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies `action`, then maps the outcome to reward and termination.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `self.steps` advances, before the dynamics move
+        // the agent, and before anything can touch `self.rng`. A rejected call
+        // must leave the board, the step counter and the RNG stream untouched,
+        // or the stream would depend on how many illegal steps a caller made
+        // and every later episode's layout would shift (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -541,7 +592,11 @@ impl Environment<3, 3, 1> for LavaGapEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        // Single exit: the guard is fed the emitted snapshot's own status, so
+        // the two cannot drift apart.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -565,9 +620,11 @@ mod tests {
     // `test_lava_gap_occlusion_masks_only_the_world_outside_the_room`.
     use super::super::core::grid::egocentric_view;
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
+    use crate::episode::assert_rejects_post_terminal_step;
     use crate::grids::core::is_free;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
+    // `Snapshot` arrives through `use super::*` — `step()` needs it for
+    // `snapshot.status()`, so importing it again here is redundant.
     use std::collections::HashSet;
 
     /// The four facings, for the occlusion sweep.
@@ -1157,6 +1214,181 @@ mod tests {
         assert_eq!(env.steps(), 2);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// A script that walks the agent into the lava strip on whatever board
+    /// `env` is **currently** holding, derived the same way
+    /// [`stepping_into_lava_terminates_with_zero_reward`] derives it.
+    fn route_into_lava(env: &LavaGapEnv) -> Vec<GridAction> {
+        // Row 1 is the agent's own row and works unless the gap landed there;
+        // row 2 is interior at every size >= MIN_SIZE.
+        let blocked_row = if env.gap_row() == 1 { 2 } else { 1 };
+        let mut script = Vec::new();
+        if blocked_row > 1 {
+            script.push(GridAction::TurnRight); // face South
+            for _ in 1..blocked_row {
+                script.push(GridAction::Forward);
+            }
+            script.push(GridAction::TurnLeft); // face East again
+        }
+        // x: 1 -> lava_col; the last Forward enters the strip.
+        for _ in 1..env.lava_col() {
+            script.push(GridAction::Forward);
+        }
+        script
+    }
+
+    /// Reset to a known board and walk the derived route to the **goal**,
+    /// returning the terminal snapshot.
+    ///
+    /// Terminating on the goal rather than on the step budget is deliberate:
+    /// `grids/core::build_snapshot` currently maps a step-limit cutoff to
+    /// `Terminated` rather than `Truncated` (#1028, out of scope here), so a
+    /// budget-driven ending would bake that bug into these assertions.
+    fn drive_to_goal(env: &mut LavaGapEnv) -> GridSnapshot {
+        env.reset_with_seed(0).expect("reset");
+        let script = route_to_goal(env);
+        run_to_completion(env, &script)
+    }
+
+    /// Reset to a known board and walk the derived route **into the lava**,
+    /// returning the terminal snapshot.
+    fn drive_into_lava(env: &mut LavaGapEnv) -> GridSnapshot {
+        env.reset_with_seed(0).expect("reset");
+        let script = route_into_lava(env);
+        run_to_completion(env, &script)
+    }
+
+    /// The shared conformance check: once the agent has reached the goal, a
+    /// further legal action fails with `StepAfterEpisodeEnd` carrying the status
+    /// that ended the episode, rather than re-running the dynamics.
+    #[test]
+    fn test_lava_gap_rejects_post_terminal_step() {
+        let mut env = env_5x5();
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, GridAction::TurnLeft);
+    }
+
+    /// The same conformance check driven by a lava death, the other terminal
+    /// this environment owns.
+    #[test]
+    fn test_lava_gap_rejects_post_terminal_step_after_lava() {
+        let mut env = env_5x5();
+        assert_rejects_post_terminal_step(&mut env, drive_into_lava, GridAction::TurnLeft);
+    }
+
+    /// Regression for the concrete defect the guard prevents: nothing in the
+    /// state records that the agent burned, so an unguarded `Forward` walked it
+    /// straight back off the lava cell onto an empty one and emitted a fresh
+    /// `Running` snapshot. A rejected step must mutate nothing at all — not the
+    /// step counter, not the agent's pose, not the guard.
+    #[test]
+    fn test_lava_gap_post_terminal_step_does_not_resurrect_the_agent() {
+        let mut env = env_5x5();
+        let terminal = drive_into_lava(&mut env);
+        assert!(terminal.is_done(), "the agent must have died in the lava");
+        let ended = terminal.status();
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        let board_at_end = env.ascii();
+
+        // `Forward` is the action that used to undo the death: the lava cell is
+        // ordinary and passable, so the agent simply moved off it.
+        let err = env
+            .step(GridAction::Forward)
+            .expect_err("a step after the episode ended must return Err, not a Running snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent_at_end.x, agent_at_end.y),
+            "a rejected step must leave the agent on the lava cell it died on"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            agent_at_end.direction,
+            "a rejected step must not turn the agent"
+        );
+        assert_eq!(
+            env.ascii(),
+            board_at_end,
+            "a rejected step must not change the board"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    #[test]
+    fn test_lava_gap_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = env_5x5();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset()
+            .expect("reset must succeed after the episode ended");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "a turn on the first step of a fresh episode must not end it"
+        );
+    }
+
+    /// A rejected step draws no randomness. `step()` never samples today, but
+    /// `reset()` shares the persistent stream: checking the guard after any
+    /// future draw would let illegal calls shift every subsequent episode's
+    /// board and desynchronise replay (ADR 0029).
+    #[test]
+    fn test_lava_gap_rejected_step_does_not_advance_rng() {
+        let mut rejected = env_5x5();
+        let mut untouched = env_5x5();
+        drive_to_goal(&mut rejected);
+        drive_to_goal(&mut untouched);
+
+        for _ in 0..3 {
+            rejected
+                .step(GridAction::TurnLeft)
+                .expect_err("a step after the episode ended must be rejected");
+        }
+
+        rejected.reset().expect("reset");
+        untouched.reset().expect("reset");
+        assert_eq!(
+            rejected.ascii(),
+            untouched.ascii(),
+            "rejected steps must draw no randomness; the next board must be the one \
+             the stream would have produced anyway"
+        );
     }
 
     /// Occlusion is live here, but **nothing it hides is task-relevant**: every

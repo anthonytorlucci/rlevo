@@ -97,10 +97,11 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -284,6 +285,10 @@ struct Layout {
 /// Construct via [`DoorKeyEnv::with_config`] for full control or via
 /// [`ConstructableEnv::new`] for default settings (size 5, 100 steps, seed 0).
 ///
+/// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
+/// taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// # Examples
 ///
 /// ```rust
@@ -306,6 +311,32 @@ pub struct DoorKeyEnv {
     split_col: i32,
     door_row: i32,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode already ended.
+    ///
+    /// Without it the goal cell is a reward faucet, because nothing here is
+    /// consumed on success: `Forward` leaves `Entity::Goal` in the grid and the
+    /// agent standing on it, so the agent can walk off the goal and back on and
+    /// `apply_action` reports `ReachedGoal` again, paying `success_reward` a
+    /// second time on a second `Terminated` snapshot. Measured on
+    /// `size = 5, max_steps = 100, reset_with_seed(3)`: the episode terminates
+    /// at step 11 with reward `0.901`, then five further steps (`TurnRight`,
+    /// `TurnRight`, `Forward`, `TurnRight` ×2, `Forward`) re-terminate at step
+    /// 17 with another `0.847` — and the five snapshots in between come back
+    /// `Running`, so a finished episode is silently resumed.
+    ///
+    /// The re-payment also *decays*, because `self.steps` never stops
+    /// advancing: it is the numerator of `success_reward(steps, max_steps)`, so
+    /// each replay is worth less than the last, and once `steps` passes
+    /// `max_steps` the formula goes negative — the case `reward::success_reward`
+    /// documents as "no env should call it past termination".
+    ///
+    /// The key/door mechanic keeps running too. The agent still carries the
+    /// yellow key after the goal, and `Pickup` / `Drop` / `Toggle` stay live: in
+    /// the same seed-3 rollout a post-terminal `Drop` at step 15 dumps the key
+    /// at `(3, 1)` inside the goal room and empties the hand. The board the
+    /// terminal snapshot described is then no longer the board the environment
+    /// holds.
+    guard: EpisodeGuard,
 }
 
 impl DoorKeyEnv {
@@ -371,6 +402,7 @@ impl DoorKeyEnv {
             split_col: layout.split_col,
             door_row: layout.door_row,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -565,8 +597,28 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Draws a fresh layout and re-opens the episode.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PlacementError`] from [`build`](Self::build) if the left
+    /// room has no free cell for the agent or the key. No legal
+    /// [`DoorKeyConfig`] reaches that path.
+    ///
+    /// A failed reset is a **total no-op**: the board, the step counter, and the
+    /// guard all keep the previous episode's values, so a finished episode stays
+    /// finished and a later `step()` is still rejected. Clearing the guard before
+    /// the draw would instead re-open a finished episode on a board that never
+    /// returned to an initial state. This follows ADR 0044 §6 and the
+    /// [`TimeLimit::reset`](crate::wrappers::TimeLimit) precedent, which clears
+    /// its guard only after the delegated reset succeeds.
+    ///
+    /// That `Err` path is unreachable for any config this crate accepts (see
+    /// [`build`](Self::build)), so it carries no test — only this ordering.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Draw first: only a *successful* build actually starts a new episode.
         let layout = Self::build(&self.config, &mut self.rng)?;
+        self.guard.reset();
         self.state = layout.state;
         self.split_col = layout.split_col;
         self.door_row = layout.door_row;
@@ -575,7 +627,21 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies `action` to the board and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances (it is the numerator of
+        // `success_reward`, so an illegal call would silently discount every
+        // later payout) and before `apply_action` touches the grid or the
+        // agent's hand. `step()` draws no randomness today, but `reset()` shares
+        // the persistent stream, so checking any later would let rejected calls
+        // reorder future episodes (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -587,7 +653,12 @@ impl Environment<3, 3, 1> for DoorKeyEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+
+        // Single exit: the guard is fed the emitted snapshot's own status, so
+        // the two cannot disagree about whether the episode is over.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -607,10 +678,11 @@ mod tests {
 
     use super::*;
     use crate::direction::Direction;
+    use crate::episode::assert_rejects_post_terminal_step;
     use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::EpisodeStatus;
     use std::collections::{HashSet, VecDeque};
 
     /// Every seed loop runs at the `MIN_SIZE` floor and at one larger board.
@@ -1210,5 +1282,170 @@ mod tests {
             Visibility::Occluded,
             "doorkey.py omits see_through_walls, so MiniGridEnv's False default applies"
         );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// A 5×5 board whose seed-3 layout the module docs pin, so the scripted
+    /// solution below is written against a board that cannot silently move —
+    /// `module_doc_snapshot_is_current` fails first if the generator changes.
+    fn env_seed_3() -> DoorKeyEnv {
+        let mut env = env_5x5();
+        env.reset_with_seed(3).expect("reset");
+        env
+    }
+
+    /// Solves the seed-3 board through **real `step()` calls** and returns the
+    /// terminal snapshot.
+    ///
+    /// Termination is by *reaching the goal*, not by exhausting `max_steps`:
+    /// `grids/core/mod.rs`'s `build_snapshot` currently maps a step-limit cutoff
+    /// to `Terminated` rather than `Truncated` (#1028), so a step-limit ending
+    /// would pin the wrong status through this guard.
+    ///
+    /// The board (see the module docs) is agent `(1, 1)` facing North, key
+    /// `(1, 2)`, locked door `(2, 1)`, goal `(3, 3)`.
+    fn drive_to_goal(env: &mut DoorKeyEnv) -> GridSnapshot {
+        let plan = [
+            GridAction::TurnRight, // North → East
+            GridAction::TurnRight, // East → South, now facing the key
+            GridAction::Pickup,    // take the yellow key
+            GridAction::TurnLeft,  // South → East, now facing the locked door
+            GridAction::Toggle,    // Locked → Closed
+            GridAction::Toggle,    // Closed → Open
+            GridAction::Forward,   // (1,1) → (2,1), through the door
+            GridAction::Forward,   // (2,1) → (3,1)
+            GridAction::TurnRight, // East → South
+            GridAction::Forward,   // (3,1) → (3,2)
+            GridAction::Forward,   // (3,2) → (3,3), the goal
+        ];
+        let mut snapshot = None;
+        for action in plan {
+            let snap = env
+                .step(action)
+                .expect("the scripted solution must be legal");
+            snapshot = Some(snap);
+        }
+        let terminal = snapshot.expect("the plan is non-empty");
+        assert!(
+            terminal.is_done(),
+            "the scripted plan must reach the goal; the board or the dynamics moved"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (3, 3),
+            "the agent must finish on the goal cell"
+        );
+        terminal
+    }
+
+    #[test]
+    /// Verifies `DoorKeyEnv` satisfies the shared post-terminal conformance
+    /// check: once the agent reaches the goal, a further *legal* action fails
+    /// with `StepAfterEpisodeEnd { status: Terminated }`. `Drop` is chosen as the
+    /// replay because the agent is still holding the key — the rejection must be
+    /// on call-sequence grounds, never on the action's own validity.
+    fn test_door_key_rejects_post_terminal_step() {
+        let mut env = env_5x5();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| {
+                env.reset_with_seed(3).expect("reset");
+                drive_to_goal(env)
+            },
+            GridAction::Drop,
+        );
+    }
+
+    #[test]
+    /// Regression for the concrete defect the guard prevents. Nothing is
+    /// consumed on success — the goal entity stays in the grid, the agent stays
+    /// on it, and the key stays in its hand — so an unguarded post-terminal step
+    /// resumed the episode: `steps` advanced past the true episode length
+    /// (discounting the `success_reward` of any goal re-entry), the agent turned
+    /// and walked off the goal, and a later `Drop` emptied the hand.
+    ///
+    /// A rejected step must mutate none of the three.
+    fn test_door_key_post_terminal_step_mutates_nothing() {
+        let mut env = env_seed_3();
+        let terminal = drive_to_goal(&mut env);
+        assert!(
+            terminal.is_terminated(),
+            "the agent must have reached the goal"
+        );
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        assert_eq!(
+            agent_at_end.carrying,
+            Some(Entity::Key(DOOR_COLOR)),
+            "the agent finishes the episode still holding the key"
+        );
+
+        let err = env
+            .step(GridAction::TurnRight)
+            .expect_err("a step after the goal must return Err, not another Running snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry Terminated, the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent_at_end.x, agent_at_end.y),
+            "a rejected step must not move the agent off the goal"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            agent_at_end.direction,
+            "a rejected TurnRight must not turn the agent"
+        );
+        assert_eq!(
+            env.state().agent.carrying,
+            Some(Entity::Key(DOOR_COLOR)),
+            "a rejected step must leave the key in the agent's hand"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated episode, so a guard that has
+    /// latched cannot strand the environment for the rest of the run.
+    fn test_door_key_reset_reopens_terminated_episode() {
+        let mut env = env_seed_3();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(GridAction::TurnRight).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::TurnRight)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "a turn on the first step of a fresh episode cannot end it"
+        );
+        assert_eq!(env.steps(), 1, "the step counter must restart at the reset");
     }
 }

@@ -237,10 +237,11 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -549,6 +550,10 @@ impl FromStr for MemoryConfig {
 /// [`GridObservation`](super::core::GridObservation) / [`GridAction`] /
 /// [`ScalarReward`].
 ///
+/// The episode ends on the first [`GridAction::Done`] (or at the step budget);
+/// a [`step`](Environment::step) taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// # Examples
 ///
 /// ```rust
@@ -571,6 +576,33 @@ pub struct MemoryEnv {
     /// World coordinates of the fork object whose type equals [`Self::cue`].
     match_pos: (i32, i32),
     rng: StdRng,
+    /// Rejects a `step()` taken after the agent has already answered.
+    ///
+    /// This environment is a *matching* task that is supposed to end the instant
+    /// the agent commits to one of the two fork objects — one commitment, one
+    /// payout. Nothing in the state made that true: `GridAction::Done` returns
+    /// [`StepOutcome::DoneAction`] without touching the grid or the agent, so
+    /// [`facing_match`](Self::facing_match) is recomputed, unchanged, on every
+    /// later call. Without the guard, an unguarded post-terminal `step()` let
+    /// the agent:
+    ///
+    /// - **re-answer correctly, repeatedly.** Standing at the decision cell
+    ///   facing the matching object, each further `Done` re-entered the
+    ///   `facing_match()` branch and paid another
+    ///   `success_reward(self.steps, max_steps)` — an unbounded episode return
+    ///   from a single act of recall, decaying only because `self.steps` kept
+    ///   climbing.
+    /// - **retract a wrong answer and take the other object.** A `Done` facing
+    ///   the distractor pays `0.0` and ends the episode; unguarded, the agent
+    ///   could then turn around, walk to the *other* fork object, and `Done`
+    ///   again for the full success reward. Guessing became free, which destroys
+    ///   the recall property the whole layout (Invariant M) exists to protect.
+    ///
+    /// It also kept `self.steps` advancing past `max_steps`, so a timed-out
+    /// episode reported a length longer than its own budget.
+    ///
+    /// [`StepOutcome::DoneAction`]: super::core::dynamics::StepOutcome::DoneAction
+    guard: EpisodeGuard,
 }
 
 impl MemoryEnv {
@@ -637,6 +669,7 @@ impl MemoryEnv {
             cue,
             match_pos,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -846,6 +879,7 @@ impl Environment<3, 3, 1> for MemoryEnv {
     /// reactive policy the answer for free. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (state, cue, match_pos) = Self::build(self.layout, &mut self.rng);
         self.state = state;
         self.cue = cue;
@@ -855,7 +889,21 @@ impl Environment<3, 3, 1> for MemoryEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Advances one step and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended — the agent has answered, or the step budget ran out. Call
+    /// [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances, before the action is applied,
+        // and before anything can touch `self.rng`. A rejected call must leave
+        // the grid, the agent, and the step counter untouched — and must not
+        // advance the persistent stream, or the cue of every subsequent episode
+        // would depend on how many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = if outcome == StepOutcome::DoneAction {
@@ -869,7 +917,12 @@ impl Environment<3, 3, 1> for MemoryEnv {
             (0.0, done)
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch can record something the caller
+        // was not handed.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -895,7 +948,9 @@ mod tests {
     // Test-only: the byte a masked cell carries, asserted directly by
     // `test_memory_env_masked_empty_cells_are_encoded_as_unseen`.
     use super::super::core::UNSEEN_TYPE;
-    use rlevo_core::environment::Snapshot;
+    use crate::episode::assert_rejects_post_terminal_step;
+    // `Snapshot` arrives through `use super::*` — the module now imports the
+    // trait itself, for `snapshot.status()` in `step`.
     use std::collections::HashSet;
 
     const KEY: Entity = Entity::Key(OBJECT_COLOR);
@@ -1859,6 +1914,137 @@ mod tests {
         assert!(
             s.contains("0/845"),
             "Display must report the budget, got {s}"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Post-terminal step guard (ADR 0044, issue #291)
+    // ---------------------------------------------------------------------
+
+    /// Reset, walk to the junction, commit to a fork object, and answer.
+    ///
+    /// Drives the whole episode through real `step()` calls — no hand-written
+    /// terminal snapshot, no poking at `env.state`. With `correct = true` the
+    /// agent turns toward the matching object (success terminal); with `false`
+    /// it turns toward the distractor (failure terminal). Both are genuine
+    /// `Done` terminations, so neither depends on the step-limit status bug
+    /// (GitHub #1028) that maps a budget cutoff to `Terminated`.
+    fn drive_to_commit(env: &mut MemoryEnv, correct: bool) -> GridSnapshot {
+        env.reset().expect("reset");
+        drive_to_junction(env);
+        let turn = match (oracle_turn(env), correct) {
+            (t, true) => t,
+            (GridAction::TurnLeft, false) => GridAction::TurnRight,
+            (_, false) => GridAction::TurnLeft,
+        };
+        env.step(turn).expect("turn");
+        env.step(GridAction::Forward).expect("forward");
+        let snap = env.step(GridAction::Done).expect("done");
+        assert!(snap.is_done(), "Done at the fork must end the episode");
+        snap
+    }
+
+    /// Conformance: after a **correct** commit the episode is over, and a
+    /// further legal `Done` must be refused rather than paying out again.
+    #[test]
+    fn test_memory_env_rejects_post_terminal_step_after_correct_answer() {
+        let mut env = env_default();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| drive_to_commit(env, true),
+            GridAction::Done,
+        );
+    }
+
+    /// Conformance for the other terminal: a **wrong** commit ends the episode
+    /// too, and the guard must reject afterwards just as firmly. This is the
+    /// half that matters most here — unguarded, the agent could retract a wrong
+    /// answer and go take the other object.
+    #[test]
+    fn test_memory_env_rejects_post_terminal_step_after_wrong_answer() {
+        let mut env = env_default();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| drive_to_commit(env, false),
+            GridAction::Done,
+        );
+    }
+
+    /// Regression for the concrete defect: `Done` leaves the grid and the agent
+    /// untouched, so `facing_match()` stayed true and every further `Done`
+    /// re-paid `success_reward` while `steps` climbed. A rejected step must
+    /// change nothing at all.
+    #[test]
+    fn test_memory_env_post_terminal_step_pays_nothing_and_mutates_nothing() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = env_default();
+        let terminal = drive_to_commit(&mut env, true);
+        let paid: f32 = (*terminal.reward()).into();
+        assert!(paid > 0.0, "the correct answer must have been paid once");
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+
+        let err = env
+            .step(GridAction::Done)
+            .expect_err("a second Done must be refused, not paid a second success_reward");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, terminal.status,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent_at_end.x, agent_at_end.y),
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            agent_at_end.direction,
+            "a rejected step must not turn the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `reset()` re-opens a terminated episode, so a latched guard cannot strand
+    /// the environment for the rest of a run.
+    #[test]
+    fn test_memory_env_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = env_default();
+        drive_to_commit(&mut env, false);
+        assert!(
+            env.step(GridAction::Done).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::Forward)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
         );
     }
 

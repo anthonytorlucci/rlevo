@@ -92,10 +92,13 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -322,6 +325,10 @@ impl FromStr for FourRoomsConfig {
 /// Construct via [`FourRoomsEnv::with_config`] for full control or via
 /// [`ConstructableEnv::new`] for default settings (size 11, seed 0).
 ///
+/// Reaching the goal (or lava) ends the episode; a [`step`](Environment::step)
+/// taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// # Examples
 ///
 /// ```rust
@@ -345,6 +352,23 @@ pub struct FourRoomsEnv {
     /// documents.
     openings: [(i32, i32); OPENING_COUNT],
     rng: StdRng,
+    /// Rejects a `step()` taken after the goal (or lava) ended the episode.
+    ///
+    /// Without it the goal cell stays `Entity::Goal` under the agent and
+    /// `apply_action` re-classifies it on every visit, so a finished episode was
+    /// not merely resumed — it was *farmable*. Measured on `size = 11`,
+    /// `max_steps = 484`, seed 3 before this guard existed: the derived route
+    /// reached the goal on step 17 and paid `success_reward(17, 484) = 0.968`;
+    /// the next `step()` re-emitted a **`Running`** snapshot (the episode came
+    /// back to life), five more steps walked the agent off the goal and back on,
+    /// and step 23 paid `success_reward(23, 484) = 0.957` a second time. Because
+    /// the payout is step-count-discounted rather than one-shot, each re-entry
+    /// pays again at a slightly smaller discount — a two-step oscillation on and
+    /// off the goal adds ≈0.95 to the episode return per cycle, for as many
+    /// cycles as `max_steps` allows, while `steps` runs past the true episode
+    /// length and the zero-reward `Running` snapshots in between enter the
+    /// replay buffer as ordinary transitions.
+    guard: EpisodeGuard,
 }
 
 impl FourRoomsEnv {
@@ -410,6 +434,7 @@ impl FourRoomsEnv {
             render,
             openings,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -615,8 +640,22 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     /// Samples a fresh board — four openings, agent pose, goal — from the
     /// persistent RNG, letting the stream advance (ADR 0029). Never re-seeds;
     /// [`FourRoomsEnv::reset_with_seed`] is the replay hatch.
+    ///
+    /// Re-opens the [`EpisodeGuard`], so an episode ended at the goal (or in
+    /// lava) becomes steppable again.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`PlacementError`] from [`FourRoomsEnv::build`] as an
+    /// [`EnvironmentError`]. On that path the guard is deliberately left
+    /// **latched**: the sole fallible call runs first, and the guard is cleared
+    /// only once a whole new episode is in hand. Clearing it first would re-open
+    /// a finished episode over the *old* board — the environment would happily
+    /// step a state it never returned to its initial condition (ADR 0044 §6,
+    /// the same rule `TimeLimit::reset` follows).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let (state, openings) = Self::build(&self.config, &mut self.rng)?;
+        self.guard.reset();
         self.state = state;
         self.openings = openings;
         self.steps = 0;
@@ -624,7 +663,17 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances, before `apply_action` touches
+        // the grid or the agent pose, and before any RNG draw. A rejected call
+        // must leave the board, the counter, and the stream untouched, or the
+        // stream would depend on how many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -635,8 +684,12 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
                 (0.0, done)
             }
         };
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch can forget to record.
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -658,6 +711,7 @@ mod tests {
     // needs it at file scope for the parity `Custom` variant.
     use super::*;
     use crate::direction::Direction;
+    use crate::episode::assert_rejects_post_terminal_step;
     use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
     use rlevo_core::environment::Snapshot;
@@ -1319,6 +1373,159 @@ mod tests {
         assert_eq!(env.steps(), 2);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// Drives `env` to a **goal** termination through real `step()` calls.
+    ///
+    /// Ends the episode by reaching the goal rather than by exhausting
+    /// `max_steps`: the step-limit path currently maps a cutoff to `Terminated`
+    /// rather than `Truncated` (`grids/core/mod.rs`, `build_snapshot`; GitHub
+    /// #1028), and no guard test should be written against a status that a bug
+    /// fix is expected to change. The route is derived from the board the env
+    /// actually drew, so this does not encode one seed's geometry.
+    fn drive_to_goal(env: &mut FourRoomsEnv) -> GridSnapshot {
+        env.reset_with_seed(3).expect("reset must succeed");
+        let agent = env.state().agent;
+        let goal = goal_of(&env.state().grid);
+        let route = cell_route(&env.state().grid, (agent.x, agent.y), goal)
+            .expect("every sampled board is connected");
+        let actions = route_actions(&route, agent.direction);
+        assert!(
+            !actions.is_empty(),
+            "the agent must not start on the goal, or there is nothing to drive"
+        );
+
+        let mut last = None;
+        for action in actions {
+            last = Some(env.step(action).expect("every step en route must succeed"));
+        }
+        let snapshot = last.expect("the route is non-empty");
+        assert!(
+            snapshot.is_done(),
+            "walking the derived route must end the episode at the goal"
+        );
+        snapshot
+    }
+
+    /// The shared post-terminal conformance check: once the agent has walked
+    /// onto the goal, a further legal action fails with `StepAfterEpisodeEnd`
+    /// carrying the status that ended the episode.
+    ///
+    /// `TurnLeft` is the replayed action precisely because it is always legal
+    /// and never blocked — the rejection has to come from the call sequence, not
+    /// from the action.
+    #[test]
+    fn test_four_rooms_rejects_post_terminal_step() {
+        let mut env = env_11();
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, GridAction::TurnLeft);
+    }
+
+    /// Regression for the measured defect: the goal cell keeps its
+    /// `Entity::Goal` under the agent, so before the guard a post-terminal step
+    /// re-emitted a **`Running`** snapshot and walking back onto the goal paid
+    /// `success_reward` a second time (seed 3: `0.968` on step 17, then `0.957`
+    /// on step 23). A rejected step must mutate nothing at all.
+    #[test]
+    fn test_four_rooms_post_terminal_step_does_not_resume_the_episode() {
+        let mut env = env_11();
+        let terminal = drive_to_goal(&mut env);
+        let ended = terminal.status();
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        let openings_at_end = *env.openings();
+
+        let err = env
+            .step(GridAction::Forward)
+            .expect_err("a step after the goal must return Err, not a resurrected episode");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (
+                env.state().agent.x,
+                env.state().agent.y,
+                env.state().agent.direction
+            ),
+            (agent_at_end.x, agent_at_end.y, agent_at_end.direction),
+            "a rejected step must not move or turn the agent"
+        );
+        assert_eq!(
+            *env.openings(),
+            openings_at_end,
+            "a rejected step must not redraw the board"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `reset()` re-opens a terminated environment, so a latched guard cannot
+    /// strand it for the rest of the run.
+    #[test]
+    fn test_four_rooms_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = env_11();
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "a single turn on a fresh board must not end the episode"
+        );
+    }
+
+    /// A rejected step draws no randomness. `step()` does not sample today, but
+    /// `reset()` shares the persistent stream: checking the guard after any
+    /// future draw would let illegal calls shift every subsequent episode's
+    /// board and desynchronise replay (ADR 0029).
+    #[test]
+    fn test_four_rooms_rejected_step_does_not_advance_rng() {
+        let mut rejected = env_11();
+        let mut untouched = env_11();
+        drive_to_goal(&mut rejected);
+        drive_to_goal(&mut untouched);
+
+        rejected
+            .step(GridAction::TurnLeft)
+            .expect_err("a step after the goal must be rejected");
+
+        rejected.reset().expect("reset");
+        untouched.reset().expect("reset");
+        assert_eq!(
+            layout_of(&rejected),
+            layout_of(&untouched),
+            "a rejected step must draw no randomness; the next episode must be the board it \
+             would have been"
+        );
     }
 
     /// Occlusion is not decoration here: a cell that encoded a real entity under
