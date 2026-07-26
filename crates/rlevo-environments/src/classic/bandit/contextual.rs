@@ -115,6 +115,20 @@ pub struct ContextualBanditObservation<const C: usize> {
     context: usize,
 }
 
+/// Hand-written `Deserialize` — **do not replace this with `#[derive(Deserialize)]`.**
+///
+/// This impl is *not* boilerplate left over from a trait bound: it is the
+/// validation boundary for the `context < C` invariant. `Observation<R>` no longer
+/// requires serde at all (ADR 0064), so nothing forces this impl to exist — it is
+/// retained deliberately, because it routes an incoming index through
+/// [`ContextualBanditObservation::new`] and yields `Err` for an out-of-range
+/// `context` from an untrusted payload (`docs/rules.md` §4: deserialized data is
+/// user-supplied runtime data and must never panic).
+///
+/// Deriving `Deserialize` instead would accept `context >= C` silently and defer
+/// the failure to a later out-of-bounds panic inside
+/// [`HostRow::write_host_row`]'s one-hot encoder — far from the payload that
+/// caused it. That is precisely the regression this impl prevents.
 impl<'de, const C: usize> Deserialize<'de> for ContextualBanditObservation<C> {
     /// Deserializes an observation, validating the context index against the
     /// type-level context count `C`.

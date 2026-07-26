@@ -275,10 +275,18 @@ pub trait Observable<const OR: usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
 
     /// A rank-2 pixel observation: a 2x2 grid of bits.
-    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    ///
+    /// **The absence of `Serialize` / `Deserialize` here is load-bearing.** This
+    /// mock is the compile-time guard that [`Observation`] carries no serde
+    /// supertrait (ADR 0064): its supertrait list is exactly
+    /// `Debug + Clone + Send + Sync`, and if anyone re-adds
+    /// `Serialize + for<'de> Deserialize<'de>` to it, `rlevo-core`'s own test
+    /// build stops compiling on the `impl Observation<2>` below. Do not
+    /// "helpfully" derive serde for this type — a consumer that needs to persist
+    /// an observation declares the bound at its own seam.
+    #[derive(Debug, Clone, PartialEq)]
     struct MockRamObservation {
         pixels: [[u8; 2]; 2],
     }

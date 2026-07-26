@@ -34,9 +34,7 @@ pub trait State<const R: usize>: Debug + Clone + Send + Sync {
     }
 }
 
-pub trait Observation<const R: usize>:
-    Debug + Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>
-{
+pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
     const RANK: usize = R;
     fn shape() -> [usize; R];
 }
@@ -208,14 +206,30 @@ state (more on that below).
 > why the choice moved off `State`: full/partial observability is a fact about
 > how the *problem* emits observations, not a fact about any one state value.
 
-### Why only `Observation` is serialisable
+### Where a serialisation requirement belongs
 
-Look again at the supertraits: `Observation` requires `Serialize` +
-`Deserialize`, but `State` does not. That asymmetry is deliberate. Observations
-get written into replay buffers, shipped into `EpisodeRecord`s, and replayed
-later; they need to round-trip through `serde`. The full state never leaves the
-environment, so it carries no serialisation tax. The type system encodes which
-side of the wall each value lives on.
+Look again at the supertraits: `State` and `Observation` now carry the exact
+same list, `Debug + Clone + Send + Sync`. An earlier `rlevo` release put
+`Serialize + for<'de> Deserialize<'de>` directly on `Observation`, on the
+theory that observations get written into replay buffers. Audited against the
+tree, that theory did not hold: `ExperienceTuple` and `History` (the RL
+crate's replay storage) derive only `Clone, Debug` and store observations by
+value, never as bytes, and the replay-strategy seam goes out of its way to
+avoid imposing bounds on what it stores. So the bound constrained neither a
+wire format nor a round-trip; nothing in the workspace ever generically
+required `O: Serialize`. It was removed (ADR 0064).
+
+The useful lesson survives the correction — it just moves. A serialisation
+requirement belongs at the seam that actually persists data, declared by that
+consumer, not smuggled in as a supertrait every implementor of a domain trait
+pays for whether or not they ever serialise anything. `RecordingTap`,
+`rlevo`'s frame-recording seam, is the concrete example: it declares
+`where E::ActionType: Serialize` on itself, and touches no observation at
+all — nothing about a step's observation is present in any recorded frame.
+Concrete observation types remain free to derive `Serialize`/`Deserialize`
+when a downstream consumer needs it — `ContextualBanditObservation` and
+`CarRacingObservation` both do — but that is a property of the type, not an
+obligation of the trait.
 
 ## Crossing into tensor land: `HostRow` and `TensorConvertible`
 
@@ -373,8 +387,9 @@ The mental model to carry into the rest of the book:
 - The environment implements **[`Sensor`](https://docs.rs/rlevo-core/latest/rlevo_core/environment/trait.Sensor.html)**,
   whose `observe(a, s')` / `observe_reset(s)` project a state into an
   **`Observation`** — the only thing the agent sees, and the only thing that
-  gets serialised into a replay buffer. `&self` being the environment is what
-  lets a sensor read world context a bare state value never could.
+  gets stored, by value, in an `ExperienceTuple`. `&self` being the
+  environment is what lets a sensor read world context a bare state value
+  never could.
 - **`HostRow`** owns the backend-independent row layout (`row_shape`,
   `write_host_row`); **`TensorConvertible`** builds on it to turn that
   observation into a Burn tensor for the network, guaranteeing that

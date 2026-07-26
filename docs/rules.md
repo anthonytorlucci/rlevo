@@ -144,7 +144,7 @@ applies is decided by the *kind* of struct, not case by case:
 | Trait | Invariant |
 |-------|-----------|
 | `State<D>` | `shape().iter().product::<usize>() == numel()` |
-| `Observation<D>` | `shape().iter().product::<usize>() == DIM` |
+| `Observation<D>` | `shape().iter().product::<usize>() == DIM`; the supertrait list is exactly `Debug + Clone + Send + Sync` — a serde bound is declared at the consuming seam, never here (ADR 0064) |
 | `DiscreteAction<D>` | `from_index(a.to_index()) == a` and `from_index(x).to_index() == x` for all valid `x` |
 | `ContinuousAction<D>` | `as_slice().len() == COMPONENTS` always, and `from_slice` accepts exactly `COMPONENTS` values — `D` is the tensor rank, never the component count (ADR 0038) |
 | `BoundedAction<D>` | `low().len() == high().len() == COMPONENTS` (**not** `D`), and `low()[i] < high()[i]` for all `i` (ADR 0053) |
@@ -451,7 +451,7 @@ Supplementary rules:
 | `burn` | `TensorConvertible`, neural network models, backends (`wgpu`, `flex`) | Importing Burn in `rlevo-core` beyond trait bounds |
 | `rand` | `rand::rng()` for thread-local RNG; `rng.random_range(0..n)` | `rand::thread_rng()` (deprecated) |
 | `rand_distr` | Advanced sampling distributions | Inline manual rejection sampling when a distribution exists |
-| `serde` | Derive `Serialize + Deserialize` on all domain types | Manual `impl Serialize` unless unavoidable |
+| `serde` | Derive `Serialize + Deserialize` on **concrete** domain types; declare a serde requirement at the consuming seam as a `where` clause (`env_tap.rs:322`: `where E::ActionType: Serialize + Clone`) | A serde **supertrait** on a domain trait (`Observation`, `Action`, `Reward` — ADR 0064); manual `impl Serialize` unless unavoidable |
 | `tracing` | Structured logging in training loops and benchmarks | `println!` / `eprintln!` in library code |
 | `approx` | Float comparisons in tests only | Float `==` comparisons anywhere |
 | `rapier2d` / `rapier3d` | Physics-based environment simulation | Direct FFI to Box2D or MuJoCo C libraries |

@@ -67,7 +67,8 @@ the two are declared as separate, unconnected traits — `State` carries no
 `type Observation` and no `observe()` method of its own; how one produces the
 other is Step 2's job, not this one. The bandit is *stateless* — the optimal
 action never depends on history — so both types here are zero-field marker
-structs that exist only to satisfy the trait bounds:
+structs that exist only because there is nothing about the bandit's state or
+observation worth naming a field for:
 
 ```rust,no_run
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -86,6 +87,20 @@ impl State<1> for KArmedBanditState {
     fn numel(&self)  -> usize  { 1 }
 }
 ```
+
+Notice the asymmetry: `KArmedBanditObservation` derives `Serialize, Deserialize`
+and `KArmedBanditState` does not. Don't read that as `Observation<R>` requiring
+serde — it doesn't. The trait's supertrait list is exactly
+`Debug + Clone + Send + Sync`, the same four `State<SR>` carries
+([ADR 0064](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0064-observation-carries-no-serde-supertrait.md)).
+What you're looking at is `docs/rules.md` §8's convention — concrete domain
+types derive serde by default — applied to `KArmedBanditObservation` because
+it's a plausible thing to persist, while `KArmedBanditState` never leaves the
+environment and has no such reason. If your own environment's observation
+needs to be persisted, declare that requirement at the seam that actually does
+the persisting — `where O: Serialize` on your own function or type, the same
+way `RecordingTap` declares `where E::ActionType: Serialize` — rather than
+expecting the `Observation` trait to supply it.
 
 For a stateful environment — say a gridworld — `State` would carry the agent's
 `(x, y)` and the grid contents, while `Observation` names only the slice the

@@ -77,8 +77,14 @@ impl From<ScalarReward> for f32 { fn from(r: ScalarReward) -> f32 { r.0 } }
 impl From<f32> for ScalarReward { fn from(v: f32) -> Self { Self(v) } }
 ```
 
-It is `Copy`, `Default`, and `Serialize`/`Deserialize`, so it drops into replay
-buffers and records without ceremony. You construct it either with the
+It is `Copy` and `Default`, so it drops into replay buffers without ceremony —
+`ExperienceTuple` stores it by value and only needs the `Clone`/`Debug` the
+base `Reward` trait already requires. It also derives `Serialize`/
+`Deserialize`, which the trait does not ask for; that capability is there for
+a downstream consumer that needs to persist a reward directly rather than as
+part of a `Reward`-generic bound (`rlevo`'s own frame recorder, for instance,
+persists a reward as a plain `f32`, not as a serialised `ScalarReward`). You
+construct it either with the
 tuple form where brevity helps inside an environment (`ScalarReward(1.5)`) or
 with the more readable `ScalarReward::new(1.5)` from outside, and pull the value
 back out with `.value()` or `f32::from(r)`. The `From<f32>`/`Into<f32>` pair in

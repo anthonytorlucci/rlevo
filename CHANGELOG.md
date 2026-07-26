@@ -185,6 +185,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   had already hand-rolled its own `is_finite()` guard on κ (see #345, below)
   — a call site working around the missing shared-layer rule rather than
   reporting it.
+- **`Observation<R>` loses its `Serialize + for<'de> Deserialize<'de>`
+  supertraits; the contract is now exactly `Debug + Clone + Send + Sync`**
+  (ADR 0064, resolves #405). The bound's own doc comment claimed it existed "for
+  storage in a replay buffer" — a capability the type system never delivered to
+  anyone. No function, struct, or trait in the workspace generically requires
+  `O: Serialize`; `ExperienceTuple`/`History` derive only `Clone, Debug`; and the
+  replay seam (ADR 0050) derives no serde at all and *erases* the action payload
+  specifically so it need not impose bounds. The workspace's one real persistence
+  consumer of a domain type, `RecordingTap`, asks for
+  `where E::ActionType: Serialize + Clone` explicitly and asks nothing of the
+  observation. So the bound constrained neither a wire format nor round-trip
+  fidelity, while taxing every implementor: two hand-written serde impls exist
+  only to satisfy it — `ContextualBanditObservation`'s validating `Deserialize`
+  and `CarRacingObservation`'s `Visitor` over 27,648 bytes (serde derives no array
+  impl above length 32) — and no consumer exercises either. It also left the real
+  bound set invisible where callers read for it: `experience.rs`'s bounds doc on
+  `ExperienceTuple`/`History` reasons carefully, citing the Rust API Guidelines'
+  C-STRUCT-BOUNDS, about declaring no `Send`/`Sync` bounds — a narrow claim that
+  was and remains correct — while the `O: Observation<D>` header silently imported
+  a `Serialize + Deserialize` obligation that doc never mentions.
+
+  This is **breaking despite being a strict relaxation for implementors.** Every
+  existing `impl Observation<R>` still compiles unchanged — verified. What breaks
+  is downstream *generic* code that relied on the implied bound:
+
+  ```rust
+  // Compiles today; does not compile after.
+  fn save<const D: usize, O: Observation<D>>(o: &O) -> String {
+      serde_json::to_string(o).unwrap()
+  }
+  ```
+
+  **In-tree affected sites: 0.**
+
+  *Migration.* Add the requirement at your own call site — `fn save<const D:
+  usize, O: Observation<D> + Serialize>(..)`, or a `where O: Serialize + for<'de>
+  Deserialize<'de>` clause on the type or function that persists. That is the
+  shape `RecordingTap` already uses, and it is additive and reversible in a way a
+  supertrait is not. **All concrete observation types keep their serde derives and
+  both hand-written impls**, so `serde_json::to_string(&concrete_obs)` is
+  unaffected. **No persisted data changes format** — no observation was ever
+  present in any persisted payload (`capture_frame` writes action bytes, reward,
+  ascii, styled, and the family payload), so there is no record-schema
+  `FORMAT_VERSION` bump.
+
+  *Why no test caught it.* There was nothing to test. No code path in the
+  workspace ever serialized an observation, so the bound had no observable
+  behaviour to assert on — the defect was a doc comment promising a capability
+  nothing requested, which only a bound-versus-consumer audit finds.
 
 **Added**
 
