@@ -430,7 +430,13 @@ Mirror the bandit's test module. The shape that matters:
 3. **The terminal condition fires** and is flagged (`is_terminated` / `is_truncated`) correctly.
 4. **`InvalidAction` is returned** for out-of-bounds actions — test the error path, not just the happy path.
 5. **Same seed ⇒ same trajectory.** Construct twice with one seed, run the same actions, assert identical rewards.
-6. **`TensorConvertible` round-trips** and rejects wrong-shaped tensors.
+6. **`TensorConvertible` honours its two clauses** and rejects wrong-shaped
+   tensors. If every field of your observation lands in the row, test the full
+   round trip: `from_tensor(x.to_tensor(d)) == Ok(x)`. If you deliberately omit
+   a field (as `GridObservation` omits `agent_direction`), test both clauses
+   instead — the omitted field decodes to an explicit absence, never a
+   fabricated value, and re-encoding the decoded value reproduces the original
+   tensor exactly.
 7. **If you added an `EpisodeGuard`, test the post-terminal rejection directly.**
    Drive the environment to a done snapshot, `step()` once more with a legal
    action, and assert you get back

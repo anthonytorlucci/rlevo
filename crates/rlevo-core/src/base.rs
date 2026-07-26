@@ -252,10 +252,6 @@ pub trait HostRow<const R: usize> {
 
 /// Bidirectional conversion between a domain type and a Burn tensor.
 ///
-/// Implementors must round-trip: `from_tensor(x.to_tensor(device))` equals
-/// `Ok(x)` for any valid `x`. Strategies and replay buffers rely on this
-/// invariant.
-///
 /// The backend-independent half of the conversion — the row layout — lives on
 /// the [`HostRow`] supertrait; this trait adds only the device-facing half.
 ///
@@ -263,6 +259,33 @@ pub trait HostRow<const R: usize> {
 ///
 /// - `R`: Rank of the tensor produced.
 /// - `B`: Burn backend.
+///
+/// # Invariants
+///
+/// Two clauses, both required of every implementor, for any valid `x` and any
+/// device `d`:
+///
+/// 1. **Tensor-image fidelity.** `from_tensor(x.to_tensor(d))?.to_tensor(d)`
+///    equals `x.to_tensor(d)` — decoding a tensor and re-encoding the result is
+///    a no-op *on the tensor*. Everything the tensor carries survives a decode
+///    unchanged, so no consumer that only ever sees tensors can observe a
+///    difference.
+/// 2. **No fabrication.** Any field [`write_host_row`] does not write must
+///    decode to a value that *represents absence* — `Option::None`, or a
+///    dedicated type whose decoded variant says "unknown". It must **never**
+///    decode to a plausible in-domain value. A default that looks like real
+///    data is the failure this clause exists to forbid: it is
+///    indistinguishable from a measurement downstream.
+///
+/// A type whose `write_host_row` covers **every** field satisfies clause 1 in
+/// the stronger form `from_tensor(x.to_tensor(d)) == Ok(x)` — a total round
+/// trip — and satisfies clause 2 vacuously. That is the expected case and what
+/// nearly every implementor in this workspace does; clause 1 is a **floor**
+/// that keeps a partial encoding honest, not permission to be partial. Omit a
+/// field from the row only when the domain says the tensor should not carry it,
+/// and document the omission on both the field and `from_tensor`.
+///
+/// [`write_host_row`]: HostRow::write_host_row
 ///
 /// # Errors
 ///

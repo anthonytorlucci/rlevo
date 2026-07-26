@@ -3,9 +3,13 @@
 //! The agent sits at the bottom-center of its view window and looks toward
 //! the top. Every visible cell is encoded into three bytes — entity type,
 //! color, and door state — laid out as a `[VIEW_SIZE][VIEW_SIZE][OBS_CHANNELS]`
-//! array. The agent's facing direction is stored separately as a fourth byte
-//! and is **not** encoded into the tensor representation (see
-//! [`TensorConvertible::from_tensor`] for the implication).
+//! array. The agent's facing is carried *beside* the view as an
+//! `Option<`[`Direction`]`>` and is deliberately **not** encoded into the
+//! tensor — the view is already rotated into the agent's own frame, so the
+//! absolute heading is redundant for a policy. Decoding a tensor therefore
+//! yields `None` rather than a fabricated facing (see
+//! [`GridObservation::agent_direction`] and
+//! [`TensorConvertible::from_tensor`]).
 
 use super::entity::Entity;
 use crate::direction::Direction;
@@ -44,15 +48,33 @@ pub const OBS_CHANNELS: usize = 3;
 pub struct GridObservation {
     /// Encoded view, indexed as `view[row][col][channel]`.
     pub view: [[[u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE],
-    /// Agent's current facing direction, encoded via [`Direction::to_u8`].
+    /// Agent's absolute facing when the observation was produced, or `None`
+    /// when the facing is genuinely unknown.
     ///
-    /// This field is **not** included in the tensor produced by
-    /// [`TensorConvertible::to_tensor`]; round-tripping through a tensor
-    /// resets it to [`Direction::North`] (byte `3`). Carry the direction
-    /// out-of-band if full fidelity is required.
+    /// Typed as [`Direction`] rather than a raw byte so that no illegal
+    /// encoding is representable (issue #844); [`Direction::to_u8`] still
+    /// yields the canonical Minigrid byte order for callers that want it.
     ///
-    /// [`Direction::North`]: crate::direction::Direction::North
-    pub agent_direction: u8,
+    /// # Why it is not in the tensor
+    ///
+    /// The facing is deliberately **absent** from the tensor produced by
+    /// [`TensorConvertible::to_tensor`]. [`view`](Self::view) is already
+    /// rotated into the agent's own frame, so an absolute heading is
+    /// decision-vestigial for a policy: canonical Minigrid ships `direction`
+    /// as a separate entry of the observation dict and never inside the
+    /// image, and every published baseline (`ImgObsWrapper`,
+    /// `rl-starter-files`, RIDE) discards it before the network.
+    ///
+    /// # What `None` means
+    ///
+    /// `None` means *this observation was decoded from a tensor, so its facing
+    /// is genuinely unknown* — **not** "the agent faces some default". A value
+    /// produced by [`from_entity_view`](Self::from_entity_view) — i.e. by any
+    /// environment's `project()` — is always `Some`. When the true facing is
+    /// needed, read it from the full state
+    /// ([`GridState::agent`](super::state::GridState::agent)), which is where
+    /// the allocentric heading lives.
+    pub agent_direction: Option<Direction>,
 }
 
 impl GridObservation {
@@ -68,7 +90,7 @@ impl GridObservation {
         }
         Self {
             view: encoded,
-            agent_direction: direction.to_u8(),
+            agent_direction: Some(direction),
         }
     }
 }
@@ -98,10 +120,17 @@ impl HostRow<3> for GridObservation {
 impl<B: Backend> TensorConvertible<3, B> for GridObservation {
     /// Reconstructs the 7×7×3 view from a tensor.
     ///
-    /// The tensor contains only the view channels. `agent_direction` is not
-    /// encoded in the tensor representation and is defaulted to
-    /// [`Direction::North`]; callers that need round-trip fidelity for the
-    /// direction must carry it out-of-band.
+    /// The tensor carries only the view channels, because the view is already
+    /// rotated into the agent's frame and the absolute facing adds nothing a
+    /// policy consumes (see [`agent_direction`](GridObservation::agent_direction)).
+    /// The decoded observation therefore reports
+    /// `agent_direction == None` — the facing is *unknown*, and this method
+    /// will never invent a plausible one. Callers needing the true facing must
+    /// carry it out-of-band, from [`GridState`](super::state::GridState).
+    ///
+    /// This satisfies the [`TensorConvertible`] contract's two clauses:
+    /// decode-then-re-encode reproduces the tensor exactly, and the one field
+    /// the tensor omits decodes to an explicit absence.
     ///
     /// # Errors
     ///
@@ -144,7 +173,8 @@ impl<B: Backend> TensorConvertible<3, B> for GridObservation {
         }
         Ok(Self {
             view,
-            agent_direction: Direction::North.to_u8(),
+            // The tensor carries no facing, so a decode must not invent one.
+            agent_direction: None,
         })
     }
 }
@@ -177,7 +207,7 @@ mod tests {
         assert_eq!(obs.view[3][3][1], Color::Blue.to_u8());
         assert_eq!(obs.view[3][3][2], DoorState::Locked.to_u8());
         assert_eq!(obs.view[6][3][0], 3); // Goal type byte
-        assert_eq!(obs.agent_direction, Direction::North.to_u8());
+        assert_eq!(obs.agent_direction, Some(Direction::North));
     }
 
     #[test]
@@ -209,8 +239,47 @@ mod tests {
             <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor).unwrap();
 
         assert_eq!(round_tripped.view, obs.view);
-        // agent_direction is not encoded in the tensor; defaults to North.
-        assert_eq!(round_tripped.agent_direction, Direction::North.to_u8());
+        // The tensor carries no facing, so a decode must report the facing as
+        // unknown rather than inventing a plausible one.
+        assert_eq!(
+            round_tripped.agent_direction, None,
+            "a decoded observation must not fabricate a facing"
+        );
+    }
+
+    #[test]
+    fn decoded_observation_re_encodes_to_the_same_tensor() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[0][0] = Entity::Wall;
+        view[3][3] = Entity::Door(Color::Blue, DoorState::Locked);
+        view[6][3] = Entity::Goal;
+        let obs = GridObservation::from_entity_view(view, Direction::West);
+
+        let tensor =
+            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let decoded =
+            <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor.clone())
+                .expect("decode of a self-produced tensor must succeed");
+
+        // Clause 2 of the TensorConvertible contract: an unwritten field
+        // decodes to an explicit absence, never to a plausible value.
+        assert_eq!(
+            decoded.agent_direction, None,
+            "the facing is absent from the tensor, so it must decode as unknown"
+        );
+
+        // Clause 1: decode-then-re-encode is a no-op on the tensor.
+        let re_encoded =
+            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&decoded, &device);
+        assert_eq!(
+            re_encoded.to_data().to_vec::<f32>().unwrap(),
+            tensor.to_data().to_vec::<f32>().unwrap(),
+            "re-encoding a decoded observation must reproduce the same tensor row"
+        );
     }
 
     #[test]
@@ -229,9 +298,20 @@ mod tests {
     }
 
     #[test]
-    fn direction_is_encoded_per_byte() {
+    fn from_entity_view_records_facing() {
         let view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
-        let obs = GridObservation::from_entity_view(view, Direction::South);
-        assert_eq!(obs.agent_direction, Direction::South.to_u8());
+        for direction in [
+            Direction::East,
+            Direction::South,
+            Direction::West,
+            Direction::North,
+        ] {
+            let obs = GridObservation::from_entity_view(view, direction);
+            assert_eq!(
+                obs.agent_direction,
+                Some(direction),
+                "from_entity_view must record the facing it was handed"
+            );
+        }
     }
 }

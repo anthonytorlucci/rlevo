@@ -267,11 +267,18 @@ the whole `[N, ...]` batch to the device in **one** transfer. It needs only the
 never touches a device — and because the single-item and batch paths share the
 same row-writer, their layouts cannot drift apart (this is ADR 0028).
 
-Third, the contract is a **round-trip invariant**:
-`from_tensor(x.to_tensor(device))` must equal `Ok(x)` for any valid `x`. Replay
-buffers and strategies lean on this — a transition stored as a tensor and read
-back must be the same transition. CartPole's implementation is about as simple
-as it gets:
+Third, the contract binds every implementor to **two clauses**, for any valid
+`x` and device `d`: (1) **tensor-image fidelity** —
+`from_tensor(x.to_tensor(d))?.to_tensor(d)` equals `x.to_tensor(d)`, so
+decoding a tensor and re-encoding the result is a no-op on the tensor itself;
+and (2) **no fabrication** — any field `write_host_row` does not write must
+decode to an explicit absence (`Option::None`, or a dedicated "unknown"
+variant), never to a plausible in-domain value. When your row covers every
+field, as CartPole's does below, clause 1 strengthens for free into the total
+round trip `from_tensor(x.to_tensor(d)) == Ok(x)` — that is the expected case,
+and what nearly every observation in this book satisfies. Replay buffers and
+strategies lean on it: a transition stored as a tensor and read back must be
+the same transition. CartPole's implementation is about as simple as it gets:
 
 ```rust
 impl HostRow<1> for CartPoleObservation {
@@ -370,7 +377,9 @@ The mental model to carry into the rest of the book:
   lets a sensor read world context a bare state value never could.
 - **`HostRow`** owns the backend-independent row layout (`row_shape`,
   `write_host_row`); **`TensorConvertible`** builds on it to turn that
-  observation into a Burn tensor for the network, with a round-trip guarantee.
+  observation into a Burn tensor for the network, guaranteeing that
+  decode-then-re-encode reproduces the tensor and that any field the row omits
+  decodes to an explicit absence rather than a fabricated value.
 - **`is_valid()`** keeps every value structurally honest, and `StateError`
   reports the failures.
 
