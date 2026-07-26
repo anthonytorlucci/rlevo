@@ -892,6 +892,9 @@ mod tests {
     // the *masked* view, so the sweeps below go through this rather than the raw
     // `egocentric_view` no environment emits.
     use super::super::core::mask_view;
+    // Test-only: the byte a masked cell carries, asserted directly by
+    // `test_memory_env_masked_empty_cells_are_encoded_as_unseen`.
+    use super::super::core::UNSEEN_TYPE;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;
 
@@ -1323,23 +1326,27 @@ mod tests {
         );
     }
 
-    /// The `UNSEEN_TYPE` / `Entity::Empty` byte collision, pinned at the pose
-    /// where it costs the most.
+    /// Masked `Entity::Empty` cells reach the encoding as *unseen*, pinned at
+    /// the pose where it costs the most.
     ///
     /// Facing West from the fork junction — the agent's pose at the moment it
     /// answers — the shadow cast masks a substantial block of the window, and
-    /// **every** masked cell happens to be `Entity::Empty`. Because
-    /// `UNSEEN_TYPE == Entity::Empty.type_u8() == 0` today, the encoded
-    /// observation is byte-identical to the unoccluded one: the entire occlusion
-    /// signal is erased by the encoding at exactly this pose.
+    /// **every** masked cell happens to be `Entity::Empty`. This is the worst
+    /// case for a channel-0 encoding that cannot tell *unseen* from
+    /// *confirmed-empty*: while `UNSEEN_TYPE == Entity::Empty.type_u8() == 0`
+    /// the occluded observation here was byte-identical to the unoccluded one,
+    /// so the entire occlusion signal was erased by the encoder at exactly the
+    /// pose the environment is built around.
     ///
-    /// This is a *known defect*, not a property to preserve — ADR 0063 Decision
-    /// 4 renumbers `type_u8` to canonical `OBJECT_TO_IDX` (`Empty` becomes `1`),
-    /// after which this test's final `assert_eq!` becomes an `assert_ne!`. It is
-    /// asserted rather than left in prose so the renumbering cannot land without
-    /// someone reading this.
+    /// This test was the regression guard for that defect (it asserted the
+    /// collision, so the renumbering could not land unnoticed) and remains the
+    /// regression guard for the fix. ADR 0063 Decision 4 moved `type_u8` to
+    /// canonical `OBJECT_TO_IDX` (`Empty` is `1`), so the two views must now
+    /// differ, and they must differ *precisely* on the hidden cells: each one
+    /// reads `UNSEEN_TYPE` under occlusion and `Entity::Empty.type_u8()` under
+    /// see-through, with every other cell untouched.
     #[test]
-    fn test_memory_env_unseen_empty_collision_erases_the_mask_at_the_fork() {
+    fn test_memory_env_masked_empty_cells_are_encoded_as_unseen() {
         let env = env_default();
         let l = env.layout;
         let grid = env.state().grid.clone();
@@ -1348,10 +1355,13 @@ mod tests {
         let masked = mask_view(&grid, &agent, MemoryEnv::VISIBILITY);
         let raw = mask_view(&grid, &agent, Visibility::SeeThrough);
 
-        let hidden: Vec<Entity> = (0..VIEW_SIZE)
+        let hidden_cells: Vec<(usize, usize)> = (0..VIEW_SIZE)
             .flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c)))
             .filter(|&(r, c)| masked[r][c].is_none())
-            .map(|(r, c)| raw[r][c].expect("SeeThrough masks nothing"))
+            .collect();
+        let hidden: Vec<Entity> = hidden_cells
+            .iter()
+            .map(|&(r, c)| raw[r][c].expect("SeeThrough masks nothing"))
             .collect();
 
         assert!(
@@ -1364,14 +1374,41 @@ mod tests {
         );
 
         let state = GridState::new(grid, agent);
-        assert_eq!(
-            observe_grid(&state, MemoryEnv::VISIBILITY).view,
-            observe_grid(&state, Visibility::SeeThrough).view,
-            "{} cells are hidden, yet the encoding cannot say so, because \
-             UNSEEN_TYPE collides with Entity::Empty — see ADR 0063 Decision 4. \
-             If this now fails, the renumbering landed: flip this to assert_ne!",
+        let occluded = observe_grid(&state, MemoryEnv::VISIBILITY);
+        let see_through = observe_grid(&state, Visibility::SeeThrough);
+
+        assert_ne!(
+            occluded.view,
+            see_through.view,
+            "{} Empty cells are hidden and the encoding must say so; if these are \
+             equal again, UNSEEN_TYPE has re-collided with Entity::Empty and the \
+             occlusion signal is being erased at the encoder — see ADR 0063 \
+             Decision 4",
             hidden.len()
         );
+
+        // Differ *exactly* on the hidden cells, in both directions.
+        for r in 0..VIEW_SIZE {
+            for c in 0..VIEW_SIZE {
+                if hidden_cells.contains(&(r, c)) {
+                    assert_eq!(
+                        occluded.view[r][c],
+                        [UNSEEN_TYPE, 0, 0],
+                        "hidden cell ({r}, {c}) must encode as the unseen triple"
+                    );
+                    assert_eq!(
+                        see_through.view[r][c][0],
+                        Entity::Empty.type_u8(),
+                        "hidden cell ({r}, {c}) is Empty, so see-through must report it as such"
+                    );
+                } else {
+                    assert_eq!(
+                        occluded.view[r][c], see_through.view[r][c],
+                        "visible cell ({r}, {c}) must be unaffected by occlusion"
+                    );
+                }
+            }
+        }
     }
 
     /// Pins **both halves** of the truth about cue visibility, driving the real

@@ -225,9 +225,10 @@ mod tests {
         let state = walled_state();
         let obs = observe_grid(&state, Visibility::SeeThrough);
 
-        // `UNSEEN_TYPE` currently collides with `Entity::Empty` in the byte
-        // encoding (see the `UNSEEN_TYPE` docs), so assert against the *source*
-        // of truth instead: SeeThrough must reproduce the raw view exactly.
+        // Assert against the *source* of truth rather than against the absence
+        // of `UNSEEN_TYPE` bytes: SeeThrough must reproduce the raw view
+        // exactly, which is the stronger claim and does not depend on which
+        // entities happen to sit in the window.
         let raw = GridObservation::from_entity_view(
             egocentric_view(&state.grid, &state.agent),
             state.agent.direction,
