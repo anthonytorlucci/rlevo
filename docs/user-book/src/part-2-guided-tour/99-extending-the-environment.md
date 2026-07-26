@@ -216,10 +216,7 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     type SnapshotType    = SnapshotBase<1, KArmedBanditObservation, ScalarReward>;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        // Re-seed RNG and re-draw arm means so (config, actions) fully
-        // determines the trajectory.
-        self.rng = StdRng::seed_from_u64(self.config.seed);
-        self.arm_means = sample_arm_means::<K>(&mut self.rng);
+        self.state = KArmedBanditState;    // episode state only
         self.steps = 0;
         self.done = false;
         Ok(SnapshotBase::running(
@@ -251,6 +248,37 @@ impl<const K: usize> Environment<1, 1, 1> for KArmedBandit<K> {
     }
 }
 ```
+
+Notice what `reset` does *not* touch. It re-initialises the episode and stops
+there: the arm means — the bandit **problem** — were drawn once in `with_config`,
+and we leave the stored RNG exactly where the last episode left it. That
+restraint is a convention rather than a quirk of the bandit. Re-seeding
+`self.rng` from `config.seed` here would replay bit-identical reward noise in
+every episode, so an agent would face one frozen sequence of pulls forever and a
+learning curve averaged over those episodes would be measuring a single sample.
+We draw the problem once and let the reward stream advance instead, which is what
+gives you independent episodes from a *fixed* problem
+([ADR 0029](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0029-host-rng-seeding-convention.md)).
+
+> **Two seeds, two jobs.** When the problem is itself procedurally generated — a
+> grid layout rather than a vector of arm means — the same convention makes
+> `reset()` draw a **new** instance each episode, because that is what lets a
+> policy generalise instead of memorising one board. The five Minigrid-style
+> grids that sample their layout (`Crossing`, `DoorKey`, `LavaGap`, `FourRooms`,
+> `UnlockPickup`) work exactly that way: `config.seed` fixes the whole *sequence*
+> of episodes a run will see, so the run stays reproducible bit-for-bit, while
+> each `reset()` within it hands the agent a different board. When you want one
+> specific episode back — replaying a failure, or pinning the board a scripted
+> test was written against — call the inherent `reset_with_seed(seed)` instead of
+> `reset()`. Not every grid varies, and the difference is deliberate: `Empty` and
+> `DistShift` make no draws at all and are deterministic **by design**, matching
+> their upstream registrations (`DistShift`'s two fixed boards *are* the
+> distributional-shift experiment), while `MultiRoom` and `Unlock` still ship one
+> fixed layout pending
+> [#1021](https://github.com/anthonytorlucci/rlevo/issues/1021) and
+> [#1020](https://github.com/anthonytorlucci/rlevo/issues/1020). If you are
+> choosing an environment for a generalisation experiment, check that list first
+> — see [ADR 0062](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0062-grid-layout-fidelity-and-no-dead-rng.md).
 
 Note the three `SnapshotBase` constructors that encode episode status:
 `running`, `terminated` (the task reached a natural end state), and `truncated`
@@ -416,10 +444,18 @@ algorithm will drive your environment correctly:
   so a physics constant like `dt` or `force_mag` cannot silently arrive as
   infinity. An unbounded-above field is still legal — that's a **bound**, not a
   value — and is spelled `config::in_range(C, "field", 0.0, f64::INFINITY, x)`.
-- **Determinism is seedable.** Thread all randomness through a seed you store, so
-  `(config, action sequence)` reproduces the trajectory — the bandit re-draws its
-  arm means from `config.seed` on every `reset`. This is what makes RL results
-  re-runnable (Chapter 2's reproducibility argument applies to environments too).
+- **Determinism is seedable, and `reset()` never re-seeds.** Thread all randomness
+  through a seed you store at construction, so `(config, action sequence)`
+  reproduces the run — the bandit draws its arm means once in `with_config` and
+  never re-seeds, so successive episodes get independent reward realisations from
+  the same problem. An environment whose *problem* is procedural draws a fresh
+  instance per episode from that same advancing stream, and offers an inherent
+  `reset_with_seed(seed)` for callers that need one particular episode back. This
+  is what makes RL results re-runnable (Chapter 2's reproducibility argument
+  applies to environments too). Inside `rlevo-environments` the rule is enforced
+  rather than trusted — a guard test scans the whole crate and fails on a
+  `seed_from_u64` that sits in anything other than a constructor or a
+  `reset_with_seed` — so an environment you contribute there inherits the check.
 
 ## Testing your environment
 
@@ -429,7 +465,12 @@ Mirror the bandit's test module. The shape that matters:
 2. **`step` with a known action** produces the expected observation and a reward in range.
 3. **The terminal condition fires** and is flagged (`is_terminated` / `is_truncated`) correctly.
 4. **`InvalidAction` is returned** for out-of-bounds actions — test the error path, not just the happy path.
-5. **Same seed ⇒ same trajectory.** Construct twice with one seed, run the same actions, assert identical rewards.
+5. **Same seed ⇒ same trajectory.** Construct twice with one seed, run the same
+   actions, assert identical rewards. If your environment samples a problem
+   instance, add a *second* assertion that two consecutive `reset()` calls on
+   **one** environment differ — the two-construction test alone passes just as
+   happily against a hard-coded world, so on its own it cannot tell a working
+   sampler from an absent one.
 6. **`TensorConvertible` honours its two clauses** and rejects wrong-shaped
    tensors. If every field of your observation lands in the row, test the full
    round trip: `from_tensor(x.to_tensor(d)) == Ok(x)`. If you deliberately omit

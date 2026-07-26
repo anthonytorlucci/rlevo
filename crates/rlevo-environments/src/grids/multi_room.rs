@@ -10,6 +10,19 @@
 //! a configurable structural knob (`num_rooms`), giving it a long-horizon
 //! planning flavor without depending on randomization.
 //!
+//! ## Known deviation from upstream `MultiRoom`
+//!
+//! **This is a simplified fixed layout, not a port of upstream's procedural
+//! generator.** Farama's `MiniGrid-MultiRoom-*` resamples the room count, each
+//! room's size and position (recursive placement with backtracking), each
+//! door's wall, position and color, and the agent and goal placements — every
+//! episode is a different board. rlevo builds one uniform horizontal strip of
+//! equal-width rooms, every door at `height / 2`, every door [`Color::Grey`].
+//! The board is identical on every reset, so a policy can memorize it instead
+//! of learning to explore; treat results here as a probe of planning and credit
+//! assignment, not as comparable to published `MultiRoom` numbers. Procedural
+//! generation is tracked in issue #1021.
+//!
 //! ## Layout (3 rooms, `room_width` = 5, height = 5 — default)
 //!
 //! ```text
@@ -56,8 +69,6 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -99,7 +110,18 @@ pub struct MultiRoomConfig {
     pub height: usize,
     /// Maximum steps before the episode times out with reward `0.0`.
     pub max_steps: usize,
-    /// RNG seed; reserved for future stochastic variants.
+    /// Accepted but unused: this environment makes no random draws.
+    ///
+    /// rlevo's `MultiRoom` is a **simplified fixed layout that deviates from
+    /// upstream** `MiniGrid-MultiRoom-*`, which resamples the room count, every
+    /// room's size and position, and every door's wall, position and color on
+    /// each reset. Here the strip, the doors (all at `height / 2`, all
+    /// [`Color::Grey`]), the agent and the goal are the same on every reset, so
+    /// a policy can memorize a single board. Procedural generation is tracked in
+    /// issue #1021; until then this value cannot change any observation, reward,
+    /// or transition.
+    ///
+    /// The field is kept so every grid env presents the same config surface.
     pub seed: u64,
 }
 
@@ -270,20 +292,13 @@ pub struct MultiRoomEnv {
     config: MultiRoomConfig,
     steps: usize,
     render: bool,
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
 }
 
 impl MultiRoomEnv {
     /// Constructs a [`MultiRoomEnv`] from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Immediately builds the initial grid state. Call [`Environment::reset`]
+    /// before the first [`Environment::step`] to obtain the first observation.
     ///
     /// # Examples
     ///
@@ -307,14 +322,12 @@ impl MultiRoomEnv {
     /// [`FromStr`].
     pub fn with_config(config: MultiRoomConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
         Ok(Self {
             state,
             config,
             steps: 0,
             render,
-            _rng: rng,
         })
     }
 
@@ -437,7 +450,6 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 

@@ -293,6 +293,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   in JSON, `3` becomes `"North"` or `null`. The exact bytes depend on the
   format (bincode, MessagePack, and JSON each encode the change differently),
   so re-serialize rather than hand-patching a stored payload.
+- **Five grid environments draw a fresh layout on every `reset()`** (ADR 0062,
+  which partially supersedes ADR 0029; refs #282, closes #108): `CrossingEnv`,
+  `DoorKeyEnv`, `LavaGapEnv`, `FourRoomsEnv`, `UnlockPickupEnv`. Each previously
+  rebuilt one board that was a pure function of `size`, so a training run was a
+  single board repeated for however many episodes it lasted, and a policy could
+  score well on it by memorizing one route. `reset()` now samples from the
+  environment's persistent RNG and lets the stream advance — what ADR 0029
+  already required of every stochastic environment — so a fixed `seed`
+  reproduces a fixed *sequence* of episodes rather than one repeated episode.
+  Semver-relevant in the same class as ADR 0029's own `reset()` change.
+
+  *Migration.* Where you relied on consecutive resets returning the same board —
+  a scripted rollout, a fixture, a test pinning a coordinate — call the new
+  inherent `reset_with_seed(seed)` instead of `reset()`: it re-seeds the
+  persistent stream and then resets, so one nominated episode replays
+  bit-for-bit. Run-level reproducibility is unchanged; construct with a fixed
+  `config.seed` and the whole episode sequence is reproducible exactly as
+  before. The accessors that survived unchanged in signature — `DoorKeyEnv::split_col`,
+  `LavaGapEnv::lava_col`, `LavaGapEnv::gap_row` and `UnlockPickupEnv::target` —
+  now report *this episode's* sampled value instead of a constant, so any caller
+  that recomputed one from `size` (`size / 2` and friends) or hard-coded the
+  target box will now disagree with the board; read them from the environment.
+  `target` in particular was never re-derived in `reset()`, which was harmless
+  only while the box colour was a `const`. **No persisted config breaks.** Every grid
+  `*Config` keeps its `seed: u64` field, retained for precisely this reason
+  (ADR 0062 §2), and no grid config gained, lost or renamed a field, so a
+  payload serialized before this change still deserializes.
+- **`CrossingEnv::gap_col` returns `Vec<i32>` instead of `i32`**, and
+  `strip_rows()` narrows in meaning. The old board was two horizontal strips at
+  `size / 2 ± 1` sharing a single opening at `size / 2`, which one column
+  described completely. Upstream `CrossingEnv` shuffles its candidate rivers and
+  punches one opening per river, and a river may be vertical as easily as
+  horizontal, so neither the count nor the orientation is fixed: `gap_col()[k]`
+  is the opening of the horizontal river at `strip_rows()[k]`, and the vector is
+  empty on an episode whose two sampled rivers are both vertical.
+
+  *Migration.* Pair `gap_col()[k]` with `strip_rows()[k]` rather than treating
+  the gap as one shared column, and read the vertical rivers through the new
+  `strip_cols()`/`gap_rows()` pair — `strip_rows()` alone no longer describes the
+  board. A caller that only wants to know whether a cell is passable should read
+  `env.state().grid` instead of reconstructing the layout from accessors at all.
 
 **Added**
 
@@ -303,6 +344,95 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   rank-1 with more than one component, so it could not state its bounds at all
   under the old signature. `CarRacingAction` is the workspace's only action whose
   components disagree — steering ∈ [-1, 1] but gas and brake ∈ [0, 1].
+- **`reset_with_seed(seed)` on `CrossingEnv`, `DoorKeyEnv`, `LavaGapEnv`,
+  `FourRoomsEnv` and `UnlockPickupEnv`** — the inherent replay hatch ADR 0029 §1
+  mandates, matching the three grid environments that already had it
+  (`GoToDoorEnv`, `MemoryEnv`, `DynamicObstaclesEnv`). It re-seeds the persistent
+  stream and then resets, which is the only way to reproduce one *specific*
+  episode now that plain `reset()` advances the stream.
+- **Accessors that read the sampled board instead of recomputing it**:
+  `DoorKeyEnv::door_row`, `FourRoomsEnv::openings` (with the public
+  `OPENING_COUNT`), `UnlockPickupEnv::door_pos` and `::door_color`, and
+  `CrossingEnv::strip_cols`/`gap_rows`. A layout that varies per episode is no
+  longer derivable from `size`, so anything that needs to locate the door, the
+  doorways or the one passable cell — a scripted rollout, a planner, a test —
+  must ask the environment rather than recompute.
+- **`grids::core::placement`**, the shared placement sampler the family never
+  had: `is_free`, `sample_pos`, `place_obj`, `place_agent`, `random_direction`, a
+  `Rect` region type and a `PlacementError`. `grids/core/` previously offered
+  `Grid::{new, in_bounds, get, set, draw_walls}` and nothing else — no free-cell
+  predicate, no position sampler — so the only sampling code in the family was
+  `GoToDoorEnv::sample_door_colors`, a hand-rolled rejection loop. Randomizing
+  several environments at once off that base means one chance per environment to
+  get the free-cell predicate wrong. `DoorKeyEnv`, `FourRoomsEnv` and
+  `UnlockPickupEnv` place through it; `CrossingEnv` and `LavaGapEnv` deliberately
+  do not, and say why in-file — `Crossing` draws lines rather than cells and
+  punches openings *into* obstacle rows that `is_free` would reject outright,
+  while `LavaGap`'s column and row are two independent range draws that
+  `sample_pos` would collapse into one draw over a rectangle and silently
+  re-weight. Two design choices are documented at the sampler: exhaustion returns
+  `Result` and converts to `ConfigError` at the environment boundary rather than
+  panicking, because a region can exhaust on an unlucky draw from an entirely
+  valid config (`DoorKey` at `size = 5` has a 3×3 interior and the draws consume
+  two cells of it), so the ADR 0026 chokepoint cannot rule it out; and the sampler
+  materializes the candidate cells and draws a uniform index rather than porting
+  upstream's unbounded rejection loop, whose failure mode is a `reset()` that
+  never returns.
+- **`tests/rng_seeding_guards.rs`**, a source-text guard over the **whole**
+  crate's `src/`: every `seed_from_u64` must sit inside an allowlisted
+  constructor or replay hatch, and the allowlist is checked in both directions so
+  a row matching nothing on disk fails too. The guard exists because the two
+  halves of #282 were only dangerous together — a re-seed in `reset()` is a
+  genuine no-op while the RNG is unread, and silently pins every episode the
+  moment sampling is added, and *both* states pass a test that asserts only "the
+  environment draws from its RNG". Resolving the enclosing `fn` is the mechanism,
+  not an optimization: `reset_with_seed` carries `seed_from_u64` three lines above
+  `self.reset()`, so a line-level grep flags the very method the convention
+  mandates. Scope is crate-wide rather than `grids/`-only because #104 was
+  crate-wide, and the limits are recorded in-file — it reads source text, so it
+  is defeated by aliasing or by a constructor invoked *from* `reset`, and it
+  catches the accident rather than the adversary.
+
+**Changed**
+
+- **`EmptyEnv` and `DistShiftEnv` are deterministic on purpose, and their docs
+  now say so** (ADR 0062 §1, §2b); the unread `_rng` field is deleted from both.
+  Each was reconciled against upstream and found faithful: `MiniGrid-Empty-*`'s
+  `_gen_grid` makes no draws at all — only the separately registered
+  `-Empty-Random-*` ids call `place_agent` — and `DistShift`'s lava row is a
+  registration constant because determinism *is* the experiment, a train/test
+  distributional-shift probe over two fixed, known boards that randomizing either
+  half would destroy. Both keep their `seed` field for config-surface uniformity
+  across the family, and each doc now states outright that the stored value
+  cannot affect any observation, reward or transition, in place of the
+  "reserved for future stochastic variants" promise that had no owner.
+- **`MultiRoomEnv` and `UnlockEnv` ship knowingly non-conformant with ADR 0062
+  §1, and now record it at the call site** (#1021, #1020). `MultiRoom` keeps its
+  fixed equal-width strip: upstream resamples the room count and every room's
+  size and position through a recursive placer with backtracking, which is
+  procedural generation rather than a handful of draws, and bundling it would
+  have held the five tractable environments hostage. `Unlock` keeps its fixed
+  board pending a two-room topology change that moves `MIN_SIZE`, the layout and
+  the solvability oracle together — and its `seed` doc now also carries the
+  placement defect found on the way past: upstream `Unlock` puts the locked door
+  on the wall *between* two rooms, whereas `UnlockEnv` draws one
+  perimeter-walled room and then writes the door into that perimeter at
+  `(1, 0)`. A door in the perimeter is not the `Unlock` task. Both deviations are
+  stated in the config's `seed` doc rather than only in a tracker, which is why
+  #282 stays open on a 7/9 checklist instead of closing against work that was
+  not done.
+- **The six planner-driven solvability oracles became seed loops over sampled
+  boards**, each sweeping `PLANNED_SEEDS` episodes at two board sizes, and gained
+  an `assert_boards_varied` guard that fails a run whose seeds all produced one
+  board. The per-env `build_places_*` assertions they replace pinned exact cells
+  on a fixed board and never asked the question procedural generation actually
+  fails — whether a board the environment *generates* can be solved at all.
+- **`grid_door_key_scripted` pins its seed**, and its module docs explain why: a
+  fixed action script is a property of one board, not of the environment, so an
+  example built around a script has to nominate its episode through
+  `reset_with_seed`. The documented run command was also wrong
+  (`-p rlevo-environments`, where the example does not live) and is now
+  `-p rlevo`.
 
 **Fixed**
 
@@ -355,6 +485,50 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   generic `nonzero` guard and so cannot distinguish a real minimum from an
   incidental one. Each environment now also has a non-zero below-floor case,
   which is the input that actually pins the constraint.
+- **Nine grid environments held an RNG they never read, and re-seeded it on every
+  `reset()`** (#282, closes #108; ADR 0062). `rg 'self\._rng\.'` over `grids/`
+  returned zero hits: all nine stored an `_rng: StdRng`, rebuilt it from
+  `config.seed` inside `reset()`, and never drew a value from it. Their
+  `build(config)` functions took no RNG parameter at all, so they were
+  structurally incapable of sampling — the `seed` field was inert across almost
+  the whole family while the docs said otherwise. `crossing`, `door_key` and
+  `four_rooms` promised that "using the same seed always produces the same
+  episode layout" on a layout no seed could reach, and `empty`, `lava_gap`,
+  `multi_room`, `unlock` and `unlock_pickup` held a `seed` "reserved for future
+  stochastic variants" — a promise with no owner. Both wordings are gone; every
+  `seed` doc now states what its environment does, naming the upstream id it
+  departs from where it departs.
+
+  *Why this survived two reviews.* ADR 0029 carved the family out on the
+  reasoning that re-seeding an unread RNG is a no-op. That is true, and it was
+  the wrong question — it classified nine environments as deterministic on the
+  evidence that their code does not sample, without asking whether their upstream
+  `_gen_grid` does. Reconciled env by env against Farama Minigrid, seven of the
+  nine deviate. The reading behind the carve-out was a category error worth
+  naming: the Minigrid paper's determinism claim is about the *transition
+  function* — `step` has no slip probability, which `grids/core/dynamics.rs`
+  reproduces correctly and this change does not touch — not about `reset`, whose
+  shipped `_gen_grid` implementations sample.
+
+  *Why the existing tests missed it.* Each of the five randomized environments had
+  a `reset_is_deterministic` test that constructed two environments from one
+  config and compared **one** `reset()` each. A fixed board satisfies that, and so
+  does a correct persistent stream — the assertion cannot distinguish them, and it
+  never looked at a *second* `reset()` on the same environment, which is where the
+  defect lived. Those tests still pass unmodified and are now meaningful rather
+  than tautological, joined by consecutive-reset and board-variability assertions
+  that the old code would have failed.
+- **The grid solvability oracles could pass on an episode the agent died in**
+  (#282). `assert_solvable!` and `run_script` both ran the entire action list and
+  asserted only the *final* snapshot's reward. No environment in the grid family
+  rejects a post-terminal `step` (ADR 0044 records ~44 non-conformant
+  environments), so an episode could end badly mid-script, keep stepping on a
+  finished episode, and hand back a healthy last snapshot. This was observed, not
+  hypothesized: a `DistShift` script that walked into lava at action 5 — `done`,
+  reward `0.0` — and then strolled on to the goal for `0.874` passed the old
+  helper. Both now stop at the first snapshot reporting `is_done()` and assert on
+  that one, and treat any action left in the script after termination as a defect
+  in the script or the planner rather than tolerating it.
 
 ### `rlevo-reinforcement-learning`
 

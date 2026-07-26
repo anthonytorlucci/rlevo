@@ -8,6 +8,10 @@
 //! mechanics: every environment's `step` delegates to it and then maps the
 //! returned [`StepOutcome`] to env-specific reward + termination logic.
 //!
+//! Per-episode layout randomization is shared the same way: [`placement`]
+//! holds the free-cell predicate, the uniform position sampler, and the
+//! agent-pose draw, so no environment hand-rolls a rejection loop.
+//!
 //! The observation is the one block that is not universal:
 //! [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv) is goal-conditioned and
 //! emits a `7×7×4` view whose fourth channel carries the episode mission, so it
@@ -22,6 +26,7 @@ pub mod dynamics;
 pub mod entity;
 pub mod grid;
 pub mod observation;
+pub mod placement;
 pub mod render;
 pub mod reward;
 pub mod state;
@@ -37,6 +42,9 @@ pub use dynamics::{StepOutcome, apply_action};
 pub use entity::{DoorState, Entity};
 pub use grid::{Grid, egocentric_view};
 pub use observation::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
+pub use placement::{
+    PlacementError, Rect, is_free, no_reject, place_agent, place_obj, random_direction, sample_pos,
+};
 pub use render::render_ascii;
 pub use reward::success_reward;
 pub use state::GridState;

@@ -61,8 +61,6 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -116,8 +114,8 @@ const HEIGHT: usize = 7;
 
 /// Configuration for [`DistShiftEnv`].
 ///
-/// The grid dimensions are fixed at 9×7, so only the variant, episode length,
-/// and RNG seed are configurable.
+/// The grid dimensions are fixed at 9×7, so only the variant and the episode
+/// length affect the board the agent sees.
 ///
 /// # Examples
 ///
@@ -133,11 +131,18 @@ pub struct DistShiftConfig {
     pub variant: DistShiftVariant,
     /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
-    /// Seed for the internal random-number generator.
+    /// Accepted but unused: this environment makes no random draws.
     ///
-    /// The layout is deterministic given the variant, so the seed primarily
-    /// affects future stochastic extensions. Using the same seed guarantees
-    /// reproducible episodes.
+    /// Determinism is the experimental point, not an omission. `DistShift` is a
+    /// train/test **distributional-shift** probe: a policy is trained on one
+    /// fixed, known board (variant `One`) and evaluated on another (variant
+    /// `Two`). Randomizing either board would destroy the very quantity the
+    /// benchmark measures. Upstream agrees — `_gen_grid` for `DistShift1-v0`
+    /// and `DistShift2-v0` makes zero RNG calls, and the lava row is a
+    /// registration-time constant, not a per-episode draw.
+    ///
+    /// The field is kept so every grid env presents the same config surface;
+    /// changing it cannot change any observation, reward, or transition.
     pub seed: u64,
 }
 
@@ -244,20 +249,13 @@ pub struct DistShiftEnv {
     config: DistShiftConfig,
     steps: usize,
     render: bool,
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
 }
 
 impl DistShiftEnv {
     /// Constructs a `DistShiftEnv` from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Immediately builds the initial grid state. Call [`Environment::reset`]
+    /// before the first [`Environment::step`] to obtain the first observation.
     ///
     /// # Examples
     ///
@@ -277,14 +275,12 @@ impl DistShiftEnv {
     /// `max_steps`).
     pub fn with_config(config: DistShiftConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
         let state = Self::build(&config);
         Ok(Self {
             state,
             config,
             steps: 0,
             render,
-            _rng: rng,
         })
     }
 
@@ -371,7 +367,6 @@ impl Environment<3, 3, 1> for DistShiftEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 

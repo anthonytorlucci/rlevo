@@ -1,28 +1,66 @@
-//! Navigate across obstacle strips, each with a single gap, to reach the goal.
+//! Navigate across sampled obstacle rivers, one opening each, to reach the goal.
 //!
-//! Ports Farama Minigrid's [`CrossingEnv`]. The room is an `N×N` grid with
-//! border walls. Two horizontal strips of [`Lava`] or [`Wall`] tiles bisect
-//! the interior, each interrupted by exactly one open column (the *gap*). The
-//! gap column is the same for every strip, so a straight vertical corridor
-//! always connects the start cell to the goal cell — but the agent must
-//! navigate to that corridor first.
+//! Ports Farama Minigrid's [`CrossingEnv`] (`MiniGrid-LavaCrossingS9N1-v0` and
+//! its `SimpleCrossing` siblings). The room is an `N×N` grid with border walls.
+//! Every episode samples **two** *rivers* — full interior lines of [`Lava`] or
+//! [`Wall`] — from the even interior rows and columns, then punches exactly one
+//! opening per river.
 //!
-//! ## Layout (default `size = 7`)
+//! ## Openings come from a monotone walk, not from independent draws
+//!
+//! The load-bearing detail: upstream does **not** draw each opening
+//! independently. It shuffles a list of moves — one East move per *vertical*
+//! river and one South move per *horizontal* river — and walks the room lattice
+//! from the top-left room to the bottom-right one, punching the opening for the
+//! river it is about to cross, inside the band it currently occupies. Because
+//! the walk is monotone and each opening is punched on the boundary of the room
+//! the walk is standing in, the openings are guaranteed to chain into a single
+//! corridor from `(1, 1)` to `(N - 2, N - 2)`.
+//!
+//! Sampling the openings independently would draw from the same *marginal*
+//! distribution and still generate unsolvable boards, because two openings can
+//! land in bands that do not connect. `crossing_is_solvable_across_resets` in
+//! this module's test suite is the guard.
+//!
+//! ## Layout (one sampled episode at `size = 7`)
+//!
+//! Here the sample picked a vertical river at column `2` and a horizontal river
+//! at row `4`, and the walk drew the order *South, then East*:
 //!
 //! ```text
-//! # # # # # # #
-//! # A . . . . #
-//! # L . L L L #   ← strip row, gap at column 3
-//! # . . . . . #
-//! # L . L L L #   ← strip row, gap at column 3
-//! # . . . . G #
-//! # # # # # # #
+//!     0 1 2 3 4 5 6
+//!  0  # # # # # # #
+//!  1  # A L . . . #   ← column 2 is a vertical river …
+//!  2  # . L . . . #
+//!  3  # . L . . . #
+//!  4  # . L L L L #   ← row 4 is a horizontal river, open at column 1
+//!  5  # . . . . G #   ← the vertical river is open at row 5
+//!  6  # # # # # # #
 //! ```
 //!
-//! - `A` — agent start (1, 1), facing East
-//! - `G` — goal (5, 5)
-//! - `L` — lava (or wall in [`CrossingKind::Wall`] variant)
+//! - `A` — agent start `(1, 1)`, facing East (fixed, as upstream)
+//! - `G` — goal `(size - 2, size - 2)` (fixed, as upstream)
+//! - `L` — the configured obstacle: lava, or wall in [`CrossingKind::Wall`]
 //! - `.` — empty passable cell
+//!
+//! The corridor here is `(1,1) → (1,4) → (1,5) → (5,5)`. A different draw moves
+//! the rivers, the openings, or both; [`CrossingEnv::strip_cols`],
+//! [`CrossingEnv::strip_rows`], [`CrossingEnv::gap_rows`], and
+//! [`CrossingEnv::gap_col`] report the layout actually in force.
+//!
+//! ## Known simplifications relative to upstream
+//!
+//! - **`num_crossings` is fixed at 2.** Upstream takes it as a registration
+//!   kwarg (`size = 9` with 1/2/3 crossings, `size = 11` with 5).
+//!   [`CrossingConfig`] has no such field and is `Serialize`/`Deserialize`, so
+//!   adding one is a persisted-config change; it is tracked separately. Which
+//!   two of the candidate rows/columns become rivers *is* sampled.
+//! - **Even `size` is accepted.** Upstream asserts an odd `width`/`height`;
+//!   rlevo's [`Validate`] impl only enforces `size >= 7` (see
+//!   [`CrossingConfig::size`]). The generator handles even sizes correctly — the
+//!   candidate lines and the room bands stay non-degenerate — so the looser
+//!   floor is kept rather than tightened under a change that is about layout
+//!   sampling.
 //!
 //! ## Observation and action spaces
 //!
@@ -41,6 +79,8 @@
 //! let cfg = CrossingConfig::new(7, 196, 42, CrossingKind::Lava);
 //! let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
 //! let _snapshot = env.reset().unwrap();
+//! // A fresh layout every episode; ask the env, never assume.
+//! let _rivers = (env.strip_cols(), env.strip_rows());
 //! ```
 //!
 //! [`CrossingEnv`]: https://minigrid.farama.org/environments/minigrid/CrossingEnv/
@@ -60,8 +100,12 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+// `Rng` is the trait bound (rules.md §8); `RngExt` carries `random_range`,
+// which rand 0.10 moved out of `Rng` into a blanket extension implemented for
+// every `R: Rng + ?Sized`. Imported anonymously — only its methods are wanted.
+use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -69,22 +113,22 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-/// Selects the obstacle type used for the crossing strips.
+/// Selects the obstacle type used for the crossing rivers.
 ///
 /// Determines whether the agent pays a hard penalty (lava, episode ends) or
 /// is simply blocked (wall, episode continues) when it tries to move through
-/// a strip cell that has no gap.
+/// a river cell that is not an opening.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CrossingKind {
-    /// Terminal-hazard strips; stepping onto lava immediately ends the episode.
+    /// Terminal-hazard rivers; stepping onto lava immediately ends the episode.
     #[default]
     Lava,
-    /// Impassable wall strips; the agent is bumped back but the episode continues.
+    /// Impassable wall rivers; the agent is bumped back but the episode continues.
     Wall,
 }
 
 impl CrossingKind {
-    /// Returns the grid entity placed in non-gap strip cells.
+    /// Returns the grid entity placed in river cells that are not openings.
     #[must_use]
     pub const fn entity(self) -> Entity {
         match self {
@@ -106,9 +150,53 @@ impl FromStr for CrossingKind {
     }
 }
 
-/// Minimum supported side length; we need at least one interior row per strip
+/// Minimum supported side length; we need at least one interior row per river
 /// plus free space for the agent and goal.
 const MIN_SIZE: usize = 7;
+
+/// Rivers placed per episode — upstream Minigrid's `num_crossings`.
+///
+/// Fixed at 2 because [`CrossingConfig`] deliberately exposes no
+/// `num_crossings` field (see the module docs). *Which* two candidate lines
+/// become rivers is sampled every episode.
+const NUM_CROSSINGS: usize = 2;
+
+/// Which axis a river runs along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    /// A full interior **column** of obstacles.
+    Vertical,
+    /// A full interior **row** of obstacles.
+    Horizontal,
+}
+
+/// One leg of the monotone walk that punches the openings.
+///
+/// Upstream names these `h` and `v` after the *move* direction, not after the
+/// river being crossed — which is why its `path` list reads
+/// `[h] * len(rivers_v) + [v] * len(rivers_h)`. An East move crosses a vertical
+/// river; a South move crosses a horizontal one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leg {
+    /// Cross the next vertical river, moving East into the following column band.
+    East,
+    /// Cross the next horizontal river, moving South into the following row band.
+    South,
+}
+
+/// The rivers and openings sampled for the current episode.
+///
+/// `gap_rows[k]` is the open row of the vertical river at `strip_cols[k]`, and
+/// `gap_cols[k]` is the open column of the horizontal river at `strip_rows[k]`
+/// — both vectors are index-aligned with their river vector, which is sorted
+/// ascending. Either pair may be empty when both sampled rivers share an axis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CrossingLayout {
+    strip_cols: Vec<i32>,
+    strip_rows: Vec<i32>,
+    gap_rows: Vec<i32>,
+    gap_cols: Vec<i32>,
+}
 
 /// Configuration for [`CrossingEnv`].
 ///
@@ -130,14 +218,25 @@ pub struct CrossingConfig {
     ///
     /// Must be at least `7`. The interior playable area is
     /// `(size - 2) × (size - 2)`.
+    ///
+    /// Unlike upstream Minigrid, which asserts an odd `width`/`height`, this
+    /// crate accepts any `size >= 7`; the layout sampler is total over even
+    /// sizes too. See the module docs, "Known simplifications".
     pub size: usize,
     /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
-    /// Seed for the internal random-number generator.
+    /// Seed for the environment's persistent RNG, drawn once at construction.
     ///
-    /// Using the same seed always produces the same episode layout.
+    /// The RNG **advances** across resets (ADR 0029), so successive episodes get
+    /// independent rivers and openings. A fixed seed therefore reproduces a
+    /// fixed *sequence* of episodes, not one repeated episode. For bit-for-bit
+    /// replay of a single episode use [`CrossingEnv::reset_with_seed`].
+    ///
+    /// Two deliberate deviations from upstream `CrossingEnv` are documented in
+    /// the module docs: `num_crossings` is fixed at 2, and even `size` values
+    /// are accepted.
     pub seed: u64,
-    /// Obstacle type placed in the non-gap strip cells.
+    /// Obstacle type placed in the river cells that are not openings.
     pub kind: CrossingKind,
 }
 
@@ -192,6 +291,10 @@ impl Validate for CrossingConfig {
     /// case reports [`TooSmall`](rlevo_core::config::ConstraintKind::TooSmall)
     /// rather than [`Zero`](rlevo_core::config::ConstraintKind::Zero);
     /// `max_steps` keeps `nonzero` because its only floor is 1.
+    ///
+    /// Parity is deliberately **not** checked. Upstream asserts an odd size; the
+    /// sampler here is total over even sizes, and tightening a config
+    /// constraint is not this environment's change to make.
     fn validate(&self) -> Result<(), ConfigError> {
         const C: &str = "CrossingConfig";
         config::at_least(C, "size", self.size, MIN_SIZE)?;
@@ -246,10 +349,15 @@ impl FromStr for CrossingConfig {
     }
 }
 
-/// Grid environment where the agent crosses obstacle strips to reach the goal.
+/// Grid environment where the agent crosses obstacle rivers to reach the goal.
 ///
 /// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
 /// have three components, reward is a scalar.
+///
+/// Every [`reset`](Environment::reset) samples a fresh layout from the
+/// environment's persistent RNG: which two candidate lines become rivers, and
+/// where each river's single opening sits. The agent start `(1, 1)` facing East
+/// and the goal `(size - 2, size - 2)` are fixed, as upstream.
 ///
 /// Construct via [`CrossingEnv::with_config`] for full control or via
 /// [`ConstructableEnv::new`] for default settings (size 7, lava, seed 0).
@@ -273,20 +381,17 @@ pub struct CrossingEnv {
     config: CrossingConfig,
     steps: usize,
     render: bool,
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
+    layout: CrossingLayout,
+    rng: StdRng,
 }
 
 impl CrossingEnv {
     /// Constructs a `CrossingEnv` from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Seeds the persistent RNG **once** from `config.seed` and immediately
+    /// samples a first layout from it. Call [`Environment::reset`] before the
+    /// first [`Environment::step`] to obtain the first observation; that reset
+    /// samples a *fresh* layout, advancing the stream.
     ///
     /// # Examples
     ///
@@ -309,15 +414,32 @@ impl CrossingEnv {
     /// [`FromStr`].
     pub fn with_config(config: CrossingConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
-        let state = Self::build(&config);
+        let mut rng = StdRng::seed_from_u64(config.seed);
+        let (state, layout) = Self::build(&config, &mut rng);
         Ok(Self {
             state,
             config,
             steps: 0,
             render,
-            _rng: rng,
+            layout,
+            rng,
         })
+    }
+
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes get independent rivers and openings (ADR 0029); use
+    /// this when you need a *specific* layout to reproduce bit-for-bit (e.g.
+    /// replaying a failure). Run-level reproducibility is already guaranteed by
+    /// the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset) (currently none).
+    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
     }
 
     /// Returns a reference to the active configuration.
@@ -347,48 +469,174 @@ impl CrossingEnv {
         render_ascii(&self.state.grid, &self.state.agent)
     }
 
-    /// Returns the column index shared by every strip's open gap.
+    /// Open **columns** of this episode's horizontal rivers, aligned with
+    /// [`strip_rows`](Self::strip_rows).
     ///
-    /// Equals `size / 2` (integer division), so for the default size of 7 the
-    /// gap column is 3.
+    /// `gap_col()[k]` is the one passable column of the river at
+    /// `strip_rows()[k]`. This returns a `Vec` rather than the single `i32` it
+    /// did while the board was fixed: each river now gets its **own** opening
+    /// from the layout walk, so no single column is shared by all of them, and
+    /// the vector may be empty when both sampled rivers are vertical.
     #[must_use]
-    pub fn gap_col(&self) -> i32 {
-        #[allow(clippy::cast_possible_wrap)]
-        let col = (self.config.size / 2) as i32;
-        col
+    pub fn gap_col(&self) -> Vec<i32> {
+        self.layout.gap_cols.clone()
     }
 
-    /// Returns the row indices on which the two obstacle strips are placed.
+    /// Open **rows** of this episode's vertical rivers, aligned with
+    /// [`strip_cols`](Self::strip_cols).
     ///
-    /// For size `N` the strips sit at `N/2 - 1` and `N/2 + 1`, straddling the
-    /// central row. For the default size of 7 this gives rows `[2, 4]`.
+    /// `gap_rows()[k]` is the one passable row of the river at
+    /// `strip_cols()[k]`. Empty when both sampled rivers are horizontal.
+    #[must_use]
+    pub fn gap_rows(&self) -> Vec<i32> {
+        self.layout.gap_rows.clone()
+    }
+
+    /// Row indices carrying a horizontal obstacle river this episode, ascending.
+    ///
+    /// Sampled per [`reset`](Environment::reset) from the even interior rows
+    /// `2, 4, …` strictly below `size - 2`. Contains between zero and
+    /// `NUM_CROSSINGS` entries — the complement sits in
+    /// [`strip_cols`](Self::strip_cols).
     #[must_use]
     pub fn strip_rows(&self) -> Vec<i32> {
-        #[allow(clippy::cast_possible_wrap)]
-        let size = self.config.size as i32;
-        let mid = size / 2;
-        vec![mid - 1, mid + 1]
+        self.layout.strip_rows.clone()
     }
 
-    fn build(config: &CrossingConfig) -> GridState {
-        let mut grid = Grid::new(config.size, config.size);
-        grid.draw_walls();
-        let blocker = config.kind.entity();
+    /// Column indices carrying a vertical obstacle river this episode, ascending.
+    ///
+    /// The vertical counterpart of [`strip_rows`](Self::strip_rows); vertical
+    /// rivers did not exist while the board was fixed, so a reader of the board
+    /// needs both to reconstruct the layout.
+    #[must_use]
+    pub fn strip_cols(&self) -> Vec<i32> {
+        self.layout.strip_cols.clone()
+    }
+
+    /// Sample one episode: two rivers, and one opening per river.
+    ///
+    /// Draws from `rng` and lets it advance (ADR 0029) — never re-seeds. The
+    /// draws, and their order, reproduce upstream `CrossingEnv._gen_grid`:
+    ///
+    /// 1. shuffle the candidate river lines and keep the first
+    ///    [`NUM_CROSSINGS`];
+    /// 2. shuffle the walk legs — one East per vertical river, one South per
+    ///    horizontal river;
+    /// 3. one uniform draw per leg for the opening's free coordinate.
+    ///
+    /// Step 3 is what makes the board solvable, and it is not interchangeable
+    /// with drawing the openings independently: the walk is monotone from the
+    /// top-left room to the bottom-right one, and every opening is punched on
+    /// the boundary of the room the walk currently occupies, so the openings
+    /// chain into one corridor by construction.
+    ///
+    /// The shared [`placement`](super::core::placement) sampler is deliberately
+    /// **not** used here, and the reason is not oversight. It draws a uniform
+    /// *free* cell of a [`Rect`](super::core::Rect), and every draw this env
+    /// makes is something else: the rivers are a shuffle over candidate *lines*
+    /// rather than cells, and an opening is a hole punched **into** a line that
+    /// is already full of obstacles — `is_free` rejects every candidate there,
+    /// so `sample_pos` would return `Exhausted` on a correct board. Nothing is
+    /// placed on a free cell in this environment: the agent and goal are fixed
+    /// by direct assignment, as upstream.
+    fn build<R: Rng + ?Sized>(config: &CrossingConfig, rng: &mut R) -> (GridState, CrossingLayout) {
         #[allow(clippy::cast_possible_wrap)]
         let size = config.size as i32;
-        let mid = size / 2;
-        let strip_rows = [mid - 1, mid + 1];
+
+        // Candidate river lines: even interior indices `2, 4, …` strictly below
+        // `size - 2`, per axis. `size >= MIN_SIZE` makes `2..size - 2` non-empty,
+        // so there are always at least two candidates per axis.
+        let mut candidates: Vec<(Axis, i32)> = (2..size - 2)
+            .step_by(2)
+            .map(|c| (Axis::Vertical, c))
+            .chain((2..size - 2).step_by(2).map(|r| (Axis::Horizontal, r)))
+            .collect();
+        candidates.shuffle(rng);
+        candidates.truncate(NUM_CROSSINGS);
+
+        let mut strip_cols: Vec<i32> = candidates
+            .iter()
+            .filter(|(axis, _)| *axis == Axis::Vertical)
+            .map(|&(_, pos)| pos)
+            .collect();
+        strip_cols.sort_unstable();
+        let mut strip_rows: Vec<i32> = candidates
+            .iter()
+            .filter(|(axis, _)| *axis == Axis::Horizontal)
+            .map(|&(_, pos)| pos)
+            .collect();
+        strip_rows.sort_unstable();
+
+        let mut grid = Grid::new(config.size, config.size);
+        grid.draw_walls();
+        // Agent and goal are fixed by direct assignment upstream, not sampled.
+        let agent = AgentState::new(1, 1, Direction::East);
+        grid.set(size - 2, size - 2, Entity::Goal);
+
+        // Rivers span the full interior. Candidate indices are `< size - 2`, so
+        // no river can land on the goal, and all are `>= 2`, so none can land on
+        // the agent's start cell.
+        let blocker = config.kind.entity();
         for &row in &strip_rows {
             for x in 1..size - 1 {
-                if x != mid {
-                    grid.set(x, row, blocker);
+                grid.set(x, row, blocker);
+            }
+        }
+        for &col in &strip_cols {
+            for y in 1..size - 1 {
+                grid.set(col, y, blocker);
+            }
+        }
+
+        // The monotone walk. `limits_*` bracket the room bands along each axis;
+        // consecutive entries differ by at least 2 (candidates are distinct even
+        // numbers in `[2, size - 3]`), so every `random_range` below is
+        // non-empty by construction.
+        let mut legs: Vec<Leg> = std::iter::repeat_n(Leg::East, strip_cols.len())
+            .chain(std::iter::repeat_n(Leg::South, strip_rows.len()))
+            .collect();
+        legs.shuffle(rng);
+
+        let limits_v: Vec<i32> = std::iter::once(0)
+            .chain(strip_cols.iter().copied())
+            .chain(std::iter::once(size - 1))
+            .collect();
+        let limits_h: Vec<i32> = std::iter::once(0)
+            .chain(strip_rows.iter().copied())
+            .chain(std::iter::once(size - 1))
+            .collect();
+
+        let mut gap_rows = Vec::with_capacity(strip_cols.len());
+        let mut gap_cols = Vec::with_capacity(strip_rows.len());
+        let (mut room_i, mut room_j) = (0usize, 0usize);
+        for leg in legs {
+            match leg {
+                Leg::East => {
+                    let x = limits_v[room_i + 1];
+                    debug_assert!(limits_h[room_j] + 1 < limits_h[room_j + 1]);
+                    let y = rng.random_range(limits_h[room_j] + 1..limits_h[room_j + 1]);
+                    grid.set(x, y, Entity::Empty);
+                    gap_rows.push(y);
+                    room_i += 1;
+                }
+                Leg::South => {
+                    debug_assert!(limits_v[room_i] + 1 < limits_v[room_i + 1]);
+                    let x = rng.random_range(limits_v[room_i] + 1..limits_v[room_i + 1]);
+                    let y = limits_h[room_j + 1];
+                    grid.set(x, y, Entity::Empty);
+                    gap_cols.push(x);
+                    room_j += 1;
                 }
             }
         }
-        let goal_xy = size - 2;
-        grid.set(goal_xy, goal_xy, Entity::Goal);
-        let agent = AgentState::new(1, 1, Direction::East);
-        GridState::new(grid, agent)
+
+        let layout = CrossingLayout {
+            strip_cols,
+            strip_rows,
+            gap_rows,
+            gap_cols,
+        };
+        (GridState::new(grid, agent), layout)
     }
 
     fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
@@ -433,9 +681,10 @@ impl Environment<3, 3, 1> for CrossingEnv {
     type SnapshotType = GridSnapshot;
 
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = Self::build(&self.config);
+        let (state, layout) = Self::build(&self.config, &mut self.rng);
+        self.state = state;
+        self.layout = layout;
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 
@@ -471,10 +720,184 @@ mod tests {
     use super::*;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    /// Episodes each seed-loop oracle draws from one persistent stream.
+    ///
+    /// Sized to exercise the two shuffles rather than to make a flaky test
+    /// pass: at `size = 7` there are `C(4, 2) = 6` river pairs and up to two
+    /// leg orders each, so a few hundred episodes visits every branch many
+    /// times over. If one of these loops ever fails, the layout walk is broken
+    /// — do not lower this number.
+    const EPISODES: usize = 256;
+
+    /// Sizes every loop runs at: the floor, two larger odd sizes matching
+    /// upstream's registered boards, and one even size that upstream would
+    /// reject but rlevo's [`Validate`] admits.
+    const SIZES: [usize; 4] = [7, 8, 9, 11];
+
+    const KINDS: [CrossingKind; 2] = [CrossingKind::Lava, CrossingKind::Wall];
+
+    /// One episode's river set: `(vertical columns, horizontal rows)`.
+    type Rivers = (Vec<i32>, Vec<i32>);
+
+    /// One episode's openings, index-aligned with [`Rivers`]:
+    /// `(open rows of the vertical rivers, open columns of the horizontal ones)`.
+    type Openings = (Vec<i32>, Vec<i32>);
+
+    fn env_at(size: usize, kind: CrossingKind, seed: u64) -> CrossingEnv {
+        let cfg = CrossingConfig::new(size, 4 * size * size, seed, kind);
+        CrossingEnv::with_config(cfg, false).expect("valid config")
+    }
 
     fn default_env(kind: CrossingKind) -> CrossingEnv {
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, kind), false).expect("valid config")
+        env_at(7, kind, 0)
     }
+
+    // -----------------------------------------------------------------------
+    // Solvability oracle: a flood fill over cells the agent may stand on
+    // *safely*. Lava is `is_passable`, so a reachability check built on
+    // `Entity::is_passable` would call a lava-locked board solvable — the whole
+    // point of this env. Only `Empty` and `Goal` count.
+    // -----------------------------------------------------------------------
+
+    fn is_safe(entity: Entity) -> bool {
+        matches!(entity, Entity::Empty | Entity::Goal)
+    }
+
+    /// Shortest safe cell path from the agent to the goal, endpoints included.
+    fn safe_path(state: &GridState) -> Option<Vec<(i32, i32)>> {
+        #[allow(clippy::cast_possible_wrap)]
+        let size = state.grid.width() as i32;
+        let start = (state.agent.x, state.agent.y);
+        let goal = (size - 2, size - 2);
+        assert!(
+            is_safe(state.grid.get(start.0, start.1)),
+            "agent must start on a safe cell, found {:?}",
+            state.grid.get(start.0, start.1)
+        );
+
+        let mut prev: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+        let mut seen: HashSet<(i32, i32)> = HashSet::from([start]);
+        let mut queue = VecDeque::from([start]);
+        while let Some(cell) = queue.pop_front() {
+            if cell == goal {
+                let mut path = vec![cell];
+                let mut cursor = cell;
+                while let Some(&parent) = prev.get(&cursor) {
+                    path.push(parent);
+                    cursor = parent;
+                }
+                path.reverse();
+                return Some(path);
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let next = (cell.0 + dx, cell.1 + dy);
+                if !state.grid.in_bounds(next.0, next.1)
+                    || !is_safe(state.grid.get(next.0, next.1))
+                    || !seen.insert(next)
+                {
+                    continue;
+                }
+                prev.insert(next, cell);
+                queue.push_back(next);
+            }
+        }
+        None
+    }
+
+    /// Turn a cell path into the actions that walk it, starting from `facing`.
+    fn actions_along(path: &[(i32, i32)], mut facing: Direction) -> Vec<GridAction> {
+        let mut actions = Vec::new();
+        for step in path.windows(2) {
+            let want = match (step[1].0 - step[0].0, step[1].1 - step[0].1) {
+                (1, 0) => Direction::East,
+                (-1, 0) => Direction::West,
+                (0, 1) => Direction::South,
+                (0, -1) => Direction::North,
+                other => panic!("path took a non-unit step {other:?}"),
+            };
+            while facing != want {
+                actions.push(GridAction::TurnRight);
+                facing = facing.right();
+            }
+            actions.push(GridAction::Forward);
+        }
+        actions
+    }
+
+    /// Every structural invariant a freshly sampled board must satisfy.
+    fn assert_board_is_sound(env: &CrossingEnv) {
+        let cfg = *env.config();
+        #[allow(clippy::cast_possible_wrap)]
+        let size = cfg.size as i32;
+        let grid = &env.state().grid;
+        let blocker = cfg.kind.entity();
+
+        // Perimeter is wall all round.
+        for i in 0..size {
+            for (x, y) in [(i, 0), (i, size - 1), (0, i), (size - 1, i)] {
+                assert_eq!(grid.get(x, y), Entity::Wall, "perimeter ({x},{y})");
+            }
+        }
+
+        // Exactly one goal, at the fixed upstream cell.
+        let goals: Vec<(i32, i32)> = (0..size)
+            .flat_map(|y| (0..size).map(move |x| (x, y)))
+            .filter(|&(x, y)| grid.get(x, y) == Entity::Goal)
+            .collect();
+        assert_eq!(goals, vec![(size - 2, size - 2)], "goal placement");
+
+        // Agent start is fixed, and stands on a safe cell.
+        assert_eq!((env.state().agent.x, env.state().agent.y), (1, 1));
+        assert_eq!(env.state().agent.direction, Direction::East);
+        assert!(is_safe(grid.get(1, 1)), "agent start must be safe");
+
+        // Exactly NUM_CROSSINGS rivers, one opening each, index-aligned.
+        let (cols, rows) = (env.strip_cols(), env.strip_rows());
+        let (gap_rows, gap_cols) = (env.gap_rows(), env.gap_col());
+        assert_eq!(cols.len() + rows.len(), NUM_CROSSINGS, "river count");
+        assert_eq!(gap_rows.len(), cols.len(), "one opening per vertical river");
+        assert_eq!(
+            gap_cols.len(),
+            rows.len(),
+            "one opening per horizontal river"
+        );
+        assert!(
+            cols.windows(2).all(|w| w[0] < w[1]),
+            "cols ascending/distinct"
+        );
+        assert!(
+            rows.windows(2).all(|w| w[0] < w[1]),
+            "rows ascending/distinct"
+        );
+
+        // Every river is a full contiguous line of the configured obstacle,
+        // interrupted only at its own opening.
+        for (&col, &gap) in cols.iter().zip(gap_rows.iter()) {
+            assert!((2..size - 2).contains(&col), "river column {col} interior");
+            assert!((1..size - 1).contains(&gap), "opening row {gap} interior");
+            for y in 1..size - 1 {
+                let expected = if y == gap { Entity::Empty } else { blocker };
+                assert_eq!(grid.get(col, y), expected, "vertical river ({col},{y})");
+            }
+        }
+        for (&row, &gap) in rows.iter().zip(gap_cols.iter()) {
+            assert!((2..size - 2).contains(&row), "river row {row} interior");
+            assert!(
+                (1..size - 1).contains(&gap),
+                "opening column {gap} interior"
+            );
+            for x in 1..size - 1 {
+                let expected = if x == gap { Entity::Empty } else { blocker };
+                assert_eq!(grid.get(x, row), expected, "horizontal river ({x},{row})");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Config surface.
+    // -----------------------------------------------------------------------
 
     #[test]
     fn default_config_validates() {
@@ -516,22 +939,6 @@ mod tests {
         );
     }
 
-    /// Optimal rollout that works for both lava and wall variants.
-    fn optimal_script() -> [GridAction; 10] {
-        [
-            GridAction::Forward,   // (2,1)
-            GridAction::Forward,   // (3,1)
-            GridAction::TurnRight, // face south
-            GridAction::Forward,   // (3,2) gap
-            GridAction::Forward,   // (3,3)
-            GridAction::Forward,   // (3,4) gap
-            GridAction::Forward,   // (3,5)
-            GridAction::TurnLeft,  // face east
-            GridAction::Forward,   // (4,5)
-            GridAction::Forward,   // (5,5) goal
-        ]
-    }
-
     #[test]
     fn default_config_is_lava() {
         let cfg = CrossingConfig::default();
@@ -551,76 +958,148 @@ mod tests {
     }
 
     #[test]
-    fn build_places_lava_strips_with_gap() {
-        let env = default_env(CrossingKind::Lava);
-        // Strip rows for size 7 with mid = 3 → rows 2 and 4.
-        for x in 1..=5 {
-            if x == 3 {
-                assert_eq!(env.state().grid.get(x, 2), Entity::Empty);
-                assert_eq!(env.state().grid.get(x, 4), Entity::Empty);
-            } else {
-                assert_eq!(env.state().grid.get(x, 2), Entity::Lava);
-                assert_eq!(env.state().grid.get(x, 4), Entity::Lava);
+    fn even_size_is_admitted_and_documented() {
+        // Upstream Minigrid asserts `width % 2 == 1`; rlevo's `Validate` only
+        // enforces the `MIN_SIZE` floor. Pinning that here so the divergence is
+        // a tested fact rather than an accident of omission — the loops below
+        // build and solve even boards, which is why the floor stays as-is.
+        let cfg = CrossingConfig::new(8, 256, 0, CrossingKind::Lava);
+        assert!(cfg.validate().is_ok(), "even sizes are accepted by policy");
+    }
+
+    // -----------------------------------------------------------------------
+    // THE load-bearing test: every sampled board is solvable without lava.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn crossing_is_solvable_across_resets() {
+        for size in SIZES {
+            for kind in KINDS {
+                let mut env = env_at(size, kind, 0);
+                for episode in 0..EPISODES {
+                    env.reset().expect("reset");
+                    assert!(
+                        safe_path(env.state()).is_some(),
+                        "no lava-free path to the goal at size {size}, {kind:?}, \
+                         episode {episode}; rivers cols={:?} rows={:?}, \
+                         openings rows={:?} cols={:?}\n{}",
+                        env.strip_cols(),
+                        env.strip_rows(),
+                        env.gap_rows(),
+                        env.gap_col(),
+                        env.ascii(),
+                    );
+                }
             }
         }
-        assert_eq!(env.state().grid.get(5, 5), Entity::Goal);
     }
 
     #[test]
-    fn wall_variant_uses_walls_instead_of_lava() {
-        let env = default_env(CrossingKind::Wall);
-        assert_eq!(env.state().grid.get(1, 2), Entity::Wall);
-        assert_eq!(env.state().grid.get(1, 4), Entity::Wall);
-    }
-
-    #[test]
-    fn optimal_rollout_solves_lava_variant() {
-        let mut env = default_env(CrossingKind::Lava);
-        env.reset().unwrap();
-        let mut last = None;
-        for a in optimal_script() {
-            last = Some(env.step(a).unwrap());
+    fn sampled_boards_are_structurally_sound() {
+        for size in SIZES {
+            for kind in KINDS {
+                let mut env = env_at(size, kind, 7);
+                for _ in 0..EPISODES {
+                    env.reset().expect("reset");
+                    assert_board_is_sound(&env);
+                }
+            }
         }
-        let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
-        assert!(reward > 0.9, "reward was {reward}");
     }
 
+    // -----------------------------------------------------------------------
+    // Non-degeneracy, per sampled quantity, separately. A whole-observation
+    // diff would pass on a board whose rivers move but whose openings never do
+    // (and vice versa), which is the trap ADR 0062 names.
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn optimal_rollout_solves_wall_variant() {
-        let mut env = default_env(CrossingKind::Wall);
-        env.reset().unwrap();
-        let mut last = None;
-        for a in optimal_script() {
-            last = Some(env.step(a).unwrap());
+    fn river_positions_vary_across_episodes() {
+        for size in SIZES {
+            let mut env = env_at(size, CrossingKind::Lava, 11);
+            let mut seen = HashSet::new();
+            for _ in 0..EPISODES {
+                env.reset().expect("reset");
+                seen.insert((env.strip_cols(), env.strip_rows()));
+            }
+            assert!(
+                seen.len() > 1,
+                "river positions never moved at size {size}: {seen:?}"
+            );
         }
-        let snap = last.unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
-        assert!(reward > 0.9);
     }
 
     #[test]
-    fn stepping_onto_lava_strip_ends_episode() {
+    fn opening_positions_vary_for_a_fixed_river_set() {
+        // Keyed by the river set so this cannot be satisfied by river movement
+        // alone: it demands two episodes with the *same* rivers and different
+        // openings.
+        for size in SIZES {
+            let mut env = env_at(size, CrossingKind::Lava, 23);
+            let mut by_rivers: HashMap<Rivers, HashSet<Openings>> = HashMap::new();
+            for _ in 0..EPISODES {
+                env.reset().expect("reset");
+                by_rivers
+                    .entry((env.strip_cols(), env.strip_rows()))
+                    .or_default()
+                    .insert((env.gap_rows(), env.gap_col()));
+            }
+            assert!(
+                by_rivers.values().any(|openings| openings.len() > 1),
+                "openings are pinned given the rivers at size {size}: {by_rivers:?}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // The persistent-stream seam (ADR 0029).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn consecutive_resets_differ() {
+        // The stream must advance across resets. A re-seeding `reset()` would
+        // hand back an identical board every time and still pass a "we call the
+        // rng" test — this is the assertion that catches it.
         let mut env = default_env(CrossingKind::Lava);
-        env.reset().unwrap();
-        // (1,1) E → TurnRight → S → Forward → (1,2) = Lava
-        env.step(GridAction::TurnRight).unwrap();
-        let snap = env.step(GridAction::Forward).unwrap();
-        assert!(snap.is_done());
-        let reward: f32 = (*snap.reward()).into();
-        assert_eq!(reward, 0.0);
+        let mut seen = HashSet::new();
+        for _ in 0..EPISODES {
+            env.reset().expect("reset");
+            seen.insert((
+                env.strip_cols(),
+                env.strip_rows(),
+                env.gap_rows(),
+                env.gap_col(),
+            ));
+        }
+        assert!(seen.len() > 1, "reset() replayed one fixed layout");
     }
 
     #[test]
-    fn walking_into_wall_strip_only_bumps() {
-        let mut env = default_env(CrossingKind::Wall);
-        env.reset().unwrap();
-        env.step(GridAction::TurnRight).unwrap();
-        let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done(), "walls should not terminate the episode");
-        assert_eq!(env.state().agent.y, 1, "agent should not have moved");
+    fn reset_with_seed_is_reproducible() {
+        let mut a = default_env(CrossingKind::Lava);
+        let mut b = default_env(CrossingKind::Lava);
+        // Advance the two streams differently first, so the agreement below can
+        // only come from the re-seed and not from a shared position in the
+        // stream.
+        a.reset().expect("reset");
+        for _ in 0..5 {
+            b.reset().expect("reset");
+        }
+        let sa = a.reset_with_seed(99).expect("reset_with_seed");
+        let sb = b.reset_with_seed(99).expect("reset_with_seed");
+        assert_eq!(sa.observation(), sb.observation());
+        assert_eq!(a.ascii(), b.ascii(), "same seed, bit-identical board");
+    }
+
+    #[test]
+    fn reset_with_different_seeds_differs() {
+        let mut env = default_env(CrossingKind::Lava);
+        let mut seen = HashSet::new();
+        for seed in 0..64u64 {
+            env.reset_with_seed(seed).expect("reset_with_seed");
+            seen.insert(env.ascii());
+        }
+        assert!(seen.len() > 1, "every replay seed produced the same board");
     }
 
     #[test]
@@ -633,10 +1112,180 @@ mod tests {
         assert_eq!(sa.observation(), sb.observation());
     }
 
+    // -----------------------------------------------------------------------
+    // Accessors and dynamics.
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn gap_col_and_strip_rows_match_config() {
-        let env = default_env(CrossingKind::Lava);
-        assert_eq!(env.gap_col(), 3);
-        assert_eq!(env.strip_rows(), vec![2, 4]);
+    fn gap_and_strip_accessors_read_sampled_state() {
+        // The accessors used to be closed forms of `config.size`. They must now
+        // report the board that was actually generated, so the check is
+        // agreement with the grid, at every size, over many episodes.
+        for size in SIZES {
+            let mut env = env_at(size, CrossingKind::Wall, 3);
+            for _ in 0..EPISODES {
+                env.reset().expect("reset");
+                let grid = &env.state().grid;
+                for (col, gap) in env.strip_cols().into_iter().zip(env.gap_rows()) {
+                    assert_eq!(grid.get(col, gap), Entity::Empty, "reported opening");
+                }
+                for (row, gap) in env.strip_rows().into_iter().zip(env.gap_col()) {
+                    assert_eq!(grid.get(gap, row), Entity::Empty, "reported opening");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn planned_rollout_solves_both_variants() {
+        for kind in KINDS {
+            for size in SIZES {
+                let mut env = env_at(size, kind, 5);
+                for _ in 0..16 {
+                    env.reset().expect("reset");
+                    let path = safe_path(env.state()).expect("board must be solvable");
+                    let mut last = None;
+                    for action in actions_along(&path, env.state().agent.direction) {
+                        last = Some(env.step(action).expect("step"));
+                    }
+                    let snap = last.expect("plan must contain at least one action");
+                    assert!(snap.is_done(), "plan did not terminate the episode");
+                    let reward: f32 = (*snap.reward()).into();
+                    assert!(reward > 0.0, "reward was {reward} at size {size}, {kind:?}");
+                }
+            }
+        }
+    }
+
+    /// Reset until the cell south of the agent carries the obstacle, or give up.
+    ///
+    /// The rivers move every episode, so a fixed script can no longer assume a
+    /// blocker is adjacent to the start; the board must be searched for.
+    fn reset_until_blocker_south(env: &mut CrossingEnv, tries: usize) -> bool {
+        let blocker = env.config().kind.entity();
+        for _ in 0..tries {
+            env.reset().expect("reset");
+            if env.state().grid.get(1, 2) == blocker {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn stepping_onto_lava_ends_episode() {
+        let mut env = default_env(CrossingKind::Lava);
+        assert!(
+            reset_until_blocker_south(&mut env, 512),
+            "no episode in 512 put lava directly south of the start"
+        );
+        // (1,1) E → TurnRight → S → Forward → (1,2) = Lava
+        env.step(GridAction::TurnRight).unwrap();
+        let snap = env.step(GridAction::Forward).unwrap();
+        assert!(snap.is_done());
+        let reward: f32 = (*snap.reward()).into();
+        assert_eq!(reward, 0.0);
+    }
+
+    #[test]
+    fn walking_into_wall_only_bumps() {
+        let mut env = default_env(CrossingKind::Wall);
+        assert!(
+            reset_until_blocker_south(&mut env, 512),
+            "no episode in 512 put a wall directly south of the start"
+        );
+        env.step(GridAction::TurnRight).unwrap();
+        let snap = env.step(GridAction::Forward).unwrap();
+        assert!(!snap.is_done(), "walls should not terminate the episode");
+        assert_eq!(env.state().agent.y, 1, "agent should not have moved");
+    }
+
+    #[test]
+    fn wall_variant_uses_walls_and_lava_variant_uses_lava() {
+        for (kind, expected) in [
+            (CrossingKind::Wall, Entity::Wall),
+            (CrossingKind::Lava, Entity::Lava),
+        ] {
+            let mut env = default_env(kind);
+            env.reset().expect("reset");
+            let grid = &env.state().grid;
+            #[allow(clippy::cast_possible_wrap)]
+            let size = env.config().size as i32;
+            let mut river_cells: Vec<Entity> = Vec::new();
+            for col in env.strip_cols() {
+                river_cells.extend((1..size - 1).map(|y| grid.get(col, y)));
+            }
+            for row in env.strip_rows() {
+                river_cells.extend((1..size - 1).map(|x| grid.get(x, row)));
+            }
+            assert!(!river_cells.is_empty(), "some river must exist");
+            assert!(
+                river_cells
+                    .iter()
+                    .all(|&e| e == expected || e == Entity::Empty),
+                "{kind:?} rivers must be built from {expected:?}, saw {river_cells:?}"
+            );
+            assert!(
+                river_cells.contains(&expected),
+                "{kind:?} rivers must contain at least one {expected:?} cell"
+            );
+        }
+    }
+
+    /// Hand trace of the walk, kept as executable documentation.
+    ///
+    /// `size = 7`, rivers `{ vertical column 2, horizontal row 4 }`,
+    /// leg order `[South, East]`:
+    ///
+    /// - `limits_v = [0, 2, 6]`, `limits_h = [0, 4, 6]`, `room = (0, 0)`.
+    /// - **South**: `x ∈ (limits_v[0], limits_v[1]) = (0, 2)` → `x = 1`;
+    ///   `y = limits_h[1] = 4`. Punch `(1, 4)`; `room = (0, 1)`.
+    /// - **East**: `x = limits_v[1] = 2`;
+    ///   `y ∈ (limits_h[1], limits_h[2]) = (4, 6)` → `y = 5`.
+    ///   Punch `(2, 5)`; `room = (1, 1)`.
+    ///
+    /// ```text
+    ///     0 1 2 3 4 5 6
+    ///  0  # # # # # # #
+    ///  1  # A L . . . #
+    ///  2  # . L . . . #
+    ///  3  # . L . . . #
+    ///  4  # . L L L L #
+    ///  5  # . . . . G #
+    ///  6  # # # # # # #
+    /// ```
+    ///
+    /// Corridor: `(1,1) → (1,4) → (1,5) → (5,5)`. The other leg order
+    /// `[East, South]` instead punches `(2, y)` with `y ∈ {1,2,3}` and
+    /// `(x, 4)` with `x ∈ {3,4,5}` — also connected, and connected for the
+    /// *same* reason: each opening is punched on the boundary of the room the
+    /// walk is standing in.
+    ///
+    /// The test replays that trace against the real builder by driving it with
+    /// the layout the env reports, rather than by pinning a seed to a board.
+    #[test]
+    fn hand_traced_board_is_reproduced_when_that_layout_is_sampled() {
+        let mut env = default_env(CrossingKind::Lava);
+        let mut checked = false;
+        for _ in 0..EPISODES {
+            env.reset().expect("reset");
+            if env.strip_cols() != vec![2] || env.strip_rows() != vec![4] {
+                continue;
+            }
+            checked = true;
+            let (gap_row, gap_col) = (env.gap_rows()[0], env.gap_col()[0]);
+            // The two reachable leg orders, exactly as traced above.
+            let south_first = gap_col == 1 && gap_row == 5;
+            let east_first = (1..4).contains(&gap_row) && (3..6).contains(&gap_col);
+            assert!(
+                south_first || east_first,
+                "openings ({gap_col} on row 4, {gap_row} on column 2) match neither leg order"
+            );
+            assert!(safe_path(env.state()).is_some());
+        }
+        assert!(
+            checked,
+            "the traced river set never came up in {EPISODES} episodes"
+        );
     }
 }

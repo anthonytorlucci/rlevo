@@ -106,6 +106,10 @@ dragging in the RL stack.
 | K-Armed Bandit | Stationary, non-stationary, adversarial, and contextual variants |
 | Landscapes | Sphere, Rastrigin, Rosenbrock, Ackley, Griewank, Schwefel, Michalewicz, Concatenated Trap, and ~15 more (see Appendix D) |
 
+The grid family is worth one caveat before you pick from it: its members do not
+all randomise their layout — for two of them that is deliberate, for two it is a
+tracked gap. See [below](#known-gaps-and-limitations).
+
 ## Known gaps and limitations
 
 **DQN on LunarLander.** A DQN agent trained on LunarLander for 150,000 steps
@@ -138,6 +142,25 @@ estimator right at any episode boundary — a separate issue Doering et al.
 signal, such as Lunar Lander. This is a **live research question, not a defect
 in `rlevo`'s PEB fix**; see [Rewards](../part-1-foundations/reinforcement-learning/33-reward.md#gae-and-truncation-two-masks-not-one)
 for where it is discussed alongside the fix it does not replace.
+
+**Grid layout randomisation is uneven across the family.** Five of the
+Minigrid-style grids — `Crossing`, `DoorKey`, `LavaGap`, `FourRooms`,
+`UnlockPickup` — sample a fresh layout on every `reset()`, reproducing the draws
+their upstream `_gen_grid` makes, so a run sees a *sequence* of boards and a
+policy has to generalise rather than memorise one. `Empty` and `DistShift` make
+no draws at all and are deterministic **by design**, matching their upstream
+registrations: `DistShift`'s two fixed, known boards *are* the
+distributional-shift experiment, so randomising either would destroy the quantity
+it measures. `MultiRoom` and `Unlock` are the genuine gap — both still build one
+fixed board where upstream resamples. `MultiRoom` because upstream's recursive
+room placement with backtracking is procedural generation rather than a handful of
+draws ([issue #1021](https://github.com/anthonytorlucci/rlevo/issues/1021)), and
+`Unlock` because correcting it means moving to the two-room topology its locked
+door belongs on ([issue #1020](https://github.com/anthonytorlucci/rlevo/issues/1020)).
+None of this weakens reproducibility: a fixed construction seed still reproduces
+a whole run bit-for-bit, and the inherent `reset_with_seed(seed)` replays one
+nominated episode when you need a specific board back. See
+[ADR 0062](https://github.com/anthonytorlucci/rlevo/blob/main/docs/adr/0062-grid-layout-fidelity-and-no-dead-rng.md).
 
 **Reproducibility with GPU backends.** The `wgpu` backend uses GPU kernels whose
 non-determinism can break exact reproducibility even with a fixed seed.

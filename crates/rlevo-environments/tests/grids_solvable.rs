@@ -1,29 +1,81 @@
 //! Integration canary for the `grids` module.
 //!
-//! One test per environment: construct with a default-ish config, run a
-//! scripted optimal rollout through the public API, and assert that the
-//! episode terminates with positive reward. If any refactor breaks a
-//! single env, one `cargo test --test grids_solvable` invocation tells
-//! you exactly which one.
+//! One test per environment: construct with a default-ish config, drive an
+//! optimal rollout through the public API, and assert that the episode
+//! terminates with positive reward. If any refactor breaks a single env, one
+//! `cargo test --test grids_solvable` invocation tells you exactly which one.
 //!
 //! These tests intentionally duplicate the per-env unit tests' optimal
 //! rollouts — the goal here is to exercise only items that are
 //! re-exported from `rlevo_environments::grids` (public API only), not private
 //! helpers accessible from the source modules.
 //!
-//! ## Fixed scripts vs. seed-driven oracles
+//! ## Three flavours of oracle
 //!
-//! Most grid envs are deterministic given their config, so a hard-coded action
-//! sequence *is* the optimal script. Two are not: [`MemoryEnv`] samples its cue
-//! (and therefore which fork arm is correct) per episode, and [`GoToDoorEnv`]
-//! samples its four door colors and its target per episode (ADR 0043).
+//! **Fixed script.** Most grid envs are deterministic given their config, so a
+//! hard-coded action sequence *is* the optimal script. [`EmptyEnv`],
+//! [`DistShiftEnv`], [`DynamicObstaclesEnv`] (with zero obstacles), [`UnlockEnv`]
+//! (#1020) and [`MultiRoomEnv`] (#1021) still use one.
 //!
-//! For those two, a hard-coded script would be worse than broken — it would be
-//! *right by luck* on some seeds and silently wrong on others. Their tests
-//! instead **derive** the script from the environment after `reset`
-//! (`MemoryEnv::match_pos` / `GoToDoorEnv::doors` + `mission`) and assert
-//! solvability across a whole range of seeds. Do not replace them with a fixed
-//! action list.
+//! **Derived script.** Two envs sample part of the *task* per episode:
+//! [`MemoryEnv`] samples its cue (and therefore which fork arm is correct), and
+//! [`GoToDoorEnv`] samples its four door colors and its target (ADR 0043). For
+//! those, a hard-coded script would be worse than broken — it would be *right by
+//! luck* on some seeds and silently wrong on others. Their tests **derive** the
+//! script from the environment after `reset` (`MemoryEnv::match_pos` /
+//! `GoToDoorEnv::doors` + `mission`) and assert solvability across a whole range
+//! of seeds. Do not replace them with a fixed action list.
+//!
+//! **Planned.** [`DoorKeyEnv`], [`LavaGapEnv`], [`UnlockPickupEnv`],
+//! [`CrossingEnv`] (both kinds) and [`FourRoomsEnv`] sample their whole layout
+//! per episode (ADR 0062, #282). They read their board back from `env.state()`
+//! and hand it to [`common::plan`], a BFS over the grid state, which *computes*
+//! the action sequence. That sequence is then executed through
+//! [`Environment::step`] exactly as a script would be, so nothing about the
+//! end-to-end property changes. Each runs the search over
+//! `0..PLANNED_SEEDS` episodes at each of two board sizes.
+//!
+//! ### Why planning is a coverage *gain*, not a loss
+//!
+//! Read this diff as strictly more assertion, not less. A script proves that
+//! **one** board is solvable. The planner proves that **every board the env
+//! generates** is solvable — it is handed the board and must find a route, with
+//! no privileged knowledge of the layout. That is the property these tests were
+//! always trying to state, and it is the only form of it that survives the
+//! per-episode layout randomization the five planned envs now have (#282). The
+//! planner migration deliberately landed *while the layouts were still
+//! deterministic*, so the oracle was validated against a known-good board before
+//! the board started moving; a failure now therefore isolates to the generator,
+//! not to the oracle.
+//!
+//! Two assertions the scripted oracles never carried come with it:
+//!
+//! 1. **Every planned oracle runs at its env's `MIN_SIZE` and at a larger size.**
+//!    `MIN_SIZE` is where derived positions collide and sampling ranges
+//!    degenerate. This class of bug has already shipped here once —
+//!    `tests/config_validation_chokepoint.rs` records
+//!    `UnlockPickupConfig { size: 3 }` building a board with no `Door` cell at
+//!    all, the key having overwritten it.
+//! 2. **No planned oracle contains a coordinate or an action literal.** The board
+//!    is read from the env, never asserted against a constant, so the work that
+//!    moves those coordinates cannot make this file quietly false.
+//! 3. **Every planned oracle asserts its seed loop saw more than one board**
+//!    ([`assert_boards_varied`]). A generator regression that pinned the layout
+//!    would otherwise leave these tests green while proving no more than a
+//!    single `reset()` did.
+//!
+//! ## Terminating on the *first* terminal snapshot
+//!
+//! [`run_script`] stops at the first `is_done()` and asserts on that snapshot,
+//! and treats trailing actions past termination as a failure. This is
+//! load-bearing rather than tidiness: no env in this family rejects a
+//! post-terminal `step` (ADR 0044), so a helper that ran the whole list and read
+//! only the *last* snapshot would accept an episode the agent died in. See the
+//! note on [`run_script`] for the measured case.
+
+mod common;
+
+use std::collections::HashSet;
 
 use rlevo_core::environment::{Environment, Snapshot};
 use rlevo_core::reward::ScalarReward;
@@ -36,8 +88,59 @@ use rlevo_environments::grids::{
     UnlockPickupConfig, UnlockPickupEnv,
 };
 
-/// Number of distinct episodes the seed-driven oracle tests must clear.
+/// Number of distinct episodes the *scripted* seed-driven oracles must clear.
+///
+/// These two ([`go_to_door_is_solvable_for_every_seed`],
+/// [`memory_is_solvable_for_every_seed`]) execute a derived action list and do
+/// no search, so seeds are nearly free here.
 const ORACLE_SEEDS: u64 = 32;
+
+/// Number of distinct episodes each *planned* oracle must clear, per board size.
+///
+/// Lower than [`ORACLE_SEEDS`] on purpose. Every seed here pays for a full BFS
+/// over the board — and the BFS key is the entire cell array plus the agent
+/// pose, because `Drop` can put a carried object on any empty cell (see
+/// `common`), so the state space grows fast with `size`. Each planned oracle
+/// also sweeps two sizes, so this buys `2 * PLANNED_SEEDS` searches per test
+/// across six tests, which the harness runs on parallel threads.
+///
+/// Measured on the authoring workstation (Apple silicon, `cargo test` debug
+/// profile, whole-binary wall clock): 0.26 s at one board per size, 3.1 s at 16,
+/// 6.5 s at 32 — linear, and paced by `door_key` and `unlock_pickup` (2.9 s
+/// each at 16), whose search must discover a key/`Drop` ordering rather than
+/// just a path. 16 buys 192 planned episodes per run (16 seeds × 2 sizes ×
+/// 6 tests) — enough to catch a generator that only misbehaves on some seeds,
+/// for a binary that still finishes in a few seconds. Raise it if a
+/// seed-specific generator bug ever slips through; the cost is predictable.
+const PLANNED_SEEDS: u64 = 16;
+
+/// Every planned oracle runs at its env's `MIN_SIZE` floor and at one larger
+/// board, per the degeneracy argument in the module docs.
+///
+/// The floors are duplicated here as literals because each env's `MIN_SIZE` is a
+/// private const. They are pinned from the outside by
+/// `tests/config_validation_chokepoint.rs`, which asserts the exact
+/// `ConstraintKind::TooSmall { min, .. }` each `with_config` rejects — so a floor
+/// that moves without this table moving fails there, loudly, first.
+mod sizes {
+    /// `DoorKeyEnv`: floor 5 (the split wall needs a sub-room on each side).
+    pub const DOOR_KEY: [usize; 2] = [5, 9];
+    /// `LavaGapEnv`: floor 5 (one interior cell each side of the lava column).
+    pub const LAVA_GAP: [usize; 2] = [5, 9];
+    /// `UnlockPickupEnv`: floor 7 (three interior columns per side).
+    pub const UNLOCK_PICKUP: [usize; 2] = [7, 9];
+    /// `CrossingEnv`: floor 7 (an interior row per strip, plus start and goal).
+    pub const CROSSING: [usize; 2] = [7, 9];
+    /// `FourRoomsEnv`: floor 11, and the size must stay **odd**.
+    pub const FOUR_ROOMS: [usize; 2] = [11, 13];
+}
+
+/// The `max_steps` budget every planned oracle uses: the same `4 * size * size`
+/// each env's own `Default` picks, so the oracle is not quietly given a budget
+/// the shipped default would not have.
+const fn budget(size: usize) -> usize {
+    4 * size * size
+}
 
 /// Run `script` through `env` from a fresh `reset`, then assert the
 /// episode terminated and paid a positive reward.
@@ -45,34 +148,121 @@ macro_rules! assert_solvable {
     ($env:expr, $script:expr) => {{
         let env = &mut $env;
         env.reset().expect("reset");
-        let mut last = None;
-        for action in $script {
-            last = Some(env.step(action).expect("step"));
-        }
-        let snap = last.expect("script must contain at least one action");
-        assert!(snap.is_done(), "script did not terminate the episode");
-        let reward = f32::from(*snap.reward());
+        let reward = run_script(env, &$script);
         assert!(reward > 0.0, "reward was {reward}, expected > 0.0");
         reward
     }};
 }
 
-/// Run `script` on an **already-reset** grid env and return the terminal reward.
+/// Run `script` on an **already-reset** grid env and return the reward paid by
+/// the snapshot that **first** reported `is_done()`.
 ///
 /// The seed-driven oracle tests must read the environment *after* `reset` to
 /// derive their script, so they cannot use [`assert_solvable`], which resets for
-/// you. Panics if the script does not terminate the episode.
+/// you.
+///
+/// # Stopping at the first terminal snapshot
+///
+/// This function stops at the first `is_done()` and reports *that* snapshot's
+/// reward. The earlier version ran the whole list and read only the last
+/// snapshot, which was vacuous: no grid env in this family rejects a
+/// post-terminal `step` (ADR 0044 records ~44 non-conformant envs), so an
+/// episode could end *badly* mid-script, keep stepping on a corpse, and then
+/// report a healthy final snapshot. That was observed, not hypothesised — a
+/// `DistShift` script that walked into lava at action 5 (`done`, reward `0.0`)
+/// and strolled to the goal afterwards passed the old helper with reward
+/// `0.874`.
+///
+/// # Panics
+///
+/// - if `script` is empty;
+/// - if some action terminates the episode with actions still left to run —
+///   trailing actions past termination are themselves a bug in the script or the
+///   planner, so they are surfaced rather than tolerated;
+/// - if the script runs to exhaustion without terminating the episode.
 fn run_script<E>(env: &mut E, script: &[GridAction]) -> f32
 where
     E: Environment<3, 3, 1, ActionType = GridAction, RewardType = ScalarReward>,
 {
-    let mut last = None;
-    for &action in script {
-        last = Some(env.step(action).expect("step"));
+    assert!(
+        !script.is_empty(),
+        "script must contain at least one action"
+    );
+    for (i, &action) in script.iter().enumerate() {
+        let snap = env.step(action).expect("step");
+        if !snap.is_done() {
+            continue;
+        }
+        let reward = f32::from(*snap.reward());
+        let trailing = script.len() - i - 1;
+        assert_eq!(
+            trailing,
+            0,
+            "action {i} ({action:?}) ended the episode with reward {reward}, \
+             but {trailing} of the script's {} actions come after it; \
+             a grid env does not reject a post-terminal `step`, so running them \
+             would let a later snapshot mask this outcome",
+            script.len()
+        );
+        return reward;
     }
-    let snap = last.expect("script must contain at least one action");
-    assert!(snap.is_done(), "script did not terminate the episode");
-    f32::from(*snap.reward())
+    panic!(
+        "the {}-action script ran to exhaustion without terminating the episode",
+        script.len()
+    );
+}
+
+/// Plan a route across the board `$env` is **currently** holding, execute it
+/// through the public `step` API, and assert the episode terminated for reward.
+///
+/// The env must already be reset by `reset_with_seed($seed)`; `$seed` is carried
+/// only so the failure messages name the episode that broke, which is the one
+/// thing a reader needs to reproduce it. Everything else the messages report —
+/// the label, the board — is read back from the environment, so this macro
+/// carries no knowledge of any layout.
+macro_rules! assert_planner_solves {
+    ($env:expr, $solved:expr, $seed:expr $(,)?) => {{
+        let env = &mut $env;
+        let seed = $seed;
+        // `Display` on every grid env prints size / kind / step budget.
+        let label = env.to_string();
+        let plan = common::plan(env.state(), $solved).unwrap_or_else(|| {
+            panic!(
+                "{label} seed {seed}: the planner found no route across this board:\n{}",
+                env.ascii()
+            )
+        });
+        assert!(
+            !plan.is_empty(),
+            "{label} seed {seed}: a freshly reset board must not already be solved"
+        );
+        let reward = run_script(env, &plan);
+        assert!(
+            reward > 0.0,
+            "{label} seed {seed}: the planned {}-action route paid {reward}, expected > 0.0",
+            plan.len()
+        );
+        reward
+    }};
+}
+
+/// Assert a planned oracle's seed loop actually saw more than one board.
+///
+/// Without this, a regression that pinned a layout back to a single
+/// deterministic board would leave every seed loop below green while proving
+/// exactly what one `reset()` proved. This is the same degenerate-pass guard
+/// [`go_to_door_is_solvable_for_every_seed`] and
+/// [`memory_is_solvable_for_every_seed`] carry, stated over whole boards.
+///
+/// Boards are compared by their ASCII render, read off the env — so this stays
+/// within the file's no-coordinate-literals rule.
+fn assert_boards_varied(label: &str, boards: &HashSet<String>) {
+    assert!(
+        boards.len() > 1,
+        "{label}: {PLANNED_SEEDS} seeds produced {} distinct board(s); \
+         the layout must be sampled per episode (ADR 0062)",
+        boards.len()
+    );
 }
 
 #[test]
@@ -89,37 +279,39 @@ fn empty_is_solvable() {
     assert!(reward > 0.9);
 }
 
+/// Planned oracle: whatever split column, door row, and key/goal placement the
+/// board carries, the key→unlock→goal ordering is achievable.
 #[test]
 fn door_key_is_solvable() {
-    let mut env =
-        DoorKeyEnv::with_config(DoorKeyConfig::new(5, 100, 0), false).expect("valid config");
-    let script = [
-        GridAction::Pickup,
-        GridAction::TurnRight,
-        GridAction::Toggle,
-        GridAction::Toggle,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::DOOR_KEY {
+        let mut env = DoorKeyEnv::with_config(DoorKeyConfig::new(size, budget(size), 0), false)
+            .expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
+/// Planned oracle: the goal is reachable **without crossing lava** — the planner
+/// refuses to expand a `HitLava` successor, so a plan existing at all is the
+/// statement that the gap is passable.
 #[test]
 fn lava_gap_is_solvable() {
-    let mut env =
-        LavaGapEnv::with_config(LavaGapConfig::new(5, 100, 0), false).expect("valid config");
-    let script = [
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::LAVA_GAP {
+        let mut env = LavaGapEnv::with_config(LavaGapConfig::new(size, budget(size), 0), false)
+            .expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
 #[test]
@@ -135,67 +327,66 @@ fn unlock_is_solvable() {
     assert_solvable!(env, script);
 }
 
+/// Planned oracle: the target box is retrievable. The success predicate is
+/// `carrying(env.target())` rather than "stand on a cell", and the target is read
+/// off the env — this is the one env in the file whose win condition is an
+/// inventory state, and it is the one whose sub-`MIN_SIZE` boards were measured
+/// to lose their `Door` cell entirely (see the module docs).
+///
+/// Note the plan must include a `Drop`: `pickup` is a no-op with a full hand, so
+/// the key has to leave the agent's hand before the box can enter it. The
+/// planner discovers that ordering; nothing here encodes it.
 #[test]
 fn unlock_pickup_is_solvable() {
-    let mut env = UnlockPickupEnv::with_config(UnlockPickupConfig::new(7, 196, 0), false)
-        .expect("valid config");
-    let script = [
-        GridAction::Pickup,
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Toggle,
-        GridAction::Toggle,
-        GridAction::TurnRight,
-        GridAction::Drop,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Pickup,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::UNLOCK_PICKUP {
+        let mut env =
+            UnlockPickupEnv::with_config(UnlockPickupConfig::new(size, budget(size), 0), false)
+                .expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            // The target is re-read every episode: it is sampled with the board.
+            let target = env.target();
+            assert_planner_solves!(env, common::carrying(target), seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
+/// Planned oracle, lava strips: the gap column lines up into a passable corridor.
+/// The planner will not route through lava, so a plan is proof of the corridor.
 #[test]
 fn crossing_lava_is_solvable() {
-    let mut env =
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Lava), false)
-            .expect("valid config");
-    let script = [
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-        GridAction::Forward,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::CROSSING {
+        let cfg = CrossingConfig::new(size, budget(size), 0, CrossingKind::Lava);
+        let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
+/// Planned oracle, wall strips: same geometry, but a mis-step only bumps instead
+/// of ending the episode — so this case would still pass with a corridor the lava
+/// variant could not survive. Both are asserted for that reason.
 #[test]
 fn crossing_wall_is_solvable() {
-    let mut env =
-        CrossingEnv::with_config(CrossingConfig::new(7, 196, 0, CrossingKind::Wall), false)
-            .expect("valid config");
-    let script = [
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-        GridAction::Forward,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::CROSSING {
+        let cfg = CrossingConfig::new(size, budget(size), 0, CrossingKind::Wall);
+        let mut env = CrossingEnv::with_config(cfg, false).expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
 #[test]
@@ -295,33 +486,22 @@ fn go_to_door_is_solvable_for_every_seed() {
     );
 }
 
+/// Planned oracle: the four `mid ± 3` openings connect the start quadrant to the
+/// goal quadrant. Both sizes are odd, which `FourRoomsConfig::validate` requires
+/// (an even size has no single centre row/column for the interior cross).
 #[test]
 fn four_rooms_is_solvable() {
-    let mut env =
-        FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false).expect("valid config");
-    let script = [
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnRight,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::Forward,
-        GridAction::TurnLeft,
-        GridAction::Forward,
-    ];
-    assert_solvable!(env, script);
+    for size in sizes::FOUR_ROOMS {
+        let mut env = FourRoomsEnv::with_config(FourRoomsConfig::new(size, budget(size), 0), false)
+            .expect("valid config");
+        let mut boards = HashSet::new();
+        for seed in 0..PLANNED_SEEDS {
+            env.reset_with_seed(seed).expect("reset");
+            boards.insert(env.ascii());
+            assert_planner_solves!(env, common::on_goal, seed);
+        }
+        assert_boards_varied(&env.to_string(), &boards);
+    }
 }
 
 #[test]

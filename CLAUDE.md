@@ -37,119 +37,15 @@ it.
 
 ## Development Commands
 
-### Building
-```bash
-# Build the entire workspace
-cargo build
+Standard cargo invocations. Formatting is enforced in CI (`cargo fmt --all --check`,
+`.github/workflows/fmt.yml`) and the toolchain is pinned in `rust-toolchain.toml` so
+local and CI rustfmt agree — run `cargo fmt --all` before pushing.
 
-# Build a specific crate
-cargo build -p rlevo-core
-cargo build -p rlevo-reinforcement-learning
-cargo build -p rlevo-environments
-cargo build -p rlevo-evolution
-cargo build -p rlevo-hybrid
-cargo build -p rlevo-benchmarks
-cargo build -p rlevo-benchmarks-report-client
-
-# Build in release mode
-cargo build --release
-```
-
-### Testing
-```bash
-# Run all tests in the workspace
-cargo test --workspace
-
-# Run tests for a specific crate
-cargo test -p rlevo-core
-cargo test -p rlevo-environments
-
-# Run a test for a specific file
-cargo test -p rlevo-core -- action
-
-# Run a specific test by name
-cargo test test_environment_reset
-
-# Run tests with verbose output
-cargo test -- --nocapture
-```
-
-### Running Examples
-```bash
-# Run a specific example
-cargo run -p rlevo-core --example grid_agent
-```
-
-### Formatting
-```bash
-# Format the whole workspace (config: rustfmt.toml, stable-only)
-cargo fmt --all
-
-# Check formatting the way CI does — fails on any drift (fmt.yml gate)
-cargo fmt --all --check
-```
-Formatting is enforced in CI. The toolchain is pinned in `rust-toolchain.toml`
-so local and CI rustfmt agree; run `cargo fmt --all` before pushing.
-
-### Linting
-```bash
-# Check for clippy warnings (workspace has extensive lints configured)
-cargo clippy --all-targets --all-features
-
-# Auto-fix warnings where possible
-cargo clippy --fix
-```
-
-### Documentation
-```bash
-# Generate and open documentation
-cargo doc --open
-
-# Generate docs for all workspace members
-cargo doc --workspace --no-deps
-```
+Adding an environment or an RL algorithm: see the contributor book,
+[ch05](docs/contributor-book/src/ch05-adding-an-environment.md) and
+[ch07](docs/contributor-book/src/ch07-adding-an-rl-algorithm.md).
 
 ## Working with the Codebase
-
-### Adding a New Environment
-
-1. Implement required traits in `rlevo-core`:
-   - `State<D>` for full state representation
-   - `Observation<D>` for agent perception
-   - `Action<D>` for valid actions
-   - `Snapshot<D>` for step results (usually use `SnapshotBase`)
-
-2. Implement `Environment<R, SR, AR>` and `ConstructableEnv`:
-   ```rust
-   impl Environment<1, 1, 1> for MyEnv {
-       type StateType = MyState;
-       type ObservationType = MyObservation;
-       type ActionType = MyAction;
-       type RewardType = ScalarReward;
-       type SnapshotType = SnapshotBase<1, MyObservation, ScalarReward>;
-
-       fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> { ... }
-       fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> { ... }
-   }
-   ```
-   Construction lives on the standalone `ConstructableEnv` factory trait, not on
-   `Environment` (ADR 0011).
-
-3. Add to `rlevo-environments` in the appropriate module (`classic/`, `games/`,
-   `landscapes/`, `locomotion/`, `grids/`).
-
-4. Implement `TensorConvertible` for state/action types if using neural networks.
-
-5. Write tests following existing patterns.
-
-### Implementing a New RL Algorithm
-
-1. Create module under `rlevo-reinforcement-learning/src/algorithms/`
-2. Define configuration struct (e.g., `DqnConfig`)
-3. Implement agent struct (e.g., `DqnAgent`)
-4. Define neural network model (e.g., `DqnModel`)
-5. Integrate with `rlevo-core` traits for environment interaction
-6. Use Burn for tensor operations and gradient computation
 
 ### Const Generics and Type Inference
 
@@ -182,31 +78,8 @@ If you encounter dimension mismatch errors, verify:
 - `crates/rlevo-core/examples/grid_position.rs`: State/Action implementation patterns
 - `crates/rlevo-core/src/environment.rs`: MockEnvironment in test module demonstrates trait usage
 
-### Error Handling Patterns
-- `EnvironmentError`: For environment operations (InvalidAction, RenderFailed, IoError)
-- `StateError`: For state validation (InvalidShape, InvalidData, InvalidSize)
-- Use `Result<T, ErrorType>` for fallible operations
-- Implement `std::error::Error` and `Display` for custom error types
-
-## Dependencies and Workspace Configuration
-
-The workspace uses shared dependencies defined in root `Cargo.toml`:
-- **burn**: Version 0.21.0 with features `["wgpu", "train", "tui", "metrics", "flex"]`
-- **rand**: 0.9.2 for randomness
-- **serde**: 1.0 with `["derive", "rc"]` for serialization
-- **tracing**: 0.1 for logging
-
-Workspace lints are configured for:
-- Rust: `ambiguous_negative_literals`, `missing_debug_implementations`, `redundant_imports`, `unsafe_op_in_unsafe_fn`
-- Clippy: All categories at warn level (`cargo`, `complexity`, `correctness`, `pedantic`, `perf`, `style`, `suspicious`)
-
 ## Testing Philosophy
 
-- Write comprehensive unit tests in `#[cfg(test)]` modules within each source file
-- Test happy paths AND error conditions (see `EnvironmentError` tests)
-- Verify trait implementations with mock types (see `MockEnvironment` tests)
-- Use `approx` crate for floating-point comparisons
-- Test custom trait implementations thoroughly (see `CustomSnapshot` tests)
 - Property/invariant tests use `proptest` (see ADR 0036), a `rlevo-evolution`-only
   dev-dependency. proptest generates **host config only** (`λ`, `D`, structural
   sizes, a `seed: u64`); the test body drives all algorithm randomness through
@@ -220,16 +93,6 @@ Workspace lints are configured for:
 
 Test placement (ADR 0012): unit tests in-source → single-crate integration tests
 in `crate/tests/` → cross-crate integration tests in `crates/rlevo/tests/`.
-
-## Current Development Focus
-
-The project is in early alpha with emphasis on:
-1. **Trait design and API stability**: Core abstractions are being refined
-2. **Type-level safety**: Using const generics to enforce dimensional correctness
-3. **Integration patterns**: Establishing conventions for Burn tensor conversion
-4. **Documentation**: Inline docs are extensive — maintain this standard
-5. **User Guide**: the user/researcher guide (`docs/user-book`)
-6. **Contributor Guide**: the developer/contributor guide (`docs/contributor-book`)
 
 ## Commit Messages
 
