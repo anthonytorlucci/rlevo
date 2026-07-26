@@ -33,6 +33,41 @@ pub const VIEW_SIZE: usize = 7;
 /// [`Entity::state_u8`]: super::entity::Entity::state_u8
 pub const OBS_CHANNELS: usize = 3;
 
+/// Channel-0 byte written for a cell the agent cannot see.
+///
+/// Canonical Minigrid's `Grid.encode` writes `[OBJECT_TO_IDX["unseen"], 0, 0]`
+/// for a masked cell, and `OBJECT_TO_IDX["unseen"] == 0`.
+///
+/// # Zero means unknown — read this before consuming channel 0
+///
+/// Canonical numbers `unseen = 0` and `empty = 1` as *distinct* type indices,
+/// precisely so a masked cell cannot be confused with a confirmed-empty one, and
+/// [`Entity::type_u8`] now follows that table exactly (ADR 0063 Decision 4). No
+/// `Entity` returns `0`, so this byte is unambiguous: a channel-0 zero means
+/// *the agent could not see this cell*, never *the agent saw floor here*.
+///
+/// This is load-bearing rather than decorative. Eight of the twelve grid
+/// environments select [`Visibility::Occluded`](super::Visibility::Occluded), so
+/// masked cells are produced on every step of those environments; before the
+/// renumbering, a masked `Empty` floor encoded identically to a confirmed-empty
+/// one and the occlusion signal was erased wherever the hidden cells happened to
+/// be empty. At `MemoryEnv`'s fork junction facing West — the pose at which the
+/// agent must answer — *every* hidden cell is `Empty`, so the occluded
+/// observation was byte-identical to the unoccluded one. It no longer is; see
+/// `memory::tests::test_memory_env_masked_empty_cells_are_encoded_as_unseen`.
+///
+/// It also buys the [`TensorConvertible`] no-fabrication clause a stronger
+/// reading at the tensor level: an all-zero tensor decodes as "every cell
+/// unseen", which is what a zero-padded or attention-masked sequence actually
+/// means, rather than as "every cell is confirmed empty floor".
+///
+/// **Do not "fix" a future collision by picking a different value here.** `0` is
+/// the canonical unseen index; it is `type_u8` that must stay clear of it.
+///
+/// [`Entity::type_u8`]: super::entity::Entity::type_u8
+/// [`Entity::Empty`]: super::entity::Entity::Empty
+pub const UNSEEN_TYPE: u8 = 0;
+
 /// Egocentric observation of the 7×7 cells around the agent.
 ///
 /// The agent sits at view row `VIEW_SIZE - 1`, column `VIEW_SIZE / 2`, and
@@ -78,20 +113,54 @@ pub struct GridObservation {
 }
 
 impl GridObservation {
-    /// Encode a decoded 7×7 entity view and the agent's facing into an
-    /// observation.
+    /// Encode a visibility-masked 7×7 entity view and the agent's facing into
+    /// an observation.
+    ///
+    /// This is the single encoder behind every grid observation. A `Some` cell
+    /// is encoded from its [`Entity`]; a `None` cell — one the shadow cast in
+    /// `grid::process_vis` hid — becomes the byte triple
+    /// `[UNSEEN_TYPE, 0, 0]`, matching canonical Minigrid's
+    /// `Grid.encode(vis_mask)`.
+    ///
+    /// Callers holding an unmasked view use
+    /// [`from_entity_view`](Self::from_entity_view), which delegates here.
+    ///
+    /// # Arguments
+    ///
+    /// * `view` — the rotated view window, `None` where the agent's sight is
+    ///   blocked.
+    /// * `direction` — the agent's absolute facing, carried beside the tensor
+    ///   (see [`agent_direction`](Self::agent_direction)).
     #[must_use]
-    pub fn from_entity_view(view: [[Entity; VIEW_SIZE]; VIEW_SIZE], direction: Direction) -> Self {
+    pub fn from_masked_view(
+        view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
+        direction: Direction,
+    ) -> Self {
         let mut encoded = [[[0u8; OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE];
         for (r, row) in view.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
-                encoded[r][c] = [cell.type_u8(), cell.color_u8(), cell.state_u8()];
+                encoded[r][c] = match cell {
+                    Some(entity) => [entity.type_u8(), entity.color_u8(), entity.state_u8()],
+                    // Canonical: `array[i, j, :] = [OBJECT_TO_IDX["unseen"], 0, 0]`.
+                    None => [UNSEEN_TYPE, 0, 0],
+                };
             }
         }
         Self {
             view: encoded,
             agent_direction: Some(direction),
         }
+    }
+
+    /// Encode a fully visible 7×7 entity view and the agent's facing into an
+    /// observation.
+    ///
+    /// Equivalent to wrapping every cell in `Some` and calling
+    /// [`from_masked_view`](Self::from_masked_view) — which is exactly what it
+    /// does, so there is one encoder rather than two.
+    #[must_use]
+    pub fn from_entity_view(view: [[Entity; VIEW_SIZE]; VIEW_SIZE], direction: Direction) -> Self {
+        Self::from_masked_view(view.map(|row| row.map(Some)), direction)
     }
 }
 
@@ -202,23 +271,50 @@ mod tests {
 
         let obs = GridObservation::from_entity_view(view, Direction::North);
 
-        assert_eq!(obs.view[0][0][0], Entity::Wall.type_u8());
-        assert_eq!(obs.view[3][3][0], 5); // Door type byte
+        // Literals, not `type_u8()` calls: these pin the canonical
+        // `OBJECT_TO_IDX` values, so re-deriving them from the code under test
+        // would make the assertion vacuous.
+        assert_eq!(obs.view[0][0][0], 2); // Wall type byte
+        assert_eq!(obs.view[3][3][0], 4); // Door type byte
         assert_eq!(obs.view[3][3][1], Color::Blue.to_u8());
         assert_eq!(obs.view[3][3][2], DoorState::Locked.to_u8());
-        assert_eq!(obs.view[6][3][0], 3); // Goal type byte
+        assert_eq!(obs.view[6][3][0], 8); // Goal type byte
         assert_eq!(obs.agent_direction, Some(Direction::North));
     }
 
     #[test]
-    fn empty_cells_encode_as_zero() {
-        let view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
-        let obs = GridObservation::from_entity_view(view, Direction::East);
-        for row in &obs.view {
+    fn unseen_not_empty_is_the_zero_type_byte() {
+        // Was `empty_cells_encode_as_zero`, which pinned the pre-ADR-0063
+        // numbering. Zero is now reserved for *unseen*: a confirmed-empty cell
+        // carries `1`, and only a masked cell carries `0`. The two views below
+        // are the same board under the two readings, so a regression that
+        // re-collided them would fail both halves.
+        let confirmed_empty = GridObservation::from_entity_view(
+            [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE],
+            Direction::East,
+        );
+        for row in &confirmed_empty.view {
             for cell in row {
-                assert_eq!(cell, &[0, 0, 0]);
+                assert_eq!(
+                    cell,
+                    &[1, 0, 0],
+                    "a seen-but-empty cell is canonical `empty` = 1, not zero"
+                );
             }
         }
+
+        let all_masked =
+            GridObservation::from_masked_view([[None; VIEW_SIZE]; VIEW_SIZE], Direction::East);
+        for row in &all_masked.view {
+            for cell in row {
+                assert_eq!(cell, &[0, 0, 0], "only an unseen cell encodes as all-zero");
+            }
+        }
+
+        assert_ne!(
+            confirmed_empty.view, all_masked.view,
+            "an all-empty view and an all-masked view must not encode identically"
+        );
     }
 
     #[test]
@@ -295,6 +391,164 @@ mod tests {
         let err = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
             .unwrap_err();
         assert!(err.message.contains("expected shape"));
+    }
+
+    #[test]
+    fn masked_cells_encode_as_the_unseen_triple() {
+        let mut view = [[Some(Entity::Empty); VIEW_SIZE]; VIEW_SIZE];
+        view[2][5] = None;
+        view[6][3] = Some(Entity::Goal);
+
+        let obs = GridObservation::from_masked_view(view, Direction::South);
+
+        assert_eq!(
+            obs.view[2][5],
+            [UNSEEN_TYPE, 0, 0],
+            "a masked cell encodes as canonical's [unseen, 0, 0] triple"
+        );
+        assert_eq!(obs.view[6][3][0], Entity::Goal.type_u8());
+        assert_eq!(obs.agent_direction, Some(Direction::South));
+    }
+
+    #[test]
+    fn from_entity_view_delegates_to_from_masked_view() {
+        // One encoder, not two: wrapping every cell in `Some` must reproduce
+        // the unmasked encoding byte for byte.
+        let mut view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        view[0][0] = Entity::Wall;
+        view[3][3] = Entity::Door(Color::Blue, DoorState::Locked);
+        view[6][3] = Entity::Goal;
+
+        let unmasked = GridObservation::from_entity_view(view, Direction::North);
+        let wrapped =
+            GridObservation::from_masked_view(view.map(|row| row.map(Some)), Direction::North);
+
+        assert_eq!(
+            unmasked, wrapped,
+            "from_entity_view must be from_masked_view with every cell Some"
+        );
+    }
+
+    #[test]
+    fn unseen_type_is_the_canonical_index() {
+        // Canonical `OBJECT_TO_IDX["unseen"] == 0`, and `type_u8` reserves it
+        // (ADR 0063 Decision 4).
+        assert_eq!(UNSEEN_TYPE, 0);
+    }
+
+    #[test]
+    fn unseen_and_empty_do_not_share_a_byte() {
+        // Was `unseen_and_empty_still_share_a_byte`, which pinned the defect:
+        // eight environments emit masked cells, and while `Entity::Empty` was
+        // also `0` a masked cell was indistinguishable from a confirmed-empty
+        // one. ADR 0063 Decision 4 renumbered `type_u8` to canonical
+        // `OBJECT_TO_IDX`, so this is now the regression guard for the fix —
+        // if it ever fails again, the occlusion signal is being silently
+        // erased at the encoder for every masked floor cell.
+        assert_ne!(
+            UNSEEN_TYPE,
+            Entity::Empty.type_u8(),
+            "a masked cell and a confirmed-empty cell must not encode alike"
+        );
+        assert_eq!(
+            Entity::Empty.type_u8(),
+            1,
+            "canonical `OBJECT_TO_IDX[\"empty\"] == 1`"
+        );
+    }
+
+    #[test]
+    fn every_entity_survives_a_tensor_round_trip_and_a_mask_decodes_to_absence() {
+        use burn::backend::Flex;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        // Every variant in one view, plus a masked cell, so the round trip and
+        // the absence reading are checked against the same tensor.
+        let entities = [
+            Entity::Empty,
+            Entity::Wall,
+            Entity::Floor,
+            Entity::Door(Color::Blue, DoorState::Locked),
+            Entity::Key(Color::Yellow),
+            Entity::Ball(Color::Red),
+            Entity::Box(Color::Green),
+            Entity::Goal,
+            Entity::Lava,
+        ];
+        // Nine variants do not fit down one column of a 7×7 window, so lay them
+        // out in row-major order and keep the mapping for the assertions.
+        let cell_of = |i: usize| (i / VIEW_SIZE, i % VIEW_SIZE);
+        assert!(
+            entities.len() < VIEW_SIZE * VIEW_SIZE,
+            "the variant list must fit in the view window"
+        );
+        let masked_cell = cell_of(entities.len());
+
+        let mut view = [[Some(Entity::Empty); VIEW_SIZE]; VIEW_SIZE];
+        for (i, &e) in entities.iter().enumerate() {
+            let (r, c) = cell_of(i);
+            view[r][c] = Some(e);
+        }
+        view[masked_cell.0][masked_cell.1] = None;
+
+        let obs = GridObservation::from_masked_view(view, Direction::North);
+        let tensor =
+            <GridObservation as TensorConvertible<3, TestBackend>>::to_tensor(&obs, &device);
+        let decoded = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+            .expect("decode of a self-produced tensor must succeed");
+
+        for (i, &e) in entities.iter().enumerate() {
+            let (r, c) = cell_of(i);
+            assert_eq!(
+                decoded.view[r][c],
+                [e.type_u8(), e.color_u8(), e.state_u8()],
+                "{e:?} must survive encode -> tensor -> decode unchanged"
+            );
+        }
+        let (mr, mc) = masked_cell;
+        assert_eq!(
+            decoded.view[mr][mc],
+            [UNSEEN_TYPE, 0, 0],
+            "a masked cell must decode to absence, not to a plausible entity"
+        );
+        assert_ne!(
+            decoded.view[mr][mc][0],
+            Entity::Empty.type_u8(),
+            "a masked cell must not read back as confirmed-empty floor"
+        );
+    }
+
+    #[test]
+    fn an_all_zero_tensor_decodes_as_every_cell_unseen() {
+        use burn::backend::Flex;
+        use burn::tensor::TensorData as TD;
+        type TestBackend = Flex;
+        let device = Default::default();
+
+        // The reason the renumbering is load-bearing rather than cosmetic:
+        // these environments train recurrent POMDP policies, so zero-padded and
+        // attention-masked rows are the normal case. Such a row must read as
+        // "nothing known", not as a fabricated board of empty floor.
+        let flat = vec![0.0f32; VIEW_SIZE * VIEW_SIZE * OBS_CHANNELS];
+        let data = TD::new(flat, [VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]);
+        let tensor = burn::tensor::Tensor::<TestBackend, 3>::from_data(data, &device);
+
+        let decoded = <GridObservation as TensorConvertible<3, TestBackend>>::from_tensor(tensor)
+            .expect("an in-range zero tensor must decode");
+
+        for row in &decoded.view {
+            for cell in row {
+                assert_eq!(
+                    cell[0], UNSEEN_TYPE,
+                    "a zero channel-0 byte must mean unseen, never a real entity"
+                );
+            }
+        }
+        assert_eq!(
+            decoded.agent_direction, None,
+            "the facing is absent from the tensor, so it must decode as unknown"
+        );
     }
 
     #[test]

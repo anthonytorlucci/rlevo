@@ -58,7 +58,7 @@
 //! [`UnlockEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -67,12 +67,14 @@ use super::core::{
     dynamics::apply_action,
     entity::{DoorState, Entity},
     grid::Grid,
+    observation::GridObservation,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -246,6 +248,21 @@ pub struct UnlockEnv {
 }
 
 impl UnlockEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::Occluded`], because canonical `Unlock` derives from
+    /// `RoomGrid`, and `minigrid/core/roomgrid.py`'s `RoomGrid.__init__` passes
+    /// `see_through_walls=False` up to `MiniGridEnv` for every room-based env.
+    /// See ADR 0063 (`docs/adr/0063-grid-visibility-occlusion.md`) for the
+    /// whole twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
+
     /// Constructs an [`UnlockEnv`] from an explicit configuration.
     ///
     /// Immediately builds the initial grid state. Call [`Environment::reset`]
@@ -325,11 +342,11 @@ impl UnlockEnv {
         (GridState::new(grid, agent), door_pos)
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(observation, reward, done)
     }
 
     fn door_is_open(&self) -> bool {
@@ -366,6 +383,23 @@ impl ConstructableEnv for UnlockEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for UnlockEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for UnlockEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -378,7 +412,8 @@ impl Environment<3, 3, 1> for UnlockEnv {
         self.state = state;
         self.door_pos = door_pos;
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -391,7 +426,8 @@ impl Environment<3, 3, 1> for UnlockEnv {
         } else {
             (0.0, false)
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 
@@ -404,11 +440,56 @@ impl rlevo_core::render::payload::GridPayloadSource for UnlockEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Test-only: the `Visibility` dispatch point, the raw window extractor, and
+    // the byte a masked cell carries — all read by
+    // `test_unlock_occlusion_is_carried_entirely_by_the_locked_door`.
+    use super::super::core::grid::egocentric_view;
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
+    /// The four facings, for the occlusion sweep.
+    const DIRECTIONS: [Direction; 4] = [
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
+
+    /// Window cells `(row, col)` immediately behind the door at `(1, 0)`, as
+    /// seen from the start cell facing North.
+    ///
+    /// A shut door's shadow covers far more of the window than these three (the
+    /// perimeter it sits in accounts for the rest); these are the three whose
+    /// visibility the *door's own state* controls — the ones an open door lights
+    /// and a `Locked` or `Closed` one does not.
+    const BEHIND_THE_DOOR: [(usize, usize); 3] = [(4, 2), (4, 3), (4, 4)];
+
     fn test_env() -> UnlockEnv {
         UnlockEnv::with_config(UnlockConfig::new(5, 100, 0), false).expect("valid config")
+    }
+
+    /// A same-shaped board of transparent cells, used as an **in-grid mask**.
+    ///
+    /// [`Grid::get`] reads out of bounds as [`Entity::Wall`] (matching canonical
+    /// `Grid.slice`), so the window `egocentric_view` cuts from this board is
+    /// [`Entity::Floor`] exactly where that window cell lies inside the world and
+    /// [`Entity::Wall`] exactly where it does not. That is the view geometry read
+    /// off the real extractor, rather than re-derived by a test-local copy of
+    /// `rotate_view_offset` that could drift away from it.
+    fn all_floor_like(grid: &Grid) -> Grid {
+        let (w, h) = (grid.width(), grid.height());
+        let mut probe = Grid::new(w, h);
+        let (w, h) = (
+            i32::try_from(w).expect("test grids fit in i32"),
+            i32::try_from(h).expect("test grids fit in i32"),
+        );
+        for y in 0..h {
+            for x in 0..w {
+                probe.set(x, y, Entity::Floor);
+            }
+        }
+        probe
     }
 
     #[test]
@@ -547,6 +628,179 @@ mod tests {
     fn door_is_not_open_at_start() {
         let env = test_env();
         assert!(!env.door_is_open());
+    }
+
+    /// The finding this environment's occlusion story starts from: **nothing
+    /// inside the room is ever hidden**, at any size, cell or facing.
+    ///
+    /// That is a consequence of a *known deviation*, not of the shadow cast.
+    /// rlevo's `Unlock` draws **one** perimeter-walled room and writes the door
+    /// into the outer north wall (module docs, issue #1020); upstream
+    /// `MiniGrid-Unlock-v0` is a two-room `RoomGrid` whose locked door sits on
+    /// the wall *between* the rooms, with a whole room behind it to hide. Here
+    /// the interior is a plain rectangle of transparent cells and `process_vis`
+    /// is a forward flood fill, so every in-room cell — the key included — is lit
+    /// from every pose. When #1020 lands and the door moves onto an interior
+    /// wall, this test should be replaced by one that names the far room.
+    ///
+    /// Deliberately **not** a substitute for
+    /// `test_unlock_occlusion_is_carried_entirely_by_the_locked_door`: this
+    /// property is vacuously true under [`Visibility::SeeThrough`], so it cannot
+    /// detect the emission model being switched off.
+    #[test]
+    fn test_unlock_occlusion_never_hides_an_in_room_cell() {
+        for size in [4usize, 5, 8, 11] {
+            let mut env = UnlockEnv::with_config(UnlockConfig::new(size, 100, 0), false)
+                .expect("valid config");
+            env.reset().expect("reset");
+            let grid = env.state().grid.clone();
+            let in_grid = all_floor_like(&grid);
+            #[allow(clippy::cast_possible_wrap)]
+            let side = size as i32;
+            for y in 0..side {
+                for x in 0..side {
+                    if !grid.get(x, y).is_passable() {
+                        continue;
+                    }
+                    for dir in DIRECTIONS {
+                        let agent = AgentState::new(x, y, dir);
+                        let masked = mask_view(&grid, &agent, UnlockEnv::VISIBILITY);
+                        let inside = egocentric_view(&in_grid, &agent);
+                        for r in 0..VIEW_SIZE {
+                            for c in 0..VIEW_SIZE {
+                                assert!(
+                                    masked[r][c].is_some() || inside[r][c] == Entity::Wall,
+                                    "size {size}: ({x}, {y}) facing {dir:?} masks the in-room \
+                                     window cell ({r}, {c}) — the single room has no interior \
+                                     occluder, so this is new geometry, not a shadow"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The one thing occlusion *does* carry here: the door's own opacity, at the
+    /// pose the whole task turns on.
+    ///
+    /// Standing at the start cell facing the door, the agent cannot see past it
+    /// while it is `Locked`, still cannot while it is `Closed`, and can the
+    /// moment it is `Open` — canonical `Door.see_behind == is_open`, driven
+    /// through the real `Pickup → Toggle → Toggle` chain rather than by
+    /// hand-editing a grid. Exactly three window cells change hands, and they are
+    /// named.
+    ///
+    /// What lies behind that door is the outside of the world rather than a
+    /// second room, for the reason
+    /// `test_unlock_occlusion_never_hides_an_in_room_cell` documents (issue
+    /// #1020). This is therefore the strongest honest assertion available for
+    /// this environment, and it is still a real one: flip
+    /// [`UnlockEnv::VISIBILITY`] to [`Visibility::SeeThrough`] and it fails.
+    #[test]
+    fn test_unlock_occlusion_is_carried_entirely_by_the_locked_door() {
+        let mut env = test_env();
+        env.reset().expect("reset");
+        env.step(GridAction::Pickup).expect("take the key");
+        let locked = env.step(GridAction::TurnLeft).expect("face the door");
+
+        let agent = env.state().agent;
+        assert_eq!(
+            (agent.x, agent.y, agent.direction),
+            (1, 1, Direction::North),
+            "the agent must be at the start cell facing the door"
+        );
+        assert_eq!(
+            env.state().grid.get(1, 0),
+            Entity::Door(DOOR_COLOR, DoorState::Locked),
+            "the door must still be locked at this point of the chain"
+        );
+
+        let masked = mask_view(&env.state().grid, &agent, UnlockEnv::VISIBILITY);
+        let occluded = *locked.observation();
+        let see_through = observe_grid(env.state(), Visibility::SeeThrough);
+
+        assert_eq!(
+            masked[5][3],
+            Some(Entity::Door(DOOR_COLOR, DoorState::Locked)),
+            "the door one cell ahead is itself visible — the agent sees what blocks it"
+        );
+        // The three cells the door itself governs: unseen while it is shut.
+        for (row, col) in BEHIND_THE_DOOR {
+            assert_eq!(
+                masked[row][col], None,
+                "({row}, {col}) is behind the locked door and must be unseen"
+            );
+            assert_eq!(
+                occluded.view[row][col],
+                [UNSEEN_TYPE, 0, 0],
+                "({row}, {col}) must encode as the unseen triple"
+            );
+            assert_eq!(
+                see_through.view[row][col][0],
+                Entity::Wall.type_u8(),
+                "the pre-#281 emission model reported straight through the locked door"
+            );
+        }
+
+        // Differ *exactly* on the hidden set, in both directions.
+        let hidden_locked = masked.iter().flatten().filter(|c| c.is_none()).count();
+        for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+            if masked[r][c].is_none() {
+                assert_eq!(
+                    occluded.view[r][c],
+                    [UNSEEN_TYPE, 0, 0],
+                    "hidden cell ({r}, {c}) must encode as the unseen triple"
+                );
+                assert_ne!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "hidden cell ({r}, {c}) must not encode the same as the seen one"
+                );
+            } else {
+                assert_eq!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "visible cell ({r}, {c}) must be unaffected by occlusion"
+                );
+            }
+        }
+
+        // Unlocking is not opening: a `Closed` door is still opaque.
+        env.step(GridAction::Toggle).expect("unlock");
+        assert_eq!(
+            env.state().grid.get(1, 0),
+            Entity::Door(DOOR_COLOR, DoorState::Closed),
+            "the first toggle unlocks without opening"
+        );
+        let closed = mask_view(&env.state().grid, &agent, UnlockEnv::VISIBILITY);
+        assert_eq!(
+            closed.iter().flatten().filter(|c| c.is_none()).count(),
+            hidden_locked,
+            "a Closed door occludes exactly as a Locked one does — see_behind is is_open"
+        );
+
+        // Opening it hands back precisely the three cells behind it.
+        let opened = env.step(GridAction::Toggle).expect("open");
+        assert!(opened.is_done(), "opening the door ends the episode");
+        let after = mask_view(&env.state().grid, &env.state().agent, UnlockEnv::VISIBILITY);
+        for (row, col) in BEHIND_THE_DOOR {
+            assert_eq!(
+                after[row][col],
+                Some(Entity::Wall),
+                "opening the door reveals ({row}, {col}) behind it"
+            );
+        }
+        assert_eq!(
+            after.iter().flatten().filter(|c| c.is_none()).count(),
+            hidden_locked - BEHIND_THE_DOOR.len(),
+            "exactly the three cells the open door lights may change hands"
+        );
+
+        assert_eq!(
+            UnlockEnv::VISIBILITY,
+            Visibility::Occluded,
+            "Unlock derives from RoomGrid, which passes see_through_walls=False"
+        );
     }
 
     #[test]

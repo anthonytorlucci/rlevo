@@ -76,7 +76,7 @@
 //! [`Lava`]: super::core::entity::Entity::Lava
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -84,6 +84,8 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observation::GridObservation,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -93,7 +95,7 @@ use super::core::{
 // `R: Rng + ?Sized` per `rules.md` §8.
 use rand::{Rng, RngExt as _, SeedableRng, rngs::StdRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -286,6 +288,27 @@ pub struct LavaGapEnv {
 }
 
 impl LavaGapEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::Occluded`], because canonical `minigrid/envs/lavagap.py`
+    /// passes `see_through_walls=False` explicitly — which is also
+    /// `MiniGridEnv.__init__`'s own default, so the env restates the canonical
+    /// behaviour rather than opting into it. Note that lava itself is
+    /// *transparent* ([`Entity::see_behind`] follows canonical `WorldObj`, and
+    /// only `Wall`/shut `Door` override it), so what this occludes here is the
+    /// world behind the border walls, not the world behind the lava strip. See
+    /// ADR 0063 (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    ///
+    /// [`Entity::see_behind`]: super::core::entity::Entity::see_behind
+    const VISIBILITY: Visibility = Visibility::Occluded;
+
     /// Constructs a [`LavaGapEnv`] from an explicit configuration.
     ///
     /// Seeds the persistent RNG once from `config.seed` and immediately builds
@@ -433,11 +456,11 @@ impl LavaGapEnv {
         (GridState::new(grid, agent), lava_col, gap_row)
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(observation, reward, done)
     }
 }
 
@@ -467,6 +490,23 @@ impl ConstructableEnv for LavaGapEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for LavaGapEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for LavaGapEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -485,7 +525,8 @@ impl Environment<3, 3, 1> for LavaGapEnv {
         self.lava_col = lava_col;
         self.gap_row = gap_row;
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -499,7 +540,8 @@ impl Environment<3, 3, 1> for LavaGapEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 
@@ -518,10 +560,46 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point, the raw window extractor, and
+    // the byte a masked cell carries — all read by
+    // `test_lava_gap_occlusion_masks_only_the_world_outside_the_room`.
+    use super::super::core::grid::egocentric_view;
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use crate::grids::core::is_free;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;
+
+    /// The four facings, for the occlusion sweep.
+    const DIRECTIONS: [Direction; 4] = [
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
+
+    /// A same-shaped board of transparent cells, used as an **in-grid mask**.
+    ///
+    /// [`Grid::get`] reads out of bounds as [`Entity::Wall`] (matching canonical
+    /// `Grid.slice`), so the window `egocentric_view` cuts from this board is
+    /// [`Entity::Floor`] exactly where that window cell lies inside the world and
+    /// [`Entity::Wall`] exactly where it does not. That is the view geometry read
+    /// off the real extractor, rather than re-derived by a test-local copy of
+    /// `rotate_view_offset` that could drift away from it.
+    fn all_floor_like(grid: &Grid) -> Grid {
+        let (w, h) = (grid.width(), grid.height());
+        let mut probe = Grid::new(w, h);
+        let (w, h) = (
+            i32::try_from(w).expect("test grids fit in i32"),
+            i32::try_from(h).expect("test grids fit in i32"),
+        );
+        for y in 0..h {
+            for x in 0..w {
+                probe.set(x, y, Entity::Floor);
+            }
+        }
+        probe
+    }
 
     /// Every seed loop runs at both of these.
     ///
@@ -1079,5 +1157,109 @@ mod tests {
         assert_eq!(env.steps(), 2);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    /// Occlusion is live here, but **nothing it hides is task-relevant**: every
+    /// masked cell lies outside the room.
+    ///
+    /// This environment has no decision-relevant occluded pose, and that is a
+    /// measured finding rather than a gap in this test. Lava is *transparent* —
+    /// canonical `WorldObj.see_behind` is overridden only by `Wall` and shut
+    /// `Door`, which [`LavaGapEnv::VISIBILITY`]'s own doc already says — and the
+    /// board is a plain rectangle whose only opaque cells are the border ring.
+    /// The window's intersection with the room is therefore a rectangle of
+    /// transparent cells containing the agent, and `process_vis` is a forward
+    /// flood fill, so it lights every one of them. The lava strip, its gap and
+    /// the goal are visible from every pose they fall into.
+    ///
+    /// The test asserts what is actually true, at both ends:
+    ///
+    /// 1. **The start pose always masks something.** That is the pose every
+    ///    episode begins from, and it is what makes this a regression guard:
+    ///    flip [`LavaGapEnv::VISIBILITY`] to [`Visibility::SeeThrough`] and this
+    ///    clause fails.
+    /// 2. **Every masked cell — at every pose — lies outside the room**, swept
+    ///    over sizes 5/7/9 × 16 seeds × every passable cell × all four facings.
+    ///    Occlusion cannot cost this agent one cell of the board it must solve.
+    ///
+    /// Clause 2 on its own is vacuous under `SeeThrough` (nothing is masked, so
+    /// nothing violates it). Clause 1 is what makes the pair bite. If clause 2
+    /// ever starts failing, the board grew an interior wall and this environment
+    /// finally has an occlusion story worth naming a pose for.
+    #[test]
+    fn test_lava_gap_occlusion_masks_only_the_world_outside_the_room() {
+        for size in [5usize, 7, 9] {
+            let mut env = env_of(size);
+            for seed in 0..16u64 {
+                let snapshot = env.reset_with_seed(seed).expect("reset");
+                let grid = env.state().grid.clone();
+                let in_grid = all_floor_like(&grid);
+
+                // (1) The start pose — fixed at (1, 1) facing East, as upstream.
+                let start = env.state().agent;
+                assert_eq!(
+                    (start.x, start.y, start.direction),
+                    (1, 1, Direction::East),
+                    "size {size} seed {seed}: the start pose this clause names has moved"
+                );
+                let masked = mask_view(&grid, &start, LavaGapEnv::VISIBILITY);
+                let occluded = *snapshot.observation();
+                let see_through = observe_grid(env.state(), Visibility::SeeThrough);
+                let hidden = masked.iter().flatten().filter(|c| c.is_none()).count();
+                assert!(
+                    hidden > 0,
+                    "size {size} seed {seed}: the border ring must mask something from \
+                     the start pose, or occlusion is switched off"
+                );
+                // Differ *exactly* on the hidden set, in both directions.
+                for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+                    if masked[r][c].is_none() {
+                        assert_eq!(
+                            occluded.view[r][c],
+                            [UNSEEN_TYPE, 0, 0],
+                            "size {size} seed {seed}: hidden cell ({r}, {c}) must encode \
+                             as the unseen triple"
+                        );
+                        assert_ne!(
+                            occluded.view[r][c], see_through.view[r][c],
+                            "size {size} seed {seed}: hidden cell ({r}, {c}) must not \
+                             encode the same as the seen one"
+                        );
+                    } else {
+                        assert_eq!(
+                            occluded.view[r][c], see_through.view[r][c],
+                            "size {size} seed {seed}: visible cell ({r}, {c}) must be \
+                             unaffected by occlusion"
+                        );
+                    }
+                }
+
+                // (2) No pose anywhere hides a cell of the room itself.
+                #[allow(clippy::cast_possible_wrap)]
+                let side = size as i32;
+                for y in 0..side {
+                    for x in 0..side {
+                        if !grid.get(x, y).is_passable() {
+                            continue;
+                        }
+                        for dir in DIRECTIONS {
+                            let agent = AgentState::new(x, y, dir);
+                            let masked = mask_view(&grid, &agent, LavaGapEnv::VISIBILITY);
+                            let inside = egocentric_view(&in_grid, &agent);
+                            for r in 0..VIEW_SIZE {
+                                for c in 0..VIEW_SIZE {
+                                    assert!(
+                                        masked[r][c].is_some() || inside[r][c] == Entity::Wall,
+                                        "size {size} seed {seed}: ({x}, {y}) facing {dir:?} \
+                                         masks the in-room window cell ({r}, {c}) — lava is \
+                                         transparent, so only the border can occlude here"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

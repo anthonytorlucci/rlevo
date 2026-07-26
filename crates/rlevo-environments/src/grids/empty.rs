@@ -46,6 +46,7 @@
 //! [`Goal`]: super::core::entity::Entity::Goal
 
 use super::core::{
+    Visibility,
     action::GridAction,
     agent::AgentState,
     direction::Direction,
@@ -53,13 +54,15 @@ use super::core::{
     entity::Entity,
     grid::Grid,
     observation::GridObservation,
+    observe_grid,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+};
 use rlevo_core::reward::ScalarReward;
-use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -233,6 +236,22 @@ pub struct EmptyEnv {
 }
 
 impl EmptyEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::SeeThrough`], because canonical `minigrid/envs/empty.py`
+    /// passes `see_through_walls=True` explicitly. That is an **opt-out**:
+    /// `MiniGridEnv.__init__` defaults the flag to `False`, so an env is
+    /// occluded unless it says otherwise, and `EmptyEnv` says otherwise. See
+    /// ADR 0063 (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::SeeThrough;
+
     /// Constructs an `EmptyEnv` from an explicit configuration.
     ///
     /// Immediately builds the initial grid state. Call [`Environment::reset`]
@@ -297,16 +316,21 @@ impl EmptyEnv {
         (grid, agent)
     }
 
-    fn snapshot(&self, reward: f32, done: bool) -> SnapshotBase<3, GridObservation, ScalarReward> {
+    fn snapshot(
+        &self,
+        observation: GridObservation,
+        reward: f32,
+        done: bool,
+    ) -> SnapshotBase<3, GridObservation, ScalarReward> {
         if self.render {
             // Render is a debug side effect; return the string so callers can
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
         if done {
-            SnapshotBase::terminated(self.state.project(), ScalarReward::new(reward))
+            SnapshotBase::terminated(observation, ScalarReward::new(reward))
         } else {
-            SnapshotBase::running(self.state.project(), ScalarReward::new(reward))
+            SnapshotBase::running(observation, ScalarReward::new(reward))
         }
     }
 }
@@ -337,6 +361,23 @@ impl ConstructableEnv for EmptyEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for EmptyEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for EmptyEnv {
     type StateType = GridState;
     type ObservationType = GridObservation;
@@ -348,7 +389,8 @@ impl Environment<3, 3, 1> for EmptyEnv {
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
         self.steps = 0;
-        Ok(self.snapshot(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.snapshot(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -362,7 +404,8 @@ impl Environment<3, 3, 1> for EmptyEnv {
                 (0.0, done)
             }
         };
-        Ok(self.snapshot(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.snapshot(observation, reward, done))
     }
 }
 

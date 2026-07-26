@@ -49,7 +49,7 @@
 //! [`DistShiftEnv`]: https://minigrid.farama.org/environments/minigrid/DistShiftEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -57,12 +57,14 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observation::GridObservation,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -252,6 +254,23 @@ pub struct DistShiftEnv {
 }
 
 impl DistShiftEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::SeeThrough`], because canonical
+    /// `minigrid/envs/distshift.py` passes `see_through_walls=True`
+    /// explicitly. That is an **opt-out**: `MiniGridEnv.__init__` defaults the
+    /// flag to `False`, so an env is occluded unless it says otherwise, and
+    /// `DistShiftEnv` says otherwise. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::SeeThrough;
+
     /// Constructs a `DistShiftEnv` from an explicit configuration.
     ///
     /// Immediately builds the initial grid state. Call [`Environment::reset`]
@@ -323,11 +342,11 @@ impl DistShiftEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(observation, reward, done)
     }
 }
 
@@ -357,6 +376,23 @@ impl ConstructableEnv for DistShiftEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for DistShiftEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for DistShiftEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -367,7 +403,8 @@ impl Environment<3, 3, 1> for DistShiftEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -381,7 +418,8 @@ impl Environment<3, 3, 1> for DistShiftEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 

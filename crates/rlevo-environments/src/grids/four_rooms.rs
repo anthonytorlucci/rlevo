@@ -79,12 +79,14 @@
 //! [`FourRoomsEnv`]: https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     build_snapshot,
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observation::GridObservation,
+    observe_grid,
     placement::{PlacementError, Rect, no_reject, place_agent, place_obj},
     render::render_ascii,
     reward::success_reward,
@@ -93,7 +95,7 @@ use super::core::{
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -346,6 +348,24 @@ pub struct FourRoomsEnv {
 }
 
 impl FourRoomsEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::Occluded`], because canonical
+    /// `minigrid/envs/fourrooms.py` **omits** `see_through_walls` entirely and
+    /// so inherits `MiniGridEnv.__init__`'s `see_through_walls=False` default:
+    /// upstream, occlusion is on unless an env opts out, and this one does not.
+    /// The cross walls therefore hide the three rooms the agent is not in until
+    /// it crosses an opening. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
+
     /// Constructs a `FourRoomsEnv` from an explicit configuration.
     ///
     /// Seeds the persistent RNG once from `config.seed` and immediately builds a
@@ -533,11 +553,11 @@ impl FourRoomsEnv {
         Ok((GridState::new(grid, agent), openings))
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(observation, reward, done)
     }
 }
 
@@ -568,6 +588,23 @@ impl ConstructableEnv for FourRoomsEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for FourRoomsEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for FourRoomsEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -583,7 +620,8 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
         self.state = state;
         self.openings = openings;
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -597,7 +635,8 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 
@@ -619,6 +658,8 @@ mod tests {
     // needs it at file scope for the parity `Custom` variant.
     use super::*;
     use crate::direction::Direction;
+    use crate::grids::core::UNSEEN_TYPE;
+    use crate::grids::core::agent::AgentState;
     use rlevo_core::environment::Snapshot;
     use std::collections::{HashSet, VecDeque};
 
@@ -1278,5 +1319,59 @@ mod tests {
         assert_eq!(env.steps(), 2);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    /// Occlusion is not decoration here: a cell that encoded a real entity under
+    /// the pre-#281 (see-through) emission model must now be able to encode as
+    /// *unseen*.
+    ///
+    /// The interesting case is the goal, because that is task-relevant
+    /// information the cross walls are supposed to withhold until the agent
+    /// crosses an opening. Seed 8's layout puts the goal in a room the agent can
+    /// stand five cells from and — under occlusion — still not see.
+    ///
+    /// Note how *weak* the occlusion turns out to be: the four openings let the
+    /// flood fill spread sideways into the neighbouring rooms, so from most poses
+    /// the goal stays visible. This test therefore names one concrete pose rather
+    /// than asserting a general "walls hide the goal" property that does not
+    /// hold.
+    #[test]
+    fn test_four_rooms_occlusion_hides_the_goal_from_an_adjacent_room() {
+        let mut env = FourRoomsEnv::with_config(FourRoomsConfig::new(13, 100, 8), false)
+            .expect("valid config");
+        env.reset().expect("reset");
+
+        // Agent in the NW room's SE corner, looking East across the wall column.
+        let state = GridState::new(
+            env.state().grid.clone(),
+            AgentState::new(5, 5, Direction::East),
+        );
+        assert_eq!(
+            env.state().grid.get(6, 8),
+            Entity::Goal,
+            "seed 8 must place the goal at (6, 8) for this pose to be the intended one"
+        );
+
+        let occluded = observe_grid(&state, FourRoomsEnv::VISIBILITY);
+        let see_through = observe_grid(&state, Visibility::SeeThrough);
+
+        // (row 5, col 6) is the goal cell: one step forward, three to the right.
+        let (row, col) = (5, 6);
+        assert_eq!(
+            see_through.view[row][col][0],
+            Entity::Goal.type_u8(),
+            "the pre-#281 emission model reported the goal from this pose"
+        );
+        assert_eq!(
+            occluded.view[row][col],
+            [UNSEEN_TYPE, 0, 0],
+            "the goal must now encode as unseen — this env inherits canonical's \
+             see_through_walls=False default"
+        );
+        assert_eq!(
+            FourRoomsEnv::VISIBILITY,
+            Visibility::Occluded,
+            "fourrooms.py omits see_through_walls, so MiniGridEnv's False default applies"
+        );
     }
 }

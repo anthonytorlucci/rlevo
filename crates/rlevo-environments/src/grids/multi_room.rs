@@ -56,7 +56,7 @@
 //! [`MultiRoomEnv`]: https://minigrid.farama.org/environments/minigrid/MultiRoomEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -65,12 +65,14 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::{DoorState, Entity},
     grid::Grid,
+    observation::GridObservation,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -295,6 +297,22 @@ pub struct MultiRoomEnv {
 }
 
 impl MultiRoomEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// [`Visibility::Occluded`], because canonical
+    /// `minigrid/envs/multiroom.py` **omits** `see_through_walls` entirely and
+    /// so inherits `MiniGridEnv.__init__`'s `see_through_walls=False` default:
+    /// upstream, occlusion is on unless an env opts out, and this one does not.
+    /// See ADR 0063 (`docs/adr/0063-grid-visibility-occlusion.md`) for the
+    /// whole twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
+
     /// Constructs a [`MultiRoomEnv`] from an explicit configuration.
     ///
     /// Immediately builds the initial grid state. Call [`Environment::reset`]
@@ -406,11 +424,11 @@ impl MultiRoomEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(observation, reward, done)
     }
 }
 
@@ -440,6 +458,23 @@ impl ConstructableEnv for MultiRoomEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for MultiRoomEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for MultiRoomEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -450,7 +485,8 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -464,7 +500,8 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 
@@ -483,6 +520,10 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point and the byte a masked cell
+    // carries, both read by
+    // `test_multi_room_occlusion_hides_the_goal_behind_the_next_closed_door`.
+    use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
 
@@ -691,5 +732,114 @@ mod tests {
         assert_eq!(env.steps(), 1);
         env.reset().unwrap();
         assert_eq!(env.steps(), 0);
+    }
+
+    /// Occlusion is not decoration here: a cell that encoded a real entity under
+    /// the pre-#281 (see-through) emission model must now be able to encode as
+    /// *unseen*.
+    ///
+    /// The pose is the one that decides the task. The agent is driven through
+    /// the real dynamics — open door one, walk into room two, stop nose-to-nose
+    /// with door two — and the assertion is on the observation the environment
+    /// itself **emitted** on that step, not on a hand-built state. From there the
+    /// goal is five cells straight ahead, inside the view window, and the closed
+    /// door plus its wall column stand between: the whole reason to toggle is
+    /// invisible until it is toggled.
+    ///
+    /// The occlusion here is structural rather than lucky: every dividing wall
+    /// spans the full interior height with only the door punched through it, so
+    /// unlike `FourRooms` — whose cross openings let the flood fill leak sideways
+    /// into the next room, leaving its goal maskable from any pose in only 2 of
+    /// 12 seeds — there is no route around it from any pose in this room.
+    #[test]
+    fn test_multi_room_occlusion_hides_the_goal_behind_the_next_closed_door() {
+        let mut env = default_env();
+        env.reset().expect("reset");
+        assert_eq!(
+            env.wall_columns(),
+            vec![5, 10],
+            "the default strip's dividers"
+        );
+        assert_eq!(env.state().grid.get(14, 2), Entity::Goal, "goal at (14, 2)");
+
+        // Open door one, cross into room two, stop in front of door two.
+        let script = [
+            GridAction::Forward, // (2, 2)
+            GridAction::Forward, // (3, 2)
+            GridAction::Forward, // (4, 2)
+            GridAction::Toggle,  // open the door at (5, 2)
+            GridAction::Forward, // (5, 2)
+            GridAction::Forward, // (6, 2)
+            GridAction::Forward, // (7, 2)
+            GridAction::Forward, // (8, 2)
+            GridAction::Forward, // (9, 2) — nose to nose with the door at (10, 2)
+        ];
+        let mut last = None;
+        for action in script {
+            last = Some(env.step(action).expect("step"));
+        }
+        let snapshot = last.expect("the script is non-empty");
+        let agent = env.state().agent;
+        assert_eq!(
+            (agent.x, agent.y, agent.direction),
+            (9, 2, Direction::East),
+            "the script must land the agent in front of the second door"
+        );
+        assert_eq!(
+            env.state().grid.get(10, 2),
+            Entity::Door(DOOR_COLOR, DoorState::Closed),
+            "door two must still be shut — it is the occluder under test"
+        );
+
+        let masked = mask_view(&env.state().grid, &agent, MultiRoomEnv::VISIBILITY);
+        let occluded = *snapshot.observation();
+        let see_through = observe_grid(env.state(), Visibility::SeeThrough);
+
+        // (row 1, col 3) is the goal: five cells straight ahead.
+        let (row, col) = (1, 3);
+        assert_eq!(
+            see_through.view[row][col][0],
+            Entity::Goal.type_u8(),
+            "the pre-#281 emission model reported the goal through two rooms of wall"
+        );
+        assert_eq!(
+            occluded.view[row][col],
+            [UNSEEN_TYPE, 0, 0],
+            "the goal must now encode as unseen — this env inherits canonical's \
+             see_through_walls=False default"
+        );
+        assert_eq!(
+            masked[5][3],
+            Some(Entity::Door(DOOR_COLOR, DoorState::Closed)),
+            "the shut door one cell ahead is itself visible — the agent sees what blocks it"
+        );
+
+        // Differ *exactly* on the hidden set, in both directions: a bare
+        // "something is masked" would also pass if occlusion leaked into cells it
+        // must not touch.
+        for (r, c) in (0..VIEW_SIZE).flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c))) {
+            if masked[r][c].is_none() {
+                assert_eq!(
+                    occluded.view[r][c],
+                    [UNSEEN_TYPE, 0, 0],
+                    "hidden cell ({r}, {c}) must encode as the unseen triple"
+                );
+                assert_ne!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "hidden cell ({r}, {c}) must not encode the same as the seen one"
+                );
+            } else {
+                assert_eq!(
+                    occluded.view[r][c], see_through.view[r][c],
+                    "visible cell ({r}, {c}) must be unaffected by occlusion"
+                );
+            }
+        }
+
+        assert_eq!(
+            MultiRoomEnv::VISIBILITY,
+            Visibility::Occluded,
+            "multiroom.py omits see_through_walls, so MiniGridEnv's False default applies"
+        );
     }
 }
