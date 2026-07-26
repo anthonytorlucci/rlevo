@@ -377,14 +377,15 @@ Three details here are load-bearing, not stylistic:
   the guard *after* the fallible work, not before — a failed reset must not
   silently re-open a finished episode.
 
-> **Scope: two of the built-in families enforce this today.**
+> **Scope: most, but not all, of the built-in families enforce this today.**
 > `EpisodeGuard` ships in `rlevo-environments`, and the
 > `toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
 > `classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
-> `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), and the
+> `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
+> `grids` environments, and the
 > `TimeLimit` wrapper all hold one. The `classic` module's bandits
 > (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
-> `AdversarialBandit`), the `grids`, `locomotion`, and `box2d` families, and
+> `AdversarialBandit`), the `locomotion` and `box2d` families, and
 > `pixel_grid` do not yet — their post-terminal behaviour is undefined,
 > tracked family-by-family in
 > [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). Your own
@@ -431,8 +432,9 @@ algorithm will drive your environment correctly:
   `EnvironmentError::StepAfterEpisodeEnd` rather than silently continuing — see
   [Step 5](#step-5--guard-the-post-terminal-step) above for the `EpisodeGuard`
   recipe. (The `toy_text` family, the `classic` family's non-bandit
-  environments, and `TimeLimit` enforce this today; treat it as the target for
-  any environment you write, not yet a workspace-wide guarantee.)
+  environments, the `grids` family, and `TimeLimit` enforce this today; treat it
+  as the target for any environment you write, not yet a workspace-wide
+  guarantee.)
 - **Neither method panics on valid input.** Return `EnvironmentError::InvalidAction`
   for out-of-range actions; reserve panics for genuine internal-logic bugs.
 - **Your config validates its own invariants.** Implement

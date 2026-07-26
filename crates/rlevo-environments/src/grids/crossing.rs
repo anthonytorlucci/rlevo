@@ -107,9 +107,15 @@ use rand::seq::SliceRandom;
 // `Rng` is the trait bound (rules.md §8); `RngExt` carries `random_range`,
 // which rand 0.10 moved out of `Rng` into a blanket extension implemented for
 // every `R: Rng + ?Sized`. Imported anonymously — only its methods are wanted.
+use crate::episode::EpisodeGuard;
 use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+// `Snapshot` is imported anonymously: `step()` needs its `status()` method to
+// feed the guard, but re-exporting the name through this module's `use super::*`
+// in the test module would shadow the test module's own explicit import.
+use rlevo_core::environment::{
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _,
+};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -385,6 +391,30 @@ pub struct CrossingEnv {
     render: bool,
     layout: CrossingLayout,
     rng: StdRng,
+    /// Rejects a `step()` taken after the episode already ended.
+    ///
+    /// Termination here is derived from the *outcome of the current action*
+    /// (`ReachedGoal` / `HitLava`), never from a stored flag, and neither
+    /// terminal cell is consumed: the goal stays [`Entity::Goal`] on the grid and
+    /// the agent is left standing **on** the lava tile it died on. Unguarded,
+    /// that made both endings reversible.
+    ///
+    /// - **Lava.** After a `HitLava` snapshot the agent is on the lava cell. A
+    ///   `TurnLeft`/`TurnRight`, or a `Forward` onto any ordinary cell, yields
+    ///   `NoOp`/`Moved` — `done` is then just `steps >= max_steps`, i.e. `false`
+    ///   — so the very next call emitted a **`Running`** snapshot and the agent
+    ///   walked off the lava as if it had never burned. It could then go on to
+    ///   reach the goal and be paid `success_reward`, turning a 0.0 lava death
+    ///   into a positive-return episode.
+    /// - **Goal.** The goal cell is not cleared on arrival, so backing off it and
+    ///   stepping in again re-raised `ReachedGoal` and re-paid
+    ///   `success_reward(self.steps, max_steps)` — a second, third, … positive
+    ///   reward on one episode.
+    /// - **Both.** `self.steps` kept advancing on every illegal call, so it no
+    ///   longer measured the episode's true length and each replayed
+    ///   `success_reward` was discounted by steps taken after the episode was
+    ///   over.
+    guard: EpisodeGuard,
 }
 
 impl CrossingEnv {
@@ -441,6 +471,7 @@ impl CrossingEnv {
             render,
             layout,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -715,7 +746,16 @@ impl Environment<3, 3, 1> for CrossingEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Samples a fresh layout and returns the first snapshot of a new episode.
+    ///
+    /// Re-opens the [`EpisodeGuard`], so an episode that ended on lava or on the
+    /// goal becomes steppable again — the only way it does.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (state, layout) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.layout = layout;
@@ -724,7 +764,21 @@ impl Environment<3, 3, 1> for CrossingEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies one grid action and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (goal reached, lava entered, or the step budget spent);
+    /// call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances, before the grid or the agent is
+        // touched, and before any draw from `self.rng`. A rejected call must
+        // leave the board, the step counter and the RNG stream exactly as they
+        // were, or the layout of the *next* episode would depend on how many
+        // illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = match outcome {
@@ -736,7 +790,12 @@ impl Environment<3, 3, 1> for CrossingEnv {
             }
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so the two cannot drift apart.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -1361,6 +1420,149 @@ mod tests {
             checked,
             "the traced river set never came up in {EPISODES} episodes"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Post-terminal step guard (ADR 0044, issue #291).
+    //
+    // Both drivers reach the terminal through real `step()` calls, and both end
+    // the episode on a *task* terminal — the goal, or lava — never by spending
+    // the step budget. `grids/core/mod.rs::build_snapshot` currently stamps a
+    // step-limit cutoff `Terminated` rather than `Truncated` (#1028, out of
+    // scope here); driving through the budget would bake that bug into these
+    // assertions and force #1028's fix to rewrite them.
+    // -----------------------------------------------------------------------
+
+    /// Reset, then walk the planned safe path to the goal with real `step()`s.
+    ///
+    /// Returns the terminal snapshot. The layout is sampled fresh every reset,
+    /// so the route is re-planned from the board rather than scripted.
+    fn drive_to_goal(env: &mut CrossingEnv) -> GridSnapshot {
+        env.reset().expect("reset");
+        let path = safe_path(env.state()).expect("every sampled board is solvable");
+        let mut last = None;
+        for action in actions_along(&path, env.state().agent.direction) {
+            last = Some(env.step(action).expect("step must succeed until the goal"));
+        }
+        last.expect("the plan must contain at least one action")
+    }
+
+    /// Reset until lava sits directly south of the start, then walk into it.
+    ///
+    /// Returns the terminal snapshot.
+    fn drive_into_lava(env: &mut CrossingEnv) -> GridSnapshot {
+        assert!(
+            reset_until_blocker_south(env, 512),
+            "no episode in 512 put lava directly south of the start"
+        );
+        env.step(GridAction::TurnRight).expect("turn");
+        env.step(GridAction::Forward).expect("step onto lava")
+    }
+
+    #[test]
+    fn test_crossing_rejects_post_terminal_step_after_reaching_goal() {
+        let mut env = default_env(CrossingKind::Lava);
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_goal,
+            GridAction::TurnLeft,
+        );
+    }
+
+    #[test]
+    fn test_crossing_rejects_post_terminal_step_after_hitting_lava() {
+        // The lava ending is the one this env is *about*, and it was the more
+        // damaging leak: the agent is left standing on the lava tile, so an
+        // unguarded turn or side-step re-emitted a `Running` snapshot and the
+        // episode carried on from a death.
+        let mut env = default_env(CrossingKind::Lava);
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_into_lava,
+            GridAction::TurnLeft,
+        );
+    }
+
+    #[test]
+    fn test_crossing_rejected_step_does_not_mutate_state() {
+        // The guard must reject *before* `steps += 1`, before `apply_action`
+        // touches the grid or the agent, and before any RNG draw (ADR 0029).
+        let mut env = default_env(CrossingKind::Lava);
+        let terminal = drive_into_lava(&mut env);
+        assert!(terminal.is_done(), "the drive must end the episode");
+
+        let steps = env.steps();
+        let agent = env.state().agent;
+        let board = env.ascii();
+
+        env.step(GridAction::Forward)
+            .expect_err("a post-terminal step must be rejected");
+
+        assert_eq!(
+            env.steps(),
+            steps,
+            "a rejected step must not advance `steps`"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent.x, agent.y),
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.state().agent.direction,
+            agent.direction,
+            "a rejected step must not turn the agent"
+        );
+        assert_eq!(
+            env.ascii(),
+            board,
+            "a rejected step must not touch the grid"
+        );
+    }
+
+    #[test]
+    fn test_crossing_rejected_step_does_not_advance_the_rng() {
+        // The sharper half of the ADR 0029 claim: two envs seeded alike, one of
+        // which is asked for an illegal step, must still sample the *same* next
+        // board. Only a guard that runs before every draw can deliver that.
+        let mut guarded = default_env(CrossingKind::Lava);
+        let mut clean = default_env(CrossingKind::Lava);
+
+        for env in [&mut guarded, &mut clean] {
+            let terminal = drive_to_goal(env);
+            assert!(terminal.is_done(), "the drive must end the episode");
+        }
+        for _ in 0..3 {
+            guarded
+                .step(GridAction::Forward)
+                .expect_err("post-terminal steps must be rejected");
+        }
+
+        guarded.reset().expect("reset");
+        clean.reset().expect("reset");
+        assert_eq!(
+            guarded.ascii(),
+            clean.ascii(),
+            "rejected steps drew from the RNG: the next episode's board diverged"
+        );
+    }
+
+    #[test]
+    fn test_crossing_reset_reopens_a_terminated_episode() {
+        let mut env = default_env(CrossingKind::Lava);
+        let terminal = drive_into_lava(&mut env);
+        assert!(terminal.is_done(), "the drive must end the episode");
+        env.step(GridAction::TurnLeft)
+            .expect_err("the episode has ended; a further step must be rejected");
+
+        let snapshot = env.reset().expect("reset");
+        assert!(
+            !snapshot.is_done(),
+            "reset() must hand back a running snapshot"
+        );
+        assert_eq!(env.steps(), 0, "reset() must clear the step counter");
+        env.step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
     }
 
     /// Occlusion hides the **goal** from a cell on the solution corridor — and

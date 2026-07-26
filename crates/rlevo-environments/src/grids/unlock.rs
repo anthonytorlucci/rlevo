@@ -73,8 +73,9 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -245,6 +246,26 @@ pub struct UnlockEnv {
     steps: usize,
     render: bool,
     door_pos: (i32, i32),
+    /// Rejects a `step()` taken after the door opened (or the step budget ran
+    /// out).
+    ///
+    /// Termination here is recomputed from the live grid every call —
+    /// `door_is_open()` reads `self.state.grid` — so nothing latched the episode
+    /// as over. Without this guard, a post-terminal step re-read an open door
+    /// and paid `success_reward(self.steps, max_steps)` **again**, once per
+    /// call, while `self.steps` kept advancing past the true episode length and
+    /// decayed each successive payout; past `max_steps` the formula goes
+    /// negative (`success_reward` deliberately does not clamp, "no env should
+    /// call it past termination"), so the same finished episode could keep
+    /// billing the agent.
+    ///
+    /// Worse, the door is re-toggleable: `dynamics::toggle` maps
+    /// `Open -> Closed` unconditionally and `Closed -> Open` without needing the
+    /// key. So after the winning `Toggle`, an unguarded agent could shut the
+    /// door and re-open it, collecting the unlock reward a second, third, and
+    /// n-th time from a single unlock — an unbounded return farmed out of one
+    /// solved episode.
+    guard: EpisodeGuard,
 }
 
 impl UnlockEnv {
@@ -295,6 +316,7 @@ impl UnlockEnv {
             steps: 0,
             render,
             door_pos,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -407,7 +429,13 @@ impl Environment<3, 3, 1> for UnlockEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Rebuilds the fixed board and re-opens the episode.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         let (state, door_pos) = Self::build(&self.config);
         self.state = state;
         self.door_pos = door_pos;
@@ -416,7 +444,23 @@ impl Environment<3, 3, 1> for UnlockEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies `action`, then ends the episode if the door is now open or the
+    /// step budget is exhausted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances and before `apply_action` touches
+        // the grid, so a rejected call leaves the board, the step counter, and
+        // the door state exactly as the terminal snapshot described them. Making
+        // termination re-derivable from a mutated grid is precisely how the
+        // unlock reward became farmable (ADR 0044); this env draws no
+        // randomness, but the same ordering keeps a future draw off a rejected
+        // path (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let _ = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = if self.door_is_open() {
@@ -427,7 +471,11 @@ impl Environment<3, 3, 1> for UnlockEnv {
             (0.0, false)
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status rather than a re-derived literal.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -445,8 +493,9 @@ mod tests {
     // `test_unlock_occlusion_is_carried_entirely_by_the_locked_door`.
     use super::super::core::grid::egocentric_view;
     use super::super::core::{UNSEEN_TYPE, VIEW_SIZE, mask_view};
+    // `Snapshot` arrives through `super::*`: `step()` reads `status()` off the
+    // snapshot it emits, so the trait is now in scope crate-side.
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
 
     /// The four facings, for the occlusion sweep.
     const DIRECTIONS: [Direction; 4] = [
@@ -800,6 +849,144 @@ mod tests {
             UnlockEnv::VISIBILITY,
             Visibility::Occluded,
             "Unlock derives from RoomGrid, which passes see_through_walls=False"
+        );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// Drives a fresh episode to the winning terminal snapshot the honest way:
+    /// through real `step()` calls, ending by **unlocking and opening the door**
+    /// rather than by exhausting `max_steps`.
+    ///
+    /// The step-limit ending is deliberately avoided: `build_snapshot` maps a
+    /// budget cutoff to `Terminated` rather than `Truncated` (issue #1028), so a
+    /// timeout-driven conformance test would bake in a status the environment
+    /// gets wrong. Opening the door is a genuine termination.
+    fn drive_to_open_door(env: &mut UnlockEnv) -> GridSnapshot {
+        env.reset().expect("reset must succeed");
+        let script = [
+            GridAction::Pickup,   // grab the key
+            GridAction::TurnLeft, // face north toward the door
+            GridAction::Toggle,   // unlock (Locked -> Closed)
+            GridAction::Toggle,   // open   (Closed -> Open)
+        ];
+        let mut last = None;
+        for a in script {
+            last = Some(env.step(a).expect("the winning script must be steppable"));
+        }
+        last.expect("the script is non-empty")
+    }
+
+    /// Conformance with the shared post-terminal contract: once the door is
+    /// open, a further legal `step()` fails with `StepAfterEpisodeEnd` carrying
+    /// the status that ended the episode.
+    #[test]
+    fn test_unlock_rejects_post_terminal_step() {
+        let mut env = test_env();
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_open_door,
+            GridAction::Toggle,
+        );
+    }
+
+    /// Regression for the concrete defect the guard prevents.
+    ///
+    /// Termination is recomputed from the live grid (`door_is_open()`), so an
+    /// unguarded post-terminal step advanced `self.steps`, re-ran
+    /// `apply_action`, and paid `success_reward` again on the still-open door —
+    /// and a replayed `Toggle` shut the door (`Open -> Closed`, no key needed),
+    /// so the very next `Toggle` re-opened it and billed the unlock reward a
+    /// second time. A rejected step must mutate nothing: not the counter, not
+    /// the agent's pose, not the door.
+    #[test]
+    fn test_unlock_post_terminal_step_cannot_re_pay_the_unlock_reward() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = test_env();
+        let terminal = drive_to_open_door(&mut env);
+        assert!(terminal.is_done(), "opening the door must terminate");
+        let paid: f32 = (*terminal.reward()).into();
+        assert!(paid > 0.0, "the unlock reward was {paid}");
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        let door_at_end = env.state().grid.get(env.door_pos().0, env.door_pos().1);
+        assert_eq!(
+            door_at_end,
+            Entity::Door(DOOR_COLOR, DoorState::Open),
+            "the episode ended with the door open"
+        );
+
+        let err = env
+            .step(GridAction::Toggle)
+            .expect_err("a step after the door opened must return Err, not another payout");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                terminal.status(),
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (
+                env.state().agent.x,
+                env.state().agent.y,
+                env.state().agent.direction
+            ),
+            (agent_at_end.x, agent_at_end.y, agent_at_end.direction),
+            "a rejected step must not move or turn the agent"
+        );
+        assert_eq!(
+            env.state().grid.get(env.door_pos().0, env.door_pos().1),
+            door_at_end,
+            "a rejected Toggle must not shut the door and re-arm another unlock reward"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    #[test]
+    fn test_unlock_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = test_env();
+        drive_to_open_door(&mut env);
+        assert!(
+            env.step(GridAction::Toggle).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert_eq!(
+            env.state().grid.get(1, 0),
+            Entity::Door(DOOR_COLOR, DoorState::Locked),
+            "reset() must re-lock the door for the new episode"
+        );
+
+        let snap = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
         );
     }
 

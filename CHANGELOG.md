@@ -504,6 +504,57 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` was an unbounded reward pump across the whole `grids`
+  family** (ADR 0044, resolves #291) — all twelve gridworlds derived termination
+  from a predicate over the *current* board rather than latching it, and the
+  shared dynamics consume nothing on success: `step_forward` moves the agent
+  **onto** `Entity::Goal` and leaves the cell intact. So a finished episode was
+  re-enterable. Stepping off the goal and back on re-raised
+  `StepOutcome::ReachedGoal` and paid `success_reward` again, on a loop as short
+  as two steps. Measured, not inferred: `EmptyEnv` banked `0.955 + 0.901 = 1.856`
+  for a single goal; `GoToDoorEnv` returned **5.649 on a task whose maximum is
+  1.0** (one win plus five replayed `Done`s). Because `success_reward` is
+  step-count-discounted and deliberately unclamped, replays past `max_steps` go
+  **negative** — a below-zero reward on a snapshot the caller reads as a win.
+  The intermediate calls emitted **`Running`** snapshots *after* a `Terminated`
+  one, so any rollout loop watching `is_done()` simply kept collecting.
+
+  Several envs lost a task-defining property rather than just reward hygiene. A
+  `LavaGapEnv` / `CrossingEnv` death was reversible — the agent stands *on* the
+  lava, and one more `Forward` walks it off and re-emits `Running`, converting a
+  `0.0` death into a positive-return episode. In `MemoryEnv` a wrong commit could
+  be retracted and the other object taken for full reward, making guessing free
+  and dissolving the recall property the 11-cell layout exists to enforce; the
+  same retry defeated `GoToDoorEnv`'s 25% cap on a mission-blind policy.
+  `UnlockEnv` was farmable because `toggle` maps `Open -> Closed` with no key
+  check, and `UnlockPickupEnv` because `Drop` returned the box and flipped
+  `has_target()` false. `DynamicObstaclesEnv` is the one that broke a documented
+  *invariant*: a collision-terminal step leaves an obstacle tracked on the
+  agent's cell with no `Ball` drawn, so re-entering `move_obstacles` violates its
+  SOUNDNESS premise and obstacles merge — reproduced at `seed = 37`,
+  `size = 5`, `num_obstacles = 4`, where `[(2,2),(2,1),(1,1),(1,3)]` becomes
+  `[(1,2),(1,1),(1,1),(2,3)]` on the *first* post-terminal step. #125 shipped
+  with that caveat documented rather than fixed; the guard now makes the
+  invariant unconditional, and the hedged prose on `obstacles()` and
+  `move_obstacles` has been tightened accordingly.
+
+  Every one of the twelve now holds an `episode::EpisodeGuard`, `check()`s it as
+  the first statement of `step()` — before the step counter, before
+  `apply_action`, and before `move_obstacles` draws (ADR 0029: a rejected step
+  must not advance the seed stream) — and `record()`s the emitted snapshot's own
+  status on a single exit. `DynamicObstaclesEnv`'s three return paths were
+  collapsed to one to make that reachable. Where `reset()` runs a fallible
+  `Self::build(..)?` (`FourRoomsEnv`, `DoorKeyEnv`, `UnlockPickupEnv`) the guard
+  is cleared **only on success**, per ADR 0044 §6 and the `TimeLimit::reset`
+  precedent: clearing first would re-open a finished episode over a board that
+  never returned to its initial state.
+
+  Note the guard is orthogonal to #1028, still open: `build_snapshot` maps a
+  step-limit cutoff to `Terminated` rather than `Truncated`, so the grids family
+  still disagrees with `SantaFeAnt`, which emits `Truncated` for its time limit.
+  The new conformance tests deliberately end their episodes on a task terminal
+  (goal, lava, mission, collision) rather than the step limit, so fixing #1028
+  will not require rewriting them.
 - **Post-terminal `step()` silently resurrected a finished episode across the
   whole `classic` family** (ADR 0044, resolves #290) — the contract #105 made
   normative on `Environment::step` was enforced only by `toy_text` and

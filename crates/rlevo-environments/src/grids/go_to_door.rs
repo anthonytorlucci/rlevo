@@ -85,13 +85,14 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use burn::tensor::{Tensor, backend::Backend};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use rlevo_core::base::{HostRow, Observation, TensorConversionError, TensorConvertible};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{
-    ConstructableEnv, Environment, EnvironmentError, Sensor, SnapshotBase,
+    ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot as _, SnapshotBase,
 };
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
@@ -543,6 +544,12 @@ impl FromStr for GoToDoorConfig {
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
 /// [`GoToDoorObservation`] / [`GridAction`] / [`ScalarReward`].
 ///
+/// [`GridAction::Done`] ends the episode either way — at a target-colored door
+/// for [`success_reward`], anywhere else for `0.0` — and a
+/// [`step`](Environment::step) taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`]; see the `guard` field for what
+/// that rejection prevents.
+///
 /// # Examples
 ///
 /// ```rust
@@ -564,6 +571,31 @@ pub struct GoToDoorEnv {
     /// North / East / South / West wall order.
     doors: [(i32, i32, Color); DOOR_COUNT],
     rng: StdRng,
+    /// Rejects a `step()` taken after `Done` already ended the episode.
+    ///
+    /// Two concrete defects, both measured on the unguarded code:
+    ///
+    /// - **The success reward was re-paid, once per replayed `Done`.** `Done`
+    ///   leaves the agent where it stands ([`apply_action`] returns
+    ///   [`StepOutcome::DoneAction`] without moving it), and the mission is only
+    ///   re-sampled at [`reset`](Environment::reset) — so after a winning `Done`
+    ///   the target-colored door is *still* in front and every further `Done`
+    ///   re-satisfied the win condition. On seed 31 a 4-step win paid `0.964`,
+    ///   then five replayed `Done`s paid `0.955, 0.946, 0.937, 0.928, 0.919`,
+    ///   for an episode return of `5.649` on a task whose maximum is `1.0`. The
+    ///   payments shrink only because [`success_reward`] discounts by
+    ///   `self.steps`, which the replays also kept advancing (4 → 9, past
+    ///   `max_steps` given enough calls — at which point `success_reward` goes
+    ///   negative and the replays start *charging* the agent).
+    /// - **A failed mission became retryable inside the same episode.** A
+    ///   *wrong*-color `Done` also ends the episode (`0.0`), but the next
+    ///   non-`Done` action took the `else` branch and emitted a **`Running`**
+    ///   snapshot: on seed 6 a wrong-door `Done` at step 5 was followed by a
+    ///   `TurnLeft` that resurrected the episode at step 6. The agent could then
+    ///   walk to the correct door and collect the full success reward, which
+    ///   destroys the 25% cap on a mission-blind policy that this environment
+    ///   exists to enforce.
+    guard: EpisodeGuard,
 }
 
 impl GoToDoorEnv {
@@ -625,6 +657,7 @@ impl GoToDoorEnv {
             mission,
             doors,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -835,6 +868,13 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
     /// independent door colors and missions. Use
     /// [`reset_with_seed`](Self::reset_with_seed) for deterministic replay.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Re-open the episode first, so no later statement can return early and
+        // strand a latched guard. `build` is infallible and this body has no `?`,
+        // so `reset` never leaves here on an `Err` path today; should `build`
+        // ever become fallible, move this below the commit of the new episode —
+        // a reset that failed to produce a snapshot must not re-open stepping on
+        // the *old*, already-terminated state.
+        self.guard.reset();
         let (state, doors, mission) = Self::build(&self.config, &mut self.rng);
         self.state = state;
         self.doors = doors;
@@ -844,7 +884,22 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies `action`, then pays [`success_reward`] iff it was
+    /// [`GridAction::Done`] with a target-colored door in front.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances, before `apply_action` touches
+        // the grid or the agent pose, and before anything reads `self.rng`. A
+        // rejected call must leave the environment bit-identical — `step` draws
+        // no randomness today, but `reset` shares the persistent stream, so
+        // checking any later would let illegal calls shift every subsequent
+        // episode's doors and mission and desynchronise replay (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let outcome = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = if outcome == StepOutcome::DoneAction {
@@ -857,8 +912,12 @@ impl Environment<3, 3, 1> for GoToDoorEnv {
             let done = self.steps >= self.config.max_steps;
             (0.0, done)
         };
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch above can disagree with it.
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -880,7 +939,7 @@ mod tests {
     // The env no longer cuts the raw window itself (it goes through `mask_view`),
     // but the encoding tests still compare against the *unoccluded* view.
     use crate::grids::core::grid::egocentric_view;
-    use rlevo_core::environment::Snapshot;
+    use rlevo_core::environment::{EpisodeStatus, Snapshot};
     use std::collections::HashSet;
 
     /// Wall order used by `GoToDoorEnv::doors` and by the scripts below.
@@ -1485,6 +1544,183 @@ mod tests {
         assert_eq!(env.steps(), 1);
         env.reset().expect("reset must succeed");
         assert_eq!(env.steps(), 0, "reset must zero the step counter");
+    }
+
+    // ─────────────── post-terminal step guard (ADR 0044, issue #291) ─────────
+
+    /// Reset, read the target wall out of the observation's mission channel,
+    /// walk to that door and issue `Done` — returning the terminal snapshot.
+    ///
+    /// Drives to termination through real `step()` calls only: no hand-written
+    /// snapshot, no poking at `env.state`. Mission completion is deliberately
+    /// preferred over exhausting `max_steps`, because a step-limit ending is
+    /// currently mislabelled `Terminated` rather than `Truncated` (issue #1028,
+    /// out of scope here) — the conformance check must not be written against
+    /// a status the env is known to be reporting wrongly.
+    fn drive_to_mission_done(env: &mut GoToDoorEnv) -> GoToDoorSnapshot {
+        let snap = env.reset().expect("reset must succeed");
+        let wall = target_wall(env, snap.observation());
+        let mut last = None;
+        for &a in script_for(wall) {
+            last = Some(env.step(a).expect("the scripted route must step cleanly"));
+        }
+        last.expect("script_for is never empty")
+    }
+
+    /// Asserts every cell of `obs` carries `expected` in the mission channel.
+    fn assert_mission_channel_is(obs: &GoToDoorObservation, expected: u8, context: &str) {
+        for (r, row) in obs.view.iter().enumerate() {
+            for (c, cell) in row.iter().enumerate() {
+                assert_eq!(
+                    cell[MISSION_CHANNEL], expected,
+                    "{context}: cell ({r}, {c}) must carry the mission color byte"
+                );
+            }
+        }
+    }
+
+    #[test]
+    /// The shared conformance check: once the mission-completing `Done` has
+    /// ended the episode, a further legal action fails with
+    /// `StepAfterEpisodeEnd` carrying the status that ended it.
+    fn test_go_to_door_rejects_post_terminal_step() {
+        let mut env = env_6x6(31);
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_mission_done,
+            GridAction::Done,
+        );
+    }
+
+    #[test]
+    /// Regression for the defect the guard prevents: because `Done` does not
+    /// move the agent and the mission is only re-sampled at `reset`, a replayed
+    /// `Done` used to find the target door still in front, re-pay
+    /// `success_reward`, and advance `steps` — five replays turned a `0.964`
+    /// win into a `5.649` return. A rejected step must mutate nothing at all.
+    fn test_go_to_door_post_terminal_done_neither_pays_nor_advances() {
+        let mut env = env_6x6(31);
+        let terminal = drive_to_mission_done(&mut env);
+        assert!(
+            terminal.is_terminated(),
+            "the scripted route must end on the mission-completing Done"
+        );
+        let won: f32 = (*terminal.reward()).into();
+        assert!(won > 0.9, "the oracle must be paid for the win, got {won}");
+
+        let steps_at_end = env.steps();
+        let pose_at_end = (
+            env.state().agent.x,
+            env.state().agent.y,
+            env.state().agent.direction,
+        );
+
+        let err = env
+            .step(GridAction::Done)
+            .expect_err("a replayed Done must be rejected, not paid a second time");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (
+                env.state().agent.x,
+                env.state().agent.y,
+                env.state().agent.direction
+            ),
+            pose_at_end,
+            "a rejected step must not move or re-orient the agent"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// The second half of the defect: a *wrong*-color `Done` also ends the
+    /// episode, and the next non-`Done` action used to emit a `Running`
+    /// snapshot — resurrecting the episode so the agent could walk on to the
+    /// correct door and collect the win it had just forfeited.
+    fn test_wrong_door_done_cannot_be_retried_within_the_episode() {
+        let mut env = env_6x6(6);
+        let snap = env.reset().expect("reset must succeed");
+        let target = target_wall(&env, snap.observation());
+        let wrong = (target + 1) % DOOR_COUNT;
+        let forfeit = run(&mut env, script_for(wrong));
+        assert_eq!(forfeit, 0.0, "a wrong-color Done pays nothing");
+
+        let err = env
+            .step(GridAction::TurnLeft)
+            .expect_err("a forfeited mission must not be retryable within the episode");
+        assert!(
+            matches!(
+                err,
+                EnvironmentError::StepAfterEpisodeEnd {
+                    status: EpisodeStatus::Terminated
+                }
+            ),
+            "expected StepAfterEpisodeEnd {{ Terminated }}, got {err:?}"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a terminated episode — a latched guard must not
+    /// strand the environment — and the fresh episode's mission channel agrees
+    /// with the freshly sampled mission on every cell, on the reset snapshot
+    /// and on the first step's snapshot alike.
+    fn test_reset_reopens_terminated_episode_with_a_coherent_mission() {
+        let mut env = env_6x6(31);
+        drive_to_mission_done(&mut env);
+        assert!(
+            env.step(GridAction::Done).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let snap = env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert!(!snap.is_done(), "a reset snapshot is not done");
+        assert_mission_channel_is(
+            snap.observation(),
+            env.mission().color_u8(),
+            "reset snapshot",
+        );
+
+        let stepped = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !stepped.is_done(),
+            "a turn on the first step of a fresh episode must not end it"
+        );
+        assert_mission_channel_is(
+            stepped.observation(),
+            env.mission().color_u8(),
+            "first step of the new episode",
+        );
+        assert_eq!(
+            env.doors()
+                .iter()
+                .filter(|&&(_, _, c)| c == env.mission().target_color)
+                .count(),
+            1,
+            "the re-opened episode must still have exactly one target-colored door"
+        );
     }
 
     #[test]

@@ -95,10 +95,11 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
+use crate::episode::EpisodeGuard;
 use rand::rngs::StdRng;
 use rand::{Rng, RngExt, SeedableRng};
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor, Snapshot};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -302,6 +303,10 @@ struct Layout {
 /// cell, and agent pose — see the module docs for the draw order and
 /// [`UnlockPickupConfig::seed`] for the reproducibility contract.
 ///
+/// Carrying the target box terminates the episode; a [`step`](Environment::step)
+/// taken afterwards is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
+///
 /// Implements [`Environment<3, 3, 1>`] with [`GridState`] /
 /// [`GridObservation`](super::core::GridObservation) / [`GridAction`] / [`ScalarReward`].
 ///
@@ -323,6 +328,24 @@ pub struct UnlockPickupEnv {
     render: bool,
     layout: Layout,
     rng: StdRng,
+    /// Rejects a `step()` taken after the box was picked up. Termination here is
+    /// [`has_target`](Self::has_target) — "is the agent carrying the target box
+    /// *right now*" — recomputed from the live state on every call, never
+    /// latched. Without the guard a post-terminal `step()` therefore re-ran the
+    /// whole predicate on a finished episode, and both of its answers were
+    /// defects:
+    ///
+    /// - **Still carrying** (any action but `Drop`): the env emitted another
+    ///   `Terminated` snapshot paying `success_reward(self.steps, max_steps)`
+    ///   *again*, once per call, while `self.steps` kept advancing past the true
+    ///   episode length — so the extra payouts also decayed, silently
+    ///   contaminating any per-episode return or step-count metric.
+    /// - **`Drop`**: the box goes back on the board, `has_target()` turns
+    ///   `false`, and the env emitted a **`Running`** snapshot — a finished
+    ///   episode resurrected, `done → not done`. A following `Pickup` re-satisfied
+    ///   `has_target()` and paid the success reward a second time, so
+    ///   `Drop`/`Pickup` cycling was an unbounded reward pump on a single box.
+    guard: EpisodeGuard,
 }
 
 impl UnlockPickupEnv {
@@ -386,6 +409,7 @@ impl UnlockPickupEnv {
             render,
             layout,
             rng,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -637,8 +661,21 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
     /// the target box is part of the draw, so leaving
     /// [`target`](UnlockPickupEnv::target) behind would score the episode against
     /// an object that is not on the board.
+    ///
+    /// # Errors
+    ///
+    /// Propagates a [`PlacementError`] from [`build`](Self::build) as an
+    /// [`EnvironmentError::Config`] if the fresh layout cannot be placed. On that
+    /// path the whole reset is a no-op — board, step counter *and*
+    /// [`EpisodeGuard`] are left exactly as they were. The guard is deliberately
+    /// cleared only **after** the fallible build, for the reason ADR 0044 gives
+    /// for `TimeLimit::reset`: clearing first would re-open a finished episode
+    /// even though the environment never returned to an initial state, leaving
+    /// `step()` willing to run on the stale terminal board — the very board that
+    /// still has the target box in the agent's hands.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         let (state, layout) = Self::build(&self.config, &mut self.rng)?;
+        self.guard.reset();
         self.state = state;
         self.layout = layout;
         self.steps = 0;
@@ -646,7 +683,20 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
         Ok(self.emit(observation, 0.0, false))
     }
 
+    /// Applies one [`GridAction`] and returns the resulting snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before `steps` advances, before `apply_action` touches the
+        // grid or the agent's hands, and before anything could draw from the
+        // persistent stream. A rejected call must leave the environment
+        // bit-identical, or the layouts of every later episode would depend on
+        // how many illegal steps a caller made (ADR 0029).
+        self.guard.check()?;
+
         self.steps += 1;
         let _ = apply_action(&mut self.state.grid, &mut self.state.agent, action);
         let (reward, done) = if self.has_target() {
@@ -657,7 +707,11 @@ impl Environment<3, 3, 1> for UnlockPickupEnv {
             (0.0, false)
         };
         let observation = self.observe(&action, &self.state);
-        Ok(self.emit(observation, reward, done))
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch above can forget to record.
+        let snapshot = self.emit(observation, reward, done);
+        self.guard.record(snapshot.status());
+        Ok(snapshot)
     }
 }
 
@@ -683,7 +737,8 @@ mod tests {
     use crate::direction::Direction;
     use crate::grids::core::AgentState;
     use rlevo_core::config::ConstraintKind;
-    use rlevo_core::environment::Snapshot;
+    // `Snapshot` arrives through `use super::*`: `step()` now needs it in the
+    // parent module to read `snapshot.status()` for the guard.
     use std::collections::{HashSet, VecDeque};
 
     /// Every seed loop runs at the enforced floor **and** at a larger board, so
@@ -1512,6 +1567,161 @@ mod tests {
             UnlockPickupEnv::VISIBILITY,
             Visibility::Occluded,
             "UnlockPickup derives from RoomGrid, which passes see_through_walls=False"
+        );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #291) ──────────────────────
+
+    /// Drive a fresh episode to its terminal snapshot **by picking up the box**,
+    /// through real `step()` calls only.
+    ///
+    /// The task's own terminal, not the step-limit one: `build_snapshot` maps a
+    /// timeout to `Terminated` rather than `Truncated` (GitHub #1028, out of
+    /// scope here), so a step-limit ending would pin the guard to a status this
+    /// environment is expected to stop emitting.
+    ///
+    /// The route is planned from the board the env actually drew — seed 3's
+    /// layout, the same one `a_planned_rollout_takes_the_key_then_the_box`
+    /// solves — because a sampled layout has no fixed action script.
+    fn drive_to_box_pickup(env: &mut UnlockPickupEnv) -> GridSnapshot {
+        env.reset_with_seed(3).expect("reset");
+        let target = env.target();
+        let route = plan(env.state(), &|agent| agent.carrying == Some(target))
+            .unwrap_or_else(|| panic!("seed 3 must be solvable:\n{}", env.ascii()));
+        let snapshot = run(env, &route);
+        assert!(
+            snapshot.is_done(),
+            "carrying the target box must end the episode"
+        );
+        assert_eq!(
+            env.state().agent.carrying,
+            Some(target),
+            "the plan must end with the box in hand"
+        );
+        snapshot
+    }
+
+    /// `UnlockPickupEnv` satisfies the shared post-terminal conformance check:
+    /// once the box is in hand, a further legal `step()` fails with
+    /// `StepAfterEpisodeEnd` carrying the status that ended the episode.
+    #[test]
+    fn test_unlock_pickup_rejects_post_terminal_step() {
+        let mut env = env_7x7();
+        crate::episode::assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_box_pickup,
+            GridAction::TurnLeft,
+        );
+    }
+
+    /// Regression for the concrete defect the guard prevents.
+    ///
+    /// `has_target()` is recomputed from the live state each call, so an
+    /// unguarded post-terminal `Drop` put the box back on the board, flipped the
+    /// predicate to `false`, and emitted a **`Running`** snapshot — resurrecting
+    /// a finished episode and arming a second `Pickup` to pay the success reward
+    /// all over again. A rejected step must mutate nothing at all: not the step
+    /// counter, not the agent's pose, not what it is carrying, not the board.
+    #[test]
+    fn test_unlock_pickup_post_terminal_step_does_not_reopen_the_episode() {
+        let mut env = env_7x7();
+        let terminal = drive_to_box_pickup(&mut env);
+        let ended = terminal.status();
+
+        let steps_at_end = env.steps();
+        let agent_at_end = env.state().agent;
+        let board_at_end = env.ascii();
+
+        let err = env.step(GridAction::Drop).expect_err(
+            "dropping the box after termination must return Err, not a Running snapshot",
+        );
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps(),
+            steps_at_end,
+            "a rejected step must not advance the step counter"
+        );
+        assert_eq!(
+            (env.state().agent.x, env.state().agent.y),
+            (agent_at_end.x, agent_at_end.y),
+            "a rejected step must not move the agent"
+        );
+        assert_eq!(
+            env.state().agent.carrying,
+            agent_at_end.carrying,
+            "a rejected Drop must leave the box in the agent's hands"
+        );
+        assert_eq!(
+            env.ascii(),
+            board_at_end,
+            "a rejected step must not put the box back on the board"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not re-open the episode"
+        );
+    }
+
+    /// `reset()` re-opens a terminated environment, so a latched guard cannot
+    /// strand the env for the rest of a run.
+    #[test]
+    fn test_unlock_pickup_reset_reopens_terminated_episode() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = env_7x7();
+        drive_to_box_pickup(&mut env);
+        assert!(
+            env.step(GridAction::TurnLeft).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert_eq!(env.steps(), 0, "reset() must clear the step counter");
+
+        let snapshot = env
+            .step(GridAction::TurnLeft)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snapshot.is_done(),
+            "a turn on a fresh board must not end the episode"
+        );
+    }
+
+    /// A rejected post-terminal step draws no randomness. `step()` does not
+    /// sample today, but `reset()` shares the persistent stream: checking the
+    /// guard after any future draw would let illegal calls shift every
+    /// subsequent episode's layout and desynchronise replay (ADR 0029).
+    #[test]
+    fn test_unlock_pickup_rejected_step_does_not_advance_rng() {
+        let mut rejected = env_7x7();
+        let mut untouched = env_7x7();
+        drive_to_box_pickup(&mut rejected);
+        drive_to_box_pickup(&mut untouched);
+
+        rejected
+            .step(GridAction::Toggle)
+            .expect_err("a step after termination must be rejected");
+
+        rejected.reset().expect("reset");
+        untouched.reset().expect("reset");
+        assert_eq!(
+            fingerprint(&rejected),
+            fingerprint(&untouched),
+            "a rejected step must draw no randomness; the next episode must be the board \
+             it would have been"
         );
     }
 }
