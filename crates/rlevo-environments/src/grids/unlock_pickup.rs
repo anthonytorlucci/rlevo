@@ -81,13 +81,14 @@
 //! [`UnlockPickupEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockPickupEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
     dynamics::apply_action,
     entity::{DoorState, Entity},
     grid::Grid,
+    observe_grid,
     placement::{PlacementError, Rect, no_reject, place_agent, place_obj},
     render::render_ascii,
     reward::success_reward,
@@ -543,7 +544,11 @@ impl UnlockPickupEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 
     fn has_target(&self) -> bool {

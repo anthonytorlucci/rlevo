@@ -83,13 +83,14 @@
 //! [`place_obj`]: super::core::place_obj
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     build_snapshot,
     color::Color,
     dynamics::{StepOutcome, apply_action},
     entity::{DoorState, Entity},
     grid::Grid,
+    observe_grid,
     placement::{PlacementError, Rect, no_reject, place_agent, place_obj},
     render::render_ascii,
     reward::success_reward,
@@ -491,7 +492,11 @@ impl DoorKeyEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 }
 

@@ -76,7 +76,7 @@
 //! [`Lava`]: super::core::entity::Entity::Lava
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -84,6 +84,7 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -437,7 +438,11 @@ impl LavaGapEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 }
 

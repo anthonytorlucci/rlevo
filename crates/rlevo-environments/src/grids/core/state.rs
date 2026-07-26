@@ -1,17 +1,28 @@
 //! Full environment state: a [`Grid`] plus the owning [`AgentState`].
 
 use super::agent::AgentState;
-use super::grid::{Grid, egocentric_view};
-use super::observation::{GridObservation, OBS_CHANNELS, VIEW_SIZE};
+use super::grid::Grid;
+use super::observation::{OBS_CHANNELS, VIEW_SIZE};
 use rlevo_core::base::State;
-use rlevo_core::state::Observable;
 
 /// The complete state of a grid environment.
 ///
-/// `GridState::shape` reports `[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]` —
-/// the shape of the egocentric observation that `project()` emits. The
-/// grid itself can be any size at runtime; the static shape is constant
-/// across all grid environments so tensor code doesn't have to branch.
+/// `GridState::shape` reports `[VIEW_SIZE, VIEW_SIZE, OBS_CHANNELS]` — the
+/// shape of the egocentric observation that
+/// [`observe_grid`](super::observe_grid) emits for it. The grid itself can be
+/// any size at runtime; the static shape is constant across all grid
+/// environments so tensor code doesn't have to branch.
+///
+/// # Why there is no `Observable` impl
+///
+/// Observation production deliberately does **not** live on this type. The
+/// emission model is parameterised by the owning environment's
+/// [`Visibility`](super::Visibility) policy, which a `&self`-only
+/// [`project`](rlevo_core::state::Observable::project) cannot read — and an
+/// unparameterised projection would be an *unoccluded* view, correct for the
+/// see-through environments and silently wrong for the occluded majority. Call
+/// [`observe_grid`](super::observe_grid) with the environment's policy instead
+/// (ADR 0047, issue #281).
 #[derive(Debug, Clone)]
 pub struct GridState {
     /// The world grid.
@@ -41,18 +52,10 @@ impl State<3> for GridState {
     }
 }
 
-impl Observable<3> for GridState {
-    type Observation = GridObservation;
-
-    fn project(&self) -> Self::Observation {
-        let view = egocentric_view(&self.grid, &self.agent);
-        GridObservation::from_entity_view(view, self.agent.direction)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::entity::Entity;
+    use super::super::{Visibility, observe_grid};
     use super::*;
     use crate::direction::Direction;
 
@@ -68,7 +71,7 @@ mod tests {
         grid.set(3, 3, Entity::Goal);
         let agent = AgentState::new(1, 1, Direction::East);
         let state = GridState::new(grid, agent);
-        let obs = state.project();
+        let obs = observe_grid(&state, Visibility::SeeThrough);
         assert_eq!(obs.agent_direction, Some(Direction::East));
     }
 

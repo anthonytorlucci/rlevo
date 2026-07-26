@@ -189,7 +189,7 @@
 //! [`Color::Green`]: super::core::color::Color::Green
 
 use super::core::{
-    GridSnapshot, VIEW_SIZE,
+    GridSnapshot, VIEW_SIZE, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -198,6 +198,7 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -695,7 +696,11 @@ impl MemoryEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 
     /// `true` when the agent faces a **fork** object whose type equals the cue.
@@ -1033,10 +1038,7 @@ mod tests {
     fn test_memory_env_cue_is_visible_at_episode_start() {
         // Necessary counterpart to Invariant M: the cue has to be *seen* once.
         let env = env_default();
-        let obs = {
-            use rlevo_core::state::Observable as _;
-            env.state().project()
-        };
+        let obs = observe_grid(env.state(), Visibility::SeeThrough);
         // Facing East from the start cell, the cue one row above it is one cell
         // to the agent's left: view row VIEW_SIZE-1, column VIEW_SIZE/2 - 1.
         // (At the default size that is start (1, 6), cue (1, 5).)

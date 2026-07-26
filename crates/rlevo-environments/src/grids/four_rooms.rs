@@ -79,12 +79,13 @@
 //! [`FourRoomsEnv`]: https://minigrid.farama.org/environments/minigrid/FourRoomsEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     build_snapshot,
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observe_grid,
     placement::{PlacementError, Rect, no_reject, place_agent, place_obj},
     render::render_ascii,
     reward::success_reward,
@@ -537,7 +538,11 @@ impl FourRoomsEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 }
 

@@ -58,7 +58,7 @@
 //! [`UnlockEnv`]: https://minigrid.farama.org/environments/minigrid/UnlockEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -67,6 +67,7 @@ use super::core::{
     dynamics::apply_action,
     entity::{DoorState, Entity},
     grid::Grid,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -329,7 +330,11 @@ impl UnlockEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 
     fn door_is_open(&self) -> bool {

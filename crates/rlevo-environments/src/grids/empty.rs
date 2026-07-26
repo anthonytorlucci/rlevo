@@ -46,6 +46,7 @@
 //! [`Goal`]: super::core::entity::Entity::Goal
 
 use super::core::{
+    Visibility,
     action::GridAction,
     agent::AgentState,
     direction::Direction,
@@ -53,13 +54,13 @@ use super::core::{
     entity::Entity,
     grid::Grid,
     observation::GridObservation,
+    observe_grid,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
-use rlevo_core::state::Observable;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -303,10 +304,11 @@ impl EmptyEnv {
             // capture it if they wish, or drop it when invoked internally.
             let _ = super::core::render::render_ascii(&self.state.grid, &self.state.agent);
         }
+        let observation = observe_grid(&self.state, Visibility::SeeThrough);
         if done {
-            SnapshotBase::terminated(self.state.project(), ScalarReward::new(reward))
+            SnapshotBase::terminated(observation, ScalarReward::new(reward))
         } else {
-            SnapshotBase::running(self.state.project(), ScalarReward::new(reward))
+            SnapshotBase::running(observation, ScalarReward::new(reward))
         }
     }
 }

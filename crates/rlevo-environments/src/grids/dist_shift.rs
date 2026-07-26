@@ -49,7 +49,7 @@
 //! [`DistShiftEnv`]: https://minigrid.farama.org/environments/minigrid/DistShiftEnv/
 
 use super::core::{
-    GridSnapshot,
+    GridSnapshot, Visibility,
     action::GridAction,
     agent::AgentState,
     build_snapshot,
@@ -57,6 +57,7 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -327,7 +328,11 @@ impl DistShiftEnv {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(&self.state, reward, done)
+        build_snapshot(
+            observe_grid(&self.state, Visibility::SeeThrough),
+            reward,
+            done,
+        )
     }
 }
 

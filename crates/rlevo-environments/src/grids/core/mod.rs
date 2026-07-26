@@ -18,6 +18,13 @@
 //! uses neither [`GridObservation`] nor [`GridSnapshot`]. Everything else on this
 //! list — grid, agent, actions, dynamics — it shares. See ADR 0043
 //! (`docs/adr/0043-grid-observation-contract.md`).
+//!
+//! Emission is parameterised by [`Visibility`], the per-environment analogue of
+//! canonical Minigrid's `see_through_walls` constructor argument. Every grid
+//! environment produces its observation through [`observe_grid`] and hands the
+//! result to [`build_snapshot`], so the visibility policy is chosen by the
+//! environment — the emission model belongs to the environment, not to the
+//! state (ADR 0047).
 
 pub mod action;
 pub mod agent;
@@ -70,18 +77,111 @@ use rlevo_core::reward::ScalarReward;
 /// records why the shared observation was not widened for all twelve envs.
 pub type GridSnapshot = SnapshotBase<3, GridObservation, ScalarReward>;
 
-/// Build a [`GridSnapshot`] from a borrowed [`GridState`] plus a raw reward
-/// and done flag.
+/// Per-environment emission-model policy: does the agent see through opaque
+/// cells?
+///
+/// This is the rlevo spelling of canonical Minigrid's `see_through_walls`
+/// constructor argument ([`Occluded`](Self::Occluded) ==
+/// `see_through_walls=False`, which is canonical's default, and
+/// [`SeeThrough`](Self::SeeThrough) == `see_through_walls=True`). Minigrid sets
+/// it per environment rather than per family, which is why it is a value an env
+/// supplies to [`observe_grid`] and not a property of [`GridState`].
+///
+/// There is deliberately **no** `Default` impl. A default would be wrong for a
+/// third of the family — canonical marks four of the twelve environments
+/// see-through and the remaining eight occluded — so every environment must
+/// state its own value at the call site rather than inherit one silently.
+///
+/// # Examples
+///
+/// ```
+/// use rlevo_environments::grids::core::{
+///     AgentState, Grid, GridState, Visibility, observe_grid,
+/// };
+/// use rlevo_environments::direction::Direction;
+///
+/// let mut grid = Grid::new(5, 5);
+/// grid.draw_walls();
+/// let state = GridState::new(grid, AgentState::new(1, 1, Direction::East));
+/// let obs = observe_grid(&state, Visibility::SeeThrough);
+/// assert_eq!(obs.agent_direction, Some(Direction::East));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    /// Opaque cells (walls, closed doors) hide what lies behind them.
+    ///
+    /// Canonical `see_through_walls=False` — Minigrid's default.
+    Occluded,
+    /// Every cell of the view window is reported, regardless of what stands
+    /// between it and the agent.
+    ///
+    /// Canonical `see_through_walls=True`.
+    SeeThrough,
+}
+
+/// Produce the egocentric [`GridObservation`] for `state` under the emission
+/// policy `visibility`.
+///
+/// This is the single entry point for grid observation production: every
+/// environment in the family calls it (directly, or by feeding its result to
+/// [`build_snapshot`]) so that the per-env visibility policy has exactly one
+/// place to take effect.
+///
+/// # Arguments
+///
+/// * `state` — the world state to observe.
+/// * `visibility` — the environment's emission policy; see [`Visibility`].
+///
+/// # Returns
+///
+/// The `7×7×3` view rotated into the agent's frame, tagged with the agent's
+/// absolute facing.
+#[must_use]
+pub fn observe_grid(state: &GridState, visibility: Visibility) -> GridObservation {
+    let view = egocentric_view(&state.grid, &state.agent);
+    let view = match visibility {
+        // TODO(#281): occlusion lands in T2 — `occlude` is the identity today,
+        // so both arms emit the same view and this seam changes no observation
+        // byte.
+        Visibility::Occluded => occlude(view),
+        Visibility::SeeThrough => view,
+    };
+    GridObservation::from_entity_view(view, state.agent.direction)
+}
+
+/// Hide the cells of an egocentric `view` that an opaque cell stands in front
+/// of.
+///
+/// The input is the rotated view window, so the agent is at
+/// `view[VIEW_SIZE - 1][VIEW_SIZE / 2]` looking toward row `0` — the same frame
+/// canonical Minigrid's `Grid.process_vis` runs in.
+///
+/// **This is the identity function today.** Introducing the [`Visibility`]
+/// seam is deliberately a no-op on every emitted observation; the shadow cast
+/// itself is a separate change, so that a behavioural diff is attributable to
+/// one commit.
+fn occlude(view: [[Entity; VIEW_SIZE]; VIEW_SIZE]) -> [[Entity; VIEW_SIZE]; VIEW_SIZE] {
+    // TODO(#281): port `Grid.process_vis` here in T2 — two horizontal sweeps
+    // per row from the agent's row outward, masking behind any cell whose
+    // `see_behind` is false (walls, and doors that are not open).
+    view
+}
+
+/// Build a [`GridSnapshot`] from an already-produced [`GridObservation`] plus a
+/// raw reward and done flag.
+///
+/// The observation is passed in rather than projected here so that the
+/// [`Visibility`] decision stays with the environment that owns it; callers
+/// produce it with [`observe_grid`].
 ///
 /// Every env whose snapshot is a [`GridSnapshot`] routes its `step()` through
 /// here; `GoToDoorEnv` builds its own [`SnapshotBase`] because its observation
 /// needs the episode mission (see the [`GridSnapshot`] docs and ADR 0043).
 #[must_use]
-pub fn build_snapshot(state: &GridState, reward: f32, done: bool) -> GridSnapshot {
-    use rlevo_core::state::Observable as _;
+pub fn build_snapshot(observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
     if done {
-        SnapshotBase::terminated(state.project(), ScalarReward::new(reward))
+        SnapshotBase::terminated(observation, ScalarReward::new(reward))
     } else {
-        SnapshotBase::running(state.project(), ScalarReward::new(reward))
+        SnapshotBase::running(observation, ScalarReward::new(reward))
     }
 }
