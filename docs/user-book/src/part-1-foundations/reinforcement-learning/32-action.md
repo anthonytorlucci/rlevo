@@ -36,11 +36,15 @@ own structural invariants and *not* environment-specific legality: whether a
 chess move is legal in the current position is the environment's job, not the
 action type's.
 
-> **One asymmetry worth noting.** Unlike `Observation`, the base `Action` trait
-> does *not* require `Serialize`/`Deserialize`. The minimal contract stays
-> framework-agnostic; concrete action types that need to land in a replay buffer
-> simply derive `serde` themselves (as `CartPoleAction` and `PendulumAction`
-> do). The bound isn't forced because not every consumer needs it.
+> **The minimal contract stays minimal.** `Action`, like `Observation` and
+> `State`, carries no serde bound — `Debug + Clone + Sized`, and nothing about
+> persistence. If a concrete action type needs to round-trip through `serde`
+> (`CartPoleAction` and `PendulumAction` both derive it), that is a property of
+> the type, declared where it is needed, not an obligation this trait imposes
+> on every implementor. `rlevo` states a serialisation requirement at the seam
+> that actually persists something — `RecordingTap`'s
+> `where E::ActionType: Serialize` is the reference shape — rather than as a
+> supertrait on a domain trait (ADR 0064).
 
 On its own, `Action` doesn't tell an algorithm *how* to produce a value — a DQN
 needs an integer index to `argmax` over, a continuous-control actor needs a

@@ -7,7 +7,6 @@
 use burn::tensor::Tensor;
 use burn::tensor::TensorData;
 use burn::tensor::backend::Backend;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// Generic update function: how something evolves over time.
@@ -26,10 +25,27 @@ pub trait Reward: Clone + std::ops::Add<Output = Self> + Into<f32> + Debug {
 
 /// The `Observation` trait defines how an agent perceives the world. It
 /// represents something that can be observed from the environment.
-/// Implements `Serialize` and `Deserialize` for storage in a replay buffer.
-pub trait Observation<const R: usize>:
-    Debug + Clone + Send + Sync + Serialize + for<'de> Deserialize<'de>
-{
+///
+/// # Serde is not part of this contract
+///
+/// The contract is exactly `Debug + Clone + Send + Sync`: an observation must be
+/// inspectable, copyable into a buffer, and movable across threads. Serialization
+/// is *not* required. Nothing in the agent/environment loop — replay storage
+/// included — persists an observation by way of this bound, so demanding
+/// `Serialize + Deserialize` of every implementor taxed types that never cross a
+/// wire and pushed hand-written impls onto types serde cannot derive for.
+///
+/// A consumer that genuinely needs to persist a domain type declares the bound at
+/// **its own** seam, where the requirement actually arises. `RecordingTap`'s
+/// `where E::ActionType: Serialize` is the reference shape (see
+/// `crates/rlevo-benchmarks/src/record/env_tap.rs`, lines 300 and 322). Do not
+/// reinstate a universal serde bound here to save a downstream `where` clause.
+///
+/// Concrete observation types are still expected to derive `Serialize` /
+/// `Deserialize` (`docs/rules.md` §8) — this removes a universal *obligation*,
+/// not the capability. `Action` and `Reward` are likewise deliberately
+/// serde-free. (ADR 0064.)
+pub trait Observation<const R: usize>: Debug + Clone + Send + Sync {
     /// The rank of this observation space — i.e. the number of axes (tensor
     /// order), *not* the size of any axis.
     ///
@@ -445,6 +461,7 @@ mod tests {
     // range f32 represents exactly.
     #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
     use super::*;
+    use serde::{Deserialize, Serialize};
 
     /// Simple scalar reward implementation for testing
     #[derive(Clone, Debug, PartialEq)]

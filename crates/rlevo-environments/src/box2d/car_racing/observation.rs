@@ -96,6 +96,14 @@ impl Default for CarRacingObservation {
     }
 }
 
+/// Hand-written `Serialize` — retained because serde has no derive for arrays
+/// longer than 32 elements, and `pixels` holds `PIXEL_BYTES` (96 × 96 × 3 =
+/// 27,648) of them.
+///
+/// This is not a leftover of a trait bound: `Observation<R>` no longer requires
+/// serde (ADR 0064). The impl stays because [`CarRacingObservation`] is part of
+/// the public API and consumers persist frames; `#[derive(Serialize)]` on the
+/// struct simply does not compile at this array length.
 impl serde::Serialize for CarRacingObservation {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeTuple;
@@ -107,6 +115,13 @@ impl serde::Serialize for CarRacingObservation {
     }
 }
 
+/// Hand-written [`Visitor`](serde::de::Visitor)-based `Deserialize` — the mirror
+/// of the `Serialize` impl above, and retained for the same reason: serde has no
+/// derive for a `PIXEL_BYTES`-long array (96 × 96 × 3 = 27,648 > 32).
+///
+/// It exists because of that array-length limit, **not** because of any trait
+/// bound — `Observation<R>` no longer requires serde (ADR 0064). Do not try to
+/// "simplify" it into a derive; there is no derive to simplify it into.
 impl<'de> serde::Deserialize<'de> for CarRacingObservation {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct PixelVisitor;

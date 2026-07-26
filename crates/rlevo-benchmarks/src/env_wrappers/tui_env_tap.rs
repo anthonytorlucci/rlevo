@@ -201,12 +201,15 @@ mod tests {
     use rlevo_core::environment::{Environment, EnvironmentError, EpisodeStatus, SnapshotBase};
     use rlevo_core::render::AsciiRenderable;
     use rlevo_core::reward::ScalarReward;
-    use serde::{Deserialize, Serialize};
 
     use super::TuiEnvTap;
     use crate::reporter::tui::{TuiEvent, TuiHandle};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    // No serde derive here, deliberately: `Observation` carries no serde
+    // supertrait (ADR 0064), nothing in this module serializes `StubObs`, and
+    // the `tui` feature does not enable `dep:serde` — so a derive here breaks
+    // `--no-default-features --features tui` (issue #1039).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct StubObs {
         pos: i32,
     }
