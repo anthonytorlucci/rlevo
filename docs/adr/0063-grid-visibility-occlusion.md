@@ -551,9 +551,12 @@ surface.
   (`gen_obs_grid`: slice → rotate → occlude → then stamp the carried object).
   rlevo shows the world cell the agent stands on instead, and
   `AgentState.carrying` never reaches the observation at all. This is
-  tracked separately (not #281) and should land before any grid baseline is
-  ever recorded — the encoding-break window this ADR opens (Decision 4) is
-  free to extend now and costly once a baseline exists.
+  tracked separately as **#1027** (not #281) and should land before any grid
+  baseline is ever recorded — the encoding-break window this ADR opens
+  (Decision 4) is free to extend now and costly once a baseline exists.
+  Confirmed a real POMDP defect rather than a cosmetic one: `dynamics.rs:126`
+  gates door-unlocking on `agent.carrying`, and `unlock_pickup.rs:569` gates
+  success on it, so the agent must infer its own hand state from history.
 - **Rlevo cannot currently A/B occlusion as a runtime ablation** (Decision
   2's accepted cost) — the const-generic choice trades that capability for
   ruling out a config-driven regression of Invariant M.
@@ -591,8 +594,11 @@ surface.
   that defect — it is
   unrelated to visibility — but having every environment's mapping pass
   through one function is exactly what will make the eventual fix a one-site
-  change instead of a twelve-site one. Filed and tracked separately from
-  #281.
+  change instead of a twelve-site one. Filed as **#1028**, separately from
+  #281. Confirmed grid-family-specific rather than workspace-wide: the
+  time-limit wrapper, the locomotion and box2d families, and `pixel_grid` all
+  emit `Truncated` correctly; `grep -rn "EpisodeStatus::Truncated" grids/`
+  returns zero hits across all twelve envs.
 
 ## Alternatives considered
 
