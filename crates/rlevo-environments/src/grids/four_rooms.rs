@@ -1,33 +1,61 @@
-//! Navigate a four-quadrant maze to reach the goal in the bottom-right room.
+//! Navigate a four-quadrant maze to reach the goal.
 //!
-//! Ports Farama Minigrid's [`FourRoomsEnv`]. An interior cross of walls splits
-//! the `N×N` grid into four equal quadrants. Each arm of the cross has one
-//! opening, positioned symmetrically at `±3` cells from the centre. The agent
-//! starts in the top-left quadrant; the goal sits in the bottom-right.
+//! Ports Farama Minigrid's [`FourRoomsEnv`] (`MiniGrid-FourRooms-v0`). An
+//! interior cross of walls splits the `N×N` grid into four equal quadrants. The
+//! **partition is fixed**; everything else is drawn fresh every episode:
+//!
+//! - one opening per wall segment — the cross has four segments (the upper and
+//!   lower halves of the centre column, the left and right halves of the centre
+//!   row), and each gets exactly one gap sampled uniformly from *its own*
+//!   interior cells;
+//! - the agent's start cell **and** its facing, uniform over free cells and the
+//!   four directions;
+//! - the goal cell, uniform over the free cells other than the agent's.
+//!
+//! One opening *per segment* — rather than four openings scattered anywhere on
+//! the cross — is what makes every quadrant reachable from every other. Two gaps
+//! in one segment and none in another would strand a quadrant.
 //!
 //! The grid size must be **odd** and at least 11 so each quadrant has enough
 //! interior cells to navigate.
 //!
-//! ## Layout (default `size = 11`, mid = 5)
+//! ## Layout — one episode of many (`size = 11`, `seed = 484`)
+//!
+//! Literal [`FourRoomsEnv::ascii`] output, not a schematic, and **not** a
+//! property of the environment: it is what `seed = 484` happens to draw. The
+//! next `reset` of the same environment gives a different board.
 //!
 //! ```text
 //! # # # # # # # # # # #
-//! # A . . # . . . . . #   A = agent (1, 1)
-//! # . . . O . . . . . #   opening at (5, 2)
-//! # . . . # . . . . . #
-//! # . . . # . . . . . #
-//! # O . . # . . . O . #   openings at (2, 5) and (8, 5)
-//! # . . . # . . . . . #
-//! # . . . # . . . . . #
-//! # . . . O . . . . . #   opening at (5, 8)
-//! # . . . # . . . . G #   G = goal (9, 9)
+//! # G . . . # . . . . #   G = goal, drawn at (1, 1)
+//! # . . . . # . . . . #
+//! # . . . . . . . . . #   upper-column opening at (5, 3)
+//! # . . . . # . < . . #   < = agent at (7, 4), facing West
+//! # # # . # # # # . # #   row openings at (3, 5) and (8, 5)
+//! # . . . . . . . . . #   lower-column opening at (5, 6)
+//! # . . . . # . . . . #
+//! # . . . . # . . . . #
+//! # . . . . # . . . . #
 //! # # # # # # # # # # #
 //! ```
 //!
-//! - `A` — agent start (1, 1), facing East
-//! - `G` — goal (9, 9)
-//! - `O` — wall opening (passable gap)
+//! - `<`, `>`, `^`, `v` — the agent, glyph showing its facing
+//! - `G` — goal
+//! - `.` — free cell; the four cross openings read as free cells
 //! - `#` — border or interior wall
+//!
+//! The four openings above sit at `y = 3` and `y = 6` on column `5`, and at
+//! `x = 3` and `x = 8` on row `5` — one in each of the cross's four segments,
+//! and none of them at the old fixed `mid ± 3`. Reading them back:
+//!
+//! ```rust
+//! use rlevo_environments::grids::four_rooms::{FourRoomsConfig, FourRoomsEnv};
+//!
+//! let env = FourRoomsEnv::with_config(FourRoomsConfig::new(11, 484, 484), false)
+//!     .expect("valid config");
+//! assert_eq!(*env.openings(), [(5, 3), (3, 5), (8, 5), (5, 6)]);
+//! assert_eq!((env.state().agent.x, env.state().agent.y), (7, 4));
+//! ```
 //!
 //! ## Observation and action spaces
 //!
@@ -53,18 +81,17 @@
 use super::core::{
     GridSnapshot,
     action::GridAction,
-    agent::AgentState,
     build_snapshot,
-    direction::Direction,
     dynamics::{StepOutcome, apply_action},
     entity::Entity,
     grid::Grid,
+    placement::{PlacementError, Rect, no_reject, place_agent, place_obj},
     render::render_ascii,
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::{Rng, RngExt as _, SeedableRng};
 use rlevo_core::config::{self, ConfigError, ConstraintKind, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -78,24 +105,41 @@ use std::str::FromStr;
 /// Precup & Singh (1999) do not parameterize four-rooms by size at all, and
 /// Farama Minigrid `v3.1.0` hardcodes `self.size = 19` with no `size`
 /// constructor argument. It is deliberately *above* the smallest geometrically
-/// clean size — the openings land inside the border from `9` up — so changing it
-/// is a policy decision, not a bug fix.
+/// clean size — every segment's opening range is non-empty and lands inside the
+/// border from `5` up — so changing it is a policy decision, not a bug fix.
 const MIN_SIZE: usize = 11;
 
-// The two invariants `build` silently assumed. Its four openings are written at
-// `mid ± 3` where `mid = size / 2`, with no bounds check of their own; when they
-// fall outside the interior they land on the *border* and punch holes in it.
-// Measured before the guard existed: `size = 7` perforated all four perimeter
-// walls — holes at (0,3), (3,0), (3,6), (6,3) — and `size = 8` perforated two,
-// at (4,7) and (7,4). Written as `const _` so lowering `MIN_SIZE` breaks the
-// build instead of the board.
+/// Number of openings punched into the interior cross: exactly one per wall
+/// segment, and the cross has four segments.
+pub const OPENING_COUNT: usize = 4;
+
+// The invariants `build` silently assumes, restated for sampled offsets (ADR
+// 0062). Until #282 the four openings sat at a fixed `mid ± 3` and this block
+// asserted that `mid ± 3` lands strictly inside the border — measured before the
+// guard existed, `size = 7` perforated all four perimeter walls (holes at (0,3),
+// (3,0), (3,6), (6,3)) and `size = 8` perforated two, at (4,7) and (7,4).
 //
-//   `mid - 3 >= 1`         (top / left opening stays off the border) → mid >= 4
-//   `mid + 3 <= size - 2`  (bottom / right opening stays off the border)
+// The offsets are now drawn per episode, so that particular arithmetic is gone,
+// but the guard's job is not: each of the four segments is sampled from its own
+// half-open range, and an *empty* range panics inside `random_range` rather than
+// producing a bad board. These assertions state at compile time that `MIN_SIZE`
+// keeps all four ranges non-empty, so lowering `MIN_SIZE` breaks the build
+// instead of the board — the same contract the `± 3` version carried. Do not
+// delete this block; restate it if the ranges change.
+//
+// Each assertion below is literally "this half-open range is non-empty", i.e.
+// `start < end` for the range `build` hands to `random_range`:
+//
+//   upper / left segments:  `1 .. mid`             non-empty ⟺ 1 < mid
+//   right / lower segments: `mid + 1 .. size - 1`  non-empty ⟺ mid + 1 < size - 1
 const _: () = assert!(MIN_SIZE % 2 == 1, "MIN_SIZE must be odd");
 const _: () = assert!(
-    MIN_SIZE / 2 + 3 <= MIN_SIZE - 2 && MIN_SIZE / 2 >= 4,
-    "the mid±3 openings must land strictly inside the border"
+    1 < MIN_SIZE / 2,
+    "at MIN_SIZE the upper/left opening range `1..mid` must be non-empty"
+);
+const _: () = assert!(
+    MIN_SIZE / 2 + 1 < MIN_SIZE - 1,
+    "at MIN_SIZE the right/lower opening range `mid+1..size-1` must be non-empty"
 );
 
 /// Rejection text for an even `size`. Unlike the floor, the parity requirement
@@ -105,9 +149,9 @@ const SIZE_NOT_ODD: &str =
 
 /// Configuration for [`FourRoomsEnv`].
 ///
-/// Controls the grid size, episode length, and RNG seed. The interior wall
-/// positions and door openings are derived from `size`, so no positional
-/// fields are needed.
+/// Controls the grid size, episode length, and RNG seed. The interior cross is
+/// derived from `size`; its four openings, the agent's pose, and the goal are
+/// drawn per episode, so no positional fields are needed.
 ///
 /// # Examples
 ///
@@ -121,14 +165,32 @@ const SIZE_NOT_ODD: &str =
 pub struct FourRoomsConfig {
     /// Side length of the square grid in cells, including border walls.
     ///
-    /// Must be **odd** and at least `11`. The interior cross sits
-    /// at column and row `size / 2`; openings are at `±3` from that centre.
+    /// Must be **odd** and at least `11`. The interior cross sits at column and
+    /// row `mid = size / 2`, splitting the board into four equal quadrants. Each
+    /// of the cross's four wall segments carries exactly one opening, drawn per
+    /// episode from that segment's own interior cells — `1..mid` for the upper
+    /// and left segments, `mid + 1..size - 1` for the lower and right ones — so
+    /// no opening position is a closed form of `size`. Read the current
+    /// episode's four back with [`FourRoomsEnv::openings`].
     pub size: usize,
     /// Maximum number of steps before the episode is truncated.
     pub max_steps: usize,
-    /// Seed for the internal random-number generator.
+    /// Seed for the environment's persistent RNG, drawn once at construction.
     ///
-    /// Using the same seed always produces the same episode layout.
+    /// The RNG **advances** across resets (ADR 0029), so successive episodes get
+    /// independent opening positions, agent poses, and goal cells. A fixed seed
+    /// therefore reproduces a fixed *sequence* of episodes, not one repeated
+    /// episode. For bit-for-bit replay of a single episode use
+    /// [`FourRoomsEnv::reset_with_seed`].
+    ///
+    /// The draws reproduce those of upstream `MiniGrid-FourRooms-v0`'s
+    /// `_gen_grid` — four segment openings, then `place_agent`, then
+    /// `place_obj(Goal())` — in that order (ADR 0062 §1). The registered id
+    /// passes neither `agent_pos` nor `goal_pos`, so both are randomized here
+    /// too. The one deliberate deviation is shared by the whole family:
+    /// placement materializes the free-cell set and draws a uniform index rather
+    /// than running upstream's unbounded rejection loop, which is the same
+    /// distribution without a non-terminating failure mode (ADR 0062 §3b).
     pub seed: u64,
 }
 
@@ -171,11 +233,16 @@ impl Validate for FourRoomsConfig {
     /// `FourRoomsConfig` derives `Deserialize`, so a config loaded from a file is
     /// user-supplied runtime data that never passes through `from_str`
     /// (rules.md §4 — "if an invalid value can arrive via `Deserialize`, it must
-    /// be an `Err`"). Measured below the floor: `size` 1 through 6 panic inside
-    /// `Grid::set` (out of bounds), and `size` 7 and 8 build a board whose
-    /// `mid ± 3` openings are punched through the *perimeter* wall rather than
-    /// the interior cross. Enforcing parity anywhere but here would recreate,
-    /// for one env, exactly the split enforcement this guard removes.
+    /// be an `Err`"). Below the floor the builder has no honest board to make:
+    /// at `size < 5` a segment's opening range (`1..mid`, `mid + 1..size - 1`)
+    /// is empty and `random_range` panics on it, and at `size` 5 through 9 the
+    /// quadrants shrink past the "at least three interior cells" premise
+    /// `MIN_SIZE` encodes. (Before #282 the openings were fixed at `mid ± 3`;
+    /// the same floor then bought a different failure — `size` 1 through 6
+    /// panicked inside `Grid::set`, and `size` 7 and 8 punched their openings
+    /// through the *perimeter* wall. The measurement is historical, the guard is
+    /// not.) Enforcing parity anywhere but here would recreate, for one env,
+    /// exactly the split enforcement this guard removes.
     ///
     /// `at_least` subsumes the previous `nonzero` check — `MIN_SIZE >= 1`, so a
     /// zero `size` is still rejected, now as
@@ -244,10 +311,11 @@ impl FromStr for FourRoomsConfig {
 /// Implements [`Environment<3, 3, 1>`] — observation and action spaces each
 /// have three components, reward is a scalar.
 ///
-/// The agent must transit through at least two openings to reach the goal,
-/// making this a classic long-horizon exploration task. Because the layout is
-/// fixed and deterministic, the environment is suitable for evaluating
-/// systematic search and planning policies.
+/// The agent must generally transit two openings to reach the goal, making this
+/// a classic long-horizon exploration task. The quadrant partition is fixed, but
+/// the four openings, the agent's pose, and the goal are re-drawn every
+/// [`reset`](Environment::reset), so a policy is evaluated on a *family* of
+/// boards rather than on one memorized route.
 ///
 /// Construct via [`FourRoomsEnv::with_config`] for full control or via
 /// [`ConstructableEnv::new`] for default settings (size 11, seed 0).
@@ -271,20 +339,19 @@ pub struct FourRoomsEnv {
     config: FourRoomsConfig,
     steps: usize,
     render: bool,
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
+    /// This episode's four cross openings, in the order [`FourRoomsEnv::openings`]
+    /// documents.
+    openings: [(i32, i32); OPENING_COUNT],
+    rng: StdRng,
 }
 
 impl FourRoomsEnv {
     /// Constructs a `FourRoomsEnv` from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Seeds the persistent RNG once from `config.seed` and immediately builds a
+    /// first episode from it. Call [`Environment::reset`] before the first
+    /// [`Environment::step`] to obtain the first observation; that reset samples
+    /// a *fresh* board, advancing the stream.
     ///
     /// # Examples
     ///
@@ -305,17 +372,41 @@ impl FourRoomsEnv {
     /// construction chokepoint (rules.md §4), so it also rejects a config that
     /// arrived by `Deserialize` or struct-update syntax without passing through
     /// [`FromStr`].
+    ///
+    /// Also returns a [`ConfigError`] if placing the agent or the goal exhausts
+    /// the free cells — converted from [`PlacementError`] (ADR 0062 §3a). No
+    /// `size` that passes [`Validate`] can reach that path, because a validated
+    /// board has at least `4 × 4 × 4` free interior cells and only two are
+    /// consumed; it is propagated rather than asserted so that the sampler owns
+    /// the invariant.
     pub fn with_config(config: FourRoomsConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
-        let state = Self::build(&config);
+        let mut rng = StdRng::seed_from_u64(config.seed);
+        let (state, openings) = Self::build(&config, &mut rng)?;
         Ok(Self {
             state,
             config,
             steps: 0,
             render,
-            _rng: rng,
+            openings,
+            rng,
         })
+    }
+
+    /// Re-seed the persistent RNG to `seed`, then [`reset`](Environment::reset).
+    ///
+    /// Ordinary [`reset`](Environment::reset) advances the persistent stream so
+    /// successive episodes get independent openings, agent poses, and goals
+    /// (ADR 0029); use this when you need a *specific* episode to reproduce
+    /// bit-for-bit (e.g. replaying a failure). Run-level reproducibility is
+    /// already guaranteed by the construction seed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from [`reset`](Environment::reset).
+    pub fn reset_with_seed(&mut self, seed: u64) -> Result<GridSnapshot, EnvironmentError> {
+        self.rng = StdRng::seed_from_u64(seed);
+        self.reset()
     }
 
     /// Returns a reference to the active configuration.
@@ -336,6 +427,31 @@ impl FourRoomsEnv {
         &self.state
     }
 
+    /// This episode's four cross openings as `(x, y)`, one per wall segment.
+    ///
+    /// The order is the order they are drawn in, which is upstream's
+    /// `for j in 0..2 { for i in 0..2 { … } }` order:
+    ///
+    /// | index | segment | always satisfies |
+    /// |---|---|---|
+    /// | `0` | upper half of the centre column | `x == mid`, `1 <= y <= mid - 1` |
+    /// | `1` | left half of the centre row | `y == mid`, `1 <= x <= mid - 1` |
+    /// | `2` | right half of the centre row | `y == mid`, `mid + 1 <= x <= size - 2` |
+    /// | `3` | lower half of the centre column | `x == mid`, `mid + 1 <= y <= size - 2` |
+    ///
+    /// One opening per *segment* — not four openings anywhere on the cross — is
+    /// what makes the four quadrants mutually reachable, so this accessor is the
+    /// honest way for a test or a planner to check connectivity without
+    /// re-deriving positions from `size` (they are not a function of `size`).
+    ///
+    /// Re-drawn on every [`reset`](Environment::reset). The cells themselves
+    /// read back as passable, but not necessarily as [`Entity::Empty`]: the goal
+    /// may land in a doorway, exactly as upstream allows.
+    #[must_use]
+    pub const fn openings(&self) -> &[(i32, i32); OPENING_COUNT] {
+        &self.openings
+    }
+
     /// Renders the current grid as an ASCII string.
     ///
     /// Useful for debugging; the same output is printed to stdout on each step
@@ -345,15 +461,39 @@ impl FourRoomsEnv {
         render_ascii(&self.state.grid, &self.state.agent)
     }
 
-    fn build(config: &FourRoomsConfig) -> GridState {
+    /// Build a fresh episode: the fixed quadrant cross, one sampled opening per
+    /// wall segment, a sampled agent pose, and a sampled goal.
+    ///
+    /// Draws from `rng` and lets it advance (ADR 0029) — never re-seeds. The
+    /// draw *order* is part of the algorithm (ADR 0062 §1) and mirrors upstream
+    /// `FourRoomsEnv._gen_grid`: upper-column opening, left-row opening,
+    /// right-row opening, lower-column opening, then `place_agent` (position
+    /// then facing), then `place_obj(Goal())`.
+    ///
+    /// Python's `_rand_int(a, b)` excludes `b`, so each `_rand_int` maps to the
+    /// half-open Rust range with the same endpoints and no `+ 1` correction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlacementError::Exhausted`] if no free cell remains for the
+    /// agent or the goal. Unreachable for a [`Validate`]-accepted config, but
+    /// propagated rather than asserted (ADR 0062 §3a).
+    fn build<R: Rng + ?Sized>(
+        config: &FourRoomsConfig,
+        rng: &mut R,
+    ) -> Result<(GridState, [(i32, i32); OPENING_COUNT]), PlacementError> {
         let mut grid = Grid::new(config.size, config.size);
         grid.draw_walls();
+        let whole = Rect::whole_grid(&grid);
 
         #[allow(clippy::cast_possible_wrap)]
         let size = config.size as i32;
         let mid = size / 2;
 
-        // Interior cross of walls.
+        // Interior cross of walls. Upstream draws this as four per-quadrant wall
+        // segments interleaved with the openings; drawing the whole cross first
+        // and punching afterwards yields the identical board, because no segment
+        // extends past the perimeter and no opening range covers the centre.
         for y in 1..size - 1 {
             grid.set(mid, y, Entity::Wall);
         }
@@ -361,17 +501,36 @@ impl FourRoomsEnv {
             grid.set(x, mid, Entity::Wall);
         }
 
-        // Four openings at fixed offsets from the center wall.
-        // Vertical wall openings on rows (mid - 3) and (mid + 3).
-        grid.set(mid, mid - 3, Entity::Empty);
-        grid.set(mid, mid + 3, Entity::Empty);
-        // Horizontal wall openings on cols (mid - 3) and (mid + 3).
-        grid.set(mid - 3, mid, Entity::Empty);
-        grid.set(mid + 3, mid, Entity::Empty);
+        // One opening per segment, each drawn from that segment's own interior
+        // cells — this, not the count, is what keeps all four quadrants mutually
+        // reachable. The centre `(mid, mid)` lies in no range, so it is always
+        // wall, and the four gaps are therefore always four distinct cells.
+        let upper_y = rng.random_range(1..mid);
+        let left_x = rng.random_range(1..mid);
+        let right_x = rng.random_range(mid + 1..size - 1);
+        let lower_y = rng.random_range(mid + 1..size - 1);
+        let openings = [
+            (mid, upper_y),
+            (left_x, mid),
+            (right_x, mid),
+            (mid, lower_y),
+        ];
+        for &(x, y) in &openings {
+            grid.set(x, y, Entity::Empty);
+        }
 
-        grid.set(size - 2, size - 2, Entity::Goal);
-        let agent = AgentState::new(1, 1, Direction::East);
-        GridState::new(grid, agent)
+        // `MiniGrid-FourRooms-v0` registers neither `agent_pos` nor `goal_pos`,
+        // so upstream falls through to `place_agent()` / `place_obj(Goal())`,
+        // both of which reject-sample over the whole board. Perimeter and cross
+        // cells are walls, so `is_free` filters them out for us.
+        let agent = place_agent(&grid, rng, whole, &mut no_reject)?;
+        // `place_obj` refuses `self.agent_pos`; the shared sampler cannot see the
+        // agent (it is not a grid cell), so the veto is spelled out here.
+        place_obj(&mut grid, rng, Entity::Goal, whole, &mut |_grid, x, y| {
+            (x, y) == (agent.x, agent.y)
+        })?;
+
+        Ok((GridState::new(grid, agent), openings))
     }
 
     fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
@@ -404,7 +563,8 @@ impl Display for FourRoomsEnv {
 
 impl ConstructableEnv for FourRoomsEnv {
     fn new(render: bool) -> Self {
-        Self::with_config(FourRoomsConfig::default(), render).expect("default config must validate")
+        Self::with_config(FourRoomsConfig::default(), render)
+            .expect("default config must validate and its 11x11 board must place agent and goal")
     }
 }
 
@@ -415,10 +575,14 @@ impl Environment<3, 3, 1> for FourRoomsEnv {
     type RewardType = ScalarReward;
     type SnapshotType = GridSnapshot;
 
+    /// Samples a fresh board — four openings, agent pose, goal — from the
+    /// persistent RNG, letting the stream advance (ADR 0029). Never re-seeds;
+    /// [`FourRoomsEnv::reset_with_seed`] is the replay hatch.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
-        self.state = Self::build(&self.config);
+        let (state, openings) = Self::build(&self.config, &mut self.rng)?;
+        self.state = state;
+        self.openings = openings;
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 
@@ -454,10 +618,115 @@ mod tests {
     // `ConstraintKind` arrives via `super::*` — this module's `Validate` impl
     // needs it at file scope for the parity `Custom` variant.
     use super::*;
+    use crate::direction::Direction;
     use rlevo_core::environment::Snapshot;
+    use std::collections::{HashSet, VecDeque};
+
+    /// How many distinct episodes every seed loop must clear.
+    ///
+    /// Matches `ORACLE_SEEDS` in `tests/grids_solvable.rs`. Each opening range
+    /// has `mid - 1` values (4 at `MIN_SIZE`), so 32 seeds exercises every value
+    /// of every range many times over rather than sampling a corner of it.
+    const SEEDS: u64 = 32;
+
+    /// Every seed loop runs at the `MIN_SIZE` floor **and** at one larger board.
+    ///
+    /// `MIN_SIZE` is where the sampling ranges are narrowest (`1..5` and `6..10`)
+    /// and where an off-by-one in a segment's bounds would first punch through
+    /// the perimeter. Both values must stay odd — `FourRoomsConfig::validate`
+    /// requires it.
+    const SIZES: [usize; 2] = [MIN_SIZE, 13];
 
     fn env_11() -> FourRoomsEnv {
         FourRoomsEnv::with_config(FourRoomsConfig::new(11, 400, 0), false).expect("valid config")
+    }
+
+    /// An environment of side `size` whose stream starts at `seed`.
+    fn env_at(size: usize, seed: u64) -> FourRoomsEnv {
+        FourRoomsEnv::with_config(FourRoomsConfig::new(size, 4 * size * size, seed), false)
+            .expect("valid config")
+    }
+
+    /// The single [`Entity::Goal`] cell of `grid`.
+    ///
+    /// Panics unless there is exactly one, which is itself an assertion every
+    /// caller wants.
+    fn goal_of(grid: &Grid) -> (i32, i32) {
+        let mut found = Vec::new();
+        for y in 0..i32::try_from(grid.height()).expect("size fits in i32") {
+            for x in 0..i32::try_from(grid.width()).expect("size fits in i32") {
+                if grid.get(x, y) == Entity::Goal {
+                    found.push((x, y));
+                }
+            }
+        }
+        assert_eq!(found.len(), 1, "expected exactly one goal, found {found:?}");
+        found[0]
+    }
+
+    /// Everything the layout draws, in one comparable value.
+    ///
+    /// Used only by the reset-semantics tests, which are about *whether* two
+    /// episodes agree. The non-degeneracy tests deliberately do **not** use it:
+    /// a whole-layout diff passes as soon as any single quantity moves, which is
+    /// exactly how a still-pinned agent direction hides behind a moving goal
+    /// (ADR 0062, #282).
+    type Layout = (
+        [(i32, i32); OPENING_COUNT],
+        (i32, i32, Direction),
+        (i32, i32),
+    );
+
+    fn layout_of(env: &FourRoomsEnv) -> Layout {
+        let agent = &env.state().agent;
+        (
+            *env.openings(),
+            (agent.x, agent.y, agent.direction),
+            goal_of(&env.state().grid),
+        )
+    }
+
+    /// Every cell reachable from `start` by 4-connected moves over passable
+    /// cells.
+    ///
+    /// Deliberately coarser than the environment's own dynamics: it ignores
+    /// facing and turning, so it answers "is this board connected", not "can the
+    /// agent get there". Turning is always available and never blocked, so the
+    /// two agree on reachability.
+    fn reachable(grid: &Grid, start: (i32, i32)) -> HashSet<(i32, i32)> {
+        let mut seen = HashSet::from([start]);
+        let mut queue = VecDeque::from([start]);
+        while let Some((x, y)) = queue.pop_front() {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let next = (x + dx, y + dy);
+                if grid.in_bounds(next.0, next.1)
+                    && grid.get(next.0, next.1).is_passable()
+                    && seen.insert(next)
+                {
+                    queue.push_back(next);
+                }
+            }
+        }
+        seen
+    }
+
+    /// The interior cells of the four quadrants, as four `(x, y)` lists.
+    ///
+    /// A quadrant's interior excludes the border and the cross, so every cell
+    /// listed is guaranteed passable on a well-formed board.
+    fn quadrant_interiors(size: i32) -> [Vec<(i32, i32)>; 4] {
+        let mid = size / 2;
+        let low = 1..mid;
+        let high = mid + 1..size - 1;
+        let cells = |xs: std::ops::Range<i32>, ys: std::ops::Range<i32>| -> Vec<(i32, i32)> {
+            ys.flat_map(|y| xs.clone().map(move |x| (x, y))).collect()
+        };
+        [
+            cells(low.clone(), low.clone()),
+            cells(high.clone(), low.clone()),
+            cells(low, high.clone()),
+            cells(high.clone(), high),
+        ]
     }
 
     #[test]
@@ -493,10 +762,12 @@ mod tests {
 
     /// Issue #106: `MIN_SIZE` was enforced only in [`FromStr`], so a config
     /// built by `Deserialize` or struct-update syntax reached `build`. Measured
-    /// consequences: `size` 1–6 panicked in `Grid::set`; `size = 7` punched a
-    /// hole in all four perimeter walls and `size = 8` in two, because `build`
-    /// writes its openings at `mid ± 3` without checking where they land. The
-    /// guard now lives in [`Validate`], which `with_config` runs (ADR 0026
+    /// consequences under the then-fixed `mid ± 3` openings: `size` 1–6 panicked
+    /// in `Grid::set`; `size = 7` punched a hole in all four perimeter walls and
+    /// `size = 8` in two. The openings are sampled now (#282) so those exact
+    /// numbers are history, but the floor still guards a real cliff — below
+    /// `size = 5` a segment's opening range is empty and `random_range` panics.
+    /// The guard lives in [`Validate`], which `with_config` runs (ADR 0026
     /// chokepoint).
     #[test]
     fn with_config_rejects_size_below_min() {
@@ -516,9 +787,10 @@ mod tests {
         );
     }
 
-    /// `9` builds a geometrically clean board — the `mid ± 3` openings land
-    /// inside the border — and is still refused. The floor is `rlevo` policy for
-    /// this env, not the smallest size the layout code survives.
+    /// `9` builds a geometrically clean board — every segment's opening range is
+    /// non-empty and lands inside the border — and is still refused. The floor is
+    /// `rlevo` policy for this env, not the smallest size the layout code
+    /// survives.
     #[test]
     fn with_config_rejects_clean_but_sub_floor_size() {
         let bad = FourRoomsConfig {
@@ -559,22 +831,206 @@ mod tests {
         assert_eq!(err.kind, ConstraintKind::Custom(SIZE_NOT_ODD));
     }
 
+    // --- Structure, connectivity, and non-degeneracy of the sampled layout ---
+    //
+    // `build_places_cross_with_four_openings` used to live here, asserting the
+    // openings at literal `(5, 2)`, `(5, 8)`, `(2, 5)`, `(8, 5)` and the goal at
+    // `(9, 9)`. It was the strictest layout lock in the grid family, and #282
+    // moved every one of those cells into a draw. What replaces it is the set of
+    // properties that lock actually implied — plus connectivity, which it never
+    // checked. A worked example of the geometry it used to pin now lives in the
+    // module docs as literal `ascii()` output.
+
+    /// The hand trace this file is written against, kept as a comment because it
+    /// is the thing a reader needs in order to check the ranges below.
+    ///
+    /// Upstream `FourRoomsEnv._gen_grid` at `size = 11` — `room_w = room_h = 5`,
+    /// `mid = 5` — runs `for j in 0..2 { for i in 0..2 { … } }`:
+    ///
+    /// | `(i, j)` | `xL, yT, xR, yB` | segment written | `_rand_int` | opening |
+    /// |---|---|---|---|---|
+    /// | `(0, 0)` | `0, 0, 5, 5` | `vert_wall(5, 0, 5)` → `(5, 0..=4)` | `(1, 5)` → `{1,2,3,4}` | `(5, y)` |
+    /// | `(0, 0)` | " | `horz_wall(0, 5, 5)` → `(0..=4, 5)` | `(1, 5)` → `{1,2,3,4}` | `(x, 5)` |
+    /// | `(1, 0)` | `5, 0, 10, 5` | `horz_wall(5, 5, 5)` → `(5..=9, 5)` | `(6, 10)` → `{6,7,8,9}` | `(x, 5)` |
+    /// | `(0, 1)` | `0, 5, 5, 10` | `vert_wall(5, 5, 5)` → `(5, 5..=9)` | `(6, 10)` → `{6,7,8,9}` | `(5, y)` |
+    /// | `(1, 1)` | `5, 5, 10, 10` | neither branch runs | — | — |
+    ///
+    /// `i + 1 < 2` gates the vertical wall, so only `i = 0` writes one; `j + 1 <
+    /// 2` gates the horizontal wall, so only `j = 0` writes one. Four segments,
+    /// four openings, **one each** — and the centre `(5, 5)` is in no range, so
+    /// it is always wall. The perimeter cells `(5, 10)` and `(10, 5)` come from
+    /// the border, which the segments never reach past.
+    ///
+    /// Python's `_rand_int(a, b)` excludes `b`, hence the half-open Rust ranges
+    /// `1..mid` and `mid + 1..size - 1`.
     #[test]
-    fn build_places_cross_with_four_openings() {
-        let env = env_11();
-        let grid = &env.state().grid;
-        // mid = 5; openings at rows 2, 8 on col 5 and cols 2, 8 on row 5.
-        assert_eq!(grid.get(5, 2), Entity::Empty);
-        assert_eq!(grid.get(5, 8), Entity::Empty);
-        assert_eq!(grid.get(2, 5), Entity::Empty);
-        assert_eq!(grid.get(8, 5), Entity::Empty);
-        // Other cells on the cross remain walls.
-        assert_eq!(grid.get(5, 1), Entity::Wall);
-        assert_eq!(grid.get(5, 9), Entity::Wall);
-        assert_eq!(grid.get(1, 5), Entity::Wall);
-        assert_eq!(grid.get(9, 5), Entity::Wall);
-        // Goal at bottom-right corner.
-        assert_eq!(grid.get(9, 9), Entity::Goal);
+    fn opening_ranges_match_the_hand_trace_at_size_11() {
+        let mid = 5;
+        for seed in 0..SEEDS {
+            let env = env_at(11, seed);
+            let [upper, left, right, lower] = *env.openings();
+            assert_eq!(upper.0, mid, "seed {seed}: upper opening off the column");
+            assert!(
+                (1..mid).contains(&upper.1),
+                "seed {seed}: upper opening {upper:?} outside `1..5`"
+            );
+            assert_eq!(left.1, mid, "seed {seed}: left opening off the row");
+            assert!(
+                (1..mid).contains(&left.0),
+                "seed {seed}: left opening {left:?} outside `1..5`"
+            );
+            assert_eq!(right.1, mid, "seed {seed}: right opening off the row");
+            assert!(
+                (mid + 1..10).contains(&right.0),
+                "seed {seed}: right opening {right:?} outside `6..10`"
+            );
+            assert_eq!(lower.0, mid, "seed {seed}: lower opening off the column");
+            assert!(
+                (mid + 1..10).contains(&lower.1),
+                "seed {seed}: lower opening {lower:?} outside `6..10`"
+            );
+        }
+    }
+
+    /// Perimeter intact, cross solid except the four openings, exactly one goal,
+    /// and the agent standing somewhere that is not the goal.
+    #[test]
+    fn every_sampled_board_is_structurally_well_formed() {
+        for size in SIZES {
+            let side = i32::try_from(size).expect("size fits in i32");
+            let mid = side / 2;
+            for seed in 0..SEEDS {
+                let env = env_at(size, seed);
+                let grid = &env.state().grid;
+                let openings: HashSet<(i32, i32)> = env.openings().iter().copied().collect();
+                assert_eq!(
+                    openings.len(),
+                    OPENING_COUNT,
+                    "size {size} seed {seed}: two segments shared an opening cell"
+                );
+
+                for i in 0..side {
+                    for &(x, y) in &[(i, 0), (i, side - 1), (0, i), (side - 1, i)] {
+                        assert_eq!(
+                            grid.get(x, y),
+                            Entity::Wall,
+                            "size {size} seed {seed}: perimeter hole at ({x}, {y})"
+                        );
+                    }
+                }
+
+                for i in 1..side - 1 {
+                    for cell in [(mid, i), (i, mid)] {
+                        if openings.contains(&cell) {
+                            assert!(
+                                grid.get(cell.0, cell.1).is_passable(),
+                                "size {size} seed {seed}: opening {cell:?} is not passable"
+                            );
+                        } else {
+                            assert_eq!(
+                                grid.get(cell.0, cell.1),
+                                Entity::Wall,
+                                "size {size} seed {seed}: unsanctioned gap at {cell:?}"
+                            );
+                        }
+                    }
+                }
+
+                // `goal_of` panics unless there is exactly one goal cell.
+                let goal = goal_of(grid);
+                let agent = &env.state().agent;
+                assert_ne!(
+                    (agent.x, agent.y),
+                    goal,
+                    "size {size} seed {seed}: the agent starts on the goal"
+                );
+            }
+        }
+    }
+
+    /// The load-bearing invariant: one opening **per segment** keeps every
+    /// quadrant reachable.
+    ///
+    /// "Four holes somewhere on the cross" satisfies every count-based assertion
+    /// above and still strands a quadrant — two gaps in the upper column and
+    /// none in the lower one seals the bottom-left room off from the bottom-right
+    /// one. Flood-filling from the agent is what tells the two apart.
+    #[test]
+    fn every_quadrant_and_the_goal_are_reachable_from_the_agent() {
+        for size in SIZES {
+            let side = i32::try_from(size).expect("size fits in i32");
+            for seed in 0..SEEDS {
+                let env = env_at(size, seed);
+                let grid = &env.state().grid;
+                let agent = &env.state().agent;
+                let seen = reachable(grid, (agent.x, agent.y));
+
+                for (q, cells) in quadrant_interiors(side).iter().enumerate() {
+                    for &cell in cells {
+                        assert!(
+                            seen.contains(&cell),
+                            "size {size} seed {seed}: quadrant {q} cell {cell:?} is cut off \
+                             from the agent at ({}, {}); openings {:?}",
+                            agent.x,
+                            agent.y,
+                            env.openings()
+                        );
+                    }
+                }
+                assert!(
+                    seen.contains(&goal_of(grid)),
+                    "size {size} seed {seed}: the goal is unreachable"
+                );
+            }
+        }
+    }
+
+    /// Each sampled quantity varies **on its own**.
+    ///
+    /// Asserted per quantity rather than as one whole-layout diff: a diff over
+    /// the full observation goes green the moment *anything* moves, so a still-
+    /// pinned agent facing (or a fourth opening that never left `mid + 3`) hides
+    /// behind the three quantities that do move. ADR 0062 and #282 both name
+    /// that trap explicitly.
+    #[test]
+    fn each_sampled_quantity_varies_across_seeds() {
+        for size in SIZES {
+            let mut upper = HashSet::new();
+            let mut left = HashSet::new();
+            let mut right = HashSet::new();
+            let mut lower = HashSet::new();
+            let mut agent_pos = HashSet::new();
+            let mut agent_dir = HashSet::new();
+            let mut goal_pos = HashSet::new();
+
+            for seed in 0..SEEDS {
+                let env = env_at(size, seed);
+                let o = *env.openings();
+                upper.insert(o[0].1);
+                left.insert(o[1].0);
+                right.insert(o[2].0);
+                lower.insert(o[3].1);
+                let agent = &env.state().agent;
+                agent_pos.insert((agent.x, agent.y));
+                agent_dir.insert(agent.direction);
+                goal_pos.insert(goal_of(&env.state().grid));
+            }
+
+            for (name, count) in [
+                ("upper-column opening", upper.len()),
+                ("left-row opening", left.len()),
+                ("right-row opening", right.len()),
+                ("lower-column opening", lower.len()),
+                ("agent position", agent_pos.len()),
+                ("agent direction", agent_dir.len()),
+                ("goal position", goal_pos.len()),
+            ] {
+                assert!(
+                    count > 1,
+                    "size {size}: {name} took a single value across {SEEDS} seeds — it is pinned"
+                );
+            }
+        }
     }
 
     #[test]
@@ -587,59 +1043,217 @@ mod tests {
         assert_eq!(sa.observation(), sb.observation());
     }
 
+    /// The persistent stream advances, so successive episodes are fresh boards.
+    ///
+    /// Stated as "more than one distinct layout in eight resets" rather than
+    /// "reset 1 differs from reset 2": consecutive draws *may* collide, and a
+    /// test that forbids a legitimate collision is a flake waiting for a seed
+    /// change. A `reset()` that re-seeded would produce one layout eight times.
     #[test]
-    fn central_walls_block_movement() {
-        let mut env = env_11();
-        env.reset().unwrap();
-        // Walk east from (1, 1) until we bump into the vertical wall at (5, 1).
-        for _ in 0..3 {
-            env.step(GridAction::Forward).unwrap();
+    fn consecutive_resets_sample_fresh_layouts() {
+        for size in SIZES {
+            let mut env = env_at(size, 0);
+            let mut seen = HashSet::new();
+            for _ in 0..8 {
+                env.reset().expect("reset");
+                seen.insert(layout_of(&env));
+            }
+            assert!(
+                seen.len() > 1,
+                "size {size}: eight consecutive resets produced {} distinct layout(s) — \
+                 the stream is not advancing",
+                seen.len()
+            );
         }
-        assert_eq!(env.state().agent.x, 4);
-        // Next forward should bump into the wall.
-        let snap = env.step(GridAction::Forward).unwrap();
-        assert!(!snap.is_done());
-        assert_eq!(env.state().agent.x, 4);
+    }
+
+    /// `reset_with_seed` is the replay hatch: same seed, same episode, twice.
+    #[test]
+    fn reset_with_seed_replays_bit_for_bit() {
+        for size in SIZES {
+            let mut env = env_at(size, 0);
+            let first = env.reset_with_seed(7).expect("reset");
+            let first_layout = layout_of(&env);
+            // Advance the stream so a re-seed is the only way back.
+            env.reset().expect("reset");
+            let second = env.reset_with_seed(7).expect("reset");
+            assert_eq!(
+                first.observation(),
+                second.observation(),
+                "size {size}: reset_with_seed(7) did not replay"
+            );
+            assert_eq!(first_layout, layout_of(&env));
+        }
     }
 
     #[test]
-    fn optimal_rollout_through_two_openings_reaches_goal() {
-        let mut env = env_11();
-        env.reset().unwrap();
-        // Agent (1, 1) facing East → TurnRight, Forward to (1, 2), TurnLeft, go east
-        // through the opening at (5, 2), continue east to (8, 2), TurnRight,
-        // go south through (8, 5) opening, continue south to (8, 9), TurnLeft,
-        // forward to (9, 9) goal.
-        let script = [
-            GridAction::TurnRight,
-            GridAction::Forward, // (1, 2)
-            GridAction::TurnLeft,
-            GridAction::Forward, // (2, 2)
-            GridAction::Forward, // (3, 2)
-            GridAction::Forward, // (4, 2)
-            GridAction::Forward, // (5, 2) opening
-            GridAction::Forward, // (6, 2)
-            GridAction::Forward, // (7, 2)
-            GridAction::Forward, // (8, 2)
-            GridAction::TurnRight,
-            GridAction::Forward, // (8, 3)
-            GridAction::Forward, // (8, 4)
-            GridAction::Forward, // (8, 5) opening
-            GridAction::Forward, // (8, 6)
-            GridAction::Forward, // (8, 7)
-            GridAction::Forward, // (8, 8)
-            GridAction::Forward, // (8, 9)
-            GridAction::TurnLeft,
-            GridAction::Forward, // (9, 9) goal
-        ];
-        let mut last = None;
-        for a in script {
-            last = Some(env.step(a).unwrap());
+    fn different_replay_seeds_give_different_layouts() {
+        for size in SIZES {
+            let mut env = env_at(size, 0);
+            let mut seen = HashSet::new();
+            for seed in 0..SEEDS {
+                env.reset_with_seed(seed).expect("reset");
+                seen.insert(layout_of(&env));
+            }
+            assert!(
+                seen.len() > 1,
+                "size {size}: {SEEDS} replay seeds all produced the same layout"
+            );
         }
-        let snap = last.unwrap();
-        assert!(snap.is_done(), "should reach the goal");
-        let reward: f32 = (*snap.reward()).into();
-        assert!(reward > 0.9, "reward was {reward}");
+    }
+
+    /// The interior cross blocks movement, on whatever board was drawn.
+    ///
+    /// Replaces the old fixed-board version, which walked East from `(1, 1)` and
+    /// asserted the agent halted at `x == 4` — both of those are draws now. The
+    /// property survives: walk forward until the agent stops moving, and the cell
+    /// it is facing must be impassable.
+    #[test]
+    fn walls_block_forward_movement() {
+        for size in SIZES {
+            for seed in 0..SEEDS {
+                let mut env = env_at(size, seed);
+                env.reset_with_seed(seed).expect("reset");
+                let mut verdict = None;
+                for _ in 0..2 * size {
+                    let before = (env.state().agent.x, env.state().agent.y);
+                    let snap = env.step(GridAction::Forward).expect("step");
+                    let agent = env.state().agent;
+                    if snap.is_done() {
+                        verdict = Some(true); // walked onto the goal; nothing to block
+                        break;
+                    }
+                    if (agent.x, agent.y) == before {
+                        let (dx, dy) = agent.direction.delta();
+                        assert!(
+                            !env.state()
+                                .grid
+                                .get(agent.x + dx, agent.y + dy)
+                                .is_passable(),
+                            "size {size} seed {seed}: the agent stopped at {before:?} facing \
+                             {:?} with a passable cell ahead",
+                            agent.direction
+                        );
+                        verdict = Some(true);
+                        break;
+                    }
+                }
+                assert!(
+                    verdict.is_some(),
+                    "size {size} seed {seed}: the agent walked {} cells without ever being \
+                     blocked or finishing — the board is not bounded",
+                    2 * size
+                );
+            }
+        }
+    }
+
+    /// A shortest 4-connected cell route from `start` to `goal`, or `None`.
+    ///
+    /// The same BFS as [`reachable`] with parent links kept. Cell-level, not
+    /// pose-level: turning is always legal and never blocked, so a cell route is
+    /// always realizable as an action sequence — [`route_actions`] does that
+    /// conversion.
+    fn cell_route(grid: &Grid, start: (i32, i32), goal: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        let mut parent = std::collections::HashMap::from([(start, start)]);
+        let mut queue = VecDeque::from([start]);
+        while let Some(cell) = queue.pop_front() {
+            if cell == goal {
+                let mut route = vec![goal];
+                let mut at = goal;
+                while at != start {
+                    at = parent[&at];
+                    route.push(at);
+                }
+                route.reverse();
+                return Some(route);
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let next = (cell.0 + dx, cell.1 + dy);
+                if grid.in_bounds(next.0, next.1)
+                    && grid.get(next.0, next.1).is_passable()
+                    && !parent.contains_key(&next)
+                {
+                    parent.insert(next, cell);
+                    queue.push_back(next);
+                }
+            }
+        }
+        None
+    }
+
+    /// Turn `route` into actions, starting from `facing`.
+    ///
+    /// At most two turns per hop (a reversal), then one `Forward`.
+    fn route_actions(route: &[(i32, i32)], mut facing: Direction) -> Vec<GridAction> {
+        let mut actions = Vec::new();
+        for pair in route.windows(2) {
+            let delta = (pair[1].0 - pair[0].0, pair[1].1 - pair[0].1);
+            let target = [
+                Direction::East,
+                Direction::South,
+                Direction::West,
+                Direction::North,
+            ]
+            .into_iter()
+            .find(|d| d.delta() == delta)
+            .expect("consecutive route cells are 4-adjacent");
+            while facing != target {
+                if facing.right() == target {
+                    actions.push(GridAction::TurnRight);
+                    facing = facing.right();
+                } else {
+                    actions.push(GridAction::TurnLeft);
+                    facing = facing.left();
+                }
+            }
+            actions.push(GridAction::Forward);
+        }
+        actions
+    }
+
+    /// End-to-end through the public API: every sampled board is winnable, and
+    /// the win pays.
+    ///
+    /// Replaces `optimal_rollout_through_two_openings_reaches_goal`, whose
+    /// twenty-action script encoded the old fixed board's exact geometry. The
+    /// route is now *derived* from the board the env built, so this test cannot
+    /// be right by luck on one seed and silently wrong on the rest. The
+    /// integration oracle in `tests/grids_solvable.rs` states the same property
+    /// against a full pose-level planner; this one keeps it inside the module
+    /// that owns the generator.
+    #[test]
+    fn a_derived_route_reaches_the_goal_and_pays() {
+        for size in SIZES {
+            for seed in 0..SEEDS {
+                let mut env = env_at(size, seed);
+                env.reset_with_seed(seed).expect("reset");
+                let agent = env.state().agent;
+                let goal = goal_of(&env.state().grid);
+                let route = cell_route(&env.state().grid, (agent.x, agent.y), goal)
+                    .unwrap_or_else(|| panic!("size {size} seed {seed}: no route to the goal"));
+                let actions = route_actions(&route, agent.direction);
+                assert!(
+                    !actions.is_empty(),
+                    "size {size} seed {seed}: the agent must not start on the goal"
+                );
+
+                let mut last = None;
+                for action in actions {
+                    last = Some(env.step(action).expect("step"));
+                }
+                let snap = last.expect("non-empty route");
+                assert!(
+                    snap.is_done(),
+                    "size {size} seed {seed}: the derived route did not end the episode"
+                );
+                let reward: f32 = (*snap.reward()).into();
+                assert!(
+                    reward > 0.0,
+                    "size {size} seed {seed}: reward was {reward}, expected > 0.0"
+                );
+            }
+        }
     }
 
     #[test]
