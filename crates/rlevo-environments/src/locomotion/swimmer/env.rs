@@ -20,6 +20,7 @@ use rlevo_core::environment::{
 };
 use rlevo_core::reward::ScalarReward;
 
+use crate::episode::EpisodeGuard;
 use crate::locomotion::backend::{LocomotionBackend, Rapier3DBackend, Rapier3DWorld};
 use crate::locomotion::common::{LocomotionSnapshot, ctrl_cost, wrap_to_pi};
 
@@ -43,6 +44,14 @@ pub const METADATA_KEY_CTRL: &str = "ctrl";
 ///
 /// Construct with [`ConstructableEnv::new`] (uses [`SwimmerConfig::default`])
 /// or with [`Swimmer::with_config`] for a custom configuration.
+///
+/// # Episode lifecycle
+///
+/// There is no health condition and no goal, so the episode has a single
+/// ending: `Truncated` once `steps` reaches `config.max_steps`. That ending
+/// closes the episode — a further [`step`](Environment::step) returns
+/// [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
+/// is called (see the [`EpisodeGuard`] field).
 #[derive(Debug)]
 pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     world: B::World,
@@ -50,6 +59,13 @@ pub struct Swimmer<B: LocomotionBackend = Rapier3DBackend> {
     config: SwimmerConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the episode ended. The truncation
+    /// predicate `steps >= max_steps` is not self-limiting: past the cap it
+    /// keeps holding, so an unguarded post-terminal step would run another
+    /// `frame_skip` substeps of actuation and drag, tick `steps` past the
+    /// budget the caller asked for, and re-emit `Truncated` with a fresh
+    /// forward/ctrl reward — for as many calls as the caller makes.
+    guard: EpisodeGuard,
     _marker: PhantomData<B>,
 }
 
@@ -76,6 +92,7 @@ impl Swimmer<Rapier3DBackend> {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
             _marker: PhantomData,
         })
     }
@@ -86,6 +103,9 @@ impl Swimmer<Rapier3DBackend> {
     /// successive episodes differ; use this when you need a *specific* episode
     /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
     /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// This delegates to [`reset`](Environment::reset), so it also re-opens a
+    /// truncated episode: the episode guard is cleared there, not here.
     ///
     /// # Errors
     ///
@@ -353,11 +373,18 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     /// The returned snapshot has `EpisodeStatus::Running`, reward `0.0`, and
     /// metadata components `forward = 0.0` and `ctrl = 0.0`.
     ///
+    /// The step counter and the episode guard are cleared, so a truncated
+    /// environment becomes steppable again.
+    ///
     /// # Errors
     ///
     /// This implementation does not currently return an error; the signature
     /// reflects the `Environment` trait contract.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        // The rebuild below is infallible, so there is no partial-reset window
+        // in which clearing the guard would re-open an episode over a world
+        // that never returned to its initial state (ADR 0044 §6).
+        self.guard.reset();
         let (world, mut state) = Self::build_world(&self.config, &mut self.rng);
         self.world = world;
         state.last_obs = SwimmerObservation::default();
@@ -392,9 +419,21 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvironmentError::InvalidAction`] if any element of `action`
-    /// is non-finite (`NaN` or `±∞`).
+    /// - [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has already
+    ///   ended (`steps` reached `config.max_steps`, so the last snapshot was
+    ///   `Truncated`); call [`reset`](Environment::reset) first. Checked before
+    ///   the action itself, so a post-terminal call is diagnosed as the
+    ///   call-sequence bug it is even when the replayed action is malformed.
+    /// - [`EnvironmentError::InvalidAction`] if any element of `action` is
+    ///   non-finite (`NaN` or `±∞`).
     fn step(&mut self, action: SwimmerAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first — ahead of the action check, the torque application and
+        // the physics substeps. Whether the episode is over is a call-sequence
+        // fact independent of the action's validity, and a rejected step must
+        // leave the world, `steps` and the cached observation exactly as the
+        // terminal step left them.
+        self.guard.check()?;
+
         if !action.0.iter().copied().all(f32::is_finite) {
             return Err(EnvironmentError::InvalidAction(format!(
                 "Swimmer action must be finite, got {:?}",
@@ -430,12 +469,16 @@ impl Environment<1, 1, 1> for Swimmer<Rapier3DBackend> {
             .with_position("torso", torso_pos)
             .with_position("com", torso_pos)
             .with_position("main_body", torso_pos);
-        Ok(LocomotionSnapshot {
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status, so the two cannot disagree.
+        let snapshot = LocomotionSnapshot {
             observation: obs,
             reward: ScalarReward(total),
             status,
             metadata: Some(meta),
-        })
+        };
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -485,6 +528,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
@@ -502,6 +546,173 @@ mod tests {
             reset_noise_scale: 0.0,
             ..Default::default()
         }
+    }
+
+    // ── post-terminal step guard (issue #292) ────────────────────────────────
+    //
+    // Swimmer has NO `Terminated` path: there is no health condition and no
+    // goal, and `step` only ever emits `Running` or `Truncated`. Truncation at
+    // `steps >= max_steps` is therefore the only ending, and the guard tests
+    // drive to it with a deliberately tiny `max_steps` (the default is 1000
+    // physics steps, which is slow to burn through repeatedly).
+
+    /// Step budget for the guard tests.
+    const GUARD_MAX_STEPS: usize = 3;
+
+    /// A legal no-op action: both elements are finite, which is the only
+    /// admission test `step` applies, so any rejection of it is on
+    /// call-sequence grounds alone.
+    fn idle() -> SwimmerAction {
+        SwimmerAction::new(0.0, 0.0)
+    }
+
+    /// Environment whose episodes truncate after [`GUARD_MAX_STEPS`] steps.
+    fn truncating_env() -> SwimmerRapier {
+        SwimmerRapier::with_config(SwimmerConfig {
+            max_steps: GUARD_MAX_STEPS,
+            ..deterministic_cfg()
+        })
+        .expect("valid config")
+    }
+
+    /// Idles until the step budget runs out and returns the truncated snapshot.
+    fn drive_to_truncation(env: &mut SwimmerRapier) -> LocomotionSnapshot<SwimmerObservation> {
+        env.reset().expect("reset must succeed");
+        let mut snap = env.step(idle()).expect("first step must succeed");
+        while !snap.is_done() {
+            snap = env
+                .step(idle())
+                .expect("step must succeed while the episode is running");
+        }
+        snap
+    }
+
+    /// `Swimmer` satisfies the shared post-terminal conformance check: once the
+    /// step budget is exhausted, a further `step()` with a *legal* action fails
+    /// with `StepAfterEpisodeEnd` carrying the status that ended the episode.
+    #[test]
+    fn rejects_post_terminal_step() {
+        let mut env = truncating_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_truncation, idle());
+    }
+
+    /// Regression for what the guard removes: past `max_steps` the truncation
+    /// predicate keeps holding, so an unguarded post-terminal step would run
+    /// another `frame_skip` substeps, tick `steps` past the caller's budget and
+    /// re-emit `Truncated` with a fresh reward. A rejected step must mutate
+    /// nothing — the step counter, the cached observation and the guard must be
+    /// exactly as the terminal step left them.
+    #[test]
+    fn post_terminal_step_does_not_mutate_state() {
+        let mut env = truncating_env();
+        let terminal = drive_to_truncation(&mut env);
+        let ended = terminal.status();
+        assert_eq!(
+            ended,
+            EpisodeStatus::Truncated,
+            "the step budget must truncate the episode"
+        );
+
+        let steps_at_end = env.steps;
+        let obs_at_end = env.state.last_obs.0;
+        let world_obs_at_end = env.extract_observation().0;
+
+        let err = env
+            .step(idle())
+            .expect_err("a step after truncation must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps, steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            env.state.last_obs.0, obs_at_end,
+            "a rejected step must not overwrite the cached observation"
+        );
+        // The observation is read straight out of the physics world, so an
+        // unchanged reading is direct evidence the world did not integrate.
+        assert_eq!(
+            env.extract_observation().0,
+            world_obs_at_end,
+            "a rejected step must not advance the physics world"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// The guard rejects on call-sequence grounds *before* the action's own
+    /// validity is examined: replaying a malformed action past the terminal
+    /// must still be diagnosed as `StepAfterEpisodeEnd`, not `InvalidAction`.
+    #[test]
+    fn post_terminal_step_outranks_the_action_check() {
+        let mut env = truncating_env();
+        drive_to_truncation(&mut env);
+
+        let err = env
+            .step(SwimmerAction::new(f32::NAN, 0.0))
+            .expect_err("a step after truncation must return Err");
+        assert!(
+            matches!(
+                err,
+                EnvironmentError::StepAfterEpisodeEnd {
+                    status: EpisodeStatus::Truncated
+                }
+            ),
+            "the call-sequence fault outranks the action fault, got {err:?}"
+        );
+    }
+
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    #[test]
+    fn reset_reopens_finished_episode() {
+        let mut env = truncating_env();
+        drive_to_truncation(&mut env);
+        assert!(
+            env.step(idle()).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after truncation");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        assert!(
+            env.step(idle()).is_ok(),
+            "reset() must re-open the environment for a new episode"
+        );
+    }
+
+    /// `reset_with_seed` delegates to `reset`, so it must clear the guard too.
+    #[test]
+    fn reset_with_seed_reopens_finished_episode() {
+        let mut env = truncating_env();
+        drive_to_truncation(&mut env);
+
+        env.reset_with_seed(999)
+            .expect("reset_with_seed must succeed after truncation");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset_with_seed() must return the guard to Running"
+        );
+        assert!(
+            env.step(idle()).is_ok(),
+            "reset_with_seed() must re-open the environment for a new episode"
+        );
     }
 
     #[test]

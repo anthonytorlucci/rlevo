@@ -12,6 +12,7 @@ use rlevo_core::environment::{
 };
 use rlevo_core::reward::ScalarReward;
 
+use crate::episode::EpisodeGuard;
 use crate::locomotion::backend::{LocomotionBackend, Pose, Rapier3DBackend, Rapier3DWorld};
 use crate::locomotion::common::{LocomotionSnapshot, TerminationMode, wrap_to_pi};
 
@@ -40,6 +41,9 @@ pub const METADATA_KEY_VELOCITY: &str = "velocity";
 ///
 /// See the [module documentation](super) for the full observation layout,
 /// reward formula, and Gymnasium divergence notes.
+///
+/// A [`step`](Environment::step) taken after the episode ended is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 #[derive(Debug)]
 pub struct InvertedDoublePendulum<B: LocomotionBackend = Rapier3DBackend> {
     world: B::World,
@@ -47,6 +51,15 @@ pub struct InvertedDoublePendulum<B: LocomotionBackend = Rapier3DBackend> {
     config: InvertedDoublePendulumConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the tip dropped (or the episode was
+    /// truncated). Neither status is a latch the physics enforces: the
+    /// healthiness test is a live read of the current tip height and the step
+    /// counter keeps climbing, so an unguarded post-terminal step integrates
+    /// another frame, ticks `steps` and pays a fresh reward — and a chaotic
+    /// double pendulum whose tip swings back above the threshold even re-earns
+    /// the `+10` alive bonus on a `Running` snapshot, silently resurrecting the
+    /// episode.
+    guard: EpisodeGuard,
     _marker: PhantomData<B>,
 }
 
@@ -75,6 +88,7 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
             _marker: PhantomData,
         })
     }
@@ -85,6 +99,10 @@ impl InvertedDoublePendulum<Rapier3DBackend> {
     /// successive episodes differ; use this when you need a *specific* episode
     /// to reproduce bit-for-bit (e.g. replaying a failure). Run-level
     /// reproducibility is already guaranteed by the construction seed.
+    ///
+    /// Delegates to [`reset`](Environment::reset) for the rebuild, so it
+    /// re-opens the [`EpisodeGuard`] on exactly the same terms — there is no
+    /// second reset path that could forget to clear it.
     ///
     /// # Errors
     ///
@@ -331,6 +349,13 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
     /// independent initial states. For deterministic replay of a specific
     /// initial state, use [`InvertedDoublePendulum::reset_with_seed`].
     ///
+    /// Re-opens the [`EpisodeGuard`], so an environment whose tip dropped (or
+    /// whose episode was truncated) becomes steppable again. The guard is
+    /// cleared only after the new world is in hand: nothing here is fallible
+    /// today, but the ordering keeps the ADR 0044 §6 rule ("clear the guard only
+    /// once the rebuild has succeeded") true by construction if `build_world`
+    /// ever becomes so.
+    ///
     /// # Errors
     ///
     /// This implementation does not currently return an error; the signature
@@ -341,6 +366,7 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
         state.last_obs = InvertedDoublePendulumObservation::default();
         self.state = state;
         self.steps = 0;
+        self.guard.reset();
 
         let obs = self.observe_reset(&self.state);
         self.state.last_obs = obs;
@@ -371,12 +397,25 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
     ///
     /// # Errors
     ///
-    /// Returns `EnvironmentError::InvalidAction` if the action value is
-    /// non-finite (`NaN` or infinity).
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (the tip dropped, or `max_steps` was reached); call
+    /// [`reset`](Environment::reset) first. Returns
+    /// [`EnvironmentError::InvalidAction`] if the action value is non-finite
+    /// (`NaN` or infinity).
     fn step(
         &mut self,
         action: InvertedDoublePendulumAction,
     ) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first — ahead of even the finiteness check: the episode being
+        // over is a fact about the *call sequence*, independent of whether the
+        // action itself is well-formed, so a caller replaying a malformed action
+        // past the terminal must hear about the finished episode, not get
+        // `InvalidAction` and the wrong diagnosis. It also runs before
+        // `step_actuated`, the `steps` tick and the observation refresh, so a
+        // rejected call leaves the physics world, the counter and the RNG stream
+        // exactly as the terminal step left them (ADR 0029).
+        self.guard.check()?;
+
         if !action.0[0].is_finite() {
             return Err(EnvironmentError::InvalidAction(format!(
                 "InvertedDoublePendulum action must be finite, got {}",
@@ -438,12 +477,16 @@ impl Environment<1, 1, 1> for InvertedDoublePendulum<Rapier3DBackend> {
                 [obs.cart_position(), 0.0, self.config.cart_half_extents[2]],
             )
             .with_position("tip", tip);
-        Ok(LocomotionSnapshot {
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch can forget to record.
+        let snapshot = LocomotionSnapshot {
             observation: obs,
             reward: ScalarReward(total),
             status,
             metadata: Some(meta),
-        })
+        };
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -484,6 +527,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::ContinuousAction;
     use rlevo_core::base::Action;
     use rlevo_core::base::Observation;
@@ -821,6 +865,246 @@ mod tests {
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
+        );
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #292) ──────────────────────
+
+    /// Upper bound on the steps the driven pendulum may take before the test
+    /// calls it a regression. `max_steps` is set well above it so truncation
+    /// cannot pre-empt the termination the test is driving to.
+    const FALL_STEP_CAP: usize = 2000;
+
+    /// Config that lets the episode end by a genuine `Terminated`: no reset
+    /// noise (deterministic), `OnUnhealthy` termination, and a truncation budget
+    /// far beyond `FALL_STEP_CAP`.
+    fn terminating_cfg() -> InvertedDoublePendulumConfig {
+        InvertedDoublePendulumConfig {
+            seed: 7,
+            reset_noise_scale: 0.0,
+            termination: TerminationMode::OnUnhealthy,
+            max_steps: 10_000,
+            ..Default::default()
+        }
+    }
+
+    /// Drives a fresh episode to a real **`Terminated`** — not a truncation: a
+    /// sustained +1.0 cart force drops the tip below the healthy `z_range` floor
+    /// (`y_tip ≤ 1.0`), and the `OnUnhealthy` rule ends the episode through the
+    /// same physics path an agent would hit.
+    fn drive_to_tip_drop(
+        env: &mut InvertedDoublePendulum<Rapier3DBackend>,
+    ) -> LocomotionSnapshot<InvertedDoublePendulumObservation> {
+        env.reset().expect("reset must succeed");
+        for _ in 0..FALL_STEP_CAP {
+            let snap = env
+                .step(InvertedDoublePendulumAction::new(1.0))
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                assert!(
+                    snap.is_terminated(),
+                    "this fixture must end by termination, not truncation"
+                );
+                return snap;
+            }
+        }
+        panic!("a sustained +1.0 action must drop the tip within {FALL_STEP_CAP} steps");
+    }
+
+    #[test]
+    /// `InvertedDoublePendulum` satisfies the shared post-terminal conformance
+    /// check: once the tip has dropped (`Terminated`), a further step with a
+    /// *legal* action fails with `StepAfterEpisodeEnd` carrying that same
+    /// status. The replayed action is `0.0` — squarely inside the valid range —
+    /// so the rejection can only be on call-sequence grounds, never on the
+    /// action's own validity.
+    fn test_inverted_double_pendulum_rejects_post_terminal_step() {
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        assert_rejects_post_terminal_step(
+            &mut env,
+            drive_to_tip_drop,
+            InvertedDoublePendulumAction::new(0.0),
+        );
+    }
+
+    #[test]
+    /// A rejected post-terminal step must mutate nothing observable. The
+    /// healthiness test is a live read of the current tip height, not a latch,
+    /// so before the guard a further step integrated another frame, ticked the
+    /// step counter and paid a fresh reward — and a chaotic tip that swings back
+    /// above the threshold could re-earn the `+10` alive bonus on a `Running`
+    /// snapshot.
+    fn test_inverted_double_pendulum_post_terminal_step_does_not_mutate_state() {
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        let terminal = drive_to_tip_drop(&mut env);
+        let ended = terminal.status();
+
+        let obs_at_end = terminal.observation().0;
+        let steps_at_end = env.steps;
+
+        let err = env
+            .step(InvertedDoublePendulumAction::new(0.0))
+            .expect_err("a step after the tip dropped must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps, steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        // Recomputed from the *live* physics world, so equality here proves the
+        // rejected call never ran `step_actuated`.
+        assert_eq!(
+            env.extract_observation().0,
+            obs_at_end,
+            "a rejected step must leave the observation byte-identical"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// The guard outranks the action check. Replaying a *malformed* action past
+    /// the terminal must still report `StepAfterEpisodeEnd`, not
+    /// `InvalidAction`: the episode being over is a fact about the call
+    /// sequence, and the finished episode is the diagnosis the caller needs.
+    fn test_inverted_double_pendulum_post_terminal_step_outranks_the_action_check() {
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        drive_to_tip_drop(&mut env);
+
+        let err = env
+            .step(InvertedDoublePendulumAction::new(f32::NAN))
+            .expect_err("a NaN action after termination must still be an error");
+        assert!(
+            matches!(err, EnvironmentError::StepAfterEpisodeEnd { .. }),
+            "the finished episode must be reported before the action's validity, got {err:?}"
+        );
+    }
+
+    #[test]
+    /// A rejected step must not draw from the persistent RNG either (ADR 0029):
+    /// the episode that follows the next `reset()` must be the one the caller
+    /// would have got had the mis-sequenced call never happened.
+    fn test_inverted_double_pendulum_post_terminal_step_does_not_advance_rng() {
+        // Non-zero reset noise so the next reset actually consumes the stream.
+        let cfg = || InvertedDoublePendulumConfig {
+            seed: 7,
+            termination: TerminationMode::OnUnhealthy,
+            max_steps: 10_000,
+            ..Default::default()
+        };
+        let drive = |env: &mut InvertedDoublePendulumRapier| {
+            env.reset().unwrap();
+            for _ in 0..FALL_STEP_CAP {
+                if env
+                    .step(InvertedDoublePendulumAction::new(1.0))
+                    .unwrap()
+                    .is_done()
+                {
+                    return;
+                }
+            }
+            panic!("the tip must drop within {FALL_STEP_CAP} steps");
+        };
+
+        let with_replay = {
+            let mut env = InvertedDoublePendulumRapier::with_config(cfg()).expect("valid config");
+            drive(&mut env);
+            env.step(InvertedDoublePendulumAction::new(0.0))
+                .expect_err("the post-terminal step must be rejected");
+            env.reset().unwrap().observation().0
+        };
+        let without_replay = {
+            let mut env = InvertedDoublePendulumRapier::with_config(cfg()).expect("valid config");
+            drive(&mut env);
+            env.reset().unwrap().observation().0
+        };
+        assert_eq!(
+            with_replay, without_replay,
+            "a rejected step must leave the RNG stream untouched"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    fn test_inverted_double_pendulum_reset_reopens_terminated_episode() {
+        let mut env =
+            InvertedDoublePendulumRapier::with_config(terminating_cfg()).expect("valid config");
+        drive_to_tip_drop(&mut env);
+        assert!(
+            env.step(InvertedDoublePendulumAction::new(0.0)).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after termination");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        let snap = env
+            .step(InvertedDoublePendulumAction::new(0.0))
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+    }
+
+    #[test]
+    /// The truncation limb of the guard: `reset_with_seed` delegates to
+    /// `reset`, so it must clear the guard on the same terms — and a step past
+    /// a `Truncated` snapshot must report `Truncated`, not `Terminated`.
+    fn test_inverted_double_pendulum_rejects_post_truncation_step_and_reset_with_seed_reopens() {
+        let mut env = InvertedDoublePendulumRapier::with_config(InvertedDoublePendulumConfig {
+            seed: 1,
+            reset_noise_scale: 0.0,
+            max_steps: 5,
+            termination: TerminationMode::Never,
+            ..Default::default()
+        })
+        .expect("valid config");
+        env.reset().unwrap();
+        let mut last = None;
+        for _ in 0..5 {
+            last = Some(env.step(InvertedDoublePendulumAction::new(0.0)).unwrap());
+        }
+        assert_eq!(
+            last.expect("five steps were taken").status(),
+            EpisodeStatus::Truncated
+        );
+
+        let err = env
+            .step(InvertedDoublePendulumAction::new(0.0))
+            .expect_err("a step after truncation must be rejected");
+        assert!(
+            matches!(
+                err,
+                EnvironmentError::StepAfterEpisodeEnd {
+                    status: EpisodeStatus::Truncated
+                }
+            ),
+            "the error must distinguish truncation from termination, got {err:?}"
+        );
+
+        env.reset_with_seed(42)
+            .expect("reset_with_seed must succeed after truncation");
+        assert!(
+            env.step(InvertedDoublePendulumAction::new(0.0)).is_ok(),
+            "reset_with_seed must re-open the environment for a new episode"
         );
     }
 }
