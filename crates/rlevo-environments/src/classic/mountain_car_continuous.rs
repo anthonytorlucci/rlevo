@@ -68,6 +68,10 @@
 //! agent must accept temporary control cost to earn the goal bonus. The two
 //! components are also exposed by the keys [`REWARD_CTRL`] and [`REWARD_GOAL`].
 //!
+//! Termination ends the episode: a further [`Environment::step`] returns
+//! [`EnvironmentError::StepAfterEpisodeEnd`] rather than paying the `$+100$`
+//! bonus a second time — call [`Environment::reset`] first.
+//!
 //! ## Step limit
 //!
 //! This environment has **no intrinsic episode limit**. The standard
@@ -95,6 +99,7 @@
 //! ```
 use std::fmt;
 
+use crate::episode::EpisodeGuard;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
@@ -328,12 +333,22 @@ impl State<1> for MountainCarContinuousState {
 // ---------------------------------------------------------------------------
 
 /// MountainCarContinuous-v0: escape the valley with a continuous force.
+///
+/// Reaching the flag terminates the episode; a [`step`](Environment::step) taken
+/// afterwards is rejected with [`EnvironmentError::StepAfterEpisodeEnd`] — see
+/// the [`EpisodeGuard`] field.
 #[derive(Debug)]
 pub struct MountainCarContinuous {
     state: MountainCarContinuousState,
     config: MountainCarContinuousConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the car crested the hill. The goal
+    /// predicate is a position/velocity *test*, not a latch, so past the flag it
+    /// keeps holding: an unguarded post-terminal step pays the `+100` bonus
+    /// again, and again, letting a caller farm unbounded return out of a single
+    /// solved episode.
+    guard: EpisodeGuard,
 }
 
 impl MountainCarContinuous {
@@ -355,6 +370,7 @@ impl MountainCarContinuous {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -482,6 +498,7 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
     ///
     /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
@@ -499,11 +516,18 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
     ///
     /// # Errors
     ///
-    /// Currently infallible; always returns `Ok`.
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first. The physics
+    /// themselves are infallible.
     fn step(
         &mut self,
         action: MountainCarContinuousAction,
     ) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before the physics update and before `steps` advances, so
+        // a rejected call leaves position, velocity, step count and the RNG
+        // stream exactly as the terminal step left them (ADR 0029).
+        self.guard.check()?;
+
         let force = action.force();
         self.state = Self::apply_physics(self.state, force, &self.config);
         self.steps += 1;
@@ -513,12 +537,16 @@ impl Environment<1, 1, 1> for MountainCarContinuous {
         let goal_bonus = if terminated { 100.0 } else { 0.0 };
         let reward = ScalarReward(ctrl_cost + goal_bonus);
 
+        // Single exit: both branches build exactly one snapshot, and the guard is
+        // fed that snapshot's own status, so no branch can forget to record.
         let obs = self.observe(&action, &self.state);
         let snap = if terminated {
             SnapshotBase::terminated(obs, reward)
         } else {
             SnapshotBase::running(obs, reward)
         };
+
+        self.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -715,11 +743,49 @@ mod tests {
     //! and determinism.
 
     use super::*;
-    use rlevo_core::environment::Snapshot;
+    use crate::episode::assert_rejects_post_terminal_step;
+    use rlevo_core::environment::{EpisodeStatus, Snapshot};
 
     fn default_env() -> MountainCarContinuous {
         MountainCarContinuous::with_config(MountainCarContinuousConfig::default())
             .expect("valid config")
+    }
+
+    /// Maximum steps the energy-pumping policy may take before the test calls it
+    /// a regression. Full-throttle bang-bang crests the hill in a few hundred
+    /// steps (`power` here is 0.0015, below Gymnasium's 999-step cap); the slack
+    /// is generous so a legitimate physics tweak does not turn the test flaky,
+    /// but bounded so a broken termination check fails loudly instead of hanging.
+    const PUMP_STEP_CAP: usize = 2_000;
+
+    /// Drives the car to the flag with the classic energy-pumping policy — full
+    /// throttle in the direction the car is already moving — and returns the
+    /// terminal snapshot. This reaches the goal *legitimately*, through the real
+    /// physics, rather than by writing `state` directly, so the guard is
+    /// exercised on the same path an agent takes.
+    fn drive_to_goal(
+        env: &mut MountainCarContinuous,
+    ) -> SnapshotBase<1, MountainCarContinuousObservation, ScalarReward> {
+        let push_right = MountainCarContinuousAction::new(1.0).expect("+1.0 is in [-1, 1]");
+        let push_left = MountainCarContinuousAction::new(-1.0).expect("-1.0 is in [-1, 1]");
+
+        let mut snap = env.reset().expect("reset must succeed");
+        for _ in 0..PUMP_STEP_CAP {
+            // Velocity 0 (the reset state) pumps right: any direction works, the
+            // hill returns the car with more energy either way.
+            let action = if snap.observation().velocity < 0.0 {
+                push_left
+            } else {
+                push_right
+            };
+            snap = env
+                .step(action)
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("energy pumping must crest the hill within {PUMP_STEP_CAP} steps");
     }
 
     #[test]
@@ -908,6 +974,86 @@ mod tests {
         assert_eq!(
             a, b,
             "reset_with_seed must reproduce the same initial state"
+        );
+    }
+
+    // ── post-terminal step guard (issue #290) ────────────────────────────────
+
+    #[test]
+    /// Verifies `MountainCarContinuous` satisfies the shared post-terminal
+    /// conformance check: once the car has crested the hill, a further step with
+    /// a *legal* action fails with `StepAfterEpisodeEnd { status: Terminated }`.
+    /// The replayed action is constructed through the checked
+    /// [`MountainCarContinuousAction::new`], so the rejection can only be on
+    /// call-sequence grounds, never on the action's own validity.
+    fn test_mountain_car_continuous_rejects_post_terminal_step() {
+        let mut env = default_env();
+        let legal_action = MountainCarContinuousAction::new(0.5).expect("0.5 is in [-1, 1]");
+        assert_rejects_post_terminal_step(&mut env, drive_to_goal, legal_action);
+    }
+
+    #[test]
+    /// Regression for the payoff the guard removes: past the flag the goal
+    /// predicate still holds, so an unguarded post-terminal step would pay the
+    /// `+100` bonus a second time. The rejected step must instead leave the
+    /// physics, the step counter and the guard untouched, and emit no reward.
+    fn test_mountain_car_continuous_post_terminal_step_does_not_repay_goal_bonus() {
+        let mut env = default_env();
+        let terminal = drive_to_goal(&mut env);
+        assert!(
+            terminal.is_terminated(),
+            "the flag must terminate the episode"
+        );
+
+        let state_before = env.state;
+        let steps_before = env.steps;
+
+        let err = env
+            .step(MountainCarContinuousAction::new(1.0).expect("1.0 is in [-1, 1]"))
+            .expect_err("a step after termination must return Err, not another +100 snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status,
+                EpisodeStatus::Terminated,
+                "the error must carry Terminated, the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.state, state_before,
+            "a rejected step must not advance the physics"
+        );
+        assert_eq!(
+            env.steps, steps_before,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// Verifies `reset()` re-opens a terminated environment, so an agent can run
+    /// a second episode without rebuilding the environment.
+    fn test_mountain_car_continuous_reset_reopens_terminated_episode() {
+        let mut env = default_env();
+        let action = MountainCarContinuousAction::new(1.0).expect("1.0 is in [-1, 1]");
+        drive_to_goal(&mut env);
+        assert!(
+            env.step(action).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        let snap = env
+            .step(action)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
         );
     }
 }

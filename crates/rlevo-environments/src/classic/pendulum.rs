@@ -93,6 +93,7 @@
 //! ```
 use std::fmt;
 
+use crate::episode::EpisodeGuard;
 use rand::{SeedableRng, rngs::StdRng};
 use rand_distr::{Distribution, Uniform};
 use rlevo_core::{
@@ -337,6 +338,18 @@ pub struct Pendulum {
     config: PendulumConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the episode ended — **inert in practice**,
+    /// because Pendulum has no terminal condition: every `step` emits `Running`,
+    /// so the guard never closes and never rejects anything. It is carried
+    /// anyway so the classic-control family is uniform (issue #290), and so that
+    /// a future termination rule (an upright-and-settled success criterion, say)
+    /// cannot silently reintroduce the post-terminal resurrection bug: whoever
+    /// adds a `terminated` branch gets the rejection for free from the existing
+    /// `check()`/`record()` pair rather than having to remember it.
+    ///
+    /// Episode capping lives in [`TimeLimit`](crate::wrappers::TimeLimit), which
+    /// carries its own guard; this one does not observe the wrapper's truncation.
+    guard: EpisodeGuard,
 }
 
 impl Pendulum {
@@ -357,6 +370,7 @@ impl Pendulum {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         })
     }
 
@@ -479,6 +493,7 @@ impl Environment<1, 1, 1> for Pendulum {
     ///
     /// Currently infallible; always returns `Ok`.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.state = self.sample_init_state();
         self.steps = 0;
         Ok(SnapshotBase::running(
@@ -496,15 +511,30 @@ impl Environment<1, 1, 1> for Pendulum {
     ///
     /// # Errors
     ///
-    /// Currently infallible; always returns `Ok`.
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended — unreachable today, since Pendulum has no terminal
+    /// condition and the [`EpisodeGuard`] therefore never closes. The variant is
+    /// documented because it is the family-wide contract a future termination
+    /// rule would activate without touching this signature.
     fn step(&mut self, action: PendulumAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first: before the integration step and before `steps` advances.
+        // Pendulum's dynamics draw no randomness, but `reset` does, so keeping
+        // the check ahead of every mutation is what makes a rejected call a true
+        // no-op on both the state and the RNG stream (ADR 0029).
+        self.guard.check()?;
+
         let (next_state, reward_f) = Self::step_dynamics(self.state, action.torque(), &self.config);
         self.state = next_state;
         self.steps += 1;
-        Ok(SnapshotBase::running(
-            self.observe(&action, &self.state),
-            ScalarReward(reward_f),
-        ))
+
+        // Single exit: the only status Pendulum can emit is `Running`, so the
+        // guard stays open — recording it regardless keeps the guard and the
+        // emitted snapshot in agreement no matter what branches appear later.
+        let snapshot =
+            SnapshotBase::running(self.observe(&action, &self.state), ScalarReward(reward_f));
+
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -758,6 +788,55 @@ mod tests {
             assert!(!snap.is_terminated(), "should never terminate");
             assert_eq!(snap.status(), EpisodeStatus::Running);
         }
+    }
+
+    #[test]
+    /// Pendulum has no terminal condition, so the shared
+    /// `assert_rejects_post_terminal_step` conformance helper is inapplicable here —
+    /// there is no way to drive the env to a done snapshot without faking one. What
+    /// *is* checkable is the guard's other half: it must stay open forever, so
+    /// stepping never starts failing and the episode is never silently cut short.
+    /// If a termination rule is ever added, this test flips to the conformance
+    /// helper and the guard begins doing real work with no other change.
+    fn test_pendulum_guard_stays_running() {
+        use rlevo_core::environment::EpisodeStatus;
+
+        let mut env = default_env();
+        env.reset().expect("reset must succeed");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "a reset episode must start Running"
+        );
+
+        let action = PendulumAction::new(1.0).expect("torque within [-2, 2]");
+        for i in 0..1_000 {
+            let snap = env
+                .step(action)
+                .unwrap_or_else(|e| panic!("step {i} must succeed; Pendulum never ends: {e:?}"));
+            assert_eq!(
+                snap.status(),
+                EpisodeStatus::Running,
+                "snapshot at step {i} must be Running"
+            );
+            assert_eq!(
+                env.guard.status(),
+                EpisodeStatus::Running,
+                "the guard must agree with the snapshot at step {i}"
+            );
+        }
+
+        env.reset()
+            .expect("reset must succeed on a still-running episode");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must leave the guard open"
+        );
+        assert!(
+            env.step(action).is_ok(),
+            "stepping after reset must still succeed"
+        );
     }
 
     #[test]

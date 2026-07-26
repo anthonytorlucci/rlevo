@@ -504,6 +504,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` silently resurrected a finished episode across the
+  whole `classic` family** (ADR 0044, resolves #290) — the contract #105 made
+  normative on `Environment::step` was enforced only by `toy_text` and
+  `TimeLimit`; the six `classic` environments each recomputed terminality from
+  the *current* state on every call, with no memory that the episode had already
+  ended. Because that test is a predicate and not a latch, the failure was not a
+  benign no-op: a post-terminal `step()` on `CartPole` re-emitted a fresh
+  `Terminated` snapshot and paid the `+1.0` again while advancing `steps` past
+  the true episode length, and on `MountainCarContinuous` it re-paid the `+100`
+  goal bonus on every extra call. `Acrobot` was worse still — the RK4 integrator
+  keeps running past the goal, the tip swings back *below* the height threshold,
+  and the next snapshot reads **`Running`** with reward `−1`, so a finished
+  episode came back to life with a corrupted return. `SantaFeAnt` could keep
+  eating pellets past a budget it had already exhausted. Every one of these
+  environments now holds an `episode::EpisodeGuard`, `check()`s it before any
+  state mutation or RNG draw (so a rejected step cannot desynchronise the seed
+  stream — ADR 0029), and `record()`s the emitted status on a single exit path.
+  The existing tests missed it because they all stopped at the first `is_done()`
+  snapshot — the standard rollout shape — and so never exercised the one call
+  sequence that fails; the regression tests now step deliberately past it via
+  the shared `assert_rejects_post_terminal_step` conformance helper.
+  `Pendulum` has no terminal condition and so cannot be covered by that helper;
+  it takes the guard for family uniformity, verified only to stay open, so a
+  future termination rule cannot reintroduce the hole. The remaining families
+  (`grids`, `locomotion`, `box2d`, `pixel_grid`, bandits) are still unguarded and
+  tracked by #289, so the migration note on `Environment::step` stays until they
+  land.
 - **`ContinuousAction::from_slice` now accepts exactly `COMPONENTS` values on all
   five multi-component continuous actions**, matching what the trait and
   `docs/rules.md` §3 have always documented. `ReacherAction` and `SwimmerAction`
