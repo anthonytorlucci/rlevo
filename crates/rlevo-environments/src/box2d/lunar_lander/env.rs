@@ -42,6 +42,7 @@ use rlevo_core::environment::{
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
+use crate::episode::EpisodeGuard;
 
 use super::action_continuous::LunarLanderContinuousAction;
 use super::action_discrete::LunarLanderDiscreteAction;
@@ -76,6 +77,21 @@ struct LunarLanderCore {
     rng: StdRng,
     wind_rng: Option<StdRng>,
     steps: usize,
+    /// Rejects a `step()` taken after the episode already ended.
+    ///
+    /// Both variants own their own `LunarLanderCore`, so one guard per
+    /// environment instance covers `LunarLanderDiscrete` and
+    /// `LunarLanderContinuous` without duplicating the field.
+    ///
+    /// The guard is load-bearing here because the terminal predicates in
+    /// [`Self::step_common`] are *tests over the live world*, not latches: a
+    /// crashed hull stays on the ground, so `hull_in_contact()` (and the
+    /// out-of-bounds check) keeps holding, and every further step re-runs the
+    /// Gym reward **overwrite** and re-emits a fresh `Terminated` snapshot
+    /// paying another −100. Measured before this guard: a seed-0 free fall
+    /// crashes at step 135 with −100, then re-emits −100 on each of five
+    /// further steps (running total −600 for a single crash).
+    guard: EpisodeGuard,
 }
 
 impl LunarLanderCore {
@@ -102,12 +118,23 @@ impl LunarLanderCore {
             rng,
             wind_rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         };
         core.rebuild();
         Ok(core)
     }
 
+    /// Tears down and rebuilds the physics world, starting a fresh episode.
+    ///
+    /// The [`EpisodeGuard`] is cleared **here** rather than in each variant's
+    /// `Environment::reset`: `rebuild` is the single place the episode actually
+    /// begins (both `reset` impls and `new` funnel through it), and it is
+    /// infallible, so there is no partial-reset window in which the world is
+    /// fresh but the guard still reads `Terminated`. Clearing it in the two
+    /// `reset` impls instead would put the invariant one copy-paste away from
+    /// being broken by a third variant.
     fn rebuild(&mut self) {
+        self.guard.reset();
         self.world = RapierWorld::new(Vector::new(0.0, self.config.gravity), self.config.dt);
 
         // Ground
@@ -379,8 +406,10 @@ impl LunarLanderCore {
 ///
 /// [`SnapshotBase`]: rlevo_core::environment::SnapshotBase
 ///
-/// Actions never return an error; all four [`LunarLanderDiscreteAction`] variants
-/// are always valid.
+/// All four [`LunarLanderDiscreteAction`] variants are always valid, so the only
+/// error [`step`](Environment::step) can return is
+/// [`EnvironmentError::StepAfterEpisodeEnd`], raised once the episode has ended
+/// — see the [`EpisodeGuard`] field on the shared core.
 #[derive(Debug)]
 pub struct LunarLanderDiscrete {
     core: LunarLanderCore,
@@ -462,11 +491,24 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
     ///   of bounds (reward −100), or landed softly (reward +100).
     /// - `Truncated` — `config.max_steps` reached without a terminal event.
     ///
-    /// This variant never returns `Err`; the result is always `Ok`.
+    /// # Errors
+    ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (crash, landing, or step-limit truncation); call
+    /// [`reset`](Environment::reset) first. All four
+    /// [`LunarLanderDiscreteAction`] variants are always valid, so this is the
+    /// only error this variant can return.
     fn step(
         &mut self,
         action: LunarLanderDiscreteAction,
     ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+        // Guard first: before `step_common` touches the Rapier world, `steps`,
+        // `prev_shaping`, or the stochastic-wind stream. `step_common` calls
+        // `apply_wind` as its first act, which under `WindMode::Stochastic`
+        // draws from `wind_rng` — and ADR 0029 requires a rejected step to
+        // leave every seed stream where it was.
+        self.core.guard.check()?;
+
         let (main, lateral) = match action {
             LunarLanderDiscreteAction::DoNothing => (0.0, 0.0),
             LunarLanderDiscreteAction::LeftEngine => (0.0, -1.0),
@@ -475,12 +517,16 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
         };
         let (obs, reward, status) = self.core.step_common(main, lateral);
         let meta = shaping_metadata(self.core.shaping_value());
+        // Single exit: every branch builds exactly one snapshot, and the guard
+        // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
             EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
             EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
             EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
+
+        self.core.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -491,7 +537,10 @@ impl Environment<1, 1, 1> for LunarLanderDiscrete {
 ///
 /// Each action is a `[f32; 2]` vector wrapped in [`LunarLanderContinuousAction`].
 /// Both components must lie in `[-1, 1]` and be finite; `step` returns
-/// `Err(EnvironmentError::InvalidAction)` otherwise (design decision D5).
+/// `Err(EnvironmentError::InvalidAction)` otherwise (design decision D5). Once
+/// the episode has ended, `step` returns
+/// [`EnvironmentError::StepAfterEpisodeEnd`] instead — that check precedes the
+/// bounds check, since episode-over does not depend on the action.
 ///
 /// The main-engine component maps as follows: values in `[-1, 0]` are treated as
 /// off (no thrust); values in `(0, 1]` scale the main engine linearly. The lateral
@@ -579,6 +628,12 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
     ///
     /// # Errors
     ///
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended (crash, landing, or step-limit truncation); call
+    /// [`reset`](Environment::reset) first. This check runs **before** the
+    /// action check below, so a post-terminal step is rejected on
+    /// call-sequence grounds even when the action is also out of range.
+    ///
     /// Returns `Err(EnvironmentError::InvalidAction)` if either component of
     /// `action` is outside `[-1, 1]` or is non-finite (design decision D5).
     ///
@@ -588,6 +643,16 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
         &mut self,
         action: LunarLanderContinuousAction,
     ) -> Result<LunarLanderSnapshot, EnvironmentError> {
+        // Guard first — ahead of the D5 bounds check. Episode-over is a fact
+        // about the call *sequence*, independent of whether this particular
+        // action is well-formed, so it is the stronger and earlier rejection.
+        // Placing it first also keeps a rejected step from touching the Rapier
+        // world, `steps`, `prev_shaping`, or the stochastic-wind stream:
+        // `step_common` calls `apply_wind` first thing, which under
+        // `WindMode::Stochastic` draws from `wind_rng`, and ADR 0029 requires a
+        // rejected step to leave every seed stream exactly where it was.
+        self.core.guard.check()?;
+
         // D5: validate action bounds
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -600,12 +665,16 @@ impl Environment<1, 1, 1> for LunarLanderContinuous {
         let main = main_raw.max(0.0);
         let (obs, reward, status) = self.core.step_common(main, lateral);
         let meta = shaping_metadata(self.core.shaping_value());
+        // Single exit: every branch builds exactly one snapshot, and the guard
+        // is fed that snapshot's own status, so no branch can forget to record.
         let snap = match status {
             EpisodeStatus::Running => LunarLanderSnapshot::running(obs, ScalarReward(reward)),
             EpisodeStatus::Terminated => LunarLanderSnapshot::terminated(obs, ScalarReward(reward)),
             EpisodeStatus::Truncated => LunarLanderSnapshot::truncated(obs, ScalarReward(reward)),
         }
         .with_metadata(meta);
+
+        self.core.guard.record(snap.status);
         Ok(snap)
     }
 }
@@ -818,6 +887,7 @@ mod tests {
 
     use super::super::snapshot::METADATA_KEY_SHAPING;
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::action::DiscreteAction;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
@@ -1093,6 +1163,223 @@ mod tests {
     // hand-written script without flakiness, so the landing branch is left to
     // integration-level policy tests. Tests 1 and 2 above are deterministic and
     // directly exercise the truncation and (newly live) hull-crash branches.
+
+    // ── post-terminal step guard (issue #293, regression for #122) ───────────
+
+    /// Deterministic config shared by the guard tests: seed 0 free-falls into
+    /// the hull-crash terminal at step 135, well inside `max_steps` (1000).
+    fn guard_cfg() -> LunarLanderConfig {
+        LunarLanderConfig::builder()
+            .seed(0)
+            .build()
+            .expect("valid config")
+    }
+
+    /// Upper bound on the free-fall drive; `guard_cfg`'s own `max_steps` is
+    /// 1000 and the crash lands at 135, so this only fires if termination
+    /// regressed.
+    const FREE_FALL_CAP: usize = 1_000;
+
+    /// Drives a discrete lander to its terminal snapshot by free fall (no
+    /// thrust) and returns it. The terminal is a *crash*: the hull contacts the
+    /// ground and the reward is overwritten to −100.
+    ///
+    /// The `+100` **landing** terminal is not driven here. As the note above
+    /// `render_styled_matches_ascii` records, a soft landing needs a control
+    /// policy that nulls out velocity and angle and lets both legs settle, and
+    /// no fixed hand-written action script achieves it without flakiness. The
+    /// guard is status-based, not reward-based — it records
+    /// `snap.status()`, which is `Terminated` on both paths — so covering the
+    /// crash terminal covers the landing terminal's guard behaviour too.
+    fn crash_discrete(env: &mut LunarLanderDiscrete) -> LunarLanderSnapshot {
+        env.reset().expect("reset must succeed");
+        for _ in 0..FREE_FALL_CAP {
+            let snap = env
+                .step(LunarLanderDiscreteAction::DoNothing)
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("free fall must reach the hull-crash terminal within {FREE_FALL_CAP} steps");
+    }
+
+    /// Continuous counterpart of [`crash_discrete`]; a zero action is the
+    /// continuous no-op, so the trajectory is the same free fall.
+    fn crash_continuous(env: &mut LunarLanderContinuous) -> LunarLanderSnapshot {
+        env.reset().expect("reset must succeed");
+        for _ in 0..FREE_FALL_CAP {
+            let snap = env
+                .step(LunarLanderContinuousAction([0.0, 0.0]))
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("free fall must reach the hull-crash terminal within {FREE_FALL_CAP} steps");
+    }
+
+    /// Conformance: once the lander has crashed, a further step with an always
+    /// valid action fails with `StepAfterEpisodeEnd { status: Terminated }`.
+    #[test]
+    fn test_lunar_lander_discrete_rejects_post_terminal_step() {
+        let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
+        assert_rejects_post_terminal_step(
+            &mut env,
+            crash_discrete,
+            LunarLanderDiscreteAction::DoNothing,
+        );
+    }
+
+    /// Conformance for the continuous variant. The replayed action is `[0, 0]`,
+    /// squarely inside the D5 bounds, so the rejection can only be on
+    /// call-sequence grounds — never on the action's own validity.
+    #[test]
+    fn test_lunar_lander_continuous_rejects_post_terminal_step() {
+        let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");
+        assert_rejects_post_terminal_step(
+            &mut env,
+            crash_continuous,
+            LunarLanderContinuousAction([0.0, 0.0]),
+        );
+    }
+
+    /// Regression for the reward pump behind issue #122.
+    ///
+    /// `step_common` **overwrites** a terminal step's reward with −100,
+    /// discarding the shaping delta. The crash predicate is a live test —
+    /// `hull_in_contact()` — not a latch, and a crashed hull stays on the
+    /// ground, so before the guard every further step re-ran the physics,
+    /// re-satisfied the predicate and re-emitted a fresh `Terminated` snapshot
+    /// paying another −100. Measured against the pre-guard code (seed 0, free
+    /// fall, both variants): terminal at step 135 with reward −100, then −100
+    /// on each of five further steps — running total −600 for a single crash.
+    ///
+    /// The guard closes it: each of those five calls is now an `Err`, and no
+    /// further reward is emitted at all.
+    #[test]
+    fn test_lunar_lander_discrete_post_terminal_step_does_not_repay_crash_penalty() {
+        let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
+        let terminal = crash_discrete(&mut env);
+        assert!(
+            terminal.is_terminated(),
+            "free fall must crash the hull, got {:?}",
+            terminal.status()
+        );
+        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+
+        for i in 1..=5 {
+            let err = env
+                .step(LunarLanderDiscreteAction::DoNothing)
+                .expect_err("post-terminal step must Err, not re-emit another -100 snapshot");
+            match err {
+                EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                    status,
+                    EpisodeStatus::Terminated,
+                    "post-terminal step {i} must carry the status that ended the episode"
+                ),
+                other => {
+                    panic!("post-terminal step {i}: expected StepAfterEpisodeEnd, got {other:?}")
+                }
+            }
+        }
+    }
+
+    /// Continuous counterpart of the #122 reward-pump regression; the pre-guard
+    /// numbers were identical (−100 at step 135, then −100 per post-terminal
+    /// step, total −600 over five).
+    #[test]
+    fn test_lunar_lander_continuous_post_terminal_step_does_not_repay_crash_penalty() {
+        let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");
+        let terminal = crash_continuous(&mut env);
+        assert!(terminal.is_terminated(), "free fall must crash the hull");
+        approx::assert_relative_eq!(terminal.reward().0, -100.0, epsilon = 1e-4);
+
+        for i in 1..=5 {
+            let err = env
+                .step(LunarLanderContinuousAction([0.0, 0.0]))
+                .expect_err("post-terminal step must Err, not re-emit another -100 snapshot");
+            assert!(
+                matches!(
+                    err,
+                    EnvironmentError::StepAfterEpisodeEnd {
+                        status: EpisodeStatus::Terminated
+                    }
+                ),
+                "post-terminal step {i}: expected StepAfterEpisodeEnd(Terminated), got {err:?}"
+            );
+        }
+    }
+
+    /// A rejected post-terminal step must be a true no-op: the physics world,
+    /// the step counter, the shaping potential (and hence the snapshot
+    /// metadata) and the guard itself all read exactly as the terminal step
+    /// left them.
+    #[test]
+    fn test_lunar_lander_rejected_post_terminal_step_leaves_state_untouched() {
+        let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
+        let terminal = crash_discrete(&mut env);
+        let terminal_shaping = terminal
+            .metadata()
+            .expect("the terminal snapshot carries shaping metadata")
+            .components[METADATA_KEY_SHAPING];
+
+        let obs_before = env.core.compute_obs().values;
+        let steps_before = env.core.steps;
+
+        env.step(LunarLanderDiscreteAction::MainEngine)
+            .expect_err("the episode has ended; this step must be rejected");
+
+        assert_eq!(
+            env.core.compute_obs().values,
+            obs_before,
+            "a rejected step must not advance the Rapier world"
+        );
+        assert_eq!(
+            env.core.steps, steps_before,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            shaping_metadata(env.core.shaping_value()).components[METADATA_KEY_SHAPING],
+            terminal_shaping,
+            "a rejected step must not move the shaping potential"
+        );
+        assert_eq!(
+            env.core.guard.status(),
+            EpisodeStatus::Terminated,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    /// `reset()` re-opens a terminated environment for a second episode —
+    /// `LunarLanderCore::rebuild` clears the guard, so both variants inherit
+    /// this without their own `reset` remembering to do anything.
+    #[test]
+    fn test_lunar_lander_reset_reopens_terminated_episode() {
+        let mut env = LunarLanderDiscrete::with_config(guard_cfg()).expect("valid config");
+        crash_discrete(&mut env);
+        assert!(
+            env.step(LunarLanderDiscreteAction::DoNothing).is_err(),
+            "the episode has terminated; a step must be rejected before reset()"
+        );
+
+        env.reset().expect("reset must succeed after termination");
+        let snap = env
+            .step(LunarLanderDiscreteAction::DoNothing)
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
+
+        let mut env = LunarLanderContinuous::with_config(guard_cfg()).expect("valid config");
+        crash_continuous(&mut env);
+        env.reset().expect("reset must succeed after termination");
+        assert!(
+            env.step(LunarLanderContinuousAction([0.0, 0.0])).is_ok(),
+            "reset() must re-open the continuous variant too"
+        );
+    }
 
     #[test]
     fn render_styled_matches_ascii() {

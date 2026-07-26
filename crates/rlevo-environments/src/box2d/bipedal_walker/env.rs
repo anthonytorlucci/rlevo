@@ -28,6 +28,7 @@ use rlevo_core::environment::{
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
+use crate::episode::EpisodeGuard;
 
 use super::action::BipedalWalkerAction;
 use super::config::{BipedalTerrain, BipedalWalkerConfig};
@@ -73,6 +74,9 @@ const GROUND_Y: f32 = -1.0;
 /// `[hip1, knee1, hip2, knee2]` motor velocity targets. Components outside
 /// the valid range or containing non-finite values cause `step()` to return
 /// `Err(InvalidAction)`.
+///
+/// A [`step`](Environment::step) taken after the episode ended is rejected with
+/// [`EnvironmentError::StepAfterEpisodeEnd`] — see the [`EpisodeGuard`] field.
 #[derive(Debug)]
 pub struct BipedalWalker {
     world: RapierWorld,
@@ -84,6 +88,13 @@ pub struct BipedalWalker {
     steps: usize,
     /// Running sum of rewards (for the < −100 termination check).
     total_reward: f32,
+    /// Rejects a `step()` taken after the walker fell (or the episode was
+    /// truncated). Neither termination condition is a latch the physics
+    /// enforces: the fallen hull stays in contact with the ground, so an
+    /// unguarded post-terminal step keeps re-applying the −100 fall penalty and
+    /// keeps driving `total_reward` further down, while the world, the step
+    /// counter and the motors advance past the episode the agent actually ran.
+    guard: EpisodeGuard,
 }
 
 impl BipedalWalker {
@@ -155,6 +166,7 @@ impl BipedalWalker {
             rng,
             steps: 0,
             total_reward: 0.0,
+            guard: EpisodeGuard::new(),
         };
         env.rebuild_world()?;
         Ok(env)
@@ -518,12 +530,22 @@ impl Environment<1, 1, 1> for BipedalWalker {
     /// Rebuild the physics world, reset counters, and return the initial
     /// observation with reward 0 and status `Running`.
     ///
+    /// Re-opens the [`EpisodeGuard`], so an environment whose walker fell (or
+    /// whose episode was truncated) becomes steppable again.
+    ///
     /// # Errors
     ///
     /// Returns [`EnvironmentError::Config`] if the active terrain generator
-    /// violates its output contract (ADR 0040) when the world is rebuilt.
+    /// violates its output contract (ADR 0040) when the world is rebuilt. On
+    /// that path the guard is deliberately left **latched**: the sole fallible
+    /// call runs first, and the guard is cleared only once a whole new world is
+    /// in hand. Clearing it first would re-open a finished episode over the
+    /// *old* physics world — the environment would happily step a state it never
+    /// returned to its initial condition (ADR 0044 §6, the same rule
+    /// `TimeLimit::reset` follows).
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.rebuild_world()?;
+        self.guard.reset();
         self.steps = 0;
         self.total_reward = 0.0;
         self.state.leg1_contact = false;
@@ -543,9 +565,24 @@ impl Environment<1, 1, 1> for BipedalWalker {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvironmentError::InvalidAction`] if any component of `action`
-    /// is outside `[-1, 1]` or is non-finite.
+    /// Returns [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has
+    /// already ended; call [`reset`](Environment::reset) first. Returns
+    /// [`EnvironmentError::InvalidAction`] if any component of `action` is
+    /// outside `[-1, 1]` or is non-finite.
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first — ahead of even the action-validity check: the episode
+        // being over is a fact about the *call sequence*, independent of whether
+        // the action itself is well-formed, so the caller must hear about the
+        // finished episode first. It also runs before `apply_motors`,
+        // `world.step()`, the `steps` tick and the `total_reward` accumulation,
+        // so a rejected call leaves the physics world, the step counter, the
+        // running reward and the RNG stream exactly as the terminal step left
+        // them (ADR 0029). `total_reward` is the specific state a post-terminal
+        // step would corrupt: it is a monotone accumulator that itself drives
+        // the `total_reward < -100.0` termination, so stepping past the end
+        // rewrites the very quantity that ended the episode.
+        self.guard.check()?;
+
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
                 "BipedalWalkerAction components must be in [-1, 1], got {:?}",
@@ -587,12 +624,16 @@ impl Environment<1, 1, 1> for BipedalWalker {
 
         // Apply fall penalty
         let final_reward = if hull_down { reward - 100.0 } else { reward };
-        Ok(SnapshotBase {
+        // Single exit: exactly one snapshot is built, and the guard is fed that
+        // snapshot's own status, so no branch can forget to record.
+        let snapshot = SnapshotBase {
             observation: obs,
             reward: ScalarReward(final_reward),
             status,
             metadata: None,
-        })
+        };
+        self.guard.record(snapshot.status);
+        Ok(snapshot)
     }
 }
 
@@ -683,6 +724,7 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
 
@@ -805,12 +847,20 @@ mod tests {
         let reset_snap = env.reset().unwrap();
         let reset_obs = reset_snap.observation().values;
 
-        // Drive asymmetric motor targets so joints move differently.
+        // Drive asymmetric motor targets so joints move differently. The
+        // asymmetric drive topples the walker well inside 30 steps, and since
+        // ADR 0044 a step past that terminal is rejected — so stop at the
+        // terminal snapshot and assert on it. The joints have already moved by
+        // then; the invariant under test is "the dims are live", not "the walker
+        // survived 30 steps".
         let mut moved_obs = reset_obs;
         for _ in 0..30 {
             let action = BipedalWalkerAction([1.0, -1.0, -1.0, 1.0]);
             let snap = env.step(action).unwrap();
             moved_obs = snap.observation().values;
+            if snap.is_done() {
+                break;
+            }
         }
 
         let joint_dims = [4usize, 5, 6, 7, 9, 10, 11, 12];
@@ -1035,6 +1085,124 @@ mod tests {
                 "hardcore reset obs must be finite for seed {seed}"
             );
         }
+    }
+
+    // ── post-terminal step guard (ADR 0044, issue #293) ──────────────────────
+
+    /// Upper bound on the steps the zero-action walker may take before the test
+    /// calls it a regression. Measured on the default flat-terrain config: the
+    /// unactuated walker's hull hits the ground on step 154 (`Terminated`, via
+    /// hull contact — `total_reward` is only ≈ −9.9 there, so it is the fall,
+    /// not the `< −100` rule, that ends it, and 1600-step truncation never comes
+    /// into play). The slack is generous so a legitimate physics tweak does not
+    /// turn the test flaky, but bounded so a broken termination check fails
+    /// loudly instead of hanging.
+    const FALL_STEP_CAP: usize = 800;
+
+    /// Drives a fresh episode to a real terminal by doing nothing: an
+    /// unactuated walker topples and the hull contacts the ground. The episode
+    /// ends through the genuine physics path an agent would hit, not by writing
+    /// state directly.
+    fn drive_to_fall(
+        env: &mut BipedalWalker,
+    ) -> SnapshotBase<1, BipedalWalkerObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        for _ in 0..FALL_STEP_CAP {
+            let snap = env
+                .step(BipedalWalkerAction([0.0; 4]))
+                .expect("step must succeed while the episode is running");
+            if snap.is_done() {
+                return snap;
+            }
+        }
+        panic!("an unactuated walker must fall within {FALL_STEP_CAP} steps");
+    }
+
+    #[test]
+    /// `BipedalWalker` satisfies the shared post-terminal conformance check:
+    /// once the walker has fallen, a further step with a *legal* action fails
+    /// with `StepAfterEpisodeEnd` carrying the status that ended the episode.
+    /// The replayed action is all-zeros — squarely inside `[-1, 1]` — so the
+    /// rejection can only be on call-sequence grounds, never on the action's own
+    /// validity.
+    fn test_bipedal_walker_rejects_post_terminal_step() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_fall, BipedalWalkerAction([0.0; 4]));
+    }
+
+    #[test]
+    /// A rejected post-terminal step must mutate nothing observable. The fallen
+    /// hull stays in contact with the ground, so before the guard a further step
+    /// advanced the physics world and the step counter and kept accumulating
+    /// into `total_reward` — the very quantity the `< −100` termination reads.
+    fn test_bipedal_walker_post_terminal_step_does_not_mutate_state() {
+        let mut env = make_env();
+        let terminal = drive_to_fall(&mut env);
+        assert!(terminal.is_done(), "the fall must end the episode");
+        let ended = terminal.status();
+
+        let obs_at_end = terminal.observation().values;
+        let steps_at_end = env.steps;
+        let total_reward_at_end = env.total_reward;
+
+        let err = env
+            .step(BipedalWalkerAction([0.0; 4]))
+            .expect_err("a step after the fall must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps, steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            env.total_reward, total_reward_at_end,
+            "a rejected step must not accumulate into the running reward"
+        );
+        // Recomputed from the *live* physics world, so equality here proves the
+        // rejected call never ran `world.step()`.
+        assert_eq!(
+            env.compute_observation(env.state_for_test()).values,
+            obs_at_end,
+            "a rejected step must leave the observation byte-identical"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    fn test_bipedal_walker_reset_reopens_terminated_episode() {
+        let mut env = make_env();
+        drive_to_fall(&mut env);
+        assert!(
+            env.step(BipedalWalkerAction([0.0; 4])).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after termination");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+        let snap = env
+            .step(BipedalWalkerAction([0.0; 4]))
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
     }
 
     #[test]

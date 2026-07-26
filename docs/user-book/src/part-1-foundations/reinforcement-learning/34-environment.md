@@ -258,9 +258,10 @@ enforce it today: the
 `toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
 `classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
 `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
-`grids` environments, and the
+`grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
+`LunarLanderDiscrete`, `LunarLanderContinuous`), and the
 `TimeLimit` wrapper. The `classic` module's bandits, the
-`locomotion` and `box2d` families, and `pixel_grid` do not yet — their
+`locomotion` family, and `pixel_grid` do not yet — their
 behaviour after a terminal snapshot remains **undefined**; do not depend on it,
 even by accident, until it lands for that family — the rollout is tracked
 family-by-family in
@@ -416,8 +417,8 @@ the crate as a vocabulary anchor more than a workhorse.
 - **A `step()` taken after `is_done()` is `true` is an error, not a silent
   resume.** It returns `EnvironmentError::StepAfterEpisodeEnd { status }`; call
   `reset()` to start a new episode. The `toy_text` family, the `classic`
-  family's non-bandit environments, the `grids` family, and `TimeLimit` enforce
-  this today
+  family's non-bandit environments, the `grids` family, the `box2d` family, and
+  `TimeLimit` enforce this today
   ([issue #289](https://github.com/anthonytorlucci/rlevo/issues/289) tracks
   the rest).
 - **`ConstructableEnv`** keeps construction off the behaviour trait so

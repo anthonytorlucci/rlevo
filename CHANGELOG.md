@@ -504,6 +504,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **Post-terminal `step()` kept integrating the physics sim across the whole
+  `box2d` family** (ADR 0044, resolves #293) — `BipedalWalker`, `CarRacing`,
+  `LunarLanderDiscrete` and `LunarLanderContinuous` checked only
+  `action.is_valid()`, so a `step()` taken past a done snapshot ran another
+  Rapier tick and emitted a fresh reward. The four terminal predicates are live
+  tests over the world, not latches, and every one of them keeps holding after
+  the episode ends, so the environments did not merely drift — they re-fired.
+
+  `LunarLander` is the sharp case, and the one #122 left exposed. That issue
+  made the terminal reward *overwritten* rather than accumulated: a crash sets
+  `reward = -100.0` exactly, discarding the shaping delta. A crashed hull stays
+  in ground contact, so `hull_in_contact()` was still `true` on the next call
+  and the unguarded environment re-emitted `Terminated` with a **fresh −100
+  every time**. Measured on the default config at `seed = 0`, free fall,
+  `DoNothing`: terminal at step 135 with −100, then −100 on each of five further
+  steps — **−600 banked for a single crash**, identically for both the discrete
+  and continuous variants, and unbounded because the contact never clears. A
+  rollout loop that steps once more before checking `is_done()` pays that
+  penalty again with no signal that anything went wrong. `BipedalWalker` had the
+  same shape one level deeper: a fallen hull re-pays the −100 fall penalty into
+  `total_reward`, which is itself the accumulator its `total_reward < -100.0`
+  termination rule reads.
+
+  All four now hold an `episode::EpisodeGuard`, `check()` it as the **first**
+  statement of `step()` — ahead of the `action.is_valid()` bounds check, because
+  the episode being over is a call-sequence fact independent of whether the
+  action was well-formed, and ahead of `world.step()`, the step counter and
+  `prev_shaping` — and `record()` the emitted snapshot's own status on a single
+  exit. Ordering the guard first also matters for `LunarLander`'s
+  `WindMode::Stochastic`: `step_common` calls `apply_wind` before anything else,
+  which draws from `wind_rng`, and ADR 0029 requires a rejected step to leave
+  every seed stream where it was. `BipedalWalker::reset` clears the guard only
+  *after* its fallible `rebuild_world()?` succeeds (ADR 0044 §6, the
+  `TimeLimit::reset` precedent); `LunarLander` clears it in the infallible
+  `LunarLanderCore::rebuild`, the single point both variants' `reset` funnels
+  through, so a future third variant cannot forget.
+
+  Each environment gained a `assert_rejects_post_terminal_step` conformance
+  test, a reset-reopens-the-episode test, and a state-untouched test that
+  compares the observation across the rejected call — for `CarRacing` that is
+  the full 96×96×3 frame, which is the direct evidence the world did not
+  integrate. `LunarLander` additionally pins the #122 regression on both
+  variants. Existing tests missed all of this because none of them stepped past
+  a terminal snapshot — they unwrapped every call and never asked what the
+  status was. `test_joint_obs_not_dead` is the one that shows it: it drove 30
+  unconditional `.unwrap()`ed steps with an asymmetric action that topples the
+  walker inside those 30, and only the absence of the guard kept it green. It
+  now breaks on `is_done()`, with both assertions intact on the terminal
+  snapshot.
 - **Post-terminal `step()` was an unbounded reward pump across the whole `grids`
   family** (ADR 0044, resolves #291) — all twelve gridworlds derived termination
   from a predicate over the *current* board rather than latching it, and the

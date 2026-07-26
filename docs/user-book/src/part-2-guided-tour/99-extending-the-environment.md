@@ -320,8 +320,8 @@ The rule your `step` must satisfy: once you have emitted a snapshot whose
 status is done, the *only* legal next call is `reset()`; a further `step()`
 must return `Err(EnvironmentError::StepAfterEpisodeEnd { status })`. You don't
 have to hand-write that state machine — `rlevo_environments::episode::EpisodeGuard`
-is the one-field helper the `toy_text` and `classic` (non-bandit) families
-already hold for exactly this. Add it to your struct:
+is the one-field helper the `toy_text`, `classic` (non-bandit), `grids`, and
+`box2d` families already hold for exactly this. Add it to your struct:
 
 ```rust,no_run
 use rlevo_environments::episode::EpisodeGuard;
@@ -382,10 +382,11 @@ Three details here are load-bearing, not stylistic:
 > `toy_text` family (`Blackjack`, `CliffWalking`, `FrozenLake`, `Taxi`), the
 > `classic` family's six non-bandit environments (`CartPole`, `Acrobot`,
 > `MountainCar`, `MountainCarContinuous`, `Pendulum`, `SantaFeAnt`), all twelve
-> `grids` environments, and the
+> `grids` environments, the `box2d` family (`BipedalWalker`, `CarRacing`,
+> `LunarLanderDiscrete`, `LunarLanderContinuous`), and the
 > `TimeLimit` wrapper all hold one. The `classic` module's bandits
 > (`KArmedBandit`, `NonStationaryBandit`, `ContextualBandit`,
-> `AdversarialBandit`), the `locomotion` and `box2d` families, and
+> `AdversarialBandit`), the `locomotion` family, and
 > `pixel_grid` do not yet — their post-terminal behaviour is undefined,
 > tracked family-by-family in
 > [issue #289](https://github.com/anthonytorlucci/rlevo/issues/289). Your own
@@ -432,7 +433,8 @@ algorithm will drive your environment correctly:
   `EnvironmentError::StepAfterEpisodeEnd` rather than silently continuing — see
   [Step 5](#step-5--guard-the-post-terminal-step) above for the `EpisodeGuard`
   recipe. (The `toy_text` family, the `classic` family's non-bandit
-  environments, the `grids` family, and `TimeLimit` enforce this today; treat it
+  environments, the `grids` and `box2d` families, and `TimeLimit` enforce this
+  today; treat it
   as the target for any environment you write, not yet a workspace-wide
   guarantee.)
 - **Neither method panics on valid input.** Return `EnvironmentError::InvalidAction`
