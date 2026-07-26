@@ -15,12 +15,23 @@
 //! ## What the geometry guarantees — and what it does not
 //!
 //! The cue does **not** vanish for good once the agent leaves the start room.
-//! rlevo's [`egocentric_view`](super::core::grid::egocentric_view) applies no
-//! occlusion, so from any ordinary corridor cell at column `x <= 7` the agent
-//! can turn to face **West** and simply re-read the cue. This *leak zone* is set
-//! by the view's 6-cell reach from the cue's fixed column (`x = 1`):
-//! `x - 6 <= 1  ⇒  x <= 7`. It is **independent of `size`** — growing the grid
-//! does not shrink it.
+//! From any ordinary corridor cell at column `x <= 7` the agent can turn to face
+//! **West** and simply re-read the cue. This *leak zone* is set by the view's
+//! 6-cell reach from the cue's fixed column (`x = 1`): `x - 6 <= 1  ⇒  x <= 7`.
+//! It is **independent of `size`** — growing the grid does not shrink it.
+//!
+//! **Occlusion does not close the leak.** This environment emits an *occluded*
+//! observation (`MemoryEnv::VISIBILITY` is [`Visibility::Occluded`], canonical
+//! `see_through_walls=False`), and the leak zone is nonetheless exactly the one
+//! an unoccluded view would give — measured cell by cell at sizes 11, 13, and 17
+//! by `test_memory_env_cue_leak_zone_is_bounded_and_decision_region_is_clean`.
+//! The reason is the shape of the canonical algorithm: `Grid.process_vis` is a
+//! forward **flood fill**, not a ray cast. The corridor's full-width wall rows do
+//! squeeze the lit region down to three view columns while the beam is *inside*
+//! the corridor — but the moment it reaches the start room at `x = 3` the room is
+//! open across rows `mid ± 1`, light spreads sideways with no further limit, and
+//! the cue at `(1, mid - 1)` is lit again. Whatever hides the cue in this
+//! environment, it is not occlusion.
 //!
 //! What the geometry *does* buy is narrower, and it is the part that matters:
 //!
@@ -88,13 +99,30 @@
 //! to, because an agent standing in the leak zone is not yet being asked to
 //! answer.
 //!
-//! Invariant M is *not* satisfied automatically: rlevo's
-//! [`egocentric_view`](super::core::grid::egocentric_view) applies **no
-//! occlusion** — it reads every cell of the rotated 7×7 window straight out of
-//! the grid, walls included. Canonical Minigrid runs shadow-casting
-//! (`see_through_walls=False`) and can therefore hide the cue behind a wall at
-//! sizes as small as 7. rlevo cannot, so here Invariant M has to be bought with
-//! **distance alone**.
+//! Invariant M is a claim about the observation this environment actually
+//! **emits** — the occluded one — not about the raw window `egocentric_view`
+//! extracts. The tests below therefore drive it through
+//! [`observe_grid`]/`mask_view` at `MemoryEnv::VISIBILITY`, because asserting
+//! against the raw window would assert a property of a projection no
+//! environment emits.
+//!
+//! Invariant M is *not* satisfied automatically, and — contrary to what ADR
+//! 0043 §3 and issue #281 both predicted — **occlusion does not buy it**. rlevo
+//! runs the canonical shadow cast (`see_through_walls=False`), and an executed
+//! sweep over every decision-region cell × facing at sizes **7 and 9** finds the
+//! cue visible under [`Visibility::Occluded`] in exactly the same (cell, facing)
+//! pairs as under [`Visibility::SeeThrough`] — 5 of them at each size. The
+//! mechanism is the flood fill described above: the cue is reachable *around*
+//! the corridor's walls, through the mouth at `x = 4` and out sideways into the
+//! open start room. So here Invariant M is still bought with **distance
+//! alone**, and `MIN_SIZE` stays 11. This is pinned, with the sizes and the
+//! violating poses, by `test_memory_env_occlusion_does_not_relax_min_size`.
+//!
+//! (That is a statement about rlevo's port, which is a faithful transcription of
+//! `Grid.process_vis`; it has not been checked against a live Python
+//! `MiniGrid-MemoryS9-v0` run. If canonical really does hide the cue at S7/S9,
+//! the divergence is in the port or the layout, and that test is where it will
+//! surface.)
 //!
 //! The arithmetic: the view window reaches `VIEW_SIZE - 1 == 6` cells backward
 //! (the agent sits at `view[6][3]` looking toward row `0`), so from a cell at
@@ -110,9 +138,13 @@
 //! Lowering it to match canonical Minigrid's S7/S9 configurations would silently
 //! re-break the environment: the agent could stand at the fork, face back down
 //! the corridor, and simply re-read the cue — solvable by a reactive,
-//! memoryless policy. Do not lower `MIN_SIZE` unless occlusion lands in
-//! `egocentric_view` first — tracked in issue #281, which will relax this
-//! bound to `7` and make canonical S7/S9 reproducible.
+//! memoryless policy. That is not a prediction; it is what the executed sweep
+//! reports at both 7 and 9. Do not lower `MIN_SIZE` on the strength of an
+//! argument about walls: the only thing that would justify it is a *re-run* of
+//! `test_memory_env_occlusion_does_not_relax_min_size` coming back clean, after
+//! some change to how sight is computed (ADR 0063 Decision 6). Because the
+//! floor is still a distance bound, the compile-time assertion below still
+//! derives it from `VIEW_REACH` and needs no revision.
 //!
 //! ## Layout (default `size = 13`)
 //!
@@ -134,7 +166,8 @@
 //! ```
 //!
 //! - `C` — the **cue** at `(1, height/2 - 1)`, one row *off* the corridor
-//!   centerline (canonical placement; a future occlusion pass exploits it).
+//!   centerline (canonical placement). Note it is *not* the occlusion that this
+//!   offset buys: the shadow cast lights it anyway, via the open start room.
 //! - `>` — agent start at `(1, height/2)` facing East, with the cue in view.
 //! - `O` — the two **fork objects** at `(size - 2, height/2 ∓ 2)`; one Key, one
 //!   Ball, both green, order randomized.
@@ -165,10 +198,10 @@
 //! objects are positioned so that a facing-based `Done` is always reachable.
 //! This is a deliberate, documented deviation, not an oversight.
 //!
-//! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell |
-//! |-------------|------------------------------------------------------------------|
-//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                       |
-//! | Reward      | `success_reward(steps, max_steps)` on correct Done; else `0.0`   |
+//! | Observation | 7 × 7 **occluded** egocentric grid, `[type, color, state]` per cell |
+//! |-------------|--------------------------------------------------------------------|
+//! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Done`                         |
+//! | Reward      | `success_reward(steps, max_steps)` on correct Done; else `0.0`     |
 //!
 //! # Examples
 //!
@@ -216,9 +249,15 @@ use std::str::FromStr;
 /// Smallest grid side length at which **Invariant M** holds.
 ///
 /// Derived, not chosen: the egocentric view reaches `VIEW_SIZE - 1 == 6` cells
-/// backward and applies no occlusion, the cue sits at `x = 1`, and the fork
-/// column is `size - 2`. Hiding the cue from the fork therefore needs
-/// `(size - 2) - 6 > 1`, i.e. `size >= 11` for odd `size`. See the module docs.
+/// backward, the cue sits at `x = 1`, and the fork column is `size - 2`. Hiding
+/// the cue from the fork therefore needs `(size - 2) - 6 > 1`, i.e.
+/// `size >= 11` for odd `size`.
+///
+/// The derivation is a **distance** bound even though this environment now runs
+/// canonical occlusion: the shadow cast does not hide the cue at any size, so it
+/// does not enter the arithmetic. The measured evidence is in
+/// `test_memory_env_occlusion_does_not_relax_min_size`; the mechanism is in the
+/// module docs.
 const MIN_SIZE: usize = 11;
 
 /// Side length used by [`MemoryConfig::default`].
@@ -240,8 +279,15 @@ const VIEW_REACH: usize = VIEW_SIZE - 1;
 // Invariant M, enforced at compile time. The cue sits at column 1 and the fork
 // at column `size - 2`; hiding the cue from the fork needs
 // `(MIN_SIZE - 2) - VIEW_REACH > 1`. If `VIEW_SIZE` ever grows, or someone
-// lowers `MIN_SIZE` to match canonical Minigrid's occlusion-dependent S7/S9,
-// the build fails here instead of silently re-opening issue #109.
+// lowers `MIN_SIZE` to match canonical Minigrid's S7/S9, the build fails here
+// instead of silently re-opening issue #109.
+//
+// This assertion survived the arrival of occlusion unchanged, and that is the
+// correct outcome rather than an oversight: ADR 0063 Decision 6 said it would
+// have to be replaced by an occlusion-geometry bound *if* the S7/S9 sweep came
+// back clean. It did not (see `test_memory_env_occlusion_does_not_relax_min_size`),
+// so the floor is still a pure distance bound and `VIEW_REACH` is still the
+// right thing to derive it from.
 const _: () = assert!(
     MIN_SIZE > VIEW_REACH + 3,
     "MIN_SIZE no longer hides the cue from the fork decision cell (Invariant M)"
@@ -265,9 +311,15 @@ const _: () = assert!(
 const OBJECT_COLOR: Color = Color::Green;
 
 /// Rejection text for `size < MIN_SIZE`. Names the *cause*, not just the bound.
-const SIZE_BELOW_MIN: &str = "MemoryEnv requires size >= 11: rlevo's egocentric view applies no \
-                              occlusion, so smaller sizes cannot hide the cue from the fork \
-                              decision cell (Invariant M)";
+///
+/// The cause really is distance, and the message says so: occlusion is enabled
+/// here and measurably does not hide the cue at size 7 or 9 (see
+/// `test_memory_env_occlusion_does_not_relax_min_size`), so a smaller board is
+/// rejected on the only ground that actually holds.
+const SIZE_BELOW_MIN: &str = "MemoryEnv requires size >= 11: at smaller sizes the fork is within \
+                              backward view reach of the cue, and occlusion does not hide it \
+                              either — light reaches the cue around the corridor walls, through \
+                              the open start room (Invariant M)";
 
 /// Rejection text for an even `size`.
 const SIZE_NOT_ODD: &str = "MemoryEnv requires an odd size so the corridor has a single centre row";
@@ -347,9 +399,9 @@ pub struct MemoryConfig {
     ///
     /// Must be **odd** (the corridor needs a single centre row) and **at least
     /// 11**. The lower bound is not arbitrary — see **Invariant M** in the
-    /// [module docs](self): rlevo's egocentric view has no occlusion, so only
-    /// distance can hide the cue from the fork, and `size >= 11` is exactly the
-    /// distance required.
+    /// [module docs](self): only distance hides the cue from the fork (the
+    /// occlusion this environment runs demonstrably does not), and `size >= 11`
+    /// is exactly the distance required.
     ///
     /// The default is `13`, not the floor of `11`: the floor is merely the
     /// smallest *correct* size, at which the cue-free corridor run is a single
@@ -530,11 +582,17 @@ impl MemoryEnv {
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
-    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
-    /// emission model moves onto the environment; the canonical per-env values
-    /// are assigned in the follow-up to #281, so no observation byte changes
-    /// here.
-    const VISIBILITY: Visibility = Visibility::SeeThrough;
+    /// [`Visibility::Occluded`], because canonical `minigrid/envs/memory.py`
+    /// passes `see_through_walls=False` explicitly — which is also
+    /// `MiniGridEnv.__init__`'s own default, so the env restates the canonical
+    /// behaviour rather than opting into it. This is the environment where the
+    /// choice is load-bearing rather than incidental: the corridor's full-width
+    /// wall rows are what hide the cue from the fork, and **Invariant M** (see
+    /// the [module docs](self)) is a claim about the observation this const
+    /// selects. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
 
     /// Constructs a [`MemoryEnv`] from an explicit configuration.
     ///
@@ -545,8 +603,9 @@ impl MemoryEnv {
     /// # Errors
     ///
     /// Returns a [`ConfigError`] if `config` fails [`Validate`]: a `size` below
-    /// the Invariant-M minimum of `11` (the rejection explains the occlusion
-    /// reason), an even `size`, or a zero `max_steps`.
+    /// the Invariant-M minimum of `11` (the rejection names the cause — view
+    /// reach, with occlusion measured not to help), an even `size`, or a zero
+    /// `max_steps`.
     ///
     /// # Examples
     ///
@@ -559,9 +618,10 @@ impl MemoryEnv {
     /// )
     /// .expect("valid config");
     ///
-    /// // A 7×7 grid is refused: it cannot hide the cue from the fork.
+    /// // A 7×7 grid is refused: it cannot hide the cue from the fork — not by
+    /// // distance, and (measurably) not by occlusion either.
     /// let err = MemoryEnv::with_config(MemoryConfig::new(7, 245, 0), false).unwrap_err();
-    /// assert!(err.to_string().contains("occlusion"));
+    /// assert!(err.to_string().contains("view reach"));
     /// ```
     pub fn with_config(config: MemoryConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
@@ -828,6 +888,10 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // Test-only: the `Visibility` dispatch point. Invariant M is a claim about
+    // the *masked* view, so the sweeps below go through this rather than the raw
+    // `egocentric_view` no environment emits.
+    use super::super::core::mask_view;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;
 
@@ -947,13 +1011,22 @@ mod tests {
 
     #[test]
     fn test_memory_config_rejects_size_below_min() {
-        // The canonical Minigrid S7 layout: legal there (it has occlusion),
-        // illegal here (we do not).
+        // The canonical Minigrid S7 layout: registered upstream, illegal here.
+        // rlevo now runs the same shadow cast upstream does, and it measurably
+        // does not hide the cue at this size — see
+        // `test_memory_env_occlusion_does_not_relax_min_size`.
         let err = MemoryConfig::new(7, 245, 0).validate().unwrap_err();
         assert_eq!(err.field, "size", "the size field must be named");
+        let msg = err.to_string();
         assert!(
-            err.to_string().contains("occlusion"),
-            "the rejection must explain *why* small sizes are refused, got: {err}"
+            msg.contains("view reach"),
+            "the rejection must name the cause that actually holds — distance, \
+             not occlusion — got: {err}"
+        );
+        assert!(
+            msg.contains("occlusion does not hide it"),
+            "the rejection must also foreclose the occlusion argument, since that \
+             is the reason a reader would expect size 7 to be legal, got: {err}"
         );
         assert!(
             MemoryEnv::with_config(MemoryConfig::new(9, 405, 0), false).is_err(),
@@ -1021,7 +1094,7 @@ mod tests {
     fn test_memory_config_fromstr_rejects_small_size() {
         let err = "size=7".parse::<MemoryConfig>().unwrap_err();
         assert!(
-            err.contains("occlusion") && err.contains("got size=7"),
+            err.contains("view reach") && err.contains("got size=7"),
             "the parse rejection must name the cause and the offending value, got: {err}"
         );
     }
@@ -1066,9 +1139,13 @@ mod tests {
 
     #[test]
     fn test_memory_env_cue_is_visible_at_episode_start() {
-        // Necessary counterpart to Invariant M: the cue has to be *seen* once.
+        // Necessary counterpart to Invariant M: the cue has to be *seen* once —
+        // in the observation the environment actually emits, which is the
+        // occluded one. (The cue is the agent's immediate neighbour, and
+        // `process_vis` seeds the agent's own cell and lights its row
+        // neighbours, so occlusion cannot touch it.)
         let env = env_default();
-        let obs = observe_grid(env.state(), Visibility::SeeThrough);
+        let obs = observe_grid(env.state(), MemoryEnv::VISIBILITY);
         // Facing East from the start cell, the cue one row above it is one cell
         // to the agent's left: view row VIEW_SIZE-1, column VIEW_SIZE/2 - 1.
         // (At the default size that is start (1, 6), cue (1, 5).)
@@ -1085,56 +1162,231 @@ mod tests {
         );
     }
 
-    /// **Invariant M**, as pure geometry: from every cell of the decision region,
-    /// for all four facings, the cue cell is outside the egocentric view window.
+    /// The four facings, in the order every sweep below iterates them.
+    const DIRS: [Direction; 4] = [
+        Direction::North,
+        Direction::East,
+        Direction::South,
+        Direction::West,
+    ];
+
+    /// Sentinel planted on the cue cell. `Lava` never occurs naturally here.
     ///
-    /// The check is black-box: a unique sentinel entity is planted on the cue
-    /// cell of a scratch grid and the real [`egocentric_view`] is asked whether
-    /// it can see it.
+    /// It is also *transparent* ([`Entity::see_behind`] is `true` for everything
+    /// except `Wall` and shut `Door`), exactly like the `Key`/`Ball` it stands
+    /// in for — so planting it cannot perturb the shadow cast and turn a probe
+    /// into a measurement of itself.
+    const CUE_MARK: Entity = Entity::Lava;
+
+    /// Sentinel planted on both fork cells. Transparent, for the same reason.
+    const FORK_MARK: Entity = Entity::Goal;
+
+    /// Does the observation `MemoryEnv` **emits** from `(x, y)` facing `dir`
+    /// contain `mark`?
+    ///
+    /// Deliberately routed through `mask_view` at an explicit [`Visibility`]
+    /// rather than through the raw `egocentric_view`: Invariant M is a claim
+    /// about what a *policy* can see, and what a policy sees is the masked view.
+    /// Passing the policy in as a parameter is what lets the sweeps below
+    /// contrast the two and show the shadow cast makes no difference here.
+    fn sees(grid: &Grid, x: i32, y: i32, dir: Direction, mark: Entity, vis: Visibility) -> bool {
+        mask_view(grid, &AgentState::new(x, y, dir), vis)
+            .iter()
+            .flatten()
+            .any(|cell| *cell == Some(mark))
+    }
+
+    /// Every (cell, facing) in the decision region from which the cue is visible
+    /// under `vis`. Empty iff Invariant M holds.
+    fn invariant_m_violations(
+        grid: &Grid,
+        region: &[(i32, i32)],
+        cue_pos: (i32, i32),
+        vis: Visibility,
+    ) -> Vec<((i32, i32), Direction)> {
+        let mut probe = grid.clone();
+        probe.set(cue_pos.0, cue_pos.1, CUE_MARK);
+        region
+            .iter()
+            .flat_map(|&cell| DIRS.map(move |dir| (cell, dir)))
+            .filter(|&((x, y), dir)| sees(&probe, x, y, dir, CUE_MARK, vis))
+            .collect()
+    }
+
+    /// **Invariant M**: from every cell of the decision region, for all four
+    /// facings, the emitted observation does not contain the cue cell.
+    ///
+    /// The check is black-box: a unique, transparent sentinel is planted on the
+    /// cue cell of a scratch grid and the real emission path
+    /// ([`MemoryEnv::VISIBILITY`], via `mask_view`) is asked whether it can see
+    /// it.
     #[test]
     fn test_memory_env_invariant_m_cue_never_visible_from_decision_region() {
-        use super::super::core::grid::egocentric_view;
-
         for size in [11usize, 13, 17] {
             let env =
                 MemoryEnv::with_config(MemoryConfig::new(size, default_max_steps(size), 0), false)
                     .expect("valid config");
-            let cue_pos = env.layout.cue_pos;
-
-            // `Lava` appears nowhere in MemoryEnv, so it is an unambiguous marker.
-            let mut probe = env.state().grid.clone();
-            probe.set(cue_pos.0, cue_pos.1, Entity::Lava);
-
             let region = decision_region(&env);
             assert!(!region.is_empty(), "decision region must be non-empty");
 
-            for (x, y) in region {
-                for dir in [
-                    Direction::North,
-                    Direction::East,
-                    Direction::South,
-                    Direction::West,
-                ] {
-                    let agent = AgentState::new(x, y, dir);
-                    let view = egocentric_view(&probe, &agent);
-                    let sees_cue = view.iter().flatten().any(|&e| e == Entity::Lava);
-                    assert!(
-                        !sees_cue,
-                        "Invariant M violated at size {size}: cue {cue_pos:?} is visible \
-                         from ({x}, {y}) facing {dir:?}"
-                    );
-                }
-            }
+            let violations = invariant_m_violations(
+                &env.state().grid,
+                &region,
+                env.layout.cue_pos,
+                MemoryEnv::VISIBILITY,
+            );
+            assert!(
+                violations.is_empty(),
+                "Invariant M violated at size {size}: cue {:?} is visible from {violations:?}",
+                env.layout.cue_pos
+            );
         }
     }
 
+    /// ADR 0063 Decision 6, executed: does occlusion relax `MIN_SIZE` to 7?
+    ///
+    /// **It does not.** ADR 0043 §3 called the 11 → 7 relaxation "a one-line
+    /// change" and issue #281 carried it as an acceptance bullet; this sweep is
+    /// the evidence that refutes it. At sizes 7 and 9 the cue is visible from
+    /// the decision region under [`Visibility::Occluded`] in exactly the same
+    /// (cell, facing) pairs as under [`Visibility::SeeThrough`] — the shadow
+    /// cast changes nothing about cue visibility on this board, because
+    /// `process_vis` is a forward flood fill and light reaches the cue *around*
+    /// the corridor walls through the open start room.
+    ///
+    /// Sizes 7 and 9 are built through `MemoryEnv::build` directly rather than
+    /// `with_config`, because `Validate` refuses them — which is the very policy
+    /// under test.
+    ///
+    /// # If this test fails
+    ///
+    /// It means sight computation changed and the cue is now genuinely hidden at
+    /// a small size. That is the good outcome, not a regression: reopen ADR 0063
+    /// Decision 6, lower `MIN_SIZE`, and replace the `MIN_SIZE > VIEW_REACH + 3`
+    /// compile-time assertion with one derived from the occluding geometry.
+    #[test]
+    fn test_memory_env_occlusion_does_not_relax_min_size() {
+        for size in [7usize, 9] {
+            let layout = Layout::new(size);
+            let (state, _cue, _match_pos) = MemoryEnv::build(layout, &mut StdRng::seed_from_u64(0));
+            let grid = &state.grid;
+            let region: Vec<(i32, i32)> = (layout.hallway_end..layout.size - 1)
+                .flat_map(|x| (1..layout.size - 1).map(move |y| (x, y)))
+                .filter(|&(x, y)| grid.get(x, y).is_passable())
+                .collect();
+            assert!(
+                !region.is_empty(),
+                "size {size}: decision region must be non-empty for this to mean anything"
+            );
+
+            let occluded =
+                invariant_m_violations(grid, &region, layout.cue_pos, Visibility::Occluded);
+            let see_through =
+                invariant_m_violations(grid, &region, layout.cue_pos, Visibility::SeeThrough);
+
+            assert!(
+                !occluded.is_empty(),
+                "size {size}: the cue is hidden from the whole decision region under \
+                 occlusion — the MIN_SIZE = 7 relaxation ADR 0043 predicted is back on \
+                 the table; see this test's docs"
+            );
+            assert_eq!(
+                occluded, see_through,
+                "size {size}: occlusion is supposed to make no difference to cue \
+                 visibility on this board, yet the two policies disagree"
+            );
+        }
+    }
+
+    /// The other half of the same finding: occlusion is not a no-op *in general*
+    /// for this environment — it just never touches the cue.
+    ///
+    /// Without this, `test_memory_env_occlusion_does_not_relax_min_size` would
+    /// also pass if [`Visibility::Occluded`] were silently doing nothing at all.
+    #[test]
+    fn test_memory_env_occlusion_changes_the_emitted_observation() {
+        let env = env_default();
+        let l = env.layout;
+        // From the fork junction facing North the agent looks along the vertical
+        // hallway; the wall column at `hallway_end` shadows the dead space
+        // beyond it, and those are walls, so the change survives into the bytes.
+        let state = GridState::new(
+            env.state().grid.clone(),
+            AgentState::new(l.fork_x, l.mid, Direction::North),
+        );
+        let occluded = observe_grid(&state, MemoryEnv::VISIBILITY);
+        let see_through = observe_grid(&state, Visibility::SeeThrough);
+        assert_ne!(
+            occluded.view, see_through.view,
+            "occlusion must actually change the emitted observation somewhere, or \
+             the MIN_SIZE sweep is vacuous"
+        );
+    }
+
+    /// The `UNSEEN_TYPE` / `Entity::Empty` byte collision, pinned at the pose
+    /// where it costs the most.
+    ///
+    /// Facing West from the fork junction — the agent's pose at the moment it
+    /// answers — the shadow cast masks a substantial block of the window, and
+    /// **every** masked cell happens to be `Entity::Empty`. Because
+    /// `UNSEEN_TYPE == Entity::Empty.type_u8() == 0` today, the encoded
+    /// observation is byte-identical to the unoccluded one: the entire occlusion
+    /// signal is erased by the encoding at exactly this pose.
+    ///
+    /// This is a *known defect*, not a property to preserve — ADR 0063 Decision
+    /// 4 renumbers `type_u8` to canonical `OBJECT_TO_IDX` (`Empty` becomes `1`),
+    /// after which this test's final `assert_eq!` becomes an `assert_ne!`. It is
+    /// asserted rather than left in prose so the renumbering cannot land without
+    /// someone reading this.
+    #[test]
+    fn test_memory_env_unseen_empty_collision_erases_the_mask_at_the_fork() {
+        let env = env_default();
+        let l = env.layout;
+        let grid = env.state().grid.clone();
+        let agent = AgentState::new(l.fork_x, l.mid, Direction::West);
+
+        let masked = mask_view(&grid, &agent, MemoryEnv::VISIBILITY);
+        let raw = mask_view(&grid, &agent, Visibility::SeeThrough);
+
+        let hidden: Vec<Entity> = (0..VIEW_SIZE)
+            .flat_map(|r| (0..VIEW_SIZE).map(move |c| (r, c)))
+            .filter(|&(r, c)| masked[r][c].is_none())
+            .map(|(r, c)| raw[r][c].expect("SeeThrough masks nothing"))
+            .collect();
+
+        assert!(
+            !hidden.is_empty(),
+            "the shadow cast must hide something from the fork junction facing West"
+        );
+        assert!(
+            hidden.iter().all(|&e| e == Entity::Empty),
+            "this test's premise is that every hidden cell here is Empty; got {hidden:?}"
+        );
+
+        let state = GridState::new(grid, agent);
+        assert_eq!(
+            observe_grid(&state, MemoryEnv::VISIBILITY).view,
+            observe_grid(&state, Visibility::SeeThrough).view,
+            "{} cells are hidden, yet the encoding cannot say so, because \
+             UNSEEN_TYPE collides with Entity::Empty — see ADR 0063 Decision 4. \
+             If this now fails, the renumbering landed: flip this to assert_ne!",
+            hidden.len()
+        );
+    }
+
     /// Pins **both halves** of the truth about cue visibility, driving the real
-    /// [`egocentric_view`] rather than re-deriving the arithmetic.
+    /// emitted observation ([`MemoryEnv::VISIBILITY`]) rather than re-deriving
+    /// the arithmetic.
     ///
     /// 1. The cue **is** re-observable from ordinary centre-row corridor cells
     ///    at `x <= cue_x + VIEW_REACH == 7` if the agent turns to face West.
-    ///    That is a genuine limitation of an occlusion-free view; the module docs
-    ///    state it, and this asserts it so the docs cannot silently rot.
+    ///    Its justification changed when occlusion landed, but the assertion did
+    ///    not: this leak was once excused as "a limitation of an occlusion-free
+    ///    view", and it is now *measured* to survive occlusion unchanged at
+    ///    every size here. `process_vis` is a forward flood fill, so light that
+    ///    reaches the start room through the corridor mouth spreads sideways and
+    ///    relights the cue's row. The module docs state it; this asserts it so
+    ///    the docs cannot silently rot.
     /// 2. The cue is **not** observable from any decision-region cell in any
     ///    facing (Invariant M) — the answer cannot be read at the moment it is
     ///    given.
@@ -1148,21 +1400,9 @@ mod tests {
     /// let the cue back into the decision region would trip (2) or (3).
     #[test]
     fn test_memory_env_cue_leak_zone_is_bounded_and_decision_region_is_clean() {
-        use super::super::core::grid::egocentric_view;
-
-        const DIRS: [Direction; 4] = [
-            Direction::North,
-            Direction::East,
-            Direction::South,
-            Direction::West,
-        ];
-        /// Sentinel planted on the cue cell. Never occurs naturally here.
-        const CUE_MARK: Entity = Entity::Lava;
-        /// Sentinel planted on both fork cells. Never occurs naturally here.
-        const FORK_MARK: Entity = Entity::Goal;
-
         #[allow(clippy::cast_possible_wrap)]
         let reach = VIEW_REACH as i32;
+        let vis = MemoryEnv::VISIBILITY;
 
         for size in [11usize, 13, 17] {
             let env =
@@ -1175,12 +1415,8 @@ mod tests {
             probe.set(l.top_pos.0, l.top_pos.1, FORK_MARK);
             probe.set(l.bottom_pos.0, l.bottom_pos.1, FORK_MARK);
 
-            let sees = |x: i32, y: i32, dir: Direction, mark: Entity| {
-                egocentric_view(&probe, &AgentState::new(x, y, dir))
-                    .iter()
-                    .flatten()
-                    .any(|&e| e == mark)
-            };
+            let sees =
+                |x: i32, y: i32, dir: Direction, mark: Entity| sees(&probe, x, y, dir, mark, vis);
 
             // (1) The leak zone. Its far edge is `cue_x + VIEW_REACH`, fixed by
             // the view geometry alone — it must not move when `size` does.

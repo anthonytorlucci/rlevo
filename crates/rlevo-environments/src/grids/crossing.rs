@@ -396,11 +396,13 @@ impl CrossingEnv {
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
-    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
-    /// emission model moves onto the environment; the canonical per-env values
-    /// are assigned in the follow-up to #281, so no observation byte changes
-    /// here.
-    const VISIBILITY: Visibility = Visibility::SeeThrough;
+    /// [`Visibility::Occluded`], because canonical `minigrid/envs/crossing.py`
+    /// passes `see_through_walls=False` explicitly — which is also
+    /// `MiniGridEnv.__init__`'s own default, so the env restates the canonical
+    /// behaviour rather than opting into it. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
 
     /// Constructs a `CrossingEnv` from an explicit configuration.
     ///

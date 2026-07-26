@@ -576,10 +576,13 @@ impl GoToDoorEnv {
     /// rather than a config field because it is part of the task definition, not
     /// a knob a caller tunes.
     ///
-    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
-    /// emission model moves onto the environment; the canonical per-env values
-    /// are assigned in the follow-up to #281, so no observation byte changes
-    /// here.
+    /// [`Visibility::SeeThrough`], because canonical
+    /// `minigrid/envs/gotodoor.py` passes `see_through_walls=True` explicitly.
+    /// That is an **opt-out**: `MiniGridEnv.__init__` defaults the flag to
+    /// `False`, so an env is occluded unless it says otherwise, and
+    /// `GoToDoorEnv` says otherwise. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
     const VISIBILITY: Visibility = Visibility::SeeThrough;
 
     /// Constructs a [`GoToDoorEnv`] from an explicit configuration.

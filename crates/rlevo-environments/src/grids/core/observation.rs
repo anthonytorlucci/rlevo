@@ -38,17 +38,31 @@ pub const OBS_CHANNELS: usize = 3;
 /// Canonical Minigrid's `Grid.encode` writes `[OBJECT_TO_IDX["unseen"], 0, 0]`
 /// for a masked cell, and `OBJECT_TO_IDX["unseen"] == 0`.
 ///
-/// # Temporary collision with `Entity::Empty`
+/// # Live collision with `Entity::Empty` — read this before consuming channel 0
 ///
 /// Canonical numbers `unseen = 0` and `empty = 1` as *distinct* type indices,
 /// precisely so a masked cell cannot be confused with a confirmed-empty one.
 /// rlevo's [`Entity::type_u8`] does not yet use canonical indices —
-/// [`Entity::Empty`] is also `0` — so today the two encode identically. That is
-/// harmless *only* because no environment selects
-/// [`Visibility::Occluded`](super::Visibility::Occluded) yet, so no `None` cell
-/// is ever produced; the renumbering to canonical indices is a follow-up in the
-/// same issue (#281), after which `Empty` becomes `1` and this constant is
-/// uniquely the unseen marker.
+/// [`Entity::Empty`] is also `0` — so the two encode identically.
+///
+/// This **is now load-bearing**, where it previously was not. Eight of the
+/// twelve grid environments select
+/// [`Visibility::Occluded`](super::Visibility::Occluded), so `None` cells are
+/// produced on every step of those environments, and every masked cell that was
+/// an `Empty` floor is *indistinguishable* in the encoding from a cell the agent
+/// confirmed to be empty. A masked `Wall`, `Goal`, `Key`, `Door`, … still
+/// changes its byte and so still carries the occlusion signal; a masked `Empty`
+/// silently does not. In practice most masked cells are non-`Empty` (they are
+/// behind an occluder, so they are usually wall or the far side of a room), but
+/// "most" is not "all", and the distinction the whole shadow cast exists to draw
+/// — *unknown* versus *confirmed floor* — is partially collapsed until the
+/// renumbering lands.
+///
+/// The fix is ADR 0063 Decision 4 (`Empty` becomes `1`, and the whole table
+/// moves to canonical `OBJECT_TO_IDX`), deferred out of the visibility change so
+/// that a behaviour change and an encoding break do not land in one diff. It is
+/// tracked under issue #281 and must land before any grid observation baseline
+/// is ever recorded.
 ///
 /// **Do not "fix" the collision by picking a different value here.** `0` is the
 /// canonical unseen index; it is `type_u8` that has to move.
@@ -394,9 +408,24 @@ mod tests {
     #[test]
     fn unseen_type_is_the_canonical_index() {
         // Canonical `OBJECT_TO_IDX["unseen"] == 0`. The collision with
-        // `Entity::Empty` is temporary and tracked in #281 — it is `type_u8`
-        // that moves to canonical indices, not this constant.
+        // `Entity::Empty` is tracked in #281 — it is `type_u8` that moves to
+        // canonical indices, not this constant.
         assert_eq!(UNSEEN_TYPE, 0);
+    }
+
+    #[test]
+    fn unseen_and_empty_still_share_a_byte() {
+        // Pins the *known defect*, not a desired property: eight environments now
+        // emit masked cells, and a masked `Empty` is currently indistinguishable
+        // from a confirmed-empty one. When ADR 0063 Decision 4 renumbers
+        // `type_u8` this assertion flips to `assert_ne!` and the `UNSEEN_TYPE`
+        // docs lose their collision section.
+        assert_eq!(
+            UNSEEN_TYPE,
+            Entity::Empty.type_u8(),
+            "if these have diverged, the canonical renumbering landed — update the \
+             UNSEEN_TYPE docs and this test together"
+        );
     }
 
     #[test]

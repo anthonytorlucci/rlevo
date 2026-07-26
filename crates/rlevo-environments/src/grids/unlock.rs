@@ -256,11 +256,12 @@ impl UnlockEnv {
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
-    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
-    /// emission model moves onto the environment; the canonical per-env values
-    /// are assigned in the follow-up to #281, so no observation byte changes
-    /// here.
-    const VISIBILITY: Visibility = Visibility::SeeThrough;
+    /// [`Visibility::Occluded`], because canonical `Unlock` derives from
+    /// `RoomGrid`, and `minigrid/core/roomgrid.py`'s `RoomGrid.__init__` passes
+    /// `see_through_walls=False` up to `MiniGridEnv` for every room-based env.
+    /// See ADR 0063 (`docs/adr/0063-grid-visibility-occlusion.md`) for the
+    /// whole twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
 
     /// Constructs an [`UnlockEnv`] from an explicit configuration.
     ///

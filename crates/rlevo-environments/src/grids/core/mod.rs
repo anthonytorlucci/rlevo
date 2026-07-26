@@ -24,11 +24,17 @@
 //! environment declares its policy as an inherent `const VISIBILITY` and reads
 //! it from its own
 //! [`Sensor`](rlevo_core::environment::Sensor) impl, which produces the
-//! observation through [`observe_grid`] (or, for `GoToDoorEnv`, [`mask_view`]
-//! plus the wider mission-carrying encoder) and hands the result to
+//! observation through [`observe_grid`] (or, for `GoToDoorEnv`, the crate-private
+//! `mask_view` plus the wider mission-carrying encoder) and hands the result to
 //! [`build_snapshot`]. The visibility policy is therefore chosen by the
 //! environment — the emission model belongs to the environment, not to the
 //! state (ADR 0047).
+//!
+//! The twelve values follow canonical Minigrid exactly — eight `Occluded`, four
+//! `SeeThrough`; upstream's own default is occlusion, and an environment opts
+//! *out*. `grep -rn "const VISIBILITY"` is the audit surface: each site's doc
+//! comment names the canonical file it was read from. ADR 0063
+//! (`docs/adr/0063-grid-visibility-occlusion.md`) holds the full table.
 
 pub mod action;
 pub mod agent;
@@ -234,8 +240,11 @@ mod tests {
 
     #[test]
     fn see_through_is_byte_identical_to_the_pre_occlusion_encoder() {
-        // The end-to-end no-op guard for this commit: every environment is
-        // still `Visibility::SeeThrough`, so no observation byte may change.
+        // `SeeThrough` must stay a *pure* pass-through of the raw window. Eight
+        // of the twelve environments are now `Occluded`, but for the four that
+        // opt out no observation byte may move merely because the occlusion
+        // machinery exists — only the `Occluded` arm may differ from this
+        // baseline.
         for direction in [
             Direction::North,
             Direction::East,

@@ -317,11 +317,15 @@ impl DoorKeyEnv {
     /// and an inherent const rather than a config field because it is part of
     /// the task definition, not a knob a caller tunes.
     ///
-    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
-    /// emission model moves onto the environment; the canonical per-env values
-    /// are assigned in the follow-up to #281, so no observation byte changes
-    /// here.
-    const VISIBILITY: Visibility = Visibility::SeeThrough;
+    /// [`Visibility::Occluded`], because canonical `minigrid/envs/doorkey.py`
+    /// **omits** `see_through_walls` entirely and so inherits
+    /// `MiniGridEnv.__init__`'s `see_through_walls=False` default: upstream,
+    /// occlusion is on unless an env opts out, and this one does not. The split
+    /// wall and the shut door therefore hide the goal room until the door is
+    /// opened — a locked door is opaque, an open one is not. See ADR 0063
+    /// (`docs/adr/0063-grid-visibility-occlusion.md`) for the whole
+    /// twelve-environment table.
+    const VISIBILITY: Visibility = Visibility::Occluded;
 
     /// Constructs a `DoorKeyEnv` from an explicit configuration.
     ///
@@ -603,6 +607,7 @@ mod tests {
 
     use super::*;
     use crate::direction::Direction;
+    use crate::grids::core::UNSEEN_TYPE;
     use crate::grids::core::agent::AgentState;
     use rlevo_core::config::ConstraintKind;
     use rlevo_core::environment::Snapshot;
@@ -1157,6 +1162,53 @@ mod tests {
             env.ascii(),
             "# # # # # \n# ^ * . # \n# k # . # \n# . # G # \n# # # # # \n",
             "the ASCII snapshot in this module's docs is stale"
+        );
+    }
+
+    /// Occlusion is not decoration here: a cell that encoded a real entity under
+    /// the pre-#281 (see-through) emission model must now be able to encode as
+    /// *unseen*.
+    ///
+    /// The key is the interesting case — it is the object the whole task is
+    /// about, and the split wall is exactly what is supposed to withhold it.
+    /// Seed 3 puts the key at (1, 2) behind the wall column at x = 2, so an
+    /// agent in the east half looking back across that wall sees nothing there.
+    #[test]
+    fn test_door_key_occlusion_hides_the_key_behind_the_split_wall() {
+        let mut env =
+            DoorKeyEnv::with_config(DoorKeyConfig::new(8, 100, 3), false).expect("valid config");
+        env.reset().expect("reset");
+        assert_eq!(
+            env.state().grid.get(1, 2),
+            Entity::Key(Color::Yellow),
+            "seed 3 must place the key at (1, 2) for this pose to be the intended one"
+        );
+
+        // Agent at (3, 1) in the east half, facing South down the split wall.
+        let state = GridState::new(
+            env.state().grid.clone(),
+            AgentState::new(3, 1, Direction::South),
+        );
+        let occluded = observe_grid(&state, DoorKeyEnv::VISIBILITY);
+        let see_through = observe_grid(&state, Visibility::SeeThrough);
+
+        // (row 5, col 5) is the key cell: one step forward, two to the right.
+        let (row, col) = (5, 5);
+        assert_eq!(
+            see_through.view[row][col][0],
+            Entity::Key(Color::Yellow).type_u8(),
+            "the pre-#281 emission model reported the key through the split wall"
+        );
+        assert_eq!(
+            occluded.view[row][col],
+            [UNSEEN_TYPE, 0, 0],
+            "the key must now encode as unseen — this env inherits canonical's \
+             see_through_walls=False default"
+        );
+        assert_eq!(
+            DoorKeyEnv::VISIBILITY,
+            Visibility::Occluded,
+            "doorkey.py omits see_through_walls, so MiniGridEnv's False default applies"
         );
     }
 }
