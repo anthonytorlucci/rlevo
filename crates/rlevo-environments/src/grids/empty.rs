@@ -56,8 +56,6 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, SnapshotBase};
 use rlevo_core::reward::ScalarReward;
@@ -87,9 +85,17 @@ pub struct EmptyConfig {
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,
-    /// Seed for the environment's RNG. Empty is deterministic, but the
-    /// RNG slot is reserved for future random-spawn variants and so that
-    /// all grid envs share the same config surface.
+    /// Accepted but unused: this environment makes no random draws.
+    ///
+    /// The layout is fixed — walls, the goal at `(size - 2, size - 2)`, and the
+    /// agent at `(1, 1)` facing East — matching upstream `MiniGrid-Empty-*`,
+    /// whose `_gen_grid` samples nothing. Changing this value therefore cannot
+    /// change any observation, reward, or transition. It exists so every grid
+    /// env presents the same config surface to schedulers and sweep scripts.
+    ///
+    /// A random-spawn Empty would be a **distinct env type**, mirroring
+    /// upstream's separately registered `MiniGrid-Empty-Random-*`, not a mode of
+    /// this one selected by a seed.
     pub seed: u64,
 }
 
@@ -224,21 +230,13 @@ pub struct EmptyEnv {
     config: EmptyConfig,
     steps: usize,
     render: bool,
-    /// RNG slot held for parity with random-spawn variants.
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
 }
 
 impl EmptyEnv {
     /// Constructs an `EmptyEnv` from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Immediately builds the initial grid state. Call [`Environment::reset`]
+    /// before the first [`Environment::step`] to obtain the first observation.
     ///
     /// # Errors
     ///
@@ -260,14 +258,12 @@ impl EmptyEnv {
     /// ```
     pub fn with_config(config: EmptyConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
         let (grid, agent) = Self::build(&config);
         Ok(Self {
             state: GridState::new(grid, agent),
             config,
             steps: 0,
             render,
-            _rng: rng,
         })
     }
 
@@ -352,7 +348,6 @@ impl Environment<3, 3, 1> for EmptyEnv {
         let (grid, agent) = Self::build(&self.config);
         self.state = GridState::new(grid, agent);
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.snapshot(0.0, false))
     }
 

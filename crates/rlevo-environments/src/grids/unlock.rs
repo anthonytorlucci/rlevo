@@ -19,6 +19,25 @@
 //! Required action sequence: `Pickup` the key → turn to face the door →
 //! `Toggle` (Locked → Closed) → `Toggle` (Closed → Open).
 //!
+//! ## Known deviations from upstream `Unlock`
+//!
+//! Two of them, both tracked in issue #1020:
+//!
+//! 1. **The topology is wrong.** Farama's `MiniGrid-Unlock-v0` is a *two-room*
+//!    task (a `1 × 2` `RoomGrid` of `room_size = 6`) whose locked door sits on
+//!    the **interior wall between the rooms**. rlevo draws a single
+//!    perimeter-walled room and writes the door at `(1, 0)` — *into that
+//!    perimeter*, on the outer north wall, with nothing behind it.
+//! 2. **The layout is fixed.** Upstream randomizes the door's position along
+//!    the interior wall, the door color, the key position and the agent's pose;
+//!    every reset here produces the identical board, so a policy can memorize
+//!    the four-action solution rather than learn to search.
+//!
+//! The task still exercises key-pickup and the `Locked → Closed → Open` toggle
+//! chain, but do not read results here as comparable to published `Unlock`
+//! numbers. Fixing the topology moves `MIN_SIZE` and the test oracle, so it is
+//! tracked as its own change rather than patched in place.
+//!
 //! | Observation | 7 × 7 egocentric grid encoded as `[type, color, state]` per cell    |
 //! |-------------|----------------------------------------------------------------------|
 //! | Action      | `TurnLeft`, `TurnRight`, `Forward`, `Pickup`, `Toggle`               |
@@ -52,8 +71,6 @@ use super::core::{
     reward::success_reward,
     state::GridState,
 };
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use rlevo_core::config::{self, ConfigError, Validate};
 use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
 use rlevo_core::reward::ScalarReward;
@@ -82,7 +99,20 @@ pub struct UnlockConfig {
     pub size: usize,
     /// Maximum number of steps before the episode times out.
     pub max_steps: usize,
-    /// Seed for the environment's RNG. Reserved for future random variants.
+    /// Accepted but unused: this environment makes no random draws.
+    ///
+    /// rlevo's `Unlock` **deviates from upstream** `MiniGrid-Unlock-v0` in two
+    /// ways, both tracked in issue #1020. The layout is fixed — upstream
+    /// randomizes the door's position on the interior wall, the door color, the
+    /// key position and the agent's pose, while every reset here yields the
+    /// identical board. And the door placement is wrong: upstream is a two-room
+    /// task with the locked door on the wall *between* the rooms, whereas
+    /// [`UnlockEnv`]'s layout builder draws one perimeter-walled room and puts
+    /// the door at `(1, 0)`, inside that perimeter.
+    ///
+    /// Until #1020 lands, this value cannot change any observation, reward, or
+    /// transition. The field is kept so every grid env presents the same config
+    /// surface.
     pub seed: u64,
 }
 
@@ -213,20 +243,13 @@ pub struct UnlockEnv {
     steps: usize,
     render: bool,
     door_pos: (i32, i32),
-    // Never sampled: this env's layout builder is fully deterministic and
-    // ignores `config.seed`, so the field is written but never read. Kept
-    // as-is rather than renamed — see #397, which decides whether these
-    // envs become genuinely stochastic or drop the seed entirely.
-    #[allow(clippy::used_underscore_binding)]
-    _rng: StdRng,
 }
 
 impl UnlockEnv {
     /// Constructs an [`UnlockEnv`] from an explicit configuration.
     ///
-    /// Immediately builds the initial grid state and seeds the internal RNG.
-    /// Call [`Environment::reset`] before the first [`Environment::step`] to
-    /// obtain the first observation.
+    /// Immediately builds the initial grid state. Call [`Environment::reset`]
+    /// before the first [`Environment::step`] to obtain the first observation.
     ///
     /// # Examples
     ///
@@ -248,7 +271,6 @@ impl UnlockEnv {
     /// or struct-update syntax without passing through [`FromStr`].
     pub fn with_config(config: UnlockConfig, render: bool) -> Result<Self, ConfigError> {
         config.validate()?;
-        let rng = StdRng::seed_from_u64(config.seed);
         let (state, door_pos) = Self::build(&config);
         Ok(Self {
             state,
@@ -256,7 +278,6 @@ impl UnlockEnv {
             steps: 0,
             render,
             door_pos,
-            _rng: rng,
         })
     }
 
@@ -357,7 +378,6 @@ impl Environment<3, 3, 1> for UnlockEnv {
         self.state = state;
         self.door_pos = door_pos;
         self.steps = 0;
-        self._rng = StdRng::seed_from_u64(self.config.seed);
         Ok(self.emit(0.0, false))
     }
 
