@@ -56,6 +56,7 @@ use rlevo_core::environment::{
 use rlevo_core::reward::ScalarReward;
 
 use crate::box2d::physics::RapierWorld;
+use crate::episode::EpisodeGuard;
 
 use super::action::CarRacingAction;
 use super::config::CarRacingConfig;
@@ -82,6 +83,9 @@ const CAR_H: f32 = 4.0 / 30.0;
 /// - `step(action)` applies car controls and advances physics.
 /// - `Terminated` when the car visits ≥ 95% of track tiles.
 /// - `Truncated` after `config.max_steps` steps.
+/// - Either ending closes the episode: a further [`step`](Environment::step)
+///   returns [`EnvironmentError::StepAfterEpisodeEnd`] until [`reset`](Environment::reset)
+///   is called — see the [`EpisodeGuard`] field.
 ///
 /// # Observation (96×96×3)
 ///
@@ -98,6 +102,13 @@ pub struct CarRacing {
     config: CarRacingConfig,
     rng: StdRng,
     steps: usize,
+    /// Rejects a `step()` taken after the episode ended. Neither ending is
+    /// self-limiting: `lap_complete` is a latched flag that stays set, so an
+    /// unguarded post-terminal step keeps re-emitting `Terminated`, and
+    /// `steps >= max_steps` keeps holding, so past the cap every further step
+    /// re-emits `Truncated` while still advancing the physics world and the step
+    /// counter past the budget the caller asked for.
+    guard: EpisodeGuard,
 }
 
 impl CarRacing {
@@ -126,6 +137,7 @@ impl CarRacing {
             config,
             rng,
             steps: 0,
+            guard: EpisodeGuard::new(),
         };
         env.build_world();
         Ok(env)
@@ -379,7 +391,20 @@ impl Environment<3, 3, 1> for CarRacing {
     type RewardType = ScalarReward;
     type SnapshotType = SnapshotBase<3, CarRacingObservation, ScalarReward>;
 
+    /// Generates a fresh procedural track, rebuilds the physics world, and
+    /// returns the first snapshot of a new episode.
+    ///
+    /// The track is drawn from the environment's persistent RNG, so the stream
+    /// **advances** across resets and successive episodes race different tracks.
+    /// Tile-visit bookkeeping, the step counter and the episode guard are all
+    /// cleared, so a terminated or truncated environment becomes steppable again.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; always returns `Ok`. Track generation and world
+    /// construction cannot fail once the config has validated.
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
+        self.guard.reset();
         self.track = Track::generate(&self.config, &mut self.rng);
         self.state.total_tiles = self.track.tiles.len();
         self.build_world();
@@ -391,7 +416,32 @@ impl Environment<3, 3, 1> for CarRacing {
         Ok(SnapshotBase::running(obs, ScalarReward(0.0)))
     }
 
+    /// Applies the car controls, advances the physics world by one fixed
+    /// timestep, and returns the resulting snapshot.
+    ///
+    /// Gas, brake, steer and lateral friction are turned into forces on the car
+    /// body, the world is integrated by `config.dt`, then the tile-visit sweep
+    /// marks newly covered tiles and pays `lap_reward / total_tiles` for each.
+    /// The step reward is that tile reward plus the constant `frame_penalty`.
+    /// The episode is `Terminated` once `tiles_visited` reaches
+    /// `lap_complete_percent × total_tiles`, and `Truncated` once `steps`
+    /// reaches `config.max_steps`.
+    ///
+    /// # Errors
+    ///
+    /// - [`EnvironmentError::StepAfterEpisodeEnd`] if the episode has already
+    ///   ended (lap completed or step budget exhausted); call
+    ///   [`reset`](Environment::reset) first.
+    /// - [`EnvironmentError::InvalidAction`] if `action` violates the asymmetric
+    ///   bounds `steer ∈ [−1, 1]`, `gas ∈ [0, 1]`, `brake ∈ [0, 1]`.
     fn step(&mut self, action: CarRacingAction) -> Result<Self::SnapshotType, EnvironmentError> {
+        // Guard first — ahead of the action check, the force application, the
+        // world integration, the step counter and the tile-visit sweep. Whether
+        // the episode is over is a call-sequence fact independent of the action's
+        // validity, and a rejected step must leave the physics world, `steps` and
+        // the tile bookkeeping exactly as the terminal step left them.
+        self.guard.check()?;
+
         // D5: validate asymmetric bounds
         if !action.is_valid() {
             return Err(EnvironmentError::InvalidAction(format!(
@@ -422,12 +472,16 @@ impl Environment<3, 3, 1> for CarRacing {
             self.state.is_valid(),
             "CarRacingState invariant violated after step"
         );
-        Ok(SnapshotBase {
+        // Single exit: one snapshot is built, and the guard is fed that
+        // snapshot's own status, so the two cannot disagree.
+        let snap = SnapshotBase {
             observation: obs,
             reward: ScalarReward(reward),
             status,
             metadata: None,
-        })
+        };
+        self.guard.record(snap.status);
+        Ok(snap)
     }
 }
 
@@ -552,12 +606,185 @@ fn sweep_visits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::episode::assert_rejects_post_terminal_step;
     use rlevo_core::base::Observation;
     use rlevo_core::environment::Snapshot;
+    use std::sync::Arc;
 
     /// Creates a default seeded `CarRacing` environment for use in tests.
     fn make_env() -> CarRacing {
         CarRacing::with_config(CarRacingConfig::default()).expect("valid config")
+    }
+
+    // ── post-terminal step guard (issue #293) ────────────────────────────────
+
+    /// Step budget for the guard tests. Each step rasterizes a 96×96×3 frame, so
+    /// the budget is kept tiny; truncation is a pure step-counter fact and does
+    /// not depend on how far the car actually gets.
+    const GUARD_MAX_STEPS: usize = 3;
+
+    /// A legal no-op action: `steer = 0`, `gas = 0`, `brake = 0` all sit inside
+    /// the D5 asymmetric bounds, so any rejection of it is on call-sequence
+    /// grounds alone.
+    fn coast() -> CarRacingAction {
+        CarRacingAction::new(0.0, 0.0, 0.0)
+    }
+
+    /// Environment whose episodes truncate after [`GUARD_MAX_STEPS`] steps.
+    ///
+    /// Truncation is the terminal these tests drive to: `Terminated` needs
+    /// `lap_complete`, which under the real physics is not reachable by any
+    /// constant-control policy (the stiff wheel fixed-joints diverge to `NaN`
+    /// within a few steps and the car covers 2 of 60 tiles in 20 000 steps). The
+    /// lap-complete path is covered separately by
+    /// [`lap_completes_via_scripted_contiguous_sweep`], which teleports rather
+    /// than drives.
+    fn truncating_env() -> CarRacing {
+        let config = CarRacingConfig::builder()
+            .max_steps(GUARD_MAX_STEPS)
+            .build()
+            .expect("valid config");
+        CarRacing::with_config(config).expect("valid config")
+    }
+
+    /// Coasts until the step budget runs out and returns the truncated snapshot.
+    fn drive_to_truncation(
+        env: &mut CarRacing,
+    ) -> SnapshotBase<3, CarRacingObservation, ScalarReward> {
+        env.reset().expect("reset must succeed");
+        let mut snap = env.step(coast()).expect("first step must succeed");
+        while !snap.is_done() {
+            snap = env
+                .step(coast())
+                .expect("step must succeed while the episode is running");
+        }
+        snap
+    }
+
+    #[test]
+    /// `CarRacing` satisfies the shared post-terminal conformance check: once the
+    /// step budget is exhausted, a further `step()` with a *legal* action fails
+    /// with `StepAfterEpisodeEnd` carrying the status that ended the episode.
+    fn rejects_post_terminal_step() {
+        let mut env = truncating_env();
+        assert_rejects_post_terminal_step(&mut env, drive_to_truncation, coast());
+    }
+
+    #[test]
+    /// The same contract on the other terminal: a completed lap latches
+    /// `lap_complete`, so an unguarded post-terminal step would keep re-emitting
+    /// `Terminated`. The lap is reached by teleporting the car across the tile
+    /// centres in order — the physics cannot carry it round — and the sweep runs
+    /// through the real `update_tile_visits`.
+    fn rejects_post_terminal_step_after_lap_completion() {
+        let mut env = make_env();
+        assert_rejects_post_terminal_step(
+            &mut env,
+            |env| {
+                env.reset().expect("reset must succeed");
+                let total = env.state_for_test().total_tiles();
+                let car = env.state_for_test().car_handle();
+                for i in 0..total {
+                    let centre = env.track.tiles[i].centre;
+                    if let Some(body) = env.world.bodies_mut().get_mut(car) {
+                        body.set_translation(Vector::new(centre[0], centre[1]), true);
+                    }
+                    env.update_tile_visits();
+                }
+                env.step(coast())
+                    .expect("the lap-closing step must succeed")
+            },
+            coast(),
+        );
+    }
+
+    #[test]
+    /// Regression for what the guard removes: past `max_steps` the truncation
+    /// predicate keeps holding, so an unguarded post-terminal step would advance
+    /// the physics world and the step counter past the budget the caller asked
+    /// for while re-emitting `Truncated`. A rejected step must mutate nothing —
+    /// the step counter, the tile bookkeeping, the guard, and the rendered frame
+    /// (all 96×96×3 bytes of it) must be exactly as the terminal step left them.
+    fn post_terminal_step_does_not_mutate_state() {
+        let mut env = truncating_env();
+        let terminal = drive_to_truncation(&mut env);
+        let ended = terminal.status();
+        assert_eq!(
+            ended,
+            EpisodeStatus::Truncated,
+            "the step budget must truncate the episode"
+        );
+
+        let steps_at_end = env.steps;
+        let visited_at_end = env.state_for_test().tiles_visited();
+        let tile_at_end = env.state_for_test().current_tile();
+        let frame_at_end = Arc::clone(&terminal.observation().pixels);
+
+        let err = env
+            .step(coast())
+            .expect_err("a step after truncation must return Err, not another snapshot");
+        match err {
+            EnvironmentError::StepAfterEpisodeEnd { status } => assert_eq!(
+                status, ended,
+                "the error must carry the status that ended the episode"
+            ),
+            other => panic!("expected StepAfterEpisodeEnd, got {other:?}"),
+        }
+
+        assert_eq!(
+            env.steps, steps_at_end,
+            "a rejected step must not tick the step counter"
+        );
+        assert_eq!(
+            env.state_for_test().tiles_visited(),
+            visited_at_end,
+            "a rejected step must not mark further tiles"
+        );
+        assert_eq!(
+            env.state_for_test().current_tile(),
+            tile_at_end,
+            "a rejected step must not advance the current tile"
+        );
+        assert_eq!(
+            env.guard.status(),
+            ended,
+            "a rejected step must not reopen the episode"
+        );
+        // The frame is a pure function of the world pose and the tile colours, so
+        // an unchanged frame is direct evidence the physics world did not step.
+        let frame_after = env.observe_reset(&env.state);
+        assert!(
+            *frame_after.pixels == *frame_at_end,
+            "a rejected step must not advance the physics world (frame changed)"
+        );
+    }
+
+    #[test]
+    /// `reset()` re-opens a finished episode, so a latched guard cannot strand
+    /// the environment for the rest of the run.
+    fn reset_reopens_finished_episode() {
+        let mut env = truncating_env();
+        drive_to_truncation(&mut env);
+        assert!(
+            env.step(coast()).is_err(),
+            "the episode has ended; a step must be rejected before reset()"
+        );
+
+        let first = env.reset().expect("reset must succeed after truncation");
+        assert!(!first.is_done(), "a fresh episode must not start done");
+        assert_eq!(
+            env.guard.status(),
+            EpisodeStatus::Running,
+            "reset() must return the guard to Running"
+        );
+
+        let snap = env
+            .step(coast())
+            .expect("reset() must re-open the environment for a new episode");
+        assert!(
+            !snap.is_done(),
+            "the first step of a fresh episode must not be done"
+        );
     }
 
     #[test]

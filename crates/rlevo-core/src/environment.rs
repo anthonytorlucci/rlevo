@@ -354,10 +354,12 @@ pub trait Environment<const R: usize, const SR: usize, const AR: usize> {
     /// The check belongs at the **top** of `step()`, before any state mutation,
     /// so a rejected call leaves the environment untouched.
     ///
-    /// **Migration note (alpha).** Only the `toy_text` family and the `TimeLimit`
-    /// wrapper currently enforce this. The behaviour of every other environment
-    /// after a terminal snapshot is **undefined** — see issue #289 for the
-    /// family-by-family rollout. Callers must not rely on it.
+    /// **Migration note (alpha).** The `toy_text`, `classic` (non-bandit),
+    /// `grids`, and `box2d` families and the `TimeLimit` wrapper enforce this.
+    /// The behaviour of the remaining environments — the `classic` module's
+    /// bandits, the `locomotion` family, and `pixel_grid` — after a terminal
+    /// snapshot is **undefined**; see issue #289 for the family-by-family
+    /// rollout. Callers must not rely on it there.
     ///
     /// # Errors
     ///
