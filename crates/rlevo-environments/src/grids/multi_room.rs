@@ -65,13 +65,14 @@ use super::core::{
     dynamics::{StepOutcome, apply_action},
     entity::{DoorState, Entity},
     grid::Grid,
+    observation::GridObservation,
     observe_grid,
     render::render_ascii,
     reward::success_reward,
     state::GridState,
 };
 use rlevo_core::config::{self, ConfigError, Validate};
-use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError};
+use rlevo_core::environment::{ConstructableEnv, Environment, EnvironmentError, Sensor};
 use rlevo_core::reward::ScalarReward;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -296,6 +297,20 @@ pub struct MultiRoomEnv {
 }
 
 impl MultiRoomEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl,
+    /// and an inherent const rather than a config field because it is part of
+    /// the task definition, not a knob a caller tunes.
+    ///
+    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
+    /// emission model moves onto the environment; the canonical per-env values
+    /// are assigned in the follow-up to #281, so no observation byte changes
+    /// here.
+    const VISIBILITY: Visibility = Visibility::SeeThrough;
+
     /// Constructs a [`MultiRoomEnv`] from an explicit configuration.
     ///
     /// Immediately builds the initial grid state. Call [`Environment::reset`]
@@ -407,15 +422,11 @@ impl MultiRoomEnv {
         GridState::new(grid, agent)
     }
 
-    fn emit(&self, reward: f32, done: bool) -> GridSnapshot {
+    fn emit(&self, observation: GridObservation, reward: f32, done: bool) -> GridSnapshot {
         if self.render {
             println!("{}", self.ascii());
         }
-        build_snapshot(
-            observe_grid(&self.state, Visibility::SeeThrough),
-            reward,
-            done,
-        )
+        build_snapshot(observation, reward, done)
     }
 }
 
@@ -445,6 +456,23 @@ impl ConstructableEnv for MultiRoomEnv {
     }
 }
 
+impl Sensor<3, 1, 3> for MultiRoomEnv {
+    type Action = GridAction;
+    type State = GridState;
+    type Observation = GridObservation;
+
+    /// Emission model `O(a, s')`. The observation is a function of the resulting
+    /// `next_state` alone, so this forwards to the same projection as
+    /// [`observe_reset`](Self::observe_reset).
+    fn observe(&self, _action: &GridAction, next_state: &GridState) -> GridObservation {
+        observe_grid(next_state, Self::VISIBILITY)
+    }
+
+    fn observe_reset(&self, state: &GridState) -> GridObservation {
+        observe_grid(state, Self::VISIBILITY)
+    }
+}
+
 impl Environment<3, 3, 1> for MultiRoomEnv {
     type StateType = GridState;
     type ObservationType = super::core::GridObservation;
@@ -455,7 +483,8 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
     fn reset(&mut self) -> Result<Self::SnapshotType, EnvironmentError> {
         self.state = Self::build(&self.config);
         self.steps = 0;
-        Ok(self.emit(0.0, false))
+        let observation = self.observe_reset(&self.state);
+        Ok(self.emit(observation, 0.0, false))
     }
 
     fn step(&mut self, action: Self::ActionType) -> Result<Self::SnapshotType, EnvironmentError> {
@@ -469,7 +498,8 @@ impl Environment<3, 3, 1> for MultiRoomEnv {
                 (0.0, done)
             }
         };
-        Ok(self.emit(reward, done))
+        let observation = self.observe(&action, &self.state);
+        Ok(self.emit(observation, reward, done))
     }
 }
 

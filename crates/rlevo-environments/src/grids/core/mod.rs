@@ -21,8 +21,12 @@
 //!
 //! Emission is parameterised by [`Visibility`], the per-environment analogue of
 //! canonical Minigrid's `see_through_walls` constructor argument. Every grid
-//! environment produces its observation through [`observe_grid`] and hands the
-//! result to [`build_snapshot`], so the visibility policy is chosen by the
+//! environment declares its policy as an inherent `const VISIBILITY` and reads
+//! it from its own
+//! [`Sensor`](rlevo_core::environment::Sensor) impl, which produces the
+//! observation through [`observe_grid`] (or, for `GoToDoorEnv`, [`mask_view`]
+//! plus the wider mission-carrying encoder) and hands the result to
+//! [`build_snapshot`]. The visibility policy is therefore chosen by the
 //! environment — the emission model belongs to the environment, not to the
 //! state (ADR 0047).
 
@@ -147,14 +151,32 @@ pub enum Visibility {
 /// [`Visibility::SeeThrough`] every cell is reported.
 #[must_use]
 pub fn observe_grid(state: &GridState, visibility: Visibility) -> GridObservation {
-    let view = egocentric_view(&state.grid, &state.agent);
+    let masked = mask_view(&state.grid, &state.agent, visibility);
+    GridObservation::from_masked_view(masked, state.agent.direction)
+}
+
+/// Cut the egocentric window for `agent` and apply the emission policy
+/// `visibility` to it, yielding a view whose hidden cells are `None`.
+///
+/// The single place the [`Visibility`] dispatch happens. [`observe_grid`] is the
+/// entry point for the eleven environments emitting a [`GridObservation`];
+/// [`GoToDoorEnv`](crate::grids::go_to_door::GoToDoorEnv) needs the same masked
+/// view but a wider encoder (its fourth channel carries the mission), so it
+/// calls this and feeds
+/// [`GoToDoorObservation::from_masked_view`](crate::grids::go_to_door::GoToDoorObservation::from_masked_view).
+/// Keeping the dispatch here means there is one `match Visibility`, not two.
+pub(super) fn mask_view(
+    grid: &Grid,
+    agent: &AgentState,
+    visibility: Visibility,
+) -> [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE] {
+    let view = egocentric_view(grid, agent);
     // Both arms feed the *same* encoder, so the only difference between the two
     // policies is which cells arrive as `None`.
-    let masked = match visibility {
+    match visibility {
         Visibility::Occluded => grid::process_vis(view),
         Visibility::SeeThrough => view.map(|row| row.map(Some)),
-    };
-    GridObservation::from_masked_view(masked, state.agent.direction)
+    }
 }
 
 /// Build a [`GridSnapshot`] from an already-produced [`GridObservation`] plus a

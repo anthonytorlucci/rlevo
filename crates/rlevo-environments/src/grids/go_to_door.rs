@@ -71,14 +71,16 @@
 //! [`GoToDoorEnv`]: https://minigrid.farama.org/environments/minigrid/GoToDoorEnv/
 
 use super::core::{
+    Visibility,
     action::GridAction,
     agent::AgentState,
     color::Color,
     direction::Direction,
     dynamics::{StepOutcome, apply_action},
     entity::{DoorState, Entity},
-    grid::{Grid, egocentric_view},
-    observation::VIEW_SIZE,
+    grid::Grid,
+    mask_view,
+    observation::{UNSEEN_TYPE, VIEW_SIZE},
     render::render_ascii,
     reward::success_reward,
     state::GridState,
@@ -247,15 +249,25 @@ pub struct GoToDoorObservation {
 }
 
 impl GoToDoorObservation {
-    /// Encode a decoded `7 × 7` entity view, the agent's facing, and the episode
-    /// mission color into an observation.
+    /// Encode a visibility-masked `7 × 7` entity view, the agent's facing, and
+    /// the episode mission color into an observation.
     ///
-    /// Channels 0-2 come from [`Entity::type_u8`] / [`Entity::color_u8`] /
-    /// [`Entity::state_u8`]; channel [`MISSION_CHANNEL`] is `mission.to_u8()` in
-    /// every cell.
+    /// The mission-carrying counterpart of
+    /// [`GridObservation::from_masked_view`](super::core::GridObservation::from_masked_view),
+    /// and the single encoder behind every `GoToDoorEnv` observation. A `Some`
+    /// cell is encoded from its [`Entity`]; a `None` cell — one the shadow cast
+    /// in the emission model hid — becomes `[UNSEEN_TYPE, 0, 0]` in channels
+    /// 0-2, matching canonical Minigrid's `Grid.encode(vis_mask)`.
+    ///
+    /// Channel [`MISSION_CHANNEL`] carries `mission.to_u8()` in **every** cell,
+    /// masked or not: the mission is the agent's own goal, not something it
+    /// perceives through the grid, so occlusion must not hide it.
+    ///
+    /// Callers holding an unmasked view use
+    /// [`from_entity_view`](Self::from_entity_view), which delegates here.
     #[must_use]
-    pub fn from_entity_view(
-        view: [[Entity; VIEW_SIZE]; VIEW_SIZE],
+    pub fn from_masked_view(
+        view: [[Option<Entity>; VIEW_SIZE]; VIEW_SIZE],
         direction: Direction,
         mission: Color,
     ) -> Self {
@@ -263,18 +275,36 @@ impl GoToDoorObservation {
         let mut encoded = [[[0u8; GO_TO_DOOR_OBS_CHANNELS]; VIEW_SIZE]; VIEW_SIZE];
         for (r, row) in view.iter().enumerate() {
             for (c, cell) in row.iter().enumerate() {
-                encoded[r][c] = [
-                    cell.type_u8(),
-                    cell.color_u8(),
-                    cell.state_u8(),
-                    mission_byte,
-                ];
+                encoded[r][c] = match cell {
+                    Some(entity) => [
+                        entity.type_u8(),
+                        entity.color_u8(),
+                        entity.state_u8(),
+                        mission_byte,
+                    ],
+                    None => [UNSEEN_TYPE, 0, 0, mission_byte],
+                };
             }
         }
         Self {
             view: encoded,
             agent_direction: Some(direction),
         }
+    }
+
+    /// Encode a fully visible `7 × 7` entity view, the agent's facing, and the
+    /// episode mission color into an observation.
+    ///
+    /// Equivalent to wrapping every cell in `Some` and calling
+    /// [`from_masked_view`](Self::from_masked_view) — which is exactly what it
+    /// does, so there is one encoder rather than two.
+    #[must_use]
+    pub fn from_entity_view(
+        view: [[Entity; VIEW_SIZE]; VIEW_SIZE],
+        direction: Direction,
+        mission: Color,
+    ) -> Self {
+        Self::from_masked_view(view.map(|row| row.map(Some)), direction, mission)
     }
 
     /// The mission color byte carried by this observation.
@@ -537,6 +567,21 @@ pub struct GoToDoorEnv {
 }
 
 impl GoToDoorEnv {
+    /// Emission-model visibility policy: does this environment's agent see
+    /// through opaque cells?
+    ///
+    /// The rlevo spelling of canonical Minigrid's `see_through_walls`
+    /// constructor argument. Read only by this environment's [`Sensor`] impl
+    /// (through [`observe_impl`](Self::observe_impl)), and an inherent const
+    /// rather than a config field because it is part of the task definition, not
+    /// a knob a caller tunes.
+    ///
+    /// Pinned to [`Visibility::SeeThrough`] across the whole family while the
+    /// emission model moves onto the environment; the canonical per-env values
+    /// are assigned in the follow-up to #281, so no observation byte changes
+    /// here.
+    const VISIBILITY: Visibility = Visibility::SeeThrough;
+
     /// Constructs a [`GoToDoorEnv`] from an explicit configuration.
     ///
     /// Seeds the persistent RNG once from `config.seed` and immediately builds a
@@ -695,14 +740,15 @@ impl GoToDoorEnv {
 
     /// Project a grid `state` into a mission-carrying observation.
     ///
-    /// The shared body behind the env-side [`Sensor`] impl: it stamps the
-    /// current [`Mission::target_color`] into the observation's mission channel,
-    /// which is why the emission model lives on the environment rather than on
+    /// The shared body behind the env-side [`Sensor`] impl: it masks the view
+    /// under [`Self::VISIBILITY`] and stamps the current
+    /// [`Mission::target_color`] into the observation's mission channel, which is
+    /// why the emission model lives on the environment rather than on
     /// [`GridState`] (the mission is env context, not state).
     fn observe_impl(&self, state: &GridState) -> GoToDoorObservation {
-        let view = egocentric_view(&state.grid, &state.agent);
-        GoToDoorObservation::from_entity_view(
-            view,
+        let masked = mask_view(&state.grid, &state.agent, Self::VISIBILITY);
+        GoToDoorObservation::from_masked_view(
+            masked,
             state.agent.direction,
             self.mission.target_color,
         )
@@ -828,6 +874,9 @@ mod tests {
     #![allow(clippy::float_cmp)]
 
     use super::*;
+    // The env no longer cuts the raw window itself (it goes through `mask_view`),
+    // but the encoding tests still compare against the *unoccluded* view.
+    use crate::grids::core::grid::egocentric_view;
     use rlevo_core::environment::Snapshot;
     use std::collections::HashSet;
 
@@ -1062,6 +1111,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_go_to_door_observation_from_entity_view_delegates_to_from_masked_view() {
+        let view = [[Entity::Empty; VIEW_SIZE]; VIEW_SIZE];
+        let unmasked = GoToDoorObservation::from_entity_view(view, Direction::North, Color::Blue);
+        let all_some = GoToDoorObservation::from_masked_view(
+            view.map(|row| row.map(Some)),
+            Direction::North,
+            Color::Blue,
+        );
+        assert_eq!(
+            unmasked, all_some,
+            "from_entity_view must be from_masked_view with every cell Some"
+        );
+    }
+
+    #[test]
+    fn test_go_to_door_observation_masked_cell_is_unseen_but_keeps_the_mission() {
+        // Guards the arm `Visibility::Occluded` will start exercising: a hidden
+        // cell must lose its entity channels *without* losing the mission, which
+        // is the agent's own goal rather than something it perceives.
+        let mut view = [[Some(Entity::Goal); VIEW_SIZE]; VIEW_SIZE];
+        view[2][3] = None;
+        let obs = GoToDoorObservation::from_masked_view(view, Direction::South, Color::Purple);
+
+        let mission = Color::Purple.to_u8();
+        assert_eq!(
+            obs.view[2][3],
+            [UNSEEN_TYPE, 0, 0, mission],
+            "a masked cell must encode as unseen in channels 0..2 and keep the mission byte"
+        );
+        assert_eq!(
+            obs.view[0][0],
+            [
+                Entity::Goal.type_u8(),
+                Entity::Goal.color_u8(),
+                Entity::Goal.state_u8(),
+                mission
+            ],
+            "a visible cell must be unaffected by a masked neighbour"
+        );
+        assert_eq!(
+            obs.mission_color_u8(),
+            mission,
+            "the mission accessor reads cell (0, 0), which masking must not disturb"
+        );
     }
 
     #[test]
