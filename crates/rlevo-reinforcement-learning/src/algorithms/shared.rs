@@ -1,13 +1,14 @@
 //! Shared infrastructure for the algorithm implementations in this module.
 //!
 //! Hosts [`Slot`], the network-ownership newtype every agent uses to hold a
-//! trainable network across a Burn optimizer step; [`FiniteLossGuard`], the
-//! non-finite-loss skip-and-warn guard every learn step consults before
-//! `backward()` (ADR 0056, issue #318); [`FiniteRewardGuard`], the
-//! non-finite-reward drop-and-warn guard every off-policy `remember` consults
-//! before pushing into the replay buffer (ADR 0065, issue #352); and
-//! [`LogWatermark`], the progress-logging trigger shared by the on-policy
-//! training loops.
+//! trainable network across a Burn optimizer step; [`clamp_preserving_nan`],
+//! the backend-independent clamp used wherever a `NaN` must stay observable
+//! (issue #1044); [`FiniteLossGuard`], the non-finite-loss skip-and-warn guard
+//! every learn step consults before `backward()` (ADR 0056, issue #318);
+//! [`FiniteRewardGuard`], the non-finite-reward drop-and-warn guard every
+//! off-policy `remember` consults before pushing into the replay buffer
+//! (ADR 0065, issue #352); and [`LogWatermark`], the progress-logging trigger
+//! shared by the on-policy training loops.
 //!
 //! # Why a `Slot` exists
 //!
@@ -461,6 +462,92 @@ impl<M> Slot<M> {
         let module = self.0.take().expect(POISONED);
         self.0 = Some(opt.step(lr, module, grads));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Numerics — the NaN-preserving clamp (issue #1044)
+// ---------------------------------------------------------------------------
+
+/// Clamps `t` into `[lo, hi]` **without** rescuing `NaN`, on every backend.
+///
+/// # Why this exists
+///
+/// [`Tensor::clamp`]'s behaviour on `NaN` is **backend-divergent and
+/// undocumented**, and the divergence is silent:
+///
+/// - `burn-flex` (the host backend the whole test suite runs on) lowers it to
+///   [`f32::clamp`], which **propagates** `NaN`.
+/// - `burn-cubecl`/wgpu lowers it to the WGSL `clamp` builtin, which naga emits
+///   as Metal's `fmin(fmax(…))`. Both are "return the other operand on `NaN`"
+///   functions, so the composition **rescues** `NaN` to `lo`.
+///
+/// Measured on an Apple M2 Pro (macOS 26.5.2, Metal 4; burn 0.21, cubecl 0.10,
+/// wgpu 29): `clamp(NaN, -10, 10)` is `NaN` on Flex and `-10.0` on Metal.
+///
+/// A rescued `NaN` is worse than a propagated one. It turns a poisoned value
+/// into an ordinary in-range number that no downstream finiteness guard —
+/// [`FiniteLossGuard`], [`FiniteRewardGuard`] — can see, so the GPU path trains
+/// on corrupted data while the host path fails loudly on the same input. That
+/// is exactly the asymmetry issue #1044 reports for the C51 categorical
+/// projection: on Metal a `NaN` reward produced a well-formed probability row
+/// summing to exactly `1.0`, claiming certainty of the worst return.
+///
+/// This function restores one behaviour on both: clamp, then write the `NaN`s
+/// back where the input had them.
+///
+/// # `is_nan`, not `is_finite` — deliberately
+///
+/// `±inf` is **not** masked, because `clamp` already handles it correctly and
+/// identically on both backends: it pins `+inf` to `hi` and `-inf` to `lo`.
+/// For the projection that is the algorithm's intended semantics (an infinite
+/// reward genuinely means "a return of at least `v_max`"), so masking on
+/// `is_finite` would regress a currently-correct path into an all-`NaN` target.
+/// Only `NaN` — the value with no meaningful clamp — is preserved.
+///
+/// # The `is_nan` guarantee, and when to re-verify it
+///
+/// This is only sound because [`Tensor::is_nan`] itself survives the GPU
+/// pipeline. It does: `cubecl-wgpu` does **not** lower it as `x != x` (which a
+/// fast-math compiler is free to fold to `false`); it emits an integer
+/// bit-pattern polyfill — `bitcast<u32>`, mask the sign bit, compare against
+/// `0x7f80_0000u` — from `cubecl-wgpu-0.10.0`'s WGSL extension table. That form
+/// has no floating-point comparison for a compiler to optimise away, and it was
+/// confirmed both in the dumped shader and by execution on the machine above.
+///
+/// **Re-verify this if `cubecl-wgpu`'s `msl` or `spirv` features are ever
+/// enabled.** Those paths go through `cubecl-cpp`, which emits Metal's native
+/// `isnan` builtin and marks it `can_optimize() -> true` — i.e. it is
+/// explicitly fast-math-vulnerable, and a build with fast math enabled may fold
+/// it to a constant `false`. This function would then silently become a plain
+/// `clamp` again.
+///
+/// # Arguments
+///
+/// - `t` — the tensor to clamp.
+/// - `lo`, `hi` — inclusive clamp bounds, as for [`Tensor::clamp`].
+///
+/// # Returns
+///
+/// A tensor whose finite and infinite elements are clamped into `[lo, hi]`, and
+/// whose `NaN` elements are still `NaN`.
+///
+/// # Examples
+///
+/// ```ignore
+/// // On every backend: [-10.0, 10.0, NaN, 0.5]
+/// let out = clamp_preserving_nan(input, -10.0, 10.0);
+/// // input was [-1e9, 1e9, f32::NAN, 0.5]
+/// ```
+///
+/// [`Tensor::clamp`]: burn::tensor::Tensor::clamp
+/// [`Tensor::is_nan`]: burn::tensor::Tensor::is_nan
+pub(crate) fn clamp_preserving_nan<B: Backend, const D: usize>(
+    t: Tensor<B, D>,
+    lo: f32,
+    hi: f32,
+) -> Tensor<B, D> {
+    let nan = t.clone().is_nan();
+    t.clamp(lo, hi).mask_fill(nan, f32::NAN)
 }
 
 /// Non-finite-loss skip-and-warn guard for one loss site of one agent
@@ -1463,6 +1550,140 @@ mod tests {
         assert!(
             wm.should_log(192),
             "the watermark must re-arm once `every` steps have elapsed"
+        );
+    }
+
+    // -------- clamp_preserving_nan (issue #1044) --------
+
+    /// The mixed input every `clamp_preserving_nan` test below shares: values
+    /// past both bounds, both infinities, a `NaN`, an in-range value, and both
+    /// bounds exactly.
+    const CLAMP_INPUT: [f32; 8] = [
+        -1e9,
+        1e9,
+        f32::NEG_INFINITY,
+        f32::INFINITY,
+        f32::NAN,
+        0.5,
+        -10.0,
+        10.0,
+    ];
+
+    /// Runs [`clamp_preserving_nan`] over `values` on backend `BI` and reads
+    /// the result back to the host.
+    fn clamped_row<BI: Backend>(values: &[f32], lo: f32, hi: f32, device: &BI::Device) -> Vec<f32> {
+        let n = values.len();
+        let t: Tensor<BI, 1> = Tensor::from_data(TensorData::new(values.to_vec(), vec![n]), device);
+        clamp_preserving_nan(t, lo, hi)
+            .into_data()
+            .convert::<f32>()
+            .into_vec::<f32>()
+            .expect("f32 host read")
+    }
+
+    #[test]
+    fn clamp_preserving_nan_keeps_nan_and_clamps_everything_else() {
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let got = clamped_row::<Flex>(&CLAMP_INPUT, -10.0, 10.0, &device);
+
+        assert!(
+            got[4].is_nan(),
+            "NaN must survive the clamp so downstream finiteness guards can see \
+             it; got {got:?}"
+        );
+        // Every slot but the NaN one (index 4) must be finite and in range.
+        let expected: [(usize, f32); 7] = [
+            (0, -10.0),
+            (1, 10.0),
+            (2, -10.0),
+            (3, 10.0),
+            (5, 0.5),
+            (6, -10.0),
+            (7, 10.0),
+        ];
+        for (i, want) in expected {
+            assert!(
+                (got[i] - want).abs() < 1e-6,
+                "element {i} must clamp to {want}, got {}: {got:?}",
+                got[i]
+            );
+        }
+    }
+
+    #[test]
+    fn clamp_preserving_nan_does_not_mask_infinities() {
+        // Pins the `is_nan`-not-`is_finite` choice. `clamp` already handles
+        // ±inf correctly and identically on both backends, and the C51
+        // projection relies on that (an infinite reward means "a return of at
+        // least v_max"). Masking on `is_finite` would turn both into NaN and
+        // regress a currently-correct path.
+        let device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let got = clamped_row::<Flex>(&[f32::NEG_INFINITY, f32::INFINITY], -3.0, 7.0, &device);
+
+        assert!(
+            (got[0] + 3.0).abs() < 1e-6,
+            "-inf must clamp to lo, got {}",
+            got[0]
+        );
+        assert!(
+            (got[1] - 7.0).abs() < 1e-6,
+            "+inf must clamp to hi, got {}",
+            got[1]
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a wgpu/Metal or wgpu/Vulkan adapter; every CI workflow \
+                runs on ubuntu-latest with no GPU and cubecl-wgpu aborts on \
+                device init — run on a GPU host with `cargo test -p \
+                rlevo-reinforcement-learning --lib -- --ignored \
+                clamp_preserving_nan_matches_flex_on_wgpu`"]
+    fn clamp_preserving_nan_matches_flex_on_wgpu() {
+        // NOT RUN IN CI. Regression protection for this class is a manual GPU
+        // run; the assertion below is the only thing in the workspace that can
+        // observe the divergence it exists to close, and nothing automated
+        // executes it.
+        //
+        // The plain `Tensor::clamp` disagrees across these two backends on NaN:
+        // burn-flex lowers it to `f32::clamp` (propagates), burn-cubecl/wgpu to
+        // the WGSL `clamp` builtin, which naga emits as Metal `fmin(fmax(..))`
+        // (rescues to `lo`). Measured on an Apple M2 Pro / macOS 26.5.2 /
+        // Metal 4 with burn 0.21, cubecl 0.10, wgpu 29: `clamp(NaN, -10, 10)`
+        // is NaN on Flex and -10.0 on Metal. `clamp_preserving_nan` must erase
+        // that difference.
+        let flex_device = <Flex as burn::tensor::backend::BackendTypes>::Device::default();
+        let flex = clamped_row::<Flex>(&CLAMP_INPUT, -10.0, 10.0, &flex_device);
+
+        // Initializing a wgpu device aborts (not a catchable error) on hosts
+        // without an adapter: cubecl-wgpu panics on a worker thread and the
+        // calling thread then panics on the severed channel. There is no clean
+        // in-process probe across the cubecl boundary, hence `#[ignore]`.
+        let wgpu_device: burn::backend::wgpu::WgpuDevice = Default::default();
+        let wgpu = clamped_row::<burn::backend::Wgpu>(&CLAMP_INPUT, -10.0, 10.0, &wgpu_device);
+
+        assert_eq!(
+            flex.len(),
+            wgpu.len(),
+            "both backends must return the same number of elements"
+        );
+        for (i, (&f, &w)) in flex.iter().zip(&wgpu).enumerate() {
+            assert_eq!(
+                f.is_nan(),
+                w.is_nan(),
+                "element {i} must have the same NaN-ness on both backends: \
+                 flex={f}, wgpu={w} (flex={flex:?}, wgpu={wgpu:?})"
+            );
+            if !f.is_nan() {
+                assert!(
+                    (f - w).abs() < 1e-6,
+                    "element {i} must clamp to the same value on both backends: \
+                     flex={f}, wgpu={w}"
+                );
+            }
+        }
+        assert!(
+            flex[4].is_nan(),
+            "the NaN input must still be NaN after the clamp; got {flex:?}"
         );
     }
 

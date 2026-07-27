@@ -138,6 +138,13 @@ applies is decided by the *kind* of struct, not case by case:
 - Trait methods that can fail return `Result<T, DomainError>` — never `Option` for error signalling.
 - Marker traits (`MarkovState`, `GenomeKind`) carry `const` or zero methods; they must not grow methods unless the concept fundamentally requires it.
 - Do not add blanket impls without a documented invariant justifying them.
+- An index tensor **derived from float arithmetic** is clamped to
+  `[0, extent−1]` before reaching `scatter`/`gather`/`select`. GPU backends do
+  not bounds-check — `burn-cubecl`'s scatter kernel is `launch_unchecked` and
+  `cubecl-wgpu` sets `bounds_checks: false` — so an out-of-range index
+  silently writes into an unrelated tensor's buffer instead of panicking. One
+  site today (`c51/projection.rs`); the rule is forward-looking for Rainbow /
+  IQN / FQF, which all derive indices from floats. (ADR 0066)
 
 ### Core Trait Invariants (these must never be violated by implementations)
 

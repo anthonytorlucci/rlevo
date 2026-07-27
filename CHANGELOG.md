@@ -1554,6 +1554,52 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Fixed**
 
+- **The C51 projection produced a clean, plausible, and wrong target
+  distribution on a GPU backend where the host backend failed loudly, because
+  `Tensor::clamp`'s NaN behaviour differs between them** (ADR 0066, resolves
+  #1044). `burn-flex` clamps with `f32::clamp` and propagates a NaN;
+  `burn-cubecl`/wgpu lowers to the WGSL `clamp` builtin, which on Metal
+  *rescues* a NaN to the lower bound. Neither behaviour is documented —
+  `Ordered::clamp` says nothing about NaN — and `project_distribution` was
+  relying on the host one. Measured on an Apple M2 Pro: a NaN reward yields a
+  row of `[NaN, 0, …]` summing to `NaN` on Flex, which ADR 0056's
+  `FiniteLossGuard` catches, but `[1.0, 0, …]` summing to **exactly 1.0** on
+  Metal — a well-formed probability vector asserting certainty of the worst
+  representable return, containing no NaN for any guard to fire on. Both
+  clamps now go through a shared `clamp_preserving_nan`, so the failure is
+  loud on every backend.
+
+  The issue's own hypothesis was **refuted**, and the refutation is the
+  interesting part. It predicted that a NaN index would reach `scatter` and
+  panic on GPU. It does not — the clamps hold on both backends. But once the
+  NaN is *preserved* through them, it does: on Metal `NaN.floor().int()` is
+  `i32::MIN`, not the host's saturating `0`. So the fix creates the very
+  out-of-range index the issue feared, and the derived `Int` indices are now
+  clamped to `[0, num_atoms-1]` as well — the two halves are only correct
+  together. That guard matters more than a panic would suggest: `burn-cubecl`'s
+  scatter kernel is `launch_unchecked` and `cubecl-wgpu` sets
+  `bounds_checks: false`, so an out-of-range index does not panic on wgpu, it
+  writes into whatever tensor occupies that address. Deleting just the index
+  clamp was measured to do exactly that.
+
+  Nothing caught this because nothing could: every CI workflow is
+  `ubuntu-latest` with no GPU, and the workspace's only cross-backend test is
+  `#[ignore]`d for that reason. The obvious postcondition would not have
+  helped either — the corrupted row sums to exactly 1.0, so a row-sum check
+  passes it. The new tests assert *finiteness*, not sums, and the added
+  cross-backend parity test is likewise `#[ignore]`d: regression protection
+  for this class is a manual GPU run, not CI.
+
+  Exposure is narrow and was already narrowing: ADR 0065's `FiniteRewardGuard`
+  closed the reward ingress at `remember`, and `tz` is structurally derived
+  only from the reward, terminal mask, and fixed support — never from network
+  output — so a NaN *observation* cannot reach it. What remains is a direct
+  `Transition` push bypassing `remember`, a future offline-RL loader, and
+  direct callers of the `pub fn` such as the bench. ADR 0066 also corrects the
+  record in ADR 0065 §Context and ADR 0056 §Out-of-scope, both of which assert
+  the host clamp's NaN semantics as universal fact; both ADRs are immutable, so
+  the correction lives in 0066.
+
 - **A non-finite reward from the environment was stored in the replay buffer
   unchecked, where it silently cost every future minibatch that resampled it —
   it is now dropped at ingestion, counted, and warned on an escalating
