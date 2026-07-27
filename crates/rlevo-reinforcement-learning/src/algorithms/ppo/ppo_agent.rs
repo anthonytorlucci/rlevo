@@ -100,7 +100,32 @@ pub struct ActOutcome {
 }
 
 /// Summary of one PPO update (across all epochs and minibatches).
+///
+/// # Why `#[non_exhaustive]` on a struct
+///
+/// ADR 0055 §5 reserves `#[non_exhaustive]` for enums, because on a struct it forbids
+/// cross-crate `..Default::default()` and buys no validation guarantee. This
+/// type is the documented exception, on the same reasoning ADR 0060 §4 used to
+/// close `ConstraintKind` *now* rather than later: the break is free today and
+/// one-way tomorrow.
+///
+/// The two premises the rule rests on both fail here. First, this is a
+/// **report-only** type — it is produced by [`PpoAgent::update`] and read by a
+/// training loop; nobody outside this crate constructs one to configure
+/// anything, so the "tuning idiom" the rule protects does not apply. Second,
+/// the `..Default::default()` escape hatch that `#[non_exhaustive]` would
+/// remove did not exist before this change: the type had no [`Default`], and
+/// the two in-workspace placeholder sites spelled out all nine fields by hand.
+/// This change adds the [`Default`] impl at the same time, so `#[non_exhaustive]`
+/// removes nothing and the placeholders shrink to `PpoUpdateStats::default()`.
+///
+/// The concrete purchase: adding `max_log_std` here (#347) would otherwise be a
+/// breaking change to every downstream struct literal, and so would the next
+/// diagnostic. A metrics record grows — pinning it closed on the assumption
+/// that it will not is how a report type becomes the reason a diagnostic ships
+/// a major version late.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct PpoUpdateStats {
     /// Mean clipped-surrogate loss across minibatches.
     pub policy_loss: f32,
@@ -137,6 +162,47 @@ pub struct PpoUpdateStats {
     /// Read once per update via [`PpoPolicy::min_log_std`], which costs one
     /// device→host sync.
     pub min_log_std: Option<f32>,
+    /// Largest clamped `log σ` across action dims after this update, or `None`
+    /// for discrete (categorical) policies, which have no `log σ`.
+    ///
+    /// The ceiling-side counterpart to [`min_log_std`](Self::min_log_std), and
+    /// not redundant with it: a minimum reports the *healthiest* dim, so a head
+    /// with one dim pinned at `log_std_max` reads perfectly normal on
+    /// `min_log_std` while that dim is frozen and sampling near-uniform noise
+    /// (#347). A value drifting up toward the head's `log_std_max` is the
+    /// policy diverging rather than collapsing, and reaching the bound freezes
+    /// the parameter just as permanently. The head emits its own one-shot
+    /// `tracing::warn!` per bound when that happens.
+    ///
+    /// Read once per update via [`PpoPolicy::max_log_std`], which costs one
+    /// device→host sync.
+    pub max_log_std: Option<f32>,
+}
+
+impl Default for PpoUpdateStats {
+    /// The neutral placeholder: every diagnostic zero, both `log σ` extrema
+    /// absent.
+    ///
+    /// Used by the training loops for the pre-first-update value of
+    /// `last_update_stats`, where no update has run yet and there is nothing to
+    /// report. `None` — rather than a fabricated `0.0` — is the honest reading
+    /// for both extrema, and it matches what a categorical policy reports
+    /// forever. Adding a field to [`PpoUpdateStats`] therefore does not
+    /// touch those call sites.
+    fn default() -> Self {
+        Self {
+            policy_loss: 0.0,
+            value_loss: 0.0,
+            entropy: 0.0,
+            approx_kl: 0.0,
+            old_approx_kl: 0.0,
+            clip_frac: 0.0,
+            explained_variance: 0.0,
+            epochs_run: 0,
+            min_log_std: None,
+            max_log_std: None,
+        }
+    }
 }
 
 /// Proximal Policy Optimization agent.
@@ -630,11 +696,14 @@ where
         // already holds, so this adds no forward pass.
         let ev = explained_variance(self.buffer.returns(), self.buffer.values());
 
-        // Policy-scale telemetry: one device→host sync per *update* (not per
-        // step). This is also where the Gaussian head evaluates its one-shot
-        // "the log_std clamp has bound" warning — deliberately here rather than
-        // in the forward pass, which would sync on every rollout step.
+        // Policy-scale telemetry: two 4-byte device→host reads per *update*
+        // (not per step). This is also where the Gaussian head evaluates its
+        // one-shot-per-bound "the log_std clamp has bound" warnings —
+        // deliberately here rather than in the forward pass, which would sync on
+        // every rollout step. Both extrema are reported because a minimum alone
+        // is blind to a dim pinned at the ceiling (#347, ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
+        let max_log_std = self.policy().max_log_std();
 
         self.buffer.clear();
         self.iteration += 1;
@@ -661,6 +730,7 @@ where
             explained_variance: ev,
             epochs_run,
             min_log_std,
+            max_log_std,
         }
     }
 }

@@ -305,15 +305,22 @@ fn run_pendulum(seed: u64, total: usize) -> TrainOutcome {
 /// Drives one real PPO update and checks that the `log_std` telemetry added
 /// alongside the `log_std` clamp is actually populated end-to-end.
 ///
-/// The clamp turns a `NaN` blow-up into a silently frozen σ, so `min_log_std`
-/// is the only signal a user has that the policy is collapsing. A `None` here
-/// on a Gaussian head — or a value outside the head's configured bounds — would
-/// mean the metric is wired up but dead, which is worse than not having it.
+/// The clamp turns a `NaN` blow-up into a silently frozen σ, so the `log_std`
+/// extrema are the only signal a user has that the policy is collapsing — or
+/// diverging. A `None` here on a Gaussian head — or a value outside the head's
+/// configured bounds — would mean the metric is wired up but dead, which is
+/// worse than not having it.
+///
+/// **Both** extrema are checked. `max_log_std` is not decoration: a minimum
+/// reports the healthiest dim, so a head with a dim pinned at `log_std_max`
+/// reads perfectly normal on `min_log_std` alone (#347). This is the only
+/// end-to-end path through `PpoAgent::update` on a real backend, so it is where
+/// a `max_log_std` that is computed but never assigned would be caught.
 ///
 /// Deliberately tiny (64 steps, one update): this asserts plumbing, not
 /// learning, so it runs in CI rather than behind `#[ignore]`.
 #[test]
-fn ppo_pendulum_update_reports_min_log_std() {
+fn ppo_pendulum_update_reports_log_std_extrema() {
     use rlevo_core::environment::{Environment, Snapshot};
     use rlevo_reinforcement_learning::algorithms::ppo::policies::gaussian::continuous_action_from_row;
 
@@ -371,6 +378,35 @@ fn ppo_pendulum_update_reports_min_log_std() {
     assert!(
         min_log_std > -1.0,
         "log_std collapsed to {min_log_std} after one update; the clamp is binding"
+    );
+
+    // The ceiling-side metric, mirroring every assertion above.
+    let max_log_std = stats
+        .max_log_std
+        .expect("a Gaussian head must report max_log_std");
+    assert!(
+        max_log_std.is_finite(),
+        "max_log_std must be finite, got {max_log_std}"
+    );
+    assert!(
+        (-20.0..=2.0).contains(&max_log_std),
+        "max_log_std {max_log_std} must lie within the head's configured bounds"
+    );
+    // Symmetrically to the floor check: one update from log_std_init = 0.0
+    // cannot plausibly reach the ceiling either.
+    assert!(
+        max_log_std < 1.0,
+        "log_std diverged to {max_log_std} after one update; the clamp is binding"
+    );
+    // Pendulum has action_dim = 1, so the two extrema are the same element and
+    // must agree exactly. This pins that both metrics read the *same* parameter
+    // vector — but it deliberately does not claim to catch a transposed
+    // `.0`/`.1` projection, which is invisible at one dim; that is covered by
+    // `max_log_std_sees_the_ceiling_that_min_log_std_cannot` in the head's own
+    // unit tests, where the dims differ.
+    assert!(
+        (min_log_std - max_log_std).abs() < 1e-6,
+        "a 1-dim head's extrema are the same element: min {min_log_std} vs max {max_log_std}"
     );
 }
 

@@ -157,17 +157,7 @@ where
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
     let mut episode_steps = 0_usize;
-    let mut last_update_stats = PpoUpdateStats {
-        policy_loss: 0.0,
-        value_loss: 0.0,
-        entropy: 0.0,
-        approx_kl: 0.0,
-        old_approx_kl: 0.0,
-        clip_frac: 0.0,
-        explained_variance: 0.0,
-        epochs_run: 0,
-        min_log_std: None,
-    };
+    let mut last_update_stats = PpoUpdateStats::default();
     let mut global_step = 0_usize;
     // Watermark, not `global_step % log_every`: the step counter is only
     // sampled at rollout boundaries (multiples of `num_steps`), so a
@@ -321,6 +311,14 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         old_approx_kl = stats.old_approx_kl,
         clip_frac = stats.clip_frac,
         explained_variance = stats.explained_variance,
+        // The ADR 0049 §4 metric channel, which no shipped loop emitted until
+        // #347. `?` (Debug) rather than a `f32` field because both are
+        // `Option<f32>`: a categorical run renders `None`, which is the honest
+        // reading, where a `map_or(0.0, ..)` would print a `log σ` of zero
+        // (σ = 1) for a policy that has no σ at all. Both extrema are logged —
+        // a minimum alone cannot see a dim pinned at `log_std_max`.
+        min_log_std = ?stats.min_log_std,
+        max_log_std = ?stats.max_log_std,
         episode_return_mean = ret_stats.mean,
         episode_return_std = ret_stats.std,
         episode_return_min = ret_stats.min,

@@ -964,6 +964,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 **Breaking changes**
 
+- **`PpoUpdateStats` gains a `max_log_std` field and becomes
+  `#[non_exhaustive]`** (part of the #347 fix, below). The struct is a
+  report-only type — the agents write it, callers read it — so the
+  exhaustiveness break is taken now, while the type is already breaking for the
+  new field, rather than paying for it again at the next diagnostic. This
+  follows ADR 0060's `ConstraintKind` precedent.
+
+  *Migration.* Read-only consumers that destructure exhaustively add `..` to the
+  pattern. Code that **constructs** the struct with a literal — test fixtures and
+  mocks, mostly — uses the new `PpoUpdateStats::default()` (all counters zero,
+  both `log_std` fields `None`) plus field assignment. Nothing persisted changes:
+  the type derives neither `Serialize` nor `Deserialize`, so no records need
+  migrating. All four in-workspace construction sites are inside
+  `rlevo-reinforcement-learning` itself, where `#[non_exhaustive]` does not
+  apply, so there is no in-repo migration.
+
 - **`tau` and `target_update_frequency` are replaced by a single
   `target_update: TargetUpdate` field on all six off-policy configs** (ADR 0058
   + ADR 0059, resolves #334, closes #455). The two fields did not describe two
@@ -1528,6 +1544,71 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   signature and `PolyakError` are unchanged.
 
 **Fixed**
+
+- **PPO's `log_std` clamp warning latched once per *head*, so a second bound
+  crossing on another action dimension was silent — it now latches once per
+  *bound*, and a ceiling-pinned dimension is finally visible in the metrics**
+  (resolves #347). ADR 0049 §4 shipped telemetry alongside the clamp precisely
+  because the clamp trades a loud failure (`NaN`) for a quiet one (a
+  state-independent `log_std` pinned at a bound, its gradient permanently zeroed,
+  with no path back). Three independent defects each partly reinstated that quiet
+  failure. Verified by execution with a counting `tracing::Subscriber`, not by
+  reading the source.
+
+  The `swap` on a single `Arc<AtomicBool>` meant the latch was spent by whichever
+  dimension crossed whichever bound first. A 2-dim head driven through four
+  crossings — dim0 below the floor, dim1 above the ceiling, dim1 above again,
+  then both bounds at once — emitted **exactly one** warning; the other three were
+  silent. Second, and not what the issue reported: the `if below { … } else { … }`
+  arm meant that even on a *fresh* latch, a call violating both bounds at once
+  named only the floor. A σ of `exp(9) ≈ 8103` was dropped from the very first
+  warning, so the defect never needed a prior crossing to lose information.
+  Third, `min_log_std` is a *minimum* and is therefore structurally blind to
+  ceiling drift: while dim1 sat pinned at `log_std_max`, the metric reported a
+  healthy-looking `0.0`. Both telemetry channels were blind to the same
+  dimension simultaneously — which is exactly the state ADR 0049 argues must not
+  be reachable.
+
+  The latch is now a two-field `ClampWarnLatch { below, above }`, one `swap` per
+  bound, so the floor and the ceiling warn independently and each still warns at
+  most once. Per-`(dim, bound)` latching — what the issue proposed — was
+  rejected: the clamp's zeroed gradient is a one-way door per dimension, so a
+  floor-pinned dim can never later reach the ceiling and half those latches are
+  unreachable by construction; worse, a 17-DoF head collapsing across all dims
+  would emit 17 copies of a six-line warning, and log volume that large is itself
+  a signal-loss mechanism. The offending dimension indices are emitted as a
+  structured `dims` field on the single per-bound event instead, which is
+  strictly more information at none of the cost. The two messages are now
+  distinct prose — σ collapsing and σ diverging are different pathologies with
+  different remedies — and the floor message no longer asserts that the whole run
+  is dead, which overclaimed for any head with more than one action dimension.
+
+  `PpoUpdateStats` gains `max_log_std` (see Breaking changes) and `PpoPolicy` a
+  defaulted `max_log_std()`; the value costs no extra device→host traffic,
+  because the existing read already computed the maximum and discarded it.
+
+  **Why no existing test caught any of this**, and it is two failures, not one.
+  Every `log_std` telemetry test drove a single dimension, or drove several to
+  the *same* bound — none drove two dimensions to *different* bounds, which is
+  the only configuration in which any of the three defects is observable. More
+  importantly, the tests asserted on a `#[cfg(test)]` accessor for the latch
+  *flag*, never on the emitted event, and two opaque booleans cannot distinguish
+  two atomics from one atomic exposed under two names. A merged latch therefore
+  survived the obvious regression test. The tests now install a hand-rolled
+  `tracing::Subscriber` and assert on the events themselves — their count, their
+  `bound`, and the `dims` payload — which needs no new dependency, since
+  `tracing` is already a direct one. Each was confirmed to fail against a
+  deliberately reverted implementation rather than assumed to cover it.
+
+- **PPO and PPG training loops now emit `min_log_std` / `max_log_std` in their
+  periodic progress events** (found while fixing #347). ADR 0049 §4 named two
+  telemetry channels, a one-shot warning and a per-update metric, the metric's
+  stated purpose being to make drift visible *before* the bound pins. The metric
+  was written to `PpoUpdateStats` on every update and then read by nothing:
+  `emit_progress` enumerated eighteen fields in each of the two loops and omitted
+  this one. So the second channel existed on the struct but was unreachable to
+  anyone who did not call `agent.update()` by hand and inspect the return value —
+  the drift-warning half of ADR 0049 §4 was, as shipped, not delivered.
 
 - **QR-DQN's Huber threshold κ is now required to be finite and strictly
   positive, closing two NaN paths that `validate()` waved through** (resolves
