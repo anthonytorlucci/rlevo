@@ -76,16 +76,25 @@
 //! A silent failure is worse than a loud one. Before the clamp existed, a
 //! collapsing `log_std` announced itself with a `NaN`; with the clamp it would
 //! otherwise present as flat returns and no signal at all. Two mechanisms
-//! restore observability, and both are driven from
-//! [`min_log_std`](PpoPolicy::min_log_std):
+//! restore observability (ADR 0049 §4), and both are driven from
+//! [`read_log_std_extrema_and_warn`](TanhGaussianPolicyHead::read_log_std_extrema_and_warn),
+//! which [`min_log_std`](PpoPolicy::min_log_std) and
+//! [`max_log_std`](PpoPolicy::max_log_std) each project one half of:
 //!
-//! 1. **A one-shot `tracing::warn!`** the first time the raw parameter leaves
-//!    `[log_std_min, log_std_max]`, naming the bound and the fact that the
-//!    parameter is now permanently frozen.
-//! 2. **A per-update metric** — the minimum clamped `log σ` across action
-//!    dims — surfaced on
+//! 1. **A one-shot `tracing::warn!` per bound** the first time the raw
+//!    parameter leaves `[log_std_min, log_std_max]`, naming the bound, the
+//!    action dims that crossed it, and the fact that those dims are now
+//!    permanently frozen. The floor and the ceiling latch **independently**:
+//!    they are opposite failures (σ collapsing to a point mass vs σ exploding
+//!    into pure noise) with different repairs, so silencing one because the
+//!    other already fired would hide the second diagnosis entirely (#347).
+//! 2. **Two per-update metrics** — the minimum and the maximum clamped `log σ`
+//!    across action dims — surfaced on
 //!    [`PpoUpdateStats`](crate::algorithms::ppo::ppo_agent::PpoUpdateStats) so
-//!    the drift toward the floor is visible *before* it pins.
+//!    the drift toward *either* bound is visible *before* it pins. A minimum
+//!    alone is structurally blind to the ceiling: with `[-20, 2]` bounds and a
+//!    dim pinned at `2`, `min_log_std` can read a perfectly healthy `0.0`
+//!    while σ on that dim is frozen at `e² ≈ 7.4`.
 //!
 //! ## Why the check is not in the forward pass
 //!
@@ -98,9 +107,10 @@
 //! fire and would sync forever.
 //!
 //! So the check is deliberately *not* in the hot path. It rides along with the
-//! stats read in [`min_log_std`](PpoPolicy::min_log_std), which
+//! stats read in [`min_log_std`](PpoPolicy::min_log_std) /
+//! [`max_log_std`](PpoPolicy::max_log_std), which
 //! [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
-//! calls **once per update** — a cost the metric already pays. A bound that
+//! calls **once per update** — a cost the metrics already pay. A bound that
 //! binds will be reported at the end of the very update in which it binds, and
 //! since the parameter can never leave the bound again, no crossing is ever
 //! missed.
@@ -195,6 +205,31 @@ const MIN_LOG_STD_FLOOR: f32 = -35.0;
 /// `40` keeps `((z − μ)/σ)²` inside f32 range with headroom for large `k`.
 const MAX_LOG_STD_SPAN: f32 = 40.0;
 
+/// Per-head, per-bound one-shot latches for the "clamp has bound" warning.
+///
+/// Two flags, not one. The floor and the ceiling are **opposite** failures —
+/// σ collapsing to a point mass versus σ exploding into pure noise — and they
+/// carry different repairs, so a single shared latch would let whichever bound
+/// crossed first permanently silence the diagnosis of the other. That is
+/// exactly the defect #347 records: a 2-dim head crossing the floor on dim 0
+/// and the ceiling on dim 1 emitted one warning naming only the floor.
+///
+/// Both fields use [`Ordering::Relaxed`]: each flag guards nothing but itself,
+/// and the only requirement is that exactly one `swap` per flag observes
+/// `false`. The two flags are independent, so no ordering between them is
+/// needed either.
+///
+/// `Default` starts both unlatched, which is the correct state for a freshly
+/// built head and for one restored from a record (see the field docs on
+/// [`TanhGaussianPolicyHead::clamp_warned`]).
+#[derive(Debug, Default)]
+struct ClampWarnLatch {
+    /// Set once the raw `log σ` has been observed below `log_std_min`.
+    below: AtomicBool,
+    /// Set once the raw `log σ` has been observed above `log_std_max`.
+    above: AtomicBool,
+}
+
 impl TanhGaussianPolicyHeadConfig {
     /// Validates the config, then constructs the module on `device`.
     ///
@@ -227,7 +262,7 @@ impl TanhGaussianPolicyHeadConfig {
             log_std_min: self.log_std.lo(),
             log_std_max: self.log_std.hi(),
             action_scale: self.action_scale,
-            clamp_warned: Arc::new(AtomicBool::new(false)),
+            clamp_warned: Arc::new(ClampWarnLatch::default()),
         })
     }
 }
@@ -335,36 +370,41 @@ pub struct TanhGaussianPolicyHead<B: Backend> {
     log_std_min: f32,
     log_std_max: f32,
     action_scale: f32,
-    /// One-shot latch for the "clamp has bound" warning (see the
-    /// [module docs](self)).
+    /// One-shot latches — one per bound — for the "clamp has bound" warning
+    /// (see the [module docs](self) and ADR 0049 §4).
     ///
-    /// # Why `Arc<AtomicBool>` and not `Once` / a module-level `static`
+    /// # Why `Arc<ClampWarnLatch>` and not `Once` / a module-level `static`
     ///
-    /// [`min_log_std`](PpoPolicy::min_log_std) takes `&self`, so the latch
-    /// needs interior mutability. Burn's `#[derive(Module)]` classifies a field
+    /// [`min_log_std`](PpoPolicy::min_log_std) and
+    /// [`max_log_std`](PpoPolicy::max_log_std) take `&self`, so the latches
+    /// need interior mutability. Burn's `#[derive(Module)]` classifies a field
     /// as a sub-module only if its type mentions the backend `B`, is a `Param`,
     /// or is a `Tensor`; everything else — including this one — is carried as
     /// plain constant data, cloned by the generated `map`/`valid` code and
-    /// excluded from the record. `Arc<AtomicBool>` satisfies the
-    /// `Clone + Debug + Send + Sync` that entails, whereas a bare `AtomicBool`
-    /// is not `Clone` and `std::sync::Once` is neither `Clone` nor `Debug`.
+    /// excluded from the record. `Arc<ClampWarnLatch>` satisfies the
+    /// `Clone + Debug + Send + Sync` that entails (the `Arc` supplies `Clone`
+    /// over a struct of `AtomicBool`s, which is not `Clone` itself), whereas a
+    /// bare `AtomicBool` is not `Clone` and `std::sync::Once` is neither
+    /// `Clone` nor `Debug`.
     ///
     /// A module-level `static` was rejected: it would latch **process-wide**,
     /// so a second head (a fresh run in the same process, an evolutionary
     /// population of policies, or simply another test in the same binary)
     /// would be silenced by the first one's warning. Per-head state is the
-    /// correct granularity.
+    /// correct granularity — and, within a head, per-*bound* state is the
+    /// correct granularity below that (#347).
     ///
     /// Two consequences follow from `Arc` being *shared* on clone, and both are
     /// wanted: [`valid()`](burn::module::AutodiffModule::valid) snapshots share
-    /// the autodiff head's latch, so the inner module cannot re-warn; and
-    /// because the field is not persisted, a head restored from a record starts
-    /// unlatched and will warn once more if the bound still binds — which is
-    /// the right behaviour for a fresh process reading a fresh log.
+    /// the autodiff head's latches, so the inner module cannot re-warn on
+    /// either bound; and because the field is not persisted, a head restored
+    /// from a record starts fully unlatched and will warn once more per bound
+    /// that still binds — which is the right behaviour for a fresh process
+    /// reading a fresh log.
     ///
-    /// [`Ordering::Relaxed`] is sufficient: the flag guards nothing but itself,
-    /// and the only requirement is that exactly one `swap` observes `false`.
-    clamp_warned: Arc<AtomicBool>,
+    /// [`Ordering::Relaxed`] is sufficient for both flags; see
+    /// [`ClampWarnLatch`].
+    clamp_warned: Arc<ClampWarnLatch>,
 }
 
 impl<B: Backend> TanhGaussianPolicyHead<B> {
@@ -420,69 +460,130 @@ impl<B: Backend> TanhGaussianPolicyHead<B> {
             .clamp(self.log_std_min, self.log_std_max)
     }
 
-    /// Reads the raw `log σ` vector to the host, warns **once** if it has left
-    /// the bounds, and returns the minimum *clamped* `log σ` across action
-    /// dims.
+    /// Reads the raw `log σ` vector to the host, warns **once per bound** if it
+    /// has left `[log_std_min, log_std_max]`, and returns the
+    /// `(minimum, maximum)` *clamped* `log σ` across action dims.
     ///
-    /// This is the single place that pays a device→host sync for `log_std`,
-    /// and it is called once per PPO update — never from the forward pass. See
-    /// the [module docs](self) for why the check cannot live in
+    /// This is the single place that pays a device→host sync for `log_std`, and
+    /// both trait-level metrics project from it — so a PPO update pays **two
+    /// 4-byte readbacks, one per trait method
+    /// ([`min_log_std`](PpoPolicy::min_log_std),
+    /// [`max_log_std`](PpoPolicy::max_log_std)), both off the hot path**. They
+    /// are not deduplicated: the trait surface is two independent `&self`
+    /// getters with no shared per-update scratch, and a second read of an
+    /// `action_dim`-length vector once per update is far below the noise floor
+    /// of the update it accompanies. Neither is ever called from the forward
+    /// pass — see the [module docs](self) for why the check cannot live in
     /// [`clamped_log_std`](Self::clamped_log_std).
     ///
-    /// Clamping commutes with the minimum (`clamp` is monotone
-    /// non-decreasing), so `min(clamp(x)) == clamp(min(x))` and one pass over
-    /// the host slice yields both the metric and the bound check.
-    fn read_min_log_std_and_warn(&self) -> f32 {
+    /// Clamping commutes with both extrema (`clamp` is monotone
+    /// non-decreasing), so `min(clamp(x)) == clamp(min(x))` and likewise for
+    /// `max` — one pass over the host slice yields both metrics, both bound
+    /// checks, and the crossing dims that name them.
+    fn read_log_std_extrema_and_warn(&self) -> (f32, f32) {
         let data = self.log_std.val().into_data().convert::<f32>();
         let raw = data.as_slice::<f32>().expect("log_std is f32");
 
+        // One pass yields the two extrema *and* the crossing dims. The dims are
+        // what make the warning actionable on a many-dim head: "dim 7 of 17 has
+        // pinned" is a repair, "log_std has pinned" is an obituary.
         let mut raw_min = f32::INFINITY;
         let mut raw_max = f32::NEG_INFINITY;
-        for &v in raw {
+        let mut below_dims: Vec<usize> = Vec::new();
+        let mut above_dims: Vec<usize> = Vec::new();
+        for (dim, &v) in raw.iter().enumerate() {
             raw_min = raw_min.min(v);
             raw_max = raw_max.max(v);
+            if v < self.log_std_min {
+                below_dims.push(dim);
+            } else if v > self.log_std_max {
+                above_dims.push(dim);
+            }
         }
 
-        // `swap` is the latch: exactly one caller observes `false`, so the
-        // warning is emitted once per head no matter how many updates bind.
-        // Checking the bounds first keeps the common (non-binding) path to a
-        // pair of float comparisons.
-        let below = raw_min < self.log_std_min;
-        let above = raw_max > self.log_std_max;
-        if (below || above) && !self.clamp_warned.swap(true, Ordering::Relaxed) {
-            let (bound_name, bound_value, observed) = if below {
-                ("log_std_min", self.log_std_min, raw_min)
-            } else {
-                ("log_std_max", self.log_std_max, raw_max)
-            };
+        // Two independently latched blocks, not an `if below { .. } else { .. }`
+        // behind one flag. The floor and the ceiling are distinct diagnoses with
+        // distinct repairs and they can bind in the same call (dim 0 collapsed,
+        // dim 1 exploded), so each gets its own `swap`: exactly one caller per
+        // bound observes `false`, and neither bound can silence the other
+        // (#347, ADR 0049 §4). Emitting the crossing dims keeps the claim scoped
+        // to the dims that actually froze.
+        let action_dim = raw.len();
+        if !below_dims.is_empty() && !self.clamp_warned.below.swap(true, Ordering::Relaxed) {
+            let unaffected = action_dim - below_dims.len();
             tracing::warn!(
-                bound = bound_name,
-                configured = bound_value,
-                observed = observed,
-                sigma = observed.exp(),
-                "PPO Gaussian log_std has hit its {bound_name} clamp (configured \
-                 {bound_value}, raw parameter reached {observed}). This log_std is a \
-                 single state-independent parameter, so the clamp now zeroes its \
-                 gradient PERMANENTLY — including the entropy bonus that would \
-                 otherwise push it back. sigma is frozen at exp({bound_value}) = {} \
-                 for the rest of training and there is no path back: this run will \
-                 not recover, and flat returns from here on are the symptom, not \
-                 noise. Restart with a smaller learning rate, a larger \
-                 entropy_coef, or a corrected reward scale.",
-                bound_value.exp(),
+                bound = "log_std_min",
+                configured = self.log_std_min,
+                observed = raw_min,
+                sigma = raw_min.exp(),
+                dims = ?below_dims,
+                action_dim = action_dim,
+                "PPO Gaussian log_std has hit its log_std_min clamp on action dims \
+                 {below_dims:?} of {action_dim} (configured {}, raw parameter \
+                 reached {raw_min}). log_std is a single state-independent \
+                 parameter, so the clamp now zeroes the gradient of those dims \
+                 PERMANENTLY — including the entropy bonus that would otherwise \
+                 push them back up. Their sigma is frozen at exp({}) = {} for the \
+                 rest of training with no path back, so those action dims are now \
+                 effectively deterministic; the remaining {unaffected} dim(s) are \
+                 unaffected and still learning. Restart with a smaller learning \
+                 rate, a larger entropy_coef, or a corrected reward scale.",
+                self.log_std_min,
+                self.log_std_min,
+                self.log_std_min.exp(),
+            );
+        }
+        if !above_dims.is_empty() && !self.clamp_warned.above.swap(true, Ordering::Relaxed) {
+            let unaffected = action_dim - above_dims.len();
+            tracing::warn!(
+                bound = "log_std_max",
+                configured = self.log_std_max,
+                observed = raw_max,
+                sigma = raw_max.exp(),
+                dims = ?above_dims,
+                action_dim = action_dim,
+                "PPO Gaussian log_std has hit its log_std_max clamp on action dims \
+                 {above_dims:?} of {action_dim} (configured {}, raw parameter \
+                 reached {raw_max}). This is the opposite failure to a collapse: \
+                 sigma is *diverging*, so those dims are sampling near-uniform \
+                 noise across the whole squashed range and carry almost no policy \
+                 signal. log_std is a single state-independent parameter, so the \
+                 clamp now zeroes their gradient PERMANENTLY — the entropy bonus \
+                 pushes only upward, so nothing remains to pull them back down. \
+                 Their sigma is frozen at exp({}) = {} for the rest of training; \
+                 the remaining {unaffected} dim(s) are unaffected and still \
+                 learning. This usually means the advantage scale or the reward \
+                 scale is too large, or entropy_coef is set too high.",
+                self.log_std_max,
+                self.log_std_max,
+                self.log_std_max.exp(),
             );
         }
 
-        raw_min.clamp(self.log_std_min, self.log_std_max)
+        (
+            raw_min.clamp(self.log_std_min, self.log_std_max),
+            raw_max.clamp(self.log_std_min, self.log_std_max),
+        )
     }
 
-    /// Whether the one-shot clamp warning has already fired for this head.
+    /// Whether the one-shot **floor** clamp warning has already fired for this
+    /// head.
     ///
     /// Exposed for tests: the crate has no `tracing` capture dependency, so the
     /// once-only latch is asserted directly rather than by scraping log output.
+    /// Split per bound because the property under test is that the two latches
+    /// are *independent* — a single combined accessor could not distinguish
+    /// "both fired" from "one fired", which is precisely the #347 defect.
     #[cfg(test)]
-    pub(crate) fn clamp_warning_fired(&self) -> bool {
-        self.clamp_warned.load(Ordering::Relaxed)
+    pub(crate) fn clamp_warning_below_fired(&self) -> bool {
+        self.clamp_warned.below.load(Ordering::Relaxed)
+    }
+
+    /// Whether the one-shot **ceiling** clamp warning has already fired for
+    /// this head. See [`clamp_warning_below_fired`](Self::clamp_warning_below_fired).
+    #[cfg(test)]
+    pub(crate) fn clamp_warning_above_fired(&self) -> bool {
+        self.clamp_warned.above.load(Ordering::Relaxed)
     }
 
     /// Computes per-row Gaussian log-prob and entropy of `z` under the
@@ -606,12 +707,24 @@ impl<B: AutodiffBackend> PpoPolicy<B, 2> for TanhGaussianPolicyHead<B> {
             .collect()
     }
 
-    /// Minimum **clamped** `log σ` across action dims, and the point at which
-    /// the one-shot clamp warning is evaluated.
+    /// Minimum **clamped** `log σ` across action dims, and one of the two
+    /// points at which the per-bound one-shot clamp warnings are evaluated.
     ///
     /// Costs one device→host sync; call once per update, never per step.
     fn min_log_std(&self) -> Option<f32> {
-        Some(self.read_min_log_std_and_warn())
+        Some(self.read_log_std_extrema_and_warn().0)
+    }
+
+    /// Maximum **clamped** `log σ` across action dims — the ceiling-side
+    /// counterpart to [`min_log_std`](Self::min_log_std), and the other point
+    /// at which the per-bound one-shot clamp warnings are evaluated.
+    ///
+    /// A minimum cannot see a diverging dim: with `[-20, 2]` bounds and one dim
+    /// pinned at `2`, `min_log_std` reports whatever the *healthiest* dim is
+    /// doing (ADR 0049 §4, #347). Costs one device→host sync; call once per
+    /// update, never per step.
+    fn max_log_std(&self) -> Option<f32> {
+        Some(self.read_log_std_extrema_and_warn().1)
     }
 
     /// Returns `scale · tanh(μ(obs))` as the deterministic (noise-free) action
@@ -654,6 +767,8 @@ mod tests {
     // endpoint, that `-0.0` is accepted as the no-correction setting). A tolerance
     // would let a real regression pass. Reviewed as a class, not site-by-site.
     #![allow(clippy::float_cmp)]
+    use std::sync::Mutex;
+
     use super::*;
     use burn::backend::{Autodiff, Flex};
     use burn::tensor::ElementConversion;
@@ -1284,6 +1399,144 @@ mod tests {
         head.log_std = Param::from_tensor(t);
     }
 
+    // -----------------------------------------------------------------
+    // Capturing the warnings themselves
+    //
+    // The latch accessors above prove a *bit flipped*, which is strictly
+    // weaker than proving a warning was *emitted*: an early return, a
+    // `warn!` downgraded to `debug!`, or a renamed field in the structured
+    // payload all leave the latches correct and the telemetry dead. Worse,
+    // two opaque booleans cannot distinguish two atomics from one atomic
+    // behind two accessor names, so a mutation collapsing `ClampWarnLatch`
+    // back to a single shared flag passes every latch-only assertion. The
+    // tests below therefore assert on the events.
+    //
+    // Hand-rolled rather than pulled in as a dev-dependency: `tracing` is
+    // already a direct dependency of this crate, and `with_default` plus a
+    // seven-method `Subscriber` is all that is needed. Adding
+    // `tracing-test`/`tracing-subscriber` to this crate's dev-deps for one
+    // test module would be a workspace dependency change (rules §8) for no
+    // capability gain.
+    // -----------------------------------------------------------------
+
+    /// The fields of one captured `tracing` event that the warnings are
+    /// asserted on.
+    #[derive(Debug, Clone, Default)]
+    struct CapturedEvent {
+        level: Option<tracing::Level>,
+        /// The structured `bound` field: `"log_std_min"` or `"log_std_max"`.
+        bound: Option<String>,
+        /// The structured `dims` field, rendered as its `Debug` form (`"[0, 2]"`).
+        dims: Option<String>,
+        /// The structured `action_dim` field.
+        action_dim: Option<u64>,
+        /// The rendered human-readable message.
+        message: Option<String>,
+    }
+
+    /// Pulls the asserted fields out of an event's payload.
+    struct FieldVisitor<'a>(&'a mut CapturedEvent);
+
+    impl tracing::field::Visit for FieldVisitor<'_> {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "bound" {
+                self.0.bound = Some(value.to_owned());
+            }
+        }
+
+        fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+            if field.name() == "action_dim" {
+                self.0.action_dim = Some(value);
+            }
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            let rendered = format!("{value:?}");
+            match field.name() {
+                "dims" => self.0.dims = Some(rendered),
+                "message" => self.0.message = Some(rendered),
+                // Only reached if `bound` ever stops being a `&'static str`;
+                // strip the `Debug` quotes so assertions stay stable either way.
+                "bound" => self.0.bound = Some(rendered.trim_matches('"').to_owned()),
+                _ => {}
+            }
+        }
+    }
+
+    /// Minimal `Subscriber` that records every event it is handed.
+    #[derive(Debug, Default)]
+    struct CaptureSubscriber {
+        events: Arc<Mutex<Vec<CapturedEvent>>>,
+    }
+
+    impl tracing::Subscriber for CaptureSubscriber {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            // No spans are opened by the code under test; a constant id
+            // satisfies the contract without any bookkeeping.
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut captured = CapturedEvent {
+                level: Some(*event.metadata().level()),
+                ..CapturedEvent::default()
+            };
+            event.record(&mut FieldVisitor(&mut captured));
+            self.events
+                .lock()
+                .expect("capture mutex is never poisoned")
+                .push(captured);
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    /// Runs `f` with a capturing subscriber installed on this thread and
+    /// returns the `WARN`-level events it emitted, in order.
+    ///
+    /// `with_default` is thread-local, so this is safe under the parallel test
+    /// runner: a concurrently running test cannot observe or pollute these
+    /// events.
+    fn capture_warnings(f: impl FnOnce()) -> Vec<CapturedEvent> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = CaptureSubscriber {
+            events: Arc::clone(&events),
+        };
+        tracing::subscriber::with_default(subscriber, f);
+        let captured = events.lock().expect("capture mutex is never poisoned");
+        captured
+            .iter()
+            .filter(|e| e.level == Some(tracing::Level::WARN))
+            .cloned()
+            .collect()
+    }
+
+    /// Finds the single captured event naming `bound`, asserting there is
+    /// exactly one.
+    fn event_for_bound<'a>(events: &'a [CapturedEvent], bound: &str) -> &'a CapturedEvent {
+        let matching: Vec<&CapturedEvent> = events
+            .iter()
+            .filter(|e| e.bound.as_deref() == Some(bound))
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "expected exactly one WARN naming bound={bound}, got {matching:?} \
+             (all captured: {events:?})"
+        );
+        matching[0]
+    }
+
     /// The crate carries no `tracing` capture dependency, so the once-only
     /// property is asserted on the latch itself: after the first binding call
     /// it is set, and no later call can un-set or re-trigger it. `swap` is what
@@ -1295,15 +1548,19 @@ mod tests {
             .try_init::<B>(&device)
             .expect("valid head config");
         assert!(
-            !head.clamp_warning_fired(),
-            "a freshly built head must not have warned"
+            !head.clamp_warning_below_fired() && !head.clamp_warning_above_fired(),
+            "a freshly built head must not have warned on either bound"
         );
 
         set_log_std(&mut head, -60.0);
         assert_eq!(head.min_log_std(), Some(-20.0));
         assert!(
-            head.clamp_warning_fired(),
-            "the first binding read must latch the warning"
+            head.clamp_warning_below_fired(),
+            "the first binding read must latch the floor warning"
+        );
+        assert!(
+            !head.clamp_warning_above_fired(),
+            "a floor crossing must leave the ceiling latch armed"
         );
 
         // Many further binding reads must not re-arm the latch: it is already
@@ -1311,7 +1568,7 @@ mod tests {
         // unreachable for the rest of this head's life.
         for _ in 0..64 {
             assert_eq!(head.min_log_std(), Some(-20.0));
-            assert!(head.clamp_warning_fired());
+            assert!(head.clamp_warning_below_fired());
         }
     }
 
@@ -1329,19 +1586,29 @@ mod tests {
         // sitting *on* a bound is not "outside" it and must not warn.
         for v in [0.0_f32, -5.0, -19.9, 1.9, -20.0, 2.0] {
             set_log_std(&mut head, v);
-            let got = head.min_log_std().expect("gaussian head reports log_std");
+            let mut got = f32::NAN;
+            let events = capture_warnings(|| {
+                got = head.min_log_std().expect("gaussian head reports log_std");
+            });
             assert!(
                 (got - v).abs() < 1e-6,
                 "in-bounds log_std {v} must pass through unclamped, got {got}"
             );
+            // Silence asserted on the event stream, not just the latches: a
+            // false positive here would train users to ignore the warning.
             assert!(
-                !head.clamp_warning_fired(),
-                "in-bounds log_std {v} must not warn"
+                events.is_empty(),
+                "in-bounds log_std {v} must not warn, got {events:?}"
+            );
+            assert!(
+                !head.clamp_warning_below_fired() && !head.clamp_warning_above_fired(),
+                "in-bounds log_std {v} must not latch"
             );
         }
     }
 
-    /// Drifting *above* `log_std_max` is the other trap door and must warn too.
+    /// Drifting *above* `log_std_max` is the other trap door and must warn too
+    /// — on its own latch, not the floor's.
     #[test]
     fn clamp_warning_fires_on_the_upper_bound() {
         let device = Default::default();
@@ -1350,7 +1617,271 @@ mod tests {
             .expect("valid head config");
         set_log_std(&mut head, 9.0);
         assert_eq!(head.min_log_std(), Some(2.0));
-        assert!(head.clamp_warning_fired());
+        assert!(head.clamp_warning_above_fired());
+        assert!(
+            !head.clamp_warning_below_fired(),
+            "a ceiling crossing must not latch the floor's warning"
+        );
+    }
+
+    /// The regression #347 was filed for: a single call in which one dim is
+    /// below the floor **and** another is above the ceiling must emit **two**
+    /// `WARN` events, one naming each bound, each carrying the dims that
+    /// crossed it.
+    ///
+    /// Under the old single-`AtomicBool` latch this call emitted exactly one
+    /// event, and — because the emitting branch was `if below { .. } else
+    /// { .. }` — that event named only `log_std_min`. The ceiling violation
+    /// (`log σ = 9`, σ ≈ 8103, a policy sampling pure noise on dim 1) was
+    /// dropped from the very first warning and, the latch now being set, from
+    /// every subsequent one too.
+    ///
+    /// Asserted on the captured events rather than the latches, and that is
+    /// load-bearing in two ways. Counting events is what makes this test able
+    /// to see the *latch split itself*: two opaque booleans cannot distinguish
+    /// two atomics from one atomic behind two accessor names, so a mutation
+    /// collapsing `ClampWarnLatch` back to one shared flag passes any
+    /// latch-only version of this test and fails this one at `len() == 2`.
+    /// Reading the payload is what pins the second half of the fix — that each
+    /// event names its own bound and its own dims — which no boolean can
+    /// express at all.
+    #[test]
+    fn both_bounds_crossed_in_one_call_emit_two_distinct_warnings() {
+        let device = Default::default();
+        let cfg = TanhGaussianPolicyHeadConfig {
+            action_dim: 2,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
+
+        // dim 0 collapsed below −20, dim 1 exploded above +2, in one parameter.
+        let both: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![-60.0_f32, 9.0], vec![2]), &device);
+        head.log_std = Param::from_tensor(both);
+
+        let mut extrema = (0.0_f32, 0.0_f32);
+        let events = capture_warnings(|| {
+            extrema = head.read_log_std_extrema_and_warn();
+        });
+
+        let (lo, hi) = extrema;
+        assert!(
+            (lo - (-20.0)).abs() < 1e-6,
+            "the minimum must saturate at the floor, got {lo}"
+        );
+        assert!(
+            (hi - 2.0).abs() < 1e-6,
+            "the maximum must saturate at the ceiling, got {hi}"
+        );
+
+        // Two events, not one. A single shared latch yields one and fails here.
+        assert_eq!(
+            events.len(),
+            2,
+            "one crossing per bound must produce one WARN per bound, got {events:?}"
+        );
+
+        let floor = event_for_bound(&events, "log_std_min");
+        assert_eq!(
+            floor.dims.as_deref(),
+            Some("[0]"),
+            "the floor warning must name the dim that collapsed"
+        );
+        assert_eq!(floor.action_dim, Some(2));
+
+        let ceiling = event_for_bound(&events, "log_std_max");
+        assert_eq!(
+            ceiling.dims.as_deref(),
+            Some("[1]"),
+            "the ceiling warning must name the dim that exploded — this is #347"
+        );
+        assert_eq!(ceiling.action_dim, Some(2));
+        // The two messages must be genuinely different prose, not the floor's
+        // text with a substituted bound name: a diverging σ and a collapsing σ
+        // have opposite repairs.
+        assert!(
+            ceiling
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("diverging")),
+            "the ceiling message must describe divergence, got {:?}",
+            ceiling.message
+        );
+        assert!(
+            floor
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("deterministic")),
+            "the floor message must describe collapse, got {:?}",
+            floor.message
+        );
+
+        // The latches agree with the events; kept as a cheap consistency check
+        // now that the events are the primary assertion.
+        assert!(head.clamp_warning_below_fired() && head.clamp_warning_above_fired());
+    }
+
+    /// The `dims` payload must name **every** crossing dim, not just the one
+    /// that happened to set the extremum.
+    ///
+    /// The module docs justify the clamp warning's per-dim scoping by claiming
+    /// it is what makes the event actionable on a many-dim head — "dim 7 of 17
+    /// has pinned" rather than an obituary for the whole run. That claim is
+    /// only true if the list is complete, and `raw_min` / `raw_max` alone
+    /// cannot express it: they collapse any number of crossing dims to one
+    /// number. Three of five dims cross the floor here, and one crosses the
+    /// ceiling, so a payload built from the extrema instead of the collected
+    /// dims fails.
+    #[test]
+    fn warning_payload_names_every_crossing_dim() {
+        let device = Default::default();
+        let cfg = TanhGaussianPolicyHeadConfig {
+            action_dim: 5,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
+
+        // dims 0, 2, 4 below the floor; dim 3 above the ceiling; dim 1 healthy.
+        let mixed: Tensor<B, 1> = Tensor::from_data(
+            TensorData::new(vec![-60.0_f32, 0.0, -25.0, 9.0, -40.0], vec![5]),
+            &device,
+        );
+        head.log_std = Param::from_tensor(mixed);
+
+        let events = capture_warnings(|| {
+            let _ = head.read_log_std_extrema_and_warn();
+        });
+        assert_eq!(events.len(), 2, "both bounds crossed, got {events:?}");
+
+        let floor = event_for_bound(&events, "log_std_min");
+        assert_eq!(
+            floor.dims.as_deref(),
+            Some("[0, 2, 4]"),
+            "every collapsed dim must be named, not only the minimum"
+        );
+        assert_eq!(floor.action_dim, Some(5));
+        // Scoped claim, not a blanket one: 5 dims, 3 collapsed, 2 unaffected.
+        assert!(
+            floor
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("2 dim(s) are unaffected")),
+            "the message must scope its claim to the affected dims, got {:?}",
+            floor.message
+        );
+
+        let ceiling = event_for_bound(&events, "log_std_max");
+        assert_eq!(ceiling.dims.as_deref(), Some("[3]"));
+        assert!(
+            ceiling
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("4 dim(s) are unaffected")),
+            "the ceiling message must scope its claim too, got {:?}",
+            ceiling.message
+        );
+    }
+
+    /// A ceiling crossing that happens *after* a floor crossing must still
+    /// warn, and a second ceiling crossing must not warn again.
+    ///
+    /// This is the filed sequence: the old shared latch was consumed by the
+    /// floor event, so every later ceiling crossing found it already set and
+    /// was silent. The fix must restore the second diagnosis **without**
+    /// weakening the once-per-bound property that keeps the warning
+    /// trustworthy — so both halves are asserted here, in order, by **counting
+    /// emitted events**. A latch flag can only say "has fired at some point";
+    /// only a count can say "fired exactly once", which is the actual property.
+    #[test]
+    fn later_ceiling_crossing_warns_once_after_an_earlier_floor_crossing() {
+        let device = Default::default();
+        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
+            .try_init::<B>(&device)
+            .expect("valid head config");
+
+        // 1. Floor crossing: exactly one event, naming the floor.
+        set_log_std(&mut head, -60.0);
+        let first = capture_warnings(|| {
+            assert_eq!(head.min_log_std(), Some(-20.0));
+        });
+        assert_eq!(first.len(), 1, "one floor crossing, one WARN: {first:?}");
+        assert_eq!(first[0].bound.as_deref(), Some("log_std_min"));
+
+        // 2. A later ceiling crossing must still be able to warn — under the
+        // old shared latch this captured zero events.
+        set_log_std(&mut head, 9.0);
+        let second = capture_warnings(|| {
+            assert_eq!(head.max_log_std(), Some(2.0));
+        });
+        assert_eq!(
+            second.len(),
+            1,
+            "the ceiling warning must not have been consumed by the earlier \
+             floor event: {second:?}"
+        );
+        assert_eq!(second[0].bound.as_deref(), Some("log_std_max"));
+        assert_eq!(second[0].dims.as_deref(), Some("[0]"));
+
+        // 3. ...and only once. The latch is `true`, so no further `swap`
+        // observes `false` and `warn!` is unreachable for this bound: 16 more
+        // binding reads must emit nothing at all.
+        let rest = capture_warnings(|| {
+            for _ in 0..16 {
+                assert_eq!(head.max_log_std(), Some(2.0));
+            }
+        });
+        assert!(
+            rest.is_empty(),
+            "the once-per-bound property must survive: {rest:?}"
+        );
+    }
+
+    /// `min_log_std` is structurally blind to a dim pinned at the ceiling, and
+    /// `max_log_std` is the metric that sees it.
+    ///
+    /// With `[-20, 2]` bounds, a head whose clamped `log σ` is `[-20, 2]`
+    /// reports `min_log_std = -20.0`... but a head whose *raw* parameter is
+    /// `[-20.0, 9.0]` — one healthy dim, one dim frozen at σ = e² with a dead
+    /// gradient — reports `min_log_std = -20.0` too, and a head at
+    /// `[0.0, 9.0]` reports a completely healthy-looking `0.0`. A minimum can
+    /// never fall when a dim rises, so no threshold on it detects divergence.
+    /// That measured blindness is the reason `max_log_std` exists.
+    #[test]
+    fn max_log_std_sees_the_ceiling_that_min_log_std_cannot() {
+        let device = Default::default();
+        let cfg = TanhGaussianPolicyHeadConfig {
+            action_dim: 2,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
+
+        // dim 0 healthy at σ = 1; dim 1 pinned well above the ceiling.
+        let pinned: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![0.0_f32, 9.0], vec![2]), &device);
+        head.log_std = Param::from_tensor(pinned);
+
+        let (mut min, mut max) = (f32::NAN, f32::NAN);
+        let events = capture_warnings(|| {
+            min = head.min_log_std().expect("gaussian head reports log_std");
+            max = head.max_log_std().expect("gaussian head reports log_std");
+        });
+        assert!(
+            (min - 0.0).abs() < 1e-6,
+            "min_log_std reads healthy while a dim is pinned — got {min}; this is \
+             the blindness, not a bug"
+        );
+        assert!(
+            (max - 2.0).abs() < 1e-6,
+            "max_log_std must saturate at the ceiling and expose the pinned dim, got {max}"
+        );
+        // Exactly one WARN across both reads: the ceiling's. The floor was
+        // never crossed, and the second read must not re-warn.
+        assert_eq!(events.len(), 1, "expected one ceiling WARN, got {events:?}");
+        assert_eq!(events[0].bound.as_deref(), Some("log_std_max"));
+        assert_eq!(events[0].dims.as_deref(), Some("[1]"));
     }
 
     /// `min_log_std` is a minimum across action dims, and it reports the
@@ -1372,7 +1903,7 @@ mod tests {
         head.log_std = Param::from_tensor(mixed);
         let got = head.min_log_std().expect("gaussian head reports log_std");
         assert!((got - (-3.25)).abs() < 1e-6, "expected -3.25, got {got}");
-        assert!(!head.clamp_warning_fired());
+        assert!(!head.clamp_warning_below_fired() && !head.clamp_warning_above_fired());
 
         // One dim collapsed below the floor: the metric saturates at the floor
         // rather than reporting the raw value, because the floor is the σ the
@@ -1382,30 +1913,61 @@ mod tests {
         head.log_std = Param::from_tensor(collapsed);
         let got = head.min_log_std().expect("gaussian head reports log_std");
         assert!((got - (-20.0)).abs() < 1e-6, "expected -20.0, got {got}");
-        assert!(head.clamp_warning_fired());
+        assert!(head.clamp_warning_below_fired());
     }
 
-    /// `.valid()` shares the latch rather than copying it, so an inner snapshot
-    /// taken after the warning cannot emit a duplicate. This is a property of
-    /// `Arc` being cloned by the `Module` derive's plain-data path; a bare
-    /// `AtomicBool` would not even compile there, and a copied one would
+    /// `.valid()` shares the latches rather than copying them, so an inner
+    /// snapshot taken after a warning cannot emit a duplicate. This is a
+    /// property of `Arc` being cloned by the `Module` derive's plain-data path;
+    /// a bare `AtomicBool` would not even compile there, and a copied one would
     /// double-warn.
+    ///
+    /// Asserted for **both** latches, and for both directions of sharing: an
+    /// already-fired flag must be inherited, and a flag fired *after* the
+    /// snapshot was taken must be visible through it. A `ClampWarnLatch` cloned
+    /// field-by-field instead of behind the `Arc` would pass the first check on
+    /// the day it was written and fail the second.
     #[test]
     fn clamp_warning_latch_is_shared_across_valid_snapshots() {
         use burn::module::AutodiffModule;
 
         let device = Default::default();
-        let mut head: TanhGaussianPolicyHead<B> = bounded_cfg()
-            .try_init::<B>(&device)
-            .expect("valid head config");
-        set_log_std(&mut head, -60.0);
+        let cfg = TanhGaussianPolicyHeadConfig {
+            action_dim: 2,
+            ..bounded_cfg()
+        };
+        let mut head: TanhGaussianPolicyHead<B> =
+            cfg.try_init::<B>(&device).expect("valid head config");
+
+        // Fire the floor latch only, then snapshot.
+        let collapsed: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![-60.0_f32, 0.0], vec![2]), &device);
+        head.log_std = Param::from_tensor(collapsed);
         let _ = head.min_log_std();
-        assert!(head.clamp_warning_fired());
+        assert!(head.clamp_warning_below_fired());
+        assert!(!head.clamp_warning_above_fired());
 
         let inner = head.valid();
         assert!(
-            inner.clamp_warning_fired(),
-            "the inner snapshot must inherit the already-fired latch"
+            inner.clamp_warning_below_fired(),
+            "the inner snapshot must inherit the already-fired floor latch"
+        );
+        assert!(
+            !inner.clamp_warning_above_fired(),
+            "the un-fired ceiling latch must be inherited un-fired, not conflated \
+             with the floor's"
+        );
+
+        // Fire the ceiling latch on the outer head *after* the snapshot: the
+        // `Arc` is shared, so the inner snapshot sees it too.
+        let exploded: Tensor<B, 1> =
+            Tensor::from_data(TensorData::new(vec![0.0_f32, 9.0], vec![2]), &device);
+        head.log_std = Param::from_tensor(exploded);
+        let _ = head.max_log_std();
+        assert!(
+            inner.clamp_warning_above_fired(),
+            "the latch is shared, not copied: a warning fired after the snapshot \
+             must still silence it"
         );
     }
 }

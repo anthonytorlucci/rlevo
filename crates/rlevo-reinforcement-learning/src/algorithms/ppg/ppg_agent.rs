@@ -722,10 +722,14 @@ where
         }
 
         // Wired only because PPG reports through PPO's `PpoUpdateStats`; PPG has
-        // no continuous head in v1, so this is always `None`. A future Gaussian
-        // PPG head would reuse `TanhGaussianPolicyHead` and would then inherit
-        // its log_std bound and one-shot clamp warning here.
+        // no continuous head in v1, so both of these are always `None`. A future
+        // Gaussian PPG head would reuse `TanhGaussianPolicyHead` and would then
+        // inherit its log_std bound and its one-shot-per-bound clamp warnings
+        // here — the ceiling half included, which is why `max_log_std` is wired
+        // now alongside the minimum rather than left for that head to add
+        // (#347, ADR 0049 §4).
         let min_log_std = self.policy().min_log_std();
+        let max_log_std = self.policy().max_log_std();
 
         self.buffer.clear();
         self.iteration += 1;
@@ -754,6 +758,7 @@ where
             explained_variance: 0.0,
             epochs_run,
             min_log_std,
+            max_log_std,
         }
     }
 

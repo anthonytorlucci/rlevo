@@ -377,10 +377,17 @@ impl LogAlpha {
     /// Whether the one-shot non-finite-gradient warning has already fired for
     /// this instance.
     ///
-    /// Exposed for tests: the crate has no `tracing` capture dependency, so
-    /// the once-only latch is asserted directly rather than by scraping log
-    /// output — the same approach as the PPO Gaussian head's
-    /// `clamp_warning_fired`.
+    /// Exposed for tests: the once-only latch is asserted directly rather than
+    /// by scraping log output.
+    ///
+    /// Note that this is weaker than asserting the event itself — a refactor
+    /// that flips the latch but breaks or downgrades the `warn!` would still
+    /// pass. The PPO Gaussian head used to test the same way and no longer
+    /// does: `policies::gaussian`'s test module installs a hand-rolled
+    /// `tracing::Subscriber` via `tracing::subscriber::with_default` and
+    /// asserts on the emitted events, which needs no capture dependency
+    /// because `tracing` is already a direct dependency. This latch would
+    /// benefit from the same treatment; it has not been converted (see #347).
     #[cfg(test)]
     pub(crate) fn nonfinite_grad_warning_fired(&self) -> bool {
         self.nonfinite_grad_warned

@@ -97,17 +97,7 @@ where
     let mut snapshot = env.reset().map_err(io_from_env)?;
     let mut episode_reward = 0.0_f32;
     let mut episode_steps = 0_usize;
-    let mut last_update_stats = PpoUpdateStats {
-        policy_loss: 0.0,
-        value_loss: 0.0,
-        entropy: 0.0,
-        approx_kl: 0.0,
-        old_approx_kl: 0.0,
-        clip_frac: 0.0,
-        explained_variance: 0.0,
-        epochs_run: 0,
-        min_log_std: None,
-    };
+    let mut last_update_stats = PpoUpdateStats::default();
     let mut global_step = 0_usize;
     // Hoisted out of the loop so the terminal progress line can report the
     // final iteration's auxiliary phase. Left loop-local it would be out of
@@ -254,6 +244,14 @@ fn emit_progress<B, P, V, O, const DO: usize, const DB: usize>(
         entropy = stats.entropy,
         approx_kl = stats.approx_kl,
         clip_frac = stats.clip_frac,
+        // The ADR 0049 §4 metric channel. Both read `None` for every PPG run
+        // today — PPG is discrete-only in v1 — and are emitted anyway so that a
+        // future Gaussian PPG head is observable the moment it lands, rather
+        // than shipping a silent trap door (#347). `?` (Debug) renders the
+        // `Option` honestly instead of fabricating a `0.0` for a policy with no
+        // σ.
+        min_log_std = ?stats.min_log_std,
+        max_log_std = ?stats.max_log_std,
         aux_ran = aux.is_some(),
         aux_value_loss = aux.map_or(0.0, |a| a.aux_value_loss),
         aux_policy_kl = aux.map_or(0.0, |a| a.policy_kl),

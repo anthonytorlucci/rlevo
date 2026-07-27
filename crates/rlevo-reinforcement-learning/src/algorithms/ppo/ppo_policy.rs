@@ -125,6 +125,31 @@ pub trait PpoPolicy<B: AutodiffBackend, const DB: usize>: AutodiffModule<B> {
         None
     }
 
+    /// Largest `log σ` across action dims, or `None` for policies with no
+    /// `log σ` at all.
+    ///
+    /// Continuous (Gaussian) heads report the maximum of their **clamped**
+    /// `log σ`; discrete categorical heads have no scale parameter and keep the
+    /// `None` default. The value is the ceiling-side health signal, and it is
+    /// not redundant with [`min_log_std`](Self::min_log_std): a `log σ` drifting
+    /// up toward `log_std_max` is a policy *diverging* — that dim samples
+    /// near-uniform noise across the whole action range and carries almost no
+    /// policy signal — and on a state-independent `log_std`, reaching the upper
+    /// bound freezes that dim's gradient exactly as reaching the lower one does
+    /// (see
+    /// [`TanhGaussianPolicyHead`](crate::algorithms::ppo::policies::gaussian::TanhGaussianPolicyHead)).
+    /// A minimum is structurally blind to that: it reports the healthiest dim,
+    /// so a head with one dim pinned at the ceiling still reads fine.
+    ///
+    /// # Cost
+    ///
+    /// Implementations read from device to host, so this **must not** be called
+    /// per environment step. [`PpoAgent::update`](crate::algorithms::ppo::ppo_agent::PpoAgent::update)
+    /// calls it exactly once per update, after the epoch loop.
+    fn max_log_std(&self) -> Option<f32> {
+        None
+    }
+
     /// Deterministic (greedy) env-space action for the first row of `obs`,
     /// evaluated on the inner (non-autodiff) backend.
     ///
