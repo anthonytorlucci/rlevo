@@ -25,7 +25,9 @@ use rlevo_core::config::Validate;
 use crate::algorithms::dqn::dqn_config::DqnTrainingConfig;
 use crate::algorithms::dqn::dqn_model::DqnModel;
 use crate::algorithms::dqn::exploration::EpsilonGreedy;
-use crate::algorithms::shared::{FiniteLossGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss};
+use crate::algorithms::shared::{
+    FiniteLossGuard, FiniteRewardGuard, Slot, UNIFORM_REPLAY_BETA, reduce_weighted_loss,
+};
 use crate::utils::{PolyakError, compute_target_q_values};
 
 /// Error variants returned by [`DqnAgent`] operations.
@@ -145,6 +147,10 @@ where
     /// Non-finite-loss guard for the TD-loss site (ADR 0056, #318). One
     /// per-run `warn!` latch; the skip it drives fires every occurrence.
     loss_guard: FiniteLossGuard,
+    /// Non-finite-reward guard for the `remember` ingestion site (ADR 0065,
+    /// #352). Drops the transition on every occurrence; the `warn!` escalates
+    /// by decades.
+    reward_guard: FiniteRewardGuard,
     _action: PhantomData<A>,
 }
 
@@ -216,6 +222,7 @@ where
             gradient_updates: 0,
             stats,
             loss_guard: FiniteLossGuard::new("dqn/loss"),
+            reward_guard: FiniteRewardGuard::new("dqn/remember"),
             _action: PhantomData,
         })
     }
@@ -364,7 +371,22 @@ where
     ///
     /// [`Snapshot::is_terminated`]: rlevo_core::environment::Snapshot::is_terminated
     /// [`Snapshot::is_done`]: rlevo_core::environment::Snapshot::is_done
+    ///
+    /// # Behavior
+    ///
+    /// A non-finite `reward` (`NaN` or `±Inf`) is **discarded, not stored**:
+    /// the transition never enters the replay buffer and the call is otherwise
+    /// a no-op. Storing it would let every minibatch that later resampled it
+    /// produce a non-finite loss, which `FiniteLossGuard` then skips — silently
+    /// costing gradient updates for as long as the poisoned transition stayed
+    /// resident (ADR 0065, issue #352). A `tracing::warn!` fires on the 1st,
+    /// 10th, 100th, … drop; use
+    /// [`dropped_transitions`](Self::dropped_transitions) to detect the loss
+    /// programmatically.
     pub fn remember(&mut self, obs: O, action: &A, reward: f32, next_obs: O, terminated: bool) {
+        if !self.reward_guard.admit(reward) {
+            return;
+        }
         self.buffer.push(DiscreteTransition {
             obs,
             action: action.to_index(),
@@ -372,6 +394,22 @@ where
             next_obs,
             terminated,
         });
+    }
+
+    /// Number of transitions [`remember`](Self::remember) discarded because
+    /// their reward was non-finite.
+    ///
+    /// A non-zero count means those environment steps **never entered the
+    /// replay buffer** and can never be sampled — the agent learned nothing
+    /// from them. Watch it to detect a misbehaving environment (a division by
+    /// zero, an unbounded accumulator, an exploding dynamics term in its reward
+    /// function): the guard keeps the poison out of the buffer, but only the
+    /// caller knows whether the resulting data loss invalidates the run. A
+    /// persistently rising count also explains a buffer that never reaches
+    /// `batch_size`, i.e. training that silently never starts.
+    #[must_use]
+    pub const fn dropped_transitions(&self) -> u64 {
+        self.reward_guard.dropped()
     }
 
     /// Test-only view of the Bellman bootstrap masks currently held in the
@@ -383,6 +421,18 @@ where
     #[cfg(test)]
     pub(crate) fn replay_terminated_flags(&self) -> Vec<bool> {
         self.buffer.iter().map(|t| t.terminated).collect()
+    }
+
+    /// Test-only view of the rewards currently held in the replay buffer,
+    /// oldest first.
+    ///
+    /// Exists so the `train`-loop tests can assert the ADR 0065 invariant
+    /// directly on buffer *contents*: no non-finite reward is ever resident,
+    /// however the environment misbehaved. Mirrors
+    /// [`replay_terminated_flags`](Self::replay_terminated_flags).
+    #[cfg(test)]
+    pub(crate) fn replay_rewards(&self) -> Vec<f32> {
+        self.buffer.iter().map(|t| t.reward).collect()
     }
 
     /// Decays ε by one step.
@@ -1194,6 +1244,60 @@ mod tests {
             starved.gradient_updates(),
             0,
             "a learn step that never reaches a loss is not an attempted update"
+        );
+    }
+
+    // ---- ADR 0065 / #352: non-finite reward is dropped at ingestion ----
+    //
+    // Every off-policy agent needs its OWN copy of this test. The defect had
+    // six sites, not the four the issue named, precisely because C51 and
+    // QR-DQN were added by copying an unguarded `remember` and no shared test
+    // noticed. A per-file test is what makes agent #7's author notice.
+
+    #[test]
+    fn dqn_remember_drops_a_nonfinite_reward() {
+        let device = <TestInner as burn::tensor::backend::BackendTypes>::Device::default();
+        let mut agent = TestAgent::new(
+            TestNet::constant(&device, 0.5),
+            DqnTrainingConfig::default(),
+            device,
+        )
+        .expect("default config is valid");
+
+        agent.remember(
+            TestObs([0.0, 0.0]),
+            &TestAction(0),
+            f32::NAN,
+            TestObs([1.0, 0.0]),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            0,
+            "a NaN-reward transition must never enter the replay buffer"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "the drop must be visible to the caller through the public counter"
+        );
+
+        agent.remember(
+            TestObs([1.0, 0.0]),
+            &TestAction(1),
+            1.0,
+            TestObs([2.0, 0.0]),
+            false,
+        );
+        assert_eq!(
+            agent.buffer_len(),
+            1,
+            "the drop must not latch: the next finite reward is still stored"
+        );
+        assert_eq!(
+            agent.dropped_transitions(),
+            1,
+            "a finite reward must not increment the drop counter"
         );
     }
 }
